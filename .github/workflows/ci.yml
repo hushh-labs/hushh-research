@@ -725,10 +725,12 @@ jobs:
           - part: browser
             label: browser-4-of-4
             shard: "4/4"
-    # Run 39649422912 exhausted the 30m budget twice after its 13m WebKit
-    # group passed. Retain every test and worker limit; partition more evenly.
-    # Preserve the job limit; split work instead of extending the timeout.
-    timeout-minutes: 30
+    # Run 41150997159 spent 1m54s in setup, passed 332 Chromium cases, then
+    # reached WebKit case 303/306 before the cap; 3 WebKit cases and the final
+    # mobile-chrome command remained. Sibling mobile runs took up to 5.1m.
+    # Give browser roles 10m of tail budget; preserve every test, limit and
+    # engine. The node role remains at 30m.
+    timeout-minutes: ${{ matrix.part == 'browser' && 40 || 30 }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -832,6 +834,7 @@ jobs:
           # config reads it, so it is inert in the node leg.
           PLAYWRIGHT_WORKERS: "3"
           PLAYWRIGHT_SHARD: ${{ matrix.shard }}
+          PLAYWRIGHT_LINE_REPORTER: ${{ matrix.part == 'browser' && '1' || '0' }}
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
@@ -839,7 +842,7 @@ jobs:
       # The layout pack owns these source-coupled synthetic fixtures.
       # Never upload the whole output directory or protected reviewer traces.
       - name: Upload synthetic layout failure evidence
-        if: failure() && matrix.part == 'browser'
+        if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}
         uses: actions/upload-artifact@v6
         with:
           name: synthetic-layout-failures-${{ matrix.label }}
@@ -850,6 +853,13 @@ jobs:
             hushh-webapp/test-results/calendar-connected-*/trace.zip
             hushh-webapp/test-results/calendar-connected-*/test-failed-*.png
             hushh-webapp/test-results/calendar-connected-*/error-context.md
+            hushh-webapp/test-results/direct-chat.layout-*/trace.zip
+            hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png
+            hushh-webapp/test-results/direct-chat.layout-*/error-context.md
+            hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json
+            hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip
+            hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png
+            hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md
           if-no-files-found: ignore
           retention-days: 7
 

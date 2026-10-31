@@ -1,6 +1,8 @@
 """Pure CI topology assertions shared by the existing lane-partition gate."""
+
 from collections.abc import Mapping
 import re
+
 
 def _job_block(workflow: str, job: str, next_job: str) -> str:
     start = workflow.index(f"  {job}:\n")
@@ -8,7 +10,9 @@ def _job_block(workflow: str, job: str, next_job: str) -> str:
     return workflow[start:end]
 
 
-def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwright: str) -> None:
+def assert_web_lane_topology(
+    workflow: str, scripts: Mapping[str, str], playwright: str
+) -> None:
 
     job_ids = re.findall(r"^  ([a-z][a-z0-9-]*):$", workflow, re.M)
     assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
@@ -18,17 +22,30 @@ def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwrig
         r'- part: (node|browser)\n\s+label: ([\w-]+)\n\s+shard: "([^"]*)"', targeted
     )
     assert [(part, shard) for part, _, shard in entries] == [
-        ("node", ""), ("browser", "1/4"), ("browser", "2/4"),
-        ("browser", "3/4"), ("browser", "4/4")
+        ("node", ""),
+        ("browser", "1/4"),
+        ("browser", "2/4"),
+        ("browser", "3/4"),
+        ("browser", "4/4"),
     ], "run node once and all four browser shards"
     assert len({label for _, label, _ in entries}) == 5, "matrix names must be unique"
     assert 'name: "Web Targeted Contracts (${{ matrix.label }})"' in targeted
     assert "name: web-targeted-npm-audit-report-${{ matrix.label }}" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
     assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" in targeted
-    execution = targeted.split("      - name: Run targeted web contract checks\n", 1)[1].split("\n      - name:", 1)[0]
-    assert execution.count("PLAYWRIGHT_SHARD:") == 1, "duplicate PLAYWRIGHT_SHARD environment key"
-    assert "timeout-minutes: 30" in targeted
+    execution = targeted.split("      - name: Run targeted web contract checks\n", 1)[
+        1
+    ].split("\n      - name:", 1)[0]
+    assert execution.count("PLAYWRIGHT_SHARD:") == 1, (
+        "duplicate PLAYWRIGHT_SHARD environment key"
+    )
+    assert (
+        "PLAYWRIGHT_LINE_REPORTER: ${{ matrix.part == 'browser' && '1' || '0' }}"
+        in execution
+    )
+    assert 'process.env.PLAYWRIGHT_LINE_REPORTER === "1"' in playwright
+    assert '[["github"], ["line"]]' in playwright
+    assert "timeout-minutes: ${{ matrix.part == 'browser' && 40 || 30 }}" in targeted
     assert "fail-fast: false" in targeted
 
     editor_perf = _job_block(
@@ -68,4 +85,3 @@ def assert_web_lane_topology(workflow: str, scripts: Mapping[str, str], playwrig
         in gate
     )
     assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
-
