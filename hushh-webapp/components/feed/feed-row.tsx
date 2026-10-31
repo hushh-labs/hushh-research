@@ -337,7 +337,7 @@ export const FeedRow = memo(function FeedRow({
       >
         <span className="grid w-[30px] place-items-center">
           {presentation.person ? (
-            <ConnectionPersonAvatar personRef={presentation.person.personRef}
+            <ConnectionPersonAvatar personRef={presentation.person.personRef} minimumHitArea
               label={presentation.person.displayName}
               photoUrl={presentation.person.photoUrl}
               size="compact"

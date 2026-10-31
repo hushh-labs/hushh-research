@@ -339,7 +339,7 @@ function FeedActionableIdentity({
   compact?: boolean;
 }) {
   return (
-    <ConnectionPersonAvatar userId={person.userId} personRef={person.personRef}
+    <ConnectionPersonAvatar userId={person.userId} personRef={person.personRef} minimumHitArea={compact}
       label={person.displayName}
       photoUrl={person.photoUrl}
       size={compact ? "compact" : "list"}

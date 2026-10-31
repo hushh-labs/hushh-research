@@ -20,7 +20,7 @@ export function DirectMessageInboxRow({ label, active, disabled, onOpen, onDelet
   const hold = useLongPress(disabled || menuOpen, true);
   return <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
     <div className={styles.conversationItem} role="group" aria-label={`${label} chat`}>
-      <PersonSelectionSurface type="button" className={styles.conversationRow} data-active={active ? "true" : undefined}
+      <PersonSelectionSurface type="button" className={styles.conversationRow} aria-label={label} data-active={active ? "true" : undefined}
         disabled={disabled}
         onPointerDown={(event) => {
           held.current = false;
