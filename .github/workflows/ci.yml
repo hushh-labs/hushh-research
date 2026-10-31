@@ -705,10 +705,12 @@ jobs:
           - part: browser
             label: browser-4-of-4
             shard: "4/4"
-    # Run 39649422912 exhausted the 30m budget twice after its 13m WebKit
-    # group passed. Retain every test and worker limit; partition more evenly.
-    # Preserve the job limit; split work instead of extending the timeout.
-    timeout-minutes: 30
+    # Run 41150997159 spent 1m54s in setup, passed 332 Chromium cases, then
+    # reached WebKit case 303/306 before the cap; 3 WebKit cases and the final
+    # mobile-chrome command remained. Sibling mobile runs took up to 5.1m.
+    # Give browser roles 10m of tail budget; preserve every test, limit and
+    # engine. The node role remains at 30m.
+    timeout-minutes: ${{ matrix.part == 'browser' && 40 || 30 }}
     steps:
       - uses: actions/checkout@v6
         with:

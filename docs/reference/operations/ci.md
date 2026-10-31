@@ -572,7 +572,16 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 4. `scripts/ci/integration-check.sh`
 
 Web validation is intentionally split. The targeted node job runs once and the
-browser packs run across four Playwright shards; each job has a 30-minute budget. Run `39649422912` exhausted that budget twice after its approximately thirteen-minute WebKit group passed. The fourth shard retains all tests, worker limits and engine coverage; it changes the partition rather than the timeout.
+browser packs run across four Playwright shards. The node job retains its
+30-minute budget; browser jobs have a 40-minute role-wide budget. Run
+`41150997159` used 1m54s for setup, passed 332 Chromium cases, then reached
+WebKit case 303/306 before the 30-minute cap; three WebKit cases remained
+unstarted and the final `mobile-chrome` command had not begun. Its other browser
+shards completed their final mobile command in 1.1–5.1 minutes. The 10-minute
+browser headroom also covers the bounded remaining WebKit work; selected packs,
+three workers, one retry, per-test deadlines and engine coverage are unchanged.
+It provides time headroom, not a successful-run guarantee or a changed CI
+verdict.
 Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
@@ -1690,8 +1699,9 @@ downloaded 116 MB of system dependencies in 23 minutes 9 seconds. The 30-minute
 job deadline interrupted the browser pack. The browser job removes only the
 runner's `azure.archive.ubuntu.com` mirror preference and retains its existing
 official archive/security entries and signed package checks. Chromium, WebKit,
-matched packs, workers and timeout remain unchanged. A faster install is a
-hosted measurement to verify, not a guaranteed mirror characteristic.
+matched packs, workers and per-test limits remain unchanged. Browser-role job
+budget is 40 minutes; node-role budget remains 30. A faster install is a hosted
+measurement to verify, not a guaranteed mirror characteristic.
 
 UAT uses the same mirror preference removal and prepares locked npm dependencies,
 Chromium and its system libraries once for the union of frontend analytics and
