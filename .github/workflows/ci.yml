@@ -742,6 +742,23 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      # Resolve the existing browser-pack selector before browser cache restore
+      # or dependency installation. A failed or incomplete plan is advisory only: empty outputs keep
+      # the browser path enabled, and the run step expands to all packs.
+      - name: Plan browser checks
+        id: browser-plan
+        if: matrix.part == 'browser'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          WEB_TARGETED_PLAN_ONLY: "1"
+          WEB_TARGETED_PART: browser
+          WEB_TARGETED_ALL_PACKS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0' }}
+          WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
+        run: bash scripts/ci/web-targeted-check.sh
+
       # The One Voice verification includes the checked-in CapabilityGraphV1
       # compiler.  It is deliberately a source-of-truth check, so the
       # frontend-targeted lane must use the same locked runtime dependencies
@@ -754,15 +771,15 @@ jobs:
           sync-dev-group: "false"
 
       # The browsers are the whole cost of this lane, and they only change when
-      # the Playwright dependency does. Keying on the lockfile means a normal
-      # PR restores them instead of re-downloading ~400MB per run.
+      # the Playwright dependency does. PRs restore the Main-owned, lockfile-keyed
+      # entry instead of saving per-PR copies or re-downloading ~400MB per run.
       - name: Cache Playwright browsers
         id: playwright-cache
-        if: matrix.part == 'browser'
-        uses: actions/cache@v5
+        if: matrix.part == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
+        uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
       # The layout-contract pack drives real Chromium and WebKit. WebKit is not
       # optional: it is the engine iOS ships, and a native <select> there
@@ -779,7 +796,7 @@ jobs:
       # mid-sync); a mirror that stays slow will not finish inside the bound,
       # so a run that hits it should be re-run.
       - name: Install Playwright browsers
-        if: matrix.part == 'browser'
+        if: matrix.part == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
         timeout-minutes: 8
         run: |
           set -euo pipefail
@@ -821,10 +838,11 @@ jobs:
           done
 
       - name: Run targeted web contract checks
+        if: matrix.part == 'node' || steps.browser-plan.outputs.browser_required != 'false'
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "1"
-          WEB_TARGETED_ALL_PACKS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0' }}
+          WEB_TARGETED_ALL_PACKS: ${{ matrix.part == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0') }}
           WEB_TARGETED_PART: ${{ matrix.part }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
@@ -838,6 +856,10 @@ jobs:
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
+
+      - name: Report no selected browser checks
+        if: matrix.part == 'browser' && steps.browser-plan.outputs.browser_required == 'false'
+        run: echo "No browser-backed targeted checks are selected for this complete diff."
 
       # The layout pack owns these source-coupled synthetic fixtures.
       # Never upload the whole output directory or protected reviewer traces.
@@ -1654,7 +1676,7 @@ jobs:
   # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
