@@ -16,6 +16,7 @@ import {
   hasCalendarMeetingFileGrant,
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
+  watchGoogleOAuthSettlementAck,
   type GoogleOAuthPopupAttempt,
 } from "@/lib/google/google-oauth-popup";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -27,9 +28,41 @@ import {
   type GoogleConnectionCompletion,
 } from "@/lib/services/google-connection-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
+import { requireSharedGoogleExchange } from "@/lib/services/private-google-connections";
 
 const COMPLETION_TIMEOUT_MS = 35_000;
+// A popup that is going to close does so within a frame or two. Past this,
+// the browser has refused (Google's opener policy can make a popup
+// uncloseable), so the person needs a visible, working way back.
+const POPUP_CLOSE_GRACE_MS = 500;
 class CompletionUnknownError extends Error {}
+
+type PopupEnd = {
+  attempt: GoogleOAuthPopupAttempt;
+  ownerId: string;
+  outcome: "succeeded" | "cancelled" | "failed";
+  returnToSetup: boolean;
+};
+
+/**
+ * Same-origin way back to One for a popup that could not close. Navigating this
+ * window is safe: it already holds the signed-in session, and the meeting
+ * journey is restored from the validated, expiring return context.
+ */
+function popupReturnTarget(end: PopupEnd): { href: string; prepare: () => void } | null {
+  const { attempt } = end;
+  if (attempt.service === "calendar") {
+    if (attempt.meetingFiles && attempt.meetingReturn) {
+      const context = attempt.meetingReturn;
+      return { href: ROUTES.CALENDAR, prepare: () => markCalendarMeetingOAuthReturn(end.ownerId, context) };
+    }
+    return { href: end.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR, prepare: () => undefined };
+  }
+  if (attempt.service === "gmail_read" && attempt.calendarAdditional)
+    return { href: ROUTES.CALENDAR, prepare: () => undefined };
+  return null;
+}
 
 async function completeGoogleOAuth(
   params: Parameters<typeof GoogleConnectionService.completeConnect>[0],
@@ -55,8 +88,27 @@ type CompletionFlow = {
   generation: number;
   attempt: GoogleOAuthPopupAttempt | null;
   returnToSetup: boolean;
-  result: Promise<GoogleConnectionCompletion>;
+  result: Promise<GoogleConnectionCompletion | { service: "gmail"; completed_account_id: string; connected: boolean }>;
 };
+
+async function completeSelectedMailOAuth(params: {
+  idToken: string; userId: string; accountId: string; code: string; state: string;
+  isEffectCurrent: () => boolean;
+}): Promise<{ service: "gmail"; completed_account_id: string; connected: boolean }> {
+  await requireSharedGoogleExchange();
+  if (!params.isEffectCurrent()) throw new Error("Selected Mail connection changed.");
+  const value = await CalendarFollowupsService.post<{
+    service: "gmail"; completed_account_id: string; connected: boolean;
+  }>("mail/connect/complete", {
+    user_id: params.userId, account_id: params.accountId,
+    code: params.code, state: params.state,
+    redirect_uri: `${window.location.origin}/one/profile/google/oauth/return`,
+  }, params.idToken);
+  if (!params.isEffectCurrent() || value.service !== "gmail" ||
+      value.completed_account_id !== params.accountId || value.connected !== true)
+    throw new Error("Selected Mail connection could not be verified.");
+  return value;
+}
 
 function GoogleOAuthReturnContent() {
   const { user, userId, loading } = useAuth();
@@ -81,6 +133,13 @@ function GoogleOAuthReturnContent() {
     }
   }, [ownerId]);
   const [message, setMessage] = useState<string | null>(null);
+  const [popupEnd, setPopupEnd] = useState<PopupEnd | null>(null);
+  const [windowRemains, setWindowRemains] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
+  useEffect(() => {
+    if (!popupEnd) return;
+    return watchGoogleOAuthSettlementAck(popupEnd.attempt.attemptId, () => setAcknowledged(true));
+  }, [popupEnd]);
 
   useEffect(() => {
     if (loading) return;
@@ -157,7 +216,14 @@ function GoogleOAuthReturnContent() {
       }
       if (attempt && !isSameWindowCalendar) {
         settleGoogleOAuthPopup(attempt, outcome, text);
+        watchPopupWindow({ attempt, ownerId: attempt.ownerId, outcome, returnToSetup: flow.current?.returnToSetup ?? false });
       }
+    };
+    const watchPopupWindow = (end: PopupEnd) => {
+      setPopupEnd(end);
+      window.setTimeout(() => {
+        if (authority.current.mounted && !window.closed) setWindowRemains(true);
+      }, POPUP_CLOSE_GRACE_MS);
     };
     const providerError = search.get("error");
     if (providerError) {
@@ -202,11 +268,16 @@ function GoogleOAuthReturnContent() {
         generation,
         attempt,
         returnToSetup: consumeCalendarSetupOAuthReturn(),
-        result: user.getIdToken().then((idToken) => {
+        result: user.getIdToken().then<GoogleConnectionCompletion | { service: "gmail"; completed_account_id: string; connected: boolean }>((idToken) => {
           if (!isEffectCurrent()) {
             throw new Error("Restart the Google connection.");
           }
-          return completeGoogleOAuth({
+          return attempt?.service === "gmail_read" && attempt.calendarAdditional && attempt.targetAccountId
+            ? completeSelectedMailOAuth({
+                idToken, userId, accountId: attempt.targetAccountId,
+                code, state, isEffectCurrent,
+              })
+            : completeGoogleOAuth({
             idToken,
             userId,
             code,
@@ -248,13 +319,12 @@ function GoogleOAuthReturnContent() {
         }
         clearGoogleOAuthAttempt();
       }
-      trackEvent("one_calendar_action", {
-        route_id: "one_calendar",
-        action: "connected",
-        result: "success",
+      if (attempt?.service !== "gmail_read") trackEvent("one_calendar_action", {
+        route_id: "one_calendar", action: "connected", result: "success",
       });
       if (attempt && !isSameWindowCalendar) {
         settleGoogleOAuthPopup(attempt, "succeeded");
+        watchPopupWindow({ attempt, ownerId: active.ownerId, outcome: "succeeded", returnToSetup: active.returnToSetup });
       } else {
         router.replace(
           active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
@@ -265,7 +335,10 @@ function GoogleOAuthReturnContent() {
       .then((completed) => {
         if (!current || authority.current.generation !== active.generation)
           return;
-        if (!isVerifiedCalendarConnection(completed)) {
+        const verified = attempt?.service === "gmail_read"
+          ? completed.service === "gmail" && completed.completed_account_id === attempt.targetAccountId && completed.connected
+          : isVerifiedCalendarConnection(completed.service === "calendar" ? completed : null);
+        if (!verified) {
           fail(
             "Google connection could not be verified. Please check connections before trying again.",
           );
@@ -309,16 +382,43 @@ function GoogleOAuthReturnContent() {
     return cleanup;
   }, [loading, router, search, user, userId]);
 
+  const target = popupEnd ? popupReturnTarget(popupEnd) : null;
+  if (popupEnd?.outcome === "succeeded" && windowRemains) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col gap-4 p-6" data-testid="google-oauth-popup-done">
+        <p role="status">
+          {acknowledged
+            ? "Google access saved and One is updated. You can close this window."
+            : "Google access saved. If One did not update on its own, return to it here."}
+        </p>
+        {target ? (
+          <Link className="inline-flex min-h-11 items-center text-primary underline" href={target.href} onClick={target.prepare}>
+            Return to One
+          </Link>
+        ) : (
+          <Link className="inline-flex min-h-11 items-center text-primary underline" href={buildProfileConnectorsPaneHref()}>
+            Back to connections
+          </Link>
+        )}
+      </div>
+    );
+  }
   if (!message) return <HushhLoader label="Finishing Google connection…" />;
   return (
     <div className="mx-auto flex max-w-md flex-col gap-4 p-6">
       <p role="status">{message}</p>
-      <Link
-        className="inline-flex min-h-11 items-center text-primary underline"
-        href={buildProfileConnectorsPaneHref()}
-      >
-        Back to connections
-      </Link>
+      {target ? (
+        <Link className="inline-flex min-h-11 items-center text-primary underline" href={target.href} onClick={target.prepare}>
+          Return to One
+        </Link>
+      ) : (
+        <Link
+          className="inline-flex min-h-11 items-center text-primary underline"
+          href={buildProfileConnectorsPaneHref()}
+        >
+          Back to connections
+        </Link>
+      )}
     </div>
   );
 }

@@ -14,6 +14,8 @@ from .area_discovery import router as area_discovery_router
 from .business_suggestions import router as business_suggestions_router
 from .byoc_azure import router as byoc_azure_router
 from .calendar import router as calendar_router
+from .calendar_email_followup_drain import router as calendar_email_followup_drain_router
+from .calendar_email_followups import router as calendar_email_followups_router
 from .calendar_workspace import router as calendar_workspace_router
 from .capability_runtime import router as capability_runtime_router
 from .career import router as career_router
@@ -98,6 +100,7 @@ router.include_router(messages_router)
 router.include_router(wallet_card_access_router)
 router.include_router(finance_sharing_router)
 router.include_router(calendar_router)
+router.include_router(calendar_email_followups_router)
 router.include_router(circle_chat_router)
 router.include_router(drive_actions_router)
 router.include_router(capability_runtime_router)
@@ -106,6 +109,7 @@ router.include_router(client_connectors_router)
 router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
 router.include_router(scheduled_mail_drain_router)
+router.include_router(calendar_email_followup_drain_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)

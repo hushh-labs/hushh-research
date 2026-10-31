@@ -340,7 +340,7 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         workflow, re.S,
     )
     assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert "if: failure() && matrix.part == 'browser'" in evidence[1]
+    assert "if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}" in evidence[1]
     assert "name: synthetic-layout-failures-${{ matrix.label }}" in evidence[1]
     paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
     assert paths
@@ -351,6 +351,13 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         "hushh-webapp/test-results/calendar-connected-*/trace.zip",
         "hushh-webapp/test-results/calendar-connected-*/test-failed-*.png",
         "hushh-webapp/test-results/calendar-connected-*/error-context.md",
+        "hushh-webapp/test-results/direct-chat.layout-*/trace.zip",
+        "hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/direct-chat.layout-*/error-context.md",
+        "hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md",
     ], "do not broaden synthetic evidence into protected browser artifacts"
     shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
     broken = workflow.replace(shard, shard + shard, 1)

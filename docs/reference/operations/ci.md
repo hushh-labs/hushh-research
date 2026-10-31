@@ -488,7 +488,7 @@ Minimum expectation:
 
 1. watch the immediate `PR Validation`, `Queue Validation`, or dispatched workflow
 2. if `main` goes green, watch `Main Post-Merge Smoke`
-3. if a UAT deployment was explicitly requested, dispatch `Deploy to UAT` for that same green `main` SHA and watch it to terminal state
+3. if a UAT deployment was explicitly requested, dispatch `Deploy to UAT` for the protected-UAT application SHA with its exact current CI run and observed serving base, then watch it to terminal state
 4. report the exact failing workflow, job, and step if anything fails
 5. do not stop at "triggered" or "queued"
 6. if the failure is within the CI/deploy/policy surface, move into fix-and-rerun mode until the change is green or a hard blocker is identified
@@ -573,7 +573,16 @@ To prevent CI check-sprawl, only these queue/PR checks are hard-blocking by defa
 4. `scripts/ci/integration-check.sh`
 
 Web validation is intentionally split. The targeted node job runs once and the
-browser packs run across four Playwright shards; each job has a 30-minute budget. Run `39649422912` exhausted that budget twice after its approximately thirteen-minute WebKit group passed. The fourth shard retains all tests, worker limits and engine coverage; it changes the partition rather than the timeout.
+browser packs run across four Playwright shards. The node job retains its
+30-minute budget; browser jobs have a 40-minute role-wide budget. Run
+`41150997159` used 1m54s for setup, passed 332 Chromium cases, then reached
+WebKit case 303/306 before the 30-minute cap; three WebKit cases remained
+unstarted and the final `mobile-chrome` command had not begun. Its other browser
+shards completed their final mobile command in 1.1–5.1 minutes. The 10-minute
+browser headroom also covers the bounded remaining WebKit work; selected packs,
+three workers, one retry, per-test deadlines and engine coverage are unchanged.
+It provides time headroom, not a successful-run guarantee or a changed CI
+verdict.
 Individual interaction and performance assertions keep their own deadlines.
 
 1. PRs run `web-core` for install, preflight, docs/design contracts, typecheck, lint, and the required Next production build.
@@ -595,12 +604,16 @@ also runs the web dependency install, is bounded at 8 minutes and retries a
 failed browser install once, so a stalled apt mirror or browser download
 fails the shard early instead of holding a runner to the job limit.
 
-Failed synthetic Wallet and connected Calendar layout runs retain
-`synthetic-layout-failures-<matrix-label>` for seven days: only those fixtures'
-traces, failure screenshots and error context are admitted. Protected reviewer
-journeys must never enter these artifacts. Earlier commands can clear their
-output; this does not prove retention for preceding packs or failures that pass
-on retry.
+Failed synthetic Wallet, connected Calendar, direct-chat and Feed layout runs
+retain `synthetic-layout-failures-<matrix-label>` for seven days. The allowlist
+contains only those fixtures' traces, failure screenshots and error context;
+the direct-chat 768x852 keyboard case also retains its synthetic geometry JSON.
+Uploads on cancellation are best-effort because a hard job timeout can stop the
+runner before the upload step. Targeted browser jobs combine GitHub annotations
+with Playwright's line reporter so the active test title remains visible in the
+runner log. Protected reviewer journeys must never enter these artifacts.
+Earlier commands can clear their output; this does not prove retention for
+preceding packs or failures that pass on retry.
 
 Calendar's lock regression holds the next Schedule response while asserting that
 the prior private view is cleared, then releases distinct fresh information.
@@ -679,9 +692,12 @@ missing, skipped or failed. Candidate health, schema, provenance and semantic
 verification keep their existing authority.
 
 Dev, UAT and production expose `scope=auto` against each service's actual serving
-SHA; explicit scopes remain available. Dev consumes the exact green branch SHA
-without an application merge to main. UAT and production retain their main-SHA
-and environment gates. Workflow changes become active only after governed main
+SHA; explicit scopes remain available. Dev consumes an exact green SHA in
+protected Dev history without requiring an application merge to Main; the
+requested ref is only a lookup hint. UAT remains Main-workflow-owned, but new
+application selections must belong to protected UAT history and satisfy exact CI
+plus serving-base admission. Production retains its UAT-acceptance and distinct
+Main-approval gates. Workflow changes become active only after governed main
 landing; feature-branch source does not change the running workflow definition.
 For reviewer BYOK, `required` selects execution; the existing UAT rollout
 classifier still records the result as advisory. A green step conclusion under
@@ -876,7 +892,7 @@ The default was `all` until 2026-10-15, which put iOS on one of the org's five m
 
 A dispatch publishes **Branch Validation Gate**, while a pull request retains **CI Status Gate**. Both use the same fail-closed aggregate and selected full suites. The separate name prevents a manual run from satisfying PR branch protection or replacing its verdict. PR Base Policy, Base Freshness Gate and merge-queue reuse still require the PR's own evidence. A branch may therefore qualify for dev even when its PR cannot be merged into the current base.
 
-Only `deploy-dev.yml` accepts the branch gate. Its exact-SHA preflight verifies branch reachability and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. UAT, production, queue selectors and branch-protection configuration do not accept this label. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
+Only `deploy-dev.yml` accepts the branch gate. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. UAT, production, queue selectors and branch-protection configuration do not accept this label. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
 
@@ -980,7 +996,7 @@ GitHub deployment environments are part of the release authority surface and sho
 
 There should not be parallel legacy production environments carrying approval logic that the current workflows no longer use.
 
-GitHub only records deployment history under an environment after a workflow job actually runs with `environment: <name>`. Older deploy runs from before that binding existed are not retroactively re-linked. If `uat` or `production` looks empty after environment cleanup, trigger one fresh deploy from a green `main` SHA to seed the canonical history.
+GitHub only records deployment history under an environment after a workflow job actually runs with `environment: <name>`. Older deploy runs from before that binding existed are not retroactively re-linked. If UAT history needs a new entry, use a protected-UAT application SHA with its exact current CI and observed serving base. If production history needs a new entry, use the explicitly accepted UAT application and its distinct Main approval through the production gate. These are explicit releases; an empty history view does not authorize a deploy.
 
 Verify live environment governance with:
 
@@ -1064,6 +1080,15 @@ Practical maintainer rule:
 4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
 5. If the last local edit touched `.agents/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
 
+For pull requests into protected `dev` or `uat`, the DCO job also reads the
+canonical GitHub `main` branch response and requires `protected: true` plus its
+full commit SHA. It fetches that exact commit before excluding only non-merge
+commits reachable from that protected Main baseline; every other non-merge
+commit in the event's base-to-head range still needs a signoff. Missing branch
+context, provider confirmation, or the exact commit fails closed. Main-target
+pull requests, dispatches, and explicit local ranges keep the ordinary strict
+check.
+
 ### Local core mirror
 
 For local PostgreSQL-backed checks, run `bash scripts/ci/run-with-isolated-postgres.sh bash scripts/ci/orchestrate.sh core` from the repository root. The wrapper owns a temporary PostgreSQL 17 server and checks that both database drivers reach it before tests start. If `pg_config` selects another version, set `HUSHH_CI_TEST_PG_BIN` to the PostgreSQL 17 binary directory. The wrapper leaves existing local servers running. Standalone pytest harnesses have their own database contracts; this wrapper does not attest them.
@@ -1100,7 +1125,7 @@ promotion checks retain their full current contract.
 
 1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
 2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
-3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. A protected UAT candidate can use exact full-scope CI with its current attempt, observed serving base, and protected security checks; historical Main candidates retain Dev-backed acceptance. A Main application also requires its landed Main smoke. The source path does not prove live branch/history/admission qualification by itself.
+3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. New application selections must belong to protected UAT history. A direct UAT candidate also needs exact full-scope CI with its current attempt, observed serving base, and protected security checks. Historical Main-backed receipts remain readable and retain Dev-backed acceptance, but Main-only application SHAs are not normal UAT dispatch sources.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
    transcribe actor names into this document.
@@ -1165,6 +1190,18 @@ operational reference publication, one prepare command group and exactly one gua
 diagnostic as its final output. Only the setup action's exact unstamped cache-glob
 lines may lack timestamps. The operational reference keeps its own intent artifact
 and idempotent tag readback; this proof covers revision-cleanup custody only.
+A UAT attempt stopped by that first guard under the reviewed current source
+qualifies through `retention_uat_guard_evidence.py` on the same terms: reviewed
+owner, workflow and publication bodies at its actual checkout, the exact UAT
+cleanup-job layout and prepare command group, and exactly one guard diagnostic as
+its final output, accompanied only by the walk's own proof records for older
+attempts (at most 100, about four days of hourly stops; beyond that each stop needs
+its own reconciliation). The clock's tick for both environments, titled
+`Capacity Maintenance`, carries the same bot authority as a scoped tick; each
+environment's proof still decides whether an attempt qualifies. Any change
+to those three files needs a newly reviewed profile before a later guard stop can
+qualify; modules the owner imports are reviewed rather than pinned, so a provider
+call added before the guard there needs the same review.
 Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
@@ -1682,8 +1719,9 @@ downloaded 116 MB of system dependencies in 23 minutes 9 seconds. The 30-minute
 job deadline interrupted the browser pack. The browser job removes only the
 runner's `azure.archive.ubuntu.com` mirror preference and retains its existing
 official archive/security entries and signed package checks. Chromium, WebKit,
-matched packs, workers and timeout remain unchanged. A faster install is a
-hosted measurement to verify, not a guaranteed mirror characteristic.
+matched packs, workers and per-test limits remain unchanged. Browser-role job
+budget is 40 minutes; node-role budget remains 30. A faster install is a hosted
+measurement to verify, not a guaranteed mirror characteristic.
 
 UAT uses the same mirror preference removal and prepares locked npm dependencies,
 Chromium and its system libraries once for the union of frontend analytics and

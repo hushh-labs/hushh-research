@@ -24,6 +24,7 @@ from auth_health_read_diagnostics import (  # noqa: E402
     HealthCommandFailure,
     HealthCommandStage,
     read_diagnostic,
+    summarize_health_outcome,
 )
 from process_group import BoundedReadError, bounded_stdout  # noqa: E402
 
@@ -34,6 +35,20 @@ STORAGE_HOST = "storage.googleapis.com"
 LEASE_OBJECT = "lease.json"
 LEASE_BODY_LIMIT = 4096
 HTTP_TIMEOUT_SECONDS = 10
+TLS_CA_BUNDLE_PATH = "/etc/ssl/certs/ca-certificates.crt"
+
+
+def _verified_tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context(cafile=TLS_CA_BUNDLE_PATH)
+    ca_count = context.cert_store_stats().get("x509_ca")
+    if (
+        type(ca_count) is not int
+        or ca_count < 1
+        or context.verify_mode != ssl.CERT_REQUIRED
+        or context.check_hostname is not True
+    ):
+        raise ValueError("Default TLS trust configuration is unavailable")
+    return context
 
 
 class LeasePreconditionFailed(HealthCommandFailure):
@@ -217,7 +232,7 @@ class CloudStorageLease:
         connection = http.client.HTTPSConnection(
             STORAGE_HOST,
             timeout=HTTP_TIMEOUT_SECONDS,
-            context=ssl.create_default_context(),
+            context=_verified_tls_context(),
         )
         try:
             connection.request(method, path, body=body, headers=request_headers)
@@ -438,11 +453,19 @@ def main() -> int:
                     "--project", project, "--emit-health-log"]
             if runtime == "true":
                 args.append("--check-phone-runtime")
+            args.append("--health-result-json")
             result = command(
                 args, stage=HealthCommandStage.PROTECTED_LIST_CHECK, timeout=450
             )
-            print(result.decode("utf-8"))  # Existing checker emits counts/status only.
-            return 0
+            try:
+                exit_code, message = summarize_health_outcome(result)
+            except ValueError:
+                raise HealthCommandFailure(
+                    HealthCommandStage.PROTECTED_LIST_CHECK,
+                    BoundedFailureReason.UNCLASSIFIED,
+                ) from None
+            print(message)
+            return exit_code
     except HealthCommandFailure as exc:
         # These fields are fixed enums; never echo provider stderr or command input.
         message = (

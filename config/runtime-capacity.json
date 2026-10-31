@@ -63,7 +63,8 @@
         "obs-supabase-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
         "uat-db-data-health": {"connections_per_task": 8, "concurrent_executions": 2},
         "uat-db-migrate": {"connections_per_task": 8, "concurrent_executions": 2},
-        "uat-db-verify-vault": {"connections_per_task": 8, "concurrent_executions": 2}
+        "uat-db-verify-vault": {"connections_per_task": 8, "concurrent_executions": 2},
+        "protected-configuration-health": {"connections_per_task": 1, "concurrent_executions": 1}
       }
     },
     "production": {

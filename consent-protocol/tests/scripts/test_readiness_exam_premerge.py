@@ -18,9 +18,9 @@ TAVILY = "consent-protocol/hushh_mcp/one_adk/tavily_search.py"
 MANIFEST = "consent-protocol/config/readiness-exam-manifest.v1.json"
 REPO = "hushh-labs/hushh-research"
 MAIN, HEAD, MERGE = "a" * 40, "b" * 40, "c" * 40
-# 98fcd55bc6 reworded this rule; Azure gpt-5-mini then failed the ordinary case.
-KEPT_RULE = "an unquoted middle given name is optional unless explicitly required."
-REWORDED_RULE = "leaving middle-name tokens optional unless explicitly required."
+# Main's middle-name rule; 98fcd55bc6's rewording of its predecessor failed the ordinary case on Azure gpt-5-mini.
+KEPT_RULE = "leave an unquoted middle given name out of the value unless"
+REWORDED_RULE = "leaving middle-name tokens optional unless"
 PLANNER_BUDGET = "telemetry_namespace: agent.documents.request_search\n    performance:\n      latency_p95_ms: 20000\n      max_output_tokens: 4096"
 
 
@@ -57,7 +57,7 @@ def _with(path: str, text: str):
 
 
 def test_rewording_an_anchor_selects_only_its_cases(exam, tools):
-    assert KEPT_RULE in _main(DOCUMENTS)
+    assert _main(DOCUMENTS).count(KEPT_RULE) == 1
     rows = _select(
         exam, tools, _with(DOCUMENTS, _main(DOCUMENTS).replace(KEPT_RULE, REWORDED_RULE))
     )
@@ -158,14 +158,15 @@ def test_overlaid_yaml_is_what_the_production_loader_reads(exam, tools):
         assert changed == [anchor["subagent"]]
 
 
-def _fetch(merge_parents, compare="behind"):
+def _fetch(merge_parents, compare="behind", source=REPO, **pull):
     def fetch(path):
         if path.endswith("/pulls/7"):
             return {
                 "state": "open",
-                "head": {"sha": HEAD},
+                "head": {"sha": HEAD, "repo": {"full_name": source}},
                 "base": {"ref": "main"},
                 "merge_commit_sha": MERGE,
+                **pull,
             }
         if path.endswith(f"/commits/{MERGE}"):
             return {"parents": [{"sha": sha} for sha in merge_parents]}
@@ -211,8 +212,8 @@ def _tmp_root(tmp_path: Path, documents: str | None = None) -> Path:
     return tmp_path
 
 
-def _contents_fetch(texts: dict[str, str]):
-    base = _fetch([MAIN, HEAD])
+def _contents_fetch(texts: dict[str, str], base=None):
+    base = base or _fetch([MAIN, HEAD])
 
     def fetch(path):
         if "/contents/" not in path:
@@ -343,6 +344,13 @@ def test_runner_failures_keep_fixed_reasons_and_separate_identity_and_crashes(
     assert (
         runner._failure(ActivityPlannerContractError("core_reason"), "")["reason"] == "core_reason"
     )
+    # A semantic row names the same authored stage, reason and leg as the UAT verdict.
+    typed = runner._failure(ActivityPlannerContractError("core_x", case="ordinary", leg="core"), "")
+    assert [typed.get(k) for k in ("failure_stage", "failure_reason", "leg")] == [
+        "drive_planner.ordinary",
+        "core_x",
+        "core",
+    ]
     output = json.dumps({"azure_pwm_probe_failure": "guidance", "failed_fields": ["planner_lead"]})
     assert runner._failure(AzurePwmTrustError("x"), output)["reason"] == "planner_lead"
     assert runner._failure(TimeoutError(), "")["reason"] == "provider_timeout"
@@ -411,17 +419,16 @@ def test_report_samples_measure_one_case_and_never_decide(exam, monkeypatch, tmp
     monkeypatch.setenv("GITHUB_SHA", MAIN)
     monkeypatch.setenv("GITHUB_TRIGGERING_ACTOR", "ankitkumarsingh1702")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
-    outcomes = iter(
-        [("passed", "ok", "graded_passed"), ("failed", "semantic", "clause_x")]
-        + [("passed", "ok", "graded_passed")]
-    )
+    passed = {"result": "passed", "class": "ok", "reason": "graded_passed"}
+    failed = {"result": "failed", "class": "semantic", "reason": "clause_x", "leg": "tokens"}
+    outcomes = iter([passed, failed, passed])
     ran = []
 
     def run_cases(case_ids, env):
         ran.extend(case_ids)
         return [
-            {"case": case, "result": result, "class": kind, "reason": why, "elapsed_ms": 1}
-            for case, (result, kind, why) in zip(case_ids, outcomes, strict=False)
+            {"case": case, "elapsed_ms": 1, **row}
+            for case, row in zip(case_ids, outcomes, strict=False)
         ]
 
     monkeypatch.setattr(exam, "run_cases", run_cases)
@@ -440,7 +447,7 @@ def test_report_samples_measure_one_case_and_never_decide(exam, monkeypatch, tmp
         "drive_planner.ordinary": {
             "runs": 3,
             "passed": 2,
-            "outcomes": {"passed": 2, "failed:clause_x": 1},
+            "outcomes": {"passed": 2, "failed:clause_x:tokens": 1},
         }
     }
     # A measurement never decides: one failed sample keeps the verdict failed, no majority

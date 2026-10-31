@@ -89,11 +89,6 @@ def pull_request_target(event: dict, repo: str, main_sha: str, fetch: Callable) 
 
 def control_target(inputs: dict, repo: str, main_sha: str, fetch: Callable) -> dict:
     """A maintainer control grades text already on main; it never takes a PR's code."""
-    commit = (inputs.get("text_commit") or "").strip()
-    if not SHA.fullmatch(commit):
-        raise ExamRefused("text_commit must be a full 40-character commit")
-    if fetch(f"repos/{repo}/compare/{commit}...{main_sha}")["status"] not in {"ahead", "identical"}:
-        raise ExamRefused("text_commit must be reachable from main")
     expect = inputs.get("expect") or "report"
     if expect not in {"report", "must_fail", "must_pass"}:
         raise ExamRefused("expect must be report, must_fail or must_pass")
@@ -103,6 +98,13 @@ def control_target(inputs: dict, repo: str, main_sha: str, fetch: Callable) -> d
         raise ExamRefused(f"reps must be 1 to {MAX_REPORT_SAMPLES}")
     if int(samples) > 1 and (expect != "report" or len(cases) != 1):
         raise ExamRefused("Repeated samples measure one case under expect=report only")
+    if (inputs.get("pr") or "").strip():
+        return measurement_target(inputs, cases, int(samples), repo, main_sha, fetch)
+    commit = (inputs.get("text_commit") or "").strip()
+    if not SHA.fullmatch(commit):
+        raise ExamRefused("text_commit must be a full 40-character commit")
+    if fetch(f"repos/{repo}/compare/{commit}...{main_sha}")["status"] not in {"ahead", "identical"}:
+        raise ExamRefused("text_commit must be reachable from main")
     return {
         "kind": "control",
         "graded": commit,
@@ -112,6 +114,42 @@ def control_target(inputs: dict, repo: str, main_sha: str, fetch: Callable) -> d
         "expected_reason": (inputs.get("expected_reason") or "").strip(),
         "reps": int(samples),
     }
+
+
+def measurement_target(
+    inputs: dict, cases: list[str], reps: int, repo: str, main_sha: str, fetch: Callable
+) -> dict:
+    """One named case sampled on what an open same-repo PR would land: never a verdict.
+
+    The PR's text is data, chosen exactly as its own run chooses it; text_commit may
+    pin the head. must_fail and must_pass controls stay on text already on main.
+    """
+    number = inputs["pr"].strip()
+    if (inputs.get("expect") or "report") != "report" or len(cases) != 1:
+        raise ExamRefused("A PR is measured for one named case under expect=report only")
+    if not number.isdigit():
+        raise ExamRefused("pr must be a pull request number")
+    live = fetch(f"repos/{repo}/pulls/{number}")
+    measured = {
+        "kind": "measurement",
+        "number": int(number),
+        "cases": cases,
+        "expect": "report",
+        "reps": reps,
+    }
+    # A dispatch may name any PR, so states a PR's own run never meets get their own reasons.
+    if live.get("state") != "open":
+        return {**measured, "refused": "pr_not_open"}
+    if (live.get("base") or {}).get("ref") != "main":
+        return {**measured, "refused": "base_not_main"}
+    if live.get("mergeable") is False:  # None while GitHub is still computing it
+        return {**measured, "refused": "merge_conflict"}
+    head = (inputs.get("text_commit") or "").strip() or live["head"]["sha"]
+    source = (live["head"].get("repo") or {}).get("full_name")
+    event = {
+        "pull_request": {"number": number, "head": {"sha": head, "repo": {"full_name": source}}}
+    }
+    return {**pull_request_target(event, repo, main_sha, fetch), **measured}
 
 
 def blob(repo: str, path: str, sha: str, fetch: Callable) -> str | None:
@@ -193,6 +231,9 @@ def verdict(target: dict, selection: list[dict], cases: list[dict], mode: str) -
     summary: dict[str, Any] = {"verdict": outcome, "failed": failed, "inconclusive": inconclusive}
     if target.get("reps", 1) > 1:
         summary["samples"] = samples(cases)
+    if target["kind"] == "measurement":
+        # A measurement never decides, so no control_met; it fails only when nothing ran.
+        return summary, 0 if cases else 1
     if target["kind"] == "control":
         semantic = [c for c in failed if c.get("class") == "semantic"]
         reason = target["expected_reason"]
@@ -212,15 +253,23 @@ def samples(cases: list[dict]) -> dict[str, dict[str, Any]]:
         entry = tally.setdefault(row["case"], {"runs": 0, "passed": 0, "outcomes": {}})
         entry["runs"] += 1
         entry["passed"] += row["result"] == "passed"
-        key = "passed" if row["result"] == "passed" else f"{row['result']}:{row['reason']}"
+        # A failed sample's leg, when the grader names one, says which requirement it missed.
+        parts = [row["result"], row["reason"], *([row["leg"]] if row.get("leg") else [])]
+        key = "passed" if row["result"] == "passed" else ":".join(parts)
         entry["outcomes"][key] = entry["outcomes"].get(key, 0) + 1
     return tally
 
 
 def _summary_lines(receipt: dict) -> list[str]:
-    lines = [
-        f"### Readiness exam: {receipt['verdict']['verdict']} ({receipt['mode']})",
-        "",
+    target = receipt["target"]
+    lines = [f"### Readiness exam: {receipt['verdict']['verdict']} ({receipt['mode']})", ""]
+    if target.get("kind") == "measurement":
+        lines += [
+            f"Measurement of PR #{target['number']} at {target.get('graded', '-')} "
+            f"({target.get('graded_ref', '-')}): it never decides the PR.",
+            "",
+        ]
+    lines += [
         "| Case | Selected | Why | Result | Reason | ms |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
@@ -345,7 +394,7 @@ def examine(
         return _finish(receipt, started)
     manifest = tools.load_manifest(root / "consent-protocol/config/readiness-exam-manifest.v1.json")
     live = {c["id"] for c in manifest["cases"] if c["pre_merge"] == "live"}
-    requested = target.get("cases") if target["kind"] == "control" else None
+    requested = target.get("cases") if target["kind"] != "pull_request" else None
     if requested and not set(requested) <= live:
         raise ExamRefused(f"Controls may request only live cases: {sorted(live)}")
     main_file = lambda path: (root / path).read_text(encoding="utf-8")  # noqa: E731
@@ -380,14 +429,17 @@ def _finish(receipt: dict, started: float) -> dict:
     job_started = os.environ.get("EXAM_JOB_STARTED_MS", "")
     if job_started.isdigit():
         receipt["wall_ms"] = round(time.time() * 1000) - int(job_started)
-    # A superseded head is re-examined by its newer run; a control must always conclude.
-    reason = receipt["verdict"].get("reason")
-    advisory = receipt["mode"] == "advisory" and receipt["target"].get("kind") != "control"
-    receipt.setdefault("exit_code", 0 if advisory or reason == "head_moved" else 1)
+    # A superseded head is re-examined by its newer run; a dispatch must always conclude.
+    pull_request = receipt["target"].get("kind") == "pull_request"
+    superseded = pull_request and receipt["verdict"].get("reason") == "head_moved"
+    advisory = receipt["mode"] == "advisory" and pull_request
+    receipt.setdefault("exit_code", 0 if advisory or superseded else 1)
     return receipt
 
 
-def _error_receipt(event_name: str, mode: str, error: BaseException) -> dict:
+def _error_receipt(
+    event_name: str, mode: str, error: BaseException, inputs: dict | None = None
+) -> dict:
     """Any exam fault becomes a typed receipt; advisory PR runs still conclude success."""
     transport = isinstance(error, (urllib.error.URLError, TimeoutError, ConnectionError))
     if isinstance(error, urllib.error.HTTPError):
@@ -398,8 +450,12 @@ def _error_receipt(event_name: str, mode: str, error: BaseException) -> dict:
         reason = "refused:" + re.sub(r"[^a-z0-9_]+", "_", str(error).lower())[:48]
     else:
         reason = "exam_error:" + type(error).__name__[:40]
-    kind = "pull_request" if event_name == "pull_request_target" else "control"
-    receipt = _receipt(event_name, mode, {"kind": kind})
+    pr = str((inputs or {}).get("pr") or "").strip()
+    if event_name == "pull_request_target":
+        target: dict[str, Any] = {"kind": "pull_request"}
+    else:
+        target = {"kind": "measurement", "number": pr} if pr else {"kind": "control"}
+    receipt = _receipt(event_name, mode, target)
     receipt["verdict"] = {"verdict": "inconclusive" if transport else "not_run", "reason": reason}
     return _finish(receipt, time.monotonic())
 
@@ -409,12 +465,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--receipt", type=Path, default=None)
     args = parser.parse_args(argv)
     event_name, mode = os.environ.get("GITHUB_EVENT_NAME", ""), "required"
+    inputs: dict | None = None
     try:
         mode, _ = _policy()
         event, event_name, repo = _context()
+        inputs = event.get("inputs")
         receipt = examine(event, event_name, repo, github, mode)
     except Exception as error:  # noqa: BLE001 - every fault concludes with a reason
-        receipt = _error_receipt(event_name, mode, error)
+        receipt = _error_receipt(event_name, mode, error, inputs)
     write_outputs(receipt, args.receipt)
     return int(receipt["exit_code"])
 

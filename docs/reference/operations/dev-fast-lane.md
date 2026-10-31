@@ -2,8 +2,8 @@
 
 > **Dev intake:** Main owns workflow authority and release approval. Protected
 > `dev` is the default application source after its baseline qualification.
-> UAT retains its current Dev-acceptance gate. The approved direct-UAT path will
-> use exact assembled-SHA CI without requiring a Dev deployment once qualified.
+> New UAT selections use protected UAT history and exact assembled-SHA CI;
+> historical Main-backed receipts retain their Dev-acceptance checks.
 > Preserve legacy train history. See
 > [branch governance](./branch-governance.md#dev--uat-branch-preparation).
 
@@ -21,9 +21,10 @@ other authority transition:
 
 1. **Record the starting state** — current branch, `git status --short --branch` — and
    return to it afterwards. Do not create a convenience branch.
-2. **Prove the exact SHA before dispatching.** It must be reachable from the requested ref
-   *and* carry a terminal, successful `CI Status Gate`. Re-read the SHA immediately before
-   the dispatch, not from a note taken earlier.
+2. **Prove the exact SHA before dispatching.** A normal shared-Dev application SHA must
+   belong to protected `dev` history and carry a terminal, successful accepted CI gate.
+   The `ref` input locates the SHA; it does not authorize that branch. Re-read the SHA
+   immediately before dispatching, not from a note taken earlier.
 3. **Confirm the governed actor** (`scripts/ci/assert-governed-actor.py --surface dev`).
 4. **Dispatch from `main` with `ref` set to the branch.** The workflow definition runs from
    `main`; the content deployed is `inputs.ref`. A dispatch made *from* the branch is
@@ -108,9 +109,9 @@ than the service template, which may still describe the failed candidate.
 
 ## The rule in one screen
 
-The Dev lane is active after its baseline transition. The UAT selection path
-below is the staged next transition; its existing Main-based default remains
-in effect until separately qualified and authorized.
+The Dev lane uses protected Dev application history. New UAT selections use
+protected UAT application history; historical Main-backed receipts remain
+readable under their original Dev-acceptance contract.
 
 ```mermaid
 flowchart LR
@@ -122,13 +123,14 @@ flowchart LR
 ```
 
 1. **Main owns release control.** Workflows run from Main; application identity
-   remains the exact selected SHA. UAT requires that assembled SHA's Dev receipt;
-   production requires UAT acceptance and Main approval with identical content.
-2. **Dev deploys protected Dev by default.** `integration/pr-train` retains its
+   remains the exact selected SHA. New UAT candidates require exact full-scope CI,
+   the current attempt and observed serving base; production requires UAT acceptance
+   and Main approval with identical content.
+2. **Dev deploys protected Dev content.** `integration/pr-train` retains its
    existing history, protection and active work; it is no longer new intake.
-3. **Escape hatch for speed:** a governed maintainer may dispatch a dev deploy from
-   ANY ref, provided the exact SHA carries an accepted full-CI gate. This lets a team
-   validate a feature branch on real infrastructure without waiting for train intake.
+3. A supplied Dev `ref` is only a lookup hint. The exact SHA must also be reachable
+   from protected `dev`; Main-only and feature-only SHAs are refused by the normal
+   application route. The separate pod-publication route keeps its own source checks.
 4. **Reuse the full CI aggregate.** PR runs publish `CI Status Gate`; manual full
    branch runs publish a distinct `Branch Validation Gate`, accepted only by dev
    after exact workflow, event, check-suite and SHA verification. The branch gate
@@ -141,7 +143,7 @@ flowchart LR
 
 | Gate | Where it runs | What it guarantees |
 | --- | --- | --- |
-| Authoritative full-CI check on the exact SHA (`CI Status Gate` for PR heads, `Queue Validation` for train heads, `Main Post-Merge Smoke Gate` for main merges, authenticated `Branch Validation Gate` for manual full branch runs — any-of) | before every dev deploy | code is test-, type-, secret-, DCO-, and governance-clean ; PR merge eligibility remains separate |
+| Authoritative full-CI check on the exact SHA (`CI Status Gate` for PR heads, `Queue Validation` for train heads, `Main Post-Merge Smoke Gate` for main merges, authenticated `Branch Validation Gate` for manual full branch runs — any-of) plus protected `dev` ancestry | before every normal application deploy | code is test-, type-, secret-, DCO-, and governance-clean and the SHA is in Dev source history; PR merge eligibility remains separate |
 | Governed-actor dispatch (`assert-governed-actor.py --surface dev`) | dispatch time | only the maintainer cohort can deploy |
 | Workflow definition pinned to `main` | dispatch time | the pipeline itself cannot be mutated from a feature branch; only the deployed *content* comes from the requested ref |
 | Secret sync + runtime identity assertions | every deploy | dev cannot silently drift to wrong DB/CORS/identity |
@@ -166,8 +168,9 @@ flowchart LR
 
 ## Candidate verification and compatibility
 
-The workflow definition comes from `main`; the selected application SHA must carry
-its own successful canonical CI result. Most deploy helpers run from that selected SHA. Account-deletion admission,
+The workflow definition comes from `main`; the selected application SHA must belong
+to protected `dev` history and carry its own successful canonical CI result. Most
+deploy helpers run from that selected SHA. Account-deletion admission,
 activation, boundary and Scheduler tooling are preserved from the governed workflow
 checkout and require a compatible application producer contract before migration.
 Older compatibility images therefore need the candidate probe, provenance verifier,

@@ -44,9 +44,14 @@ async def _token(supplier) -> str:
 
 
 async def _run(case: dict) -> None:
-    """Dispatch the manifest case to Main's existing probe; never a second grader."""
+    """Dispatch the manifest case to Main's existing probe; never a second grader.
+
+    A timeout, 429 or 5xx gets the one repeat the UAT exam gives its stage, through
+    the same helper; a semantic, trust or configuration failure never repeats.
+    """
     from hushh_mcp.managed_ai_config import load_managed_azure_account, load_pwm_policy
     from hushh_mcp.one_adk.azure_workload_identity import github_actions_token_provider
+    from scripts.capability_check import repeat_stage_once
 
     account = load_managed_azure_account()
     token = await _token(
@@ -57,8 +62,11 @@ async def _run(case: dict) -> None:
     if case["stage"] == PLANNER_STAGE:
         from scripts.probe_drive_activity_planner import probe_drive_activity_planner
 
-        await probe_drive_activity_planner(
-            "azure_openai", case_ids=[case["id"]], token_supplier=lambda: token
+        await repeat_stage_once(
+            case["id"],
+            lambda: probe_drive_activity_planner(
+                "azure_openai", case_ids=[case["id"]], token_supplier=lambda: token
+            ),
         )
         return
     if case["id"] == "pwm.confirmed_guidance":
@@ -66,12 +74,15 @@ async def _run(case: dict) -> None:
         from scripts.verify_azure_pwm_runtime import _probe_confirmed_guidance
 
         config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
-        await _probe_confirmed_guidance(
-            AzurePwmGateway(
-                primary_endpoint=config["primary_endpoint"],
-                primary_deployment=config["primary_deployment"],
-                primary_token_supplier=lambda: token,
-            )
+        await repeat_stage_once(
+            case["id"],
+            lambda: _probe_confirmed_guidance(
+                AzurePwmGateway(
+                    primary_endpoint=config["primary_endpoint"],
+                    primary_deployment=config["primary_deployment"],
+                    primary_token_supplier=lambda: token,
+                )
+            ),
         )
         return
     raise UnsupportedLiveStage(case["stage"])
@@ -91,24 +102,41 @@ def _http_status(error: BaseException) -> int | None:
 
 
 def _pwm_reason(output: str) -> str:
-    for line in output.splitlines():
-        with contextlib.suppress(ValueError):
-            event = json.loads(line)
-            if isinstance(event, dict) and "azure_pwm_probe_failure" in event:
-                return "+".join(event.get("failed_fields") or []) or "pwm_trust"
+    for event in map(_event, output.splitlines()):
+        if "azure_pwm_probe_failure" in event:
+            return "+".join(event.get("failed_fields") or []) or "pwm_trust"
     return "pwm_trust"
+
+
+def _final_attempt(output: str) -> tuple[str, int]:
+    """The last attempt's output and the repeats before it; a repeat is classified alone."""
+    lines = output.splitlines()
+    marks = [i for i, line in enumerate(lines) if _event(line).get("result") == "transport_retry"]
+    return ("\n".join(lines[marks[-1] + 1 :]), len(marks)) if marks else (output, 0)
+
+
+def _event(line: str) -> dict:
+    with contextlib.suppress(ValueError):
+        event = json.loads(line)
+        if isinstance(event, dict):
+            return event
+    return {}
 
 
 def _failure(error: BaseException, output: str) -> dict:
     """Fixed reason codes only; classification follows the shared dependency contract."""
     from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
     from scripts.probe_drive_activity_planner import ActivityPlannerContractError
+    from scripts.pwm_trust_failure import planner_trust_error, trust_fields
     from scripts.verify_azure_pwm_runtime import AzurePwmTrustError
 
+    # Semantic rows carry the UAT verdict's authored stage, reason and leg as well.
     if isinstance(error, ActivityPlannerContractError):
-        return {"result": "failed", "class": "semantic", "reason": str(error.args[0])}
+        typed = trust_fields(planner_trust_error(error))
+        return {"result": "failed", "class": "semantic", "reason": str(error.args[0]), **typed}
     if isinstance(error, AzurePwmTrustError):
-        return {"result": "failed", "class": "semantic", "reason": _pwm_reason(output)}
+        typed = trust_fields(error)
+        return {"result": "failed", "class": "semantic", "reason": _pwm_reason(output), **typed}
     if isinstance(error, ProbeIdentityError):
         return {"result": "inconclusive", "class": "identity", "reason": "federation_failed"}
     status = _http_status(error)
@@ -159,15 +187,12 @@ def _timed_out(error: BaseException) -> bool:
 
 
 def _planner_reason(output: str) -> str | None:
-    for line in output.splitlines():
-        with contextlib.suppress(ValueError):
-            event = json.loads(line)
-            if (
-                isinstance(event, dict)
-                and event.get("schema") == "drive.activity_planner.probe.v1"
-                and event.get("result") == "failed"
-            ):
-                return str(event.get("reason") or "planner_failed")
+    for event in map(_event, output.splitlines()):
+        if (
+            event.get("schema") == "drive.activity_planner.probe.v1"
+            and event.get("result") == "failed"
+        ):
+            return str(event.get("reason") or "planner_failed")
     return None
 
 
@@ -190,8 +215,10 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(asyncio.wait_for(_run(case), timeout=CASE_DEADLINE_SECONDS))
         row = {"result": "passed", "class": "ok", "reason": "graded_passed"}
     except Exception as error:  # noqa: BLE001 - every failure becomes a fixed row
-        row = _failure(error, captured.getvalue())
+        row = _failure(error, _final_attempt(captured.getvalue())[0])
     sys.stdout.write(captured.getvalue())
+    retries = _final_attempt(captured.getvalue())[1]
+    row.update({"transport_retries": retries} if retries else {})
     row.update(case=args.case, elapsed_ms=round((time.monotonic() - started) * 1000))
     print(json.dumps({"readiness_exam_case": row}, sort_keys=True), flush=True)
     return 0

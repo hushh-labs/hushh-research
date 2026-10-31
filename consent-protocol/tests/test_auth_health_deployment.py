@@ -34,6 +34,35 @@ def _assert_health_source_closure(verified):
     assert f"COPY {diagnostic_module} {diagnostic_module}" in packaged["Dockerfile"].decode()
 
 
+def test_health_image_pins_runtime_packages_and_qualifies_tools_and_bundled_tls():
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "deploy/observability/auth-health.Dockerfile").read_text()
+    base = (
+        "FROM gcr.io/google.com/cloudsdktool/google-cloud-cli@sha256:"
+        "d3f74bb21280869467e4e901c66280d4610e0bda81bab1cd7d9c112ccd1d2276"
+    )
+    assert base in dockerfile
+    assert "ca-certificates=20250419+deb13u1" in dockerfile
+    assert "curl=8.14.1-2+deb13u7" in dockerfile
+    config = dockerfile.index("ENV CLOUDSDK_CONFIG=/tmp/auth-health-gcloud")
+    prepare = dockerfile.index('RUN rm -rf "$CLOUDSDK_CONFIG"')
+    user = dockerfile.index("USER 1000:1000")
+    qualify = dockerfile.index('RUN test "$(id -u):$(id -g)" = "1000:1000"')
+    entrypoint = dockerfile.index("ENTRYPOINT ")
+    assert config < prepare < user < qualify < entrypoint
+    preparation = dockerfile[prepare:user]
+    assert 'install -d -o 1000 -g 1000 -m 0700 "$CLOUDSDK_CONFIG"' in preparation
+    qualification = dockerfile[qualify:entrypoint]
+    assert 'test -w "$CLOUDSDK_CONFIG"' in qualification
+    assert "gcloud --version >/dev/null" in qualification
+    assert "curl --version >/dev/null" in qualification
+    assert "PYTHONPATH=/app/deploy/observability" in dockerfile
+    assert (
+        "from auth_health_job import _verified_tls_context; _verified_tls_context()" in dockerfile
+    )
+    assert '&& rm -rf "$CLOUDSDK_CONFIG"' in qualification
+
+
 def test_health_source_is_pinned_despite_concurrent_worktree_edit(tmp_path, monkeypatch):
     module = load_health_setup()
     subprocess.run(  # noqa: S603 - fixed Git command in pytest's disposable directory
