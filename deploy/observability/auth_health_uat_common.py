@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -23,6 +24,32 @@ SCHEDULE = "17 * * * *"
 MAX_PROOF_AGE_SECONDS = 1800
 HEALTH_MESSAGE = "auth.test_allowlist.health"
 PHONE_LISTS = {"HUSHH_UAT_PHONE_TEST_NUMBERS", "HUSHH_PROD_PHONE_TEST_NUMBERS"}
+
+
+def scheduler_matches(
+    job: dict, name: str, operation: str, clock_email: str, job_resource: str
+) -> bool:
+    target = job.get("httpTarget", {})
+    oauth = target.get("oauthToken", {})
+    retry = job.get("retryConfig", {})
+    headers = target.get("headers")
+    expected_headers = {"Content-Type": "application/json"}
+    if isinstance(headers, dict) and "User-Agent" in headers:
+        expected_headers["User-Agent"] = "Google-Cloud-Scheduler"
+    return (
+        job.get("name") == name
+        and job.get("description") == f"Hussh auth-health operation {operation}"
+        and job.get("schedule") == SCHEDULE
+        and job.get("timeZone") == "Etc/UTC"
+        and target.get("uri") == f"https://run.googleapis.com/v2/{job_resource}:run"
+        and target.get("httpMethod") == "POST"
+        and target.get("body") == base64.b64encode(b"{}").decode("ascii")
+        and headers == expected_headers
+        and oauth.get("serviceAccountEmail") == clock_email
+        and oauth.get("scope") == "https://www.googleapis.com/auth/cloud-platform"
+        and retry.get("retryCount", 0) in {0, "0"}
+        and job.get("attemptDeadline") in {"30s", "30.000s"}
+    )
 
 
 def _refuse(message: str):
