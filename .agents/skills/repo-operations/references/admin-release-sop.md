@@ -141,6 +141,9 @@ Production:
 gh workflow run deploy-production.yml --ref main -f scope=<frontend|backend|all> -f sha=<approved-main-sha>
 ```
 
+For a read-only current-release check, follow the
+[Production verification procedure](../../../../docs/reference/operations/ci.md#verify-current-production).
+
 Production requires an explicit production request and an actor in
 `production.manual_dispatch_users`. UAT success does not authorize production.
 

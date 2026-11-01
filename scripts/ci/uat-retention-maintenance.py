@@ -1381,8 +1381,71 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
             and (run.get("repository") or {}).get("full_name") == repository
             and (run.get("head_repository") or {}).get("full_name") == repository
         ):
+            if environment == "production" and _is_read_only_production_verification(repository, run):
+                continue
             return int(run["id"])
     raise retention.UnsafeState("no completed deployment observation")
+
+
+def _is_read_only_production_verification(repository: str, run: dict) -> bool:
+    """Exclude only a completed verify run proven non-producing by its exact jobs."""
+    if run.get("display_title") != "VERIFY CURRENT PRODUCTION — read only":
+        return False
+    run_id = run.get("id")
+    attempt = run.get("run_attempt")
+    if type(run_id) is not int or run_id < 1 or type(attempt) is not int or attempt < 1:
+        raise retention.UnsafeState("read-only production verification identity is invalid")
+    result = api(
+        repository,
+        f"runs/{run_id}/attempts/{attempt}/jobs?per_page=100",
+    )
+    jobs = result.get("jobs")
+    if (
+        type(result.get("total_count")) is not int
+        or not isinstance(jobs, list)
+        or result["total_count"] != len(jobs)
+        or len(jobs) > 100
+        or any(not isinstance(job, dict) for job in jobs)
+    ):
+        raise retention.UnsafeState("read-only production verification job inventory is invalid")
+    by_name = {job.get("name"): job for job in jobs}
+    if len(by_name) != len(jobs):
+        raise retention.UnsafeState("read-only production verification job inventory is ambiguous")
+    expected_names = {
+        "Validate Production dispatch mode",
+        "Verify current Production release",
+        "Deployment security",
+        "Deploy Production Scope",
+        "Stage qualified production Drive worker",
+        "Deploy Production Scope · Phone activation",
+        "Deploy Production Scope · Restoration activation",
+    }
+    if set(by_name) != expected_names:
+        raise retention.UnsafeState("read-only production verification job inventory is unexpected")
+    validator = by_name.get("Validate Production dispatch mode")
+    verifier = by_name.get("Verify current Production release")
+    if validator is None or verifier is None:
+        raise retention.UnsafeState("read-only production verification jobs are incomplete")
+    # A skipped verifier is not evidence that verification ran. Leave such a
+    # run in the ordinary observation stream; it cannot prove live health.
+    if validator.get("status") != "completed" or validator.get("conclusion") != "success":
+        return False
+    if verifier.get("status") != "completed" or verifier.get("conclusion") == "skipped":
+        return False
+    non_producer_jobs = (
+        "Deployment security",
+        "Deploy Production Scope",
+        "Stage qualified production Drive worker",
+        "Deploy Production Scope · Phone activation",
+        "Deploy Production Scope · Restoration activation",
+    )
+    if any(
+        by_name.get(name, {}).get("status") != "completed"
+        or by_name.get(name, {}).get("conclusion") != "skipped"
+        for name in non_producer_jobs
+    ):
+        return False
+    return True
 
 
 def completion_receipt(directory: Path, environment: str) -> dict | None:

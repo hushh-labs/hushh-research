@@ -170,5 +170,8 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
         if name == "deployment-security":
             assert job["uses"] == "./.github/workflows/deployment-security.yml"
             continue
+        if name in {"validate-dispatch", "verify-current-production"}:
+            assert "uses" not in job
+            continue
         boundary = next(step for step in job["steps"] if step.get("id") == "dispatch-authority")
         assert "production_emergency.py dispatch" in boundary["run"]

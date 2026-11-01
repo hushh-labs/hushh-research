@@ -87,3 +87,9 @@ def test_ci_proof_admits_exactly_the_reasons_probes_emit():
     assert proof.FAILURE_REASONS == FAILURE_REASONS
     for (capability, _error_type, _args), reason in _REASONS.items():
         assert valid_failure_reason(capability, reason), (capability, reason)
+        if capability == "structured_text":
+            assert len(reason) < 24
+            assert proof._valid_failure_reason("capability:structured_text", reason)
+            for other in ("one_text_root", "public_search", "live_audio", "image_input"):
+                assert not valid_failure_reason(other, reason)
+                assert not proof._valid_failure_reason("capability:" + other, reason)

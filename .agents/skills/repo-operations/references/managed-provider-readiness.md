@@ -63,6 +63,11 @@ Each rule names the check that enforces it today, or its gap.
      textual merge dropped, not a deliberate resolution.
 5. **Every failure names its reason.** No bare asserts. Each check emits a fixed
    reason code, and the terminal verdict keeps it.
+   - Structured text declares the same closed object schema for unary and streamed
+     output. It validates received JSON type, keys, synthetic value and completion;
+     invalid content remains blocking. Short `structured.unary`,
+     `structured.unary_end` and `structured.stream` reasons identify the failed leg
+     without recording output. Both receipt consumers enforce capability ownership.
    - Enforced: the Drive planner probe raises fixed reasons
      (`test_ordinary_contract_failure_has_fixed_reason_without_plan_text`), and the
      collector keeps the terminal verdict
