@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, MapPin } from "@/components/icons";
+import { CheckCircle, MapPin, XCircle } from "@/components/icons";
 import { admittedPortraitSource } from "@/lib/profile/provider-avatar";
 import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { CalendarJoinLink } from "./calendar-join-link";
@@ -100,6 +100,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), prof
           <span className={styles.guestAvatar} data-guest-avatar>
             <InvitationAvatar userId={attendee.self ? undefined : profileId(person)} name={name} email={attendee.email} photoUrl={photo} />
             {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
+            {attendee.response_status === "declined" ? <XCircle aria-hidden="true" weight="fill" data-declined-indicator className={styles.guestDeclined} /> : null}
           </span>
           <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">HUSSH profile photo</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
         </li>;
