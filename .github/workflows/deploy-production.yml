@@ -1,11 +1,21 @@
 name: Deploy to Production
+run-name: ${{ inputs.operation == 'verify_current' && 'VERIFY CURRENT PRODUCTION — read only' || 'Deploy to Production' }}
 
 on:
   workflow_dispatch:
     inputs:
-      sha:
-        description: "Exact green main SHA to deploy"
+      operation:
+        description: "Deploy the requested release (default) or verify the current serving Production release without deploying"
         required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - verify_current
+      sha:
+        description: "Exact green main application SHA to deploy; leave blank only for verify_current"
+        required: false
+        default: ""
         type: string
       emergency_source_ref:
         description: "Manual incident branch based on serving production; leave blank for normal promotion"
@@ -157,8 +167,49 @@ concurrency:
   queue: max
 
 jobs:
+  validate-dispatch:
+    name: Validate Production dispatch mode
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      operation: ${{ steps.validate.outputs.operation }}
+    steps:
+      - name: Checkout the requested workflow source without credentials
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Validate operation and verify-only input boundary before credentials
+        id: validate
+        env:
+          INPUT_OPERATION: ${{ inputs.operation || 'deploy' }}
+          INPUT_SHA: ${{ inputs.sha }}
+          INPUT_EMERGENCY_SOURCE_REF: ${{ inputs.emergency_source_ref }}
+          INPUT_EMERGENCY_REASON: ${{ inputs.emergency_reason }}
+          INPUT_MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha }}
+          INPUT_RESTORATION_VALIDATION_RUN: ${{ inputs.restoration_validation_run }}
+          INPUT_RESTORATION_ACTIVATION_RUN_ID: ${{ inputs.restoration_activation_run_id }}
+          INPUT_RESTORATION_ACTIVATION_ATTEMPT: ${{ inputs.restoration_activation_attempt }}
+          INPUT_SCOPE: ${{ inputs.scope }}
+          INPUT_RUN_PREDEPLOY_BACKUP_JOB: ${{ inputs.run_predeploy_backup_job }}
+          INPUT_ENABLE_ONE_EMAIL_KYC: ${{ inputs.enable_one_email_kyc }}
+          INPUT_DRIVE_LIVE_MODE: ${{ inputs.drive_live_mode }}
+          INPUT_BACKEND_IMAGE_SOURCE: ${{ inputs.backend_image_source }}
+          INPUT_PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
+          INPUT_PHONE_PHASE: ${{ inputs.phone_phase }}
+          INPUT_PHONE_WORKER_STAGE_RUN_ID: ${{ inputs.phone_worker_stage_run_id }}
+          INPUT_PHONE_ACTIVATION_RUN_ID: ${{ inputs.phone_activation_run_id }}
+          INPUT_PHONE_SCHEMA_ORIGIN_RUN_ID: ${{ inputs.phone_schema_origin_run_id }}
+          INPUT_PHONE_SCHEMA_ORIGIN_ATTEMPT: ${{ inputs.phone_schema_origin_attempt }}
+          INPUT_NEARBY_CHECK_IN_COHORT: ${{ inputs.nearby_check_in_cohort }}
+        run: python3 scripts/ci/verify-current-production.py validate-dispatch
+
   deployment-security:
+    needs: validate-dispatch
     name: Deployment security
+    if: needs.validate-dispatch.outputs.operation == 'deploy'
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
@@ -167,11 +218,85 @@ jobs:
       environment_name: production
       scope: ${{ inputs.scope || 'all' }}
 
+  verify-current-production:
+    needs: validate-dispatch
+    name: Verify current Production release
+    if: needs.validate-dispatch.outputs.operation == 'verify_current'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+      deployment: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout the verified Main workflow source without credentials
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Recheck trusted Main source and governed operators
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]] || exit 1
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
+          python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"
+      - name: Validate Google Cloud workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing production WIF provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing production WIF service account." >&2; exit 1; }
+      - name: Authenticate with existing Production workload identity
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Capture currently serving revisions before public health checks
+        id: before
+        continue-on-error: true
+        run: python3 scripts/ci/verify-current-production.py capture --output "$RUNNER_TEMP/prod-current-before.json"
+      - name: Check public Production backend health
+        id: backend-health
+        if: always() && steps.before.outcome == 'success'
+        run: timeout --foreground 180s bash scripts/ci/cloudrun-http-health.sh https://api.hushh.ai /health 5 8 2 200
+      - name: Check public Production frontend health
+        id: frontend-health
+        if: always() && steps.before.outcome == 'success'
+        run: timeout --foreground 180s bash scripts/ci/cloudrun-http-health.sh https://one.hussh.ai / 3 8 2 200
+      - name: Capture serving revisions after public health checks
+        id: after
+        if: always()
+        continue-on-error: true
+        run: python3 scripts/ci/verify-current-production.py capture --output "$RUNNER_TEMP/prod-current-after.json"
+      - name: Compare read-only Production observations
+        if: always()
+        env:
+          BACKEND_HEALTH: ${{ steps.backend-health.outcome == 'success' && 'success' || 'failed' }}
+          FRONTEND_HEALTH: ${{ steps.frontend-health.outcome == 'success' && 'success' || 'failed' }}
+        run: |
+          python3 scripts/ci/verify-current-production.py compare \
+            --before "$RUNNER_TEMP/prod-current-before.json" \
+            --after "$RUNNER_TEMP/prod-current-after.json" \
+            --backend-health "$BACKEND_HEALTH" \
+            --frontend-health "$FRONTEND_HEALTH"
+
   deploy:
-    needs: deployment-security
+    needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope
     runs-on: ubuntu-24.04
-    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
+    if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
 
     steps:
@@ -3142,9 +3267,9 @@ jobs:
           echo "✅ Production release healthy; new revisions serving traffic."
 
   stage-drive-worker:
-    needs: deployment-security
+    needs: [validate-dispatch, deployment-security]
     name: Stage qualified production Drive worker
-    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''
+    if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
     environment: production
     permissions:
@@ -3480,9 +3605,9 @@ jobs:
 
 
   complete-phone-activation:
-    needs: deployment-security
+    needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope · Phone activation
-    if: github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
+    if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 45
@@ -4120,9 +4245,9 @@ jobs:
           PY
 
   complete-restoration-activation:
-    needs: deployment-security
+    needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope · Restoration activation
-    if: github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
+    if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
     runs-on: ubuntu-24.04
     environment: production
     env:

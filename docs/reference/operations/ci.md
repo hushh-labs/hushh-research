@@ -96,6 +96,20 @@ This command runs the same blocking local CI surface that feeds GitHub `PR Valid
 | Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
 | Operations/hotfix source | Reviewed Main PR | CI, Admin/queue procedure and landed smoke | Merge does not deploy an application |
 
+### Verify the current Production release
+
+```bash
+gh workflow run deploy-production.yml --ref main -f operation=verify_current
+```
+
+Leave `sha` and all release inputs at their defaults. The protected verifier
+reads the 100%-traffic revisions and checks the public backend/frontend health
+routes before and after. Revision `deploy-sha` is the application source; the
+run SHA identifies only the verifier. It creates no release artifact, tag or
+GitHub deployment record and makes no Cloud Run changes. The existing
+Production WIF principal remains deployment-capable; this mode constrains its
+commands to fixed Cloud Run reads and public HTTP GETs.
+
 Stable fixes move downward through manual reviewed Main → UAT/Dev and UAT → Dev
 sync PRs. No sync bot, scheduled release cadence or automatic production dispatch
 is installed. The standalone CI Security Alerts workflow is retired; source secret

@@ -59,6 +59,8 @@ python3 scripts/ci/test_runtime_capacity_isolated.py
 python3 scripts/ci/test_runtime_capacity_route_secrets.py
 python3 scripts/ci/test_production_capacity_bridge.py
 python3 scripts/ci/test_production_capacity_recovery.py
+python3 scripts/ci/test_production_verification.py
+python3 scripts/ci/test_production_verification_workflow.py
 python3 scripts/ci/test_verify_passkey_domain_associations.py
 python3 scripts/ci/test_verify_prod_places_readiness.py
 python3 scripts/ci/test_resolve_uat_verification_plan.py
