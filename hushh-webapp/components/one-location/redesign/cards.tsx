@@ -1,5 +1,7 @@
 "use client";
 
+import { connectionAvatarInitials as initialsFrom } from "@/components/connections/connection-person-avatar";
+
 /**
  * One Location redesign — feature cards (people, shares, requests, links, device).
  *
@@ -43,15 +45,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Avatar, StatusPill } from "./primitives";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "./tokens";
-
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  const first = parts[0] ?? "";
-  if (parts.length === 1) return (first.slice(0, 2) || "?").toUpperCase();
-  const last = parts[parts.length - 1] ?? "";
-  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase() || "?";
-}
 
 /* ------------------------------------------------------------------ */
 /* TrustedPersonCard                                                  */
@@ -265,6 +258,7 @@ export function ActiveShareCard({
 /* ------------------------------------------------------------------ */
 
 export function RequestCard({
+  userId,
   name,
   photoUrl,
   promptLine,
@@ -276,6 +270,7 @@ export function RequestCard({
   onApproveShorter,
   onDecline,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   promptLine: string;
@@ -350,7 +345,7 @@ export function RequestCard({
   return (
     <div className={cn(SUBCARD_SURFACE, "p-4 shadow-none")}>
       <div className="flex items-start gap-3">
-        <Avatar initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
+        <Avatar userId={userId} initials={initialsFrom(name)} imageUrl={photoUrl} size={40} />
         <div className="min-w-0 flex-1">
           <MediumRowLabel as="p">
             {name}
@@ -476,6 +471,7 @@ export type GrantViewStatus = {
 };
 
 export function SharedWithMeCard({
+  userId,
   name,
   photoUrl,
   statusLine,
@@ -497,6 +493,7 @@ export function SharedWithMeCard({
   askReshareBusy,
   shareLanes,
 }: {
+  userId?: string;
   name: string;
   photoUrl?: string | null;
   statusLine: ReactNode;
@@ -564,8 +561,8 @@ export function SharedWithMeCard({
     >
       <div className="space-y-2.5 p-3.5 pb-2.5 sm:p-4 sm:pb-3">
         <div className="flex items-start gap-3">
-          <span className="relative shrink-0" aria-hidden="true">
-            <Avatar
+          <span className="relative shrink-0">
+            <Avatar userId={userId}
               initials={initialsFrom(name)}
               imageUrl={photoUrl}
               size={40}

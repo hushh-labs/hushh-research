@@ -1,5 +1,7 @@
 "use client";
 
+import { ContactRow } from "@/components/one-location/redesign/contact-picker/check-in-contact-row";
+
 /**
  * One Location redesign — Check-In flow (Quick Action).
  *
@@ -27,7 +29,6 @@ import { useLocalOnboardingActionHandler, canonicalActionBinding, type LocalOnbo
 import { pendingAudienceBinding } from "@/lib/one-location/command-continuation";
 import { privateCheckInDigest, readPrivateCheckInDraft, type PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
 import {
-  Check,
   RefreshCw,
   Search,
   Shield,
@@ -60,7 +61,6 @@ import {
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
 import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
-import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
 import { TaskFlowHeader } from "./primitives";
@@ -131,82 +131,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <AppSectionLabel as="p" className="mb-2 mt-7 px-[6px]">
       {children}
     </AppSectionLabel>
-  );
-}
-
-function ContactRow({
-  checked,
-  ready,
-  locked,
-  completed,
-  label,
-  photoUrl,
-  verified,
-  fromContacts,
-  isLast,
-  onToggle,
-}: {
-  checked: boolean;
-  ready: boolean;
-  locked: boolean;
-  completed: boolean;
-  label: string;
-  photoUrl?: string | null;
-  verified?: boolean;
-  fromContacts?: boolean;
-  isLast: boolean;
-  onToggle: () => void;
-}) {
-  const disabled = !ready || locked || completed;
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onToggle}
-      disabled={disabled}
-      aria-pressed={checked}
-      className={cn(
-        "flex w-full items-center gap-[13px] py-3 text-left transition-opacity",
-        !isLast && "border-b border-black/[0.06] dark:border-white/[0.08]",
-        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-      )}
-    >
-      <ContactAvatar
-        label={label}
-        photoUrl={photoUrl}
-        verified={verified}
-        fromContacts={fromContacts}
-        className="h-[42px] w-[42px]"
-      />
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 items-start gap-1.5">
-          <MediumRowLabel as="span" data-location-type-role="row-title" className="min-w-0 truncate">
-            {label}
-          </MediumRowLabel>
-        </span>
-        {completed ? (
-          <StatusText
-            as="span"
-            className="block truncate text-[color:var(--app-success)]"
-          >
-            Already shared in this check-in
-          </StatusText>
-        ) : !ready ? (
-          <RowDescription as="span" className="block truncate">
-            Hasn't set up sharing yet
-          </RowDescription>
-        ) : null}
-      </span>
-      <span
-        className={cn(
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-colors",
-          checked
-            ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-            : "border-[1.5px] border-black/25 dark:border-white/25",
-        )}
-      >
-        {checked ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : null}
-      </span>
-    </button>
   );
 }
 
@@ -858,7 +782,7 @@ export function CheckInFlow({
         <div className={cn(CARD, "px-4")}>
           <div className={CONTACT_LIST_SCROLL_CLASS}>
             {filtered.map((recipient, index) => (
-              <ContactRow
+              <ContactRow userId={recipient.userId}
                 key={recipient.userId}
                 checked={checkedIds.includes(recipient.userId)}
                 ready={vm.isRecipientShareReady(recipient)}

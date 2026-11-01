@@ -681,7 +681,9 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     bridge = next(step for step in deploy["steps"] if step.get("id") == "resolve-sha")
     assert bridge["env"]["DEPLOY_SHA"] == "${{ needs.select-target.outputs.sha }}"
     validator = next(
-        step for step in deploy["steps"] if step["name"] == "Validate deployment SHA against main"
+        step
+        for step in deploy["steps"]
+        if step["name"] == "Validate deployment SHA in selected protected history"
     )
     assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
     assert (
@@ -2649,3 +2651,40 @@ def test_provider_selection_rejects_vertex_before_cloud_mutation(tmp_path, monke
     with pytest.raises(ValueError, match="qualified configured"):
         module.select({"ready": True, "selected_provider": "vertex"}, expected, tmp_path)
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "failure", ["provider_unavailable", "candidate_misconfigured", "application_broken", None]
+)
+@pytest.mark.parametrize(
+    "defect",
+    [None, "both_down", "image", "context", "runtime", "job", "execution", "unverified", "trust"],
+)
+def test_complete_vertex_bundle_qualifies_only_a_bound_azure_outage(failure, defect):
+    module = _managed_provider_gate()
+    expected, azure = _provider_fixture(module, "azure_openai")
+    _, vertex = _provider_fixture(module, "vertex")
+    azure.update(core_ready=False, execution_terminal="False", step_exit=1, pwm_trust="unverified")
+    if failure is not None:
+        azure["failure_classification"] = failure
+    if defect == "both_down":
+        vertex["core_ready"] = False
+    elif defect == "image":
+        azure["execution_image"] += "other"
+    elif defect == "context":
+        azure["context"] = {**expected, "github_run": "other"}
+    elif defect == "runtime":
+        azure["runtime_account"] = "other"
+    elif defect == "job":
+        azure["job"] = "other"
+    elif defect == "execution":
+        azure["execution"] = "other"
+    elif defect == "unverified":
+        azure["verified"] = False
+    elif defect == "trust":
+        azure["pwm_trust"] = "failed"
+    result = module.evaluate({"azure_openai": azure, "vertex": vertex}, expected)
+    allowed = failure == "provider_unavailable" and defect is None
+    assert result["ready"] is allowed
+    assert result["selected_provider"] == ("vertex" if allowed else None)
+    assert result["status"] == ("degraded_fallback" if allowed else "blocked")

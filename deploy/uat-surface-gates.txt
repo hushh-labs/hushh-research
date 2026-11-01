@@ -1,0 +1,8 @@
+# UAT-only gates for the shared deploy (read by scripts/deploy/backend-deploy.sh and deploy/calendar/setup_followup_scheduler.sh).
+# Exactly two value lines, in this order. Each UAT release builds from its commit, so every revision and the
+# scheduler job carry exactly the gates that were reviewed. Rollback = set both lines to false and run Deploy to UAT.
+#   calendar_email_followups: serves the Follow-ups routes and binds the existing CALENDAR_EMAIL_FOLLOWUP_KEY.
+#   calendar_email_followup_drain: opens the OIDC drain route and resumes its Cloud Scheduler job (needs the line above true).
+# Neither line turns monitoring on for anyone; each account still opts in itself.
+calendar_email_followups=true
+calendar_email_followup_drain=true

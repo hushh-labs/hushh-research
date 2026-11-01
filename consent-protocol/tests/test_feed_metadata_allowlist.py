@@ -12,7 +12,10 @@ location, then stopped", because the one field separating the two lanes was
 being filtered out.
 """
 
-from hushh_mcp.services.feed_service import _safe_feed_metadata
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+from hushh_mcp.services.feed_service import FeedService, _safe_feed_metadata
 
 
 class TestFeedMetadataAllowlist:
@@ -83,3 +86,32 @@ class TestFeedMetadataAllowlist:
             "current_payment_state": "refund_pending",
             "current_refund_amount_cents": 2500,
         }
+
+
+def test_feed_profile_reference_is_current_public_identity_not_internal_id() -> None:
+    service = FeedService()
+    service._db = Mock()
+    service._db.execute_raw.return_value = SimpleNamespace(
+        data=[
+            {
+                "feed_id": "41",
+                "counterpart_photo_url": None,
+                "counterpart_person_ref": "11111111-1111-4111-8111-111111111111",
+            },
+            {"feed_id": "42", "counterpart_photo_url": None},
+        ]
+    )
+    rows = [
+        {
+            "id": item_id,
+            "metadata": {"counterpart_person_ref": "stale", "counterpart_user_id": "private-uid"},
+        }
+        for item_id in (41, 42)
+    ]
+    items = [FeedService._to_item(row) for row in service._with_counterpart_photos("viewer", rows)]
+    assert items[0]["metadata"]["counterpart_person_ref"] == "11111111-1111-4111-8111-111111111111"
+    assert not items[1]["metadata"].get("counterpart_person_ref")
+    assert all("counterpart_user_id" not in item["metadata"] for item in items)
+    sql, params = service._db.execute_raw.call_args.args
+    assert "WHERE f.user_id = :user_id" in sql
+    assert params["user_id"] == "viewer"

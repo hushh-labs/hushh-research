@@ -952,7 +952,7 @@ describe("LocationImmersiveMap demo experience", () => {
       "3 people sharing with you. Fit them all on the map.",
     );
     fireEvent.click(jordanButton);
-    expect(jordanButton).toHaveClass(
+    expect(jordanButton.parentElement).toHaveClass(
       "bg-[var(--app-accent)]",
       "text-[var(--app-accent-fg)]",
     );
@@ -2866,7 +2866,7 @@ describe("LocationImmersiveMap reported map defects", () => {
   /** An incoming pin: someone who shares location back with this account. */
   function incomingMarker(ownerDisplayName: string, lat: number, lng: number) {
     return {
-      grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName },
+      grant: { id: `${ownerDisplayName}-incoming`, ownerDisplayName, ownerUserId: `${ownerDisplayName}-uid` },
       envelope: {
         id: `${ownerDisplayName}-envelope`,
         capturedAt: "2026-07-23T00:00:00.000Z",
@@ -2912,8 +2912,8 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
     await renderReadyMap();
     const people = await screen.findAllByTestId("one-location-map-person");
-    const firstStatus = within(people[0]).getByText(/^last seen/);
-    const secondStatus = within(people[1]).getByText(/^last seen/);
+    const firstStatus = within(people[0].parentElement!).getByText(/^last seen/);
+    const secondStatus = within(people[1].parentElement!).getByText(/^last seen/);
     fireEvent.click(people[0]);
     await waitFor(() => expect(firstStatus).toHaveClass("text-white"));
     expect(firstStatus).not.toHaveClass("text-muted-foreground");
@@ -3214,7 +3214,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(rows).toHaveLength(2);
     // min-h-11 is 44px, the platform minimum. Below it these rows are the kind
     // of target that needs two or three tries on a phone.
-    for (const row of rows) expect(row).toHaveClass("min-h-11");
+    for (const row of rows) expect(row.parentElement).toHaveClass("min-h-11");
   });
 
   it("gives Sharing its own row on phone widths", async () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import {
   useCallback,
@@ -436,9 +437,11 @@ function ContactsScreen({
                     className="flex items-center justify-between gap-3 rounded-2xl border border-[#e4e6e9] bg-white px-4 py-3 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
                   >
                     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-medium text-[#151b26] dark:text-[color:var(--app-label)]">
-                      <span data-location-type-role="row-description" className="min-w-0 truncate">
+                      <button type="button" data-location-type-role="row-description" className="min-w-0 truncate text-left"
+                        aria-label={`View ${match.displayName}'s profile`}
+                        onClick={event => openPersonProfilePreview({ userId: match.userId }, event.currentTarget)}>
                         {match.displayName}
-                      </span>
+                      </button>
                       {connected ? <ContactSourceBadge /> : null}
                     </span>
                     {requestRequired ? (

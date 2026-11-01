@@ -23,12 +23,18 @@ export type RequestRecovery = {
   tone: "terminal" | "retry";
   message: string;
   connect: boolean;
-  invite: boolean;
   copy: boolean;
 };
 
-const UNREACHABLE_ORGANIZER =
-  "The organizer isn't connected to you on One, so this request can't be delivered there. Connect with them or invite them, or copy your request and send it directly.";
+/** Requests go only to people the requester is connected to, so the fix is to connect. */
+export const NOT_CONNECTED_RECOVERY: RequestRecovery = {
+  tone: "terminal", message: "Connect with the organizer to request files", connect: true, copy: false,
+};
+export const PENDING_CONNECTION_TEXT = "Waiting for connection approval.";
+export const UNVERIFIED_ORGANIZER_RECOVERY: RequestRecovery = {
+  tone: "terminal", connect: false, copy: false,
+  message: "One can't confirm who this organizer is right now, so it can't send the request. Ask the organizer directly.",
+};
 
 /**
  * What to offer after a meeting-file request fails.
@@ -44,7 +50,7 @@ export function requestRecovery(
   const code = failure?.code;
   const reason = failure?.reason;
   const terminal = (message: string, actions: Partial<Omit<RequestRecovery, "tone" | "message">> = {}): RequestRecovery =>
-    ({ tone: "terminal", message, connect: false, invite: false, copy: false, ...actions });
+    ({ tone: "terminal", message, connect: false, copy: false, ...actions });
   if (code === "calendar_attendee_required") {
     switch (reason) {
       case "requester_is_organizer":
@@ -63,12 +69,12 @@ export function requestRecovery(
   if (code === "calendar_organizer_unavailable") {
     return reason === "organizer_missing"
       ? terminal("This meeting has no organizer One can reach. Copy your request and send it directly.", { copy: true })
-      : terminal(UNREACHABLE_ORGANIZER, { connect: true, invite: true, copy: true });
+      : NOT_CONNECTED_RECOVERY;
   }
-  if (code === "connection_required") return terminal(UNREACHABLE_ORGANIZER, { connect: true, invite: true, copy: true });
+  if (code === "connection_required") return NOT_CONNECTED_RECOVERY;
   const message = failure?.message || "Meeting request could not be sent.";
   // `sharing_unavailable` is a service-level condition: retry, or reach out directly.
-  return { tone: "retry", message, connect: false, invite: false, copy: code === "sharing_unavailable" };
+  return { tone: "retry", message, connect: false, copy: code === "sharing_unavailable" };
 }
 
 function meetingStatus(meeting: Meeting): string {

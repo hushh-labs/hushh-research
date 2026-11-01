@@ -516,7 +516,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
 
     expect(result.current.actionables[0].person).toEqual({
       displayName: "Meena Rao",
-      photoUrl: "https://example.test/meena.png",
+      photoUrl: "https://example.test/meena.png", userId: "advisor-1",
     });
   });
 
@@ -560,7 +560,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
 
     expect(result.current.actionables[0].person).toEqual({
       displayName: "Priya Nair",
-      photoUrl: "https://example.test/priya.png",
+      photoUrl: "https://example.test/priya.png", userId: "friend-1",
     });
     const row = result.current.actionables[0];
     expect(row.actions.map(action => action.key)).toEqual(["decline", "accept"]);

@@ -34,6 +34,7 @@ vi.mock("@/components/calendar/calendar-followups", () => ({ CalendarFollowups: 
 
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { DocumentRequestReviewRouter } from "@/components/consent/calendar-meeting-review-card";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService } from "@/lib/services/cache-service";
 import { CalendarInsightsRequestError, CalendarInsightsService } from "@/lib/services/calendar-insights-service";
@@ -217,15 +218,66 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     expect(world.requests.size).toBe(2);
   });
 
-  it("creates nothing and offers no Send when the organizer cannot be reached", async () => {
+  it("offers no Send, and creates nothing, until the requester is connected to the organizer", async () => {
     world.organizerConnected = false;
     const requester = mountRequester();
-    await requesterSends(requester.ui, ["Recording"]);
-    expect(requester.ui.getByTestId("calendar-request-recovery")).toBeInTheDocument();
+    await openLibrary(requester.ui);
+    fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
+    await advance(50);
+    expect(requester.ui.getByTestId("calendar-request-recovery")).toHaveTextContent("Connect with the organizer to request files");
+    expect(requester.ui.getByRole("link", { name: "Connect" })).toHaveAttribute("href", "/one/connect");
+    for (const name of [/^(Send request|Try again)$/, "Request recording or notes", "Copy request", "Invite to One"])
+      expect(requester.ui.queryByRole("button", { name })).toBeNull();
+    expect(requester.ui.queryByRole("textbox", { name: "Request to send to the organizer" })).toBeNull();
+    expect(world.requests.size).toBe(0);
+    expect(world.feedFor(world.organizer)).toEqual([]);
+    expect(world.sentBodies).toEqual([]);
+  });
+
+  it("waits for a pending connection, then a durable request reaches the organizer's Feed once accepted", async () => {
+    world.organizerConnected = false;
+    world.connectionPending = true;
+    const requester = mountRequester();
+    await openLibrary(requester.ui);
+    fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
+    await advance(50);
+    expect(requester.ui.getByText("Waiting for connection approval.")).toBeInTheDocument();
+    expect(requester.ui.queryByRole("button", { name: "Request recording or notes" })).toBeNull();
+
+    // The organizer accepts. The requester's page learns of it from the Feed change, not a reload.
+    world.organizerConnected = true;
+    act(() => dispatchFeedStateChanged("arrived"));
+    await advance(50);
+    expect(requester.ui.queryByText("Waiting for connection approval.")).toBeNull();
+    fireEvent.click(requester.ui.getByRole("button", { name: "Request recording or notes" }));
+    fireEvent.click(requester.ui.getByRole("checkbox", { name: "Recording" }));
+    fireEvent.click(requester.ui.getByRole("button", { name: "Review request" }));
+    fireEvent.click(requester.ui.getByRole("button", { name: "Send request" }));
+    await advance(50);
+
+    expect(world.requests.size).toBe(1);
+    expect(world.feedFor(world.organizer)).toEqual([world.request().requestId]);
+    expect(world.request()).toMatchObject({ requester: world.requester.userId, organizer: world.organizer.userId,
+      recipientEmail: world.requester.googleEmail, occurrenceId: world.target.occurrenceId, types: ["recording"] });
+    expect(requester.ui.getAllByText(SENT).length).toBeGreaterThan(0);
+  });
+
+  it("a connection revoked after the check is still refused by the server at Send", async () => {
+    const requester = mountRequester();
+    await openLibrary(requester.ui);
+    fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
+    await advance(50);
+    fireEvent.click(requester.ui.getByRole("button", { name: "Request recording or notes" }));
+    fireEvent.click(requester.ui.getByRole("checkbox", { name: "Recording" }));
+    fireEvent.click(requester.ui.getByRole("button", { name: "Review request" }));
+    world.organizerConnected = false;
+    fireEvent.click(requester.ui.getByRole("button", { name: "Send request" }));
+    await advance(50);
+    expect(world.sentBodies).toHaveLength(1);
+    expect(requester.ui.getByTestId("calendar-request-recovery")).toHaveTextContent("Connect with the organizer to request files");
     expect(requester.ui.queryByRole("button", { name: /^(Send request|Try again)$/ })).toBeNull();
     expect(world.requests.size).toBe(0);
     expect(world.feedFor(world.organizer)).toEqual([]);
-    expect(world.sentBodies).toHaveLength(1);
   });
 
   it("shows request details only to the addressed organizer", async () => {

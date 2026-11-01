@@ -73,7 +73,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     const onCheckIn = vi.fn<LocationHubViewModel["onCheckIn"]>().mockResolvedValue({succeededRecipientIds:["user-aarav"],failedRecipientIds:[]});
     const vm = viewModel(onCheckIn);
     render(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button",{name:/Aarav Mehta/}));
+    fireEvent.click(screen.getByRole("button",{name:/^(?!View ).*Aarav Mehta/}));
     const note = screen.getByPlaceholderText("I've checked in here, let's catch up");
     fireEvent.change(note,{target:{value:"Synthetic private note"}});
     const first = await prepareLocalOnboardingAction("location.send_check_in",{});
@@ -113,8 +113,8 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     const firstSend=vi.fn<LocationHubViewModel["onCheckIn"]>().mockResolvedValue({succeededRecipientIds:["user-aarav"],failedRecipientIds:["user-maya"]});
     const vm=viewModel(firstSend);
     const firstScreen=render(<CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()}/>);
-    fireEvent.click(screen.getByRole("button",{name:/Aarav Mehta/}));
-    fireEvent.click(screen.getByRole("button",{name:/Maya Chen/}));
+    fireEvent.click(screen.getByRole("button",{name:/^(?!View ).*Aarav Mehta/}));
+    fireEvent.click(screen.getByRole("button",{name:/^(?!View ).*Maya Chen/}));
     fireEvent.change(screen.getByPlaceholderText("I've checked in here, let's catch up"),{target:{value:"Synthetic original note"}});
     let prepared=await prepareLocalOnboardingAction("location.send_check_in",{});
     if (prepared?.status!=="ready" || !prepared.privateContinuation) throw Error("Expected retained draft");
@@ -184,7 +184,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     expect(screen.queryByText("Trusted")).not.toBeInTheDocument();
     expect(screen.getByText("Family")).toBeInTheDocument();
     expect(screen.getByText("SMS Circle")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ })).toBeEnabled();
   });
 
   it("hides someone else's SMS Circle from private Check-In", () => {
@@ -238,7 +238,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     expect(screen.getByTestId("check-in-map-reset-key")).toHaveTextContent(
       "check-in:0",
     );
-    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ }));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Share location with 1 person",
@@ -285,8 +285,8 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       screen.getByRole("button", { name: "Choose who to tell" }),
     ).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Maya Chen/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Maya Chen/ }));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Share location with 2 people",
@@ -314,7 +314,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
     const retry = await screen.findByRole("button", {
       name: "Share location with 1 person",
     });
-    expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "30 min" })).toBeDisabled();
     expect(
       screen.getByPlaceholderText("I've checked in here, let's catch up"),
@@ -364,8 +364,8 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Maya Chen/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Maya Chen/ }));
     await act(async () => {
       fireEvent.click(
         screen.getByRole("button", {
@@ -401,8 +401,8 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       }),
     );
 
-    expect(screen.getByRole("button", { name: /Aarav Mehta/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Maya Chen/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^(?!View ).*Maya Chen/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "30 min" })).toBeEnabled();
     expect(
       screen.getByPlaceholderText("I've checked in here, let's catch up"),
@@ -426,7 +426,7 @@ describe("CheckInFlow nearby private-sharing handoff", () => {
       <CheckInFlow vm={vm} entrySource="nearby" onClose={vi.fn()} />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Aarav Mehta/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(?!View ).*Aarav Mehta/ }));
     fireEvent.click(
       screen.getByRole("button", {
         name: "Share location with 1 person",

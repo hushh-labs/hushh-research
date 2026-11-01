@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 import re
 from datetime import datetime, timezone
@@ -29,6 +28,7 @@ from auth_health_uat_common import (
     _job_parts,
     _refuse,
     _raise_unresolved_mutation,
+    scheduler_matches,
     _validate_owner,
     _verified_image,
     _verify_job,
@@ -278,26 +278,6 @@ def _job_invoker(api, clock_email: str) -> dict:
     return {"state": "added", "member": member, "role": role}
 
 
-def _scheduler_matches(job: dict, name: str, operation: str, clock_email: str) -> bool:
-    target = job.get("httpTarget", {})
-    oauth = target.get("oauthToken", {})
-    retry = job.get("retryConfig", {})
-    return (
-        job.get("name") == name
-        and job.get("description") == f"Hussh auth-health operation {operation}"
-        and job.get("schedule") == SCHEDULE
-        and job.get("timeZone") == "Etc/UTC"
-        and target.get("uri") == f"https://run.googleapis.com/v2/{JOB_RESOURCE}:run"
-        and target.get("httpMethod") == "POST"
-        and target.get("body") == base64.b64encode(b"{}").decode("ascii")
-        and target.get("headers") == {"Content-Type": "application/json"}
-        and oauth.get("serviceAccountEmail") == clock_email
-        and oauth.get("scope") == "https://www.googleapis.com/auth/cloud-platform"
-        and retry.get("retryCount", 0) in {0, "0"}
-        and job.get("attemptDeadline") in {"30s", "30.000s"}
-    )
-
-
 def _activation_context(
     run, api, build_id: str, source: str, execution_name: str
 ) -> dict:
@@ -325,7 +305,7 @@ def _read_scheduler(api, name: str, clock_email: str) -> tuple[str, dict | None]
     schedule_url = f"https://cloudscheduler.googleapis.com/v1/{name}"
     scheduler = health._existing_resource(api, schedule_url, name)
     if scheduler is not None:
-        if not _scheduler_matches(scheduler, name, OPERATION, clock_email):
+        if not scheduler_matches(scheduler, name, OPERATION, clock_email, JOB_RESOURCE):
             _refuse("existing timer does not match the exact owned hourly target")
         if scheduler.get("state") not in {"ENABLED", "PAUSED"}:
             _refuse("existing timer is in an unresolved state")
@@ -428,7 +408,7 @@ def _activate_scheduler(
     if (
         observed is None
         or observed.get("state") != "ENABLED"
-        or not _scheduler_matches(observed, name, OPERATION, clock_email)
+        or not scheduler_matches(observed, name, OPERATION, clock_email, JOB_RESOURCE)
     ):
         intent["phase"] = "activation-unresolved"
         _write_receipt(receipt_path, intent)

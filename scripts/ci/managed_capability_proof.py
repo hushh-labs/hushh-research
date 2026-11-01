@@ -210,9 +210,10 @@ def sanitize_probe_history(value: Any, *, provider: str) -> list[dict]:
         ):
             raise ValueError("Capability failure reason owner mismatch")
         if provider == "azure_openai" and (
-            name not in CAPABILITY_PROBES | {"primary_http"} or len(attempts) != 1
+            name not in CAPABILITY_PROBES | {"primary_http"}
+            or len(attempts) != 1 and name != "primary_http"
         ):
-            raise ValueError("Azure readiness has no retry")
+            raise ValueError("Azure readiness allows one primary transport repeat only")
         if provider == "vertex" and name == "primary_http":
             raise ValueError("Probe history provider mismatch")
         if name in CAPABILITY_PROBES and attempts[0]["ok"]:
@@ -300,10 +301,23 @@ def execution_diagnostics(provider: str, values: list[dict]) -> dict:
                 history.append({"probe": p["probe"], "attempts": attempts})
     else:
         stages = [v for v in values if v.get("azure_pwm_runtime_probe_stage") == "primary_http"]
-        if len(stages) > 1:
+        stages.sort(key=lambda row: row.get("attempt", 1))
+        if (len(stages) > 2
+            or any(type(row.get("attempt", 1)) is not int for row in stages)
+            or len(stages) == 1 and stages[0].get("result") == "transport_retry"
+            or stages and [row.get("attempt", 1) for row in stages] != list(range(1, len(stages) + 1))
+            or len(stages) == 2 and (
+                stages[0].get("result") != "transport_retry"
+                or stages[0].get("classification") != "provider_unavailable"
+                or stages[1].get("result") not in {"ok", "failed"}
+            )):
             raise ValueError("Ambiguous Azure readiness history")
-        if len(stages) == 1 and "elapsed_ms" in stages[0]:
-            stage = stages[0]
+        attempts = []
+        for stage in stages:
+            if "elapsed_ms" not in stage:
+                if len(stages) == 2:
+                    raise ValueError("Azure retry timing is missing")
+                continue
             attempt = {
                 "ok": stage.get("result") == "ok",
                 "classification": stage.get("classification", "dependency_ok"),
@@ -312,7 +326,9 @@ def execution_diagnostics(provider: str, values: list[dict]) -> dict:
             for key in ("error_type", "failure_stage", "phase_ms", "deadline_expired"):
                 if key in stage:
                     attempt[key] = stage[key]
-            history.append({"probe": "primary_http", "attempts": [attempt]})
+            attempts.append(attempt)
+        if attempts:
+            history.append({"probe": "primary_http", "attempts": attempts})
         history.extend(_azure_capability_failures(values))
     if history:
         result["probe_history"] = sanitize_probe_history(history, provider=provider)
@@ -325,12 +341,24 @@ def verified_diagnostics(value: dict, *, provider: str) -> dict:
     return {"probe_history": sanitize_probe_history(value["probe_history"], provider=provider)}
 
 
-def readiness_diagnostics(value: dict, *, provider: str, valid: bool, ready: bool) -> dict:
+def readiness_diagnostics(
+    value: dict, *, provider: str, valid: bool, ready: bool
+) -> dict:
     return {
         "ready": ready,
         "reason": value.get("reason", "unverified") if valid else "missing_or_misbound",
         "capabilities": value.get("capabilities", {}) if valid else {},
         "classifications": value.get("capability_classifications", {}) if valid else {},
+        **(
+            {"failure_classification": value["failure_classification"]}
+            if valid
+            and value.get("verified") is True
+            and value.get("execution_terminal") == "False"
+            and value.get("step_exit") != 0
+            and value.get("failure_classification")
+            in {"provider_unavailable", "candidate_misconfigured", "application_broken"}
+            else {}
+        ),
         **(
             verified_diagnostics(value, provider=provider)
             if valid and value.get("verified") is True

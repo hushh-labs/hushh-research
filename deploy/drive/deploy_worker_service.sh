@@ -345,10 +345,19 @@ echo "Verified all three complete Drive worker scheduler configurations"
 record_stage_timing scheduler_configuration "${stage_started}"
 
 stage_started=${SECONDS}
+# Dispatch the fixed stages before collecting their receipts. They already share
+# the same cron minute and the worker's concurrency/instance bounds still apply.
+# Waiting for each receipt before dispatching the next adds three indexing waits.
+scheduler_trigger_times=()
 for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
-  triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  scheduler_trigger_times+=("$(date -u +'%Y-%m-%dT%H:%M:%SZ')")
   gcloud scheduler jobs run "${fixed_job}" \
     --project="${PROJECT_ID}" --location="${REGION}" --quiet
+done
+scheduler_job_index=0
+for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
+  triggered_at="${scheduler_trigger_times[${scheduler_job_index}]}"
+  scheduler_job_index=$((scheduler_job_index + 1))
   verified=false
   # Scheduler and Cloud Run each allow a 240-second attempt; wait through the
   # full bounded execution plus log-delivery margin before declaring failure.

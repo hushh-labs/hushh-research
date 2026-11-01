@@ -132,11 +132,8 @@ Production retains that application's UAT receipt. A distinct `main_approval_sha
 must incorporate the application with an identical Git tree and Main smoke;
 see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
 
-UAT:
-
-```bash
-gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<landed-main-sha>
-```
+For direct UAT qualification and dispatch, follow the
+[UAT-scoped deploy procedure](../../uat-scoped-deploy/SKILL.md).
 
 Production:
 

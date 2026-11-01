@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "@/components/icons";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
   const [loading, setLoading] = useState(() => !invitationSnapshot(resourceKey));
   const [actionBusy, setActionBusy] = useState(false);
   const people = useMemo(() => calendarEventPeople(calendarPeople ?? EMPTY_CALENDAR_PEOPLE, data?.people, userId), [calendarPeople, data?.people, userId]);
+  const profileUserIds = useMemo(() => new Set(actionBusy ? [] : [...calendarPeople?.values() ?? []].map(person => person.userId).filter(id => id !== userId)), [actionBusy, calendarPeople, userId]);
   const actionBusyRef = useRef(false);
   const updateBusy = (value: boolean) => { actionBusyRef.current = value; setActionBusy(value); onBusyChange?.(value); };
   const [selectedId, setSelectedId] = useState(initialEventId && initialCalendarId ? `${initialCalendarId}:${initialEventId}` : null);
@@ -116,9 +118,9 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
             const organizer = invitationPersonName(organizerPerson, event.organizer?.displayName, event.organizer?.email) || "Organizer";
             const response = statusLabel(event);
             const husshPhoto = organizerPerson?.photoUrl ?? null;
-            return <li key={`${event.calendar_id}:${event.id}`}><button type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>
-              <InvitationDate event={event} zone={zone} /><span className={styles.copy}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span><span className={styles.organizer}><InvitationAvatar name={organizer} email={event.organizer?.email} photoUrl={husshPhoto} /><span className={styles.copy}><span>{organizer}</span>{organizer !== event.organizer?.email ? <span className={styles.muted}>{event.organizer?.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-4 shrink-0" />Overlaps {event.conflicts[0]?.title || "another meeting"}</span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
-            </button></li>;
+            return <li key={`${event.calendar_id}:${event.id}`}><PersonSelectionSurface type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>
+              <InvitationDate event={event} zone={zone} /><span className={styles.copy}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span><span className={styles.organizer}><InvitationAvatar userId={organizerPerson && profileUserIds.has(organizerPerson.userId) ? organizerPerson.userId : undefined} name={organizer} email={event.organizer?.email} photoUrl={husshPhoto} /><span className={styles.copy}><span>{organizer}</span>{organizer !== event.organizer?.email ? <span className={styles.muted}>{event.organizer?.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-4 shrink-0" />Overlaps {event.conflicts[0]?.title || "another meeting"}</span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
+            </PersonSelectionSurface></li>;
           })}</ul>}
         </div>
         <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) close(); }}>
@@ -126,7 +128,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
           <DialogTitle className="sr-only">Invitation details</DialogTitle>
           {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
-          <CalendarInvitationDetail event={selected} zone={zone} people={people} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
+          <CalendarInvitationDetail event={selected} zone={zone} people={people} profileUserIds={profileUserIds} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
           <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP

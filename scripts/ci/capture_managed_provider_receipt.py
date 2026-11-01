@@ -153,7 +153,17 @@ def from_entries(entries, expected, document, step_label):
     )
     if hasattr(readiness, "configured_provider"):
         configured = readiness.configured_provider(document)
-        preferred = configured if providers[configured]["ready"] else None
+        preferred = (
+            readiness.qualified_provider(
+                providers,
+                configured,
+                trust_failed=aggregate.get("pwm_trust") == "failed",
+            )
+            if hasattr(readiness, "qualified_provider")
+            else configured
+            if providers[configured]["ready"]
+            else None
+        )
     else:
         # Historical candidate tooling had an Azure-only release contract.
         preferred = "azure_openai" if providers["azure_openai"]["ready"] else None
@@ -167,6 +177,13 @@ def from_entries(entries, expected, document, step_label):
         == sorted(document["managed_runtime_uat"]["required_capabilities"]),
         "provider_readiness_unverified",
     )
+    if hasattr(readiness, "qualified_provider"):
+        expected_status = "healthy" if preferred == configured else "degraded_fallback"
+        require(
+            aggregate.get("status") == expected_status
+            or "status" not in aggregate and preferred == configured,
+            "provider_status_invalid",
+        )
     chosen = selection.get("managed_provider_selection", {})
     require(
         chosen.get("status") == "verified"
@@ -202,6 +219,16 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
         p: {
             "ready": providers[p]["ready"],
             **(
+                {"failure_classification": providers[p]["failure_classification"]}
+                if providers[p].get("failure_classification")
+                in {
+                    "provider_unavailable",
+                    "candidate_misconfigured",
+                    "application_broken",
+                }
+                else {}
+            ),
+            **(
                 readiness._capability_proof().verified_diagnostics(
                     providers[p], provider=p
                 )
@@ -211,6 +238,8 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
         }
         for p in sorted(readiness.PROVIDERS)
     }
+    if "status" in aggregate:
+        result["status"] = aggregate["status"]
     return {
         "readiness": result,
         "selection": {

@@ -267,6 +267,9 @@ elif args[:3] == ["scheduler", "jobs", "run"]:
     state.setdefault("triggered", []).append(args[3])
     save()
 elif args[:2] == ["logging", "read"]:
+    # Every authorized trigger must precede receipt polling; otherwise the
+    # release pays an independent log-indexing wait for each stage.
+    state.setdefault("first_log_triggered", list(state.get("triggered", [])))
     query = args[2]
     timestamp_term = next((term.strip() for term in query.split(" AND ")
                            if term.strip().startswith("timestamp>=")), "")

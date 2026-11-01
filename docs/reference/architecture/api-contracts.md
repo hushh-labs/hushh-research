@@ -1,5 +1,16 @@
 # API Contracts
 
+## Feed counterpart profile presentation
+
+Feed metadata may include `counterpart_person_ref`, resolved at read time from
+the viewer-scoped retained counterpart mapping and `actor_profiles`. This is
+the same public reference accepted by `/people/[personRef]`; internal user IDs
+remain excluded from the Feed DTO. Missing or erased profiles clear the
+reference, including when the older-schema fallback runs. Profile viewing uses
+the existing public profile and authenticated relationship/consent endpoints;
+it grants no access to shared information by itself. No schema migration or new
+route is required.
+
 ## Finance sharing with connections
 
 `FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.
@@ -1714,7 +1725,19 @@ The old PUT remains a historical personal receipt operation; it cannot choose th
 managed UAT processor. Updated clients expose read-only processing information.
 
 All UAT users use the administrator managed-text policy for One text chat
-and semantic document requests. One text chat requires Azure and never falls back to Gemini. Candidate readiness requires the complete Azure application bundle; Vertex Drive-only evidence cannot authorize One. Drive retains its separately bounded alternate transport. Partial text-only readiness does not certify Voice,
+and semantic document requests. Azure is primary. A classified transport or quota
+failure may use one bounded Vertex alternate only before the model emits any
+response, including a tool call; the Runner and tools are never replayed. Authority,
+identity-denial, content-filter, schema and configuration failures remain terminal.
+A classified token-service timeout, network failure, 429 or 5xx may use the
+alternate; an invalid token, tenant/client configuration or 401/403 remains blocking.
+Every alternate attempt emits the fixed `managed_text.fallback` event with its
+reason, run correlation and `provider_fallback` drift tag; completion identifies
+the actual provider. Candidate readiness accepts a complete Azure bundle, or a
+complete Vertex bundle after a verified Azure `provider_unavailable` verdict,
+recorded as `degraded_fallback`. Missing/misbound evidence, semantic or PWM trust
+failures and failure of both providers still block. Drive-only or partial
+text readiness cannot qualify the full application. Partial text-only readiness does not certify Voice,
 media or other capabilities. `/api/one/models/preference` projects the
 central deployment as effective, with `source:administrator_policy`; old saved
 choices remain visible as history. Selection writes return `MODEL_MANAGED_BY_POLICY`.
@@ -1727,8 +1750,8 @@ with a fixed rephrasing notice and `retryable:false`. It remains a terminal erro
 classified as a refusal; partial output never becomes a completed answer.
 An explicit Azure SSE `rate_limit_exceeded` error without an HTTP error status
 emits the existing retryable `RESOURCE_EXHAUSTED` capacity notice. Telemetry
-records `quota` while preserving the unknown HTTP status as zero; no automatic
-replay or alternate provider is introduced.
+records `quota` while preserving the unknown HTTP status as zero. The bounded
+pre-output alternate rule above applies; a partial answer is never replayed.
 Managed UAT fleet aliases resolve through the selected Azure compatibility port;
 responses and telemetry retain the actual model/provider. BYOK remains explicit.
 

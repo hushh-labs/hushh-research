@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useRef, useState, type ReactNode } from "react";
 import { MoreHorizontal, Trash2 } from "@/components/icons";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -19,7 +20,7 @@ export function DirectMessageInboxRow({ label, active, disabled, onOpen, onDelet
   const hold = useLongPress(disabled || menuOpen, true);
   return <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
     <div className={styles.conversationItem} role="group" aria-label={`${label} chat`}>
-      <button type="button" className={styles.conversationRow} data-active={active ? "true" : undefined}
+      <PersonSelectionSurface type="button" className={styles.conversationRow} aria-label={label} data-active={active ? "true" : undefined}
         disabled={disabled}
         onPointerDown={(event) => {
           held.current = false;
@@ -32,7 +33,7 @@ export function DirectMessageInboxRow({ label, active, disabled, onOpen, onDelet
           onOpen();
         }}>
         {children}
-      </button>
+      </PersonSelectionSurface>
       <DropdownMenuTrigger asChild>
         <button type="button" className={styles.conversationOptions} aria-label="Chat options" disabled={disabled}>
           <MoreHorizontal className="size-5" aria-hidden="true" />

@@ -1,9 +1,11 @@
 """The real record path accepts authored Vertex probes and keeps history closed."""
 
+import json
 import sys
 
 import pytest
 
+from tests.scripts.test_managed_provider_receipt import _provider_capture_fixture
 from tests.test_uat_deploy_no_traffic_contract import _managed_provider_gate, _provider_fixture
 
 
@@ -164,3 +166,141 @@ def test_vertex_capability_failure_survives_collection_without_private_payloads(
         diagnostics["probe_history"][0]["attempts"][0]["failure_reason"] == "root.roundtrip_failed"
     )
     assert "SYNTHETIC_PRIVATE_PROVIDER_BODY" not in str(diagnostics)
+
+
+@pytest.mark.parametrize(
+    "classification", ["provider_unavailable", "candidate_misconfigured", "application_broken"]
+)
+def test_capture_accepts_only_qualified_degraded_provider_receipt(monkeypatch, classification):
+    collector, expected, document, label, entries, _ = _provider_capture_fixture(
+        monkeypatch, vertex=True
+    )
+    gate = _managed_provider_gate()
+    _, azure = _provider_fixture(gate, "azure_openai", document=document)
+    _, vertex = _provider_fixture(gate, "vertex", document=document)
+    azure.update(
+        core_ready=False,
+        execution_terminal="False",
+        step_exit=1,
+        pwm_trust="unverified",
+        failure_classification=classification,
+    )
+    aggregate = gate.evaluate(
+        {"azure_openai": azure, "vertex": vertex}, expected, document=document
+    )
+    for entry in entries[:2]:
+        entry["textPayload"] = label + ": " + json.dumps({"managed_provider_readiness": aggregate})
+    selection = json.loads(entries[2]["textPayload"][len(label) + 2 :])
+    selection["managed_provider_selection"]["provider"] = "vertex"
+    entries[2]["textPayload"] = label + ": " + json.dumps(selection)
+    if classification != "provider_unavailable":
+        with pytest.raises(collector.ReceiptError, match="provider_readiness_unverified"):
+            collector.from_entries(entries, expected, document, label)
+        return
+    result = collector.from_entries(entries, expected, document, label)
+    assert result["readiness"]["status"] == "degraded_fallback"
+    assert result["readiness"]["selected_provider"] == "vertex"
+    assert (
+        result["readiness"]["providers"]["azure_openai"]["failure_classification"] == classification
+    )
+
+
+@pytest.mark.parametrize(
+    "result,classification",
+    [
+        ("ok", "dependency_ok"),
+        ("failed", "provider_unavailable"),
+        ("failed", "candidate_misconfigured"),
+    ],
+)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_primary_transport_repeat_is_collected_without_erasing_either_outcome(
+    result, classification, reverse
+):
+    helper = _managed_provider_gate()._capability_proof()
+    rows = [
+        {
+            "azure_pwm_runtime_probe_stage": "primary_http",
+            "result": "transport_retry",
+            "attempt": 1,
+            "classification": "provider_unavailable",
+            "elapsed_ms": 30000,
+            "error_type": "TimeoutError",
+        },
+        {
+            "azure_pwm_runtime_probe_stage": "primary_http",
+            "result": result,
+            "attempt": 2,
+            "classification": classification,
+            "elapsed_ms": 2000,
+        },
+    ]
+    history = helper.execution_diagnostics("azure_openai", rows[::-1] if reverse else rows)[
+        "probe_history"
+    ][0]
+    assert [r["classification"] for r in history["attempts"]] == [
+        "provider_unavailable",
+        classification,
+    ]
+    assert history.get("recovered_after_retry", False) is (result == "ok")
+
+
+@pytest.mark.parametrize(
+    "defect", ["duplicate", "third", "orphan", "semantic_retry", "success_retry"]
+)
+def test_primary_retry_collection_rejects_missing_or_unauthorized_lineage(defect):
+    helper = _managed_provider_gate()._capability_proof()
+    first = {
+        "azure_pwm_runtime_probe_stage": "primary_http",
+        "result": "transport_retry",
+        "attempt": 1,
+        "classification": "provider_unavailable",
+        "elapsed_ms": 30000,
+    }
+    second = {**first, "result": "ok", "attempt": 2, "classification": "dependency_ok"}
+    rows = [first, second]
+    if defect == "duplicate":
+        rows.append(first)
+    elif defect == "third":
+        rows.append({**second, "attempt": 3})
+    elif defect == "orphan":
+        rows = [second]
+    elif defect == "semantic_retry":
+        first["classification"] = "candidate_misconfigured"
+    else:
+        first["result"] = "ok"
+    with pytest.raises(ValueError):
+        helper.execution_diagnostics("azure_openai", rows)
+
+
+@pytest.mark.parametrize("stage", ["federation", "primary_http", "response_validation"])
+def test_collector_keeps_azure_failure_stage_without_claiming_recovery(stage):
+    helper = _managed_provider_gate()._capability_proof()
+    timing = {
+        "credential_setup": 2000,
+        "token_acquisition": 1000,
+        "primary_http": 27001,
+        "response_validation": 0,
+    }
+    metadata = {
+        "classification": "provider_unavailable",
+        "elapsed_ms": 30001,
+        "error_type": "TimeoutError",
+        "failure_stage": stage,
+        "phase_ms": timing,
+        "deadline_expired": True,
+    }
+    result = helper.execution_diagnostics(
+        "azure_openai",
+        [
+            {
+                **metadata,
+                "azure_pwm_runtime_probe_stage": "primary_http",
+                "result": "failed",
+                "error": "PRIVATE_PROVIDER_BODY",
+            }
+        ],
+    )
+    assert result == {
+        "probe_history": [{"probe": "primary_http", "attempts": [{"ok": False, **metadata}]}]
+    }

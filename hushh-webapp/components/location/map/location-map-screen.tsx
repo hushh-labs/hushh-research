@@ -1,5 +1,7 @@
 "use client";
 
+import { connectionAvatarInitials as initialsFor } from "@/components/connections/connection-person-avatar";
+
 /**
  * `/one/location/map` — Your Map, for the voice-first Location area.
  *
@@ -17,6 +19,7 @@
  * control back to Location.
  */
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -94,17 +97,6 @@ export type DecodedMarker = {
 };
 
 export type MapFocus = { kind: "self" } | { kind: "grant"; grantId: string };
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1)
-    return (parts[0] ?? "").slice(0, 2).toUpperCase() || "?";
-  return (
-    `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase() ||
-    "?"
-  );
-}
 
 function ownerName(grant: OneLocationGrant): string {
   return grant.ownerDisplayName?.trim() || "Someone";
@@ -589,7 +581,7 @@ export function LocationMapScreen() {
                 focus.kind === "grant" && focus.grantId === row.grant.id;
               return (
                 <li key={row.grant.id}>
-                  <button
+                  <PersonSelectionSurface
                     type="button"
                     onClick={() => {
                       setFocus({ kind: "grant", grantId: row.grant.id });
@@ -602,7 +594,7 @@ export function LocationMapScreen() {
                       selected && "ring-2 ring-[color:var(--app-accent)]",
                     )}
                   >
-                    <AvatarBubble
+                    <AvatarBubble userId={row.grant.ownerUserId}
                       initials={initialsFor(ownerName(row.grant))}
                       imageUrl={row.grant.ownerPhotoUrl}
                       size={32}
@@ -624,7 +616,7 @@ export function LocationMapScreen() {
                     >
                       {fresh.state === "live" ? "Live" : "Paused"}
                     </StatusPill>
-                  </button>
+                  </PersonSelectionSurface>
                 </li>
               );
             })}

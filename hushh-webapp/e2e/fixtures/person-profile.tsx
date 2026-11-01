@@ -4,11 +4,10 @@ import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { HelperText, RowLabel } from "@/components/app-ui/typography";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
-import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { PersonProfileHero, PersonProfileTaskContent, PersonProfileEmptyState } from "@/components/connections/person-profile-hero";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { PersonInformationRequestDialog } from "@/components/connections/person-information-request-dialog";
 import { FileText, MessageCircle, ShieldCheck, CreditCard, Share2, Settings, ChevronRight, ChevronDown, LockKeyhole, Mail, Phone } from "@/components/icons";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
 import { SectionCard, StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
@@ -16,18 +15,19 @@ import type { RequestablePersonScope } from "@/lib/services/person-profile-servi
 import styles from "@/components/connections/person-profile-page.module.css";
 
 // Production presentation primitives and catalog, with synthetic public details.
-// Authority, request dialogs and service lifetimes belong to the component tests.
-const items: ConsentScopeItem[] = ["Professional", "Financial", "Location", "Interests", "Personal", "Education", "Contact"].map((label) => ({
+// Authority and service lifetimes belong to the component tests. The review uses
+// its production presentation with a synthetic acknowledgement only.
+const items: ConsentScopeItem[] = ["Professional", "Financial", "Location", "Interests", "Personal", "Education", "Contact"].flatMap((label) => [{
   id: `synthetic-${label}`, label: `${label} details`, domainKey: label.toLowerCase(),
   domainLabel: label, pathSegments: ["details"], searchText: `${label} details`.toLowerCase(),
-}));
+}, {
+  id: `synthetic-${label}-summary`, label: `${label} summary`, domainKey: label.toLowerCase(),
+  domainLabel: label, pathSegments: ["summary"], searchText: `${label} summary`.toLowerCase(),
+}]);
 const reviewScope: RequestablePersonScope = {
   scopeRef: "synthetic-wallet-summary",
   label: "Wallet summary with a long unbroken reference 123456789012345678901234567890",
-  description: null,
-  domain: "wallet",
-  sensitivity: "VerySensitiveClassificationLabel",
-  wildcard: true,
+  description: null, domain: "wallet", sensitivity: "VerySensitiveClassificationLabel", wildcard: true,
 };
 
 function Fixture() {
@@ -35,6 +35,7 @@ function Fixture() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState(168);
+  const [sent, setSent] = useState(false);
   return <AppPageShell width="agent" fitContent>
     <div className={styles.page} data-profile-fixture>
       <PersonProfileHero
@@ -76,23 +77,13 @@ function Fixture() {
         </SectionCard>
       </section>
       <div className={styles.review}><Button size="compact" data-id="review" onClick={() => setReviewOpen(true)}>Review request</Button></div>
+      {sent ? <p role="status">Sample request sent</p> : null}
     </div>
-    <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
-      <DialogContent className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]">
-        <DialogHeader className="shrink-0 pr-8 text-left">
-          <DialogTitle className="[overflow-wrap:anywhere]">Request information from Aarav Sharma</DialogTitle>
-          <DialogDescription>They&rsquo;ll see what you request, why, and for how long.</DialogDescription>
-        </DialogHeader>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
-          <InformationRequestReviewFields scopes={[reviewScope]} purpose={purpose} durationHours={durationHours}
-            onPurposeChange={setPurpose} onDurationChange={setDurationHours} />
-        </div>
-        <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
-          <Button type="button" variant="none" effect="fade" onClick={() => setReviewOpen(false)}>Cancel</Button>
-          <Button type="button" variant="blue-gradient" effect="fill" disabled={purpose.trim().length < 8}>Send request</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <PersonInformationRequestDialog open={reviewOpen} onOpenChange={setReviewOpen} displayName="Aarav Sharma"
+      scopes={selectedIds.size ? items.filter(item => selectedIds.has(item.id)).map(item => ({ scopeRef: item.id, label: item.label, domain: item.domainKey, description: null, sensitivity: "sensitive", wildcard: false })) : [reviewScope]}
+      purpose={purpose} durationHours={durationHours} onPurposeChange={setPurpose} onDurationChange={setDurationHours}
+      requesting={false} canSubmit={selectedIds.size > 0 && purpose.trim().length >= 8}
+      onSubmit={() => { setSent(true); setReviewOpen(false); }} />
   </AppPageShell>;
 }
 

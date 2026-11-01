@@ -23,15 +23,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { PersonInformationRequestDialog } from "./person-information-request-dialog";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { usePersonProfilePackets } from "./person-profile-packets";
 import { usePersonConnectorFeatures } from "@/lib/connections/use-person-connector-features";
@@ -65,6 +57,7 @@ import {
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
+  buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -78,7 +71,7 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean };
 
 function renderCategoryIcon(domain: string) {
   const presentation = {
@@ -138,7 +131,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -149,9 +142,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
-    if (!isNativeIOS) return personRef;
+    if (!isNativeIOS || embedded) return personRef;
     return resolvePersonRefFromProfilePathname(pathname) || personRef;
-  }, [pathname, personRef]);
+  }, [pathname, personRef, embedded]);
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
@@ -241,8 +234,8 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const searchParams = useSearchParams();
   // /connect and the agent's discovery card land here with ?request=1: bring
   // the requestable catalog into view instead of the identity header.
-  const requestIntent = searchParams?.get("request") === "1";
-  const sharedIntent = searchParams?.get("section") === "shared";
+  const requestIntent = !embedded && searchParams?.get("request") === "1";
+  const sharedIntent = !embedded && searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -759,7 +752,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
-    viewerProfile
+    viewerProfile && !embedded
       ? {
           screenId: "one_person_profile",
           title: "Person profile",
@@ -780,7 +773,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           },
         }
       : null,
-    { role: "route", routeKey: "/people/[personRef]" },
+    { role: embedded ? "interaction_layer" : "route", routeKey: embedded ? undefined : "/people/[personRef]" },
   );
 
   usePublishVoiceSurfaceMetadata(
@@ -805,7 +798,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           },
         }
       : null,
-    { role: "interaction_layer", routeKey: "/people/[personRef]" },
+    { role: "interaction_layer", routeKey: embedded ? undefined : "/people/[personRef]" },
   );
 
   if (!profile) {
@@ -883,7 +876,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               ref={requestScopeReturnFocusRef}
               aria-label="Share profile"
               onClick={() => {
-                void navigator.clipboard.writeText(window.location.href);
+                void navigator.clipboard.writeText(new URL(buildPersonProfileRoute(resolvedPersonRef), window.location.origin).href);
                 toast.success("Profile link copied");
               }}
             >
@@ -1194,41 +1187,15 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           </SectionCard>
         ) : null}
       </div>
-      <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
-        <DialogContent
-          className="consent-presentation-surface w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
-        >
-          <DialogHeader className="shrink-0 pr-8 text-left">
-            <DialogTitle className="[overflow-wrap:anywhere]">Request information from {profile.displayName}</DialogTitle>
-            <DialogDescription>
-              They&rsquo;ll see what you request, why, and for how long.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
-            <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
-              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
+      <PersonInformationRequestDialog open={reviewOpen} onOpenChange={setReviewOpen} displayName={profile.displayName}
+        scopes={selectedScopes} purpose={purpose} durationHours={durationHours} onPurposeChange={setPurpose} onDurationChange={setDurationHours}
+        requesting={requesting} canSubmit={Boolean(viewerProfile && purpose.trim().length >= 8 && selectedScopes.length && selectedScopes.length <= 50 && request.available)}
+        onSubmit={() => void submitRequest()}>
             {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
             {!viewerProfile ? <div role="status" className="text-sm text-muted-foreground">
               {viewerUnavailable ? <>Connection details could not refresh. Your review is kept. <Button type="button" size="compact" variant="none" data-consent-quiet-action="true" onClick={() => setViewerReloadToken((value) => value + 1)}>Try again</Button></> : "Checking connection. Your review is kept."}
             </div> : null}
-          </div>
-          <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
-            <Button type="button" variant="none" effect="fade" data-consent-quiet-action="true" data-consent-action-context="task" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="blue-gradient"
-              effect="fill"
-              disabled={!viewerProfile || requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
-              onClick={() => void submitRequest()}
-              data-voice-control-id="person-profile-request-confirm"
-            >
-              {requesting ? "Sending…" : "Send request"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      </PersonInformationRequestDialog>
       {user ? (
         <VaultUnlockDialog
           user={user}

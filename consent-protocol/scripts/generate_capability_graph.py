@@ -36,6 +36,7 @@ from hushh_mcp.services.app_intelligence_runtime import (  # noqa: E402
     location_workflow_api_contract_source_digest,
     service_knowledge_packages_source_digest,
 )
+from scripts import capability_graph_history as graph_history  # noqa: E402
 
 EVOLUTION_CONTRACT_PATH = ROOT / "hushh_mcp" / "agents" / "capability_graph_evolution.v1.json"
 WORKFLOW_REVISION_COMPATIBILITY_SCHEMA_VERSION = "one.workflow_revision_compatibility.v1"
@@ -730,77 +731,20 @@ def _workflow_revision_compatibility(
     }
 
 
-def _read_workflow_predecessor(ref: str) -> dict[str, Any]:
-    """Import only a committed ancestor, never an arbitrary compatibility claim."""
-
-    resolved = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "merge-base", "--is-ancestor", resolved, "HEAD"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
+def _read_workflow_predecessor(
+    ref: str, *, allow_unpublished: bool = False
+) -> dict[str, Any] | None:
+    return graph_history.read_workflow_predecessor(
+        REPO_ROOT, OUTPUTS, ref, allow_unpublished=allow_unpublished
     )
-    relative = OUTPUTS[0].relative_to(REPO_ROOT).as_posix()
-    completed = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "show", f"{resolved}:{relative}"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    payload = json.loads(completed.stdout)
-    if not isinstance(payload, dict) or not payload.get("revision"):
-        raise RuntimeError("Workflow predecessor has no generated graph revision.")
-    return payload
 
 
 def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str, ...]:
-    """Keep merged histories from the base integration and later branch merges.
-
-    The base graph supplies one workflow history. A merged feature parent may
-    carry another compatible history, including through a second parent. It must
-    survive default CI without a one-off flag. Only committed ancestors are returned;
-    ``_read_workflow_predecessor`` still validates their graph and semantics.
-    """
-
     if not (REPO_ROOT / ".git").exists():
         return ()
-    base_commit = _resolve_base_commit(_resolve_base_ref(base_ref))
-    if not base_commit:
-        return ()
-    history = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--ancestry-path", "--parents", f"{base_commit}..HEAD"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.splitlines()
-    # Every listed commit descends from the base. Include ordinary commits so
-    # first-parent membership proves ancestry without a subprocess per merge.
-    lineages = [line.split() for line in history]
-    descendants = {base_commit, *(lineage[0] for lineage in lineages)}
-    predecessors: list[str] = []
-    integrated_base = False
-    for lineage in lineages:
-        if len(lineage) < 3:
-            continue
-        if base_commit in lineage[1:]:
-            integrated_base = True
-            predecessors.extend(parent for parent in lineage[1:] if parent != base_commit)
-            continue
-        if lineage[1] in descendants:
-            predecessors.extend(lineage[2:])
-        elif any(parent in descendants for parent in lineage[2:]):
-            # Isolated verification may receive the base via a second parent.
-            # Its pre-base first parent still owns a separately shipped history.
-            predecessors.extend(parent for parent in lineage[1:] if parent not in descendants)
-    return tuple(dict.fromkeys(predecessors)) if integrated_base else ()
+    return graph_history.merged_workflow_predecessor_refs(
+        REPO_ROOT, _resolve_base_commit(_resolve_base_ref(base_ref))
+    )
 
 
 def _merge_workflow_predecessor(
@@ -897,19 +841,21 @@ def build_payload(
         graph,
         semantic_diff,
     )
-    predecessors = dict.fromkeys(
+    declared_predecessors = dict.fromkeys(
         (
             *_load_workflow_predecessor_refs(),
             *workflow_predecessor_refs,
-            *_merged_workflow_predecessor_refs(base_ref),
         )
     )
+    predecessors = dict.fromkeys(
+        (*declared_predecessors, *_merged_workflow_predecessor_refs(base_ref))
+    )
     for ref in predecessors:
-        _merge_workflow_predecessor(
-            graph,
-            _read_workflow_predecessor(ref),
-            deprecations,
+        predecessor = _read_workflow_predecessor(
+            ref, allow_unpublished=ref not in declared_predecessors
         )
+        if predecessor is not None:
+            _merge_workflow_predecessor(graph, predecessor, deprecations)
     return graph
 
 
