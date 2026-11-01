@@ -89,12 +89,23 @@ operation retains its reservation. Forward schema correction and evidence-bound
 recovery remain pending; neither a missing acknowledgement nor elapsed time
 authorizes clearing that reservation.
 
-**Still unverified:** Dev 37 owner installation on either cloud, the GCP owner update,
-stable identity/history after actual owner replacement, stale-writer refusal and
-an authenticated completed owner turn. Format recovery does not establish owner
-HTTP admission, active-work drain or Browser qualification. UAT and production
-were not changed. Finish through the existing owner-approved update flow;
-process health and historical receipts are not acceptance proof.
+The Azure owner subsequently installed Dev 37 through the normal update and
+Microsoft authorization flow. Native revision `ca-hussh-one-pod--ud27099ccbeb7`
+is ready at 100% traffic with the exact `3c3615f2…42610` digest. The registry
+published the completed-update receipt at `2026-11-01T14:41:10Z`. A synthetic
+owner turn returned `private-ready`; after a cold reload and ordinary vault
+unlock, reopening that conversation fetched native history with HTTP 200 and
+retained both the prompt and reply. The completed receipt binds the owner
+HusshID, operation and pod incarnation. This proves installation and chat/history continuity;
+it does not independently qualify every capability or stale-writer race.
+
+**Still unverified:** the GCP owner update and completed owner turn, plus live
+stale-writer refusal after replacement. GCP's authenticated native Vertex
+`gemini-3.8-flash` count-tokens diagnostic passed; that is model access evidence,
+not a completed chat. Format recovery does not establish active-work drain or
+Browser qualification. UAT and production were not changed. Finish through the
+existing owner-approved update flow; process health and historical receipts are
+not acceptance proof.
 
 ## Previous release decision — 27 October 2026
 
