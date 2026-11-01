@@ -17,6 +17,7 @@ from hushh_mcp.services.calendar_account_board_service import account_schedule
 from hushh_mcp.services.calendar_email_followup_account import (
     SelectedMailAccessError,
     open_selected_mail_grant,
+    selected_mail_epoch_digest,
     selected_mail_status,
 )
 from hushh_mcp.services.calendar_email_followup_crypto import FollowupCryptoError
@@ -24,7 +25,9 @@ from hushh_mcp.services.calendar_email_followup_reader import (
     CompleteMailReadError,
     read_complete_message,
 )
+from hushh_mcp.services.calendar_email_followup_relevance import sanitize_source_body
 from hushh_mcp.services.calendar_email_followup_scan import scan_once
+from hushh_mcp.services.calendar_email_followup_status import monitor_status
 from hushh_mcp.services.calendar_email_followup_store import (
     CalendarEmailFollowupStore,
     FollowupStateError,
@@ -77,6 +80,11 @@ class BookingConfirmed(RequestSelection):
     expected_revision: int = Field(ge=1)
     idempotency_key: UUID
     event_id: str = Field(min_length=1, max_length=2048)
+
+
+class ScanRequest(_Selection):
+    # The owner's Retry: run now and give waiting sources a fresh allowance.
+    retry: bool = False
 
 
 class MailConnectStart(_Selection):
@@ -159,18 +167,20 @@ async def status(payload: _Selection, firebase_uid: str = Depends(hub_content_fi
         monitor = await CalendarEmailFollowupStore().monitor(
             user_id=firebase_uid, account_id=payload.account_id
         )
+        # Whether the stored monitor still matches the live grant. When it does
+        # not (a reconnect elsewhere), the client can silently rebind it instead
+        # of asking the owner to connect mail again.
+        epoch = (
+            await selected_mail_epoch_digest(user_id=firebase_uid, account_id=payload.account_id)
+            if mail_connected
+            else None
+        )
         return {
             "account_id": payload.account_id,
             "mail_connected": mail_connected,
-            "monitoring_enabled": bool(monitor),
-            "background_available": _background_available(),
-            "scan_state": monitor.scan_state if monitor else "off",
-            "incomplete_source_count": len((monitor.checkpoint or {}).get("incomplete_sources", {}))
-            if monitor
-            else 0,
-            "notifications_enabled": monitor.notifications_enabled if monitor else False,
-            "historical_start_at": monitor.historical_start_at.isoformat() if monitor else None,
-            "time_zone": monitor.time_zone if monitor else None,
+            **monitor_status(
+                monitor, current_epoch=epoch, background_available=_background_available()
+            ),
         }
     except Exception as exc:
         raise _http(exc) from None
@@ -310,8 +320,34 @@ async def source_message(
             "account_id": payload.account_id,
             "subject": message.subject,
             "sender": message.sender,
-            "body": message.body,
+            # Links and image markers are removed; the original stays in Gmail.
+            "body": sanitize_source_body(message.body),
+            "gmail_message_id": message_id,
             "internal_date_ms": message.internal_date_ms,
+        }
+    except Exception as exc:
+        raise _http(exc) from None
+
+
+@router.post("/source/link")
+async def source_link(
+    payload: RequestSelection,
+    response: Response,
+    firebase_uid: str = Depends(hub_content_firebase),
+    owner: dict = Depends(hub_content_owner),
+):
+    """The Gmail message reference for one request, without reading the message."""
+    _available()
+    _owner(payload.user_id, firebase_uid, owner)
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
+        message_id = await store.source_message_id(monitor, str(payload.request_id))
+        await _require_current(store, monitor, grant)
+        return {
+            "request_id": str(payload.request_id),
+            "account_id": payload.account_id,
+            "gmail_message_id": message_id,
         }
     except Exception as exc:
         raise _http(exc) from None
@@ -379,14 +415,19 @@ async def confirm_booking(
 
 @router.post("/scan")
 async def refresh_followups(
-    payload: _Selection,
+    payload: ScanRequest,
     firebase_uid: str = Depends(hub_content_firebase),
     owner: dict = Depends(hub_content_owner),
 ):
     _available()
     _owner(payload.user_id, firebase_uid, owner)
     try:
-        return await scan_once(user_id=firebase_uid, account_id=payload.account_id)
+        # Without Retry this honors the monitor's own schedule, so opening
+        # Insights repeatedly never repeats work: a recently verified or backing
+        # off account answers "not_due" without contacting Gmail.
+        return await scan_once(
+            user_id=firebase_uid, account_id=payload.account_id, force=payload.retry
+        )
     except Exception as exc:
         raise _http(exc) from None
 

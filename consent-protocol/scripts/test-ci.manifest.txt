@@ -1644,3 +1644,19 @@ tests/test_one_runtime_configuration.py
 
 # Protected Main release clearance and current-attempt consumer boundaries.
 tests/test_deployment_security.py
+
+# Calendar email follow-ups: relevance gate, incremental sync, retry/backoff,
+# Calendar reconciliation, account isolation and durable reminders. The model,
+# Gmail and Calendar are synthetic doubles; no live mailbox or model is called.
+tests/services/test_calendar_email_followup_account.py
+tests/services/test_calendar_email_followup_extraction.py
+tests/services/test_calendar_email_followup_notifications.py
+tests/services/test_calendar_email_followup_reader.py
+tests/services/test_calendar_email_followup_relevance.py
+tests/services/test_calendar_email_followup_scan.py
+tests/test_calendar_followup_scheduler_contract.py
+tests/test_calendar_followup_deploy_gate.py
+tests/services/test_calendar_email_followup_oauth_postgres.py
+tests/services/test_calendar_email_followup_jhumma_postgres.py
+tests/services/test_calendar_email_followup_incremental_postgres.py
+tests/services/test_calendar_email_followup_store_postgres.py

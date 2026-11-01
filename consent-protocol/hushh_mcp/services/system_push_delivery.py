@@ -158,7 +158,7 @@ def _source(conn, event: dict) -> dict | None:
             JOIN calendar_email_followup_monitors m
               ON m.user_id=r.user_id AND m.account_id=r.account_id
             WHERE r.id=:source AND r.user_id=:user
-              AND r.state IN ('pending','snoozed')
+              AND r.state IN ('pending','snoozed') AND r.suppressed_at IS NULL
               AND r.revision::text=:revision
               AND r.reminder_sent_revision=r.revision
               AND r.reminder_at<=now() AND m.enabled=TRUE

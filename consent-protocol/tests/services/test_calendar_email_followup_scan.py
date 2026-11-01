@@ -51,7 +51,7 @@ class _Store:
     async def require_monitor_current(self, monitor):
         assert monitor.generation == self.current.generation
 
-    async def save_checkpoint(self, monitor, checkpoint, *, state, error_code=None):
+    async def save_checkpoint(self, monitor, checkpoint, *, state, error_code=None, retry_in=None):
         assert monitor.generation == self.current.generation
         self.current = replace(
             self.current, checkpoint=json.loads(json.dumps(checkpoint)), scan_state=state
@@ -59,13 +59,16 @@ class _Store:
         self.state = state
         self.error_code = error_code
 
-    async def scanned_digest(self, monitor, message_id):
+    async def scanned_state(self, monitor, message_id):
         return None
+
+    async def stale_assessment_threads(self, monitor, *, cutoff_ms, limit=2, exclude=frozenset()):
+        return []
 
     async def prior_requests(self, monitor, thread_id):
         return []
 
-    async def commit_message(self, monitor, message, assessment, *, now=None):
+    async def commit_message(self, monitor, message, assessment, *, now=None, reassess=False):
         self.committed.append((message, assessment, now))
 
 
