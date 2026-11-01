@@ -111,7 +111,14 @@ export async function sendChatTurn(
     if (version === 1) request = legacyReceiptResults(request);
   }
   try {
-    return await fetch(`${url}/api/one/pod/agent-chat`, request);
+    const response = await fetch(`${url}/api/one/pod/agent-chat`, request);
+    // A gateway can time out after the pod accepted the turn. Only the earlier
+    // read-only probe proves non-delivery; never let this POST enter wake retries.
+    if (isAgentStillWaking(response)) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new PodSendUnconfirmedError();
+    }
+    return response;
   } catch (error) {
     if (isCancellation(error, request.signal)) throw error;
     throw new PodSendUnconfirmedError();

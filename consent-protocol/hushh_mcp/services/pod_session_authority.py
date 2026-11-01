@@ -692,6 +692,10 @@ async def build_pod_session_authority(
 
         projection = OwnerRecoveryProjection(owner=hushh_id)
         records = await startup_records(log, projection=projection)
+        if records is None:
+            # An oversized history loses the checkpoint optimization, never
+            # records. Share one verified full replay across all boot reducers.
+            records = await log.replay()
         await load_owner_state(log, records=records)
     await store.load(records=records)
     keypair = pod_keypair()

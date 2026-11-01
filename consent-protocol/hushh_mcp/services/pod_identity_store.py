@@ -184,10 +184,9 @@ async def resolve_durable_private_key_b64(
     """The pod's durable private key as base64, or None if unavailable.
 
     The seam ``pod_self_registration`` consumes. Returns None for every ordinary
-    reason (flag off, no durable storage configured, no KMS access), because a
-    pod that cannot persist its identity must still boot and serve with an
-    ephemeral one exactly as it does today, reporting ``podKeyDurable: False``
-    honestly rather than claiming a durability it does not have.
+    reason (flag off, no durable storage configured, no KMS access). The startup
+    caller decides whether identity is required: configured durable owner pods
+    refuse startup without it; legacy non-durable pods may use an ephemeral key.
 
     A stored-but-corrupt key is the one case that is logged as an error rather
     than a shrug, because it means something wrote over the pod's identity.
