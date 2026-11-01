@@ -283,7 +283,10 @@ async def test_reusing_boot_storage_still_claims_a_fresh_incarnation(monkeypatch
     assert caught.value.code == "fenced"
 
 
-async def test_boot_recovery_shares_verified_scan_without_changing_authority(tmp_path, monkeypatch):
+@pytest.mark.parametrize("checkpoint_available", [True, False])
+async def test_boot_recovery_shares_verified_scan_without_changing_authority(
+    tmp_path, monkeypatch, checkpoint_available
+):
     from types import SimpleNamespace
 
     from hushh_mcp.services import pod_config, pod_self_registration
@@ -319,13 +322,25 @@ async def test_boot_recovery_shares_verified_scan_without_changing_authority(tmp
         },
     )
     original_fold, folds = log.fold_since, []
+    original_replay, replays = log.replay, []
+    if not checkpoint_available:
+        from hushh_mcp.services import pod_recovery_projection
+
+        projection_type = pod_recovery_projection.OwnerRecoveryProjection
+        monkeypatch.setattr(
+            pod_recovery_projection,
+            "OwnerRecoveryProjection",
+            lambda **kwargs: projection_type(**kwargs, max_records=0),
+        )
 
     async def fold(cursor, visit):
         folds.append(cursor)
         return await original_fold(cursor, visit)
 
     async def unexpected_replay():
-        pytest.fail("startup must not replay the same chain for each subsystem")
+        replays.append(True)
+        assert not checkpoint_available and len(replays) == 1
+        return await original_replay()
 
     monkeypatch.setattr(log, "fold_since", fold)
     monkeypatch.setattr(log, "replay", unexpected_replay)
@@ -334,6 +349,7 @@ async def test_boot_recovery_shares_verified_scan_without_changing_authority(tmp
             instance_id="boot", log=log, dek=key, recover_owner_state=True
         )
         assert folds == [None]
+        assert len(replays) == (0 if checkpoint_available else 1)
         assert pod_config.active_pod_config().puppy_broker is False
         status = authority.store.subject("subject")
         assert status.state == "tombstoned" and status.trust.role == "app"

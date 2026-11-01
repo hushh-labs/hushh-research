@@ -1,19 +1,19 @@
 {
-  "version": "2026.10-dev.35",
+  "version": "2026.11-dev.36",
   "channel": "dev",
-  "summary": "Reliable private-pod startup and owner processing consent.",
+  "summary": "Reliable restarts and safer message delivery.",
   "notes": {
     "improvements": [
-      "Private pods complete the provider-free turn rehearsal before admitting owner work."
+      "Your private agent keeps its identity and saved information through restarts."
     ],
     "fixes": [
-      "Owner processing grants preserve their signed consent scope.",
-      "The unprivileged worker uses its owned Gunicorn control socket."
+      "An unconfirmed message is no longer automatically sent again."
     ],
     "security": [
-      "Hosting retains exact owner, project and workload identity bindings.",
-      "Existing-owner installation remains unavailable until this image passes recovery qualification."
+      "Startup stops safely if saved identity or permissions cannot be recovered."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423"
+  ]
 }

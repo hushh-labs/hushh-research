@@ -7,13 +7,16 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 
-async def test_gmail_restart_waits_for_authority_but_not_foreground_startup(monkeypatch):
+@pytest.mark.parametrize("durable", [True, False])
+async def test_gmail_restart_waits_for_authority_but_not_foreground_startup(monkeypatch, durable):
     monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("POD_DURABLE_IDENTITY_ENABLED", str(durable).lower())
     import pod_server
     from api.routes.one import pod_maintenance
     from hushh_mcp.one_adk import turn_warmup
     from hushh_mcp.services import (
         pod_identity_store,
+        pod_self_registration,
         pod_session_authority,
         pod_storage,
         pod_upgrade_admission,
@@ -53,7 +56,8 @@ async def test_gmail_restart_waits_for_authority_but_not_foreground_startup(monk
     monkeypatch.setattr(turn_warmup, "warm_private_pod_turn_path", warmup)
     monkeypatch.setattr(pod_upgrade_admission, "ADMISSION", admission)
     monkeypatch.setattr(pod_maintenance, "gmail_notification_job", gmail)
-    monkeypatch.setattr(pod_server, "pod_keypair", lambda: order.append("keypair"))
+    monkeypatch.setattr(pod_self_registration, "pod_keypair", lambda: order.append("keypair"))
+    monkeypatch.setattr(pod_self_registration, "pod_key_is_durable", lambda: durable)
     monkeypatch.setattr(pod_server, "_start_heartbeat_loop", lambda: order.append("heartbeat"))
     monkeypatch.setattr(pod_server, "_ensure_memory_bank_task", AsyncMock())
     monkeypatch.delenv("POD_FILES_ENABLED", raising=False)
@@ -83,17 +87,23 @@ async def test_gmail_restart_waits_for_authority_but_not_foreground_startup(monk
 
 async def test_failed_rehearsal_never_starts_heartbeat_or_background_work(monkeypatch):
     monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("POD_DURABLE_IDENTITY_ENABLED", "false")
     monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "false")
     import pod_server
     from hushh_mcp.one_adk import turn_warmup
-    from hushh_mcp.services import pod_identity_store, pod_session_authority, pod_storage
+    from hushh_mcp.services import (
+        pod_identity_store,
+        pod_self_registration,
+        pod_session_authority,
+        pod_storage,
+    )
 
     monkeypatch.setattr(pod_storage, "resolve_boot_custody", AsyncMock(return_value=(None, None)))
     monkeypatch.setattr(
         pod_identity_store, "resolve_durable_private_key_b64", AsyncMock(return_value=None)
     )
     monkeypatch.setattr(pod_session_authority, "build_pod_session_authority", AsyncMock())
-    monkeypatch.setattr(pod_server, "pod_keypair", Mock())
+    monkeypatch.setattr(pod_self_registration, "pod_keypair", Mock())
     heartbeat, memory, gmail = Mock(), AsyncMock(), AsyncMock()
     monkeypatch.setattr(pod_server, "_start_heartbeat_loop", heartbeat)
     monkeypatch.setattr(pod_server, "_ensure_memory_bank_task", memory)
@@ -107,4 +117,34 @@ async def test_failed_rehearsal_never_starts_heartbeat_or_background_work(monkey
         await pod_server._pod_startup()
     heartbeat.assert_not_called()
     memory.assert_not_awaited()
+    gmail.assert_not_awaited()
+
+
+@pytest.mark.parametrize("failure", ["identity", "authority"])
+async def test_required_durable_recovery_failure_stops_before_consumers(monkeypatch, failure):
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("POD_DURABLE_IDENTITY_ENABLED", "true")
+    import pod_server
+    from hushh_mcp.services import (
+        pod_identity_store,
+        pod_self_registration,
+        pod_session_authority,
+        pod_storage,
+    )
+
+    monkeypatch.setattr(pod_storage, "resolve_boot_custody", AsyncMock(return_value=(None, None)))
+    monkeypatch.setattr(
+        pod_identity_store, "resolve_durable_private_key_b64", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(pod_self_registration, "pod_keypair", Mock())
+    monkeypatch.setattr(pod_self_registration, "pod_key_is_durable", lambda: failure != "identity")
+    authority = AsyncMock(side_effect=RuntimeError("recovery unavailable"))
+    heartbeat, gmail = Mock(), AsyncMock()
+    monkeypatch.setattr(pod_session_authority, "build_pod_session_authority", authority)
+    monkeypatch.setattr(pod_server, "_start_heartbeat_loop", heartbeat)
+    monkeypatch.setattr(pod_server, "_continue_gmail_notifications", gmail)
+    with pytest.raises(RuntimeError, match=f"POD_DURABLE_{failure.upper()}_UNAVAILABLE"):
+        await pod_server._pod_startup()
+    assert authority.await_count == (0 if failure == "identity" else 1)
+    heartbeat.assert_not_called()
     gmail.assert_not_awaited()
