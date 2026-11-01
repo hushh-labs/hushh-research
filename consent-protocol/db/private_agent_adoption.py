@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 SOURCE_FILENAME = "420_private_agent_lifecycle_foundation.sql"
 SOURCE_SHA256 = "78981e14e2dc4ef0d40a6275f785a5015367ea08d00ab7b4ef352538cb612f2d"
+NOTIFICATION_CHECKPOINT_SUCCESSOR_SHA256 = (
+    "79585809cc7e6693f9ee49748ce76acb4053a3c16e88058334548cff81b643e0"
+)
 # Exact pg_get_triggerdef(oid,true) and pg_get_functiondef(oid) from the reviewed
 # legacy schema. No application rows, credentials or consent records are embedded.
 GUARDS = (
@@ -192,6 +195,63 @@ BEGIN
 END
 $authorization_attempts_adoption$;
 """.replace("@CHECK@", HISTORY_CHECK).replace("@DEFINITION@", HISTORY_DEFINITION)
+
+
+def _notification_checkpoint_successor_qualification_sql() -> str:
+    """Pin the corrected 976 validator and its callable-security contract around 420."""
+    return f"""DO $notification_checkpoint_successor$
+DECLARE observed record; service_role_oid oid; acl_count integer;
+BEGIN
+ IF to_regprocedure('public.valid_personal_agent_notification_checkpoint(jsonb,jsonb,jsonb)') IS NULL THEN
+  RETURN;
+ END IF;
+ SELECT p.*,l.lanname,
+  encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex') AS definition_sha256,
+  pg_get_function_identity_arguments(p.oid) AS identity_arguments
+ INTO observed FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang
+ WHERE p.oid='public.valid_personal_agent_notification_checkpoint(jsonb,jsonb,jsonb)'::regprocedure;
+ -- The canonical predecessor remains governed by 420's original exact hash guard.
+ IF observed.definition_sha256<>'{NOTIFICATION_CHECKPOINT_SUCCESSOR_SHA256}' THEN RETURN; END IF;
+ SELECT oid INTO service_role_oid FROM pg_roles WHERE rolname='service_role';
+ SELECT count(*) INTO acl_count FROM aclexplode(observed.proacl);
+ IF observed.identity_arguments IS DISTINCT FROM 'snapshot jsonb, checkpoint jsonb, previous jsonb'
+  OR observed.lanname IS DISTINCT FROM 'plpgsql' OR observed.prorettype IS DISTINCT FROM 'boolean'::regtype
+  OR observed.prosecdef OR observed.proleakproof OR observed.proisstrict OR observed.proretset
+  OR observed.provolatile IS DISTINCT FROM 'i' OR observed.proparallel IS DISTINCT FROM 'u'
+  OR observed.proconfig IS DISTINCT FROM ARRAY['search_path=public']::text[]
+  OR observed.proacl IS NULL OR acl_count<>(1+CASE WHEN service_role_oid IS NULL THEN 0 ELSE 1 END)
+  OR NOT EXISTS(SELECT 1 FROM aclexplode(observed.proacl) a
+   WHERE a.grantee=observed.proowner AND a.grantor=observed.proowner
+    AND a.privilege_type='EXECUTE' AND NOT a.is_grantable)
+  OR (service_role_oid IS NOT NULL AND NOT EXISTS(SELECT 1 FROM aclexplode(observed.proacl) a
+   WHERE a.grantee=service_role_oid AND a.grantor=observed.proowner
+    AND a.privilege_type='EXECUTE' AND NOT a.is_grantable))
+  OR EXISTS(SELECT 1 FROM aclexplode(observed.proacl) a
+   WHERE a.grantee NOT IN (observed.proowner,coalesce(service_role_oid,observed.proowner))
+    OR a.privilege_type IS DISTINCT FROM 'EXECUTE' OR a.is_grantable) THEN
+  RAISE EXCEPTION 'Unqualified GCP notification checkpoint successor';
+ END IF;
+END
+$notification_checkpoint_successor$;
+"""
+
+
+def _retain_notification_checkpoint_successor(sql: str) -> str:
+    """Admit only the immutable, catalog-qualified successor through 420 replay."""
+    from db.migration_authority import MigrationAuthorityError
+
+    anchor = (
+        "NOT IN ('e303b67c00e3bef54a0a3a2d1ca7138e6a237df539fc8193373c27db56c0313f') THEN\n"
+        "  RAISE EXCEPTION 'Unqualified schema drift: valid_personal_agent_notification_checkpoint'"
+    )
+    if sql.count(anchor) != 1:
+        raise MigrationAuthorityError("Private-agent notification successor guard changed")
+    allowed = (
+        "NOT IN ('e303b67c00e3bef54a0a3a2d1ca7138e6a237df539fc8193373c27db56c0313f',"
+        f"'{NOTIFICATION_CHECKPOINT_SUCCESSOR_SHA256}') THEN\n"
+        "  RAISE EXCEPTION 'Unqualified schema drift: valid_personal_agent_notification_checkpoint'"
+    )
+    return sql.replace(anchor, allowed, 1)
 
 
 # Parked906/907/904 predecessors;420 retains the948/916/913 successors.
@@ -405,13 +465,15 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     if entry.sql.count(column_anchor) != 1:
         raise MigrationAuthorityError("Private-agent adoption column inventory changed")
     preparation = _authorization_attempts_sql() + _predecessor_constraints_sql()
-    sql = entry.sql.replace(column_anchor, preparation + column_anchor, 1)
+    sql = _retain_notification_checkpoint_successor(entry.sql)
+    sql = sql.replace(column_anchor, preparation + column_anchor, 1)
     sql = hosted_custody_adoption(_retention_inventory_sql(sql))
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
     if not entry.sql.rstrip().endswith("COMMIT;"):
         raise MigrationAuthorityError("Private-agent adoption transaction source changed")
     guards = (
-        _qualification_sql()
+        _notification_checkpoint_successor_qualification_sql()
+        + _qualification_sql()
         + _shared_authority_qualification_sql()
         + area_discovery_qualification_sql()
     )

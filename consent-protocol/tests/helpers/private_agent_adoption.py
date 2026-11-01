@@ -6,8 +6,9 @@ from pathlib import Path
 
 import asyncpg
 import psycopg2
+import pytest
 
-from db import migrate
+from db import migrate, private_agent_adoption
 from db.hosted_custody_adoption import QUALIFIED
 from db.migration_authority import MigrationMode, apply_manifest_entries, manifest_checksum
 
@@ -351,6 +352,57 @@ async def execute_mode(server, database, entry, mode, *, following=()):
         )
     finally:
         await connection.close()
+
+
+def notification_validator_catalog(connection):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """SELECT p.oid,
+              encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex'),
+              p.proowner::regrole::text,l.lanname,p.prorettype::regtype::text,
+              p.prosecdef,p.proleakproof,p.proisstrict,p.proretset,p.provolatile,
+              p.proparallel,p.proconfig,p.proacl::text
+              FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang
+              WHERE p.oid='public.valid_personal_agent_notification_checkpoint(jsonb,jsonb,jsonb)'::regprocedure"""
+        )
+        return cursor.fetchone()
+
+
+def assert_notification_successor_survives_420_replay(connection, server, database, entry):
+    """Preserve the exact corrected validator through replay; refuse unknown bodies."""
+    corrected = (_ROOT / "db/migrations/445_gcp_notification_account_id_limit.sql").read_text()
+    with connection.cursor() as cursor:
+        cursor.execute(corrected)
+    before = notification_validator_catalog(connection)
+    assert before[1] == private_agent_adoption.NOTIFICATION_CHECKPOINT_SUCCESSOR_SHA256
+    assert before[5:11] == (False, False, False, False, "i", "u")
+    assert before[11] == ["search_path=public"]
+    acl_entries = before[12].strip("{}").split(",")
+    assert any(entry.startswith("hushh=X/") for entry in acl_entries)
+    assert any(entry.startswith("service_role=X/") for entry in acl_entries)
+    assert not any(entry.startswith("=X/") for entry in acl_entries)
+
+    for _ in range(2):
+        assert asyncio.run(execute_mode(server, database, entry, MigrationMode.REPLAY)) == (
+            entry.filename,
+        )
+        assert notification_validator_catalog(connection) == before
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """CREATE OR REPLACE FUNCTION public.valid_personal_agent_notification_checkpoint(
+                snapshot jsonb, checkpoint jsonb, previous jsonb)
+                RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path=public
+                AS $$ BEGIN RETURN true; END $$"""
+        )
+    with pytest.raises(
+        asyncpg.RaiseError,
+        match="Unqualified schema drift: valid_personal_agent_notification_checkpoint",
+    ):
+        asyncio.run(execute_mode(server, database, entry, MigrationMode.REPLAY))
+    with connection.cursor() as cursor:
+        cursor.execute(corrected)
+    assert notification_validator_catalog(connection) == before
 
 
 def assert_pending_ledger_receipt(server, database, connection, entry):

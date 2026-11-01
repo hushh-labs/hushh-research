@@ -1345,6 +1345,7 @@ tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
 
 tests/test_personal_agent_notification_checkpoint.py
+tests/test_personal_agent_notification_account_limit.py
 tests/test_pod_browser_azure_probe.py
 tests/services/test_chat_notification_state.py
 

@@ -117,6 +117,22 @@ while preserving compatible review history. The 971 SQL down path refuses while
 private reviews remain; never delete history to force it. Restoring its earlier
 schema requires the separately reviewed forward qualification before re-enablement.
 
+## GCP notification account-ID admission
+
+Canonical 445 and parked 976 correct the notification checkpoint validator's
+service-account local-part boundary to six through thirty characters, with a
+letter first and an alphanumeric character last. The previous expression refused
+the existing renderer's thirty-character runtime identity. Exact owner/project
+binding and the four/five-resource custody alternatives remain unchanged.
+
+Both forward entries are necessary: canonical replay precedes pending-only Dev
+migrations. The checksum-pinned 420 adoption adapter preserves only the exact
+reviewed successor definition, callable metadata and execution grants. Unknown
+definitions or changed grants still refuse replay. Accepted migration bodies and
+checksums are unchanged. Repeated canonical-plus-Dev replay must retain the
+corrected validator; ledger presence alone is insufficient. SQL rollback refuses
+to restore the invalid boundary; application rollback retains these guards.
+
 ## Phone and WorkOS mutation receipt replay
 
 Migration 427 extends the Firebase mutation-purpose check with SSO receipts.

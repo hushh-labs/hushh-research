@@ -90,7 +90,8 @@
     "972_personal_agent_cloud_removal.sql",
     "973_hosted_pod_pilot_admission.sql",
     "974_hosted_pod_custody.sql",
-    "975_hosted_bucket_reconciliation.sql"
+    "975_hosted_bucket_reconciliation.sql",
+    "976_gcp_notification_account_id_limit.sql"
   ],
   "deferred_release_migrations": [
     {

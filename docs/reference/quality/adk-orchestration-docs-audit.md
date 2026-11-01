@@ -71,7 +71,25 @@ code remain unchanged; the retained format evidence covers their unchanged
 contract, not a new exact-image recovery run. Both Dev 30 and Dev 36 are compatible
 predecessors under that unchanged format.
 
-**Still unverified:** Dev 37 publication and installation, the GCP owner update,
+[PR #8731](https://github.com/hushh-labs/hushh-research/pull/8731) landed on Dev as
+`4371eaabd914` after exact-head CI passed and the separately authorized Admin SOP.
+The [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/41307277003)
+passed and serves backend `00341-crm` from source `351d975545b4`, at 100% traffic.
+The frontend remains `00298-2dz`. The published Dev 37 pod digest is
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+
+The GCP owner approved Dev 37 through Software updates. Its attempt stopped at
+notification checkpoint publication before Cloud Run replacement: the installed
+SQL validator permits at most 29 service-account characters, while the existing
+renderer emits a valid 30-character runtime account for a full HusshID. A focused
+PostgreSQL reproduction using the real renderer confirms the refusal. The five
+notification resources in the plan, including operator OAuth custody, are intentional.
+Native readback retains generation 22 and revision `00020-nzx`; the unresolved
+operation retains its reservation. Forward schema correction and evidence-bound
+recovery remain pending; neither a missing acknowledgement nor elapsed time
+authorizes clearing that reservation.
+
+**Still unverified:** Dev 37 owner installation on either cloud, the GCP owner update,
 stable identity/history after actual owner replacement, stale-writer refusal and
 an authenticated completed owner turn. Format recovery does not establish owner
 HTTP admission, active-work drain or Browser qualification. UAT and production

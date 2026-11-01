@@ -33,6 +33,7 @@ from tests.helpers.private_agent_adoption import (
     LEGACY_PREDECESSOR_SCHEMA,
     LEGACY_TRIGGERS,
     RECEIPT_PREDECESSORS,
+    assert_notification_successor_survives_420_replay,
     assert_pending_ledger_receipt,
     authorization_state,
     canonical_database,
@@ -137,6 +138,8 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
         assert guard_catalog(connection) == before
         reject_guard_drift(connection, entry)
         assert_pending_ledger_receipt(replay_pg, database, connection, entry)
+        # Preserve the corrected validator, its ACL and its refusal boundary.
+        assert_notification_successor_survives_420_replay(connection, replay_pg, database, entry)
         # The next release must preserve423's installed admission guard while
         # replaying immutable420, rather than rejecting or removing it.
         successor = (MIGRATIONS / "423_account_shared_provider_authority.sql").read_text()
