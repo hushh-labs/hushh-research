@@ -51,7 +51,7 @@ function purgeStaleSessionKeysOnNative(): void {
     }
 
     storage.setItem(BOOT_ID_KEY, currentBootId);
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Boot ID check failed:", e);
   }
 }
@@ -67,7 +67,7 @@ function getSessionLikeStorage(): Storage | null {
       return window.localStorage;
     }
     return window.sessionStorage;
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to access session-like storage:", e);
     return null;
   }
@@ -78,7 +78,7 @@ function getPersistentStorage(): Storage | null {
 
   try {
     return window.localStorage;
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to access local storage:", e);
     return null;
   }
@@ -97,7 +97,7 @@ export function setSessionItem(key: string, value: string): void {
     } else {
       storage.setItem(key, value);
     }
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to set item:", e);
   }
 }
@@ -115,7 +115,7 @@ export function getSessionItem(key: string): string | null {
       return storage.getItem(SESSION_PREFIX + key) || storage.getItem(key);
     }
     return storage.getItem(key);
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to get item:", e);
     return null;
   }
@@ -134,7 +134,7 @@ export function removeSessionItem(key: string): void {
     } else {
       storage.removeItem(key);
     }
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to remove item:", e);
   }
 }
@@ -160,7 +160,7 @@ export function removeSessionItemsByPrefix(prefix: string): void {
     }
 
     keysToRemove.forEach((key) => storage.removeItem(key));
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to remove prefixed items:", e);
   }
 }
@@ -185,7 +185,7 @@ export function clearSessionStorage(): void {
     } else {
       storage.clear();
     }
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to clear:", e);
   }
 }
@@ -196,7 +196,7 @@ export function setLocalItem(key: string, value: string): void {
 
   try {
     storage.setItem(key, value);
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to set local item:", e);
   }
 }
@@ -207,7 +207,7 @@ export function getLocalItem(key: string): string | null {
 
   try {
     return storage.getItem(key);
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to get local item:", e);
     return null;
   }
@@ -219,7 +219,7 @@ export function removeLocalItem(key: string): void {
 
   try {
     storage.removeItem(key);
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to remove local item:", e);
   }
 }
@@ -236,7 +236,7 @@ export function clearLocalStorage(): void {
 
   try {
     storage.clear();
-  } catch (e) {
+  } catch (e: unknown) {
     console.warn("[SessionStorage] Failed to clear local storage:", e);
   }
 }
