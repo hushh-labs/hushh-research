@@ -508,7 +508,10 @@ async def _pod_startup() -> None:
     )
 
     from hushh_mcp.services.pod_azure_vm_identity import initialize_vm_installation
-    from hushh_mcp.services.pod_identity_store import restore_durable_private_key
+    from hushh_mcp.services.pod_identity_store import (
+        durable_identity_enabled,
+        restore_durable_private_key,
+    )
     from hushh_mcp.services.pod_storage import resolve_boot_custody
 
     await asyncio.to_thread(initialize_vm_installation)
@@ -529,20 +532,28 @@ async def _pod_startup() -> None:
     # Stated at boot, because "is this pod's identity stable across restarts" is
     # a question the fleet has been answering wrongly and silently.
     logger.info("pod.identity durable=%s", keypair_is_durable)
+    if durable_identity_enabled() and not keypair_is_durable:
+        # Owner-cloud deployments require stable identity. A storage/custody
+        # outage must not publish a replacement identity or start consumers.
+        raise RuntimeError("POD_DURABLE_IDENTITY_UNAVAILABLE")
 
     # Owner-local authority: claim the incarnation fence, replay the trust and
     # tombstone records, derive the session key. Strictly AFTER the keypair, because
     # a binding names this pod by its key id. Any failure leaves the authority
-    # unset and the app surface answering 503 rather than admitting anyone on a
-    # half-built authority; the hub-relayed turn path is unaffected.
+    # unset. Required durable recovery fails startup; only legacy non-durable
+    # deployments retain the hub-relayed path without local authority.
     try:
         from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
             build_pod_session_authority,
         )
 
         await build_pod_session_authority(log=boot_log, dek=boot_dek, recover_owner_state=True)
-    except Exception as exc:  # noqa: BLE001 - the hub path keeps serving
+    except Exception as exc:  # noqa: BLE001 - legacy non-durable pods retain the hub path
         logger.warning("pod.local_authority_unavailable reason=%s", type(exc).__name__)
+        if durable_identity_enabled():
+            # Without recovered authority, relayed turns must not bypass the
+            # incarnation fence simply because no active authority was published.
+            raise RuntimeError("POD_DURABLE_AUTHORITY_UNAVAILABLE") from exc
         # Preserve the existing loaders' explicit unreadable states if a fence
         # or recovery failure prevents local authority from being constructed.
         from hushh_mcp.services.pod_startup_recovery import load_owner_state

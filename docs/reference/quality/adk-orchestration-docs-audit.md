@@ -17,7 +17,30 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 27 October 2026
+## Durable owner recovery — 31 October 2026 source correction
+
+The existing GCP and Azure storage/custody architecture is retained. Configured
+durable pods now refuse startup if identity or session-authority recovery fails,
+before Browser, heartbeat or background consumers start. They cannot silently
+rotate to an ephemeral identity or serve relayed turns without recovered fencing.
+Legacy non-durable startup retains its existing behavior. Checkpoint-budget
+overflow shares one complete verified log replay across startup reducers; it
+never truncates history. A gateway response after a chat POST is now unconfirmed,
+not permission to resend; pre-send wake probes remain retryable.
+
+Focused local checks cover cross-store CAS, custody, identity, fencing, recovery,
+memory durability and the actual client wake wrapper. These establish source
+behavior, not installed-owner acceptance. The Dev registry access recheck found
+two Azure placements and one owner-project GCP placement. The configured Azure
+broker assertion returned HTTP 403; the GCP owner-service metadata read was
+permission-denied. Both task-owned database proxies stopped. No cloud mutation,
+UAT action, deployment or current-image restart qualification was performed.
+Finish installed acceptance through the existing owner-approved update path with
+working operator access: exact image, stable identity/history after replacement,
+stale-writer refusal and an authenticated completed turn. Do not use process
+health, historical receipts or an offline lifecycle simulation as that proof.
+
+## Previous release decision — 27 October 2026
 
 **Production recovery is verified. Release-system activation and installed-owner
 Browser acceptance remain open.** The compatible pre-pod Shared application

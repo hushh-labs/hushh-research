@@ -15,6 +15,7 @@ import {
   DeviceOfflineError,
   PodNotReachedError,
   PodSendUnconfirmedError,
+  sendWhileAgentWakes,
 } from "@/lib/agent/owner-pod-wake";
 import { formatAgentChatErrorMessage } from "@/lib/services/agent-chat-client";
 import { forgetAgentAnswers, ownerPodRequest } from "@/lib/services/pod-app-access";
@@ -178,6 +179,24 @@ describe("a sleeping agent whose first contact would be the turn itself", () => 
     const { fetch, ports } = harness(async () => grants(), async () => { throw new TypeError("Failed to fetch"); });
     await expect(ownerPodRequest("agent-chat", turnInit(), ports)).rejects.toBeInstanceOf(PodSendUnconfirmedError);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([TURN]);
+  });
+
+  it.each([502, 503, 504])("never resends an accepted turn after a gateway %s", async (status) => {
+    let acceptedTurns = 0;
+    const { ports } = harness(async () => grants(), async (url) => {
+      if (url !== TURN) return new Response("{}");
+      acceptedTurns += 1;
+      return new Response("<html>upstream unavailable</html>", {
+        status, headers: { "content-type": "text/html" },
+      });
+    });
+    const wait = vi.fn(async () => undefined);
+    await expect(sendWhileAgentWakes(
+      () => ownerPodRequest("agent-chat", turnInit(), ports),
+      { isOwnerAgent: async () => true, onWaking: vi.fn(), wait, budgetMs: 1 },
+    )).rejects.toBeInstanceOf(PodSendUnconfirmedError);
+    expect(acceptedTurns).toBe(1);
+    expect(wait).not.toHaveBeenCalled();
   });
 
   it("asks a cold agent first, so an ingress reset provably did not send the turn", async () => {

@@ -9,8 +9,8 @@
  *
  * Only failures that prove the turn never reached the agent are retried:
  * a network failure before the turn was handed over (`PodNotReachedError`),
- * a refused admission with a gateway status, or a gateway status on the send
- * itself that is not the agent's own JSON answer. A network failure on the send
+ * a refused admission with a gateway status, or a gateway status on a read-only
+ * probe. A gateway response or network failure on the actual turn POST
  * is ambiguous (the agent may already be running the turn), so it is reported
  * as `PodSendUnconfirmedError`, never resent. A device that reports itself
  * offline is told so (`DeviceOfflineError`) instead of being shown a wake.
