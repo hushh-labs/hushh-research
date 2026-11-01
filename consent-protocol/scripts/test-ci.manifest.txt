@@ -833,6 +833,8 @@ tests/test_pod_upgrade_admission.py
 tests/test_pod_upgrade_control_auth.py
 tests/test_pod_upgrade_handoff.py
 tests/test_pod_upgrade_rollback_guard.py
+tests/test_pod_upgrade_notification_cli.py
+tests/test_gcp_notification_upgrade_recovery_postgres.py
 tests/test_pod_update_detection.py
 tests/test_pod_image_upgrade_path.py
 tests/test_pod_connector_configuration.py
