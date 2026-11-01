@@ -228,7 +228,7 @@ async def test_vertex_chat_rechecks_each_delta_and_closes_only_its_owned_model(
 
 
 @pytest.mark.parametrize("scope", ["drive_document_requests", "one_text_chat"])
-@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status", [408, 429, 500, 502, 503, 504])
 async def test_managed_drive_fallback_targets_gemini_without_replaying_tools(
     monkeypatch, status, scope
 ):
@@ -397,7 +397,7 @@ async def test_managed_primary_success_partial_output_and_authority_fence(monkey
     fallback.assert_not_called()
 
 
-@pytest.mark.parametrize("status", [429, 503, "sse_quota"])
+@pytest.mark.parametrize("status", [408, 429, 503, "sse_quota"])
 @pytest.mark.parametrize("observed", [False, True])
 async def test_one_chat_falls_back_once_only_before_any_response(
     monkeypatch, caplog, status, observed
@@ -465,7 +465,13 @@ async def test_one_chat_falls_back_once_only_before_any_response(
                 "provider": "vertex",
                 "model": "gemini-alternate",
                 "location": "global",
-                "fallback_reason": "quota" if status in {429, "sse_quota"} else "transient_service",
+                "fallback_reason": (
+                    "timeout"
+                    if status == 408
+                    else "quota"
+                    if status in {429, "sse_quota"}
+                    else "transient_service"
+                ),
                 "attempt": "2",
             }
         ]

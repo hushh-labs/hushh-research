@@ -192,26 +192,32 @@ def test_auth_leaf_does_not_bootstrap_one_agent_tree():
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("status", [429, 503, 401, 403, 404])
+@pytest.mark.parametrize("status", [408, 429, 503, 401, 403, 404])
 async def test_token_service_transport_outage_is_distinct_from_identity_denial(monkeypatch, status):
     from hushh_mcp.runtime_providers.azure_call_lifecycle import (
         AzureAuthenticationError,
         AzureTokenServiceUnavailableError,
         acquire_token,
     )
-    from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
+    from hushh_mcp.runtime_providers.dependency_health import (
+        classify_provider_error,
+        is_transient_transport,
+    )
     from hushh_mcp.runtime_providers.managed_text import fallback_reason
 
     _mock_metadata(monkeypatch, lambda request: httpx.Response(status, text="private error"))
     expected = (
-        AzureTokenServiceUnavailableError if status in {429, 503} else AzureAuthenticationError
+        AzureTokenServiceUnavailableError if status in {408, 429, 503} else AzureAuthenticationError
     )
     with pytest.raises(expected) as failure:
         await acquire_token(lambda: auth._google_identity_assertion(timeout_seconds=1), {})
-    assert fallback_reason(failure.value) == ("token_service" if status in {429, 503} else None)
-    assert (classify_provider_error(failure.value) == "provider_unavailable") is (
-        status in {429, 503}
+    assert fallback_reason(failure.value) == (
+        "token_service" if status in {408, 429, 503} else None
     )
+    assert (classify_provider_error(failure.value) == "provider_unavailable") is (
+        status in {408, 429, 503}
+    )
+    assert is_transient_transport(failure.value) is (status in {408, 429, 503})
     assert "private error" not in str(failure.value)
 
 

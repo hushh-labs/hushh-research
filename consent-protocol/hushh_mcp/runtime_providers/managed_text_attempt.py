@@ -75,6 +75,8 @@ def fallback_reason(error: Exception) -> str | None:
     from hushh_mcp.runtime_providers.vertex_failover import _status_code
 
     status = _status_code(error)
+    if status == 408:
+        return "timeout"
     if status == 429:
         return "quota"
     if status in {500, 502, 503, 504}:

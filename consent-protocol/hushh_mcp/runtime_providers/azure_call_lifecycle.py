@@ -64,7 +64,7 @@ def _token_service_unavailable(error: Exception) -> bool:
                 ServiceResponseError,
             ),
         )
-        or status(cause) in {429, 500, 502, 503, 504}
+        or status(cause) in {408, 429, 500, 502, 503, 504}
         for cause in causes
     )
 

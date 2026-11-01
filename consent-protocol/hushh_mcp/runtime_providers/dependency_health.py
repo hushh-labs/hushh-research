@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 
-from httpx import NetworkError, TimeoutException
+from httpx import HTTPStatusError, NetworkError, TimeoutException
 
 from .vertex_failover import _status_code
 
@@ -101,6 +101,12 @@ def _message(error: BaseException) -> str:
     return str(error).strip().lower()
 
 
+def _provider_status(error: BaseException) -> int | None:
+    if isinstance(error, HTTPStatusError):
+        return error.response.status_code
+    return _status_code(error) if isinstance(error, Exception) else None
+
+
 def is_resource_exhausted(error: BaseException) -> bool:
     """Identify an explicit provider resource-exhaustion response, not a generic outage.
 
@@ -108,8 +114,12 @@ def is_resource_exhausted(error: BaseException) -> bool:
     their cause chain. Timeouts, 5xx responses and billing denials must not be
     promoted to this narrower release signal.
     """
+    from .azure_call_lifecycle import AzureRateLimitedError
+
+    if classify_provider_error(error) != PROVIDER_UNAVAILABLE:
+        return False
     for current in _iter_causes(error):
-        if isinstance(current, Exception) and _status_code(current) == 429:
+        if isinstance(current, AzureRateLimitedError) or _provider_status(current) == 429:
             return True
         if str(getattr(current, "status", "") or "").strip().upper() == "RESOURCE_EXHAUSTED":
             return True
@@ -161,7 +171,7 @@ def classify_provider_error(error: BaseException) -> str:
         if isinstance(current, (ConnectionError, NetworkError, TimeoutException)):
             return PROVIDER_UNAVAILABLE
 
-        status = _status_code(current) if isinstance(current, Exception) else None
+        status = _provider_status(current)
         if status in _PROVIDER_STATUS_CODES:
             return PROVIDER_UNAVAILABLE
 
@@ -212,6 +222,8 @@ def is_transient_transport(error: BaseException) -> bool:
     Only an outage by classify_provider_error qualifies, under the same cause-chain
     rules, so a sanitized timeout wrapping an application fault never does.
     """
+    from .azure_call_lifecycle import AzureRateLimitedError
+
     if classify_provider_error(error) != PROVIDER_UNAVAILABLE:
         return False
     for current in _iter_causes(error):
@@ -220,9 +232,9 @@ def is_transient_transport(error: BaseException) -> bool:
             if cause is None or isinstance(cause, asyncio.CancelledError):
                 return True
             continue
-        if isinstance(current, TimeoutException):
+        if isinstance(current, (TimeoutException, AzureRateLimitedError)):
             return True
-        if isinstance(current, Exception) and _status_code(current) in _PROVIDER_STATUS_CODES:
+        if _provider_status(current) in _PROVIDER_STATUS_CODES:
             return True
         if str(getattr(current, "status", "") or "").strip().upper() in _TRANSIENT_STATUS_NAMES:
             return True
