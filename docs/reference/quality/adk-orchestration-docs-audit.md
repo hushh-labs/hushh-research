@@ -30,13 +30,16 @@ not permission to resend; pre-send wake probes remain retryable.
 
 Focused local checks cover cross-store CAS, custody, identity, fencing, recovery,
 memory durability and the actual client wake wrapper. These establish source
-behavior, not installed-owner acceptance. The Dev registry access recheck found
-two Azure placements and one owner-project GCP placement. The configured Azure
-broker assertion returned HTTP 403; the GCP owner-service metadata read was
-permission-denied. Both task-owned database proxies stopped. No cloud mutation,
-UAT action, deployment or current-image restart qualification was performed.
-Finish installed acceptance through the existing owner-approved update path with
-working operator access: exact image, stable identity/history after replacement,
+behavior, not installed-owner acceptance. On 1 November, explicit owner CLI
+sessions successfully read the registered GCP service and both Azure apps. The
+earlier admin-ADC GCP denial and Azure broker-assertion HTTP 403 are specific to
+that credential path, not a general cloud-access blocker. GCP reports Ready with
+durable identity and commit-log storage enabled; both Azure apps report successful
+provisioning. CLI defaults were not changed, and every target was explicit to
+avoid the default UAT project. Task-owned database proxies stopped. No cloud
+mutation, UAT action, deployment or current-image restart qualification was performed.
+Finish installed acceptance through the existing owner-approved update path:
+exact image, stable identity/history after replacement,
 stale-writer refusal and an authenticated completed turn. Do not use process
 health, historical receipts or an offline lifecycle simulation as that proof.
 
