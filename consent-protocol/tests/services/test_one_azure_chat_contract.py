@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from google.genai import types
 
-from hushh_mcp.runtime_providers.azure_adk import AzureOpenAIAdkModel
 from tests.services.test_azure_adk import Stream, call, message, model, request, response
 
 
@@ -190,41 +189,6 @@ async def test_http_error_status_takes_precedence_over_stream_quota_code(caplog,
     assert "Private provider body" not in telemetry
 
 
-@pytest.mark.parametrize("status", [429, 503])
-async def test_one_chat_never_falls_back_or_changes_processor(monkeypatch, status):
-    from unittest.mock import AsyncMock
-
-    from hushh_mcp.runtime_providers import managed_text as managed
-
-    monkeypatch.setenv("ENVIRONMENT", "uat")
-    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
-    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
-    error = RuntimeError("synthetic provider failure")
-    error.status_code = status
-    calls = []
-
-    async def azure(self, req, stream=False):
-        calls.append("azure")
-        raise error
-        yield
-
-    alternate = Mock(side_effect=AssertionError("One must never construct Vertex"))
-    monkeypatch.setattr(AzureOpenAIAdkModel, "generate_content_async", azure)
-    base, _, _, _ = model([])
-    wrapped = managed.ManagedPrimaryTextModel(
-        **base.model_dump(exclude={"api_key", "client"}),
-        token_supplier=lambda: "synthetic",
-        require_current=AsyncMock(),
-        fallback_factory=alternate,
-        policy_generation=managed.managed_text_policy()["generation"],
-        processing_scope="one_text_chat",
-    )
-    with pytest.raises(RuntimeError, match="synthetic provider failure"):
-        _ = [item async for item in wrapped.generate_content_async(request())]
-    assert calls == ["azure"]
-    alternate.assert_not_called()
-
-
 async def test_managed_minimal_effort_preserves_explicit_specialist_reasoning():
     adapter, client, _, _ = model([response(message("first")), response(message("second"))])
     adapter.default_reasoning_effort = "minimal"
@@ -401,6 +365,7 @@ async def test_managed_first_output_phases_remain_bounded_without_replay(
         fallback_factory=fallback,
         policy_generation=managed.managed_text_policy()["generation"],
         processing_scope="one_text_chat",
+        allow_fallback=False,
         allow_web_search=True,
         primary_seconds=0.03,
     )
@@ -495,4 +460,4 @@ def test_managed_chat_reuses_credential_cache_and_aligns_stream_budget(monkeypat
     )
     assert first.default_reasoning_effort == "minimal"
     assert first.timeout_seconds == 60 and first.primary_seconds == 10
-    assert not first.allow_fallback and first.fallback_factory is None
+    assert first.allow_fallback and callable(first.fallback_factory)

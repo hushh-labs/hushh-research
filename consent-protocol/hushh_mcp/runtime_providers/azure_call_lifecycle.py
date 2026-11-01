@@ -26,6 +26,49 @@ class AzureAuthenticationError(RuntimeError):
     """Workload authentication failed before model I/O; not a model outage."""
 
 
+class AzureTokenServiceUnavailableError(AzureAuthenticationError):
+    """A classified token-service transport failure, without a credential denial."""
+
+
+def _token_service_unavailable(error: Exception) -> bool:
+    from azure.core.exceptions import ServiceRequestError, ServiceResponseError
+    from httpx import HTTPStatusError, NetworkError, TimeoutException
+
+    def status(cause):
+        return (
+            cause.response.status_code
+            if isinstance(cause, HTTPStatusError)
+            else getattr(cause, "status_code", None)
+        )
+
+    seen, causes = set(), []
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        causes.append(current)
+        current = current.__cause__ or current.__context__
+    # A preserved identity/configuration denial always outranks an inner outage.
+    if any(
+        isinstance(cause, (PermissionError, ValueError)) or status(cause) in {400, 401, 403, 404}
+        for cause in causes
+    ):
+        return False
+    return any(
+        isinstance(
+            cause,
+            (
+                TimeoutError,
+                NetworkError,
+                TimeoutException,
+                ServiceRequestError,
+                ServiceResponseError,
+            ),
+        )
+        or status(cause) in {408, 429, 500, 502, 503, 504}
+        for cause in causes
+    )
+
+
 class AzureProtocolError(ValueError):
     """Closed diagnostic code; never provider prose or a reason to relax admission."""
 
@@ -116,7 +159,9 @@ async def acquire_token(token_supplier, counters: dict[str, Any]) -> str:
     try:
         async with asyncio.timeout(5):
             token = await asyncio.to_thread(token_supplier)
-    except Exception:
+    except Exception as error:
+        if _token_service_unavailable(error):
+            raise AzureTokenServiceUnavailableError("Azure token service is unavailable") from None
         raise AzureAuthenticationError("Azure workload authentication failed") from None
     finally:
         counters["auth_ms"] = round((time.perf_counter() - auth_started) * 1000)

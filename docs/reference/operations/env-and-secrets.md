@@ -349,9 +349,13 @@ New Drive activity-date requests use the same selected managed planner and prese
 their existing single interpretation stage, native retrieval and deterministic date
 checks. Both providers must pass the authored v2 planner qualification. Saved
 requests retain their processor binding and its current-authority validation.
-Chat stays on that one provider for the invocation: an outage does not replay
-its tools or output through another model. The existing eligible Drive transport
-fallback retains its separate contract. A new fleet provider needs an adapter
+Azure chat may use the explicit Vertex alternate once after a classified
+transport/quota failure before any response is observed. It never replays tools
+or emitted output. Configured Vertex chat remains single-provider. Authority,
+identity denials, content filtering and malformed output never trigger fallback.
+A classified token-exchange transport outage may use the same bounded alternate;
+an invalid credential or 401/403 denial cannot.
+The existing eligible Drive transport fallback retains its separate contract. A new fleet provider needs an adapter
 and complete capability qualification before selection.
 
 Validate the complete file without model calls or credentials:

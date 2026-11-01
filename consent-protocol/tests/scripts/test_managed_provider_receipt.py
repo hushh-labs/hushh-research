@@ -90,13 +90,19 @@ def _provider_capture_fixture(monkeypatch, azure=True, vertex=False, configured=
     [(True, False), (False, True), (True, True), (False, False)],
 )
 @pytest.mark.parametrize("configured", ["azure_openai", "vertex"])
+@pytest.mark.parametrize("legacy_status", [False, True])
 def test_uploaded_provider_receipt_uses_exact_remote_build_without_stdout(
-    monkeypatch, azure, vertex, configured
+    monkeypatch, azure, vertex, configured, legacy_status
 ):
     collector, expected, document, label, entries, build = _provider_capture_fixture(
         monkeypatch, azure, vertex, configured
     )
     preferred = configured if (azure if configured == "azure_openai" else vertex) else None
+    if legacy_status:
+        for entry in entries[:2]:
+            payload = json.loads(entry["textPayload"][len(label) + 2 :])
+            payload["managed_provider_readiness"].pop("status")
+            entry["textPayload"] = label + ": " + json.dumps(payload)
     calls = []
 
     def read(arguments, deadline):
@@ -260,39 +266,6 @@ def recovery_history():
     ]
 
 
-@pytest.mark.parametrize("stage", ["federation", "primary_http", "response_validation"])
-def test_collector_keeps_azure_failure_stage_without_claiming_recovery(stage):
-    helper = _managed_provider_gate()._capability_proof()
-    timing = {
-        "credential_setup": 2000,
-        "token_acquisition": 1000,
-        "primary_http": 27001,
-        "response_validation": 0,
-    }
-    metadata = {
-        "classification": "provider_unavailable",
-        "elapsed_ms": 30001,
-        "error_type": "TimeoutError",
-        "failure_stage": stage,
-        "phase_ms": timing,
-        "deadline_expired": True,
-    }
-    result = helper.execution_diagnostics(
-        "azure_openai",
-        [
-            {
-                **metadata,
-                "azure_pwm_runtime_probe_stage": "primary_http",
-                "result": "failed",
-                "error": "PRIVATE_PROVIDER_BODY",
-            }
-        ],
-    )
-    assert result == {
-        "probe_history": [{"probe": "primary_http", "attempts": [{"ok": False, **metadata}]}]
-    }
-
-
 @pytest.mark.parametrize("history_kind", ["recovered", "clean", "foreign_context"])
 def test_receipt_preserves_only_actual_same_candidate_retry_history(monkeypatch, history_kind):
     collector, expected, document, label, entries, _ = _provider_capture_fixture(monkeypatch)
@@ -353,7 +326,7 @@ def test_receipt_refuses_unproven_retry_lineage(monkeypatch, defect):
     elif defect == "hard_fault":
         history[0]["attempts"][0]["classification"] = "candidate_misconfigured"
     elif defect == "azure_retry":
-        history[0]["probe"] = "primary_http"
+        history[0]["probe"] = "capability:one_text_root"
     elif defect == "reason_scope":
         history[0]["attempts"][0]["failure_reason"] = "root.clock_selection"
     else:
@@ -396,14 +369,8 @@ def azure_capability_failure_logs(failure_reason=None):
     return rows
 
 
-@pytest.mark.parametrize("binding", [None, "image", "account", "job"])
-@pytest.mark.parametrize("failure_reason", [None, "unlisted", "root.clock_selection"])
-def test_collector_keeps_closed_capability_failures_only_after_execution_binding(
-    monkeypatch, binding, failure_reason
-):
-    gate = _managed_provider_gate()
-    expected, value = _provider_fixture(gate, "azure_openai")
-    spec = {
+def _azure_execution_spec(expected):
+    return {
         "serviceAccountName": expected["runtime_account"],
         "containers": [
             {
@@ -418,6 +385,19 @@ def test_collector_keeps_closed_capability_failures_only_after_execution_binding
             }
         ],
     }
+
+
+@pytest.mark.parametrize("binding", [None, "image", "account", "job"])
+@pytest.mark.parametrize(
+    "failure_reason",
+    [None, "unlisted", "root.clock_selection", "outage", "candidate_fault", "conflicting_terminal"],
+)
+def test_collector_keeps_closed_capability_failures_only_after_execution_binding(
+    monkeypatch, binding, failure_reason
+):
+    gate = _managed_provider_gate()
+    expected, value = _provider_fixture(gate, "azure_openai")
+    spec = _azure_execution_spec(expected)
     owner = value["job"]
     if binding == "image":
         spec["containers"][0]["image"] = "foreign-image"
@@ -436,7 +416,19 @@ def test_collector_keeps_closed_capability_failures_only_after_execution_binding
                 "status": {"conditions": [{"type": "Completed", "status": "False"}]},
             }
         assert value["execution"] in arguments[2]
-        rows = azure_capability_failure_logs(failure_reason) + [
+        reason = (
+            None
+            if failure_reason in {"outage", "candidate_fault", "conflicting_terminal"}
+            else failure_reason
+        )
+        rows = azure_capability_failure_logs(reason)
+        if failure_reason in {"outage", "candidate_fault", "conflicting_terminal"}:
+            rows[-1]["classification"] = "provider_unavailable"
+        if failure_reason == "candidate_fault":
+            rows[-1]["capability_failures"][0]["classification"] = "candidate_misconfigured"
+        if failure_reason == "conflicting_terminal":
+            rows.append({"azure_pwm_runtime_probe_result": "ok"})
+        rows += [
             {"managed_text_provider_probe": value["core"]},
             value["pwm_proof"],
             {"managed_capabilities_probe": {**value["capability_proof"], "ready": False}},
@@ -445,24 +437,32 @@ def test_collector_keeps_closed_capability_failures_only_after_execution_binding
 
     monkeypatch.setattr(gate, "run_json", cloud)
     observed = gate.collect("azure_openai", expected, 1, value["job"])
-    aggregate = gate.evaluate({"azure_openai": observed}, expected)
-    assert aggregate["ready"] is False and aggregate["selected_provider"] is None
+    _, vertex = _provider_fixture(gate, "vertex")
+    aggregate = gate.evaluate({"azure_openai": observed, "vertex": vertex}, expected)
+    allowed = binding is None and failure_reason == "outage"
+    assert aggregate["ready"] is allowed
+    assert aggregate["selected_provider"] == ("vertex" if allowed else None)
+    if failure_reason == "candidate_fault" and binding is None:
+        assert observed["failure_classification"] == "application_broken"
     diagnostic = aggregate["providers"]["azure_openai"]
     if binding:
         assert observed["verified"] is False and "probe_history" not in diagnostic
         return
     history = diagnostic["probe_history"]
     assert observed["core_ready"] is False and "capability_proof" not in observed
+    probe_name = "one_text_root" if failure_reason == "root.clock_selection" else "public_search"
     assert [row["probe"] for row in history] == [
         "primary_http",
-        "capability:one_text_root"
-        if failure_reason == "root.clock_selection"
-        else "capability:public_search",
+        "capability:" + probe_name,
         "capability:embeddings",
     ]
     assert [row["attempts"][0]["elapsed_ms"] for row in history] == [7107, 87114, 8047]
     assert history[1]["attempts"][0]["error_type"] == "TimeoutError"
-    assert history[1]["attempts"][0].get("failure_reason") == failure_reason
+    assert history[1]["attempts"][0].get("failure_reason") == (
+        None
+        if failure_reason in {"outage", "candidate_fault", "conflicting_terminal"}
+        else failure_reason
+    )
     assert history[2]["attempts"][0]["error_type"] == "LocationBrainEmbeddingUnavailable"
     assert all("recovered_after_retry" not in row for row in history)
     assert "PRIVATE_PROVIDER_BODY" not in json.dumps(aggregate)

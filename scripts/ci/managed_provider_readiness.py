@@ -369,7 +369,7 @@ def collect(provider, expected, step_exit, job):
     # A matching execution can fail optional modalities while its core text proof succeeds.
     if len(cores) == 1 and valid_core(cores[0], provider, expected, document):
         result.update(core_ready=True, core=cores[0], reason="core_ready")
-    result.update(_capability_proof().execution_diagnostics(provider, values))
+    result.update(_capability_proof().execution_diagnostics(provider, values), **_execution_failure(provider, values))
     if provider == "azure_openai":
         terminals = [
             v.get("azure_pwm_runtime_probe_result")
@@ -406,6 +406,32 @@ def collect(provider, expected, step_exit, job):
     return result
 
 
+def _execution_failure(provider, values):
+    if provider != "azure_openai":
+        return {}
+    failures = [v for v in values if "azure_pwm_runtime_probe_result" in v]
+    if (len(failures) != 1 or failures[0].get("azure_pwm_runtime_probe_result") != "failed"
+        or failures[0].get("classification") not in _capability_proof().CLASSIFICATIONS - {"dependency_ok"}):
+        return {}
+    classification = failures[0]["classification"]
+    # A terminal outage cannot erase a retained hard capability failure.
+    if any(row.get("classification") in {"candidate_misconfigured", "application_broken"}
+           for row in failures[0].get("capability_failures", [])):
+        classification = "application_broken"
+    return {"failure_classification": classification}
+
+
+def _execution_bound(value, provider, expected):
+    prefix = "azure-pwm-" if provider == "azure_openai" else "genai-ready-"
+    return (
+        value.get("verified") is True
+        and value.get("execution_image") == expected["image"]
+        and value.get("runtime_account") == expected["runtime_account"]
+        and value.get("job") == prefix + expected["build_id"]
+        and str(value.get("execution", "")).startswith(prefix + expected["build_id"] + "-")
+    )
+
+
 def evaluate(envelopes, expected, *, document=None):
     document = (
         document
@@ -426,7 +452,6 @@ def evaluate(envelopes, expected, *, document=None):
             and value.get("provider") == provider
             and value.get("context") == expected
         )
-        prefix = "azure-pwm-" if provider == "azure_openai" else "genai-ready-"
         if (
             valid
             and value.get("verified") is True
@@ -442,16 +467,9 @@ def evaluate(envelopes, expected, *, document=None):
                 if not name.startswith("one_chat:")
                 and classification in {"candidate_misconfigured", "application_broken"}
             )
+        bound = valid and _execution_bound(value, provider, expected)
         accepted[provider] = bool(
-            valid
-            and value.get("verified") is True
-            and value.get("core_ready") is True
-            and value.get("execution_image") == expected["image"]
-            and value.get("runtime_account") == expected["runtime_account"]
-            and value.get("job") == prefix + expected["build_id"]
-            and str(value.get("execution", "")).startswith(
-                prefix + expected["build_id"] + "-"
-            )
+            bound and value.get("core_ready") is True
             and value.get("execution_terminal") == "True"
             and value.get("step_exit") == 0
             and valid_core(value.get("core"), provider, expected, document)
@@ -469,13 +487,18 @@ def evaluate(envelopes, expected, *, document=None):
         diagnostics[provider] = _capability_proof().readiness_diagnostics(
             value, provider=provider, valid=valid, ready=accepted[provider]
         )
+        if not bound:
+            diagnostics[provider].pop("failure_classification", None)
     configured = configured_provider(document)
-    selected = configured if accepted[configured] else None
+    selected = qualified_provider(diagnostics, configured, trust_failed=trust_failed)
     return {
         "schema": "managed_provider_readiness.v1",
         "ready": selected is not None and not trust_failed,
         "alternate_failures": sorted(alternate_diagnostics),
         "selected_provider": selected,
+        "status": "blocked"
+        if selected is None
+        else ("healthy" if selected == configured else "degraded_fallback"),
         "pwm_trust": (
             "failed"
             if trust_failed
@@ -491,6 +514,26 @@ def evaluate(envelopes, expected, *, document=None):
         "context": expected,
         "providers": diagnostics,
     }
+
+
+def qualified_provider(providers, configured, *, trust_failed=False):
+    """A complete alternate qualifies only a bound primary-provider outage.
+
+    Missing evidence, quality failures and configuration faults never become an
+    outage. Both providers retain the same capability inventory and graders.
+    """
+    if trust_failed:
+        return None
+    primary = providers.get(configured, {})
+    if primary.get("ready") is True:
+        return configured
+    if (
+        configured == "azure_openai"
+        and primary.get("failure_classification") == "provider_unavailable"
+        and providers.get("vertex", {}).get("ready") is True
+    ):
+        return "vertex"
+    return None
 
 
 def worker_provider(sha, image, run_id, account):
@@ -576,12 +619,21 @@ def candidate(service, expected, tag):
 
 
 def select(result, expected, folder):
-    if result.get("ready") is not True or result.get(
-        "selected_provider"
-    ) != configured_provider(
+    configured = configured_provider(
         json.loads(
             (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
         )
+    )
+    selected = qualified_provider(
+        result.get("providers", {}),
+        configured,
+        trust_failed=result.get("pwm_trust") == "failed",
+    )
+    if (
+        result.get("ready") is not True
+        or result.get("context") != expected
+        or selected is None
+        or result.get("selected_provider") != selected
     ):
         raise ValueError("One UAT requires the qualified configured processor")
     service = os.environ["READINESS_SERVICE"]
