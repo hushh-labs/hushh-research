@@ -254,6 +254,8 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
     onCancel,
     onSelectionChange,
     onReadyChange,
+    initialLatitude,
+    initialLongitude,
     confirmLabel,
     cancelLabel,
   }: {
@@ -270,6 +272,8 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
       address: string;
     }) => void;
     onReadyChange?: (ready: boolean) => void;
+    initialLatitude: number;
+    initialLongitude: number;
     confirmLabel?: string;
     cancelLabel?: string;
   }) => {
@@ -299,7 +303,7 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
     }, [onReadyChange, onSelectionChange, picked]);
 
     return (
-      <div aria-label="Mock location picker">
+      <div aria-label="Mock location picker" data-initial-point={`${initialLatitude},${initialLongitude}`}>
         {confirmLabel ? (
           <button type="button" onClick={() => onConfirm(picked)}>
             {confirmLabel}
@@ -987,7 +991,6 @@ function holdNextCapture(): () => void {
 
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
-  fireEvent.click(await screen.findByRole("button", { name: "Use my location" }));
   const later = await screen.findByRole("button", { name: "Set up later" });
   await waitFor(() => expect(later).toBeEnabled());
   fireEvent.click(later);
@@ -4987,6 +4990,7 @@ describe("OneLocationAgentPage", () => {
         name: "Your place.",
       }),
     ).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     expect(await screen.findByTestId("one-location-onboarding-ready")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -5142,7 +5146,9 @@ describe("OneLocationAgentPage", () => {
     mockGetPermissionState.mockResolvedValue({ state: "granted", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Set up later" }));
+    await screen.findByLabelText("Mock location picker");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     await expectLocationInviteStep();
     expect(screen.queryByTestId("one-location-onboarding-save-place-surface")).toBeNull();
     await waitFor(() => expect(screen.queryByTestId("save-location-modal")).toBeNull());
@@ -5173,8 +5179,9 @@ describe("OneLocationAgentPage", () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Use my location" }));
+    await screen.findByLabelText("Mock location picker");
     await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
+    expect(screen.getByLabelText("Mock location picker")).toHaveAttribute("data-initial-point", "28.6139,77.209");
     fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     await expectLocationInviteStep();
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();

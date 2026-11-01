@@ -13502,7 +13502,7 @@ export function OneLocationAgentPageContent({
           requireMeasurement: true,
           isStale: () => !intentIsCurrent(),
           autoOpenSettings: false,
-          announce: true,
+          announce: showModal,
         });
         if (!intentIsCurrent() || !readiness.ready) return false;
         const point = readiness.point;
@@ -14079,7 +14079,7 @@ export function OneLocationAgentPageContent({
           // missing screen.
           // Reuse an existing point without acquiring one during onboarding.
           mapPoint={onboardingPlace ? onboardingFinaleMapPoint : null}
-          onPrepareLocation={handlePrepareOnboardingLocation}
+          onPrepareLocation={savedLocationSessionUserId === auth.userId ? handlePrepareOnboardingLocation : undefined}
           savedPlace={onboardingPlaceSavedForUser === auth.userId && Boolean(onboardingPlace?.point)}
           place={{
             address: onboardingPlace?.address ?? null,

@@ -54,7 +54,7 @@ const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
 ) as Record<OnboardingScreen, string>;
 
-// Legacy entry names restart at Features without requesting device access.
+// Legacy entry names restart at the Your place screen.
 export type OneLocationOnboardingStart = "features" | "welcome" | "permissions";
 
 export type ConnectionRequestResult = {
@@ -151,7 +151,7 @@ type OneLocationOnboardingFlowProps = {
    */
   /** Where to centre the finale map. Null renders the stylised fallback. */
   mapPoint?: { lat: number; lng: number } | null;
-  /** Request a fix only after the owner taps Use my location. */
+  /** Acquire a foreground fix on entry, or when the owner retries. */
   onPrepareLocation?: () => Promise<boolean>;
   /** A completed save retained by the account-scoped page through auth gates. */
   savedPlace?: boolean;
@@ -1118,6 +1118,8 @@ export function OneLocationOnboardingFlow({
   const placeSaveInFlightRef = useRef(false);
   const [locationPreparing, setLocationPreparing] = useState(false);
   const locationPreparingRef = useRef(false);
+  const autoLocationAttemptedRef = useRef(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
   const [activeReadyDisclosure, setActiveReadyDisclosure] = useState<
@@ -1442,15 +1444,40 @@ export function OneLocationOnboardingFlow({
     }
   };
 
-  const requestLocation = () => {
+  const requestLocation = useCallback(() => {
     if (leaving || locationPreparingRef.current || !onPrepareLocation) return;
     locationPreparingRef.current = true;
+    setLocationError(null);
     setLocationPreparing(true);
-    void onPrepareLocation().catch(() => false).finally(() => {
-      locationPreparingRef.current = false;
-      setLocationPreparing(false);
-    });
-  };
+    void (async () => {
+      try {
+        if (await onPrepareLocation()) return;
+      } catch {
+        // The same recovery is available for a rejected acquisition.
+      } finally {
+        locationPreparingRef.current = false;
+        setLocationPreparing(false);
+      }
+      setLocationError("Couldn't find your location. Allow location access in your browser or device settings, make sure Location is on, then try again.");
+    })();
+  }, [leaving, onPrepareLocation]);
+
+  // Ask once when the place screen is ready. Returning from the next screen,
+  // a rerender, or Strict Mode must not repeatedly prompt after a refusal.
+  useEffect(() => {
+    if (screen !== "features" || leaving || !onPrepareLocation || autoLocationAttemptedRef.current) return;
+    if (placeSaved || place?.mapInitial) {
+      autoLocationAttemptedRef.current = true;
+      return;
+    }
+    // Defer until mount effects have settled so a Strict Mode cleanup cannot
+    // invalidate the account session while its first capture is starting.
+    const timer = window.setTimeout(() => {
+      autoLocationAttemptedRef.current = true;
+      requestLocation();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [screen, leaving, onPrepareLocation, placeSaved, place?.mapInitial, requestLocation]);
 
   // All Back surfaces unwind the same local flow, including native Back and
   // legacy/controlled entries that start directly on the feature screen.
@@ -1500,6 +1527,7 @@ export function OneLocationOnboardingFlow({
           onBack={handleFlowBack}
           onRequestLocation={requestLocation}
           requestingLocation={locationPreparing}
+          locationError={locationError}
           onboardingPlaceSaved={placeSaved}
           onContinue={() => setScreen("ready")}
           onSkip={() => setScreen("ready")}

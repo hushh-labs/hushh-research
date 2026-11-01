@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { useState } from "react";
+import { StrictMode, useState } from "react";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import {
@@ -84,6 +84,7 @@ describe("OneLocationOnboardingFlow introduction", () => {
     expect(screen.queryByLabelText("One Location setup progress")).toBeNull();
     expect(screen.queryByTestId("one-location-onboarding-welcome")).toBeNull();
     expect(screen.queryByText("Your location stays private until you share.")).toBeNull();
+    expect(screen.queryByText("Private until you share.")).toBeNull();
     expect(screen.queryByText("Location is ready. Your next tap opens the place picker.")).toBeNull();
     expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled();
     unmount();
@@ -125,21 +126,22 @@ describe("OneLocationOnboardingFlow introduction", () => {
       );
     }
 
-    it.each([true, false, "rejects"] as const)(
-      "requests location only on a tap and keeps the place editable (%s)",
+    it.each([false, "rejects"] as const)(
+      "requests location on entry and offers a retry after failure (%s)",
       async (outcome) => {
         const onPrepareLocation =
           outcome === "rejects"
             ? vi.fn().mockRejectedValue(new Error("denied"))
             : vi.fn().mockResolvedValue(outcome);
         render(<ControlledFlow {...createProps({ onPrepareLocation })} />);
-        expect(onPrepareLocation).not.toHaveBeenCalled();
-        fireEvent.click(screen.getByRole("button", { name: "Use my location" }));
-        await waitFor(() => expect(screen.getByRole("button", { name: "Use my location" })).toBeEnabled());
+        await screen.findByText(/Couldn't find your location/);
+        expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+        fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+        await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(2));
+        await screen.findByText(/Couldn't find your location/);
         expect(screen.queryByTestId("one-location-onboarding-ready")).toBeNull();
         fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
         expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
-        expect(onPrepareLocation).toHaveBeenCalledTimes(1);
         expect(screen.queryByTestId("one-location-onboarding-place")).toBeNull();
       },
     );
@@ -155,8 +157,7 @@ describe("OneLocationOnboardingFlow introduction", () => {
           {...createProps({ onPrepareLocation })}
         />,
       );
-      fireEvent.click(screen.getByRole("button", { name: "Use my location" }));
-      expect(screen.getByRole("button", { name: /Finding location/ })).toBeDisabled();
+      expect(await screen.findByRole("button", { name: /Finding location/ })).toBeDisabled();
       expect(onPrepareLocation).toHaveBeenCalledTimes(1);
       expect(screen.getByRole("button", { name: "Set up later" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
@@ -168,6 +169,25 @@ describe("OneLocationOnboardingFlow introduction", () => {
       expect(screen.queryByTestId("one-location-onboarding-ready")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
       expect(screen.getByTestId("one-location-onboarding-ready")).toBeTruthy();
+      act(() => { expect(unwindBackLayer(routeId)).toBe(true); });
+      expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for the account session and does not request again for a saved place", async () => {
+      const onPrepareLocation = vi.fn().mockResolvedValue(true);
+      const props = createProps();
+      const view = render(<ControlledFlow {...props} />);
+      view.rerender(<ControlledFlow {...props} onPrepareLocation={onPrepareLocation} />);
+      await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(1));
+      view.unmount();
+      render(<ControlledFlow {...props} onPrepareLocation={onPrepareLocation} savedPlace />);
+      expect(onPrepareLocation).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts one request after Strict Mode mount cleanup", async () => {
+      const onPrepareLocation = vi.fn().mockResolvedValue(true);
+      render(<StrictMode><ControlledFlow {...createProps({ onPrepareLocation })} /></StrictMode>);
+      await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(1));
     });
   });
 

@@ -388,6 +388,7 @@ export type SaveLocationModalProps = {
   onboardingRouteId?: string;
   onRequestLocation?: () => void;
   requestingLocation?: boolean;
+  locationError?: string | null;
   onboardingPlaceSaved?: boolean;
   onContinue?: () => void;
   /** Navigate back without treating the place as skipped. */
@@ -552,6 +553,7 @@ export function SaveLocationModal({
   onboardingRouteId,
   onRequestLocation,
   requestingLocation = false,
+  locationError = null,
   onboardingPlaceSaved = false,
   onContinue,
   onBack,
@@ -1168,7 +1170,7 @@ export function SaveLocationModal({
             busy={interactionBusy}
             capturing={requestingLocation}
             saved={onboardingPlaceSaved}
-            error={unifiedSaveError}
+            error={unifiedSaveError || locationError}
             onBack={onBack ?? onSkip}
             onRequestLocation={onRequestLocation ?? (() => undefined)}
             onSave={onboardingPlaceSaved ? (onContinue ?? onSkip) : handleSave}
