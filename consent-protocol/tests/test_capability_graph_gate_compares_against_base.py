@@ -13,117 +13,23 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from scripts import generate_capability_graph as generator
-
-GRAPH_RELATIVE = Path("contracts") / "kai" / "one-capability-graph.v1.json"
-MIRRORS = (
+from tests.helpers.capability_graph_fixture import (
     GRAPH_RELATIVE,
-    Path("hushh-webapp") / GRAPH_RELATIVE,
-    Path("consent-protocol") / GRAPH_RELATIVE,
-)
-LEDGER_RELATIVE = (
-    Path("consent-protocol") / "hushh_mcp" / "agents" / "capability_graph_evolution.v1.json"
-)
-V1_REVISION = "rev-v1-0000000"
-V2_REVISION = "rev-v2-0000000"
-
-
-def _empty_diff(from_revision: str | None) -> dict[str, Any]:
-    return {
-        "from_revision": from_revision,
-        "added": [],
-        "removed": [],
-        "changed": [],
-        "migrated": [],
-        "compatible": [],
-        "deprecated": [],
-        "breaking": [],
-    }
-
-
-def _graph(revision: str, binding_ref: str, semantic_diff: dict[str, Any]) -> dict[str, Any]:
-    """A minimal graph shaped the way ``_semantic_index`` and ``_semantic_node`` read it."""
-
-    return {
-        "schema_version": "one.capability_graph.v1",
-        "revision": revision,
-        "actions": [
-            {
-                "capability_id": "X",
-                "version": 1,
-                "execution": {"binding_ref": binding_ref},
-            }
-        ],
-        "workflows": [],
-        "semantic_diff": semantic_diff,
-    }
-
-
-def _aliased(
-    revision: str,
-    aliases: list[str],
-    *,
-    version: int = 1,
-    binding_ref: str = "binding-a",
-) -> dict[str, Any]:
-    """Graph v1's action plus a spoken-alias list, for the additive rule."""
-
-    graph = _graph(revision, binding_ref, _empty_diff(None))
-    graph["actions"][0]["aliases"] = aliases
-    graph["actions"][0]["version"] = version
-    return graph
-
-
-V1 = _graph(V1_REVISION, "binding-a", {**_empty_diff(None), "added": ["actions:X"]})
-# The author changed X's contract at the same version and recorded no breaking
-# change. This is the exact shape of the historical bypass.
-V2 = _graph(
+    LEDGER_RELATIVE,
+    MIRRORS,
+    V1,
+    V1_REVISION,
+    V2,
     V2_REVISION,
-    "binding-b",
-    {**_empty_diff(V1_REVISION), "changed": ["actions:X"], "breaking": []},
+    Repo,
+    _aliased,
 )
-
-
-@dataclass(frozen=True)
-class Repo:
-    root: Path
-
-    def git(self, *args: str) -> str:
-        completed = subprocess.run(  # noqa: S603 - fixed git executable, test-owned arguments
-            ["git", *args],  # noqa: S607
-            cwd=self.root,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return completed.stdout.strip()
-
-    def write_graph(self, graph: dict[str, Any]) -> None:
-        text = json.dumps(graph, indent=2, sort_keys=True) + "\n"
-        for mirror in MIRRORS:
-            path = self.root / mirror
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-
-    def write_ledger(self, deprecations: list[dict[str, Any]]) -> None:
-        path = self.root / LEDGER_RELATIVE
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": generator.CAPABILITY_GRAPH_EVOLUTION_SCHEMA_VERSION,
-            "deprecations": deprecations,
-        }
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-    def commit(self, message: str) -> str:
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", message)
-        return self.git("rev-parse", "HEAD")
 
 
 @pytest.fixture
@@ -226,6 +132,42 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
     repo.git("merge", "--no-ff", "--no-edit", "feature")
 
     assert set(generator._merged_workflow_predecessor_refs("main")) == expected | {verification_tip}
+
+
+def test_only_inferred_prepublication_parent_has_no_graph_history(repo: Repo) -> None:
+    unpublished = repo.git("rev-list", "--max-parents=0", "HEAD")
+
+    assert generator._read_workflow_predecessor(unpublished, allow_unpublished=True) is None
+    # A ledger or CLI declaration promises a published predecessor and remains strict.
+    with pytest.raises(subprocess.CalledProcessError):
+        generator._read_workflow_predecessor(unpublished)
+
+
+@pytest.mark.parametrize("state", ["partial", "deleted", "shallow", "malformed", "no_revision"])
+def test_inferred_parent_never_hides_missing_or_invalid_published_history(
+    repo: Repo, state: str
+) -> None:
+    unpublished = repo.git("rev-list", "--max-parents=0", "HEAD")
+    repo.git("checkout", "-q", "-b", "historical", unpublished)
+    if state == "partial":
+        mirror = repo.root / MIRRORS[1]
+        mirror.parent.mkdir(parents=True, exist_ok=True)
+        mirror.write_text(json.dumps(V1), encoding="utf-8")
+    elif state == "deleted":
+        repo.write_graph(V1)
+        repo.commit("publish graph")
+        for mirror in MIRRORS:
+            (repo.root / mirror).unlink()
+    elif state == "shallow":
+        (repo.root / ".git" / "shallow").write_text(unpublished + "\n", encoding="utf-8")
+    else:
+        graph = repo.root / GRAPH_RELATIVE
+        graph.parent.mkdir(parents=True, exist_ok=True)
+        graph.write_text("{" if state == "malformed" else "{}", encoding="utf-8")
+    historical = repo.commit("historical graph state") if state != "shallow" else unpublished
+
+    with pytest.raises((subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError)):
+        generator._read_workflow_predecessor(historical, allow_unpublished=True)
 
 
 @pytest.mark.parametrize(
