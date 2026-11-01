@@ -33,9 +33,8 @@ Exact-image synthetic recovery from installed predecessor `sha256:6e57f251081954
 passed on GCP Cloud Run and Azure Container Apps: unchanged identity, six log
 records, memory, revocation, processing consent, rebuilt PKM and 245,763 file
 bytes. Azure's 15 ciphertext objects retained their exact hashes and ETags;
-GCP's ciphertext inventory also matched. The descriptor admits only this measured
-predecessor. The reuse pin preserves the prepared image's source and archive
-provenance instead of rebuilding it for metadata. The existing Dev build bucket
+GCP's ciphertext inventory also matched. Dev 36 admitted this measured
+predecessor and reused the prepared image for metadata publication. The existing Dev build bucket
 archives `qualification-format-recovery-gcp.json` (generation `1793524876545163`)
 and `qualification-format-recovery-azure.json` (generation `1793524876814412`)
 under `pod-releases/6a2bd2afa7e2cbaf27f98d4735d25d0af1f5a400/41289451998/`.
@@ -50,12 +49,34 @@ fixture storage and its deleted vault are absent. GCP active object versions are
 absent; retained ciphertext follows the existing seven-day provider soft-delete
 policy, which was not overridden.
 
-**Still unverified:** shared Dev publication, normal owner-approved installation,
-stable identity/history after the actual owner update, stale-writer refusal and
+[PR #8727](https://github.com/hushh-labs/hushh-research/pull/8727) landed on Dev as
+`fd295fe12942` through the explicitly authorized Admin SOP after exact-head
+[CI](https://github.com/hushh-labs/hushh-research/actions/runs/41292995163) passed.
+The Main-owned [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/41295442148)
+successfully serves application source `1454be7511aa`: backend `00340-5h8` and
+frontend `00298-2dz`, both at 100% traffic. Runtime parity, schema, semantic
+verification and immutable Dev acceptance passed. The live catalog published
+Dev 36 with the qualified `5d8f7243…b46aa` image.
+
+The approved Azure owner installed Dev 36 through Software updates and normal
+Microsoft OAuth in the existing Chrome profile. Native readback confirms
+`ca-hussh-one-pod--u9be8bf4905b5`, the exact image and 100% traffic; the app reports
+the completed update. A synthetic owner chat reached that pod but was rejected
+with HTTP 400 before model execution. The normal frontend advertises global
+career actions; this pod leaves careers disabled. Pod admission rejects these
+known disabled actions whereas shared chat filters them out. Dev 37 corrects
+that admission mismatch while retaining unknown-tool refusal. It requires a new
+image, so the Dev 36 reuse pin is removed. Storage, identity, replay and custody
+code remain unchanged; the retained format evidence covers their unchanged
+contract, not a new exact-image recovery run. Both Dev 30 and Dev 36 are compatible
+predecessors under that unchanged format.
+
+**Still unverified:** Dev 37 publication and installation, the GCP owner update,
+stable identity/history after actual owner replacement, stale-writer refusal and
 an authenticated completed owner turn. Format recovery does not establish owner
-HTTP admission, active-work drain or Browser qualification. No owner image, UAT
-or production service was changed. Finish through the existing owner-approved
-update flow; process health and historical receipts are not acceptance proof.
+HTTP admission, active-work drain or Browser qualification. UAT and production
+were not changed. Finish through the existing owner-approved update flow;
+process health and historical receipts are not acceptance proof.
 
 ## Previous release decision — 27 October 2026
 

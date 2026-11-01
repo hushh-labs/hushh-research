@@ -1,12 +1,13 @@
 {
-  "version": "2026.11-dev.36",
+  "version": "2026.11-dev.37",
   "channel": "dev",
-  "summary": "Reliable restarts and safer message delivery.",
+  "summary": "Reliable restarts and private chat.",
   "notes": {
     "improvements": [
       "Your private agent keeps its identity and saved information through restarts."
     ],
     "fixes": [
+      "Unavailable tools no longer prevent your private agent from answering.",
       "An unconfirmed message is no longer automatically sent again."
     ],
     "security": [
@@ -14,6 +15,7 @@
     ]
   },
   "supportedUpgradeDigests": [
-    "sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423"
+    "sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423",
+    "sha256:5d8f7243ff5d10c1f3596fdb66f95c337c3637afcd997808fe62cf13152b46aa"
   ]
 }

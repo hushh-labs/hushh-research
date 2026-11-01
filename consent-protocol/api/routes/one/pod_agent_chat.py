@@ -20,7 +20,6 @@ from api.routes.one.pod_chat_owner import owner_context
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk import owner_style
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
-from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text,
@@ -39,12 +38,15 @@ from hushh_mcp.one_adk.pod_chat_stream import (
     stop_preparing_turn,
     turn_is_preparing,
 )
+from hushh_mcp.one_adk.pod_chat_tool_admission import (
+    PodChatToolAdmissionError,
+    admit_pod_chat_tools,
+)
 from hushh_mcp.one_adk.queued_input import QueuedInputError
 from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.receipt_client_tools import STATE_RECEIPT_RESULT
 from hushh_mcp.one_adk.receipt_turn_admission import (
     admit_receipt_continuation,
-    admit_receipt_tool,
 )
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.specialist_focus import (
@@ -54,7 +56,6 @@ from hushh_mcp.one_adk.specialist_focus import (
 )
 from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_location
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
-from hushh_mcp.services.action_gateway import get_action_gateway_action
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.message_feedback_service import MessageFeedbackError
 
@@ -106,15 +107,10 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
     hub_only = ("driveSearchSelection", "pendingEmailDraft", "gmailInformationRequestWorkflowId")
     if input.context or any(forwarded.get(key) for key in hub_only):
         raise HTTPException(409, detail={"code": "POD_CHAT_AUTHORITY_UNAVAILABLE"})
-    for tool in input.tools:
-        try:
-            if admit_receipt_tool(tool):
-                continue
-        except ValueError:
-            raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
-        action_id = action_id_from_tool_name(tool.name)
-        if not action_id or get_action_gateway_action(action_id) is None:
-            raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"})
+    try:
+        input.tools = admit_pod_chat_tools(input.tools)
+    except PodChatToolAdmissionError:
+        raise HTTPException(400, detail={"code": "AGENT_TOOL_NOT_ADMITTED"}) from None
     options = PodTurnRequest.model_validate(
         {
             "message": "AG-UI turn",
