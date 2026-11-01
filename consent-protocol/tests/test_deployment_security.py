@@ -121,6 +121,23 @@ class DeploymentSecurityTest(unittest.TestCase):
                     {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
                 )
                 for key, job in jobs.items():
+                    if name == "deploy-production.yml" and key == "validate-dispatch":
+                        self.assertNotIn("needs", job)
+                        self.assertEqual(job.get("permissions"), {"contents": "read"})
+                        self.assertNotIn("environment", job)
+                        self.assertNotIn("secrets", job)
+                        continue
+                    if name == "deploy-production.yml" and key == "verify-current-production":
+                        self.assertEqual(job.get("needs"), "validate-dispatch")
+                        self.assertEqual(
+                            job.get("environment"), {"name": "production", "deployment": False}
+                        )
+                        self.assertEqual(
+                            job.get("permissions"), {"contents": "read", "id-token": "write"}
+                        )
+                        self.assertNotIn("secrets", job)
+                        self.assertNotIn("uses", job)
+                        continue
                     if key == "deployment-security" or (
                         name == "deploy-uat.yml" and key == "select-target"
                     ):
