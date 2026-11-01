@@ -21,9 +21,11 @@ from hushh_mcp.services.drive_sharing_contract import (
     CalendarShareOrigin,
     DriveSharingError,
     VerifiedGoogleRecipient,
+    calendar_open_types,
 )
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_connection_service import get_google_connection_service
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError, GoogleDriveAdapter
 
@@ -144,6 +146,50 @@ async def request_readiness(
     return {"state": await _organizer_readiness(user_id, organizer_email)}
 
 
+# An open or fulfilled request already answers what it asked for; an organizer's
+# "Don't have" answers its type too. Neither is asked again.
+_LIVE_REQUEST_STATUSES = frozenset({"pending", "approved", "completed", "partial"})
+
+
+def _answered_types(existing: list[dict]) -> set[str]:
+    answered: set[str] = set()
+    for item in existing:
+        if item["status"] in _LIVE_REQUEST_STATUSES:
+            answered.update(item["requestedTypes"])
+        answered.update(item.get("notAvailableTypes") or ())
+    return answered
+
+
+def _existing_outcome(existing: list[dict], requested: tuple[str, ...]) -> dict:
+    """The request that already answers this ask, in the shape a new one returns."""
+    wanted = set(requested)
+    candidates = [
+        item
+        for item in existing
+        if wanted & (set(item["requestedTypes"]) | set(item.get("notAvailableTypes") or ()))
+    ]
+    candidates.sort(
+        key=lambda item: (
+            item["status"] in _LIVE_REQUEST_STATUSES,
+            wanted <= set(item["requestedTypes"]),
+        ),
+        reverse=True,
+    )
+    item = candidates[0]
+    return {
+        **{
+            key: value
+            for key, value in item.items()
+            if key not in {"recipient", "files", "requestedTypes", "notAvailableTypes"}
+        },
+        "requestType": "calendar_meeting",
+        "recipientEmail": item["recipient"]["email"],
+        "requestedTypes": item["requestedTypes"],
+        "notAvailableTypes": item.get("notAvailableTypes") or [],
+        "alreadyRequested": True,
+    }
+
+
 class CalendarMeetingRequestService:
     def __init__(self, sharing: DriveSharingService | None = None):
         self.sharing = sharing or DriveSharingService()
@@ -172,6 +218,17 @@ class CalendarMeetingRequestService:
             time_zone=time_zone,
         )
         organizer = await _connected_organizer(user_id, organizer_email)
+        # Ask only for what is not already open, shared or answered by the organizer;
+        # a request for something already requested returns that request.
+        existing = await self.sharing.store.calendar_request_snapshot(
+            user_id=user_id, account_id=account_id, occurrence_id=occurrence_id
+        )
+        outstanding = tuple(
+            kind for kind in requested_types if kind not in _answered_types(existing)
+        )
+        if not outstanding:
+            return _existing_outcome(existing, tuple(requested_types))
+        requested_types = outstanding
         summary = insights.calendar._event_summary(event)
         origin = CalendarShareOrigin(
             account_id=account_id,
@@ -199,13 +256,26 @@ class CalendarMeetingRequestService:
             recipient=recipient, owner_user_id=organizer, origin=origin
         )
         await self.sharing._require_owner()
-        return result
+        return {**result, "requestedTypes": sorted(requested_types)}
 
     async def owner_preview(self, *, user_id: str, request_id: str) -> dict:
         await self.sharing._require_owner()
-        return await self.sharing.store.calendar_request_preview(
+        preview = await self.sharing.store.calendar_request_preview(
             user_id=user_id, request_id=request_id
         )
+        return {**preview, "notAvailableTypes": preview["meeting"].get("not_available_types") or []}
+
+    async def mark_not_available(
+        self, *, user_id: str, request_id: str, revision: int, types: list[str]
+    ) -> dict:
+        """Record which requested files the organizer does not have; Drive is never read."""
+        await self.sharing._require_owner()
+        result = await self.sharing.store.mark_calendar_not_available(
+            user_id=user_id, request_id=request_id, revision=revision, types=types
+        )
+        await self.sharing._require_owner()
+        await wake_drive_work("sharing")
+        return result
 
     def _candidate_response(
         self,
@@ -239,7 +309,10 @@ class CalendarMeetingRequestService:
     async def exact_owner_files(self, *, user_id: str, request_id: str) -> dict:
         """Check provider IDs linked to the exact Calendar event under owner Drive."""
         preview = await self.owner_preview(user_id=user_id, request_id=request_id)
-        refs = (preview["meeting"].get("exact_refs") or [])[:8]
+        open_types = calendar_open_types(preview["meeting"])
+        refs = [r for r in (preview["meeting"].get("exact_refs") or []) if r["kind"] in open_types][
+            :8
+        ]
         if not refs:
             raise DriveSharingError("no_relevant_files")
         row, credential = await self.sharing.oauth.current_credential(
@@ -319,7 +392,7 @@ class CalendarMeetingRequestService:
         if not current or current["connection_generation"] != row["connection_generation"]:
             raise DriveSharingError("connection_changed")
         await self.sharing.store.calendar_request_preview(user_id=user_id, request_id=request_id)
-        allowed = set(preview["meeting"]["requested_types"])
+        allowed = set(calendar_open_types(preview["meeting"]))
         files = []
         for item in result.get("files") or []:
             if not isinstance(item, dict):
@@ -389,7 +462,7 @@ class CalendarMeetingRequestService:
                 or len(set(file_ids)) != len(file_ids)
                 or len(selected) != len(file_ids)
                 or any(
-                    item["artifact_kind"] not in preview["meeting"]["requested_types"]
+                    item["artifact_kind"] not in calendar_open_types(preview["meeting"])
                     for item in selected
                 )
             ):

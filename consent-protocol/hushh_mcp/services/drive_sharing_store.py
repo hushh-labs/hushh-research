@@ -84,6 +84,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     ShareRequestPurpose,
     SharingApproval,
     VerifiedGoogleRecipient,
+    calendar_open_types,
 )
 from hushh_mcp.services.drive_v1_manual_review import manual_selection_marker
 from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH, DriveReadError
@@ -2460,7 +2461,7 @@ class DriveSharingStore(DriveDocumentStore):
             if calendar_request and (
                 not foreground
                 or any(
-                    item["artifact_kind"] not in private["calendar"]["requested_types"]
+                    item["artifact_kind"] not in calendar_open_types(private["calendar"])
                     for item in live_sources or []
                 )
             ):

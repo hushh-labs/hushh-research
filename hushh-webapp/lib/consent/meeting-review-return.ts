@@ -51,3 +51,30 @@ export function readMeetingReviewOAuthReturn(ownerId: string | null | undefined)
 export function meetingReviewReturnHref(requestId: string): string {
   return buildConsentCenterHref("pending", { requestId, from: ROUTES.ONE_FEED });
 }
+
+const INTENT_KEY = "one_meeting_review_give_v1";
+
+/**
+ * Remembers, for this tab only, that the organizer chose "Give access" before
+ * leaving to authorize Drive, so the same review reopens on the same step.
+ */
+export function markMeetingReviewGiveIntent(ownerId: string, requestId: string): void {
+  if (!ownerId || !REQUEST_ID.test(requestId)) return;
+  try {
+    window.sessionStorage.setItem(INTENT_KEY, `${ownerId}:${requestId}`);
+  } catch {
+    /* The organizer simply chooses again. */
+  }
+}
+
+/** One-shot: true only for the same owner and request that set it. */
+export function consumeMeetingReviewGiveIntent(ownerId: string | null | undefined, requestId: string): boolean {
+  if (!ownerId || typeof window === "undefined") return false;
+  try {
+    const matches = window.sessionStorage.getItem(INTENT_KEY) === `${ownerId}:${requestId}`;
+    if (matches) window.sessionStorage.removeItem(INTENT_KEY);
+    return matches;
+  } catch {
+    return false;
+  }
+}

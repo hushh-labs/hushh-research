@@ -4,7 +4,7 @@ import { isLocationConsent, locationConsentSummary } from "@/lib/consent/locatio
 
 export function consentSummary(entry: ConsentCenterEntry): string {
   if (entry.metadata?.calendar_meeting === true) {
-    return "Review recording and notes for this meeting. Choose exact files and confirm the recipient.";
+    return "Asked for a meeting recording or notes. Give access to exact files, or say you don't have them.";
   }
   if (entry.metadata?.commercial_required === true) {
     return scopeCommerceStatusCopy(entry.metadata.commerce_status);

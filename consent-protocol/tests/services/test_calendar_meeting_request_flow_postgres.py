@@ -102,7 +102,8 @@ async def test_calendar_request_uses_selected_occurrence_and_provider_linked_fil
         calendar=SimpleNamespace(_event_summary=GoogleCalendarService._event_summary),
     )
     store = SimpleNamespace(
-        create_calendar_request=AsyncMock(return_value={"requestId": "request"})
+        create_calendar_request=AsyncMock(return_value={"requestId": "request"}),
+        calendar_request_snapshot=AsyncMock(return_value=[]),
     )
     sharing_service = SimpleNamespace(store=store, _require_owner=AsyncMock())
     monkeypatch.setattr(service, "verified_calendar_recipient", AsyncMock(return_value=selected))
@@ -120,7 +121,7 @@ async def test_calendar_request_uses_selected_occurrence_and_provider_linked_fil
         time_zone="UTC",
         requested_types=("notes",),
     )
-    assert result == {"requestId": "request"}
+    assert result == {"requestId": "request", "requestedTypes": ["notes"]}
     insights.raw_event.assert_awaited_once_with(
         user_id="recipient",
         calendar_id="primary",

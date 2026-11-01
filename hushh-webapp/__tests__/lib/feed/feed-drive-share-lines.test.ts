@@ -272,4 +272,50 @@ describe("Drive rows in the Feed", () => {
     );
     expect(row.href).not.toContain("evil");
   });
+
+  describe("meeting recording and notes requests", () => {
+    // The wire shape: the Feed carries scalars only, so the closed types are one string.
+    const meeting = { calendar_meeting: true, calendar_requested_types: "recording,notes" };
+
+    it("tells the requester the request is waiting on the organizer", () => {
+      expect(presentFeedItem(item("document_share_request_sent", { ...recipient, ...meeting })).description)
+        .toBe("Request sent · Waiting for organizer");
+    });
+
+    it("tells the organizer exactly which files were asked for", () => {
+      const row = presentFeedItem(item("document_share_request", meeting));
+      expect(row.description).toBe("Asked for your meeting recording and notes");
+      expect(row.href).toContain(encodeURIComponent(`document_share_request:${REQUEST}`));
+      expect(presentFeedItem(item("document_share_request", {
+        calendar_meeting: true, calendar_requested_types: "notes",
+      })).description).toBe("Asked for your meeting notes");
+    });
+
+    it.each([
+      ["recording", "declined", "The organizer says they don't have the recording."],
+      ["notes", "declined", "The organizer says they don't have the notes."],
+      ["recording,notes", "declined", "The organizer says they don't have the recording or the notes."],
+      ["recording", "pending", "The organizer says they don't have the recording. Waiting for the notes."],
+    ])("reports what the organizer lacks to the requester, per type (%j, %s)", (missing, status, line) => {
+      expect(presentFeedItem(item("document_share_decided", {
+        ...recipient, ...meeting, not_available_types: missing, user_facing_status: status,
+      })).description).toBe(line);
+    });
+
+    it("confirms to the organizer what was saved, without calling the file nonexistent", () => {
+      const line = presentFeedItem(item("document_share_decided", {
+        ...meeting, not_available_types: "recording", user_facing_status: "pending",
+      })).description;
+      expect(line).toBe("Saved: no recording to share");
+      expect(line).not.toMatch(/exist/i);
+    });
+
+    it("leaves ordinary document requests and unenriched rows on their own lines", () => {
+      expect(presentFeedItem(item("document_share_request", {})).description).toBe("Document request received");
+      expect(presentFeedItem(item("document_share_request_sent", recipient)).description).toBe("Request sent");
+      expect(presentFeedItem(item("document_share_decided", {
+        ...recipient, calendar_meeting: true, user_facing_status: "declined",
+      })).description).toBe("Declined your file request");
+    });
+  });
 });
