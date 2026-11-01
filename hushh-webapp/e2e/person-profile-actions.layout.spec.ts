@@ -34,6 +34,8 @@ async function openFixture(page: Page, width: number, theme = "light") {
 
 const taskIds = ["request-files", "ask-about-files", "request-scope", "request-cards"];
 
+
+
 async function boxes(page: Page) {
   return page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>("[data-id]")].map((el) => {
     const { top, bottom, left, right, width, height } = el.getBoundingClientRect();
@@ -167,8 +169,8 @@ for (const [width, height] of [[320, 568], [390, 844]]) {
     await expect(dialog.getByRole("group", { name: "Access duration" })).toBeVisible();
     const selected = dialog.getByRole("radio", { name: "7 days" });
     await expect(selected).toBeChecked();
-    const optionBoxes = await dialog.locator('[data-testid^="person-profile-duration-"]:not([data-testid="person-profile-duration-options"])').evaluateAll((inputs) => inputs.map((input) => {
-      const { left, right, top, bottom, height } = input.parentElement!.getBoundingClientRect();
+    const optionBoxes = await dialog.getByRole("radio").evaluateAll((inputs) => inputs.map((input) => {
+      const { left, right, top, bottom, height } = input.getBoundingClientRect();
       return { left, right, top, bottom, height };
     }));
     expect(optionBoxes).toHaveLength(4);
@@ -194,7 +196,7 @@ for (const [width, height] of [[320, 568], [390, 844]]) {
     expect(geometry.labelRight).toBeLessThanOrEqual(geometry.pillLeft);
     expect(geometry.pillRight).toBeLessThanOrEqual(geometry.rowRight);
     expect(geometry.rowOverflow).toBeLessThanOrEqual(0);
-    await dialog.getByTestId("person-profile-duration-24").locator("xpath=..").click();
+    await dialog.getByRole("radio", { name: "1 day", exact: true }).click();
     await expect(dialog.getByRole("radio", { name: "1 day" })).toBeChecked();
     await expect(dialog.getByRole("button", { name: "Cancel" })).toBeInViewport();
   });
