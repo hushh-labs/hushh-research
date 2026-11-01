@@ -12,66 +12,16 @@ from unittest.mock import patch
 
 import promotion_approval as promotion
 import uat_exact_ci as subject
+from uat_exact_ci_fixture import (
+    AttemptAPI as _AttemptAPI,
+    attempt_jobs as _attempt_jobs,
+    attempt_run as _attempt_run,
+)
 
 
 
 
 
-
-def _attempt_run(candidate):
-    run = {
-        "id": 123,
-        "head_sha": candidate,
-        "head_branch": "uat",
-        "event": "workflow_dispatch",
-        "run_attempt": 1,
-        "workflow_id": 9,
-        "path": ".github/workflows/ci.yml",
-        "repository": {"id": 7, "full_name": subject.REPOSITORY},
-        "head_repository": {"id": 7, "full_name": subject.REPOSITORY},
-        "status": "completed",
-        "conclusion": "success",
-        "run_started_at": "2026-10-28T00:00:00Z",
-        "updated_at": "2026-10-28T00:00:30Z",
-        "check_suite_id": 77,
-    }
-    return run
-
-def _attempt_jobs(candidate, base, exact_name=None):
-    exact_name = exact_name or f"Exact UAT Candidate ({base})"
-    jobs = [
-        {
-            "name": name,
-            "run_id": 123,
-            "head_sha": candidate,
-            "status": "completed",
-            "conclusion": "success",
-            "steps": [],
-        }
-        for name in sorted(
-            subject.REQUIRED_JOBS | {exact_name}
-        )
-    ]
-    for job in jobs:
-        name = job["name"]
-        step = (
-            "Verify the exact UAT checkout"
-            if name in {"Exact UAT Candidate", f"Exact UAT Candidate ({base})"}
-            else "Run targeted web contract checks"
-            if name.startswith("Web Targeted Contracts (")
-            else "Run serial database contracts"
-            if name.startswith("Protocol Database (")
-            else "Resolve change-aware verification plan"
-            if name == "Integration"
-            else None
-        )
-        if step:
-            job["steps"] = [{"name": step, "conclusion": "success"}]
-        if name == "Branch Validation Gate":
-            job["check_run_url"] = (
-                f"https://api.github.com/repos/{subject.REPOSITORY}/check-runs/10"
-            )
-    return jobs
 
 class ExactUatCiTest(unittest.TestCase):
     def test_reviewed_product_tests_and_dependencies_do_not_change_execution_authority(self):
@@ -332,27 +282,6 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         )
 
 
-class _AttemptAPI:
-    def __init__(self, run, jobs, runs, check):
-        self.run, self.jobs, self.runs, self.check = run, jobs, runs, check
-
-    def read(self, path):
-        if path == f"repos/{subject.REPOSITORY}":
-            return {"id": 7, "full_name": subject.REPOSITORY}
-        if path.endswith("/actions/workflows/ci.yml"):
-            return {"id": 9, "path": ".github/workflows/ci.yml"}
-        if path.endswith("/check-runs/10"):
-            return self.check
-        if "/attempts/1/jobs?" in path:
-            return {"jobs": self.jobs, "total_count": len(self.jobs)}
-        if "/workflows/ci.yml/runs?" in path:
-            return {"workflow_runs": self.runs, "total_count": len(self.runs)}
-        for item in self.runs:
-            if path.endswith(f"/runs/{item['id']}") or f"/runs/{item['id']}/attempts/" in path:
-                return item
-        return self.run
-
-
 class ExactUatAttemptTest(unittest.TestCase):
     def test_exact_attempt_requires_complete_current_run_and_canonical_gates(self):
         candidate, base = "a" * 40, "b" * 40
@@ -378,6 +307,7 @@ class ExactUatAttemptTest(unittest.TestCase):
         self.assertEqual(
             subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1
         )
+        self._assert_clock_anomaly_requires_single_run(api, candidate, base, run, runs)
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, "d" * 40, 123, 1)
         exact["conclusion"] = "cancelled"
@@ -408,21 +338,64 @@ class ExactUatAttemptTest(unittest.TestCase):
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
         run["run_attempt"] = 1
+        self._assert_inventory_attempt_advancement_refuses(api, candidate, base, run, runs)
         self._assert_later_failed_runs_refuse(api, candidate, base, run, runs)
 
-    def _assert_later_failed_runs_refuse(self, api, candidate, base, run, runs):
-        runs.append(
-            {
-                **run,
-                "id": 124,
-                "conclusion": "failure",
-                "run_started_at": "2026-10-28T00:01:00Z",
-                "updated_at": "2026-10-28T00:01:10Z",
-            }
-        )
-        with self.assertRaises(subject.Refused):
+    def _assert_inventory_attempt_advancement_refuses(self, api, candidate, base, run, runs):
+        runs[:] = [{**run, "run_attempt": 2}]
+        read = api.read
+
+        def stale_run_endpoint(path):
+            if path.endswith("/actions/runs/123"):
+                return dict(run)
+            return read(path)
+
+        with patch.object(api, "read", side_effect=stale_run_endpoint):
+            with self.assertRaises(subject.Refused):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+        runs[:] = [run]
+
+    def _assert_clock_anomaly_requires_single_run(self, api, candidate, base, run, runs):
+        started, updated = run["run_started_at"], run["updated_at"]
+        run.update(run_started_at="2026-11-01T09:36:17Z", updated_at="2026-11-01T09:10:39Z")
+        self.assertEqual(subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1)
+        read = api.read
+
+        def incomplete_inventory(path):
+            result = read(path)
+            if "/workflows/ci.yml/runs?" in path:
+                return {**result, "total_count": 2}
+            return result
+
+        with patch.object(api, "read", side_effect=incomplete_inventory):
+            with self.assertRaisesRegex(subject.Refused, "run inventory is incomplete"):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+        for inventory in ([], [{**run, "id": 124}]):
+            runs[:] = inventory
+            with self.assertRaises(subject.Refused):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+        runs[:] = [run]
+        runs.append({**run, "id": 122, "run_started_at": started, "updated_at": updated})
+        with self.assertRaisesRegex(subject.Refused, "CI chronology is invalid"):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
+        run.update(run_started_at=started, updated_at=updated)
+
+    def _assert_later_failed_runs_refuse(self, api, candidate, base, run, runs):
+        for status, conclusion in (("completed", "failure"), ("queued", None)):
+            runs.append(
+                {
+                    **run,
+                    "id": 124,
+                    "status": status,
+                    "conclusion": conclusion,
+                    "run_started_at": "2026-10-28T00:01:00Z",
+                    "updated_at": "2026-10-28T00:01:10Z",
+                }
+            )
+            with self.subTest(status=status), self.assertRaises(subject.Refused):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+            runs.pop()
         # A rerun with a smaller ID is still the most recent attempt.
         runs.append(
             {
