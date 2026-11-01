@@ -121,6 +121,13 @@ For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. These identify the
 application, validation attempt and comparison base separately. Do not substitute
 a PR merge-tree check, another attempt or a branch status for that exact run.
+The complete same-SHA dispatch inventory must identify the selected current
+attempt. A sole matching run needs no chronological ordering, so inconsistent
+provider timestamps do not discard otherwise verified evidence. Multiple runs
+still require valid chronology, including an older-ID run retried later; a newer
+failed or pending attempt blocks. Incomplete inventories, stale attempts and
+unverified source, jobs or producers always refuse admission. Never correct
+provider timestamps, sort by run ID or choose only successful runs.
 Candidate `deploy/` release recipes must match reviewed Main; changes to those
 Cloud Build recipes require a Main-reviewed operations PR. The Main-owned
 workflow also pins `consent-protocol/db/migrate.py`, `db/migration_authority.py`,
