@@ -13,16 +13,22 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.helpers.calendar_followup_scheduler import (
+    ALL_OFF,
+    DRAIN_ON,
+    FOLLOWUPS_ONLY,
+    SCRIPT,
+    SERVICE_ACCOUNT,
+    URI,
+    _run_scheduler_against,
+    _run_scheduler_with,
+    _workspace,
+)
+
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "deploy" / "calendar" / "setup_followup_scheduler.sh"
 VERIFY = ROOT / "deploy" / "calendar" / "verify_followup_release.py"
 UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-production.yml"
-URI = "https://api.uat.hushh.ai/api/one/calendar/followups/drain?limit=10"
-SERVICE_ACCOUNT = "calendar-email-followups@hushh-pda-uat.iam.gserviceaccount.com"
-DRAIN_ON = "calendar_email_followups=true\ncalendar_email_followup_drain=true\n"
-FOLLOWUPS_ONLY = "calendar_email_followups=true\ncalendar_email_followup_drain=false\n"
-ALL_OFF = "calendar_email_followups=false\ncalendar_email_followup_drain=false\n"
 
 
 def _load_verifier():
@@ -30,120 +36,6 @@ def _load_verifier():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def _workspace(tmp_path: Path, gates: str | None) -> Path:
-    """A scratch repo root holding only the gate file under test."""
-    if gates is not None:
-        (tmp_path / "deploy").mkdir(parents=True, exist_ok=True)
-        (tmp_path / "deploy/uat-surface-gates.txt").write_text(gates)
-    return tmp_path
-
-
-def _environment(bin_dir: Path, **overrides: str) -> dict[str, str]:
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PATH": f"{bin_dir}:{environment['PATH']}",
-            "PROJECT_ID": "hushh-pda-uat",
-            "BACKEND_URL": "https://api.uat.hushh.ai",
-            "OIDC_AUDIENCE": "https://api.uat.hushh.ai",
-            **overrides,
-        }
-    )
-    return environment
-
-
-def _run_scheduler_with(
-    tmp_path: Path, gates: str | None = DRAIN_ON, **overrides: str
-) -> subprocess.CompletedProcess[str]:
-    """Run the real script with a gcloud stand-in that records any call."""
-    workdir = _workspace(tmp_path, gates)
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir(exist_ok=True)
-    calls = tmp_path / "gcloud-calls"
-    fake_gcloud = fake_bin / "gcloud"
-    fake_gcloud.write_text(f'#!/usr/bin/env bash\necho "$@" >> "{calls}"\nexit 97\n')
-    fake_gcloud.chmod(0o755)
-    result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
-        ["bash", str(SCRIPT)],
-        cwd=workdir,
-        env=_environment(fake_bin, **overrides),
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    result.gcloud_calls = calls.read_text() if calls.exists() else ""  # type: ignore[attr-defined]
-    return result
-
-
-# A gcloud stand-in that keeps one job's state in a file, so the script's own
-# describe/pause/resume decisions run for real.
-_STATEFUL_GCLOUD = """
-import os
-import pathlib
-import sys
-
-args = sys.argv[1:]
-state_file = pathlib.Path(os.environ["FAKE_JOB_STATE"])
-with open(os.environ["FAKE_GCLOUD_CALLS"], "a") as calls:
-    calls.write(" ".join(args[:3]) + "\\n")
-if args[:2] == ["iam", "service-accounts"]:
-    sys.exit(0)
-verb = args[2]
-state = state_file.read_text() if state_file.exists() else ""
-if verb == "describe":
-    if not state:
-        sys.exit(1)
-    if "--format=value(state)" in args:
-        print(state)
-    else:
-        print("\\t".join([state, *os.environ["FAKE_JOB_EVIDENCE"].split("|")]))
-elif verb == "create":
-    state_file.write_text("ENABLED")
-elif verb == "update" and not state:
-    sys.exit(1)
-elif verb == "pause" and os.environ["FAKE_PAUSE_TAKES"] == "1":
-    state_file.write_text("PAUSED")
-elif verb == "resume":
-    state_file.write_text("ENABLED")
-"""
-
-
-def _run_scheduler_against(
-    tmp_path: Path, *, job_state: str | None, gates: str | None, pause_takes: bool = True
-) -> tuple[subprocess.CompletedProcess[str], list[str], str | None]:
-    """Run the real script against a stateful gcloud; return its verbs and final state."""
-    workdir = _workspace(tmp_path, gates)
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    state = tmp_path / "job-state"
-    calls = tmp_path / "gcloud-calls"
-    if job_state is not None:
-        state.write_text(job_state)
-    fake_gcloud = fake_bin / "gcloud"
-    fake_gcloud.write_text(f"#!{sys.executable}\n{_STATEFUL_GCLOUD}")
-    fake_gcloud.chmod(0o755)
-    environment = _environment(
-        fake_bin,
-        FAKE_JOB_STATE=str(state),
-        FAKE_GCLOUD_CALLS=str(calls),
-        FAKE_PAUSE_TAKES="1" if pause_takes else "0",
-        FAKE_JOB_EVIDENCE="|".join(
-            ["* * * * *", URI, "POST", SERVICE_ACCOUNT, "https://api.uat.hushh.ai"]
-        ),
-    )
-    result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
-        ["bash", str(SCRIPT)],
-        cwd=workdir,
-        env=environment,
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    lines = calls.read_text().splitlines() if calls.exists() else []
-    verbs = [line.split()[2] for line in lines if line.startswith("scheduler jobs ")]
-    return result, verbs, state.read_text() if state.exists() else None
 
 
 @pytest.mark.parametrize("gates", [FOLLOWUPS_ONLY, ALL_OFF, None])
@@ -487,3 +379,34 @@ def test_read_gates_with_a_project_requires_the_sealing_key_only_when_enabled(tm
     assert "CALENDAR_EMAIL_FOLLOWUP_KEY is not readable in project hushh-pda-uat" in enabled.stderr
     assert off.returncode == 0 and off.stdout.split() == ["false", "false"]
     assert readable.returncode == 0 and readable.stdout.split() == ["true", "false"]
+
+
+@pytest.mark.parametrize(
+    "new_identity,error,failures,attempts,ok",
+    [
+        (True, "NOT_FOUND", 2, 3, True),
+        (True, "NOT_FOUND", 99, 8, False),
+        (True, "PERMISSION_DENIED", 2, 1, False),
+        (False, "NOT_FOUND", 2, 1, False),
+        (True, "DEADLINE_EXCEEDED", 2, 1, False),
+    ],
+)
+def test_new_identity_visibility_retry_is_bounded_and_denials_fail_closed(
+    tmp_path, new_identity, error, failures, attempts, ok
+):
+    result, verbs, final = _run_scheduler_against(
+        tmp_path,
+        job_state=None,
+        gates=DRAIN_ON,
+        new_identity=new_identity,
+        create_failures=failures,
+        create_error=error,
+    )
+    assert (result.returncode == 0) is ok, result.stderr
+    assert verbs.count("create") == attempts
+    assert result.sleep_delays == [2**n for n in range(attempts - 1)]
+    assert final == ("ENABLED" if ok else None)
+    if ok:
+        assert "auth=oidc" in result.stdout and SERVICE_ACCOUNT in result.stdout
+    else:
+        assert error in result.stderr and "resume" not in verbs

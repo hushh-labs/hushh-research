@@ -6,6 +6,21 @@ import asyncio
 
 _REASONS = {
     (
+        "structured_text",
+        ValueError,
+        ("Synthetic model content verification failed",),
+    ): "structured.unary",
+    (
+        "structured_text",
+        ValueError,
+        ("Synthetic model response did not complete",),
+    ): "structured.unary_end",
+    (
+        "structured_text",
+        ValueError,
+        ("The managed SDK stream did not preserve the complete answer once",),
+    ): "structured.stream",
+    (
         "live_audio",
         RuntimeError,
         ("Azure Live is not the selected managed processor",),
