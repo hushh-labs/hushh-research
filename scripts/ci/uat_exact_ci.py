@@ -281,7 +281,7 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
 
 
 
-def _latest_attempt_inventory(api, candidate, run_id):
+def _latest_attempt_inventory(api, candidate, run_id, attempt):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory_path = f"{prefix}/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch&head_sha={candidate}&per_page=100"
     rows = api.read(inventory_path)
@@ -312,8 +312,11 @@ def _latest_attempt_inventory(api, candidate, run_id):
             "UAT CI attempt chronology belongs to another source",
         )
         attempts.append(observed)
+    # A complete inventory with one current run needs no timestamp ordering.
+    # Competing runs still require trustworthy chronology, including older-ID reruns.
+    latest = attempts[0] if len(attempts) == 1 else max(attempts, key=_started, default={})
     require(
-        attempts and max(attempts, key=_started).get("id") == run_id,
+        latest.get("id") == run_id and latest.get("run_attempt") == attempt,
         "A newer UAT CI attempt superseded this evidence",
     )
     return inventory_path, rows
@@ -345,7 +348,7 @@ def verify_attempt(
         "UAT CI is not a successful exact-branch dispatch",
     )
     _verify_run_jobs(api, run, candidate, base, run_id, attempt)
-    inventory_path, rows = _latest_attempt_inventory(api, candidate, run_id)
+    inventory_path, rows = _latest_attempt_inventory(api, candidate, run_id, attempt)
     current = verify_source(
         api.read,
         REPOSITORY,
