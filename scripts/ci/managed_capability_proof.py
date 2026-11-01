@@ -19,6 +19,9 @@ CLASSIFICATIONS = frozenset(
 FAILURE_REASONS = frozenset(
     {
         "unlisted",
+        "structured.unary",
+        "structured.unary_end",
+        "structured.stream",
         "live.binding_unavailable",
         "live.transcription_failed",
         "live.response_incomplete",
@@ -106,12 +109,11 @@ CAPABILITY_PROBES = frozenset(
 
 
 def _valid_failure_reason(probe: str, reason: str) -> bool:
-    return reason == "unlisted" or (
-        probe == "capability:live_audio"
-        and reason.startswith("live.")
-        or probe == "capability:one_text_root"
-        and reason.startswith("root.")
-    )
+    return reason == "unlisted" or reason.partition(".")[0] == {
+        "capability:structured_text": "structured",
+        "capability:live_audio": "live",
+        "capability:one_text_root": "root",
+    }.get(probe)
 
 
 def _decision_fields(value: dict[str, Any]) -> dict[str, Any]:

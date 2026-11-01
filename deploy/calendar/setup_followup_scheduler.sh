@@ -186,11 +186,13 @@ if [[ "${DRAIN_ENABLED}" == "0" ]]; then
   exit 0
 fi
 
+created_identity=false
 if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
   --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud iam service-accounts create "${SCHEDULER_SERVICE_ACCOUNT_NAME}" \
     --project="${PROJECT_ID}" \
     --display-name="Calendar follow-ups scheduler" >/dev/null
+  created_identity=true
 fi
 
 # Cloud Scheduler's Google-managed service agent receives the project-scoped
@@ -198,6 +200,31 @@ fi
 # it mint an OIDC token for this client identity. Do not modify the client
 # account policy here: the deployer needs actAs to attach it, but a harmless
 # scheduler repair must not require service-account policy-admin privileges.
+
+create_job() {
+  local attempt create_error create_status=1 delay
+  # A new identity can take over 60s to propagate to Scheduler. Retry only
+  # this first-use NOT_FOUND; denial and errors on existing identities fail.
+  # https://docs.cloud.google.com/iam/docs/service-accounts-create
+  for attempt in 0 1 2 3 4 5 6 7; do
+    if create_error="$(gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+      --headers="Content-Type=application/json" 2>&1 >/dev/null)"; then
+      return 0
+    else
+      create_status=$?
+    fi
+    if [[ "${created_identity}" != true || "${attempt}" == 7 \
+      || "${create_error}" != "ERROR: (gcloud.scheduler.jobs.create.http) NOT_FOUND:"* ]]; then
+      printf '%s\n' "${create_error}" >&2
+      return "${create_status}"
+    fi
+    delay=$((1 << attempt))
+    printf 'calendar_followup_identity_visibility attempt=%s retry_delay_seconds=%s\n' \
+      "$((attempt + 1))" "${delay}"
+    sleep "${delay}"
+  done
+  return "${create_status}"
+}
 
 if gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
@@ -207,8 +234,7 @@ if gcloud scheduler jobs describe "${JOB_NAME}" \
   gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
     --update-headers="Content-Type=application/json" >/dev/null
 else
-  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
-    --headers="Content-Type=application/json" >/dev/null
+  create_job
 fi
 
 # The gate file, not a manual pause, decides whether the job runs.
