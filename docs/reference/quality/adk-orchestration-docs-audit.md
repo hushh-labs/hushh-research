@@ -17,31 +17,45 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Durable owner recovery — 31 October 2026 source correction
+## Durable owner recovery — 1 November 2026
 
 The existing GCP and Azure storage/custody architecture is retained. Configured
-durable pods now refuse startup if identity or session-authority recovery fails,
-before Browser, heartbeat or background consumers start. They cannot silently
-rotate to an ephemeral identity or serve relayed turns without recovered fencing.
-Legacy non-durable startup retains its existing behavior. Checkpoint-budget
-overflow shares one complete verified log replay across startup reducers; it
-never truncates history. A gateway response after a chat POST is now unconfirmed,
-not permission to resend; pre-send wake probes remain retryable.
+durable pods refuse startup if identity or session-authority recovery fails,
+before Browser, heartbeat or background consumers start. Legacy flag-off startup
+is unchanged. Checkpoint-budget overflow shares one complete verified replay;
+it never truncates history. An ambiguous gateway response after a chat POST is
+unconfirmed, not permission to resend. Pre-send wake probes remain retryable.
 
-Focused local checks cover cross-store CAS, custody, identity, fencing, recovery,
-memory durability and the actual client wake wrapper. These establish source
-behavior, not installed-owner acceptance. On 1 November, explicit owner CLI
-sessions successfully read the registered GCP service and both Azure apps. The
-earlier admin-ADC GCP denial and Azure broker-assertion HTTP 403 are specific to
-that credential path, not a general cloud-access blocker. GCP reports Ready with
-durable identity and commit-log storage enabled; both Azure apps report successful
-provisioning. CLI defaults were not changed, and every target was explicit to
-avoid the default UAT project. Task-owned database proxies stopped. No cloud
-mutation, UAT action, deployment or current-image restart qualification was performed.
-Finish installed acceptance through the existing owner-approved update path:
-exact image, stable identity/history after replacement,
-stale-writer refusal and an authenticated completed turn. Do not use process
-health, historical receipts or an offline lifecycle simulation as that proof.
+Source `6a2bd2afa7e2` passed the complete [hosted CI run](https://github.com/hushh-labs/hushh-research/actions/runs/41286934214).
+The Main-owned [Dev preparation](https://github.com/hushh-labs/hushh-research/actions/runs/41289451998)
+built image `sha256:5d8f7243ff5d10c1f3596fdb66f95c337c3637afcd997808fe62cf13152b46aa`.
+Exact-image synthetic recovery from installed predecessor `sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423`
+passed on GCP Cloud Run and Azure Container Apps: unchanged identity, six log
+records, memory, revocation, processing consent, rebuilt PKM and 245,763 file
+bytes. Azure's 15 ciphertext objects retained their exact hashes and ETags;
+GCP's ciphertext inventory also matched. The descriptor admits only this measured
+predecessor. The reuse pin preserves the prepared image's source and archive
+provenance instead of rebuilding it for metadata. The existing Dev build bucket
+archives `qualification-format-recovery-gcp.json` (generation `1793524876545163`)
+and `qualification-format-recovery-azure.json` (generation `1793524876814412`)
+under `pod-releases/6a2bd2afa7e2cbaf27f98d4735d25d0af1f5a400/41289451998/`.
+The archived format probe has SHA-256 `bd529ea0e3e6e136f46f39802c8c0988ca3732ca72377b30e63a33c737e86559`.
+
+Explicit owner CLI sessions read the registered GCP service and both Azure apps.
+The earlier admin-ADC GCP denial and Azure broker-assertion HTTP 403 describe
+specific credential paths, not general cloud-access failure. CLI defaults were
+preserved; every target was explicit. The recovery probes use isolated synthetic
+resources. Temporary compute and image cleanup is verified on both clouds; Azure
+fixture storage and its deleted vault are absent. GCP active object versions are
+absent; retained ciphertext follows the existing seven-day provider soft-delete
+policy, which was not overridden.
+
+**Still unverified:** shared Dev publication, normal owner-approved installation,
+stable identity/history after the actual owner update, stale-writer refusal and
+an authenticated completed owner turn. Format recovery does not establish owner
+HTTP admission, active-work drain or Browser qualification. No owner image, UAT
+or production service was changed. Finish through the existing owner-approved
+update flow; process health and historical receipts are not acceptance proof.
 
 ## Previous release decision — 27 October 2026
 
