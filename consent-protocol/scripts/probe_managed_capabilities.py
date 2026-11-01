@@ -204,7 +204,11 @@ async def probe_managed_capabilities(provider: str, *, deadline: float | None = 
                 thinking_config=types.ThinkingConfig(thinking_level="LOW"),
             ),
         )
-        if json.loads(response.text or "{}").get(field) != expected:
+        try:
+            answer = json.loads(response.text or "{}")
+        except json.JSONDecodeError:
+            answer = None
+        if not isinstance(answer, dict) or set(answer) != {field} or answer[field] != expected:
             raise ValueError("Synthetic model content verification failed")
         if (
             not response.candidates
@@ -221,14 +225,26 @@ async def probe_managed_capabilities(provider: str, *, deadline: float | None = 
             contents="Return only JSON with the code " + nonce,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
+                response_json_schema={
+                    "type": "object",
+                    "properties": {"code": {"type": "string", "enum": [nonce]}},
+                    "required": ["code"],
+                    "additionalProperties": False,
+                },
                 max_output_tokens=1024,
                 thinking_config=types.ThinkingConfig(thinking_level="LOW"),
             ),
         )
         chunks = [chunk async for chunk in stream]
+        try:
+            answer = json.loads("".join(chunk.text or "" for chunk in chunks))
+        except json.JSONDecodeError:
+            answer = None
         if (
             not chunks
-            or json.loads("".join(chunk.text or "" for chunk in chunks)).get("code") != nonce
+            or not isinstance(answer, dict)
+            or set(answer) != {"code"}
+            or answer["code"] != nonce
             or not any(
                 c.candidates and c.candidates[0].finish_reason == types.FinishReason.STOP
                 for c in chunks
