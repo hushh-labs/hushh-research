@@ -239,6 +239,8 @@ def _refuse_current_attempt_receipts(
     metadata: dict[str, Any], operation_id: str, attempt_id: str
 ) -> None:
     checkpoint = metadata.get("notificationCheckpoint")
+    if checkpoint is not None and not isinstance(checkpoint, dict):
+        _refuse("the notification checkpoint receipt is malformed")
     if isinstance(checkpoint, dict) and (
         checkpoint.get("attemptId") == attempt_id
         or checkpoint.get("phase") == "intent"
@@ -253,6 +255,8 @@ def _refuse_current_attempt_receipts(
     )
     for key in keys:
         receipt = metadata.get(key)
+        if receipt is not None and not isinstance(receipt, dict):
+            _refuse("a current-attempt provider receipt is malformed")
         if isinstance(receipt, dict) and (
             receipt.get("attemptId") == attempt_id or receipt.get("operationId") == operation_id
         ):

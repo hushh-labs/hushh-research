@@ -392,6 +392,32 @@ def test_current_notification_intent_or_wrong_review_pin_refuses_candidate():
         )
 
 
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("notificationCheckpoint", [], "notification checkpoint receipt is malformed"),
+        ("filesUpgradeCheckpoint", [], "provider receipt is malformed"),
+        ("browserUpgradeCheckpoint", [], "provider receipt is malformed"),
+        ("browserUpdateCheckpoint", [], "provider receipt is malformed"),
+    ],
+)
+def test_malformed_non_null_attempt_receipts_refuse_candidate(key, value, message):
+    row, metadata, _ = _owner_row()
+    metadata[key] = value
+
+    with pytest.raises(NotificationUpgradeRecoveryRefused, match=message):
+        qualify_candidate(
+            row,
+            user_id=_OWNER,
+            target_image=REVIEWED_TARGET_IMAGE,
+            running_hub_source="9" * 40,
+            reviewed_operation_id=_OPERATION,
+            reviewed_executor_revision=REVIEWED_EXECUTOR_REVISION,
+            review_evidence_sha256=REVIEW_EVIDENCE_SHA256,
+            now=_NOW,
+        )
+
+
 @pytest.mark.parametrize("changed", ["generation", "restart_nonce"])
 def test_native_predecessor_refuses_a_newer_generation_or_nonce(changed):
     candidate = _candidate()
