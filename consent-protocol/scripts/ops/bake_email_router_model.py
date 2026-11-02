@@ -3,6 +3,8 @@
 The existing IndexedRouter and upstream FastEmbedEncoder remain unchanged. This
 image-build step downloads an immutable HF revision, freezes its cache alias and
 checks every required artifact before running a synthetic offline embedding.
+Email-specific imports stay inside execution so this operations prerequisite can
+be imported on Main before the separately released Email runtime is present.
 """
 
 from __future__ import annotations
@@ -12,18 +14,17 @@ import math
 import os
 from pathlib import Path
 
-from hushh_mcp.services.email_oss.routing import (
-    BAKED_MODEL_CACHE,
-    MODEL_CACHE_REPOSITORY,
-    MODEL_FILES,
-    MODEL_NAME,
-    MODEL_REPOSITORY,
-    MODEL_REVISION,
-    verify_email_router_model_cache,
-)
-
 
 def bake_model(cache: Path) -> None:
+    from hushh_mcp.services.email_oss.routing import (
+        MODEL_CACHE_REPOSITORY,
+        MODEL_FILES,
+        MODEL_REPOSITORY,
+        MODEL_REVISION,
+        verify_email_router_model_cache,
+    )
+
+    repository = cache / MODEL_CACHE_REPOSITORY
     from huggingface_hub import snapshot_download
 
     snapshot = Path(
@@ -35,7 +36,6 @@ def bake_model(cache: Path) -> None:
             token=False,
         )
     )
-    repository = cache / MODEL_CACHE_REPOSITORY
     if snapshot.resolve() != (repository / "snapshots" / MODEL_REVISION).resolve():
         raise RuntimeError("Email router download did not resolve the pinned snapshot")
     # FastEmbedEncoder does not forward revision to its client. Freeze the
@@ -56,6 +56,8 @@ def bake_model(cache: Path) -> None:
 
 
 def verify_model(cache: Path) -> None:
+    from hushh_mcp.services.email_oss.routing import MODEL_NAME, verify_email_router_model_cache
+
     verify_email_router_model_cache(cache)
     # FastEmbed itself checks this environment variable before every download
     # path; its HF client also receives local_files_only=True. No mutable model
@@ -73,6 +75,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--verify-only", type=Path)
     args = parser.parse_args()
+
+    from hushh_mcp.services.email_oss.routing import BAKED_MODEL_CACHE, MODEL_REVISION
+
     cache = args.verify_only or Path(BAKED_MODEL_CACHE)
     if args.verify_only is None:
         bake_model(cache)

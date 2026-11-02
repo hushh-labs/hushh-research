@@ -11,11 +11,13 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 
-from hushh_mcp.services.calendar_email_followup_store_types import (
-    FollowupStateError,
-    Monitor,
-    _reminder_at_from_fields,
+from hushh_mcp.services import calendar_email_followup_store_configure as configure_sql
+from hushh_mcp.services.calendar_email_followup_coverage import (
+    COMPLETE_RESCAN_SECONDS,
+    SOURCE_BACKOFF_BASE_SECONDS,
+    SOURCE_BACKOFF_CAP_SECONDS,
 )
+from hushh_mcp.services.calendar_email_followup_store_types import FollowupStateError, Monitor
 
 
 class _MonitorState:
@@ -50,6 +52,9 @@ class _MonitorState:
             checkpoint=checkpoint,
             scan_state=row["scan_state"],
             lease_id=str(row["lease_id"]) if row.get("lease_id") else None,
+            last_complete_at=row.get("last_complete_at"),
+            consecutive_failures=int(row.get("consecutive_failures") or 0),
+            scan_error_code=row.get("scan_error_code"),
         )
 
     async def monitor(self, *, user_id: str, account_id: str) -> Monitor | None:
@@ -107,7 +112,14 @@ class _MonitorState:
 
         return await asyncio.to_thread(read)
 
-    async def acquire_scan(self, *, user_id: str, account_id: str) -> Monitor | None:
+    async def acquire_scan(
+        self, *, user_id: str, account_id: str, force: bool = False
+    ) -> Monitor | None:
+        """Claim the scan lease. ``force`` only skips the not-before gate.
+
+        An owner-requested catch-up or Retry is allowed to run now, but still
+        never overlaps another live scan of the same account.
+        """
         lease_id = str(uuid.uuid4())
 
         def claim() -> Monitor | None:
@@ -117,9 +129,15 @@ class _MonitorState:
                         text("""UPDATE calendar_email_followup_monitors SET
                         lease_id=CAST(:lease_id AS UUID), lease_until=NOW()+interval '5 minutes'
                         WHERE user_id=:user_id AND account_id=:account_id AND enabled=TRUE
-                          AND next_scan_at<=NOW() AND (lease_until IS NULL OR lease_until<NOW())
+                          AND (:force OR next_scan_at<=NOW())
+                          AND (lease_until IS NULL OR lease_until<NOW())
                         RETURNING *"""),
-                        {"user_id": user_id, "account_id": account_id, "lease_id": lease_id},
+                        {
+                            "user_id": user_id,
+                            "account_id": account_id,
+                            "lease_id": lease_id,
+                            "force": force,
+                        },
                     )
                     .mappings()
                     .first()
@@ -155,8 +173,18 @@ class _MonitorState:
         *,
         state: Literal["pending", "partial", "complete"],
         error_code: str | None = None,
+        retry_in: int | None = None,
     ) -> None:
+        """Persist the cursor and schedule the next pass.
+
+        ``pending`` means this pass has more work, so it continues at once.
+        ``complete``/``partial`` end a pass: the next one waits for the earliest
+        due source retry (``retry_in``) or the ordinary history cadence. A
+        provider-wide error backs off exponentially with the failure streak,
+        so an outage is not hammered and a recovery resets the streak.
+        """
         sealed = self._seal(checkpoint, monitor, monitor.generation, "checkpoint")
+        terminal = state != "pending"
 
         def write() -> None:
             with self.db.engine.begin() as conn:
@@ -164,7 +192,19 @@ class _MonitorState:
                     text("""UPDATE calendar_email_followup_monitors SET
                     checkpoint_ciphertext=:checkpoint, scan_state=:state, scan_error_code=:error,
                     last_complete_at=CASE WHEN :state='complete' THEN NOW() ELSE last_complete_at END,
-                    next_scan_at=CASE WHEN :state='complete' THEN NOW()+interval '1 minute' ELSE NOW() END,
+                    consecutive_failures=CASE WHEN CAST(:error AS TEXT) IS NULL THEN 0
+                      ELSE LEAST(consecutive_failures+1, 1000) END,
+                    next_scan_at=CASE
+                      WHEN CAST(:error AS TEXT) IS NOT NULL THEN NOW() + make_interval(
+                        secs => GREATEST(COALESCE(CAST(:retry_in AS DOUBLE PRECISION), 0),
+                          LEAST(CAST(:cap AS DOUBLE PRECISION),
+                            CAST(:base AS DOUBLE PRECISION)
+                              * power(2, LEAST(consecutive_failures, 6)))))
+                      WHEN CAST(:terminal AS BOOLEAN) THEN NOW() + make_interval(
+                        secs => GREATEST(CAST(:floor AS DOUBLE PRECISION),
+                          COALESCE(CAST(:retry_in AS DOUBLE PRECISION),
+                                   CAST(:cadence AS DOUBLE PRECISION))))
+                      ELSE NOW() END,
                     lease_until=NOW()+interval '5 minutes', updated_at=NOW()
                     WHERE user_id=:user_id AND account_id=:account_id
                     AND generation=CAST(:generation AS UUID) AND enabled=TRUE
@@ -174,6 +214,12 @@ class _MonitorState:
                         "checkpoint": sealed,
                         "state": state,
                         "error": error_code,
+                        "terminal": terminal,
+                        "retry_in": retry_in,
+                        "cadence": COMPLETE_RESCAN_SECONDS,
+                        "floor": 30,
+                        "base": SOURCE_BACKOFF_BASE_SECONDS,
+                        "cap": SOURCE_BACKOFF_CAP_SECONDS,
                         "user_id": monitor.user_id,
                         "account_id": monitor.account_id,
                         "generation": monitor.generation,
@@ -216,6 +262,21 @@ class _MonitorConfig:
             if historical_start_at > datetime.now(UTC):
                 raise FollowupStateError("invalid_historical_period")
 
+        values = {
+            "user_id": user_id,
+            "account_id": account_id,
+            "notifications_enabled": notifications_enabled,
+            "time_zone": time_zone,
+            "subject_hash": provider_subject_sha256,
+            "mail_generation": mail_generation,
+            "calendar_connected_at": calendar_connected_at,
+            "calendar_grant_revision": calendar_grant_revision,
+            "lead_days": reminder_lead_days,
+            "reminder_hour": reminder_hour,
+            "grant_epoch_digest": grant_epoch_digest,
+            "historical_start_at": historical_start_at,
+        }
+
         def write() -> Monitor | None:
             with self.db.engine.begin() as conn:
                 if enabled:
@@ -235,130 +296,38 @@ class _MonitorConfig:
                     .first()
                 )
                 if not enabled:
-                    conn.execute(
-                        text("""DELETE FROM calendar_email_followup_monitors
-                        WHERE user_id=:user_id AND account_id=:account_id"""),
-                        {"user_id": user_id, "account_id": account_id},
-                    )
+                    configure_sql.delete_monitor(conn, user_id, account_id)
                     return None
-                if current and (
-                    current["grant_epoch_digest"] != grant_epoch_digest
-                    or current["historical_start_at"] != historical_start_at
-                ):
-                    # A new consent period or grant begins a new isolated scan.
-                    conn.execute(
-                        text("""DELETE FROM calendar_email_followup_monitors
-                        WHERE user_id=:user_id AND account_id=:account_id"""),
-                        {"user_id": user_id, "account_id": account_id},
-                    )
+                if current and current["provider_subject_sha256"] != provider_subject_sha256:
+                    # A different Google identity is a different mailbox: nothing
+                    # stored for the previous identity may carry over.
+                    configure_sql.delete_monitor(conn, user_id, account_id)
                     current = None
-                if current:
-                    schedule_changed = (
+                if not current:
+                    row = configure_sql.insert_monitor(conn, values)
+                else:
+                    period_changed = current["historical_start_at"] != historical_start_at
+                    if period_changed and historical_start_at > current["historical_start_at"]:
+                        configure_sql.drop_out_of_period(
+                            conn, user_id, account_id, historical_start_at
+                        )
+                    if (
                         current["time_zone"] != time_zone
                         or current["reminder_lead_days"] != reminder_lead_days
                         or current["reminder_hour"] != reminder_hour
-                    )
-                    if schedule_changed:
-                        updated_monitor = replace(
+                    ):
+                        retimed = replace(
                             self._monitor(dict(current)),
                             time_zone=time_zone,
                             reminder_lead_days=reminder_lead_days,
                             reminder_hour=reminder_hour,
                         )
-                        requests = (
-                            conn.execute(
-                                text("""SELECT id,due_date,due_relation,time_zone,responsibility,
-                            ambiguities FROM calendar_email_followup_requests
-                            WHERE user_id=:user_id AND account_id=:account_id
-                            AND kind<>'meeting' AND state IN ('pending','needs_review')
-                            AND reminder_is_manual=FALSE FOR UPDATE"""),
-                                {"user_id": user_id, "account_id": account_id},
-                            )
-                            .mappings()
-                            .all()
-                        )
-                        for request in requests:
-                            next_at = _reminder_at_from_fields(
-                                due_date=request["due_date"],
-                                due_relation=request["due_relation"],
-                                time_zone=request["time_zone"],
-                                responsibility=request["responsibility"],
-                                ambiguities=request["ambiguities"],
-                                monitor=updated_monitor,
-                            )
-                            conn.execute(
-                                text("""UPDATE calendar_email_followup_requests SET
-                                reminder_at=:reminder_at,
-                                state=:state, revision=revision+1, updated_at=NOW()
-                                WHERE id=CAST(:id AS UUID)"""),
-                                {
-                                    "id": str(request["id"]),
-                                    "reminder_at": next_at,
-                                    "state": "pending" if next_at else "needs_review",
-                                },
-                            )
-                    row = (
-                        conn.execute(
-                            text("""UPDATE calendar_email_followup_monitors SET
-                        notifications_enabled=:notifications_enabled, time_zone=:time_zone,
-                        provider_subject_sha256=:subject_hash, mail_generation=CAST(:mail_generation AS UUID),
-                        calendar_connected_at=:calendar_connected_at,
-                        calendar_grant_revision=:calendar_grant_revision,
-                        reminder_lead_days=:lead_days, reminder_hour=:reminder_hour,
-                        generation=CASE WHEN :schedule_changed THEN gen_random_uuid() ELSE generation END,
-                        checkpoint_ciphertext=CASE WHEN :schedule_changed THEN NULL ELSE checkpoint_ciphertext END,
-                        scan_state=CASE WHEN :schedule_changed THEN 'pending' ELSE scan_state END,
-                        lease_id=CASE WHEN :schedule_changed THEN NULL ELSE lease_id END,
-                        lease_until=CASE WHEN :schedule_changed THEN NULL ELSE lease_until END,
-                        updated_at=NOW(), next_scan_at=NOW()
-                        WHERE user_id=:user_id AND account_id=:account_id RETURNING *"""),
-                            {
-                                "user_id": user_id,
-                                "account_id": account_id,
-                                "notifications_enabled": notifications_enabled,
-                                "time_zone": time_zone,
-                                "subject_hash": provider_subject_sha256,
-                                "mail_generation": mail_generation,
-                                "calendar_connected_at": calendar_connected_at,
-                                "calendar_grant_revision": calendar_grant_revision,
-                                "lead_days": reminder_lead_days,
-                                "reminder_hour": reminder_hour,
-                                "schedule_changed": schedule_changed,
-                            },
-                        )
-                        .mappings()
-                        .one()
-                    )
-                else:
-                    row = (
-                        conn.execute(
-                            text("""INSERT INTO calendar_email_followup_monitors
-                        (user_id,account_id,enabled,notifications_enabled,historical_start_at,
-                         time_zone,reminder_lead_days,reminder_hour,grant_epoch_digest,
-                         provider_subject_sha256,mail_generation,calendar_connected_at,
-                         calendar_grant_revision)
-                        VALUES (:user_id,:account_id,TRUE,:notifications_enabled,:historical_start_at,
-                                :time_zone,:lead_days,:reminder_hour,:grant_epoch_digest,
-                                :subject_hash,CAST(:mail_generation AS UUID),:calendar_connected_at,
-                                :calendar_grant_revision)
-                        RETURNING *"""),
-                            {
-                                "user_id": user_id,
-                                "account_id": account_id,
-                                "notifications_enabled": notifications_enabled,
-                                "historical_start_at": historical_start_at,
-                                "time_zone": time_zone,
-                                "lead_days": reminder_lead_days,
-                                "reminder_hour": reminder_hour,
-                                "grant_epoch_digest": grant_epoch_digest,
-                                "subject_hash": provider_subject_sha256,
-                                "mail_generation": mail_generation,
-                                "calendar_connected_at": calendar_connected_at,
-                                "calendar_grant_revision": calendar_grant_revision,
-                            },
-                        )
-                        .mappings()
-                        .one()
+                        configure_sql.recompute_reminders(conn, user_id, account_id, retimed)
+                    row = configure_sql.update_monitor(
+                        conn,
+                        values,
+                        period_changed=period_changed,
+                        grant_changed=current["grant_epoch_digest"] != grant_epoch_digest,
                     )
                 if not conn.execute(
                     text("""SELECT calendar_email_followup_grant_current(m)
@@ -367,6 +336,6 @@ class _MonitorConfig:
                     {"user_id": user_id, "account_id": account_id},
                 ).scalar_one():
                     raise FollowupStateError("monitor_changed")
-            return self._monitor(dict(row))
+            return self._monitor(row)
 
         return await asyncio.to_thread(write)

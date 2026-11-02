@@ -14,13 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # list_feed plans its Calendar follow-up visibility fence on every read, so these
 # relations must resolve even when the fixture holds no follow-up events. Shape of
-# migrations 443 and 444 for the columns the fence names.
+# migrations 443, 444 and 445 for the columns the fence names.
 _FOLLOWUP_FENCE_DDL = """
 CREATE TABLE calendar_email_followup_monitors(
   user_id TEXT, account_id TEXT, enabled BOOLEAN, notifications_enabled BOOLEAN);
 CREATE TABLE calendar_email_followup_requests(
   id UUID, user_id TEXT, account_id TEXT, revision INT,
-  reminder_sent_revision INT, state TEXT);
+  reminder_sent_revision INT, state TEXT, suppressed_at TIMESTAMPTZ);
 CREATE FUNCTION calendar_email_followup_grant_current(
   m calendar_email_followup_monitors) RETURNS BOOLEAN
   LANGUAGE sql AS 'SELECT FALSE';

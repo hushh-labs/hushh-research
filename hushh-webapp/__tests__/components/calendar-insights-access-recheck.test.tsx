@@ -28,9 +28,10 @@ const outcome = (status: string, available = false) => ({
   requests: status ? [{ requestId, status, requestedTypes: ["notes"] }] : [],
   artifacts: available ? [{ kind: "notes", state: "available" }] : [],
 });
-const SHARING = "Sharing · checking access with your selected Google account.";
-const CHECKING = "Drive finished sharing · checking access with your selected Google account.";
-const SETTLED_UNVERIFIED = "Drive finished sharing, but file access is not currently verified for this account.";
+// Request sent -> Checking access -> Available. Available only once this account can open the file.
+const SHARING = "Checking access…";
+const CHECKING = "Checking access…";
+const SETTLED_UNVERIFIED = "Sharing finished, but this account's access isn't verified yet.";
 
 async function openLibrary() {
   render(<CalendarInsights userId="owner" account={account} today="2026-10-14" zone="UTC"
@@ -103,14 +104,43 @@ describe("requester Calendar follows an approved request until access is verifie
     expect(screen.queryByText(/Available \(/)).toBeNull();
   });
 
-  it.each(["pending", "preparing", "review_ready", "declined", "failed", ""])(
-    "does not poll quickly for a request that is %j", async status => {
+  it.each(["pending", "preparing", "review_ready"])(
+    "checks a request still waiting on the organizer slowly, never quickly (%j)", async status => {
       mocks.requestStatuses.mockResolvedValue([outcome(status)]);
       await openLibrary();
       const reads = statusReads();
-      await advance(30_000);
+      // Not at the quick sharing pace: nothing in the first 12 seconds.
+      await advance(12_000);
       expect(statusReads()).toBe(reads);
+      // A bounded, slow fallback behind the Feed event: one check by 15 seconds, two by 30.
+      await advance(4_000);
+      expect(statusReads()).toBe(reads + 1);
+      await advance(15_000);
+      expect(statusReads()).toBe(reads + 2);
     });
+
+  it("stops checking a waiting request after a bounded number of tries", async () => {
+    mocks.requestStatuses.mockResolvedValue([outcome("pending")]);
+    await openLibrary();
+    // Twenty slow checks (about five minutes) and then no more, however long the page stays open.
+    // Time passes in steps, so React commits (and arms the next timer) between them.
+    for (let spent = 0; spent < 400_000; spent += 5_000) await advance(5_000);
+    const reads = statusReads();
+    expect(reads).toBeGreaterThan(10); // it did keep checking for a while
+    expect(reads).toBeLessThan(30); // the initial reads plus at most twenty slow checks
+    for (let spent = 0; spent < 120_000; spent += 5_000) await advance(5_000);
+    // Only the page's own 60-second background refresh remains (two in two minutes); the 15-second watch is spent.
+    // Unbounded, it would add eight.
+    expect(statusReads() - reads).toBeLessThanOrEqual(3);
+  });
+
+  it.each(["declined", "failed", ""])("does not poll at all for a request that is %j", async status => {
+    mocks.requestStatuses.mockResolvedValue([outcome(status)]);
+    await openLibrary();
+    const reads = statusReads();
+    await advance(30_000);
+    expect(statusReads()).toBe(reads);
+  });
 
   it("keeps the meeting visible and the list in place through each re-check", async () => {
     mocks.requestStatuses.mockResolvedValue([outcome("approved")]);

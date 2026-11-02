@@ -36,6 +36,10 @@ class Monitor:
     checkpoint: dict[str, Any] | None
     scan_state: str
     lease_id: str | None
+    # Defaulted so a monitor built by earlier callers stays valid.
+    last_complete_at: datetime | None = None
+    consecutive_failures: int = 0
+    scan_error_code: str | None = None
 
 
 @dataclass(frozen=True)

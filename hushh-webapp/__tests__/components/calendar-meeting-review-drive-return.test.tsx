@@ -42,8 +42,10 @@ const connectCopy = /Connect the Google Drive account that can share these files
 let visibility: DocumentVisibilityState = "visible";
 
 async function settle() { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); }
+/** The organizer chooses Give access; only then is a Drive connection asked of them. */
 async function mountBlocked() {
   render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Give access" }));
   expect(await screen.findByText(connectCopy)).toBeInTheDocument();
 }
 async function comeBack(kind: "focus" | "visibility" | "popstate" = "focus") {
@@ -65,7 +67,32 @@ describe("organizer returns from authorizing Drive to the same request", () => {
     mocks.preview.mockResolvedValue(notReady);
     window.localStorage.clear();
   });
-  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); window.localStorage.clear(); });
+  afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); window.localStorage.clear(); window.sessionStorage.clear(); });
+
+  it("asks nothing about Drive until Give access is chosen, and Don't have never needs it", async () => {
+    render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
+    expect(await screen.findByRole("button", { name: "Don't have" })).toBeEnabled();
+    expect(screen.queryByText(connectCopy)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Don't have" }));
+    expect(screen.queryByText(connectCopy)).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "The recording" })).toBeChecked();
+  });
+
+  it("brings the organizer back to the Give access step after a full-page Drive authorization", async () => {
+    await mountBlocked();
+    fireEvent.click(screen.getByRole("link", { name: "Open Drive connection" }));
+    cleanup();
+    // A fresh page for the same organizer and request lands on the same step, not on the choice.
+    mocks.preview.mockResolvedValue(ready);
+    render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
+    expect(await screen.findByLabelText("Search your Drive for the exact meeting files")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Give access" })).toHaveAttribute("aria-pressed", "true");
+    // One-shot: it does not steer a later visit.
+    cleanup();
+    render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
+    expect(await screen.findByRole("button", { name: "Give access" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByLabelText("Search your Drive for the exact meeting files")).toBeNull();
+  });
 
   it("remembers this exact request for this organizer when they open the Drive connection", async () => {
     await mountBlocked();
@@ -132,6 +159,7 @@ describe("organizer returns from authorizing Drive to the same request", () => {
   it("stops listening once Drive is ready", async () => {
     mocks.preview.mockResolvedValue(ready);
     render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Give access" }));
     expect(await screen.findByLabelText("Search your Drive for the exact meeting files")).toBeInTheDocument();
     await comeBack("focus");
     await comeBack("popstate");

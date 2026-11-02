@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, MutableMapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -18,6 +19,17 @@ from hushh_mcp.services.calendar_email_followup_reader import (
     BodySection,
     CompleteMailMessage,
     CompleteMailReadError,
+)
+from hushh_mcp.services.calendar_email_followup_relevance import (
+    DROP_QUOTED,
+    Category,
+    MeetingState,
+    Relevance,
+    Urgency,
+    dedupe,
+    inside_region,
+    quoted_or_signature_regions,
+    surfaceable,
 )
 
 
@@ -40,6 +52,17 @@ class FollowupCandidateV1(BaseModel):
     ambiguities: list[Literal["date", "time", "time_zone", "responsibility", "duration"]] = Field(
         default_factory=list, max_length=5
     )
+    # The relevance verdict. A missing verdict is "uncertain": an unexplained
+    # guess is never shown to the owner as Calendar work.
+    relevance: Relevance = "uncertain"
+    category: Category | None = None
+    requested_by: str | None = Field(default=None, max_length=120)
+    evidence_reason: str | None = Field(default=None, max_length=240)
+    urgency: Urgency = "none"
+    meeting_state: MeetingState = "none"
+    # Name of an existing meeting this request is about ("Hushh Growth Sync").
+    # Used only to look the meeting up on the owner's Calendar, never stored raw.
+    related_meeting_hint: str | None = Field(default=None, max_length=120)
 
     @field_validator("due_date", "proposed_date")
     @classmethod
@@ -85,6 +108,9 @@ class FollowupChunkAssessmentV1(BaseModel):
     candidates: list[FollowupCandidateV1] = Field(default_factory=list, max_length=20)
     updates: list[FollowupUpdateV1] = Field(default_factory=list, max_length=20)
     overflow: bool = False
+    # Audit only: what kind of message this section belongs to. It never
+    # promotes a candidate; each candidate carries its own verdict.
+    message_relevance: Relevance = "uncertain"
 
 
 @dataclass(frozen=True)
@@ -106,6 +132,15 @@ class ValidatedCandidate:
     time_zone: str | None
     responsibility: str
     ambiguities: tuple[str, ...]
+    # Defaults keep sealed checkpoints written by an earlier release loadable.
+    category: str | None = None
+    urgency: str = "none"
+    meeting_state: str = "none"
+    evidence_reason: str | None = None
+    requested_by: str | None = None
+    related_meeting_hint: str | None = None
+    # (calendar event id, title, start) set by Calendar reconciliation only.
+    linked_event: tuple[str, str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +158,8 @@ class CompleteAssessment:
     completed_sections: int
     candidates: tuple[ValidatedCandidate, ...]
     updates: tuple[ValidatedUpdate, ...]
+    # Value-free counts of what was withheld and why; never message content.
+    dropped_counts: dict[str, int] = field(default_factory=dict)
 
 
 def _verified_span(section: BodySection, quote_start: int, quote: str) -> int:
@@ -132,6 +169,62 @@ def _verified_span(section: BodySection, quote_start: int, quote: str) -> int:
     return section.start + quote_start
 
 
+@lru_cache(maxsize=16)
+def _regions(body: str) -> tuple[tuple[int, int], ...]:
+    return quoted_or_signature_regions(body)
+
+
+def _count(drops: MutableMapping[str, int] | None, reason: str) -> None:
+    if drops is not None:
+        drops[reason] = drops.get(reason, 0) + 1
+
+
+def _evidence_identity(
+    message: CompleteMailMessage, item: Any, offset: int, evidence_key: bytes
+) -> str:
+    """Stable, value-free identity of one quoted request within its message."""
+    discriminator = "\x1f".join(
+        [
+            message.message_id,
+            str(offset),
+            item.kind,
+            item.source_quote,
+            item.title.strip().casefold(),
+        ]
+    )
+    return hmac.new(evidence_key, discriminator.encode(), hashlib.sha256).hexdigest()
+
+
+def _validated_candidate(
+    message: CompleteMailMessage, item: Any, offset: int, identity: str
+) -> ValidatedCandidate:
+    return ValidatedCandidate(
+        evidence_key=identity,
+        message_id=message.message_id,
+        thread_id=message.thread_id,
+        body_digest=message.body_digest,
+        source_internal_date_ms=message.internal_date_ms,
+        kind=item.kind,
+        global_quote_start=offset,
+        quote=item.source_quote,
+        title=item.title,
+        original_due_wording=item.original_due_wording,
+        due_date=item.due_date,
+        due_relation=item.due_relation,
+        proposed_date=item.proposed_date,
+        proposed_at=item.proposed_at,
+        time_zone=item.time_zone,
+        responsibility=item.responsibility,
+        ambiguities=tuple(item.ambiguities),
+        category=item.category,
+        urgency=item.urgency,
+        meeting_state=item.meeting_state,
+        evidence_reason=item.evidence_reason,
+        requested_by=item.requested_by,
+        related_meeting_hint=item.related_meeting_hint,
+    )
+
+
 def validate_chunk(
     *,
     message: CompleteMailMessage,
@@ -139,7 +232,15 @@ def validate_chunk(
     payload: dict[str, Any],
     prior_request_ids: set[str],
     evidence_key: bytes,
+    drops: MutableMapping[str, int] | None = None,
 ) -> tuple[list[ValidatedCandidate], list[ValidatedUpdate]]:
+    """Admit only explicit, evidenced, Calendar-relevant, source-verified requests.
+
+    Withheld candidates are counted by reason in ``drops`` and never persisted.
+    The relevance gate runs before quote verification: a non-actionable item is
+    discarded whether or not its quote is exact, so a sloppy offset on a
+    security notice cannot fail the section and stall the scan.
+    """
     assessment = FollowupChunkAssessmentV1.model_validate(payload)
     if assessment.overflow or len(assessment.candidates) == 20 or len(assessment.updates) == 20:
         raise CompleteMailReadError("assessment_overflow")
@@ -147,76 +248,81 @@ def validate_chunk(
     updates: list[ValidatedUpdate] = []
     local_indices: set[int] = set()
     evidence_keys: set[str] = set()
+    regions = _regions(message.body)
     for item in assessment.candidates:
         if item.section_index != section.index or item.local_index in local_indices:
             raise ValueError("invalid_candidate_identity")
         local_indices.add(item.local_index)
-        offset = _verified_span(section, item.quote_start, item.source_quote)
-        discriminator = "\x1f".join(
-            [
-                message.message_id,
-                str(offset),
-                item.kind,
-                item.source_quote,
-                item.title.strip().casefold(),
-            ]
+        reason = surfaceable(
+            relevance=item.relevance,
+            category=item.category,
+            responsibility=item.responsibility,
+            evidence_reason=item.evidence_reason,
         )
-        identity = hmac.new(evidence_key, discriminator.encode(), hashlib.sha256).hexdigest()
+        if reason:
+            _count(drops, reason)
+            continue
+        offset = _verified_span(section, item.quote_start, item.source_quote)
+        if inside_region(offset, offset + len(item.source_quote), regions):
+            _count(drops, DROP_QUOTED)
+            continue
+        identity = _evidence_identity(message, item, offset, evidence_key)
         if identity in evidence_keys:
             raise ValueError("ambiguous_duplicate_evidence")
         evidence_keys.add(identity)
-        candidates.append(
-            ValidatedCandidate(
-                evidence_key=identity,
-                message_id=message.message_id,
-                thread_id=message.thread_id,
-                body_digest=message.body_digest,
-                source_internal_date_ms=message.internal_date_ms,
-                kind=item.kind,
-                global_quote_start=offset,
-                quote=item.source_quote,
-                title=item.title,
-                original_due_wording=item.original_due_wording,
-                due_date=item.due_date,
-                due_relation=item.due_relation,
-                proposed_date=item.proposed_date,
-                proposed_at=item.proposed_at,
-                time_zone=item.time_zone,
-                responsibility=item.responsibility,
-                ambiguities=tuple(item.ambiguities),
-            )
-        )
-    for item in assessment.updates:
-        if item.section_index != section.index or item.target_request_id not in prior_request_ids:
+        candidates.append(_validated_candidate(message, item, offset, identity))
+    for update in assessment.updates:
+        if (
+            update.section_index != section.index
+            or update.target_request_id not in prior_request_ids
+        ):
             raise ValueError("unsupported_update_ref")
-        _verified_span(section, item.quote_start, item.source_quote)
+        _verified_span(section, update.quote_start, update.source_quote)
         updates.append(
             ValidatedUpdate(
-                target_request_id=item.target_request_id,
-                outcome=item.outcome,
-                quote=item.source_quote,
-                explanation=item.explanation,
+                target_request_id=update.target_request_id,
+                outcome=update.outcome,
+                quote=update.source_quote,
+                explanation=update.explanation,
                 source_internal_date_ms=message.internal_date_ms,
             )
         )
     return candidates, updates
 
 
+def finalize_candidates(
+    candidates: Sequence[ValidatedCandidate], drops: MutableMapping[str, int] | None = None
+) -> tuple[ValidatedCandidate, ...]:
+    """Collapse repeated phrasings of one request across every section."""
+    unique: dict[str, ValidatedCandidate] = {}
+    for item in candidates:
+        existing = unique.get(item.evidence_key)
+        if existing is not None and existing != item:
+            raise ValueError("ambiguous_overlapping_evidence")
+        unique[item.evidence_key] = item
+    kept, merged = dedupe(unique.values())
+    for _ in range(merged):
+        _count(drops, "duplicate")
+    return tuple(kept)
+
+
 def merge_sections(
     sections: Sequence[tuple[list[ValidatedCandidate], list[ValidatedUpdate]]],
+    drops: MutableMapping[str, int] | None = None,
 ) -> CompleteAssessment:
-    candidates: dict[str, ValidatedCandidate] = {}
     updates: dict[tuple[str, str, str], ValidatedUpdate] = {}
-    for found, changed in sections:
-        for item in found:
-            candidates[item.evidence_key] = item
+    found: list[ValidatedCandidate] = []
+    for candidates, changed in sections:
+        found.extend(candidates)
         for item in changed:
             updates[(item.target_request_id, item.outcome, item.quote)] = item
+    counts: dict[str, int] = dict(drops or {})
     return CompleteAssessment(
         expected_sections=len(sections),
         completed_sections=len(sections),
-        candidates=tuple(candidates.values()),
+        candidates=finalize_candidates(found, counts),
         updates=tuple(updates.values()),
+        dropped_counts=counts,
     )
 
 
@@ -233,6 +339,7 @@ async def assess_complete_message(
 ) -> CompleteAssessment:
     """All sections must succeed; no partial answer may become durable truth."""
     validated = []
+    drops: dict[str, int] = {}
     for section in message.sections:
         validated.append(
             await assess_section(
@@ -245,9 +352,10 @@ async def assess_complete_message(
                 evidence_key=evidence_key,
                 require_current=require_current,
                 gene_runner=gene_runner,
+                drops=drops,
             )
         )
-    return merge_sections(validated)
+    return merge_sections(validated, drops)
 
 
 async def assess_section(
@@ -261,6 +369,7 @@ async def assess_section(
     evidence_key: bytes,
     require_current: Callable[[], Awaitable[None]],
     gene_runner: Callable[..., Awaitable[dict[str, Any]]] = run_email_gene,
+    drops: MutableMapping[str, int] | None = None,
 ) -> tuple[list[ValidatedCandidate], list[ValidatedUpdate]]:
     await require_current()
     prompt = json.dumps(
@@ -270,6 +379,7 @@ async def assess_section(
             "message_received_at_ms": message.internal_date_ms,
             "subject": message.subject,
             "sender": message.sender,
+            "automated_signals": list(message.signals),
             "owner_time_zone": owner_time_zone,
             "prior_requests": list(prior_requests)[:20],
         },
@@ -290,4 +400,5 @@ async def assess_section(
         payload=payload,
         prior_request_ids={item["request_id"] for item in prior_requests},
         evidence_key=evidence_key,
+        drops=drops,
     )

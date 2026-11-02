@@ -14,7 +14,9 @@ import { DriveSharingError } from "@/lib/services/drive-sharing-wire";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isMeetingReviewing, meetingOutcome } from "@/lib/consent/calendar-meeting-outcome";
-import { markMeetingReviewOAuthReturn } from "@/lib/consent/meeting-review-return";
+import { consumeMeetingReviewGiveIntent, markMeetingReviewGiveIntent, markMeetingReviewOAuthReturn } from "@/lib/consent/meeting-review-return";
+import { meetingFilesPhrase, notAvailableMessage } from "@/lib/calendar/meeting-file-copy";
+import type { MeetingFileKind } from "@/lib/services/calendar-insights-service";
 
 // Sharing is quick when it works; poll quietly for a bounded time, then stop and
 // offer a manual check rather than polling a stuck job forever.
@@ -89,6 +91,11 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
   const [reviewFiles, setReviewFiles] = useState<string[]>([]);
   const [finalConfirmed, setFinalConfirmed] = useState(false);
   const [declineArmed, setDeclineArmed] = useState(false);
+  // The organizer first chooses how to answer: Give access, or Don't have.
+  // A return from Drive authorization reopens the Give access step.
+  const [mode, setMode] = useState<"choose" | "give" | "dont">(() => consumeMeetingReviewGiveIntent(userId, requestId) ? "give" : "choose");
+  const [lacking, setLacking] = useState<MeetingFileKind[]>([]);
+  const [saved, setSaved] = useState<MeetingFileKind[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -123,7 +130,7 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
         guard();
         if (ready.requestType !== "calendar_meeting" || ready.recipientEmail !== next.recipientEmail)
           throw new DriveSharingError("review_changed");
-        if (!cancelled) setReview(ready);
+        if (!cancelled) { setReview(ready); setMode("give"); }
       }
     })().catch(cause => { if (!quiet && !cancelled && isVaultSessionEpochCurrent(epoch)) setError(errorText(cause)); })
       .finally(() => { if (!quiet && !cancelled && isVaultSessionEpochCurrent(epoch)) setBusy(false); });
@@ -205,26 +212,72 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
   </section>;
 
   const pending = isMeetingReviewing(status.status);
+  // What the organizer has already said they don't have, and what is still open to answer.
+  const said = Array.from(new Set([...(preview?.notAvailableTypes ?? []), ...saved]));
+  const openTypes = (preview?.meeting.requested_types ?? []).filter(kind => !said.includes(kind));
+  // The two answers are offered until the exact-file confirmation takes over.
+  const choosing = pending && !review?.canApprove;
+  const shownOutcome = outcome && status.status === "declined" && said.length
+    ? { ...outcome, title: "Saved", detail: `The requester sees that you don't have the ${meetingFilesPhrase(said, "or")}. Nothing was shared.` }
+    : outcome;
+  const startGive = () => {
+    setMode("give"); setNotice(""); setError(""); setDeclineArmed(false);
+    // Files Google links to this exact meeting are checked for you; you still choose and confirm them.
+    if (preview?.ownerDriveReady && preview.meeting.exact_refs?.length && !search)
+      void run(async token => {
+        const result = await CalendarMeetingReviewService.linkedFiles(requestId, token);
+        setSearch(result); setSelectedFiles([]); setOccurrenceConfirmed(false);
+      });
+  };
+  const startDont = () => {
+    setMode("dont"); setNotice(""); setError(""); setDeclineArmed(false);
+    setLacking(openTypes.length === 1 ? openTypes : []);
+  };
+  const saveDont = () => void run(async (token, guard) => {
+    if (!preview || !lacking.length) return;
+    const told = lacking;
+    const result = await CalendarMeetingReviewService.markUnavailable(requestId, token, preview.revision, told);
+    guard();
+    quietRecheck.current = true;
+    setSaved(result.notAvailableTypes); setLacking([]); setMode("choose");
+    setSearch(null); setSelectedFiles([]); setOccurrenceConfirmed(false);
+    setStatus(current => ({ ...current, status: result.status, revision: result.revision }));
+    setNotice(`Saved. They'll see: "${notAvailableMessage(told)}"`);
+    onChanged();
+  });
   return <section className="space-y-4 rounded-xl border p-4">
     <h3 className="font-semibold">Meeting file request</h3>
     {busy && !preview ? <p role="status">Loading this meeting request…</p> : null}
     {preview ? <>
       <p><strong>{preview.meeting.title}</strong> · {preview.meeting.date}</p>
-      <p>Requested: {preview.meeting.requested_types.join(" and ")}</p>
+      <p>Requested: {meetingFilesPhrase(preview.meeting.requested_types)}</p>
+      {said.length ? <p role="status">You said you don't have the {meetingFilesPhrase(said, "or")}.</p> : null}
       <p>Recipient Google account: <strong>{preview.recipientEmail}</strong></p>
       <p className="text-sm text-muted-foreground">Choose only files for this meeting occurrence. Being the organizer does not by itself give you permission to share a file.</p>
-      {!preview.ownerDriveReady && pending ? <div role="status" className="space-y-2">
+      {!preview.ownerDriveReady && choosing && mode === "give" ? <div role="status" className="space-y-2">
         <p>Connect the Google Drive account that can share these files. You will come back to this request.</p>
         <p className="flex flex-wrap items-center gap-3">
           <ProfileConnectorsLink connectorId="google_drive" className="underline"
-            onClick={() => { if (userId) markMeetingReviewOAuthReturn(userId, requestId); }}>Open Drive connection</ProfileConnectorsLink>
+            onClick={() => { if (userId) { markMeetingReviewOAuthReturn(userId, requestId); markMeetingReviewGiveIntent(userId, requestId); } }}>Open Drive connection</ProfileConnectorsLink>
           <Button variant="outline" size="sm" onClick={recheckDrive}>Check Drive connection</Button>
         </p>
       </div> : null}
     </> : null}
     {error ? <p role="alert">{error}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
-    {preview && pending && preview.ownerDriveReady && !review?.canApprove ? <div className="space-y-3">
+    {preview && choosing && openTypes.length ? <div role="group" aria-label="Answer this request" className="grid grid-cols-2 gap-2">
+      <Button aria-pressed={mode === "give"} variant={mode === "give" ? "default" : "outline"} disabled={busy} onClick={startGive}>Give access</Button>
+      <Button aria-pressed={mode === "dont"} variant={mode === "dont" ? "default" : "outline"} disabled={busy} onClick={startDont}>Don't have</Button>
+    </div> : null}
+    {preview && choosing && mode === "dont" && openTypes.length ? <div className="space-y-3" role="group" aria-label="Which do you not have?">
+      <p>Which of these don't you have?</p>
+      {openTypes.map(kind => <label key={kind} className="flex items-start gap-2"><input type="checkbox" checked={lacking.includes(kind)}
+        onChange={event => setLacking(previous => event.target.checked ? [...previous, kind] : previous.filter(item => item !== kind))} />
+        <span>The {kind}</span></label>)}
+      <p className="text-sm text-muted-foreground">Nothing in your Drive is opened. {lacking.length ? `They'll see: "${notAvailableMessage(lacking)}"` : "They are told which one you don't have."}</p>
+      <Button disabled={busy || !lacking.length} onClick={saveDont}>Confirm</Button>
+    </div> : null}
+    {preview && choosing && mode === "give" && preview.ownerDriveReady ? <div className="space-y-3">
       {preview.meeting.exact_refs?.length ? <Button variant="outline" disabled={busy} onClick={() => void run(async token => {
         const result = await CalendarMeetingReviewService.linkedFiles(requestId, token);
         setSearch(result); setSelectedFiles([]); setOccurrenceConfirmed(false);
@@ -274,7 +327,7 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
         onChanged();
       })}>Give access</Button>
       <Button variant="ghost" disabled={busy} onClick={() => {
-        setReview(null); setReviewFiles([]); setFinalConfirmed(false); setSearch(null);
+        setReview(null); setReviewFiles([]); setFinalConfirmed(false); setSearch(null); setMode("give");
       }}>Choose different files</Button>
     </div> : null}
     {preview && pending ? <div className="border-t pt-3"><Button variant="ghost" disabled={busy} onClick={() => {
@@ -284,14 +337,14 @@ function CalendarMeetingReviewCard({ requestId, status: initialStatus, onChanged
         guard(); setStatus(current => ({ ...current, status: "declined" })); onChanged();
       });
     }}>{declineArmed ? "Confirm decline" : "Decline request"}</Button></div> : null}
-    {outcome ? <div className="space-y-2 border-t pt-3" data-testid="calendar-review-outcome" data-outcome={status.status}>
-      <h4 className="font-medium">{outcome.title}</h4>
-      <p role={outcome.tone === "error" ? "alert" : "status"}>{outcome.detail}</p>
+    {shownOutcome ? <div className="space-y-2 border-t pt-3" data-testid="calendar-review-outcome" data-outcome={status.status}>
+      <h4 className="font-medium">{shownOutcome.title}</h4>
+      <p role={shownOutcome.tone === "error" ? "alert" : "status"}>{shownOutcome.detail}</p>
       {sharing && pollStopped ? <div className="space-y-2">
         <p role="status">This is taking longer than usual. Sharing continues in the background.</p>
         <Button variant="outline" onClick={() => setPollRun(value => value + 1)}>Check again</Button>
       </div> : null}
     </div> : null}
-    {!pending ? <Button asChild variant="outline"><Link href={ROUTES.ONE_FEED}>Back to Feed</Link></Button> : null}
+    {!pending || saved.length ? <Button asChild variant="outline"><Link href={ROUTES.ONE_FEED}>Back to Feed</Link></Button> : null}
   </section>;
 }

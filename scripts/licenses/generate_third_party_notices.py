@@ -240,10 +240,20 @@ def load_pod_runtime_resources() -> list[dict[str, str]]:
 
 
 def load_email_runtime_resources() -> list[dict[str, str]]:
-    directory = REPO_ROOT / "consent-protocol/hushh_mcp/services/email_oss/vendor"
+    runtime = REPO_ROOT / "consent-protocol/hushh_mcp/services/email_oss"
+    if not runtime.exists() and not runtime.is_symlink():
+        return []
+    directory = runtime / "vendor"
     inventory = json.loads((directory / "PROVENANCE.json").read_text(encoding="utf-8"))
+    sources = inventory.get("sources")
+    if inventory.get("schema_version") != "email_oss_vendor.v1" or not isinstance(sources, list) or not sources:
+        raise ValueError("Email upstream provenance is invalid")
+    if not (directory / "PROVENANCE.md").read_text(encoding="utf-8").strip():
+        raise ValueError("Email upstream notice is unavailable")
     result = []
-    for source in inventory["sources"]:
+    for source in sources:
+        if not all(isinstance(source.get(key), str) and source[key] for key in ("repository", "commit", "license")) or not source.get("files"):
+            raise ValueError("Email upstream source evidence is invalid")
         for entry in source["files"]:
             path = directory / entry["path"]
             if not path.resolve().is_relative_to(directory.resolve()) or hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
@@ -370,6 +380,8 @@ def write_markdown(
 def main() -> int:
     web_packages = load_web_packages()
     python_packages = load_python_packages()
+    email_packages = load_email_runtime_resources()
+    email_sections = [("Vendored Email execution resources", email_packages)] if email_packages else []
 
     write_markdown(
         ROOT_NOTICES,
@@ -380,16 +392,14 @@ def main() -> int:
             ("Backend Python packages", python_packages),
             ("Vendored engineering resources", load_vendored_packages()),
             ("Private pod runtime resources", load_pod_runtime_resources()),
-            ("Vendored Email execution resources", load_email_runtime_resources()),
-        ],
+        ] + email_sections,
     )
 
     write_markdown(
         PROTOCOL_NOTICES,
         "Third-Party Notices",
         "Third-party dependency inventory for the Hushh Consent Protocol.",
-        [("Python packages", python_packages), ("Private pod runtime resources", load_pod_runtime_resources()),
-         ("Vendored Email execution resources", load_email_runtime_resources())],
+        [("Python packages", python_packages), ("Private pod runtime resources", load_pod_runtime_resources())] + email_sections,
     )
     return 0
 

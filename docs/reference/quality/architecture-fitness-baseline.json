@@ -18136,7 +18136,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
-      "value": 1446
+      "value": 1465
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19200,7 +19200,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 1202
+      "value": 1208
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -19281,7 +19281,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/feed_service.py",
       "symbol": null,
-      "value": 1709
+      "value": 1711
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -25032,7 +25032,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
       "symbol": null,
-      "value": 1907
+      "value": 1912
     },
     {
       "detail": "module exceeds the advisory operon budget",

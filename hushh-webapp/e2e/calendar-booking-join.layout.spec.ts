@@ -64,13 +64,20 @@ test("Board booking reviews account B and refreshes its event and free time afte
   await expect(dialog.getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
   await expect.poll(() => dialog.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(dialog.getByLabel("Duration")).toHaveValue("60");
+  // Date and Start sit side by side inside the dialog: neither may run into the other or past the dialog's edge.
+  const dialogBox = (await dialog.boundingBox())!;
+  const dateBox = (await dialog.getByLabel("Date", { exact: true }).boundingBox())!;
+  const startBox = (await dialog.getByLabel("Start", { exact: true }).boundingBox())!;
+  expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(startBox.x);
+  expect(startBox.x + startBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width);
   await dialog.getByLabel("Title").fill("Bug Bash");
   await dialog.getByLabel("Guests (optional)").fill("guest@example.com");
   await dialog.getByRole("button", { name: "Add" }).click();
   await dialog.getByRole("button", { name: "Review meeting" }).click();
   await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("guest@example.com");
   await expect.poll(() => dialog.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
-  await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("qa-work@example.com · Primary calendar");
+  await expect(dialog.getByRole("region", { name: "Meeting review" })).toContainText("qa-work@example.com");
+  await expect(dialog.getByRole("region", { name: "Meeting review" })).not.toContainText("Primary calendar");
   await expect(dialog.getByRole("region", { name: "Meeting review" })).not.toContainText("UTC+05:30");
   const mobileBounds = (await dialog.boundingBox())!;
   expect(mobileBounds.x).toBeGreaterThanOrEqual(0);

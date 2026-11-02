@@ -4,7 +4,6 @@ These use a scripted pool and identity service, so they prove the decision logic
 without a database. The Postgres flow suite proves the real SQL separately.
 """
 
-import asyncio
 import logging
 
 import pytest
@@ -14,8 +13,13 @@ from hushh_mcp.services import calendar_organizer_resolution as service
 from hushh_mcp.services.actor_identity_service import ActorIdentitySyncUnavailableError
 from hushh_mcp.services.calendar_invitations import attendee_status, own_attendee
 from hushh_mcp.services.drive_sharing_contract import CALENDAR_REFUSAL_REASONS, DriveSharingError
+from tests.helpers.calendar_organizer_fakes import (
+    ORGANIZER,
+    FakeIdentity,
+    FakePool,
+    Script,
+)
 
-ORGANIZER = "organizer@example.test"
 REQUESTER = "requester@example.test"
 LOGGER = "hushh_mcp.services.calendar_organizer_resolution"
 
@@ -73,83 +77,6 @@ def test_snake_case_omission_flag_is_honoured_only_for_summaries():
     summary = event(attendees_omitted=True)
     assert attendee_status(summary, REQUESTER, raw=False)[1] == "attendees_omitted"
     assert attendee_status(summary, REQUESTER, raw=True)[1] is None
-
-
-# ---- scripted pool / identity service --------------------------------------------
-
-
-class Script:
-    def __init__(
-        self, *, organizer=(), refresh=(), alias_verified=False, fail_fetch=None, pending=()
-    ):
-        self.organizer = list(organizer)  # one result per organizer query, in order
-        self.refresh = refresh
-        self.pending = list(pending)  # one verdict per pending-request lookup, in order
-        self.pending_refresh = ()
-        self.pending_queries = 0
-        self.alias_verified = alias_verified
-        self.fail_fetch = fail_fetch
-        self.organizer_queries = 0
-        self.refresh_args = None
-
-
-class FakeConnection:
-    def __init__(self, script):
-        self.script = script
-
-    async def fetch(self, sql, *args, timeout=None):
-        if self.script.fail_fetch:
-            raise self.script.fail_fetch
-        if "make_interval" in sql:
-            if "connection_requests" in sql:
-                return [{"peer": peer} for peer in self.script.pending_refresh]
-            self.script.refresh_args = args
-            return [{"peer": peer} for peer in self.script.refresh]
-        self.script.organizer_queries += 1
-        index = min(self.script.organizer_queries, len(self.script.organizer)) - 1
-        return [{"peer": peer} for peer in self.script.organizer[index]]
-
-    async def fetchval(self, sql, *args, timeout=None):
-        if "connection_requests" in sql:
-            self.script.pending_queries += 1
-            index = min(self.script.pending_queries, len(self.script.pending)) - 1
-            return bool(self.script.pending[index]) if self.script.pending else False
-        return self.script.alias_verified
-
-
-class FakePool:
-    def __init__(self, script):
-        self.script = script
-
-    def acquire(self):
-        script = self.script
-
-        class Context:
-            async def __aenter__(self):
-                return FakeConnection(script)
-
-            async def __aexit__(self, *exc):
-                return False
-
-        return Context()
-
-
-class FakeIdentity:
-    """Scripted Firebase refresh keyed by peer; an Exception value is raised."""
-
-    results: dict = {}
-    calls: list = []
-    hang = False
-
-    async def sync_from_firebase(self, peer, *, force=False, require_success=False):
-        assert force is True and require_success is True
-        type(self).calls.append(peer)
-        if type(self).hang and peer.startswith("stale"):
-            await asyncio.sleep(10)
-        value = type(self).results.get(peer, {"email": ORGANIZER, "email_verified": True})
-        if isinstance(value, Exception):
-            raise value
-        return value
 
 
 @pytest.fixture
@@ -218,6 +145,48 @@ async def test_stale_cache_for_a_connected_organizer_is_refreshed_not_refused(ha
     # Bounded: only the requester's own peers, capped, with the cache's freshness window.
     _, window, limit = script.refresh_args[0], script.refresh_args[1], script.refresh_args[2]
     assert limit == service._PEER_REFRESH_LIMIT and window == 24 * 3600
+
+
+async def test_dead_peers_cannot_starve_the_peers_behind_them(harness):
+    """Unreachable peers keep an old timestamp, so a fixed window re-read them forever
+    and never reached the organizer behind them; each round now skips what was tried."""
+    dead = [f"stale-dead-{n}" for n in range(service._PEER_REFRESH_LIMIT)]
+    # Queries: initial, after the full dead round, then the final read once the
+    # short second round (below the limit) ends the pass.
+    script = harness(
+        Script(organizer=[[], [], ["organizer-user"]], refresh=[*dead, "stale-organizer"])
+    )
+    for peer in dead:
+        FakeIdentity.results[peer] = ActorIdentitySyncUnavailableError()
+
+    assert await resolve() == "organizer-user"
+
+    assert script.refresh_rounds == 2
+    assert FakeIdentity.calls.count("stale-organizer") == 1
+    assert len(set(FakeIdentity.calls)) == len(FakeIdentity.calls)  # no peer is read twice
+
+
+async def test_a_pass_stops_as_soon_as_the_organizer_is_proven(harness):
+    peers = [f"stale-{n}" for n in range(service._PEER_REFRESH_LIMIT * 2)]
+    script = harness(Script(organizer=[[], ["organizer-user"]], refresh=peers))
+    assert await resolve() == "organizer-user"
+    assert script.refresh_rounds == 1
+    assert len(FakeIdentity.calls) == service._PEER_REFRESH_LIMIT + 1
+
+
+async def test_unread_peers_after_the_round_cap_is_retryable_never_not_connected(harness):
+    """More unproven peers than one pass may read means the answer is unknown."""
+    many = [f"stale-{n}" for n in range(service._PEER_REFRESH_LIMIT * service._PEER_REFRESH_ROUNDS)]
+    script = harness(Script(organizer=[[]], refresh=many, pending=[False]))
+    for readiness_call in (resolve, readiness):
+        with pytest.raises(DriveSharingError) as caught:
+            await readiness_call()
+        assert (str(caught.value), caught.value.retryable) == (
+            "recipient_verification_unavailable",
+            True,
+        )
+        assert caught.value.diagnostic_reason == "organizer_lookup_incomplete"
+    assert script.refresh_rounds == 2 * service._PEER_REFRESH_ROUNDS
 
 
 async def test_no_stale_peers_means_a_terminal_unresolved_refusal(harness):
@@ -320,6 +289,23 @@ async def test_operator_log_survives_the_production_redactor_and_names_no_one(
     assert "refreshed=1" in text and "refresh_failed=0" in text
     for private in (ORGANIZER, REQUESTER, "stale-user-id-123", "requester-user", "example.test"):
         assert private not in text
+
+
+async def test_operator_log_counts_peer_evidence_without_naming_anyone(
+    harness, caplog, production_log_redaction
+):
+    """Tells operators why a connected organizer did not match, with counts only."""
+    caplog.set_level(logging.INFO, logger=LOGGER)
+    script = harness(Script(organizer=[[]], refresh=[]))
+    script.evidence = {"active_peers": 27, "unproven_peers": 4, "same_mailbox_other_domain": 1}
+    await refusal()
+    text = "\n".join(caplog.messages)  # the message only, not the logger or file name
+    assert "[REDACTED]" not in text
+    assert "active_peers=27" in text and "unproven_peers=4" in text
+    assert "same_mailbox_other_domain=1" in text
+    named = text.replace("calendar.organizer.unavailable", "").replace("organizer.unresolved", "")
+    for private in (ORGANIZER, REQUESTER, "requester-user", "example.test", "organizer"):
+        assert private not in named
 
 
 @pytest.mark.parametrize(

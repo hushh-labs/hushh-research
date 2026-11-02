@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { CalendarConnectedWorkspace } from "@/components/calendar/calendar-connected-workspace";
 import { connectGmailInPlace } from "@/lib/connections/google-connect-in-place";
 import { CalendarFollowupsService } from "@/lib/services/calendar-followups-service";
+import { clearMailChoice, rememberMailChoice } from "@/lib/calendar/calendar-mail-choice";
 import { connectNativeGoogleFollowupMail } from "@/lib/google/native-google-oauth";
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { AskOneButton } from "@/components/agent/ask-one-button";
@@ -141,6 +142,8 @@ export function CalendarAgentPage({
     }));
   };
   const [busy, setBusyState] = useState(false);
+  // Optional, off by default: also look for meeting requests in email.
+  const [wantsMail, setWantsMail] = useState(false);
   const busyRef = useRef(false);
   const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value); };
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
@@ -577,6 +580,9 @@ export function CalendarAgentPage({
   const checkingConnection = connectionPending || loading || (Boolean(user) && !status && !statusError);
   // Unknown connection evidence is a loading state, never a disconnected state.
   const showConnectHero = !connected;
+  // Only a first-ever connection offers the email choice. A lapsed grant being
+  // renewed, or an account that already exists, never asks it again.
+  const newConnection = !needsReauth && !status?.accounts?.length;
 
   const popupWaitingNotice = popupWaiting ? (
     <div className="flex flex-col items-center gap-2 pt-3 text-center">
@@ -800,7 +806,15 @@ export function CalendarAgentPage({
             journeyVariant={journeyVariant}
             busy={busy || checkingConnection || !user}
             needsReauth={needsReauth}
-            onConnect={() => void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length)}
+            mailChoice={newConnection ? { checked: wantsMail, onChange: setWantsMail } : undefined}
+            onConnect={() => {
+              // The email choice rides along only on a brand-new connection, and
+              // only as a remembered intent: Google's Mail permission is asked
+              // for separately, after Calendar, from the new account's card.
+              if (newConnection && wantsMail && userId) rememberMailChoice(userId, []);
+              else clearMailChoice();
+              void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length);
+            }}
           >
             {popupWaitingNotice}
           </CalendarConnectHero>

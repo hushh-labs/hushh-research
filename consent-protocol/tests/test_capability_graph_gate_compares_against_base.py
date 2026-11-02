@@ -13,15 +13,16 @@ from __future__ import annotations
 
 import json
 import subprocess
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
 from scripts import generate_capability_graph as generator
 from tests.helpers.capability_graph_fixture import (
     GRAPH_RELATIVE,
-    LEDGER_RELATIVE,
     MIRRORS,
     V1,
     V1_REVISION,
@@ -30,49 +31,9 @@ from tests.helpers.capability_graph_fixture import (
     Repo,
     _aliased,
 )
-
-
-@pytest.fixture
-def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Repo:
-    """A temp repo: main carries graph v1, feature carries the v2 bypass."""
-
-    for name in (
-        "CI",
-        "GITHUB_ACTIONS",
-        "GITHUB_BASE_REF",
-        "WEB_TARGETED_BASE_REF",
-        generator.CAPABILITY_GRAPH_BASE_REF_ENV,
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    # Keep the developer's global git config (hooks path, signing) out of the
-    # temp repository so the test is hermetic.
-    global_config = tmp_path / "gitconfig"
-    global_config.write_text("", encoding="utf-8")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-    root = tmp_path / "repo"
-    root.mkdir()
-    repo = Repo(root)
-    repo.git("init", "-q", "-b", "main")
-    repo.git("config", "user.name", "Capability Graph Test")
-    repo.git("config", "user.email", "capability-graph-test@example.invalid")
-    repo.git("config", "commit.gpgsign", "false")
-
-    repo.write_ledger([])
-    repo.commit("chore: ledger without a graph")
-    repo.write_graph(V1)
-    repo.commit("feat: capability graph v1")
-    repo.git("checkout", "-q", "-b", "feature")
-    repo.write_graph(V2)
-    repo.commit("feat: repurpose X and record breaking: []")
-
-    monkeypatch.setattr(generator, "REPO_ROOT", root)
-    monkeypatch.setattr(generator, "OUTPUTS", tuple(root / mirror for mirror in MIRRORS))
-    monkeypatch.setattr(generator, "EVOLUTION_CONTRACT_PATH", root / LEDGER_RELATIVE)
-    return repo
+from tests.helpers.capability_graph_fixture import (
+    repo as repo,
+)
 
 
 def _gate(previous: dict[str, Any] | None) -> dict[str, Any]:
@@ -217,6 +178,9 @@ def test_base_ref_comparison_names_the_changed_action_and_fails(
     with pytest.raises(RuntimeError, match=r"unacknowledged breaking changes: actions:X") as exc:
         _gate(previous)
     assert "exact-revision deprecation" in str(exc.value)
+    monkeypatch.setattr(generator, "compile_capability_graph_from_sources", lambda: deepcopy(V2))
+    with pytest.raises(RuntimeError, match=r"unacknowledged breaking changes: actions:X"):
+        generator.build_payload(base_ref="main")
     deprecations = generator._load_evolution_deprecations()
     semantic_diff = generator._semantic_diff(previous, V2, deprecations=deprecations)
     assert semantic_diff["from_revision"] == V1_REVISION
@@ -460,3 +424,43 @@ def test_exported_archive_without_git_compares_the_file_to_itself(
 
     assert previous is not None
     assert previous["revision"] == V2_REVISION
+
+
+def test_zero_transition_is_canonical_across_ancestral_bases_and_still_checks_every_mirror(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo.git("checkout", "-q", "main")
+    first = repo.git("rev-parse", "HEAD")
+    prior = {**deepcopy(V1), "revision": "prior-format-revision"}
+    repo.write_graph(prior)
+    second = repo.commit("chore: graph format without a semantic transition")
+    compiled = {**deepcopy(V1), "revision": "current-format-revision"}
+    monkeypatch.setattr(generator, "compile_capability_graph_from_sources", lambda: compiled)
+    compatibility = Mock(wraps=generator._workflow_revision_compatibility)
+    monkeypatch.setattr(generator, "_workflow_revision_compatibility", compatibility)
+
+    first_payload = generator.build_payload(base_ref=first)
+    second_payload = generator.build_payload(base_ref=second)
+    assert json.dumps(first_payload, sort_keys=True) == json.dumps(second_payload, sort_keys=True)
+    assert first_payload["semantic_diff"]["from_revision"] is None
+    assert [call.args[2]["from_revision"] for call in compatibility.call_args_list] == [
+        V1_REVISION,
+        prior["revision"],
+    ]
+    assert first[:12] in capsys.readouterr().err
+    repo.write_graph(first_payload)
+    for base in (first, second):
+        monkeypatch.setattr(
+            "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", base]
+        )
+        assert generator.main() == 0
+
+    stale = deepcopy(first_payload)
+    stale["source_digests"]["capability_runtime_compiler"] = "stale"
+    generator.OUTPUTS[1].write_text(json.dumps(stale), encoding="utf-8")
+    for base in (first, second):
+        monkeypatch.setattr(
+            "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", base]
+        )
+        with pytest.raises(SystemExit, match="artifacts are stale"):
+            generator.main()

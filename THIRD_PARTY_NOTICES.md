@@ -26,13 +26,14 @@ Package count: 1296
 - `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 930
+- `MIT`: 928
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
 - `MPL-2.0`: 13
 - `Python-2.0`: 1
 - `Standard 'no charge' license: https://gsap.com/standard-license.`: 1
+- `UNKNOWN`: 2
 - `Unlicense`: 2
 
 ### Package inventory
@@ -940,7 +941,7 @@ Package count: 1296
 - `katex/commander` `15.0.0` — MIT
 - `kdbush` `4.1.0` — ISC
 - `keyv` `4.5.4` — MIT
-- `khroma` `2.1.0` — MIT
+- `khroma` `2.1.0` — UNKNOWN
 - `kleur` `4.1.5` — MIT
 - `language-subtag-registry` `0.3.23` — CC0-1.0
 - `language-tags` `1.0.9` — MIT
@@ -959,7 +960,7 @@ Package count: 1296
 - `lightningcss-linux-x64-musl` `1.32.0` — MPL-2.0
 - `lightningcss-win32-arm64-msvc` `1.32.0` — MPL-2.0
 - `lightningcss-win32-x64-msvc` `1.32.0` — MPL-2.0
-- `limiter` `1.1.5` — MIT
+- `limiter` `1.1.5` — UNKNOWN
 - `lit` `3.3.2` — BSD-3-Clause
 - `lit-element` `4.2.2` — BSD-3-Clause
 - `lit-html` `3.3.2` — BSD-3-Clause

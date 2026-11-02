@@ -9,6 +9,10 @@ from hushh_mcp.services.calendar_email_followup_crypto import FollowupCipher
 from hushh_mcp.services.calendar_email_followup_store_due import _DueClaims, _DueQueue
 from hushh_mcp.services.calendar_email_followup_store_ingest import _MessageIngest
 from hushh_mcp.services.calendar_email_followup_store_monitor import _MonitorConfig, _MonitorState
+from hushh_mcp.services.calendar_email_followup_store_outcomes import (
+    ScannedState as ScannedState,
+)
+from hushh_mcp.services.calendar_email_followup_store_outcomes import _ScanOutcomes
 from hushh_mcp.services.calendar_email_followup_store_requests import _RequestMutate, _RequestRead
 from hushh_mcp.services.calendar_email_followup_store_types import (
     DueClaim as DueClaim,
@@ -32,6 +36,7 @@ class CalendarEmailFollowupStore(
     _DueClaims,
     _DueQueue,
     _MessageIngest,
+    _ScanOutcomes,
 ):
     def __init__(self, *, db: Any = None, cipher: FollowupCipher | None = None) -> None:
         self.db = db or get_db()

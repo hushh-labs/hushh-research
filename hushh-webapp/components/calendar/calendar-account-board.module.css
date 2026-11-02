@@ -107,13 +107,7 @@
 .occasionIcon svg { width: 1.2rem; height: 1.2rem; }
 .occasionCopy { display: grid; gap: .2rem; min-width: 0; overflow-wrap: anywhere; }
 .occasionCopy strong { color: var(--app-label); font-size: 14px; font-weight: 550; line-height: 21px; }
-.occasionCopy span, .occasionCopy p { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; }
-.occasionCopy p { margin-top: .2rem; white-space: pre-wrap; }
-.occasionDetails { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; }
-.occasionDetails summary { width: fit-content; min-height: 44px; display: flex; align-items: center; cursor: pointer; }
-.occasionDetails p { padding: 0 0 .4rem; }
-.occasionProviderLink { width: fit-content; min-height: 44px; display: inline-flex; align-items: center; color: var(--app-accent); font-size: 12px; line-height: 18px; text-decoration: none; }
-.occasionProviderLink:focus-visible, .occasionDetails summary:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.occasionCopy span { color: var(--app-secondary-label); font-size: 13px; line-height: 19px; white-space: pre-line; }
 .detail { --foundation-title2-size: 20px; --foundation-title2-line: 28px; --foundation-title2-weight: 600; --foundation-title3-size: 20px; --foundation-title3-line: 28px; --foundation-title3-weight: 600; --type-input-value-size: 14px; --type-input-value-line: 22px; max-height: 86dvh; overflow-y: auto; gap: .75rem; padding: 1.35rem; font-family: var(--font-app-body); }
 .detail :global(label > span) { font-size: 15px; line-height: 22px; font-weight: 550; }
 .detailHeader { gap: .3rem; text-align: left; padding-right: 1.4rem; }

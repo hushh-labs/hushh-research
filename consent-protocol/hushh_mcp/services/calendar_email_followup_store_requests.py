@@ -8,6 +8,11 @@ from typing import Any, Literal
 
 from sqlalchemy import text
 
+from hushh_mcp.services.calendar_email_followup_store_read import (
+    conversation_view,
+    page_view,
+    read_page,
+)
 from hushh_mcp.services.calendar_email_followup_store_types import (
     FollowupStateError,
     Monitor,
@@ -23,110 +28,8 @@ class _RequestRead:
 
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
-                count = conn.execute(
-                    text("""SELECT count(*) FROM calendar_email_followup_conversations c
-                    WHERE c.user_id=:user_id AND c.account_id=:account_id
-                    AND EXISTS (SELECT 1 FROM calendar_email_followup_requests r
-                      WHERE r.conversation_id=c.id
-                        AND r.state IN ('pending','snoozed','needs_review'))"""),
-                    {"user_id": monitor.user_id, "account_id": monitor.account_id},
-                ).scalar_one()
-                rows = (
-                    conn.execute(
-                        text("""SELECT c.id,c.subject_ciphertext,c.sender_ciphertext,c.thread_ref_ciphertext,
-                    c.latest_internal_date_ms,
-                    count(r.id) AS request_count,
-                    count(r.id) FILTER (WHERE r.state IN ('pending','snoozed','needs_review')) AS active_count,
-                    min(COALESCE(r.due_date,r.proposed_date)) FILTER
-                      (WHERE r.state IN ('pending','snoozed','needs_review')) AS next_date,
-                    min(CASE WHEN r.state='needs_review' AND r.due_date IS NULL
-                      AND r.proposed_date IS NULL THEN 0 ELSE 1 END) FILTER
-                      (WHERE r.state IN ('pending','snoozed','needs_review')) AS review_rank
-                    FROM calendar_email_followup_conversations c
-                    JOIN calendar_email_followup_requests r ON r.conversation_id=c.id
-                    WHERE c.user_id=:user_id AND c.account_id=:account_id
-                    GROUP BY c.id HAVING count(r.id) FILTER
-                      (WHERE r.state IN ('pending','snoozed','needs_review'))>0
-                    ORDER BY review_rank,next_date ASC NULLS LAST,
-                      c.latest_internal_date_ms DESC,c.id DESC LIMIT :limit OFFSET :offset"""),
-                        {
-                            "user_id": monitor.user_id,
-                            "account_id": monitor.account_id,
-                            "limit": limit,
-                            "offset": offset,
-                        },
-                    )
-                    .mappings()
-                    .all()
-                )
-                previews = (
-                    conn.execute(
-                        text("""SELECT r.* FROM calendar_email_followup_requests r
-                        WHERE r.conversation_id=ANY(CAST(:conversation_ids AS UUID[]))
-                          AND r.state IN ('pending','snoozed','needs_review')
-                        ORDER BY COALESCE(r.due_date,r.proposed_date) ASC NULLS LAST,
-                          r.source_internal_date_ms,r.id"""),
-                        {"conversation_ids": [str(row["id"]) for row in rows]},
-                    )
-                    .mappings()
-                    .all()
-                    if rows
-                    else []
-                )
-            previews_by_conversation: dict[str, list[dict[str, Any]]] = {}
-            for preview in previews:
-                row_id = str(preview["id"])
-                previews_by_conversation.setdefault(str(preview["conversation_id"]), []).append(
-                    {
-                        "id": row_id,
-                        "kind": preview["kind"],
-                        "state": preview["state"],
-                        "title": self._open(preview["title_ciphertext"], monitor, row_id, "title"),
-                        "original_due_wording": self._open(
-                            preview["due_wording_ciphertext"], monitor, row_id, "due_wording"
-                        )
-                        if preview["due_wording_ciphertext"]
-                        else None,
-                        "due_date": preview["due_date"].isoformat()
-                        if preview["due_date"]
-                        else None,
-                        "proposed_date": preview["proposed_date"].isoformat()
-                        if preview["proposed_date"]
-                        else None,
-                        "ambiguities": preview["ambiguities"],
-                    }
-                )
-            return {
-                "account_id": monitor.account_id,
-                "scan_state": monitor.scan_state,
-                "incomplete_source_count": len(
-                    (monitor.checkpoint or {}).get("incomplete_sources", {})
-                ),
-                "total_conversations": int(count),
-                "next_offset": offset + len(rows) if offset + len(rows) < int(count) else None,
-                "conversations": [
-                    {
-                        "id": str(row["id"]),
-                        "subject": self._open(
-                            row["subject_ciphertext"], monitor, str(row["id"]), "subject"
-                        ),
-                        "sender": self._open(
-                            row["sender_ciphertext"], monitor, str(row["id"]), "sender"
-                        ),
-                        "latest_internal_date_ms": row["latest_internal_date_ms"],
-                        "request_count": int(row["request_count"]),
-                        "active_count": int(row["active_count"]),
-                        "preview_requests": previews_by_conversation.get(str(row["id"]), [])[:3],
-                        "source_completeness": "partial"
-                        if self._open(
-                            row["thread_ref_ciphertext"], monitor, str(row["id"]), "thread_ref"
-                        )
-                        in (monitor.checkpoint or {}).get("incomplete_sources", {})
-                        else "complete",
-                    }
-                    for row in rows
-                ],
-            }
+                page = read_page(conn, monitor, limit=limit, offset=offset)
+            return page_view(self._open, monitor, page=page, offset=offset)
 
         return await asyncio.to_thread(read)
 
@@ -152,7 +55,8 @@ class _RequestRead:
                     conn.execute(
                         text("""SELECT * FROM calendar_email_followup_requests
                     WHERE conversation_id=CAST(:id AS UUID) AND user_id=:user_id
-                    AND account_id=:account_id ORDER BY source_internal_date_ms,id"""),
+                    AND account_id=:account_id AND suppressed_at IS NULL
+                    ORDER BY source_internal_date_ms,id"""),
                         {
                             "id": conversation_id,
                             "user_id": monitor.user_id,
@@ -162,49 +66,9 @@ class _RequestRead:
                     .mappings()
                     .all()
                 )
-            c = dict(conversation)
-            return {
-                "id": conversation_id,
-                "account_id": monitor.account_id,
-                "subject": self._open(c["subject_ciphertext"], monitor, conversation_id, "subject"),
-                "sender": self._open(c["sender_ciphertext"], monitor, conversation_id, "sender"),
-                "latest_internal_date_ms": c["latest_internal_date_ms"],
-                "source_completeness": "partial"
-                if self._open(c["thread_ref_ciphertext"], monitor, conversation_id, "thread_ref")
-                in (monitor.checkpoint or {}).get("incomplete_sources", {})
-                else "complete",
-                "requests": [self._request_view(monitor, dict(row)) for row in rows],
-            }
+            return conversation_view(self._open, monitor, dict(conversation), list(rows))
 
         return await asyncio.to_thread(read)
-
-    def _request_view(self, monitor: Monitor, row: dict[str, Any]) -> dict[str, Any]:
-        row_id = str(row["id"])
-        return {
-            "id": row_id,
-            "kind": row["kind"],
-            "state": row["state"],
-            "title": self._open(row["title_ciphertext"], monitor, row_id, "title"),
-            "source_excerpt": self._open(row["quote_ciphertext"], monitor, row_id, "quote"),
-            "original_due_wording": self._open(
-                row["due_wording_ciphertext"], monitor, row_id, "due_wording"
-            )
-            if row["due_wording_ciphertext"]
-            else None,
-            "due_date": row["due_date"].isoformat() if row["due_date"] else None,
-            "due_relation": row["due_relation"],
-            "proposed_date": row["proposed_date"].isoformat() if row["proposed_date"] else None,
-            "proposed_at": row["proposed_at"].isoformat() if row["proposed_at"] else None,
-            "time_zone": row["time_zone"],
-            "responsibility": row["responsibility"],
-            "ambiguities": row["ambiguities"],
-            "reminder_at": row["reminder_at"].isoformat() if row["reminder_at"] else None,
-            "source_internal_date_ms": row["source_internal_date_ms"],
-            "revision": row["revision"],
-            "booking_state": ("booked" if row["booking_event_ref_ciphertext"] else "not_booked")
-            if row["kind"] == "meeting"
-            else None,
-        }
 
     async def conversation_for_request(self, monitor: Monitor, request_id: str) -> str:
         def read() -> str:
