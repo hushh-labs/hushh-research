@@ -21,7 +21,8 @@ digest (the tag is resolved fresh, so name a tag that still exists).
 Exit codes: 0 every requested pod ended on the target image (or was already there),
 2 at least one upgrade failed OR was refused by the rollback guard (a pod that
 reports memory tombstones never moves onto an image that predates them without
-the exact ``--acknowledge-tombstone-rollback`` sentence), 3 nothing matched.
+the exact ``--acknowledge-tombstone-rollback`` sentence), 3 nothing matched;
+recovery exit 0 means verified or scheduled, not installed.
 """
 
 from __future__ import annotations
@@ -76,6 +77,13 @@ ROLLBACK_ACKNOWLEDGEMENT = (
     "I understand this image predates memory tombstones and revoked facts may return"
 )
 EXIT_REFUSED = 2
+_RECOVERY_INPUTS = (
+    "operation_id",
+    "target_image",
+    "running_hub_source",
+    "reviewed_executor_revision",
+    "review_evidence_sha256",
+)
 
 
 def _image_sha(image: str) -> str | None:
@@ -252,6 +260,9 @@ def rollback_refusal(
 
 
 async def _main(args: argparse.Namespace) -> int:
+    if getattr(args, "recover_notification_upgrade", False):
+        return await _recover_notification_upgrade(args)
+
     from hushh_mcp.services.compute_backend import resolve_compute_backend
     from hushh_mcp.services.personal_agent_provisioning_service import (
         PersonalAgentProvisioningService,
@@ -322,6 +333,123 @@ async def _main(args: argparse.Namespace) -> int:
     return 2 if failed else 0
 
 
+def _notification_recovery_readers(registry, cloud, row):
+    from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffClient
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    if not cloud.bootstrap_sa:
+        raise RuntimeError("owner bootstrap identity unavailable")
+    backend = UserGcpBackend(
+        user_project=cloud.project,
+        user_region=cloud.region,
+        bootstrap_sa=cloud.bootstrap_sa,
+        hushh_id=str(row.get("hushh_id") or ""),
+        live=True,
+    )
+    run = None
+
+    async def event_reader(candidate):
+        sql = (
+            "SELECT user_id,hushh_id,seq,attempt,event,stage,registry_status,occurred_at,reason "
+            "FROM pod_lifecycle_events WHERE user_id=:user_id AND hushh_id=:hushh_id AND "
+            "occurred_at>=:attempted_at ORDER BY occurred_at DESC,seq DESC LIMIT 64"
+        )
+        result = await asyncio.to_thread(
+            registry._db().execute_raw,
+            sql,
+            {
+                "user_id": candidate.user_id,
+                "hushh_id": candidate.hushh_id,
+                "attempted_at": candidate.attempted_at.isoformat(),
+            },
+        )
+        return list(result.data or [])
+
+    async def native_reader(candidate):
+        nonlocal run
+        if run is None:
+            run = await asyncio.to_thread(backend._client)
+        return await asyncio.to_thread(run.get_service, candidate.service_name)
+
+    async def handoff_reader(candidate, native):
+        client = PodUpgradeHandoffClient(
+            url=str(native.get("podUrl") or ""), hushh_id=candidate.hushh_id
+        )
+        return await asyncio.to_thread(client.recovery_snapshot)
+
+    return event_reader, native_reader, handoff_reader
+
+
+async def _owner_notification_recovery_readers(registry, user_id, row):
+    from hushh_mcp.services.gcp_notification_upgrade_recovery import (
+        NotificationUpgradeRecoveryRefused,
+    )
+    from hushh_mcp.services.user_cloud_service import resolve_user_cloud
+
+    cloud = await resolve_user_cloud(user_id, repo=registry, registry_row=row)
+    if cloud is None or not cloud.is_ready_to_provision or not cloud.project or not cloud.region:
+        raise NotificationUpgradeRecoveryRefused("owner's recorded GCP project is not authorized")
+    return _notification_recovery_readers(registry, cloud, row)
+
+
+async def _recover_notification_upgrade(args: argparse.Namespace) -> int:
+    from hushh_mcp.services.gcp_notification_upgrade_recovery import (
+        NotificationUpgradeRecoveryRefused,
+        recover_blocked_upgrade,
+        validate_notification_admission,
+    )
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        running_source = str(args.running_hub_source or "").strip().lower()
+        if (
+            not running_source
+            or os.environ.get("HUSHH_DEPLOY_SHA", "").strip().lower() != running_source
+            or args.target_image != os.environ.get("HUSSH_ONE_POD_IMAGE", "").strip()
+        ):
+            raise NotificationUpgradeRecoveryRefused("runtime source/target mismatch")
+
+        registry = PersonalAgentRegistryRepo()
+        row = await registry.get(args.user_id)
+        if row is None:
+            raise NotificationUpgradeRecoveryRefused("owner registry row unavailable")
+
+        event_reader, native_reader, handoff_reader = await _owner_notification_recovery_readers(
+            registry, args.user_id, row
+        )
+        result = await recover_blocked_upgrade(
+            user_id=args.user_id,
+            row=row,
+            target_image=args.target_image,
+            running_hub_source=running_source,
+            reviewed_operation_id=args.operation_id,
+            reviewed_executor_revision=args.reviewed_executor_revision,
+            review_evidence_sha256=args.review_evidence_sha256,
+            event_reader=event_reader,
+            native_reader=native_reader,
+            handoff_reader=handoff_reader,
+            notification_validator=lambda: validate_notification_admission(registry),
+            writer=registry.record_image_upgrade,
+            execute=bool(args.execute),
+        )
+
+        if result.get("status") == "dry_run":
+            print("DRY RUN VERIFIED: no registry write; add --execute to schedule recovery")
+            return 0
+        if result.get("status") == "scheduled":
+            print("SCHEDULED: owner operation re-armed; normal reconcile will perform later work")
+            return 0
+        print("RECOVERY FAILED: unexpected result state", file=sys.stderr)
+        return EXIT_REFUSED
+
+    except Exception as exc:  # noqa: BLE001 - no provider or database details escape
+        if isinstance(exc, NotificationUpgradeRecoveryRefused):
+            print(f"REFUSED: {exc}", file=sys.stderr)
+        else:
+            print(f"RECOVERY FAILED: {type(exc).__name__}", file=sys.stderr)
+        return EXIT_REFUSED
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -332,6 +460,13 @@ def main() -> int:
     who.add_argument("--list", action="store_true", help="show stale pods and exit")
     ap.add_argument("--image", help="target image (default: the hub's HUSSH_ONE_POD_IMAGE)")
     ap.add_argument("--limit", type=int, default=3, help="max pods to move in this run")
+    ap.add_argument("--recover-notification-upgrade", action="store_true")
+    ap.add_argument("--operation-id", help="reviewed owner operation ID for recovery")
+    ap.add_argument("--target-image", help="explicit immutable target image for recovery")
+    ap.add_argument("--running-hub-source", help="current source SHA, matched to HUSHH_DEPLOY_SHA")
+    ap.add_argument("--reviewed-executor-revision", help="full reviewed failed executor revision")
+    ap.add_argument("--review-evidence-sha256", help="public provenance artifact SHA-256")
+    ap.add_argument("--execute", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.add_argument(
@@ -343,6 +478,20 @@ def main() -> int:
         ),
     )
     args = ap.parse_args()
+    if args.recover_notification_upgrade:
+        invalid = (
+            not args.user_id
+            or args.image
+            or args.acknowledge_tombstone_rollback
+            or (args.execute and args.dry_run)
+            or any(not getattr(args, key) for key in _RECOVERY_INPUTS)
+        )
+        if invalid:
+            ap.error(
+                "Recovery requires one owner and all review inputs; normal-upgrader flags are forbidden"
+            )
+    elif args.execute or any(getattr(args, key) for key in _RECOVERY_INPUTS):
+        ap.error("recovery inputs require --recover-notification-upgrade")
     _load_env()
     return asyncio.run(_main(args))
 

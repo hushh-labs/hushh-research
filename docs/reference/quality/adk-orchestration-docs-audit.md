@@ -71,12 +71,41 @@ code remain unchanged; the retained format evidence covers their unchanged
 contract, not a new exact-image recovery run. Both Dev 30 and Dev 36 are compatible
 predecessors under that unchanged format.
 
-**Still unverified:** Dev 37 publication and installation, the GCP owner update,
-stable identity/history after actual owner replacement, stale-writer refusal and
-an authenticated completed owner turn. Format recovery does not establish owner
-HTTP admission, active-work drain or Browser qualification. UAT and production
-were not changed. Finish through the existing owner-approved update flow;
-process health and historical receipts are not acceptance proof.
+[PR #8731](https://github.com/hushh-labs/hushh-research/pull/8731) landed on Dev as
+`4371eaabd914` after exact-head CI passed and the separately authorized Admin SOP.
+The [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/41307277003)
+passed and serves backend `00341-crm` from source `351d975545b4`, at 100% traffic.
+The frontend remains `00298-2dz`. The published Dev 37 pod digest is
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+
+The GCP owner approved Dev 37 through Software updates. Its attempt stopped at
+notification checkpoint publication before Cloud Run replacement: the installed
+SQL validator permits at most 29 service-account characters, while the existing
+renderer emits a valid 30-character runtime account for a full HusshID. A focused
+PostgreSQL reproduction using the real renderer confirms the refusal. The five
+notification resources in the plan, including operator OAuth custody, are intentional.
+Native readback retains generation 22 and revision `00020-nzx`; the unresolved
+operation retains its reservation. Forward schema correction and evidence-bound
+recovery remain pending; neither a missing acknowledgement nor elapsed time
+authorizes clearing that reservation.
+
+The Azure owner subsequently installed Dev 37 through the normal update and
+Microsoft authorization flow. Native revision `ca-hussh-one-pod--ud27099ccbeb7`
+is ready at 100% traffic with the exact `3c3615f2…42610` digest. The registry
+published the completed-update receipt at `2026-11-01T14:41:10Z`. A synthetic
+owner turn returned `private-ready`; after a cold reload and ordinary vault
+unlock, reopening that conversation fetched native history with HTTP 200 and
+retained both the prompt and reply. The completed receipt binds the owner
+HusshID, operation and pod incarnation. This proves installation and chat/history continuity;
+it does not independently qualify every capability or stale-writer race.
+
+**Still unverified:** the GCP owner update and completed owner turn, plus live
+stale-writer refusal after replacement. GCP's authenticated native Vertex
+`gemini-3.8-flash` count-tokens diagnostic passed; that is model access evidence,
+not a completed chat. Format recovery does not establish active-work drain or
+Browser qualification. UAT and production were not changed. Finish through the
+existing owner-approved update flow; process health and historical receipts are
+not acceptance proof.
 
 ## Previous release decision — 27 October 2026
 

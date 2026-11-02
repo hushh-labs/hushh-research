@@ -152,6 +152,36 @@ Verify the running release, readiness and memory/authority continuity before
 reporting success. Keep the automatic sweep disabled until the deployed hub
 enforces owner approval (`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`).
 
+### First-attempt GCP notification recovery
+
+The operator-only `pod_upgrade.py --recover-notification-upgrade` mode handles
+the reviewed `351d975545b4` executor's first blocked, image-only attempt. Deploy
+the 445/976 account-ID correction first. Preserve the approved pod image through
+an application-only Dev deployment; this repair needs no new pod release.
+
+Independently verify the failed executor's exact source and target through the
+Dev revision inventory, retaining a sanitized evidence artifact and its SHA-256.
+The command records this as operator-verified provenance, not a live source read.
+Run it in the existing Dev hub identity, with the normal secret references and
+Cloud SQL connection; never grant new impersonation rights to make it run.
+
+```bash
+python3 scripts/ops/pod_upgrade.py --recover-notification-upgrade \
+  --user-id "$OWNER_USER_ID" --operation-id "$OWNER_OPERATION_ID" \
+  --target-image "$HUSSH_ONE_POD_IMAGE" --running-hub-source "$HUSHH_DEPLOY_SHA" \
+  --reviewed-executor-revision "$FAILED_HUB_REVISION" \
+  --review-evidence-sha256 "$SOURCE_EVIDENCE_SHA256"
+```
+
+The default verifies without writing. Both modes require the owner-bound failure
+event, corrected validator, two unchanged native predecessor observations and
+the authenticated sealed handoff release. Explicit `--execute` additionally
+performs the exact snapshot CAS, closing only that failed lease and rescheduling the same approval,
+preserving failure history, prior receipts and cooldown. It never performs the
+provider update or reports installation. Missing evidence, later attempts,
+capability upgrades and concurrent changes refuse recovery. Use one task, no
+automatic job retries, and verify temporary-job cleanup after terminal execution.
+
 ### Release metadata and compatibility
 
 For private Browser/connector reviews, also inspect the installed action-ledger

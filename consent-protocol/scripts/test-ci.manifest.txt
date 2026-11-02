@@ -833,6 +833,8 @@ tests/test_pod_upgrade_admission.py
 tests/test_pod_upgrade_control_auth.py
 tests/test_pod_upgrade_handoff.py
 tests/test_pod_upgrade_rollback_guard.py
+tests/test_pod_upgrade_notification_cli.py
+tests/test_gcp_notification_upgrade_recovery_postgres.py
 tests/test_pod_update_detection.py
 tests/test_pod_image_upgrade_path.py
 tests/test_pod_connector_configuration.py
@@ -1345,6 +1347,7 @@ tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
 
 tests/test_personal_agent_notification_checkpoint.py
+tests/test_personal_agent_notification_account_limit.py
 tests/test_pod_browser_azure_probe.py
 tests/services/test_chat_notification_state.py
 
