@@ -8,35 +8,58 @@
   ],
   "defaults": {
     "reachability": {
-      "active_personas": ["investor"]
+      "active_personas": [
+        "investor"
+      ]
     },
     "speaker_persona": "kai",
-    "guard_ids": ["auth_signed_in"]
+    "guard_ids": [
+      "auth_signed_in"
+    ]
   },
   "actions": [
     {
       "action_id": "kai.setup.answer_horizon",
       "label": "Answer Investment Horizon",
       "meaning": "Answers the investment horizon question in the Kai preferences wizard.",
-      "aliases": ["less than 3 years", "3 to 7 years", "more than 7 years"],
-      "search_keywords": ["horizon", "how long", "invested"],
+      "aliases": [
+        "less than 3 years",
+        "3 to 7 years",
+        "more than 7 years"
+      ],
+      "search_keywords": [
+        "horizon",
+        "how long",
+        "invested"
+      ],
       "reachability": {
-        "routes": ["/one/setup/finance"],
-        "screens": ["one_setup_finance"],
+        "routes": [
+          "/one/setup/finance"
+        ],
+        "screens": [
+          "one_setup_finance"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.answer_horizon"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
-      "control_ids": ["kai_wizard_investment_horizon"],
-      "state_exposure": ["selected investment preferences"],
-      "docs_references": ["hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"],
+      "control_ids": [
+        "kai_wizard_investment_horizon"
+      ],
+      "state_exposure": [
+        "selected investment preferences"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
+      ],
       "goal": {
         "required_inputs": [
           {
@@ -44,7 +67,11 @@
             "prompt": "How long do you expect to keep this money invested: less than 3 years, 3 to 7 years, or more than 7 years?",
             "required": true,
             "slot": "answer",
-            "options": ["short_term", "medium_term", "long_term"]
+            "options": [
+              "short_term",
+              "medium_term",
+              "long_term"
+            ]
           }
         ]
       }
@@ -53,25 +80,44 @@
       "action_id": "kai.setup.answer_drawdown",
       "label": "Answer Drawdown Response",
       "meaning": "Answers the portfolio-drawdown-reaction question in the Kai preferences wizard.",
-      "aliases": ["reduce investments", "stay invested", "buy more"],
-      "search_keywords": ["drawdown", "drop", "reaction"],
+      "aliases": [
+        "reduce investments",
+        "stay invested",
+        "buy more"
+      ],
+      "search_keywords": [
+        "drawdown",
+        "drop",
+        "reaction"
+      ],
       "reachability": {
-        "routes": ["/one/setup/finance"],
-        "screens": ["one_setup_finance"],
+        "routes": [
+          "/one/setup/finance"
+        ],
+        "screens": [
+          "one_setup_finance"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.answer_drawdown"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
-      "control_ids": ["kai_wizard_drawdown_response"],
-      "state_exposure": ["selected investment preferences"],
-      "docs_references": ["hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"],
+      "control_ids": [
+        "kai_wizard_drawdown_response"
+      ],
+      "state_exposure": [
+        "selected investment preferences"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
+      ],
       "goal": {
         "required_inputs": [
           {
@@ -79,7 +125,11 @@
             "prompt": "If your portfolio drops 20 percent, would you reduce investments, stay invested, or buy more?",
             "required": true,
             "slot": "answer",
-            "options": ["reduce", "stay", "buy_more"]
+            "options": [
+              "reduce",
+              "stay",
+              "buy_more"
+            ]
           }
         ]
       }
@@ -88,25 +138,44 @@
       "action_id": "kai.setup.answer_volatility",
       "label": "Answer Volatility Preference",
       "meaning": "Answers the volatility-comfort question in the Kai preferences wizard.",
-      "aliases": ["smaller steadier returns", "moderate ups and downs", "larger swings"],
-      "search_keywords": ["volatility", "comfort", "swings"],
+      "aliases": [
+        "smaller steadier returns",
+        "moderate ups and downs",
+        "larger swings"
+      ],
+      "search_keywords": [
+        "volatility",
+        "comfort",
+        "swings"
+      ],
       "reachability": {
-        "routes": ["/one/setup/finance"],
-        "screens": ["one_setup_finance"],
+        "routes": [
+          "/one/setup/finance"
+        ],
+        "screens": [
+          "one_setup_finance"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.answer_volatility"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
-      "control_ids": ["kai_wizard_volatility_preference"],
-      "state_exposure": ["selected investment preferences"],
-      "docs_references": ["hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"],
+      "control_ids": [
+        "kai_wizard_volatility_preference"
+      ],
+      "state_exposure": [
+        "selected investment preferences"
+      ],
+      "docs_references": [
+        "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx"
+      ],
       "goal": {
         "required_inputs": [
           {
@@ -114,7 +183,11 @@
             "prompt": "Which feels more comfortable: smaller steadier returns, moderate ups and downs, or larger swings for higher potential returns?",
             "required": true,
             "slot": "answer",
-            "options": ["small", "moderate", "large"]
+            "options": [
+              "small",
+              "moderate",
+              "large"
+            ]
           }
         ]
       }
@@ -123,25 +196,47 @@
       "action_id": "kai.setup.launch_dashboard",
       "label": "Save Finance Preferences",
       "meaning": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
-      "aliases": ["save finance preferences", "looks good, continue", "finish finance setup"],
-      "search_keywords": ["save", "finance", "preferences", "continue", "import"],
+      "aliases": [
+        "save finance preferences",
+        "looks good, continue"
+      ],
+      "search_keywords": [
+        "save",
+        "finance",
+        "preferences",
+        "continue",
+        "import"
+      ],
       "reachability": {
-        "routes": ["/one/setup/finance"],
-        "screens": ["one_setup_finance"],
+        "routes": [
+          "/one/setup/finance"
+        ],
+        "screens": [
+          "one_setup_finance"
+        ],
         "hidden_navigable": false,
-        "navigation_prerequisites": ["All three preference questions must be answered."]
+        "navigation_prerequisites": [
+          "All three preference questions must be answered."
+        ]
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.launch_dashboard"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
-      "control_ids": ["kai_wizard_launch_dashboard"],
-      "state_exposure": ["selected investment preferences"],
-      "docs_references": ["hushh-webapp/app/one/setup/kai/page.tsx"]
+      "control_ids": [
+        "kai_wizard_launch_dashboard"
+      ],
+      "state_exposure": [
+        "selected investment preferences"
+      ],
+      "docs_references": [
+        "hushh-webapp/app/one/setup/kai/page.tsx"
+      ]
     }
   ],
   "search": {}

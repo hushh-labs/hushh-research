@@ -6101,21 +6101,16 @@
       "context_policy": "publish",
       "voice_playbook": {
         "playbook_id": "route.one.setup.finance",
-        "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
+        "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
         "screen": "one_setup_finance",
-        "entry_cue": "Answer the visible Finance question to continue.",
+        "entry_cue": "Explore the introduction or skip to portfolio sources.",
         "proactivity": "on_entry",
-        "primary_action_id": "kai.setup.answer_horizon",
+        "primary_action_id": "setup.finish_finance",
         "happy_path_action_ids": [
-          "kai.setup.answer_horizon",
-          "kai.setup.answer_drawdown",
-          "kai.setup.answer_volatility",
-          "kai.setup.launch_dashboard",
+          "setup.finish_finance",
           "setup.skip_finance"
         ],
-        "required_inputs": [
-          "investment_horizon"
-        ],
+        "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
           "cancelled": "Keep Finance setup open and preserve the active goal.",
@@ -6124,9 +6119,9 @@
           "callback_error": "Return to Finance setup without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
-        "completion_boundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
-        "next_route": "/one/setup/finance/import",
-        "return_policy": "navigate",
+        "completion_boundary": "The introduction never completes setup. A verified source result or explicit later choice enables the existing terminal finish.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
@@ -6135,10 +6130,7 @@
       "canonical_screen": "one_setup_finance",
       "voice_contract_file": "app/one/setup/kai/page.voice-action-contract.json",
       "action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard",
+        "setup.finish_finance",
         "setup.skip_finance"
       ],
       "action_coverage": "inherited",

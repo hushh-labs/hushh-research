@@ -251,6 +251,7 @@ tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
 tests/test_finance_sharing_contract.py
+tests/test_finance_recipient_hub_authority.py
 tests/test_finance_consent_lifecycle.py
 tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py

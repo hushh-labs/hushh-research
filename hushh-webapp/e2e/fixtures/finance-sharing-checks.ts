@@ -5,7 +5,7 @@ for (const width of [393, 1024]) {
   test(`Finance received-only management ${width}px`, async ({ page }) => {
     await mount(page, width);
     const sharing = page.getByTestId("finance-received-only-fixture");
-    await expect(sharing.getByRole("button", { name: "Ask an advisor", exact: true })).toBeDisabled();
+    await expect(sharing.getByRole("button", { name: "Ask an advisor", exact: true })).toHaveCount(0);
     await expect(sharing.getByRole("button", { name: "Share portfolio", exact: true })).toBeDisabled();
     await sharing.getByRole("button", { name: "Manage sharing", exact: true }).click();
     const manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
@@ -120,9 +120,11 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
     await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();
     const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
+    await expect(edit.getByLabel("Verified advisor", { exact: true })).toBeVisible();
     await edit.getByRole("checkbox", { name: /Sample connection/ }).check();
     await edit.getByRole("button", { name: "Continue", exact: true }).click();
     await edit.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(edit.getByRole("option", { name: "Always", exact: true })).toHaveCount(1);
     await edit.getByRole("button", { name: "Preview", exact: true }).click();
     const preview = page.getByRole("dialog", { name: "Review before sharing", exact: true });
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
@@ -153,5 +155,44 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     expect(errors).toEqual([]);
   });
 }
+
+for (const width of [393, 1440]) test(`Finance update access uses latest choices at ${width}px`, async ({ page }) => {
+  await mount(page, width);
+  // Creation/approval is proved above. Start this independent scenario from
+  // existing approved transport data; every update still uses production UI.
+  await page.getByRole("button", { name: "Open sample existing Finance access", exact: true }).click();
+  const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
+  await expect(edit.getByRole("checkbox", { name: "Other connection 1", exact: true })).toBeVisible();
+  await expect(edit.getByRole("checkbox", { name: /Sample connection/ })).toHaveCount(0);
+  await edit.getByRole("button", { name: "Manage sharing", exact: true }).click();
+  let manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
+  await expect(page.locator('[role="dialog"][data-state="open"]')).toHaveCount(1);
+  await manager.getByRole("button", { name: "Update access", exact: true }).click();
+  const update = page.getByRole("dialog", { name: "Update access", exact: true });
+  await expect(page.locator('[role="dialog"][data-state="open"]')).toHaveCount(1);
+  await update.getByRole("checkbox", { name: "Performance", exact: true }).uncheck();
+  await update.getByRole("button", { name: "Continue", exact: true }).click();
+  await update.getByLabel("Access ends").selectOption("custom");
+  const amount = update.getByLabel("Duration amount");
+  await amount.fill("");
+  await amount.pressSequentially("3");
+  await expect(amount).toHaveValue("3");
+  await update.getByLabel("Duration unit").selectOption("3600");
+  await expect(amount).toHaveValue("3");
+  await update.getByRole("button", { name: "Preview", exact: true }).click();
+  const review = page.getByRole("dialog", { name: "Review before sharing", exact: true });
+  await expect(review.getByText("After 3 hours", { exact: true })).toBeVisible();
+  await expect(page.locator('[role="dialog"][data-state="open"]')).toHaveCount(1);
+  await review.getByRole("button", { name: "Update access", exact: true }).click();
+  const done = page.getByRole("dialog", { name: "Access updated", exact: true });
+  await expect(done).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute("data-finance-publishes", "1");
+  expect(await page.evaluate(() => document.body.dataset.financeSections)).toBe("allocation");
+  expect(await page.evaluate(() => document.body.dataset.financeDuration)).toBe("10800");
+  await done.getByRole("button", { name: "Done", exact: true }).click();
+  manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
+  await expect(manager.getByRole("heading", { name: "Sample connection", exact: true })).toHaveCount(1);
+  expect(await manager.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
 
 }
