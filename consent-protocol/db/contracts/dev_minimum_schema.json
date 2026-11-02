@@ -337,15 +337,15 @@
     "verify_erasure_secret_preflight",
     "rotate_followup_read_generation",
     "calendar_email_followup_grant_current",
+    "guard_advisor_review",
+    "end_advisor_reviews",
+    "advisor_subscription_retirement",
     "scope_commerce_immutable",
     "scope_commerce_balanced",
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding",
-    "guard_advisor_review",
-    "end_advisor_reviews",
-    "advisor_subscription_retirement"
+    "enforce_stripe_payout_source_binding"
   ],
   "required_tables": {
     "account_deletion_tombstones": [

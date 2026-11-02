@@ -37,7 +37,7 @@ def advisor_db(finance_db, monkeypatch):  # noqa: F811
             CREATE TABLE connection_requests(id uuid PRIMARY KEY,status text,requester_user_id text,addressee_user_id text,
               responded_at timestamptz,updated_at timestamptz,metadata jsonb);
             CREATE TABLE connection_scope_proposals(id uuid PRIMARY KEY,connection_request_id uuid,status text,expires_at timestamptz,resolved_at timestamptz);
-            CREATE TABLE connection_scope_proposal_events(connection_scope_proposal_id uuid,event_type text,actor_user_id text,reason text);
+            CREATE TABLE connection_scope_proposal_events(id uuid DEFAULT gen_random_uuid(),connection_scope_proposal_id uuid,event_type text,actor_user_id text,reason text);
             CREATE TABLE trusted_connections(id uuid DEFAULT gen_random_uuid(),owner_user_id text,trusted_user_id text,
               status text,source text,created_at timestamptz,updated_at timestamptz,revoked_at timestamptz,
               UNIQUE(owner_user_id,trusted_user_id));
