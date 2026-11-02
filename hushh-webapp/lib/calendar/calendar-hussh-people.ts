@@ -64,12 +64,14 @@ export function calendarHusshPeople({
       }
     }
   }
-  // A Google account the owner connected is the owner, so it shows the owner's
-  // HUSSH avatar exactly as Profile does. It wins over any other claim on the address.
+  // A Google account the owner connected is the owner's own, so it shows the owner's
+  // HUSSH avatar exactly as Profile does. An address another person has already
+  // proven as theirs keeps that person.
   if (ownerId) {
     for (const accountEmail of ownerAccountEmails) {
       const key = exactEmail(accountEmail);
-      if (!key) continue;
+      const claimed = key ? people.get(key) : null;
+      if (!key || (claimed && claimed.userId !== ownerId)) continue;
       ambiguous.delete(key);
       people.set(key, { userId: ownerId, displayName: null, photoUrl: admittedPhoto(ownerPhotoUrl) });
     }

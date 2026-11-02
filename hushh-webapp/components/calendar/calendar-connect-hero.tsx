@@ -126,8 +126,6 @@ export function CalendarConnectHero({
         </p>
       ) : null}
 
-      <CalendarSetupPermissions />
-
       {mailChoice ? (
         <label className="mt-6 flex w-full max-w-[320px] items-start gap-3 text-left text-sm">
           <input
@@ -163,6 +161,8 @@ export function CalendarConnectHero({
       >
         Connect your calendar
       </Button>
+
+      <CalendarSetupPermissions />
 
       {children}
     </section>

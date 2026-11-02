@@ -103,8 +103,8 @@ describe("Calendar HUSSH identity resolution", () => {
     for (const email of ["work@example.test", "second@example.test"]) {
       expect(calendarHusshPerson(people, email)).toMatchObject({ userId: "owner", photoUrl: husshPhoto });
     }
-    // The owner's own account wins over any other claim on that address.
-    expect(calendarHusshPerson(people, "peer@example.test")?.userId).toBe("owner");
+    // An address another person has proven as theirs keeps that person.
+    expect(calendarHusshPerson(people, "peer@example.test")?.userId).toBe("peer");
     expect(calendarHusshPerson(people, "stranger@example.test")).toBeNull();
   });
 });
