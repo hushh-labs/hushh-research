@@ -133,6 +133,15 @@ def test_every_hub_route_is_classified(hub_routes):
     assert unclassified == [], f"classify these in api/hub_route_classes.py: {unclassified}"
 
 
+def test_finance_recipient_authority_metadata_keeps_owner_authentication(hub_routes):
+    key = ("GET", "/api/one/finance/shares/active-recipients")
+    assert ROUTE_CLASSES[key] is RouteClass.AUTHORITY
+    route = next(route for method, path, route in hub_routes if (method, path) == key)
+    calls = set(_dependency_calls(route.dependant))
+    assert require_firebase_auth in calls
+    assert require_vault_owner_token in calls
+
+
 def test_the_inventory_names_only_live_routes(hub_routes):
     live = {(m, p) for m, p, _ in hub_routes}
     stale = sorted(key for key in ROUTE_CLASSES if key not in live)
