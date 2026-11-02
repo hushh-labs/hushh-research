@@ -51,6 +51,7 @@ const SHEET_CONSUMERS = [
   "components/app-ui/action-menu.tsx",
   "components/app-ui/profile-pane.tsx",
   "components/app-ui/settings-ui.tsx",
+  "components/auth/phone-conflict-recovery.tsx",
   "components/computer-use/computer-use-task-card.tsx",
   "components/connect/circles/circle-photo-editor.tsx",
   "components/connections/contact-invitation-sheet.tsx",
@@ -73,6 +74,7 @@ describe("the shared bottom sheet stays shared", () => {
   it("still has exactly the consumers this change was checked against", () => {
     const discovered = ["app", "components", "lib"].flatMap(root =>
       readdirSync(path.join(REPO_ROOT, root), { recursive: true, encoding: "utf8" })
+        .map(file => file.split(path.sep).join("/"))
         .filter(file => file.endsWith(".tsx") && !file.includes("__tests__/") && !file.endsWith(".test.tsx"))
         .map(file => `${root}/${file}`)
         .filter(file => /from\s+["']@\/components\/ui\/sheet["']/.test(sourceOf(file))),
