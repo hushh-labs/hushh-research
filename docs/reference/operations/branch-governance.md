@@ -58,13 +58,16 @@ Source implementation is not a live qualification receipt. Reconcile the retaine
 UAT history, run exact-candidate CI and verify admission before first use. No
 application deployment is authorized by this operations change.
 
-The capability graph's committed comparison metadata currently depends on the
-target base: the Dev sync has already produced different metadata from Main for
-the same authored change. Before making selective promotion automatic, make the
-committed history deterministic and separately validate each actual target-base
-transition. Runtime workflow compatibility and exact mirror checks remain
-required. Exact-tree promotion also needs the tested UAT candidate to incorporate
-the reviewed Main baseline; a later Main change may require a new UAT candidate.
+Capability graph checks compare against each actual target or serving base.
+When freshly computed semantic indexes are identical and added, removed and
+changed lists are empty, the serialized comparison's `from_revision` is `null`;
+diagnostics retain the actual compared ref and revision. This keeps an empty
+semantic transition deterministic without changing breaking-change checks,
+runtime workflow compatibility or exact mirror checks. Nonempty transitions
+retain base-specific comparison metadata and require separate validation for
+each target before selective promotion becomes automatic. Exact-tree promotion
+also needs the tested UAT candidate to incorporate the reviewed Main baseline;
+a later Main change may require a new UAT candidate.
 
 `branch_flow.prepared_branches` in `config/ci-governance.json` declares protection
 policy references for `dev` and `uat`. These are branch policies, separate from

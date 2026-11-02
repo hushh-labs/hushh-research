@@ -835,7 +835,20 @@ def build_payload(
     }
     semantic_diff = _semantic_diff(previous, graph, deprecations=deprecations)
     _require_acknowledged_semantic_changes(semantic_diff)
-    graph["semantic_diff"] = semantic_diff
+    # Ref-specific provenance is diagnostic, not a semantic transition. Only
+    # canonicalize a freshly proven zero transition; keep the original comparison
+    # for workflow admission and reject breaking changes before serializing it.
+    serialized_diff = dict(semantic_diff)
+    if not any(
+        semantic_diff.get(key) for key in ("added", "removed", "changed")
+    ) and _semantic_index(previous or {}) == _semantic_index(graph):
+        print(
+            f"capability graph comparison: from_revision={semantic_diff.get('from_revision')} "
+            "zero_semantic_transition=1",
+            file=sys.stderr,
+        )
+        serialized_diff["from_revision"] = None
+    graph["semantic_diff"] = serialized_diff
     graph["workflow_revision_compatibility"] = _workflow_revision_compatibility(
         previous,
         graph,

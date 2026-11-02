@@ -16,7 +16,6 @@ from pathlib import Path
 
 
 def bake_model(cache: Path) -> None:
-    from huggingface_hub import snapshot_download
     from hushh_mcp.services.email_oss.routing import (
         MODEL_CACHE_REPOSITORY,
         MODEL_FILES,
@@ -24,6 +23,9 @@ def bake_model(cache: Path) -> None:
         MODEL_REVISION,
         verify_email_router_model_cache,
     )
+
+    repository = cache / MODEL_CACHE_REPOSITORY
+    from huggingface_hub import snapshot_download
 
     snapshot = Path(
         snapshot_download(
@@ -34,7 +36,6 @@ def bake_model(cache: Path) -> None:
             token=False,
         )
     )
-    repository = cache / MODEL_CACHE_REPOSITORY
     if snapshot.resolve() != (repository / "snapshots" / MODEL_REVISION).resolve():
         raise RuntimeError("Email router download did not resolve the pinned snapshot")
     # FastEmbedEncoder does not forward revision to its client. Freeze the
