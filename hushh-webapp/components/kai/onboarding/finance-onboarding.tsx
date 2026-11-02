@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft,
   ArrowUpRight,
   Building2,
   Check,
@@ -39,38 +38,64 @@ export function FinanceOnboardingDemo({
 }: {
   onContinue: () => void;
 }) {
-  const [slide, setSlide] = useState(0);
+  const [scene, setScene] = useState({ slide: 0, previous: -1 });
+  const { slide, previous } = scene;
   const [paused, setPaused] = useState(false);
+  const [stillScene, setStillScene] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(true);
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => setReducedMotion(query.matches);
+    const visibility = () => setHidden(document.hidden);
     update();
+    visibility();
     query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      query.removeEventListener("change", update);
+      document.removeEventListener("visibilitychange", visibility);
+    };
   }, []);
+  const demoRef = useRef<HTMLElement>(null);
+  const select = (next: number, manual = true) => {
+    // A paused carousel remains readable when keyboard/Back/dots change scenes.
+    // Play explicitly restarts the new scene, rather than leaving it at opacity 0.
+    if (manual && paused) setStillScene(true);
+    if (manual && next === slide && !paused) {
+      // Replay the active illustration without unmounting the phone or losing focus.
+      for (const node of demoRef.current?.querySelectorAll(
+        `[data-scene="${slide}"], [data-demo-progress="true"]`,
+      ) ?? [])
+        for (const animation of node.getAnimations?.({ subtree: true }) ?? [])
+          animation.currentTime = 0;
+    }
+    setScene((current) =>
+      next === current.slide
+        ? current
+        : { slide: next, previous: current.slide },
+    );
+  };
   const pathname = usePathname();
   useBackLayer(pathname, 2, () => {
     if (slide === 0) return false;
-    setPaused(true);
-    setSlide((value) => value - 1);
+    select(slide - 1);
     return true;
   });
   const touch = useRef<{ x: number; y: number } | null>(null);
-  useEffect(() => {
-    if (reducedMotion || paused || document.hidden) return;
-    const timer = window.setInterval(() => {
-      if (!document.hidden) setSlide((value) => (value + 1) % slides.length);
-    }, 8000);
-    return () => window.clearInterval(timer);
-  }, [paused, reducedMotion]);
   return (
     <section
+      ref={demoRef}
       className={`${styles.surface} ${styles.demo}`}
       aria-label="Meet Finance"
-      onFocusCapture={() => setPaused(true)}
+      data-playing={!paused && !hidden && !reducedMotion}
+      data-reduced-motion={reducedMotion || stillScene}
+      onFocusCapture={(event) => {
+        // Keyboard users must be able to read a scene without auto-advancement.
+        // Pointer interaction does not silently disable the demonstration.
+        if (event.target.matches(":focus-visible")) setPaused(true);
+      }}
       onPointerDown={(event) => {
-        setPaused(true);
         touch.current =
           event.target instanceof Element && event.target.closest("button")
             ? null
@@ -87,54 +112,95 @@ export function FinanceOnboardingDemo({
         if (
           Math.abs(dx) > 50 &&
           Math.abs(dx) > Math.abs(event.clientY - start.y)
-        ) {
-          setSlide((value) =>
-            Math.max(0, Math.min(2, value + (dx < 0 ? 1 : -1))),
-          );
-        }
+        )
+          select(Math.max(0, Math.min(2, slide + (dx < 0 ? 1 : -1))));
       }}
     >
       <button type="button" className={styles.skipDemo} onClick={onContinue}>
         Skip
       </button>
-      <div className={styles.introduction} key={slide}>
-        <p className={styles.eyebrow}>{slides[slide]!.label}</p>
-        <h1 className={styles.title}>{slides[slide]!.title}</h1>
-        <p className={styles.description}>{slides[slide]!.description}</p>
+      <div className={styles.introduction}>
+        {slides.map((item, index) => (
+          <div
+            key={item.label}
+            className={styles.introductionScene}
+            data-active={slide === index}
+            data-previous={previous === index}
+            aria-hidden={slide !== index}
+          >
+            <p className={styles.eyebrow}>{item.label}</p>
+            <h1 className={styles.title}>{item.title}</h1>
+            <p className={styles.description}>{item.description}</p>
+          </div>
+        ))}
       </div>
       <div className={styles.phoneRegion}>
         <FinanceDemoPhone
           slide={slide}
+          previous={previous}
           labels={slides.map((item) => item.label)}
         />
       </div>
       <div className={styles.demoFooter}>
-        <div
-          className={styles.dots}
-          role="group"
-          aria-label="Finance introduction slides"
-        >
-          {slides.map((item, index) => (
+        <div className={styles.playback}>
+          <div
+            className={styles.dots}
+            role="group"
+            aria-label="Finance introduction slides"
+          >
+            {slides.map((item, index) => (
+              <button
+                type="button"
+                key={item.label}
+                aria-label={`Show ${item.label} introduction`}
+                aria-current={slide === index ? "step" : undefined}
+                onClick={() => select(index)}
+              >
+                <span>
+                  <i
+                    key={slide}
+                    data-demo-progress={index === slide}
+                    style={{
+                      animationDuration: `${slide === 2 ? 11800 : 5600}ms`,
+                    }}
+                    onAnimationEnd={(event) => {
+                      if (
+                        event.target === event.currentTarget &&
+                        index === slide &&
+                        !paused &&
+                        !hidden &&
+                        !reducedMotion
+                      )
+                        select((slide + 1) % slides.length, false);
+                    }}
+                  />
+                </span>
+              </button>
+            ))}
+          </div>
+          {!reducedMotion && (
             <button
               type="button"
-              key={item.label}
-              aria-label={`Show ${item.label} introduction`}
-              aria-current={slide === index ? "step" : undefined}
+              className={styles.utility}
+              aria-label={
+                paused
+                  ? "Play Finance introduction"
+                  : "Pause Finance introduction"
+              }
               onClick={() => {
-                setPaused(true);
-                setSlide(index);
+                setStillScene(false);
+                setPaused((value) => !value);
               }}
             >
-              <span />
+              {paused ? "Play" : "Pause"}
             </button>
-          ))}
+          )}
         </div>
         <button
           type="button"
           className={styles.primary}
           onClick={() => {
-            setPaused(true);
-            if (slide < 2) setSlide(slide + 1);
+            if (slide < 2) select(slide + 1);
             else onContinue();
           }}
         >
@@ -214,17 +280,6 @@ export function FinanceSourcePicker({
       className={`${styles.surface} ${styles.import}`}
       aria-labelledby="finance-source-title"
     >
-      {onBack && (
-        <button
-          type="button"
-          className={styles.back}
-          aria-label="Back to Finance introduction"
-          onClick={onBack}
-          disabled={busy}
-        >
-          <ArrowLeft size={20} />
-        </button>
-      )}
       <div className={styles.importHeading}>
         <p className={styles.eyebrow}>Optional</p>
         <h1 id="finance-source-title" className={styles.title}>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import { FinanceOnboardingPages } from "@/components/kai/onboarding/finance-onboarding-pages";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiFlow } from "@/components/kai/kai-flow";
@@ -125,95 +126,104 @@ function OwnedFinanceImportSetup({
         authState="authenticated"
         dataState="loaded"
       />
-      {!introductionComplete ? (
-        <FinanceOnboardingDemo
-          onContinue={() => setIntroductionComplete(true)}
-        />
-      ) : sourceSettled ? (
-        <FinanceOnboardingComplete
-          busy={coordinator.isSettling}
-          rootSetup={coordinator.isInitialSetup}
-          deferred={sourceSettled === "later"}
-          onFinish={() => {
-            void coordinator.finish();
-          }}
-        />
-      ) : (
-        <KaiFlow
-          userId={userId}
-          mode="import"
-          setupSourcePicker
-          onSetupIntroductionBack={
-            showIntroduction ? () => setIntroductionComplete(false) : undefined
-          }
-          vaultOwnerToken={vaultOwnerToken ?? ""}
-          onSetupSourceSettled={async (source, callbackAttemptId) => {
-            if (!userId || !isCurrent()) return false;
-            const journey = await PreVaultUserStateService.bootstrapState(
-              userId,
-              {
-                force: true,
-              },
-            );
-            if (!isCurrent()) return false;
-            if (returnTo && PreVaultUserStateService.isSetupResolved(journey)) {
-              // A deferred source resumes after root setup. Keep the import's
-              // existing explicit terminal; do not revive its old journey attempt.
+      <FinanceOnboardingPages
+        stage={!introductionComplete ? 0 : sourceSettled ? 2 : 1}
+      >
+        {!introductionComplete ? (
+          <FinanceOnboardingDemo
+            onContinue={() => setIntroductionComplete(true)}
+          />
+        ) : sourceSettled ? (
+          <FinanceOnboardingComplete
+            busy={coordinator.isSettling}
+            rootSetup={coordinator.isInitialSetup}
+            deferred={sourceSettled === "later"}
+            onFinish={() => {
+              void coordinator.finish();
+            }}
+          />
+        ) : (
+          <KaiFlow
+            userId={userId}
+            mode="import"
+            setupSourcePicker
+            onSetupIntroductionBack={
+              showIntroduction
+                ? () => setIntroductionComplete(false)
+                : undefined
+            }
+            vaultOwnerToken={vaultOwnerToken ?? ""}
+            onSetupSourceSettled={async (source, callbackAttemptId) => {
+              if (!userId || !isCurrent()) return false;
+              const journey = await PreVaultUserStateService.bootstrapState(
+                userId,
+                {
+                  force: true,
+                },
+              );
+              if (!isCurrent()) return false;
+              if (
+                returnTo &&
+                PreVaultUserStateService.isSetupResolved(journey)
+              ) {
+                // A deferred source resumes after root setup. Keep the import's
+                // existing explicit terminal; do not revive its old journey attempt.
+                setSourceSettled(source);
+                return true;
+              }
+              if (
+                journey.onboardingActiveCapability !== "finance" ||
+                (callbackAttemptId &&
+                  journey.onboardingCallbackAttemptId !== callbackAttemptId)
+              ) {
+                return false;
+              }
+              await PreVaultUserStateService.syncOnboardingJourney({
+                userId,
+                phase: "capability_setup",
+                activeCapability: "finance",
+                callbackState: "succeeded",
+                expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+                expectedCallbackAttemptId: callbackAttemptId,
+              });
+              if (!isCurrent()) return false;
               setSourceSettled(source);
               return true;
-            }
-            if (
-              journey.onboardingActiveCapability !== "finance" ||
-              (callbackAttemptId &&
-                journey.onboardingCallbackAttemptId !== callbackAttemptId)
-            ) {
-              return false;
-            }
-            await PreVaultUserStateService.syncOnboardingJourney({
-              userId,
-              phase: "capability_setup",
-              activeCapability: "finance",
-              callbackState: "succeeded",
-              expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-              expectedCallbackAttemptId: callbackAttemptId,
-            });
-            if (!isCurrent()) return false;
-            setSourceSettled(source);
-            return true;
-          }}
-          onSetupConnectorAttemptSettled={async (
-            outcome,
-            callbackAttemptId,
-          ) => {
-            if (!userId || !isCurrent()) return;
-            const journey = await PreVaultUserStateService.bootstrapState(
-              userId,
-              {
-                force: true,
-              },
-            );
-            if (!isCurrent()) return;
-            if (
-              journey.onboardingActiveCapability !== "finance" ||
-              journey.onboardingPhase !== "external_connector" ||
-              journey.onboardingCallbackState !== "pending" ||
-              journey.onboardingCallbackAttemptId !== callbackAttemptId
-            ) {
-              return;
-            }
-            await PreVaultUserStateService.syncOnboardingJourney({
-              userId,
-              phase: "external_connector",
-              activeCapability: "finance",
-              callbackState: outcome,
-              expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-              expectedCallbackAttemptId: callbackAttemptId,
-            });
-          }}
-          deferSensitiveActionsUntilSetupFinalized
-          voicePublisherRole="chrome"
-        />
-      )}
+            }}
+            onSetupConnectorAttemptSettled={async (
+              outcome,
+              callbackAttemptId,
+            ) => {
+              if (!userId || !isCurrent()) return;
+              const journey = await PreVaultUserStateService.bootstrapState(
+                userId,
+                {
+                  force: true,
+                },
+              );
+              if (!isCurrent()) return;
+              if (
+                journey.onboardingActiveCapability !== "finance" ||
+                journey.onboardingPhase !== "external_connector" ||
+                journey.onboardingCallbackState !== "pending" ||
+                journey.onboardingCallbackAttemptId !== callbackAttemptId
+              ) {
+                return;
+              }
+              await PreVaultUserStateService.syncOnboardingJourney({
+                userId,
+                phase: "external_connector",
+                activeCapability: "finance",
+                callbackState: outcome,
+                expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+                expectedCallbackAttemptId: callbackAttemptId,
+              });
+            }}
+            deferSensitiveActionsUntilSetupFinalized
+            voicePublisherRole="chrome"
+          />
+        )}
+      </FinanceOnboardingPages>
     </FullscreenFlowShell>
   );
 }
