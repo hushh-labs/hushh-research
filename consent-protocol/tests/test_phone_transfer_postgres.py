@@ -23,6 +23,22 @@ PHONE = "+16505550101"
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
 
 
+async def _seed_committed_transfer(pool, intent):
+    """Historical receipt fixture only; new claims cannot create this state."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await transfer.lock_transfer(conn, "receiving-a", intent)
+            await transfer.consume(conn, "receiving-a", PHONE, intent)
+            await conn.execute(
+                "UPDATE actor_identity_cache SET phone_number=NULL,phone_verified=FALSE WHERE user_id='previous'"
+            )
+            await conn.execute(
+                "INSERT INTO actor_identity_cache(user_id,phone_number,phone_verified) VALUES('receiving-a',$1,TRUE) ON CONFLICT(user_id) DO UPDATE SET phone_number=$1,phone_verified=TRUE",
+                PHONE,
+            )
+    return True
+
+
 async def test_phone_replay_preserves_workos_mutation_receipts(database_url):
     from uuid import uuid4
 
@@ -98,7 +114,7 @@ async def test_phone_replay_preserves_workos_mutation_receipts(database_url):
         await conn.close()
 
 
-async def test_two_concurrent_confirmations_preserve_information_and_retire_only_phone(
+async def test_concurrent_transfer_attempts_cannot_displace_the_existing_email_account(
     database_url, monkeypatch
 ):
     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=5)
@@ -127,7 +143,9 @@ async def test_two_concurrent_confirmations_preserve_information_and_retire_only
             ),
             8,
         )
-        assert sum(isinstance(result, dict) for result in results) == 1
+        assert all(
+            isinstance(result, identity.ActorIdentityPhoneClaimConflictError) for result in results
+        )
         async with pool.acquire() as conn:
             assert (
                 await conn.fetchval(
@@ -140,7 +158,7 @@ async def test_two_concurrent_confirmations_preserve_information_and_retire_only
                 await conn.fetchval(
                     "SELECT phone_number FROM actor_identity_cache WHERE user_id='previous'"
                 )
-                is None
+                == PHONE
             )
             assert (
                 await conn.fetchval(
@@ -157,18 +175,18 @@ async def test_two_concurrent_confirmations_preserve_information_and_retire_only
                 await conn.fetchrow("SELECT * FROM shared_files_storage WHERE user_id='previous'")
                 == before_files
             )
-            assert await conn.fetchval("SELECT count(*) FROM account_firebase_mutations") == 1
+            assert await conn.fetchval("SELECT count(*) FROM account_firebase_mutations") == 0
             assert (
                 await conn.fetchval(
                     "SELECT count(*) FROM account_phone_transfers WHERE state='committed'"
                 )
-                == 1
+                == 0
             )
             assert (
                 await conn.fetchval(
                     "SELECT count(*) FROM internal_access_events WHERE action='REVOKED'"
                 )
-                == 1
+                == 0
             )
         _assert_phone_admission_after_transfer()
     finally:
@@ -184,10 +202,10 @@ async def test_failed_transfer_rolls_back_binding_consumption_and_revocation(
     monkeypatch.setattr(identity.ActorIdentityService, "_ensure_actor_spine", AsyncMock())
     try:
         intents, before = await seed(pool, fail_write=True)
-        result = await identity.ActorIdentityService().claim_verified_phone(
-            user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
-        )
-        assert result is None
+        with pytest.raises(identity.ActorIdentityPhoneClaimConflictError):
+            await identity.ActorIdentityService().claim_verified_phone(
+                user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
+            )
         async with pool.acquire() as conn:
             assert (
                 await conn.fetchval(
@@ -269,7 +287,7 @@ async def test_stale_authority_cannot_move_a_binding(database_url, monkeypatch, 
                 is None
             )
         else:
-            with pytest.raises(HTTPException):
+            with pytest.raises((HTTPException, identity.ActorIdentityPhoneClaimConflictError)):
                 await identity.ActorIdentityService().claim_verified_phone(
                     user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
                 )
@@ -301,9 +319,7 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
     )
     try:
         intents, _ = await seed(pool)
-        assert await identity.ActorIdentityService().claim_verified_phone(
-            user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
-        )
+        assert await _seed_committed_transfer(pool, intents[0])
         engine = create_engine(database_url)
         try:
             for owner in ("previous", "receiving-a"):
@@ -379,9 +395,7 @@ async def test_receiving_identity_keeps_its_existing_provider_credential(databas
                 "UPDATE account_phone_transfers SET proof_identity_uid='receiving-a',proof_owner_id='receiving-a',unlink_required=FALSE WHERE operation_id=$1::uuid",
                 intent.operation_id,
             )
-        assert await identity.ActorIdentityService().claim_verified_phone(
-            user_id="receiving-a", phone_number=PHONE, transfer=intent
-        )
+        assert await _seed_committed_transfer(pool, intent)
         async with pool.acquire() as conn:
             assert (
                 await conn.fetchval(
@@ -422,9 +436,7 @@ async def test_status_cannot_release_a_live_or_uncertain_provider_dispatch(
     monkeypatch.setattr(transfer.mutations, "settle", settle)
     try:
         intents, _ = await seed(pool)
-        assert await identity.ActorIdentityService().claim_verified_phone(
-            user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
-        )
+        assert await _seed_committed_transfer(pool, intents[0])
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE account_phone_transfers SET effect_state='dispatched',committed_at=clock_timestamp()-INTERVAL '1 minute' WHERE operation_id=$1::uuid",
