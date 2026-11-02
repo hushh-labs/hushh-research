@@ -7,7 +7,6 @@ import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
-import { FinanceAdvisorAction } from "./finance-advisor-action";
 import { FinanceShareFlow } from "./finance-share-flow";
 import { FinanceSharingHistoryAction } from "./finance-sharing-history-action";
 
@@ -20,9 +19,8 @@ export function FinancePortfolioSharing({ model, source }: { model?: DashboardVi
   return <SurfaceCard><SurfaceCardContent className="space-y-3 p-5 sm:p-6">
     <SectionLabel role="heading" aria-level={2}>Sharing</SectionLabel>
     <div className="flex flex-wrap gap-2">
-      {model && source ? <FinanceAdvisorAction model={model} source={source} /> : <ShellActionSurface variant="pill" className="min-h-11" disabled>Ask an advisor</ShellActionSurface>}
       <ShellActionSurface variant="pill" className="min-h-11" disabled={!model || !source} onClick={() => setOpen(true)}>Share portfolio</ShellActionSurface>
-      <FinanceSharingHistoryAction label="Manage sharing" hasPortfolio={Boolean(model && source)} />
+      <FinanceSharingHistoryAction label="Manage sharing" hasPortfolio={Boolean(model && source)} preferredSource={source} />
     </div>
     {!model || !source ? <p className="text-xs text-muted-foreground">Add a portfolio to share.</p> : null}
     {model && source ? <FinanceShareFlow open={open && active} onOpenChange={setOpen} model={model} source={source} /> : null}

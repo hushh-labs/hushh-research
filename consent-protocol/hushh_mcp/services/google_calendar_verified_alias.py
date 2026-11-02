@@ -6,6 +6,15 @@ for that exact One account through the existing alias service; it never moves
 an alias between accounts, never revives one the person removed, and never makes
 Calendar fail. Calendar organizer resolution already recognises verified aliases,
 so an invitation from this email then reaches the connected person's One account.
+
+The service's own ceremony runs in-process rather than being skipped: it issues
+its one-time code for this exact account and address, and that same code is
+consumed at once to confirm. Google's verification is what authorises doing so;
+no email is sent and the service's checks (code hash, expiry, another account's
+verified alias, the one-verified-owner index) all still apply. The service's
+`accept_without_code` escape hatch is deliberately not used: it is for callers
+that cannot produce a code, and the confirmation still hashes the code first, so
+an empty one is rejected with EMAIL_ALIAS_CODE_REQUIRED.
 """
 
 from __future__ import annotations
@@ -39,19 +48,29 @@ async def record_google_verified_alias(
                 return True
             if alias.get("verification_status") == "revoked" or alias.get("revoked_at") is not None:
                 return False  # the person removed it; a later Google check does not revive it
-        await service.request_email_alias_verification(
+        requested = await service.request_email_alias_verification(
             user_id=user_id,
             email=address,
             verification_source=_SOURCE,
             source_ref=_SOURCE_REF,
+            include_plaintext_code=True,  # route-internal; consumed below, never stored or logged
         )
+        if requested.get("already_verified"):
+            return True
+        code = requested.get("verification_code_plaintext")
+        if not code:
+            return False
         await service.confirm_email_alias_verification(
-            user_id=user_id, email=address, verification_code="", accept_without_code=True
+            user_id=user_id, email=address, verification_code=code
         )
         return True
     except ActorIdentityAliasError as error:
-        # Another account already holds this address, or it is not a usable address.
-        logger.info("calendar_verified_alias skipped code=%s", error.code.lower())
+        # Only an address another account already holds, or one that is not usable, is
+        # expected; any other refusal means the integration itself is broken.
+        quiet = error.code in {"EMAIL_ALIAS_ALREADY_VERIFIED", "EMAIL_ALIAS_INVALID"}
+        (logger.info if quiet else logger.warning)(
+            "calendar_verified_alias skipped code=%s", error.code.lower()
+        )
     except Exception:
         logger.warning("calendar_verified_alias unavailable")
     return False

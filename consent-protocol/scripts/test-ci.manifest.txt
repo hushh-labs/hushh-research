@@ -252,6 +252,7 @@ tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
 tests/test_finance_sharing_contract.py
+tests/test_finance_recipient_hub_authority.py
 tests/test_finance_consent_lifecycle.py
 tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
@@ -1548,6 +1549,7 @@ tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/services/test_calendar_meeting_unavailable_postgres.py
 tests/services/test_feed_calendar_request_context.py
 tests/services/test_google_calendar_verified_alias.py
+tests/services/test_calendar_meeting_attendee_discovery.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
