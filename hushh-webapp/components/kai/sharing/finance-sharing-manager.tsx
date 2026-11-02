@@ -1,5 +1,6 @@
 "use client";
 
+import { FinanceGrantDetails } from "./finance-grant-details";
 import { PersonProfileButton } from "@/components/connections/person-profile-button";
 import {
   useEffect,
@@ -13,7 +14,10 @@ import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
-import type { FinanceGrant, FinanceSource } from "@/lib/finance-sharing/contract";
+import type {
+  FinanceGrant,
+  FinanceSource,
+} from "@/lib/finance-sharing/contract";
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { readSavedFinance } from "@/lib/finance-sharing/saved-source";
 import {
@@ -22,22 +26,12 @@ import {
 } from "./finance-share-flow";
 import { FinanceSharingService } from "@/lib/services/finance-sharing-service";
 import {
-  financePublicationState,
   financePublicationRevision,
   subscribeFinancePublication,
 } from "@/lib/finance-sharing/publication-state";
 import { FinanceSharedDetail } from "./finance-shared-detail";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
 import styles from "./finance-sharing.module.css";
-
-const accessDate = (value: string) =>
-  new Date(value).toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 
 export function FinanceSharingManager({
   open,
@@ -241,7 +235,15 @@ export function FinanceSharingManager({
       setUpdateData({
         session,
         model: saved.model,
-        initialShare: { grant, config: { ...config, source: saved.source, sourceFence: saved.sourceFence }, recipient },
+        initialShare: {
+          grant,
+          config: {
+            ...config,
+            source: saved.source,
+            sourceFence: saved.sourceFence,
+          },
+          recipient,
+        },
       });
     } catch (e) {
       if (context.isCurrent() && currentVisit.current === started)
@@ -272,99 +274,17 @@ export function FinanceSharingManager({
     );
   }, [items, direction]);
   const renderGrant = (item: FinanceGrant) => (
-    <section key={item.id} data-finance-grant={item.id} className="pt-4">
-      <div className={styles.grantHeader}>
-        <p className={styles.caption}>
-          {item.policy.mode === "snapshot" ? "Snapshot" : "Real time"}
-        </p>
-        <span className={styles.chip}>
-          {item.status === "stopped"
-            ? "Stopped"
-            : item.status === "expired"
-              ? "Expired"
-              : "Active"}
-        </span>
-      </div>
-      <div className={styles.grantInfo}>
-        <div>
-          <p className="text-sm capitalize">
-            {item.policy.sections.join(" · ")}
-          </p>
-          <p className={`${styles.caption} mt-2`}>
-            Amounts {item.policy.showAmounts ? "included" : "hidden"} · Agent
-            One review{" "}
-            {item.policy.model_processing.allowed ? "allowed" : "off"}
-          </p>
-        </div>
-        <dl className={styles.grantDates}>
-          <div>
-            <dt>Access ends</dt>
-            <dd>
-              {item.expiresAt
-                ? accessDate(item.expiresAt)
-                : direction === "outgoing"
-                  ? "When you stop sharing"
-                  : "When the owner stops sharing"}
-            </dd>
-          </div>
-          <div>
-            <dt>Last shared</dt>
-            <dd>{accessDate(item.updatedAt)}</dd>
-          </div>
-        </dl>
-      </div>
-      {direction === "outgoing" &&
-      item.status === "active" &&
-      item.policy.mode === "ongoing" &&
-      owner ? (
-        <div className="mt-2">
-          <p className={styles.caption}>
-            {financePublicationState(owner, item.id) === "source_changed"
-              ? "Updates paused: the portfolio account/source roster changed. Review and share a new view."
-              : financePublicationState(owner, item.id) === "unavailable"
-                ? "The latest update could not be published. No new information has been shared."
-                : "Updates from approved saved information while One is open and unlocked."}
-          </p>
-          {financePublicationState(owner, item.id) === "unavailable" ? (
-            <ShellActionSurface
-              variant="pill"
-              onClick={() =>
-                window.dispatchEvent(new Event("finance-sharing-changed"))
-              }
-            >
-              Retry saved update
-            </ShellActionSurface>
-          ) : null}
-        </div>
-      ) : null}
-      {item.status === "active" ? (
-        <div className={styles.grantActions}>
-          <ShellActionSurface
-            variant="pill"
-            onClick={() => setSelected(item.id)}
-          >
-            View
-          </ShellActionSurface>
-          {direction === "outgoing" ? (
-            <>
-              <ShellActionSurface
-                variant="pill"
-                disabled={busy || !hasPortfolio}
-                onClick={() => void updateAccess(item)}
-              >
-                Update access
-              </ShellActionSurface>
-              <ShellActionSurface
-                variant="pill"
-                onClick={() => setStopping(item)}
-              >
-                Stop sharing
-              </ShellActionSurface>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
+    <FinanceGrantDetails
+      key={item.id}
+      item={item}
+      direction={direction}
+      owner={owner}
+      busy={busy}
+      hasPortfolio={hasPortfolio}
+      setSelected={setSelected}
+      setStopping={setStopping}
+      updateAccess={updateAccess}
+    />
   );
   return (
     <>
