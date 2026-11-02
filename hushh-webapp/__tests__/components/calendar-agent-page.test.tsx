@@ -73,7 +73,7 @@ describe("CalendarAgentPage", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "read",
+        accessLevel: "manage",
         includeMeetingFiles: true,
       }),
     );
@@ -269,7 +269,7 @@ describe("CalendarAgentPage", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "read",
+        accessLevel: "manage",
       }),
     );
   });
@@ -416,6 +416,10 @@ describe("CalendarAgentPage", () => {
     })));
     await screen.findByRole("button", { name: "Finish Calendar setup" });
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    // First-time setup finishes with the Mail step, so nothing asks again later.
+    expect(await screen.findByTestId("calendar-mail-step")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Allow Mail" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(screen.getByRole("heading", { name: "Google Calendar" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try Calendar Agent with One" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
@@ -442,7 +446,7 @@ describe("CalendarAgentPage", () => {
     expect(screen.queryByRole("button", { name: "Try Calendar Agent with One" })).toBeNull();
     fireEvent.click(connect);
     await waitFor(() => expect(mocks.startConnect).toHaveBeenCalledWith({
-      idToken: "firebase-token", userId: "calendar-user", accessLevel: "read", includeMeetingFiles: true,
+      idToken: "firebase-token", userId: "calendar-user", accessLevel: "manage", includeMeetingFiles: true,
     }));
   });
 
@@ -643,6 +647,8 @@ describe("CalendarAgentPage", () => {
     mocks.completeNativeConnect.mockResolvedValue({ configured: true, connected: false, status: "disconnected", scope_csv: "", accounts: [existing, { ...existing, account_id: "third", google_email: "third@example.com" }] });
     render(<CalendarAgentPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Add Calendar account" }));
+    // Adding an account names every permission before Google opens.
+    fireEvent.click(await screen.findByRole("button", { name: "Continue to Google" }));
     await waitFor(() => expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
       route_id: "one_calendar", action: "connected", result: "success",
     }));
@@ -785,6 +791,7 @@ describe("CalendarAgentPage", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Connect your calendar" })).toBeNull());
     view.rerender(<CalendarAgentPage connectionPending />);
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     expect(screen.getByRole("heading", { name: "Calendar", exact: true })).toBeTruthy();
     await act(async () => settlement === "resolve"
       ? finish({ configured: true, connected: false, status: "disconnected", scope_csv: "" })
