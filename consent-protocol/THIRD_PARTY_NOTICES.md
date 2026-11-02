@@ -7,7 +7,7 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Python packages
 
-Package count: 215
+Package count: 219
 
 ### License summary
 
@@ -17,7 +17,7 @@ Package count: 215
 - `Apache Software License`: 35
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 28
+- `Apache-2.0`: 29
 - `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
 - `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
@@ -26,7 +26,7 @@ Package count: 215
 - `Apache-2.0 OR MIT`: 1
 - `BSD License`: 18
 - `BSD-2-Clause`: 2
-- `BSD-3-Clause`: 20
+- `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
 - `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
@@ -34,8 +34,8 @@ Package count: 215
 - `ISC`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 55
-- `MIT License`: 31
+- `MIT`: 56
+- `MIT License`: 32
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
@@ -51,7 +51,7 @@ Package count: 215
 - `ag-ui-protocol` `0.1.21` — MIT
 - `ag_ui_adk` `0.7.0` — MIT
 - `aiohappyeyeballs` `2.6.1` — Python Software Foundation License
-- `aiohttp` `3.14.3` — Apache-2.0 AND MIT
+- `aiohttp` `3.14.5` — Apache-2.0 AND MIT
 - `aiosignal` `1.4.0` — Apache Software License
 - `aiosqlite` `0.22.1` — MIT License
 - `annotated-doc` `0.0.4` — MIT
@@ -62,7 +62,7 @@ Package count: 215
 - `asyncio` `4.0.0` — Apache-2.0
 - `asyncpg` `0.31.0` — Apache-2.0
 - `attrs` `26.1.0` — MIT
-- `Authlib` `1.7.2` — BSD License
+- `Authlib` `1.9.1` — BSD License
 - `azure-core` `1.41.0` — MIT
 - `azure-identity` `1.26.0` — MIT
 - `bandit` `1.9.4` — Apache-2.0
@@ -73,7 +73,7 @@ Package count: 215
 - `CacheControl` `0.14.4` — Apache-2.0
 - `cachetools` `7.1.7` — MIT
 - `cbor2` `6.1.4` — MIT
-- `certifi` `2026.2.25` — Mozilla Public License 2.0 (MPL 2.0)
+- `certifi` `2026.10.19` — Mozilla Public License 2.0 (MPL 2.0)
 - `cffi` `2.0.0` — MIT
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
@@ -87,9 +87,10 @@ Package count: 215
 - `dnspython` `2.9.0` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
+- `exchange_calendars` `4.13.2` — Apache-2.0
 - `execnet` `2.1.2` — MIT
 - `fastapi` `0.136.0` — MIT
-- `filelock` `3.32.5` — MIT
+- `filelock` `4.2.4` — MIT
 - `firebase_admin` `7.1.0` — Apache Software License
 - `Flask` `3.1.3` — BSD-3-Clause
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
@@ -135,25 +136,26 @@ Package count: 215
 - `jsonpointer` `3.1.1` — BSD License
 - `jsonschema` `4.26.0` — MIT
 - `jsonschema-specifications` `2025.9.1` — MIT
+- `korean_lunar_calendar` `0.4.0` — MIT
 - `langchain` `1.3.13` — MIT License
 - `langchain-core` `1.4.9` — MIT License
 - `langchain-protocol` `0.0.18` — MIT License
-- `langgraph` `1.2.9` — MIT
+- `langgraph` `1.2.14` — MIT
 - `langgraph-checkpoint` `4.1.1` — MIT
 - `langgraph-prebuilt` `1.1.0` — MIT
-- `langgraph-sdk` `0.4.2` — MIT
+- `langgraph-sdk` `0.4.8` — MIT
 - `langsmith` `0.10.2` — MIT
 - `librt` `0.9.0` — MIT
 - `limits` `5.8.0` — MIT
 - `markdown-it-py` `4.0.0` — MIT License
 - `MarkupSafe` `3.0.3` — BSD-3-Clause
-- `mcp` `1.28.1` — MIT License
+- `mcp` `1.30.0` — MIT License
 - `mdurl` `0.1.2` — MIT License
 - `mpmath` `1.3.0` — BSD License
 - `msal` `1.39.0` — MIT License
 - `msal-extensions` `1.3.1` — MIT License
-- `msgpack` `1.2.1` — Apache-2.0
-- `multidict` `6.7.1` — Apache License 2.0
+- `msgpack` `1.2.4` — Apache-2.0
+- `multidict` `6.9.1` — Apache License 2.0
 - `multitasking` `0.0.12` — Apache Software License
 - `mypy` `1.20.1` — MIT
 - `mypy_extensions` `1.1.0` — MIT
@@ -181,7 +183,7 @@ Package count: 215
 - `pdfplumber` `0.11.10` — MIT License
 - `peewee` `4.0.4` — MIT
 - `phonenumbers` `9.0.28` — Apache-2.0
-- `pillow` `12.3.0` — MIT-CMU
+- `pillow` `13.0.0` — MIT-CMU
 - `platformdirs` `4.9.6` — MIT
 - `pluggy` `1.6.0` — MIT License
 - `propcache` `0.4.1` — Apache Software License
@@ -196,7 +198,8 @@ Package count: 215
 - `pydantic-settings` `2.14.2` — MIT
 - `pydantic_core` `2.46.1` — MIT
 - `Pygments` `2.20.0` — BSD-2-Clause
-- `PyJWT` `2.14.0` — MIT
+- `PyJWT` `2.15.1` — MIT
+- `pyluach` `2.3.0` — MIT License
 - `pyOpenSSL` `26.4.0` — Apache Software License
 - `pypdfium2` `5.11.0` — BSD-3-Clause, Apache-2.0, dependency licenses
 - `pytesseract` `0.3.13` — Apache Software License
@@ -238,6 +241,7 @@ Package count: 215
 - `tenacity` `9.1.4` — Apache Software License
 - `threadpoolctl` `3.6.0` — BSD License
 - `tokenizers` `0.22.2` — Apache Software License
+- `toolz` `1.2.0` — BSD-3-Clause
 - `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
@@ -246,18 +250,18 @@ Package count: 215
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
 - `tzdata` `2026.1` — Apache-2.0
-- `urllib3` `2.7.0` — MIT
+- `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
 - `watchdog` `6.0.0` — Apache Software License
 - `watchfiles` `1.2.0` — MIT License
 - `webauthn` `3.0.0` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
-- `Werkzeug` `3.1.8` — BSD-3-Clause
+- `Werkzeug` `3.1.9` — BSD-3-Clause
 - `workos` `10.5.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
-- `yarl` `1.23.0` — Apache-2.0
+- `yarl` `1.25.1` — Apache-2.0
 - `yfinance` `1.3.0` — Apache Software License
 - `zstandard` `0.25.0` — BSD-3-Clause
 
