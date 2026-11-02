@@ -403,19 +403,25 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const requestOutcome = selected ? outcomes[selected.occurrence_id] : null;
   const accessExhausted = useAccessWatch({ meetings: displayedMeetings, outcomes, revision, refresh,
     active: canRefresh && !loading && view !== "overview" });
-  const verifiedKinds = new Set([
-    ...(selectedDisplayed?.artifact_kinds || []),
-    ...(detail?.artifacts.filter(item => item.state === "available").map(item => item.kind === "recording" ? "recording" : "notes") || []),
-  ]);
+  // Per type, the opened meeting's own live check decides. A library row is a snapshot from
+  // when the list was scanned, so a type it lists can have lost access since (revoked, moved,
+  // unshared); once this meeting's files have been verified only that check counts, and the
+  // snapshot merely stands in while it runs, so Ask does not flash on and off. Files a
+  // request made available are verified by the same selected account, so they always count.
+  const liveKinds = detail?.artifacts.filter(item => item.state === "available")
+    .map(item => item.kind === "recording" ? "recording" : "notes");
+  const requestVerified = (selected && outcomes[selected.occurrence_id]?.artifacts || [])
+    .filter(item => item.state === "available").map(item => item.kind);
+  const verifiedKinds = new Set<string>([...(liveKinds ?? selected?.artifact_kinds ?? []), ...requestVerified]);
   const missingKinds = (["recording", "notes"] as const).filter(kind => !verifiedKinds.has(kind));
-  const requestStatus = (meeting: Meeting) =>
-    requestStatusText(outcomes[meeting.occurrence_id], meeting.artifact_kinds.length > 0, accessExhausted);
+  const requestStatus = (meeting: Meeting, hasFiles = meeting.artifact_kinds.length > 0) =>
+    requestStatusText(outcomes[meeting.occurrence_id], hasFiles, accessExhausted);
   // Only what is still outstanding can be asked for: not verified, not already
   // asked for, and not already answered by the organizer.
   const asked = askedKinds(requestOutcome || undefined);
   const offeredKinds = missingKinds.filter(kind => !asked.includes(kind));
   const requestSectionShown = view === "meeting" && Boolean(selected) && missingKinds.length > 0 &&
-    (offeredKinds.length > 0 || requestStatus(selectedDisplayed || selected!) !== null);
+    (offeredKinds.length > 0 || requestStatus(selectedDisplayed || selected!, verifiedKinds.size > 0) !== null);
   const request = useMeetingRequest({
     selection: selected ? { account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone } : null,
@@ -512,16 +518,17 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {!detail && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meeting files…</p> : null}
       {errorCard}
       {detail && !detail.complete ? <p role="status" className={styles.muted}>{limitationText[detail.discovery] || "Some files could not be checked. Refresh later."}</p> : null}
-      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p>{requestStatus(selectedDisplayed) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
+      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p>{requestStatus(selectedDisplayed, verifiedKinds.size > 0) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
       {detail ? <div className={styles.details}>{visibleArtifacts.some(item => item.kind === "recording") ? <SectionCard title="Recordings">{visibleArtifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}
         {visibleArtifacts.some(item => item.kind === "notes") ? <SectionCard title="Meeting notes">{visibleArtifacts.filter(item => item.kind === "notes").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}</div> : null}
-      {requestOutcome?.requests.length && !requestSectionShown ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!) || "Only files verified for the selected Google account appear above."}</p> : null}
-      {requestOutcome?.artifacts.some(item => item.state === "permission_required") && onAllowMeetingFiles ?
+      {requestOutcome?.requests.length && !requestSectionShown ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!, verifiedKinds.size > 0) || "Only files verified for the selected Google account appear above."}</p> : null}
+      {(requestOutcome?.artifacts.some(item => item.state === "permission_required") ||
+        detail?.artifacts.some(item => item.state === "permission_required")) && onAllowMeetingFiles ?
         <SectionCard><p>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
           <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
       {requestSectionShown && selected ? <CalendarRequestSection request={request} offered={offeredKinds}
-        statusText={requestStatus(selectedDisplayed || selected)} copyText={copyRequestText} contextGuard={contextGuard}
+        statusText={requestStatus(selectedDisplayed || selected, verifiedKinds.size > 0)} copyText={copyRequestText} contextGuard={contextGuard}
         onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
     </>}
   </div>;

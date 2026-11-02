@@ -1549,6 +1549,7 @@ tests/services/test_calendar_meeting_request_flow_postgres.py
 tests/services/test_calendar_meeting_unavailable_postgres.py
 tests/services/test_feed_calendar_request_context.py
 tests/services/test_google_calendar_verified_alias.py
+tests/services/test_calendar_meeting_attendee_discovery.py
 tests/test_calendar_schedule_routes.py
 
 # Live Memory replay: owner route contract and committed source journal on PostgreSQL.
