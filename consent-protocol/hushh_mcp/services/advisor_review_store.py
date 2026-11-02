@@ -32,10 +32,7 @@ def pair_gate(conn, owner, advisor):
         raise AdvisorReviewError("ADVISOR_CONNECTION_BLOCKED", 403)
 
 
-def load(conn, viewer, request_id, *, locked=False):
-    row = one(
-        conn,
-        """SELECT r.*,clock_timestamp() AS server_now,
+_LOAD_SQL = """SELECT r.*,clock_timestamp() AS server_now,
         COALESCE(a.display_name,'Finance member') AS owner_name,
         COALESCE(b.display_name,'Advisor') AS advisor_name,
         owner_profile.public_person_ref AS owner_person_ref
@@ -44,7 +41,12 @@ def load(conn, viewer, request_id, *, locked=False):
         LEFT JOIN actor_identity_cache a ON a.user_id=r.owner_user_id
         LEFT JOIN actor_identity_cache b ON b.user_id=r.advisor_user_id
         WHERE r.id=CAST(:id AS uuid) AND :viewer IN(r.owner_user_id,r.advisor_user_id)"""
-        + (" FOR UPDATE OF r" if locked else ""),
+
+
+def load(conn, viewer, request_id, *, locked=False):
+    row = one(
+        conn,
+        _LOAD_SQL + (" FOR UPDATE OF r" if locked else ""),
         {"id": request_id, "viewer": viewer},
     )
     if not row:
