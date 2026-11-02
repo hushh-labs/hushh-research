@@ -77,6 +77,8 @@ export type FollowupSource = {
   request_id: string; account_id: string; subject: string; sender: string;
   body: string; internal_date_ms: number; gmail_message_id?: string;
 };
+/** `pending` means one bounded step finished and the scan has more to do now. */
+export type FollowupScanResult = { state?: "pending" | "partial" | "complete" | "not_due" } | undefined;
 export type FollowupSourceLink = { request_id: string; account_id: string; gmail_message_id: string };
 
 export class FollowupRequestError extends Error {
@@ -163,8 +165,8 @@ export class CalendarFollowupsService {
    * repeatedly never causes repeated full scans. `retry` is the owner's explicit
    * "check again" and clears exhausted retries.
    */
-  static async scan(userId: string, accountId: string, idToken: string, ownerToken: string, options: { retry?: boolean } = {}, signal?: AbortSignal): Promise<void> {
-    await this.post("scan", { user_id: userId, account_id: accountId, ...(options.retry ? { retry: true } : {}) }, idToken, ownerToken, signal);
+  static async scan(userId: string, accountId: string, idToken: string, ownerToken: string, options: { retry?: boolean } = {}, signal?: AbortSignal): Promise<FollowupScanResult> {
+    return await this.post<FollowupScanResult>("scan", { user_id: userId, account_id: accountId, ...(options.retry ? { retry: true } : {}) }, idToken, ownerToken, signal);
   }
 
   static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<string> {

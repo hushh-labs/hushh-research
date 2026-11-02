@@ -335,4 +335,50 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(await screen.findByText("Another document")).toBeInTheDocument();
     expect(service.list.mock.calls[1]?.[5]).toBe(1);
   });
+
+  it("reconnecting Mail re-points the monitor even after a background rebind failed", async () => {
+    // A transient failure used to latch the rebind off for the life of the card,
+    // so "Reconnect email" kept asking again without ever fixing anything.
+    let current = false;
+    let attempts = 0;
+    service.status.mockImplementation(async () => status("account_stale", current
+      ? {} : { monitor_current: false, scan_state: "partial", coverage: {
+        coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
+        exhausted_source_count: 0, unreadable_count: 0 } }));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_stale" });
+    service.post.mockImplementation(async (path) => {
+      if (path === "preferences") { attempts += 1; if (attempts === 1) throw new Error("transient"); current = true; }
+      return {};
+    });
+    const onConnectMail = vi.fn(async () => true);
+    render(<CalendarFollowups {...props("account_stale", onConnectMail)} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect email" }));
+    await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
+      "owner", "account_stale", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
+    expect(attempts).toBeGreaterThanOrEqual(2);
+    expect(onConnectMail).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument());
+    expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
+  });
+
+  it("keeps scanning while the server reports more work, then stops", async () => {
+    service.status.mockResolvedValue(status("account_more"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_more" });
+    service.scan.mockResolvedValueOnce({ state: "pending" }).mockResolvedValueOnce({ state: "pending" })
+      .mockResolvedValue({ state: "complete" });
+    render(<CalendarFollowups {...props("account_more")} />);
+    await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(3));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(service.scan).toHaveBeenCalledTimes(3);
+  });
+
+  it("never scans without end when the server always reports more work", async () => {
+    service.status.mockResolvedValue(status("account_endless"));
+    service.list.mockResolvedValue({ ...bList, account_id: "account_endless" });
+    service.scan.mockResolvedValue({ state: "pending" });
+    render(<CalendarFollowups {...props("account_endless")} />);
+    await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(20));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(service.scan).toHaveBeenCalledTimes(20);
+  });
 });

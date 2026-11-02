@@ -13,6 +13,7 @@ import {
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
 import { clearMailChoice, hasMailChoice } from "@/lib/calendar/calendar-mail-choice";
+import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
 
 type Props = {
@@ -32,6 +33,10 @@ const lastCatchUp = new Map<string, number>();
 // A quiet progress check while the first scan is still running; bounded so a
 // stuck account never polls forever.
 const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
+// Each scan call does one bounded step on the server. While it reports more work
+// the card keeps asking, so the first results arrive in seconds, not scheduler
+// ticks. Capped, and it stops the moment the card goes away.
+const CATCH_UP_MAX_CALLS = 20;
 
 function displayError(error: unknown): string {
   if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
@@ -103,6 +108,19 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     return () => { controller.abort(); requestSeq.current += 1; };
   }, [refresh, refreshRevision, vaultAvailable]);
 
+  const rebindMonitor = useCallback(async (current: FollowupStatus, ownerToken: string, signal?: AbortSignal) => {
+    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), ownerToken, signal);
+  }, [userId, accountId, zone]);
+
+  /** The previous scan call reported more work: keep going, showing results as they land. */
+  const continueScan = useCallback(async (ownerToken: string, signal?: AbortSignal) => {
+    const finished = await scanWhilePending({
+      userId, accountId, ownerToken, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
+      getIdToken: () => tokenGetter.current(), refresh: () => refresh(signal, true),
+    });
+    if (!finished) lastCatchUp.delete(`${userId}:${accountId}`);
+  }, [userId, accountId, refresh]);
+
   // Opening Insights shows what is already verified at once, then lets the
   // server continue in the background. It never blocks the card and never
   // repeats within the interval, so navigating around cannot trigger rescans.
@@ -118,16 +136,13 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       rebound.current = true;
       void (async () => {
         try {
-          await CalendarFollowupsService.post("preferences", {
-            user_id: userId, account_id: accountId, enabled: true,
-            notifications_enabled: status.notifications_enabled,
-            historical_start_at: status.historical_start_at,
-            time_zone: status.time_zone || zone,
-            reminder_lead_days: status.reminder_lead_days ?? 1,
-            reminder_hour: status.reminder_hour ?? 9,
-          }, await tokenGetter.current(), ownerToken, signal);
+          await rebindMonitor(status, ownerToken, signal);
           await refresh(signal, true);
-        } catch { /* the next open tries again; nothing is shown for a background rebind */ }
+        } catch {
+          // Nothing is shown for a background rebind, but a failure must not
+          // block the next attempt: the owner may reconnect Mail in the meantime.
+          rebound.current = false;
+        }
       })();
       return;
     }
@@ -138,11 +153,12 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     lastCatchUp.set(key, Date.now());
     void (async () => {
       try {
-        await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
+        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
         await refresh(signal, true);
+        if (result?.state === "pending") await continueScan(ownerToken, signal);
       } catch { /* the scheduler continues without the page */ }
     })();
-  }, [status, userId, accountId, zone, refresh]);
+  }, [status, userId, accountId, zone, refresh, rebindMonitor, continueScan]);
 
   // While the first pass is still catching up, check back a few times so new
   // items appear without a manual refresh. Bounded; the scheduler does the work.
@@ -244,10 +260,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
       }, await getIdToken(), ownerToken);
       clearMailChoice();
-      await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
+      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
       lastCatchUp.set(`${userId}:${accountId}`, Date.now());
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal);
+      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
     } catch (failure) { setError(displayError(failure)); }
     finally { setBusy(false); }
   };
@@ -258,9 +275,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     try {
       const ownerToken = getVaultOwnerToken();
       if (!ownerToken) throw new Error("Unlock One to check your email again.");
-      await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
+      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal, true);
+      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
     } catch (failure) { setError(displayError(failure)); }
     finally { setBusy(false); }
   };
@@ -270,7 +288,15 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     setBusy(true); setError("");
     try {
       const connected = await onConnectMail(accountId);
-      if (connected) { await checkAgain(); }
+      if (connected) {
+        // Reconnecting changes the Mail grant, so point the monitor at it first;
+        // otherwise this scan would still see the old one and ask to reconnect again.
+        const ownerToken = getVaultOwnerToken();
+        if (ownerToken && status?.monitoring_enabled) {
+          try { await rebindMonitor(status, ownerToken); } catch { /* the scan below reports what is still wrong */ }
+        }
+        await checkAgain();
+      }
       else setError("Email access was not renewed. Your follow-ups stay as they are.");
     } catch (failure) { setError(displayError(failure)); }
     finally { setBusy(false); }
