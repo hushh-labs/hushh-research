@@ -16,7 +16,11 @@ from typing import Any, NamedTuple
 import asyncpg
 
 from db.connection import get_pool
-from hushh_mcp.services.actor_identity_service import _IDENTITY_STALE_AFTER, ActorIdentityService
+from hushh_mcp.services.actor_identity_service import (
+    _IDENTITY_STALE_AFTER,
+    ActorIdentityPeerUnavailableError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.calendar_invitations import attendee_status
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 
@@ -135,11 +139,13 @@ _PENDING_NEEDING_REFRESH = """SELECT p.peer FROM (
 
 class _Refresh(NamedTuple):
     """What a refresh pass tried: peers attempted, peers that could not be re-read,
-    and whether peers were left untried because the pass reached its round cap."""
+    whether peers were left untried because the pass reached its round cap, and how
+    many failures were not final (an outage, not a deleted or disabled account)."""
 
     attempted: int
     failed: int
     exhausted: bool
+    unsettled: int = 0
 
 
 async def _refresh_unproven_peers(
@@ -157,17 +163,20 @@ async def _refresh_unproven_peers(
     the cached lookup found nobody.
 
     Each round skips every peer already tried in this pass. A peer that cannot be
-    re-read (deleted, disabled, provider error) keeps an old cache timestamp, so
-    without that exclusion it would head the queue every time and the peers behind
-    it would never be reached. Its failure is counted, never retried and never a
-    reason to trap the requester; only an overall timeout or database error is
-    retryable, and both propagate.
+    re-read keeps an old cache timestamp, so without that exclusion it would head
+    the queue every time and the peers behind it would never be reached. A peer the
+    provider reports as deleted or disabled is final: it is counted and never a
+    reason to trap the requester. Any other failure (an outage, a permission or
+    network error) is counted as `unsettled`: that peer might be the organizer, so
+    the caller reports the answer as unknown. A timeout or database error also
+    propagates as retryable.
 
     `resolved`, when given, is checked after each round so the pass stops as soon
     as the lookup it serves can answer.
     """
     tried: list[str] = []
     failed = 0
+    unsettled = 0
     exhausted = False
     service = ActorIdentityService()
     async with asyncio.timeout(_PEER_REFRESH_SECONDS):
@@ -190,12 +199,17 @@ async def _refresh_unproven_peers(
             )
             tried.extend(peers)
             failed += sum(isinstance(result, BaseException) for result in results)
+            unsettled += sum(
+                isinstance(result, BaseException)
+                and not isinstance(result, ActorIdentityPeerUnavailableError)
+                for result in results
+            )
             if len(peers) < _PEER_REFRESH_LIMIT:
                 break
             if resolved is not None and await resolved():
                 break
             exhausted = round_number == _PEER_REFRESH_ROUNDS - 1
-    return _Refresh(len(tried), failed, exhausted)
+    return _Refresh(len(tried), failed, exhausted, unsettled)
 
 
 class _Resolution(NamedTuple):
@@ -237,12 +251,26 @@ async def _peer_evidence(pool, user_id: str, email: str) -> dict[str, int]:
     }
 
 
+def _incomplete(refresh: _Refresh) -> DriveSharingError:
+    """The lookup could not rule the organizer out: retry, never "not connected"."""
+    return refuse(
+        "recipient_verification_unavailable",
+        "organizer_lookup_incomplete",
+        outcome="refresh_window_exhausted" if refresh.exhausted else "refresh_unavailable",
+        retryable=True,
+        refreshed=refresh.attempted - refresh.failed,
+        refresh_failed=refresh.failed,
+        refresh_unsettled=refresh.unsettled,
+    )
+
+
 async def _resolve(user_id: str, email: str, *, include_pending: bool) -> _Resolution:
     """Resolve only the requester's active One peers, without directory disclosure.
 
     A lookup that could not finish is retryable and never reads as "no organizer",
-    including when more peers needed a refresh than one pass may read: the answer
-    is then unknown, and the progress already made means the next try gets further.
+    including when more peers needed a refresh than one pass may read, or when a
+    peer could not be re-read for a reason that may pass: the answer is then unknown,
+    and the progress already made means the next try gets further.
     ``include_pending`` also looks at the requester's own pending connection
     requests; the request path leaves it off.
     """
@@ -260,15 +288,8 @@ async def _resolve(user_id: str, email: str, *, include_pending: bool) -> _Resol
             refresh = await _refresh_unproven_peers(pool, user_id, resolved=organizer_rows)
             if refresh.attempted > refresh.failed:
                 rows = await organizer_rows()
-        if not rows and refresh.exhausted:
-            raise refuse(
-                "recipient_verification_unavailable",
-                "organizer_lookup_incomplete",
-                outcome="refresh_window_exhausted",
-                retryable=True,
-                refreshed=refresh.attempted - refresh.failed,
-                refresh_failed=refresh.failed,
-            )
+        if not rows and (refresh.exhausted or refresh.unsettled):
+            raise _incomplete(refresh)
         if not rows and include_pending:
             pending = await _pending_organizer(pool, user_id, email)
         evidence = {} if rows else await _peer_evidence(pool, user_id, email)

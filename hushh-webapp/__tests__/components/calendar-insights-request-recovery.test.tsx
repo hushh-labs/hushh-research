@@ -21,6 +21,7 @@ import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { CalendarInsightsRequestError } from "@/lib/services/calendar-insights-service";
 import { CacheService } from "@/lib/services/cache-service";
+import { consumeCalendarMeetingOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 
 const grant = "b".repeat(64);
 const row = {
@@ -65,7 +66,6 @@ async function openMeetingWithFakeTimers() {
 }
 const askButton = () => screen.getByRole("button", { name: /^(Ask organizer|Asking…)$/ });
 const NOT_CONNECTED_HINT = "Requests work once you're connected on One.";
-const NOT_CONNECTED_NOTICE = "Couldn't send: you and the organizer aren't connected on One yet.";
 const noOldControls = () => {
   expect(screen.queryByRole("link", { name: "Connect" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
@@ -139,18 +139,26 @@ describe("Calendar Insights Ask organizer journey", () => {
   it.each([
     ["calendar_organizer_unavailable", "organizer_unresolved"],
     ["connection_required", undefined],
-  ])("Ask is never gated: when the server cannot find a connected organizer (%s) nothing is sent and one plain line says so", async (code, reason) => {
+  ])("Ask is never gated: when the server finds no connected organizer (%s) nothing is sent and one quiet hint links to Connect", async (code, reason) => {
     mocks.requestFiles.mockRejectedValue(refusal(409, code, reason));
     const ask = await reachAsk(); // enabled with no connection pre-check
-    expect(screen.queryByText(NOT_CONNECTED_HINT)).toBeNull();
+    expect(screen.queryByRole("link", { name: /connect/i })).toBeNull(); // nothing about connecting before the server answers
     fireEvent.click(askButton());
-    expect(await screen.findByText(NOT_CONNECTED_NOTICE)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /connect/i })).toBeNull();
+    const hint = await screen.findByRole("link", { name: NOT_CONNECTED_HINT });
+    expect(hint).toHaveAttribute("href", "/one/connect");
+    expect(screen.getAllByRole("link", { name: /connect/i })).toHaveLength(1); // one hint, never a button
     expect(screen.queryByTestId("calendar-request-recovery")).toBeNull();
     expect(screen.queryByText(/Request sent/)).toBeNull();
     expect(mocks.requestFiles).toHaveBeenCalledTimes(1);
     expect(ask).toBeEnabled(); // a later connection works with a second tap, no reload
     noOldControls();
+    // Tapping the hint remembers the meeting, account, day and chosen type for the way back.
+    hint.addEventListener("click", event => event.preventDefault());
+    fireEvent.click(hint);
+    expect(consumeCalendarMeetingOAuthReturn("owner")).toEqual({
+      accountId: "default", day: "2026-10-14", timeZone: "UTC", filter: "all", query: "",
+      occurrenceId: row.occurrence_id, requestedTypes: ["recording"],
+    });
   });
 
   it("a connected requester never sees anything about connecting", async () => {
@@ -160,7 +168,7 @@ describe("Calendar Insights Ask organizer journey", () => {
     expect(screen.queryByText(/connected on One|Waiting for connection/)).toBeNull();
     fireEvent.click(askButton());
     expect(await screen.findByText("Request sent · Waiting for organizer")).toBeInTheDocument();
-    expect(screen.queryByText(NOT_CONNECTED_NOTICE)).toBeNull();
+    expect(screen.queryByRole("link", { name: /connect/i })).toBeNull();
   });
 
   it("a locked vault asks to unlock at Ask, sends nothing and is never read as unconnected", async () => {
@@ -168,7 +176,7 @@ describe("Calendar Insights Ask organizer journey", () => {
     fireEvent.click(await screen.findByRole("tab", { name: "Recording" }));
     fireEvent.click(askButton());
     expect(await screen.findByText("Unlock your vault to ask the organizer.")).toBeInTheDocument();
-    expect(screen.queryByText(NOT_CONNECTED_NOTICE)).toBeNull();
+    expect(screen.queryByRole("link", { name: NOT_CONNECTED_HINT })).toBeNull();
     expect(mocks.requestFiles).not.toHaveBeenCalled();
   });
 
@@ -277,7 +285,7 @@ describe("Calendar Insights Ask organizer journey", () => {
     const panel = await screen.findByTestId("calendar-request-recovery");
     expect(within(panel).queryByRole("link", { name: "Connect" })).toBeNull();
     expect(within(panel).getByRole("button", { name: "Copy request" })).toBeInTheDocument();
-    expect(screen.queryByText(NOT_CONNECTED_NOTICE)).toBeNull();
+    expect(screen.queryByRole("link", { name: NOT_CONNECTED_HINT })).toBeNull();
   });
 
   it.each([
