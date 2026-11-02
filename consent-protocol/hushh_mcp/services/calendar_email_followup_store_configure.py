@@ -71,6 +71,7 @@ def recompute_reminders(conn: Any, user_id: str, account_id: str, monitor: Monit
         WHERE user_id=:user_id AND account_id=:account_id
         AND kind<>'meeting' AND state IN ('pending','needs_review')
         AND suppressed_at IS NULL
+        AND reminder_sent_revision IS DISTINCT FROM revision
         AND reminder_is_manual=FALSE FOR UPDATE"""),
             {"user_id": user_id, "account_id": account_id},
         )

@@ -48,6 +48,10 @@ def _matches_proposal(candidate: ValidatedCandidate, event: dict[str, Any], subj
     if event.get("status") == "cancelled":
         return False
     instant, day = _event_start(event)
+    if candidate.proposed_at and instant is not None:
+        # Two exact times settle it. A different time on the same day is a
+        # request to move the meeting, whatever the titles share.
+        return abs(instant - datetime.fromisoformat(candidate.proposed_at)) <= _TIME_MATCH
     proposed_day = (
         date.fromisoformat(candidate.proposed_date)
         if candidate.proposed_date
@@ -57,13 +61,13 @@ def _matches_proposal(candidate: ValidatedCandidate, event: dict[str, Any], subj
     )
     if proposed_day is None or day != proposed_day:
         return False
-    if candidate.proposed_at and instant is not None:
-        proposed = datetime.fromisoformat(candidate.proposed_at)
-        if abs(instant - proposed) <= _TIME_MATCH:
-            return True
     title = str(event.get("title") or "")
     probe = " ".join(filter(None, [candidate.title, candidate.related_meeting_hint, subject]))
-    return _overlap(title, probe) >= _TITLE_MATCH
+    # One shared word ("call", "meeting") names no meeting. A proposal wrongly
+    # kept is reviewed by the owner; one wrongly dropped would be lost silently.
+    return len(title_tokens(title) & title_tokens(probe)) >= 2 and (
+        _overlap(title, probe) >= _TITLE_MATCH
+    )
 
 
 async def _default_list_events(monitor: Monitor, **kwargs: Any) -> dict[str, Any]:

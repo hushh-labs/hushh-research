@@ -65,6 +65,9 @@ class _Store:
     async def stale_assessment_threads(self, monitor, *, cutoff_ms, limit=2, exclude=frozenset()):
         return []
 
+    async def retire_unlisted_stale(self, monitor, thread_id, listed_message_ids):
+        return 0
+
     async def prior_requests(self, monitor, thread_id):
         return []
 

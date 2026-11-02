@@ -133,6 +133,8 @@ async def _step_thread(
         await _save(store, monitor, checkpoint, "pending")
         return 0, 0, False
     _clear_incomplete_thread(checkpoint, thread_id)
+    # The listing is complete, so an earlier message missing from it is gone.
+    await store.retire_unlisted_stale(monitor, thread_id, [message_id for message_id, _ in refs])
     eligible = [
         message_id
         for message_id, internal_date_ms in refs

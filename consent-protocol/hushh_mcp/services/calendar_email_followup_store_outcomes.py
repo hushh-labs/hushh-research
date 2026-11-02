@@ -101,6 +101,33 @@ def _retire(
     return len(ids)
 
 
+def _retire_unlisted(conn: Any, monitor: Monitor, thread_hmac: str, listed: list[str]) -> int:
+    """Retire the thread's earlier-contract messages whose digest is not in ``listed``."""
+    scope = {"user_id": monitor.user_id, "account_id": monitor.account_id}
+    unlisted = (
+        conn.execute(
+            text("""SELECT message_hmac FROM calendar_email_followup_scanned_messages
+            WHERE user_id=:user_id AND account_id=:account_id
+              AND thread_hmac=:thread_hmac AND outcome='assessed'
+              AND assessment_version<:version
+              AND message_hmac<>ALL(CAST(:listed AS TEXT[]))"""),
+            {**scope, "thread_hmac": thread_hmac, "version": ASSESSMENT_VERSION, "listed": listed},
+        )
+        .scalars()
+        .all()
+    )
+    retired = 0
+    for message_hmac in unlisted:
+        retired += _retire(conn, monitor, message_hmac=message_hmac)
+        conn.execute(
+            text("""UPDATE calendar_email_followup_scanned_messages SET
+            outcome='gone', assessment_version=:version, processed_at=NOW()
+            WHERE user_id=:user_id AND account_id=:account_id AND message_hmac=:message_hmac"""),
+            {**scope, "message_hmac": message_hmac, "version": ASSESSMENT_VERSION},
+        )
+    return retired
+
+
 class _ScanOutcomes:
     async def scanned_state(self, monitor: Monitor, message_id: str) -> ScannedState | None:
         message_hmac = self.cipher.digest(  # type: ignore[attr-defined]
@@ -248,6 +275,30 @@ class _ScanOutcomes:
                     },
                 )
                 return retired
+
+        return await asyncio.to_thread(write)
+
+    async def retire_unlisted_stale(
+        self, monitor: Monitor, thread_id: str, listed_message_ids: Sequence[str]
+    ) -> int:
+        """Retire earlier-contract messages the provider no longer lists in their thread.
+
+        A message that was trashed, marked spam, turned into a draft or deleted
+        before history tracking saw it can never be reassessed, so its
+        follow-ups would otherwise stay on the owner's list for good. Only
+        messages still waiting for reassessment are considered.
+        """
+        digest = self.cipher.digest  # type: ignore[attr-defined]
+        thread_hmac = digest(monitor.user_id, monitor.account_id, "thread", thread_id)
+        listed = [
+            digest(monitor.user_id, monitor.account_id, "message", message_id)
+            for message_id in listed_message_ids
+        ]
+
+        def write() -> int:
+            with self.db.engine.begin() as conn:  # type: ignore[attr-defined]
+                _lease_fence(conn, monitor)
+                return _retire_unlisted(conn, monitor, thread_hmac, listed)
 
         return await asyncio.to_thread(write)
 

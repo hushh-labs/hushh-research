@@ -123,3 +123,48 @@ async def test_reassessment_does_not_adopt_a_row_for_a_different_obligation(foll
         ("pending", True, 1),
         ("pending", False, 2),
     ]
+
+
+@pytest.mark.asyncio
+async def test_reassessment_retires_followups_of_mail_the_provider_no_longer_lists(followup_pg):
+    """A trashed security alert could never be reassessed, so its row stayed visible."""
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    messages = {name: _message(name, _SIGNED) for name in ("m-trashed", "m-listed", "m-finished")}
+    for message in messages.values():
+        await _store_legacy(
+            store, account_id, message, _worded(store, account_id, message, "Send signed doc")
+        )
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    for conversation in (await store.list_conversations(monitor, limit=10))["conversations"]:
+        if conversation["subject"] != "Subject m-finished":
+            continue
+        request = (await store.detail(monitor, conversation["id"]))["requests"][0]
+        await store.mutate_request(
+            monitor,
+            request_id=request["id"],
+            expected_revision=request["revision"],
+            idempotency_key=str(uuid.uuid4()),
+            action="done",
+        )
+
+    leased = await store.acquire_scan(user_id=OWNER, account_id=account_id)
+    # Thread listings are complete: the trashed and finished threads list nothing.
+    assert await store.retire_unlisted_stale(leased, "thread-m-trashed", []) == 1
+    assert await store.retire_unlisted_stale(leased, "thread-m-listed", ["m-listed"]) == 0
+    assert await store.retire_unlisted_stale(leased, "thread-m-finished", []) == 0
+    # Replaying the same listing changes nothing.
+    assert await store.retire_unlisted_stale(leased, "thread-m-trashed", []) == 0
+    await store.release_scan(leased)
+
+    assert _message_rows(engine, store, account_id, messages["m-trashed"]) == [
+        ("source_unavailable", False, 1)
+    ]
+    assert _message_rows(engine, store, account_id, messages["m-listed"]) == [("pending", False, 1)]
+    # The owner's decision is never rewritten.
+    assert _message_rows(engine, store, account_id, messages["m-finished"]) == [("done", False, 1)]
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    # Only the thread the provider still lists is left to reassess.
+    assert await store.stale_assessment_threads(monitor, cutoff_ms=0, limit=10) == [
+        "thread-m-listed"
+    ]

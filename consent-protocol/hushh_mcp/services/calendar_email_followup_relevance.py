@@ -80,12 +80,36 @@ def surfaceable(
 # Only unambiguous reply boundaries. A bare "From:" line or a forwarded-message
 # marker is not one: a forwarded request is still a request to the owner.
 _REPLY_HEADER = re.compile(
-    r"^\s*(?:on\s.{5,200}\swrote:|-{2,}\s*original message\s*-{2,}|_{5,})\s*$",
+    r"^\s*(?:on\s.{5,200}\swrote:|-{2,}\s*original message\s*-{2,})\s*$",
     re.IGNORECASE,
 )
+# A rule of underscores opens a quoted reply only when the quoted header block
+# follows it (Outlook). Elsewhere it is a visual divider, and what is below a
+# divider is still part of the message.
+_RULE = re.compile(r"^\s*_{5,}\s*$")
+_QUOTED_HEADER = re.compile(r"^\s*(?:from|sent|date|to|cc|subject)\s*:", re.IGNORECASE)
+# A signature is a short closing block; a long remainder after "--" is content.
+_SIGNATURE_MAX_LINES = 12
 _DEVICE_SIGNATURE = re.compile(
     r"^\s*(?:sent from my .{2,40}|get outlook for .{2,20}|sent via .{2,40})\s*$", re.IGNORECASE
 )
+
+
+def _is_signature_tail(lines: Sequence[str], start: int) -> bool:
+    count = 0
+    for line in lines[start:]:
+        if line.strip():
+            count += 1
+            if count > _SIGNATURE_MAX_LINES:
+                return False
+    return True
+
+
+def _quoted_header_follows(lines: Sequence[str], start: int) -> bool:
+    for line in lines[start:]:
+        if line.strip():
+            return bool(_QUOTED_HEADER.match(line))
+    return False
 
 
 def quoted_or_signature_regions(body: str) -> tuple[tuple[int, int], ...]:
@@ -97,13 +121,18 @@ def quoted_or_signature_regions(body: str) -> tuple[tuple[int, int], ...]:
     regions: list[tuple[int, int]] = []
     offset = 0
     tail_start: int | None = None
-    for line in body.split("\n"):
+    lines = body.split("\n")
+    for index, line in enumerate(lines):
         end = offset + len(line)
         stripped = line.strip()
         if tail_start is None:
             if stripped.startswith(">"):
                 regions.append((offset, end))
-            elif stripped == "--" or _REPLY_HEADER.match(line):
+            elif (
+                (stripped == "--" and _is_signature_tail(lines, index + 1))
+                or _REPLY_HEADER.match(line)
+                or (_RULE.match(line) and _quoted_header_follows(lines, index + 1))
+            ):
                 tail_start = offset
             elif _DEVICE_SIGNATURE.match(line):
                 regions.append((offset, end))
