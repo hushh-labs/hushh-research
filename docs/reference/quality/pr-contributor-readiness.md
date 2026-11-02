@@ -36,6 +36,31 @@ Do this first:
    A new durable owner-data source needs the
    [source admission contract](../architecture/live-memory-source-contract.md)
    and its CI gate; an existing source needs its kind, change signal and test.
+10. Regenerate committed generated artifacts and run the governance stage, as
+    described in the next section.
+
+## Generated Artifacts And Governance
+
+CI rejects a stale committed generated file. One command rewrites every one of
+them, in the order their inputs require:
+
+```bash
+scripts/ci/regenerate-generated-artifacts.sh
+```
+
+It covers the database schema contracts in `consent-protocol/db/contracts/`
+(capability run, Location onboarding and scope commerce projections), the UI
+Back and search review receipts in `hushh-webapp/contracts/ui-review/`
+(`npm run build:ui-contracts`), `hushh-webapp/cache-coherence-screen-manifest.generated.json`
+and `contracts/architecture/runtime-topology-index.v1.json`. Review the diff
+and commit it. `--check` rewrites nothing and lists every stale artifact in one
+run. Both modes need `hushh-webapp/node_modules` and run under Git Bash on
+Windows. Line endings in the Python-written files are kept as LF.
+
+`scripts/ci/orchestrate.sh governance` runs every governance check even after
+one fails, then prints a summary of all failures and exits non-zero. Fix them
+together instead of pushing once per failure. A missing tool still stops the
+run at once.
 
 ## Review-Ready Standard
 

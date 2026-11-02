@@ -201,8 +201,15 @@ def test_production_tripwire_matches_committed_policy() -> None:
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
                                workflow: str = "capacity-maintenance.yml",
-                               step: str = "Require main and governed manual actor") -> subprocess.CompletedProcess[str]:
-    """Execute the actual shell authority gate, including the real actor policy."""
+                               step: str = "Require main and governed manual actor",
+                               github: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    """Execute the actual shell authority gate, including the real actor policy.
+
+    The gate sees only the GitHub context this call describes. Inheriting the
+    runner's own GITHUB_* values made the test depend on how the CI job running it
+    was started: on a re-run (GITHUB_RUN_ATTEMPT >= 2) by someone outside the
+    production cohort, assert-governed-actor.py refused every accepted case here.
+    """
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows" / workflow).read_text()
     match = re.search(
@@ -211,16 +218,47 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     )
     assert match is not None, f"{workflow} authority gate is missing"
     inputs = event.get("inputs") or {}
+    inherited = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
     return subprocess.run(
         ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
-        env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
+        env={**inherited, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+             "GITHUB_ACTOR": actor, "GITHUB_RUN_ATTEMPT": "1",
+             "RELEASE_ENV": inputs.get("environment", ""),
              "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
              "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
              "APPLY": inputs.get("apply", ""),
-             "CLOCK_EVENT_TYPE": action},
+             "CLOCK_EVENT_TYPE": action, **(github or {})},
         capture_output=True, text=True, check=False,
     )
+
+
+def test_capacity_gate_ignores_the_runner_rerun_context() -> None:
+    # Run 41460581860 attempt 2: a re-run by a UAT-only teammate leaked
+    # GITHUB_RUN_ATTEMPT=2 and GITHUB_TRIGGERING_ACTOR into the gate under test.
+    leaked = {"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "parthmawai"}
+    saved = {key: os.environ.get(key) for key in leaked}
+    os.environ.update(leaked)
+    try:
+        event = {"inputs": {"environment": "production", "healthy_release_run_id": "43", "apply": "false"}}
+        result = _validate_capacity_trigger("workflow_dispatch", event)
+        assert result.returncode == 0, f"Runner re-run context reached the gate: {result.stderr}"
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def test_capacity_gate_still_refuses_an_unauthorized_rerun() -> None:
+    # The re-run rule itself still holds when the scenario asks for it.
+    event = {"inputs": {"environment": "production", "healthy_release_run_id": "43", "apply": "false"}}
+    rerun = {"GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "parthmawai"}
+    denied = _validate_capacity_trigger("workflow_dispatch", event, github=rerun)
+    assert denied.returncode != 0, "An unauthorized production re-run was accepted"
+    assert "authorized triggering actor" in denied.stderr, denied.stderr
+    allowed = _validate_capacity_trigger("workflow_dispatch", event, github={**rerun, "GITHUB_TRIGGERING_ACTOR": "kushaltrivedi5"})
+    assert allowed.returncode == 0, allowed.stderr
 
 
 def test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes() -> None:
@@ -470,6 +508,8 @@ def main() -> int:
         test_production_cohort_drift_is_reported,
         test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
+        test_capacity_gate_ignores_the_runner_rerun_context,
+        test_capacity_gate_still_refuses_an_unauthorized_rerun,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
         test_fixed_bridge_requires_governed_manual_production_apply,
