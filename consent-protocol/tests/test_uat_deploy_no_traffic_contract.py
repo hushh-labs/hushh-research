@@ -18,6 +18,9 @@ from tests._deploy_contract import (
     managed_vertex_probe_script,
     managed_vertex_probe_surface,
 )
+from tests.helpers.managed_vertex_preflight import (
+    vertex_preflight_script as _vertex_preflight_script,
+)
 from tests.test_pwm_runtime_probe import pwm_proof_fixture
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1076,31 +1079,6 @@ def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None
     assert "gcloud services list --enabled" in backend_build
     assert "--filter='config.name=aiplatform.googleapis.com'" in backend_build
     assert "gcloud services describe" not in backend_build
-
-
-def _vertex_preflight_script(preflight: str) -> str:
-    start = preflight.index("gcloud iam service-accounts describe")
-    end = preflight.index('if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}"', start)
-    decision = preflight[start:end]
-    return (
-        """set -euo pipefail
-    gcloud() {
-      printf 'CALL:%s\\n' "$*" >&2
-      if [[ "$1 $2" == "iam service-accounts" ]]; then return 0; fi
-      if [[ "${DENY_PROJECT_DISCOVERY}" == "true" ]]; then return 7; fi
-      if [[ "$1 $2" == "services list" ]]; then
-    printf 'aiplatform.googleapis.com\\n'
-      elif [[ "$*" == *roles/aiplatform.user* ]]; then
-    printf 'roles/aiplatform.user\\n'
-      elif [[ "$*" == *roles/serviceusage.serviceUsageConsumer* ]]; then
-    printf 'roles/serviceusage.serviceUsageConsumer\\n'
-      else
-    return 8
-      fi
-    }
-    """
-        + decision
-    )
 
 
 def test_uat_cross_project_vertex_preflight_defers_only_to_a_no_traffic_probe() -> None:

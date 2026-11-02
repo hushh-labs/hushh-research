@@ -168,17 +168,18 @@ export function RequestScopeButton({
     const epoch = snapshotVaultSessionEpoch();
     const owner = userId;
     const current = () => mounted.current && inFlight.current === operation &&
-      eligibility.current && view.current.open && view.current.userId === owner &&
+      view.current.open && view.current.userId === owner &&
       view.current.personRef === personRef && session === getAuthSessionGeneration() &&
       isVaultSessionEpochCurrent(epoch);
+    const admitted = () => current() && eligibility.current;
     setBusy(true);
     setError(null);
     try {
-      await bootstrapCurrentUserMarketplaceRecipientKey({ userId: owner, vaultOwnerToken, isCurrent: current });
-      if (!current()) return;
+      await bootstrapCurrentUserMarketplaceRecipientKey({ userId: owner, vaultOwnerToken, isCurrent: admitted });
+      if (!admitted()) return;
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to send this request.");
-      if (!current()) return;
+      if (!admitted()) return;
       const cleanQuestion = question.trim();
       if (attempt.current?.question !== cleanQuestion) attempt.current = { question: cleanQuestion, id: crypto.randomUUID() };
       const { requestId } = await AnswerRequestService.create(
@@ -187,8 +188,10 @@ export function RequestScopeButton({
         {
           question,
         },
-        { clientRequestId: attempt.current.id, isEffectCurrent: current },
+        { clientRequestId: attempt.current.id, isEffectCurrent: admitted },
       );
+      // A current server acknowledgement survives a connection refresh. It
+      // authorizes no new mutation; dispatch and retries still use admitted.
       if (!current()) return;
       if (userId) CacheSyncService.onConsentMutated(userId);
       setCreated(requestId);
