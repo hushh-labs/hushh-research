@@ -32,13 +32,8 @@ export type RequestRecovery = {
   copy: boolean;
 };
 
-/** Shown once, quietly, below Ask organizer, and only to someone who is not connected. It is a link to Connect. */
-export const NOT_CONNECTED_HINT = "Requests work once you're connected on One.";
-export const PENDING_CONNECTION_TEXT = "Waiting for connection approval.";
-export const UNVERIFIED_ORGANIZER_RECOVERY: RequestRecovery = {
-  tone: "terminal", copy: false,
-  message: "One can't confirm who this organizer is right now, so it can't send the request. Ask the organizer directly.",
-};
+/** Shown when Ask was tapped but the organizer is not among the requester's connections: nothing was sent. */
+export const NOT_CONNECTED_NOTICE = "Couldn't send: you and the organizer aren't connected on One yet.";
 
 type RequestFailure = { status?: number; code?: string; reason?: string; message?: string } | null;
 
@@ -78,8 +73,8 @@ export function requestRecovery(failure: RequestFailure): RequestRecovery {
   }
   if (code === "calendar_organizer_unavailable" && reason === "organizer_missing")
     return terminal("This meeting has no organizer One can reach. Copy your request and send it directly.", { copy: true });
-  // A connection refusal never reaches here: callers read it with isConnectionRefusal and show the quiet hint.
-  if (isConnectionRefusal(failure)) return terminal(NOT_CONNECTED_HINT);
+  // Callers read a connection refusal with isConnectionRefusal and show NOT_CONNECTED_NOTICE.
+  if (isConnectionRefusal(failure)) return terminal(NOT_CONNECTED_NOTICE);
   const message = failure?.message || "Meeting request could not be sent.";
   // `sharing_unavailable` is a service-level condition: retry, or reach out directly.
   return { tone: "retry", message, copy: code === "sharing_unavailable" };

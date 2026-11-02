@@ -2,10 +2,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ insights: vi.fn(), fileAction: vi.fn(), getIdToken: vi.fn(),
-  requestFiles: vi.fn(), requestReadiness: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn() }));
+  requestFiles: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(), approvedFileAction: vi.fn() }));
 vi.mock("@/lib/services/calendar-insights-service", () => ({
   CalendarInsightsService: { read: mocks.insights, fileAction: mocks.fileAction,
-    requestFiles: mocks.requestFiles, requestReadiness: mocks.requestReadiness, requestStatuses: mocks.requestStatuses,
+    requestFiles: mocks.requestFiles, requestStatuses: mocks.requestStatuses,
     approvedDetail: mocks.approvedDetail, approvedFileAction: mocks.approvedFileAction },
   CalendarInsightsRequestError: class extends Error { constructor(message: string, readonly status: number, readonly code?: string) { super(message); } },
   safeMeetingProviderUrl: (value: unknown) => typeof value === "string" && /^https:\/\/(docs|drive)\.google\.com\//.test(value) ? value : null,
@@ -64,7 +64,6 @@ describe("Calendar Insights meeting library", () => {
         [{ requestId: "11111111-1111-4111-8111-111111111111", status: "completed", requestedTypes: ["notes"] }] : [],
       artifacts: accessVerified && selection.occurrence_id === rows[0]?.occurrence_id ? [{ kind: "notes", state: "available" }] : [],
     })));
-    mocks.requestReadiness.mockResolvedValue("ready");
     mocks.requestFiles.mockResolvedValue({ requestId: "11111111-1111-4111-8111-111111111111",
       recipientEmail: account.google_email, status: "pending" });
     render(<CalendarInsights userId="owner" account={account} today="2026-10-14" zone="UTC"
@@ -74,12 +73,6 @@ describe("Calendar Insights meeting library", () => {
     fireEvent.click(screen.getByRole("button", { name: /Meeting 1/ }));
     // What would you like to request? Notes, then the one action: Ask organizer.
     fireEvent.click(await screen.findByRole("tab", { name: "Notes" }));
-    // The connection is checked silently for the selected account's own meeting before Ask can send.
-    await waitFor(() => expect(mocks.requestReadiness).toHaveBeenCalled());
-    expect(mocks.requestReadiness).toHaveBeenCalledWith(
-      expect.objectContaining({ account_id: accountId, event_id: "a", occurrence_id: rows[0]?.occurrence_id,
-        expected_grant: meetingGrant, date: "2026-10-14", time_zone: "UTC" }),
-      "firebase-owner-token", "vault-owner-token", expect.anything());
     expect(mocks.requestFiles).not.toHaveBeenCalled(); // choosing is not asking
     fireEvent.click(await screen.findByRole("button", { name: "Ask organizer" }));
     await waitFor(() => expect(mocks.requestFiles).toHaveBeenCalledWith(

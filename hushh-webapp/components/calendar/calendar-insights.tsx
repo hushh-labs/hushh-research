@@ -29,7 +29,7 @@ import { choiceKinds, useMeetingRequest } from "./use-meeting-request";
 import { useAccessWatch } from "@/lib/calendar/use-access-watch";
 import { useFeedRefresh } from "@/lib/calendar/use-feed-refresh";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
-import { markCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
+import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import presentationStyles from "./calendar-presentation.module.css";
 import styles from "./calendar-insights.module.css";
 
@@ -419,8 +419,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const request = useMeetingRequest({
     selection: selected ? { account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone } : null,
-    contextKey: actionContext, revision, getIdToken: () => getToken.current(), getVaultOwnerToken,
-    active: canRefresh && view === "meeting" && Boolean(selected) && offeredKinds.length > 0,
+    contextKey: actionContext, getIdToken: () => getToken.current(), getVaultOwnerToken,
     // Keep every request for the meeting: a later ask for the other type must not hide the first.
     onSent: (occurrenceId, sent) => setOutcomes(previous => ({ ...previous, [occurrenceId]: {
       occurrence_id: occurrenceId,
@@ -522,8 +521,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
           <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
       {requestSectionShown && selected ? <CalendarRequestSection request={request} offered={offeredKinds}
-        statusText={requestStatus(selectedDisplayed || selected)} copyText={copyRequestText} contextGuard={contextGuard}
-        onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
+        statusText={requestStatus(selectedDisplayed || selected)} copyText={copyRequestText} contextGuard={contextGuard} /> : null}
     </>}
   </div>;
 }
