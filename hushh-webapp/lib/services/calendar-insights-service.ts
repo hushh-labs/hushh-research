@@ -51,8 +51,6 @@ export type VerifiedMeetingSelection = {
   occurrence_id: string; expected_grant: string; date: string; time_zone: string;
 };
 /** Where the requester stands with the organizer, decided by the server before Send is offered. */
-export type RequestReadiness = "ready" | "pending" | "not_connected" | "unavailable";
-const READINESS_STATES: readonly string[] = ["ready", "pending", "not_connected", "unavailable"];
 export type MeetingContext = { title: string; sources: { title: string; url: string; text: string; truncated: boolean }[] };
 
 function fileKinds(value: unknown): MeetingFileKind[] {
@@ -138,13 +136,6 @@ export class CalendarInsightsService {
     return { requestId: value.requestId, recipientEmail: value.recipientEmail, status: String(value.status || "pending"),
       requestedTypes: fileKinds(value.requestedTypes), notAvailableTypes: fileKinds(value.notAvailableTypes),
       alreadyRequested: value.alreadyRequested === true };
-  }
-
-  /** Read-only and advisory: creating the request checks the relationship again. */
-  static async requestReadiness(selection: VerifiedMeetingSelection, idToken: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<RequestReadiness> {
-    const value = await this.protectedPost<Record<string, unknown>>("meetings/request-readiness", selection, idToken, vaultOwnerToken, signal);
-    if (typeof value.state !== "string" || !READINESS_STATES.includes(value.state)) throw new Error("Meeting request readiness was incomplete.");
-    return value.state as RequestReadiness;
   }
 
   static async requestStatuses(selections: VerifiedMeetingSelection[], idToken: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<MeetingRequestOutcome[]> {
