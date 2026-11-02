@@ -20,6 +20,7 @@ from hushh_mcp.services import calendar_email_followup_extraction as extraction
 from hushh_mcp.services import calendar_email_followup_reminders as reminders
 from hushh_mcp.services import calendar_email_followup_scan as scan
 from hushh_mcp.services import system_push_delivery
+from hushh_mcp.services.calendar_email_followup_reconcile import reconcile_candidates
 from hushh_mcp.services.calendar_email_followup_store import CalendarEmailFollowupStore
 from hushh_mcp.services.feed_service import FeedService
 from tests.google_oauth_postgres_support import OWNER
@@ -42,6 +43,21 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 )
 
 
+def _candidate(index: int, section: str, quote: str, **fields):
+    """A model candidate for ``quote`` with the fields every case here shares."""
+    return {
+        "local_index": fields.pop("local_index", 0),
+        "section_index": index,
+        "quote_start": section.index(quote),
+        "source_quote": quote,
+        "responsibility": "owner",
+        "time_zone": "Asia/Kolkata",
+        "ambiguities": [],
+        "relevance": "actionable",
+        **fields,
+    }
+
+
 async def _synthetic_gene(**kwargs):
     prompt = __import__("json").loads(kwargs["prompt"])
     section = prompt["section_text"]
@@ -50,35 +66,35 @@ async def _synthetic_gene(**kwargs):
     updates = []
     if DOCUMENT_QUOTE in section:
         candidates.append(
-            {
-                "local_index": 0,
-                "section_index": index,
-                "kind": "deadline",
-                "quote_start": section.index(DOCUMENT_QUOTE),
-                "source_quote": DOCUMENT_QUOTE,
-                "title": "Send the research document",
-                "original_due_wording": "before 26 October",
-                "due_date": "2026-10-26",
-                "due_relation": "before",
-                "responsibility": "owner",
-                "time_zone": "Asia/Kolkata",
-                "ambiguities": [],
-            }
+            _candidate(
+                index,
+                section,
+                DOCUMENT_QUOTE,
+                kind="deadline",
+                title="Send the research document",
+                original_due_wording="before 26 October",
+                due_date="2026-10-26",
+                due_relation="before",
+                category="deliverable_deadline",
+                urgency="time_bound",
+                evidence_reason="The sender asks the owner to send a document by a date.",
+            )
         )
         candidates.append(
-            {
-                "local_index": 1,
-                "section_index": index,
-                "kind": "meeting",
-                "quote_start": section.index(MEETING_QUOTE),
-                "source_quote": MEETING_QUOTE,
-                "title": "Call with Jhumma",
-                "original_due_wording": "on 27 October",
-                "proposed_date": "2026-10-27",
-                "responsibility": "owner",
-                "time_zone": "Asia/Kolkata",
-                "ambiguities": ["time", "duration"],
-            }
+            _candidate(
+                index,
+                section,
+                MEETING_QUOTE,
+                local_index=1,
+                kind="meeting",
+                title="Call with Jhumma",
+                original_due_wording="on 27 October",
+                proposed_date="2026-10-27",
+                ambiguities=["time", "duration"],
+                category="meeting_request",
+                meeting_state="proposed",
+                evidence_reason="The sender proposes a call on a specific day.",
+            )
         )
     if CORRECTION_QUOTE in section:
         prior = next(
@@ -97,26 +113,34 @@ async def _synthetic_gene(**kwargs):
             }
         )
         candidates.append(
-            {
-                "local_index": 0,
-                "section_index": index,
-                "kind": "deadline",
-                "quote_start": section.index(CORRECTION_QUOTE),
-                "source_quote": CORRECTION_QUOTE,
-                "title": "Send the research document",
-                "original_due_wording": "by 28 October",
-                "due_date": "2026-10-28",
-                "due_relation": "by",
-                "responsibility": "owner",
-                "time_zone": "Asia/Kolkata",
-                "ambiguities": [],
-            }
+            _candidate(
+                index,
+                section,
+                CORRECTION_QUOTE,
+                kind="deadline",
+                title="Send the research document",
+                original_due_wording="by 28 October",
+                due_date="2026-10-28",
+                due_relation="by",
+                category="deliverable_deadline",
+                urgency="time_bound",
+                evidence_reason="The sender moves the document deadline to a new date.",
+            )
         )
     return {"candidates": candidates, "updates": updates, "overflow": False}
 
 
 async def _assess_with_synthetic_model(**kwargs):
     return await extraction.assess_section(**kwargs, gene_runner=_synthetic_gene)
+
+
+async def _no_events(**_kwargs):
+    return {"events": [], "truncated": False}
+
+
+async def _reconcile_with_empty_calendar(**kwargs):
+    # The owner's Calendar has nothing on the proposed day, so the proposal stands.
+    return await reconcile_candidates(**kwargs, list_events=_no_events)
 
 
 async def _scan_and_assert_initial(store, engine, selected, transport, provider):
@@ -408,6 +432,7 @@ async def test_jhumma_complete_body_restart_reminder_and_correction(followup_pg,
 
     messages = _mock_messages()
     provider = {"corrected": False, "deleted": False, "read_ids": []}
+    monkeypatch.setattr(scan, "reconcile_candidates", _reconcile_with_empty_calendar)
     monkeypatch.setattr(scan, "assess_section", _assess_with_synthetic_model)
     transport = httpx.MockTransport(lambda request: _response(request, provider, messages))
 
@@ -422,3 +447,6 @@ async def test_jhumma_complete_body_restart_reminder_and_correction(followup_pg,
     )
     await _assert_stale_retry_suppressed(restarted, engine, doc, monkeypatch)
     await _assert_booking_requires_confirmation(restarted, selected, call, listing, monkeypatch)
+
+
+# --- Acceptance: initial scan, incremental sync, isolation, reconciliation ------------
