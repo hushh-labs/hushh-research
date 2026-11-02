@@ -1,5 +1,25 @@
 # API Contracts
 
+## Owner-local Calendar and email tasks
+
+One's To-do list reads private Google metadata directly from the owner's signed,
+pinned agent endpoint. These routes are mounted only by `pod_server.py` and admitted
+by exact client/ingress allowlists, an app-role session with `pkm.read`, the current
+owner, and a held incarnation. Admission is rechecked after provider work. Hub
+consent tokens, device sessions and status-only sessions do not authorize content.
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/one/pod/calendar/events` | Offset-aware `start_at`/`end_at`, at most seven days; up to five bounded primary-calendar pages, with explicit `truncated`. Returns task IDs bound to owner/account, title, times, status and a validated Meet URL. |
+| `GET /api/one/pod/gmail/todos` | Up to 25 recent-thread reply tasks using the existing metadata-only reader. Returns opaque owner/account-bound keys, action titles, `complete` and `scope=recent_threads`; no provider IDs, snippets or message bodies. |
+
+Responses are `private, no-store`. The ports use the owner's existing pod-sealed
+Google grants and do not invoke a model, mutate Calendar/mail, or read hub content
+tables. Provider grant failures remain distinct from app authentication failures.
+The existing owner-cloud hosting restriction remains; managed-hosting Google reads
+and private Calendar invitation actions are not enabled by these routes. Existing
+owner agents need the updated image before the new paths can serve their app.
+
 ## Feed counterpart profile presentation
 
 Feed metadata may include `counterpart_person_ref`, resolved at read time from
