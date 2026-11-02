@@ -84,11 +84,7 @@ export type CalendarEventSummary = {
   transparency?: string | null;
   ical_uid?: string | null;
   original_start_time?: CalendarEventTime;
-  /**
-   * Set when this copy should look declined: the owner declined it ("self"), or the
-   * only other person in a one-to-one meeting did ("only_guest"). Group meetings
-   * never dim for the organiser; the declined guests are listed in the detail.
-   */
+  /** Dim this copy: the owner declined ("self"), or the one other person in a 1-to-1 did ("only_guest"). */
   decline_view?: { kind: "self" | "only_guest"; email: string; display_name: string | null; comment: string | null } | null;
 };
 

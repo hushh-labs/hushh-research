@@ -170,17 +170,12 @@ class CalendarConflictService:
                     "The invitation changed while Mail was prepared. Refresh Calendar and review it again.",
                     status_code=409,
                 )
-            children.append(
-                {
-                    "kind": "decline",
-                    "ref": {key: choice[key] for key in ("account_id", "calendar_id", "event_id")},
-                    "review": prepared,
-                }
-            )
+            ref = {key: choice[key] for key in ("account_id", "calendar_id", "event_id")}
+            children.append({"kind": "decline", "ref": ref, "review": prepared})
             previews.append(
                 {
                     "kind": "decline",
-                    "ref": children[-1]["ref"],
+                    "ref": ref,
                     "title": event["title"],
                     "account_email": account["google_email"],
                     "start": event["start"],

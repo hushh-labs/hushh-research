@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -65,4 +67,50 @@ export function CalendarAddedAccountMail({ account, busy, error, onAllow, onSkip
       </AlertDialogContent>
     </AlertDialog>
   );
+}
+
+type Account = { account_id: string; google_email?: string | null; connected?: boolean };
+
+/** Owns the add-account steps: permissions first, then Mail for the new account. */
+export function useCalendarAddAccountFlow({ identity, accounts, busy, connectNewAccount, allowAccountMail }: {
+  identity: symbol;
+  accounts: readonly Account[] | undefined;
+  busy: boolean;
+  connectNewAccount: () => void;
+  allowAccountMail: (accountId: string) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [added, setAdded] = useState<{ accountId: string; email: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const before = useRef<ReadonlySet<string> | null>(null);
+
+  useEffect(() => { setOpen(false); setAdded(null); before.current = null; }, [identity]);
+  useEffect(() => {
+    const known = before.current;
+    const account = known ? accounts?.find(item => item.connected && !known.has(item.account_id)) : undefined;
+    if (!account) return;
+    before.current = null;
+    setError(null);
+    setAdded({ accountId: account.account_id, email: account.google_email || "This account" });
+  }, [accounts]);
+
+  const dialogs = (
+    <>
+      <CalendarAddAccountPermissions open={open} busy={busy} onCancel={() => setOpen(false)} onContinue={() => {
+        // The consent window opens inside this click, so the browser keeps the gesture.
+        before.current = new Set(accounts?.map(item => item.account_id) ?? []);
+        setOpen(false);
+        connectNewAccount();
+      }} />
+      <CalendarAddedAccountMail account={added} busy={busy} error={error} onSkip={() => setAdded(null)} onAllow={() => {
+        if (!added) return;
+        setError(null);
+        void allowAccountMail(added.accountId).catch(() => false).then(granted => {
+          if (granted) { morphyToast.success("Mail allowed for this account."); setAdded(null); }
+          else setError("Mail access was not allowed. Try again or skip this step.");
+        });
+      }} />
+    </>
+  );
+  return { openAddAccount: () => setOpen(true), dialogs };
 }

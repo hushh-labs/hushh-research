@@ -31,6 +31,7 @@ from hushh_mcp.services.calendar_attendance_confirmation import (
     require_rsvp_review,
     send_reviewed_organizer_mail,
 )
+from hushh_mcp.services.calendar_decline_comment import clean_decline_reason, patch_with_comment
 from hushh_mcp.services.gmail_delivery_service import get_gmail_delivery_service
 from hushh_mcp.services.google_calendar_service import (
     GoogleCalendarService,
@@ -43,19 +44,6 @@ _READABLE_CALENDAR_ROLES = frozenset({"reader", "writer", "owner", "writerWithou
 _INVENTORY_MAX = 100
 _PAGE_MAX = 10
 AttendanceReviewKind = Literal["legacy_owner", "workspace", "rsvp"]
-
-
-# Google keeps an RSVP comment with the attendee; stay well inside its limit.
-_DECLINE_COMMENT_LIMIT = 500
-
-
-def _patch_with_comment(patch: dict[str, Any], comment: object) -> dict[str, Any]:
-    """Return the sealed attendance patch with the owner's reason attached."""
-    reason = str(comment or "").strip()
-    if not reason:
-        return patch
-    attendees = [{**item, "comment": reason} for item in patch.get("attendees", [])]
-    return {**patch, "attendees": attendees}
 
 
 def _error(message: str, status: int = 422, reason: str = "calendar_invalid_request"):
@@ -918,13 +906,7 @@ class CalendarScheduleService:
             "time_zone": time_zone,
             "etag": event["etag"],
             "patch": patch,
-            # The owner's own words, stored as Google's RSVP comment so the
-            # organiser's and invitee's copies can both explain the decline.
-            "decline_reason": (
-                " ".join(str(decline_reason or "").split())[:_DECLINE_COMMENT_LIMIT]
-                if response_status == "declined"
-                else ""
-            ),
+            "decline_reason": clean_decline_reason(decline_reason, response_status),
             "binding": list(binding),
         }
         mail_review, link, draft, alternatives = None, None, None, []
@@ -1156,7 +1138,7 @@ class CalendarScheduleService:
                     access="manage",
                     headers={"If-Match": current["etag"]},
                     params={"sendUpdates": "all"},
-                    payload=_patch_with_comment(patch, plan.get("decline_reason")),
+                    payload=patch_with_comment(patch, plan.get("decline_reason")),
                     expected_binding=tuple(plan["binding"]),
                 )
                 own = next(
