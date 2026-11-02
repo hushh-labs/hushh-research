@@ -8,6 +8,7 @@ import { Button } from "@/lib/morphy-ux/button";
 import { AdaptiveSheetContent, TaskSurfaceHeader, TaskSurfaceBody } from "@/lib/morphy-ux/ui/task-surfaces";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { ROUTES } from "@/lib/navigation/routes";
+import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 import { cn } from "@/lib/utils";
 import styles from "./phone-conflict-recovery.module.css";
 
@@ -32,8 +33,8 @@ export function PhoneConflictRecovery(props: Props) {
 
   return <div data-phone-conflict="true" className={cn(styles.content, props.className)} style={props.style}>
     <Heading data-phone-conflict-title="true" className={styles.title}>This number is already linked</Heading>
-    <p className={styles.description} role={props.operationError ? "alert" : undefined}>{props.operationError || "It’s connected to another Hussh account. Sign in to that account or use a different number."}</p>
-    <Button type="button" variant="blue" size="prominent" fullWidth disabled={props.busy} data-voice-control-id="phone-flow-change-number" onClick={props.returnToPhoneNumber}>Use a different number</Button>
+    <p className={styles.description} role={props.operationError ? "alert" : undefined}>{props.operationError || PHONE_CONFLICT_COPY.inApp}</p>
+    <Button type="button" variant="blue" size="prominent" fullWidth className={styles.primary} disabled={props.busy} data-voice-control-id="phone-flow-change-number" onClick={props.returnToPhoneNumber}>Use a different number</Button>
     <Sheet modal open={optionsOpen} onOpenChange={setOptionsOpen}>
       <SheetTrigger asChild>
         <Button type="button" variant="none" effect="fade" disabled={props.busy} className={styles.options} data-voice-control-id="phone-flow-account-options">
@@ -43,7 +44,7 @@ export function PhoneConflictRecovery(props: Props) {
       <AdaptiveSheetContent size="sm">
         <TaskSurfaceHeader>
           <SheetTitle>Account options</SheetTitle>
-          <SheetDescription>Continue with the account linked to this number.</SheetDescription>
+          <SheetDescription>Sign in to the linked account.</SheetDescription>
         </TaskSurfaceHeader>
         <TaskSurfaceBody>
           <Button type="button" variant="none" effect="fade" fullWidth disabled={props.busy} className={styles.signIn} data-voice-control-id="phone-flow-recover" onClick={() => {
