@@ -20,7 +20,11 @@ from hushh_mcp.services.drive_request_queue import (
     queue_delayed,
     started_work_waiting_since,
 )
-from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
+from hushh_mcp.services.drive_sharing_contract import (
+    DriveSharingCipher,
+    DriveSharingError,
+    calendar_lacking,
+)
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.stripe_mode import configured_stripe_mode
@@ -1011,15 +1015,17 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 purpose="request",
             )
             if private.get("request_type") == "calendar_meeting":
-                by_id[identifier] = True
+                calendar = private.get("calendar")
+                by_id[identifier] = calendar_lacking(calendar if isinstance(calendar, dict) else {})
         for item in items:
-            if not by_id.get(item["request_id"]):
+            if item["request_id"] not in by_id:
                 continue
             item["action"] = "CALENDAR_MEETING_REVIEW"
             item["scope_description"] = "Meeting recording and notes"
             item["metadata"].update(
                 {
                     "calendar_meeting": True,
+                    "not_available_types": by_id[item["request_id"]],
                     "owner_decision_available": False,
                     "owner_price_available": False,
                     "owner_attention_required": item["kind"] == "incoming_request"

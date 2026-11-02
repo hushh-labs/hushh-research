@@ -18,6 +18,7 @@ import {
 } from "@/components/icons";
 import { CalendarAgentIcon } from "@/components/icons/agents";
 import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
+import { meetingFeedLine } from "@/lib/calendar/meeting-file-copy";
 import {
   consentInformationLabel,
   joinInformationLabels,
@@ -209,6 +210,10 @@ function driveFeedLine(
   status: string,
   metadata: Record<string, unknown>,
 ): string {
+  // A meeting recording/notes request names the files asked for and, per type,
+  // the ones the organizer said they don't have. Other Drive rows keep their lines.
+  const meeting = meetingFeedLine(eventType, sharedWithMe ? "requester" : "organizer", status, metadata);
+  if (meeting) return meeting;
   switch (eventType) {
     case "document_share_request_sent":
       return "Request sent";

@@ -10,6 +10,11 @@ type CalendarConnectHeroProps = {
   /** Google authorization lapsed; announced to assistive tech only. */
   needsReauth: boolean;
   onConnect: () => void;
+  /**
+   * The optional email choice for a brand-new connection. Absent when the
+   * account is being reconnected, so nobody is asked twice.
+   */
+  mailChoice?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Sign-in progress and cancel affordance, rendered under the action. */
   children?: ReactNode;
 };
@@ -23,6 +28,7 @@ export function CalendarConnectHero({
   busy,
   needsReauth,
   onConnect,
+  mailChoice,
   children,
 }: CalendarConnectHeroProps) {
   return (
@@ -43,6 +49,27 @@ export function CalendarConnectHero({
         <p role="status" className="sr-only">
           Google authorization needs to be refreshed.
         </p>
+      ) : null}
+
+      {mailChoice ? (
+        <label className="mt-6 flex w-full max-w-[320px] items-start gap-3 text-left text-sm">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 shrink-0"
+            checked={mailChoice.checked}
+            disabled={busy}
+            onChange={(event) => mailChoice.onChange(event.target.checked)}
+          />
+          <span>
+            <span className="block font-medium">
+              Find meeting requests and reminders in my email.
+            </span>
+            <span className="block text-muted-foreground">
+              Optional. Right after Calendar, Google asks for one more permission to read email.
+              Calendar works the same without it.
+            </span>
+          </span>
+        </label>
       ) : null}
 
       <Button

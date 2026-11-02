@@ -15,6 +15,24 @@ from hushh_mcp.services.calendar_email_followup_store_types import (
 )
 
 
+def _notification_expiry(claim: DueClaim, instant: datetime) -> datetime:
+    """A reminder is useful for a day, and never past its own deadline.
+
+    "Before 26 Oct" is exclusive, so it lapses at the start of that day in the
+    owner's time zone; "on/by" lapses at the end of the day.
+    """
+    expires_at = instant + timedelta(days=1)
+    if not claim.due_date:
+        return expires_at
+    end_day = (
+        claim.due_date if claim.due_relation == "before" else claim.due_date + timedelta(days=1)
+    )
+    deadline = datetime.combine(
+        end_day, time.min, tzinfo=ZoneInfo(claim.monitor.time_zone)
+    ).astimezone(UTC)
+    return min(expires_at, deadline)
+
+
 class _DueClaims:
     async def claim_due(self, *, now: datetime | None = None) -> DueClaim | None:
         instant = now or datetime.now(UTC)
@@ -30,6 +48,7 @@ class _DueClaims:
                         ON m.user_id=r.user_id AND m.account_id=r.account_id
                       WHERE m.enabled=TRUE AND m.notifications_enabled=TRUE
                         AND r.state IN ('pending','snoozed') AND r.reminder_at<=:now
+                        AND r.suppressed_at IS NULL
                         AND r.reminder_sent_revision IS DISTINCT FROM r.revision
                         AND (r.reminder_lease_until IS NULL OR r.reminder_lease_until<:now)
                         AND (r.reminder_retry_at IS NULL OR r.reminder_retry_at<=:now)
@@ -106,7 +125,7 @@ class _DueClaims:
                     JOIN calendar_email_followup_conversations c ON c.id=r.conversation_id
                     WHERE r.id=CAST(:id AS UUID) AND r.user_id=:user_id
                       AND r.revision=:revision AND r.reminder_sent_revision=:revision
-                      AND r.state IN ('pending','snoozed')"""),
+                      AND r.state IN ('pending','snoozed') AND r.suppressed_at IS NULL"""),
                         {"id": request_id, "user_id": user_id, "revision": revision},
                     )
                     .mappings()
@@ -210,17 +229,7 @@ class _DueClaims:
 class _DueQueue:
     async def queue_due(self, claim: DueClaim, *, now: datetime | None = None) -> bool:
         instant = now or datetime.now(UTC)
-        expires_at = instant + timedelta(days=1)
-        if claim.due_date:
-            end_day = (
-                claim.due_date
-                if claim.due_relation == "before"
-                else claim.due_date + timedelta(days=1)
-            )
-            deadline = datetime.combine(
-                end_day, time.min, tzinfo=ZoneInfo(claim.monitor.time_zone)
-            ).astimezone(UTC)
-            expires_at = min(expires_at, deadline)
+        expires_at = _notification_expiry(claim, instant)
         if expires_at <= instant:
             await self.expire_due(claim)
             return False
@@ -234,6 +243,7 @@ class _DueQueue:
                     WHERE r.id=CAST(:id AS UUID) AND r.revision=:revision
                       AND r.reminder_lease_id=CAST(:lease_id AS UUID)
                       AND r.state IN ('pending','snoozed') AND r.reminder_at<=:now
+                      AND r.suppressed_at IS NULL
                       AND r.reminder_sent_revision IS DISTINCT FROM r.revision
                       AND m.enabled=TRUE AND m.notifications_enabled=TRUE
                       AND m.generation=CAST(:generation AS UUID)

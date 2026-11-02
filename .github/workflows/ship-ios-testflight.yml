@@ -168,6 +168,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
@@ -184,10 +185,25 @@ jobs:
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
             --format='value(metadata.labels.deploy-sha)')"
-          test "$actual_sha" = "$EXPECTED_SHA" || {
-            echo "UAT backend provenance does not match the TestFlight source SHA." >&2
-            exit 1
-          }
+          if test "$actual_sha" = "$EXPECTED_SHA"; then
+            echo "UAT backend revision matches the TestFlight source SHA ($actual_sha)."
+          else
+            git fetch --no-tags origin uat
+            if ! git merge-base --is-ancestor "$actual_sha" origin/uat; then
+              echo "UAT backend revision $actual_sha is not in protected UAT history." >&2
+              exit 1
+            fi
+            REQUIRED_BRANCH=uat REQUIRE_CI_SUCCESS=1 \
+              REQUIRED_CHECK_NAME="CI Status Gate,Queue Validation,Branch Validation Gate" \
+              bash scripts/ci/require-deploy-sha-on-main.sh "$actual_sha"
+            actual_tree="$(git rev-parse "${actual_sha}^{tree}")"
+            expected_tree="$(git rev-parse "${EXPECTED_SHA}^{tree}")"
+            test "$actual_tree" = "$expected_tree" || {
+              echo "UAT backend provenance does not match the TestFlight source tree ($actual_tree != $expected_tree)." >&2
+              exit 1
+            }
+            echo "UAT backend revision verified by exact tree equivalence ($actual_sha tree $actual_tree == $EXPECTED_SHA tree $expected_tree)."
+          fi
 
       - name: Materialize automatic packaging credentials
         if: inputs.marketing_version == ''

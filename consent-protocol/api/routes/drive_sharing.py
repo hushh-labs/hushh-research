@@ -304,6 +304,11 @@ class CalendarFileSearch(StrictRequest):
     query: str = Field(min_length=3, max_length=80)
 
 
+class CalendarNotAvailable(StrictRequest):
+    revision: int = Field(ge=0, strict=True)
+    types: list[Literal["recording", "notes"]] = Field(min_length=1, max_length=2)
+
+
 class CalendarFilePrepare(StrictRequest):
     candidateToken: dict
     fileIds: list[str] = Field(min_length=1, max_length=8)
@@ -597,6 +602,20 @@ async def calendar_request_files(
 ):
     return await _calendar_call(
         "search_owner_files", owner=owner, request_id=str(request_id), query=body.query
+    )
+
+
+@router.post("/calendar-requests/{request_id}/unavailable")
+async def calendar_request_unavailable(
+    request_id: UUID, body: CalendarNotAvailable, owner: Owner = Depends(_content_owner)
+):
+    """ "Don't have": saved without browsing Drive; B is told per requested type."""
+    return await _calendar_call(
+        "mark_not_available",
+        owner=owner,
+        request_id=str(request_id),
+        revision=body.revision,
+        types=body.types,
     )
 
 
