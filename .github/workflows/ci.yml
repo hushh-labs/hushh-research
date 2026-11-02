@@ -108,9 +108,11 @@ jobs:
         run: bash scripts/ci/orchestrate.sh secret
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
-          GH_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN != '' && secrets.GH_SECURITY_ALERTS_TOKEN || github.token }}
-          REQUIRE_GITHUB_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '1' }}
-          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: ${{ github.actor == 'dependabot[bot]' && '0' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '1' }}
+          # Hosted alert clearance runs only in Main's protected deployment job.
+          # Historical application validation retains the static source scan.
+          GH_TOKEN: ${{ github.token }}
+          REQUIRE_GITHUB_ALERTS_CLEAN: "0"
+          REQUIRE_GITHUB_SECRET_ALERTS_CLEAN: "0"
           REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN: "0"
 
   dco-check:
