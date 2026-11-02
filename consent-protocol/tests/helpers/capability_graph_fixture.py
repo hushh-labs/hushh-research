@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from scripts import generate_capability_graph as generator
 
 GRAPH_RELATIVE = Path("contracts") / "kai" / "one-capability-graph.v1.json"
@@ -115,3 +117,46 @@ class Repo:
         self.git("add", "-A")
         self.git("commit", "-q", "-m", message)
         return self.git("rev-parse", "HEAD")
+
+
+@pytest.fixture
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Repo:
+    """A temp repo: main carries graph v1, feature carries the v2 bypass."""
+
+    for name in (
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITHUB_BASE_REF",
+        "WEB_TARGETED_BASE_REF",
+        generator.CAPABILITY_GRAPH_BASE_REF_ENV,
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    # Keep the developer's global git config (hooks path, signing) out of the
+    # temp repository so the test is hermetic.
+    global_config = tmp_path / "gitconfig"
+    global_config.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    repo = Repo(root)
+    repo.git("init", "-q", "-b", "main")
+    repo.git("config", "user.name", "Capability Graph Test")
+    repo.git("config", "user.email", "capability-graph-test@example.invalid")
+    repo.git("config", "commit.gpgsign", "false")
+
+    repo.write_ledger([])
+    repo.commit("chore: ledger without a graph")
+    repo.write_graph(V1)
+    repo.commit("feat: capability graph v1")
+    repo.git("checkout", "-q", "-b", "feature")
+    repo.write_graph(V2)
+    repo.commit("feat: repurpose X and record breaking: []")
+
+    monkeypatch.setattr(generator, "REPO_ROOT", root)
+    monkeypatch.setattr(generator, "OUTPUTS", tuple(root / mirror for mirror in MIRRORS))
+    monkeypatch.setattr(generator, "EVOLUTION_CONTRACT_PATH", root / LEDGER_RELATIVE)
+    return repo
