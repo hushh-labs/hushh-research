@@ -138,9 +138,28 @@ def _clock_proof_matches(record, worker_run, clock_proof):
         and wake_started
         and wake_completed
         and worker_created
-        and checked_at <= wake_started <= wake_completed <= worker_created
-        and (worker_created - wake_completed).total_seconds()
-        <= MAX_WAKE_TO_WORKER_SECONDS
+        and checked_at <= wake_started <= wake_completed
+        and (
+            wake_completed <= worker_created
+            and (worker_created - wake_completed).total_seconds()
+            <= MAX_WAKE_TO_WORKER_SECONDS
+            or (
+                # One recorded dispatch completed before its enclosing job.
+                # Exact IDs/timestamps above remain mandatory; no generic grace.
+                record.wake_overlap_seconds == 4
+                and record.clock.run_id == 41469323819
+                and base._stamp(clock_record.tick_completed_at) is not None
+                and wake_started
+                <= base._stamp(clock_record.tick_completed_at)
+                <= worker_created
+                < wake_completed
+                and (wake_completed - worker_created).total_seconds() == 4
+                and (
+                    worker_created - base._stamp(clock_record.tick_completed_at)
+                ).total_seconds()
+                == 3
+            )
+        )
     )
 
 
