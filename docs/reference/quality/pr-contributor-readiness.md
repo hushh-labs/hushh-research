@@ -53,9 +53,13 @@ It covers the database schema contracts in `consent-protocol/db/contracts/`
 Back and search review receipts in `hushh-webapp/contracts/ui-review/`
 (`npm run build:ui-contracts`), `hushh-webapp/cache-coherence-screen-manifest.generated.json`
 and `contracts/architecture/runtime-topology-index.v1.json`. Review the diff
-and commit it. `--check` rewrites nothing and lists every stale artifact in one
-run. Both modes need `hushh-webapp/node_modules` and run under Git Bash on
-Windows. Line endings in the Python-written files are kept as LF.
+and commit it. A review receipt minted for UI sources your branch did not
+change is not needed: CI inherits the target branch's evidence for those.
+`--check` rewrites nothing and lists every stale artifact in one run. Both
+modes need `hushh-webapp/node_modules` and run under Git Bash on Windows. Line
+endings in the Python-written files are kept as LF. The capability graph step
+needs a Python with `google-genai`; it uses `consent-protocol/.venv` when
+present, otherwise set `HUSHH_CAPABILITY_GRAPH_PYTHON`.
 
 `scripts/ci/orchestrate.sh governance` runs every governance check even after
 one fails, then prints a summary of all failures and exits non-zero. Fix them

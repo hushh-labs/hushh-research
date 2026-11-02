@@ -102,6 +102,7 @@ check python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py --self-test
 check python3 scripts/ci/verify-branch-governance-doc-consistency.py
 check python3 scripts/ci/verify-branch-governance-doc-consistency.py --self-test
 check python3 scripts/ci/test_verify_deployment_environment_governance.py
+check python3 scripts/ci/test_capacity_gate_rerun_context.py
 check python3 scripts/ci/test_readiness_exam_workflow.py
 check python3 scripts/ci/test_release_cadence.py
 check python3 scripts/ci/test_release_cadence_qualification.py
