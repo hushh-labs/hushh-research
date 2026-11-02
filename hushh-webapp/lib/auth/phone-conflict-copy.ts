@@ -3,14 +3,17 @@ export const PHONE_CONFLICT_COPY = {
   inApp: "That number is already on another Hussh account. Sign in to that account or use a different number.",
 } as const;
 
+export function isPhoneOwnershipConflict(error: unknown, backendCode: string | null = null): boolean {
+  const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
+  return ["PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE", "PHONE_SESSION_ACCOUNT_CONFLICT",
+    "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE",
+    "credential-already-in-use", "phone-number-already-exists"].includes(code);
+}
+
 export function resolvePhoneFailureMessage(error: unknown, fallback: string, backendCode: string | null = null): string {
   const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
-  if (code === "PHONE_TRANSFER_CONFIRMATION_REQUIRED" || code === "PHONE_SESSION_ACCOUNT_CONFLICT") return "This number is linked to another account. Choose how to continue.";
+  if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE", "PHONE_TRANSFER_REAL_SMS_REQUIRED", "PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE"].includes(code)) return PHONE_CONFLICT_COPY.inApp;
   if (code === "PHONE_TRANSFER_IN_PROGRESS") return "Finishing phone transfer. Check progress again.";
-  // Nonproduction lanes on the shared production sign-in can never move a number; recovery needs that account's sign-in.
-  if (code === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") return "Moving a number isn't available in this environment. Delete your previous account or use a different number.";
-  if (code === "PHONE_TRANSFER_REAL_SMS_REQUIRED") return "A shared test code cannot transfer a number. Use fresh real SMS verification.";
-  if (code === "PHONE_ALREADY_VERIFIED" || code === "PHONE_TEST_NUMBER_IN_USE") return "This phone number is verified for another account. Sign in to that account or use a different number.";
   if (code === "PHONE_VERIFICATION_CHANGED" || code === "phone-verification-required") return "Request a new verification code before trying again.";
   if (["IDENTITY_PROVIDER_UNAVAILABLE", "PHONE_IDENTITY_SAVE_FAILED", "DATABASE_UNAVAILABLE"].includes(code)) return "Phone verification is temporarily unavailable. Wait a moment and retry.";
   if (["credential-already-in-use", "phone-number-already-exists"].includes(code)) return PHONE_CONFLICT_COPY.inApp;

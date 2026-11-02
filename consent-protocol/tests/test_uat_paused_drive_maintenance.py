@@ -201,5 +201,8 @@ def test_workflow_skips_worker_mutations_only_with_verified_opt_in() -> None:
     assert (
         "steps.scope.outputs.deploy_backend == 'true'" in by_id["activate-account-deletion"]["if"]
     )
-    assert "verify_release_boundary.sql" in by_id["activate-account-deletion"]["run"]
+    assert (
+        "python3 deploy/account-deletion/activate_release.py"
+        in by_id["activate-account-deletion"]["run"]
+    )
     assert "steps.scope.outputs.deploy_backend == 'true'" in by_id["postdeploy-db-gate"]["if"]
