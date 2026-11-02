@@ -18,7 +18,7 @@ from hushh_mcp.services import phone_test_transport
 from hushh_mcp.services import phone_transfer_service as transfer
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from tests.helpers.phone_transfer_postgres import database_url as database_url
-from tests.helpers.phone_transfer_postgres import seed
+from tests.helpers.phone_transfer_postgres import seed, seed_committed_transfer
 
 PHONE = "+16505550101"
 
@@ -164,7 +164,7 @@ def _configure_transfer_ports(monkeypatch, pool, engine, mode):
         phone_number=PHONE, provider_data=[SimpleNamespace(provider_id="google.com")]
     )
     monkeypatch.setattr(account, "get_firebase_auth_app", lambda: app_identity)
-    monkeypatch.setattr(transfer, "check_provider", lambda *_args: True)
+    monkeypatch.setattr(transfer, "check_provider", Mock(return_value=True))
     monkeypatch.setattr(auth, "get_user", lambda *_args, **_kwargs: provider_user)
     monkeypatch.setattr(firebase_admin, "assert_firebase_identity_mutation_allowed", lambda _: None)
 
@@ -180,7 +180,7 @@ def _configure_transfer_ports(monkeypatch, pool, engine, mode):
             raise TimeoutError("synthetic-provider-response-lost")
 
     effect = Mock(side_effect=update)
-    monkeypatch.setattr(account, "_verify_phone_claim_id_token", verify)
+    monkeypatch.setattr(account, "_verify_phone_claim_id_token", AsyncMock(side_effect=verify))
     monkeypatch.setattr(transfer.mutations, "_update_identity", effect)
     app = FastAPI()
     app.include_router(account.router)
@@ -190,26 +190,7 @@ def _configure_transfer_ports(monkeypatch, pool, engine, mode):
 
 
 def _assert_transfer_trace(events, headers, enabled, payload):
-    expected_stages = (
-        [
-            "receive",
-            "provider",
-            "response",
-            "receive",
-            "provider",
-            "persist",
-            "provider",
-            "response",
-            "receive",
-            "response",
-            "receive",
-            "response",
-            "receive",
-            "response",
-        ]
-        if enabled
-        else ["receive", "response", "receive", "response"]
-    )
+    expected_stages = ["receive", "response", "receive", "response"]
     assert [event["name"] for event in events] == [
         f"auth.phone.{stage}" for stage in expected_stages
     ]
@@ -223,7 +204,7 @@ def _assert_transfer_trace(events, headers, enabled, payload):
 @pytest.mark.feature_auth_reliability
 @pytest.mark.trace_loop
 @pytest.mark.parametrize("mode", ["off", "on", "unset", "uncertain"])
-async def test_http_transfer_trace_loop_preserves_information_without_retrying_effects(
+async def test_http_transfer_refusal_preserves_information_across_reliability_flags(
     database_url, monkeypatch, mode
 ):
     import httpx
@@ -247,46 +228,47 @@ async def test_http_transfer_trace_loop_preserves_information_without_retrying_e
                 transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
             ) as client:
                 prepared = await client.post("/api/account/phone/transfer/prepare", json=payload)
-                assert prepared.status_code == (200 if enabled else 503)
-                operation_id = prepared.json().get("transfer_id", str(uuid4()))
+                assert prepared.status_code == 409
+                assert prepared.json()["detail"]["code"] == "PHONE_ALREADY_VERIFIED"
+                operation_id = str(uuid4())
                 confirmed = await client.post(
                     "/api/account/phone/transfer/confirm",
                     json={**payload, "transfer_id": operation_id, "confirmed": True},
                 )
-                assert confirmed.status_code == (200 if enabled else 503)
-                if enabled:
-                    expected = "in_progress" if mode == "uncertain" else "completed"
-                    assert confirmed.json()["transfer_status"] == expected
-                    # A retry after a lost provider response is status-only, even
-                    # when a provider read would now show the phone absent.
-                    for _ in range(2):
-                        status = await client.get(f"/api/account/phone/transfer/{operation_id}")
-                        assert status.status_code == 200
-                        assert status.json()["transfer_status"] == expected
-                    replay = await client.post(
-                        "/api/account/phone/transfer/confirm",
-                        json={**payload, "transfer_id": operation_id, "confirmed": True},
+                assert confirmed.status_code == 409
+                assert confirmed.json()["detail"]["code"] == "PHONE_ALREADY_VERIFIED"
+                with pytest.raises(identity.ActorIdentityPhoneClaimConflictError):
+                    await identity.ActorIdentityService().claim_verified_phone(
+                        user_id="receiving-a", phone_number=PHONE
                     )
-                    assert replay.status_code == 409
-                else:
-                    with pytest.raises(identity.ActorIdentityPhoneClaimConflictError):
-                        await identity.ActorIdentityService().claim_verified_phone(
-                            user_id="receiving-a", phone_number=PHONE
-                        )
             assert time.perf_counter() - started < 5
             _assert_transfer_trace(events, headers, enabled, payload)
-        assert effect.call_count == int(enabled)
+        effect.assert_not_called()
+        account._verify_phone_claim_id_token.assert_not_awaited()
+        transfer.check_provider.assert_not_called()
         async with pool.acquire() as conn:
             assert await conn.fetchrow("SELECT * FROM pkm_data WHERE user_id='previous'") == before
             assert await conn.fetchrow("SELECT * FROM shared_files_storage") == before_files
             assert await conn.fetchval("SELECT vault_status FROM vault_keys") == "locked"
-            assert await conn.fetchval(
-                "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
-                PHONE,
-            ) == ("receiving-a" if enabled else "previous")
-            assert await conn.fetchval(
-                "SELECT count(*) FROM internal_access_events WHERE action='REVOKED'"
-            ) == int(enabled)
+            assert (
+                await conn.fetchval(
+                    "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
+                    PHONE,
+                )
+                == "previous"
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT count(*) FROM internal_access_events WHERE action='REVOKED'"
+                )
+                == 0
+            )
+            for table in (
+                "account_phone_transfers",
+                "account_firebase_mutations",
+                "account_phone_auth_fences",
+            ):
+                assert await conn.fetchval(f"SELECT count(*) FROM {table}") == 0
     finally:
         engine.dispose()
         await pool.close()
@@ -294,55 +276,88 @@ async def test_http_transfer_trace_loop_preserves_information_without_retrying_e
 
 @pytest.mark.feature_auth_reliability
 @pytest.mark.trace_loop
-async def test_not_started_status_fences_a_confirm_still_waiting_for_provider(
+@pytest.mark.parametrize("mode", ["on", "uncertain"])
+async def test_historical_transfer_http_status_does_not_retry_effects(
+    database_url, monkeypatch, mode
+):
+    import httpx
+
+    pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=5)
+    engine = create_engine(database_url)
+    app, effect = _configure_transfer_ports(monkeypatch, pool, engine, mode)
+    headers = {"X-Trace-Id": "historical-phone-transfer-http-loop"}
+    payload = {"phone_id_token": "synthetic-signed-proof"}
+    try:
+        intents, before = await seed(pool)
+        assert await seed_committed_transfer(pool, intents[0])
+        expected = "in_progress" if mode == "uncertain" else "completed"
+        assert (
+            await transfer.dispatch(intents[0].operation_id, account.get_firebase_auth_app())
+            == expected
+        )
+        with capture_request_trace_events() as events:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
+            ) as client:
+                for _ in range(2):
+                    status = await client.get(
+                        f"/api/account/phone/transfer/{intents[0].operation_id}"
+                    )
+                    assert status.status_code == 200
+                    assert status.json()["transfer_status"] == expected
+            _assert_transfer_trace(events, headers, True, payload)
+        effect.assert_called_once()
+        account._verify_phone_claim_id_token.assert_not_awaited()
+        async with pool.acquire() as conn:
+            assert await conn.fetchrow("SELECT * FROM pkm_data WHERE user_id='previous'") == before
+            assert (
+                await conn.fetchval(
+                    "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
+                    PHONE,
+                )
+                == "receiving-a"
+            )
+    finally:
+        engine.dispose()
+        await pool.close()
+
+
+@pytest.mark.feature_auth_reliability
+@pytest.mark.trace_loop
+async def test_historical_prepared_status_fences_retired_transfer_endpoints(
     database_url, monkeypatch
 ):
-    import asyncio
-    import threading
-
     import httpx
 
     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=5)
     engine = create_engine(database_url)
     app, effect = _configure_transfer_ports(monkeypatch, pool, engine, "on")
-    started, release = threading.Event(), threading.Event()
-    pending = None
-
-    def provider(*_args):
-        started.set()
-        assert release.wait(3), "Synthetic provider gate was not released"
-        return True
-
     try:
-        _, before = await seed(pool)
-        async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM account_phone_transfers")
+        intents, before = await seed(pool)
         payload = {"phone_id_token": "synthetic-signed-proof", "expected_user_id": "receiving-a"}
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            prepared = await client.post("/api/account/phone/transfer/prepare", json=payload)
-            assert prepared.status_code == 200
-            operation_id = prepared.json()["transfer_id"]
-            monkeypatch.setattr(transfer, "check_provider", provider)
-            pending = asyncio.create_task(
-                client.post(
-                    "/api/account/phone/transfer/confirm",
-                    json={**payload, "transfer_id": operation_id, "confirmed": True},
-                )
-            )
-            assert await asyncio.wait_for(asyncio.to_thread(started.wait, 2), 3)
+            operation_id = intents[0].operation_id
             status = await client.get(f"/api/account/phone/transfer/{operation_id}")
             assert status.status_code == 200 and status.json()["transfer_status"] == "not_started"
-            release.set()
-            late = await asyncio.wait_for(pending, 3)
+            late = await client.post(
+                "/api/account/phone/transfer/confirm",
+                json={**payload, "transfer_id": operation_id, "confirmed": True},
+            )
             assert late.status_code == 409
-            # Cancellation spends this still-fresh SMS event through its validity
-            # window; pruning must not permit it to create a replacement intent.
+            assert late.json()["detail"]["code"] == "PHONE_ALREADY_VERIFIED"
             reused = await client.post("/api/account/phone/transfer/prepare", json=payload)
             assert reused.status_code == 409
+            assert reused.json()["detail"]["code"] == "PHONE_ALREADY_VERIFIED"
         effect.assert_not_called()
+        account._verify_phone_claim_id_token.assert_not_awaited()
+        transfer.check_provider.assert_not_called()
         async with pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT expires_at<=clock_timestamp() FROM account_phone_transfers WHERE operation_id=$1::uuid",
+                operation_id,
+            )
             assert (
                 await conn.fetchval(
                     "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1", PHONE
@@ -353,8 +368,5 @@ async def test_not_started_status_fences_a_confirm_still_waiting_for_provider(
             assert await conn.fetchval("SELECT count(*) FROM account_firebase_mutations") == 0
             assert await conn.fetchval("SELECT count(*) FROM internal_access_events") == 0
     finally:
-        release.set()
-        if pending:
-            await asyncio.gather(pending, return_exceptions=True)
         engine.dispose()
         await pool.close()
