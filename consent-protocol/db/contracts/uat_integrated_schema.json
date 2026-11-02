@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 446,
+  "expected_migration_version": 447,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -345,7 +345,10 @@
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding"
+    "enforce_stripe_payout_source_binding",
+    "guard_advisor_review",
+    "end_advisor_reviews",
+    "advisor_subscription_retirement"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -545,6 +548,13 @@
       "verification_status",
       "verified_at"
     ],
+    "advisor_billing_cleanup": [
+      "resource_id",
+      "resource_kind",
+      "stripe_mode",
+      "completed_at",
+      "attempts"
+    ],
     "advisor_investor_relationships": [
       "consent_granted_at",
       "created_at",
@@ -553,6 +563,39 @@
       "investor_user_id",
       "ria_profile_id",
       "status",
+      "updated_at"
+    ],
+    "advisor_review_requests": [
+      "id",
+      "owner_user_id",
+      "advisor_user_id",
+      "advisor_person_ref",
+      "status",
+      "fingerprint",
+      "content_hash",
+      "envelope",
+      "owner_envelope",
+      "introduction",
+      "connection_id",
+      "created_at",
+      "updated_at",
+      "expires_at",
+      "accepted_at",
+      "meeting",
+      "plan",
+      "plan_revision"
+    ],
+    "advisor_review_subscriptions": [
+      "request_id",
+      "stripe_mode",
+      "payee_account",
+      "plan_revision",
+      "plan_hash",
+      "checkout_session_id",
+      "subscription_id",
+      "customer_id",
+      "status",
+      "created_at",
       "updated_at"
     ],
     "agent_chat_conversations": [
@@ -4876,5 +4919,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 446
+  "expected_schema_head": 447
 }

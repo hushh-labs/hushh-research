@@ -396,7 +396,7 @@ async function getFinancialScopedBlob(params: {
   };
 }
 
-function selectProfileFromFinancialDomain(financialValue: unknown): KaiProfileV2 {
+export function selectProfileFromFinancialDomain(financialValue: unknown): KaiProfileV2 {
   if (financialValue && typeof financialValue === "object" && !Array.isArray(financialValue)) {
     const financialRecord = financialValue as Record<string, unknown>;
     const canonicalProfile = financialRecord.profile;

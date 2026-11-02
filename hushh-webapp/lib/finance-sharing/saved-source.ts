@@ -1,3 +1,4 @@
+import { selectProfileFromFinancialDomain } from "@/lib/services/kai-profile-service";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { getActiveSource, getActiveStatementSnapshotId, getStatementPortfolio, getPlaidPortfolio, getStatementSnapshots } from "@/lib/kai/brokerage/financial-sources";
@@ -64,5 +65,5 @@ export async function readSavedFinance(context: FinanceShareContext, source: Fin
   const artifacts = resolvedSource.representation === "current-v7" ? getStatementSnapshots(financial).map(s => [s.id, s.artifact_ref]) : [];
   const sourceFence = await financeDigest(JSON.stringify([resolvedSource, accounts, connections, Object.keys((core?.accounts as object) || {}).sort(), artifacts, portfolio.account_info?.account_number ?? null]));
   requireFinanceSession(context);
-  return { model: mapPortfolioToDashboardViewModel(modelPortfolio), portfolio: modelPortfolio, sourceFence, source: resolvedSource };
+  return { profile: selectProfileFromFinancialDomain(financial), model: mapPortfolioToDashboardViewModel(modelPortfolio), portfolio: modelPortfolio, sourceFence, source: resolvedSource };
 }
