@@ -187,3 +187,45 @@ async def test_paged_scan_resumes_failed_section_without_dropping_tail(monkeypat
 
 async def _grant(value):
     return value
+
+
+@pytest.mark.asyncio
+async def test_reassessment_queues_the_next_stale_threads_instead_of_idling():
+    """Earlier follow-ups used to be reassessed two threads per five minutes."""
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import _initial_checkpoint
+    from hushh_mcp.services.calendar_email_followup_scan_navigation import _step_thread
+
+    class Stale(_Store):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batches = [["thread-b", "thread-c"], []]
+
+        async def stale_assessment_threads(
+            self, monitor, *, cutoff_ms, limit=2, exclude=frozenset()
+        ):
+            return self.batches.pop(0)
+
+    store = Stale()
+    checkpoint = _initial_checkpoint(store.current, snapshot_ms=0, history_id="100")
+    checkpoint.update(
+        mode="reassess", pending_threads=["thread-a"], thread_index=1, history_current_id="105"
+    )
+    common = {
+        "monitor": store.current,
+        "store": store,
+        "grant": None,
+        "client": None,
+        "sections_left": 2,
+        "now": None,
+    }
+    # The first batch is done and more threads wait: the pass keeps going.
+    assert await _step_thread(checkpoint=checkpoint, **common) == (0, 0, False)
+    assert (checkpoint["mode"], checkpoint["pending_threads"]) == (
+        "reassess",
+        ["thread-b", "thread-c"],
+    )
+    assert checkpoint["history_id"] == "105"
+    # Nothing is left after that batch: the pass ends and the scan is complete.
+    checkpoint["thread_index"] = 2
+    assert await _step_thread(checkpoint=checkpoint, **common) == (0, 0, True)
+    assert (checkpoint["mode"], store.state) == ("history", "complete")

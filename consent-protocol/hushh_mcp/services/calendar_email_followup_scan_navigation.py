@@ -97,6 +97,12 @@ async def _step_thread(
         if checkpoint["page_token"] is None:
             if checkpoint["mode"] == "bootstrap":
                 checkpoint["mode"] = "history"
+            elif checkpoint["mode"] == "reassess":
+                # Earlier follow-ups may still await reassessment. Queue the next
+                # few now rather than idling for the ordinary five minutes; each
+                # thread is revisited at most twice, so this always ends.
+                checkpoint["mode"] = "history"
+                return await _finish_pass(store, monitor, checkpoint, now)
             elif checkpoint["mode"] in _BATCH_MODES:
                 checkpoint["mode"] = "history"
                 await _save(

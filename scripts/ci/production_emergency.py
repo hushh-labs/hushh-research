@@ -30,6 +30,7 @@ def require(condition: object, message: str) -> None:
 
 def dispatch(event: dict, environment: dict, policy: dict) -> dict:
     inputs = event.get("inputs") or {}
+    refresh = importlib.import_module("production_auth_domain_refresh").validate_inputs(inputs)
     source_ref = inputs.get("emergency_source_ref", "")
     reason = inputs.get("emergency_reason", "")
     if not source_ref and not reason:
@@ -88,6 +89,7 @@ def dispatch(event: dict, environment: dict, policy: dict) -> dict:
     )
     return {
         "mode": "manual-emergency",
+        **({"frontend_auth_domain_refresh": True} if refresh else {}),
         "application_sha": inputs["sha"],
         "source_ref": source_ref,
         "reason": reason.strip(),
@@ -199,7 +201,7 @@ def admit(authority: dict, observed: dict, scope: str, *, run=command) -> dict:
         # A scoped patch must not discard either side of the serving pair.
         run("git", "fetch", "--no-tags", "origin", source)
         run("git", "merge-base", "--is-ancestor", source, application)
-    return {
+    receipt = {
         "schema_version": 1,
         "kind": "manual-production-predecessor-exception",
         "authority": authority,
@@ -215,6 +217,10 @@ def admit(authority: dict, observed: dict, scope: str, *, run=command) -> dict:
         ],
         "ordinary_promotion_evidence": False,
     }
+
+    if authority.get("frontend_auth_domain_refresh") is True:
+        importlib.import_module("production_auth_domain_refresh").validate_source(receipt, run=run)
+    return receipt
 
 
 def recheck(receipt: dict, authority: dict, observed: dict) -> None:

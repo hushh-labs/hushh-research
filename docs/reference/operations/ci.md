@@ -96,6 +96,29 @@ This command runs the same blocking local CI surface that feeds GitHub `PR Valid
 | Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
 | Operations/hotfix source | Reviewed Main PR | CI, Admin/queue procedure and landed smoke | Merge does not deploy an application |
 
+### Branded sign-in repair of the restored frontend
+
+The explicit `frontend_auth_domain_refresh=true` incident input is restricted to
+candidate `00507b68ea293524f73ad42b1839984bcaa46c98`, whose application tree matches
+the restored `d8a5fa4858741e611d39fd4f1f28b1ab930d057c` release. Its only source
+change removes retired alert-reader credentials from historical CI. This is not
+permission to deploy current Main application code.
+
+The existing emergency route still requires exact-source validation, protected
+deployment security, a governed incident and captured rollback revisions. It pins
+the original frontend build secret versions, changing only the Firebase auth
+domain to `id.hussh.ai`. It refuses a changed serving baseline or enabled document
+intake; configured storage and the unchanged backend are preserved. Frontend
+health includes the published auth-domain check and backend identity readback;
+failure uses the existing rollback. No database migration or backend deployment
+belongs to this frontend-only repair. Successful deployment invalidates its old
+baseline, so another fresh invocation cannot reuse the exception.
+
+Historical restoration evidence retains its reviewed producer exclusions even
+when later dispatch modes add stricter conditions. The maintenance guard accepts
+those exact exclusions only with the pinned historical restoration job; changed
+or missing exclusions still refuse deployment.
+
 ### Verify the current Production release
 
 ```bash
