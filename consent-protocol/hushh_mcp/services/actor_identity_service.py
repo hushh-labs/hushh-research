@@ -115,6 +115,18 @@ class ActorIdentitySyncUnavailableError(RuntimeError):
         super().__init__(self.message)
 
 
+class ActorIdentityPeerUnavailableError(ActorIdentitySyncUnavailableError):
+    """The provider has no usable account for this id (deleted or disabled), not an outage."""
+
+
+def _sync_unavailable(exc: BaseException | None = None) -> ActorIdentitySyncUnavailableError:
+    """A deleted or disabled account is final; any other failure may pass."""
+    from firebase_admin import auth as firebase_auth
+
+    gone = exc is None or isinstance(exc, getattr(firebase_auth, "UserNotFoundError", ()))
+    return (ActorIdentityPeerUnavailableError if gone else ActorIdentitySyncUnavailableError)()
+
+
 class ActorIdentityService:
     @staticmethod
     async def _ensure_actor_spine(conn: asyncpg.Connection, user_id: str) -> None:
@@ -1763,13 +1775,13 @@ class ActorIdentityService:
                 type(exc).__name__,
             )
             if require_success:
-                raise ActorIdentitySyncUnavailableError() from None
+                raise _sync_unavailable(exc) from None
             return None
 
         # Quarantined or unavailable users cannot create fresh identity proof.
         if user_record is None or getattr(user_record, "disabled", False) is True:
             if require_success:
-                raise ActorIdentitySyncUnavailableError()
+                raise _sync_unavailable()
             return None
 
         return user_record

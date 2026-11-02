@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   insights: vi.fn(), requestFiles: vi.fn(), requestStatuses: vi.fn(), approvedDetail: vi.fn(),
-  requestReadiness: vi.fn(), getIdToken: vi.fn(), copy: vi.fn(),
+  getIdToken: vi.fn(), copy: vi.fn(),
 }));
 vi.mock("@/lib/services/calendar-insights-service", () => ({
   CalendarInsightsService: { read: mocks.insights, requestFiles: mocks.requestFiles,
-    requestStatuses: mocks.requestStatuses, approvedDetail: mocks.approvedDetail, requestReadiness: mocks.requestReadiness },
+    requestStatuses: mocks.requestStatuses, approvedDetail: mocks.approvedDetail },
   CalendarInsightsRequestError: class extends Error {
     constructor(message: string, readonly status: number, readonly code?: string, readonly reason?: string) { super(message); }
   },
@@ -83,7 +83,6 @@ describe("Calendar Insights Ask organizer journey", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T06:00:00Z"));
     mocks.getIdToken.mockResolvedValue("firebase-owner-token");
-    mocks.requestReadiness.mockResolvedValue("ready");
     mocks.insights.mockImplementation(async (path: string, body: { date: string; time_zone: string }) =>
       path === "meetings"
         ? { complete: true, calendar_complete: true, next_cursor: null, date: body.date, time_zone: body.time_zone,
@@ -103,11 +102,6 @@ describe("Calendar Insights Ask organizer journey", () => {
     expect(screen.getByRole("button", { name: "Ask organizer" })).toBeDisabled(); // nothing chosen yet
     noOldControls();
     expect(screen.queryByText(NOT_CONNECTED_HINT)).toBeNull();
-    expect(mocks.requestReadiness.mock.calls[0]?.[0]).toEqual({
-      account_id: "default", calendar_id: "primary", event_id: "a", occurrence_id: row.occurrence_id,
-      expected_grant: grant, date: "2026-10-14", time_zone: "UTC",
-    });
-    expect(mocks.requestReadiness.mock.calls[0]?.[2]).toBe("vault-owner-token");
   });
 
   it("a connected requester asks once, in one tap, and sees Request sent with no redirect", async () => {
@@ -142,26 +136,23 @@ describe("Calendar Insights Ask organizer journey", () => {
     expect(mocks.requestFiles.mock.calls[1]?.[1]).toEqual(["notes"]);
   });
 
-  it("an unconnected requester sees the same controls, cannot send, and gets one quiet hint that links to Connect", async () => {
-    mocks.requestReadiness.mockResolvedValue("not_connected");
-    await openMeeting();
+  it.each([
+    ["calendar_organizer_unavailable", "organizer_unresolved"],
+    ["connection_required", undefined],
+  ])("Ask is never gated: when the server finds no connected organizer (%s) nothing is sent and one quiet hint links to Connect", async (code, reason) => {
+    mocks.requestFiles.mockRejectedValue(refusal(409, code, reason));
+    const ask = await reachAsk(); // enabled with no connection pre-check
+    expect(screen.queryByRole("link", { name: /connect/i })).toBeNull(); // nothing about connecting before the server answers
+    fireEvent.click(askButton());
     const hint = await screen.findByRole("link", { name: NOT_CONNECTED_HINT });
     expect(hint).toHaveAttribute("href", "/one/connect");
-    expect(screen.getByRole("tab", { name: "Both" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("tab", { name: "Recording" }));
-    expect(screen.getByRole("button", { name: "Ask organizer" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Ask organizer" }));
-    expect(mocks.requestFiles).not.toHaveBeenCalled();
-    noOldControls();
-    expect(screen.queryByText("Connect with the organizer to request files")).toBeNull();
     expect(screen.getAllByRole("link", { name: /connect/i })).toHaveLength(1); // one hint, never a button
-  });
-
-  it("tapping the hint remembers the meeting, account, day and chosen type for the way back", async () => {
-    mocks.requestReadiness.mockResolvedValue("not_connected");
-    await openMeeting();
-    fireEvent.click(await screen.findByRole("tab", { name: "Recording" }));
-    const hint = await screen.findByRole("link", { name: NOT_CONNECTED_HINT });
+    expect(screen.queryByTestId("calendar-request-recovery")).toBeNull();
+    expect(screen.queryByText(/Request sent/)).toBeNull();
+    expect(mocks.requestFiles).toHaveBeenCalledTimes(1);
+    expect(ask).toBeEnabled(); // a later connection works with a second tap, no reload
+    noOldControls();
+    // Tapping the hint remembers the meeting, account, day and chosen type for the way back.
     hint.addEventListener("click", event => event.preventDefault());
     fireEvent.click(hint);
     expect(consumeCalendarMeetingOAuthReturn("owner")).toEqual({
@@ -171,83 +162,22 @@ describe("Calendar Insights Ask organizer journey", () => {
   });
 
   it("a connected requester never sees anything about connecting", async () => {
-    await openMeeting();
-    await screen.findByRole("button", { name: "Ask organizer" });
+    mocks.requestFiles.mockResolvedValue(asked("recording"));
+    await reachAsk();
     expect(screen.queryByRole("link", { name: /connect/i })).toBeNull();
     expect(screen.queryByText(/connected on One|Waiting for connection/)).toBeNull();
-  });
-
-  it("a pending connection is handled separately and rechecks itself until it is accepted", async () => {
-    mocks.requestReadiness.mockResolvedValueOnce("pending").mockResolvedValue("ready");
-    await openMeetingWithFakeTimers();
-    expect(screen.getByText("Waiting for connection approval.")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: NOT_CONNECTED_HINT })).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Recording" }));
-    expect(screen.getByRole("button", { name: "Ask organizer" })).toBeDisabled();
-    await act(async () => { await vi.advanceTimersByTimeAsync(16_000); }); // no tap, no reload, no navigation
-    expect(screen.queryByText("Waiting for connection approval.")).toBeNull();
-    expect(screen.getByRole("button", { name: "Ask organizer" })).toBeEnabled();
-    expect(mocks.requestReadiness).toHaveBeenCalledTimes(2);
-  });
-
-  it("a connection accepted while the meeting is open enables asking on the next Feed change", async () => {
-    mocks.requestReadiness.mockResolvedValueOnce("not_connected").mockResolvedValue("ready");
-    await openMeeting();
-    expect(await screen.findByText(NOT_CONNECTED_HINT)).toBeInTheDocument();
-    act(() => dispatchFeedStateChanged("arrived"));
-    await waitFor(() => expect(screen.queryByText(NOT_CONNECTED_HINT)).toBeNull());
-    fireEvent.click(screen.getByRole("tab", { name: "Notes" }));
-    expect(screen.getByRole("button", { name: "Ask organizer" })).toBeEnabled();
-  });
-
-  it("an authoritative refusal at Ask re-reads the connection and only brings the quiet hint back", async () => {
-    mocks.requestFiles.mockRejectedValue(refusal(409, "calendar_organizer_unavailable", "organizer_unresolved"));
-    await reachAsk();
-    mocks.requestReadiness.mockResolvedValue("not_connected");
     fireEvent.click(askButton());
-    expect(await screen.findByText(NOT_CONNECTED_HINT)).toBeInTheDocument();
-    expect(screen.queryByTestId("calendar-request-recovery")).toBeNull();
-    noOldControls();
-    expect(mocks.requestFiles).toHaveBeenCalledTimes(1);
-    expect(mocks.requestReadiness).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("Request sent · Waiting for organizer")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /connect/i })).toBeNull();
   });
 
-  it("a connection_required answer that turns out pending shows the pending line", async () => {
-    mocks.requestFiles.mockRejectedValue(refusal(409, "connection_required"));
-    await reachAsk();
-    mocks.requestReadiness.mockResolvedValue("pending");
-    fireEvent.click(askButton());
-    expect(await screen.findByText("Waiting for connection approval.")).toBeInTheDocument();
-    noOldControls();
-  });
-
-  it("an organizer One cannot confirm is explained without sending or copying", async () => {
-    mocks.requestReadiness.mockResolvedValue("unavailable");
-    await openMeeting();
-    expect(await screen.findByText(/can't confirm who this organizer is/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Ask organizer" })).toBeNull();
-    noOldControls();
-  });
-
-  it("a locked vault asks to unlock and is never read as unconnected", async () => {
+  it("a locked vault asks to unlock at Ask, sends nothing and is never read as unconnected", async () => {
     await openMeeting(() => null);
+    fireEvent.click(await screen.findByRole("tab", { name: "Recording" }));
+    fireEvent.click(askButton());
     expect(await screen.findByText("Unlock your vault to ask the organizer.")).toBeInTheDocument();
-    expect(mocks.requestReadiness).not.toHaveBeenCalled();
-    expect(screen.queryByText(NOT_CONNECTED_HINT)).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Recording" }));
+    expect(screen.queryByRole("link", { name: NOT_CONNECTED_HINT })).toBeNull();
     expect(mocks.requestFiles).not.toHaveBeenCalled();
-  });
-
-  it("a check that could not finish offers a retry and never claims the organizer is unconnected", async () => {
-    mocks.requestReadiness
-      .mockRejectedValueOnce(refusal(503, "recipient_verification_unavailable", undefined, "Couldn't check their Google account. Try again."))
-      .mockResolvedValueOnce("ready");
-    await openMeeting();
-    expect(await screen.findByText(/Couldn.t check right now/)).toBeInTheDocument();
-    expect(screen.queryByText(NOT_CONNECTED_HINT)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(screen.queryByText(/Couldn.t check right now/)).toBeNull());
-    expect(mocks.requestReadiness).toHaveBeenCalledTimes(2);
   });
 
   it("the organizer's Don't have is reported per type, and that type is not offered again", async () => {
@@ -328,7 +258,6 @@ describe("Calendar Insights Ask organizer journey", () => {
         occurrenceId: "c".repeat(64), requestedTypes: ["notes"] }} />);
     expect(await screen.findByRole("button", { name: /Growth Sync/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ask organizer" })).toBeNull();
-    expect(mocks.requestReadiness).not.toHaveBeenCalled();
   });
 
   it("Copy writes the meeting-specific request for a refusal that is not about a connection", async () => {
@@ -350,25 +279,27 @@ describe("Calendar Insights Ask organizer journey", () => {
   });
 
   it("a meeting with no organizer One can reach can only be copied, never connected", async () => {
-    mocks.requestReadiness.mockRejectedValue(refusal(409, "calendar_organizer_unavailable", "organizer_missing"));
-    await openMeeting();
+    mocks.requestFiles.mockRejectedValue(refusal(409, "calendar_organizer_unavailable", "organizer_missing"));
+    await reachAsk();
+    fireEvent.click(askButton());
     const panel = await screen.findByTestId("calendar-request-recovery");
     expect(within(panel).queryByRole("link", { name: "Connect" })).toBeNull();
     expect(within(panel).getByRole("button", { name: "Copy request" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Ask organizer" })).toBeNull();
+    expect(screen.queryByRole("link", { name: NOT_CONNECTED_HINT })).toBeNull();
   });
 
   it.each([
     ["requester_is_organizer", /organized this meeting/],
     ["event_cancelled", /was cancelled/],
     ["requester_declined", /declined this meeting/],
-  ])("attendee refusal %s is explained before anything can be sent", async (reason, text) => {
-    mocks.requestReadiness.mockRejectedValue(refusal(409, "calendar_attendee_required", reason));
-    await openMeeting();
+  ])("attendee refusal %s is explained when Ask is refused, with nothing sent", async (reason, text) => {
+    mocks.requestFiles.mockRejectedValue(refusal(409, "calendar_attendee_required", reason));
+    await reachAsk();
+    fireEvent.click(askButton());
     const panel = await screen.findByTestId("calendar-request-recovery");
     expect(within(panel).getByRole("alert")).toHaveTextContent(text);
-    expect(screen.queryByRole("button", { name: "Ask organizer" })).toBeNull();
-    expect(mocks.requestFiles).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Request sent/)).toBeNull();
+    expect(mocks.requestFiles).toHaveBeenCalledTimes(1);
   });
 
   it("a temporary lookup failure at Ask stays retryable and a second tap can succeed", async () => {

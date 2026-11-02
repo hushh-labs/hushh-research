@@ -419,8 +419,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const request = useMeetingRequest({
     selection: selected ? { account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone } : null,
-    contextKey: actionContext, revision, getIdToken: () => getToken.current(), getVaultOwnerToken,
-    active: canRefresh && view === "meeting" && Boolean(selected) && offeredKinds.length > 0,
+    contextKey: actionContext, getIdToken: () => getToken.current(), getVaultOwnerToken,
     // Keep every request for the meeting: a later ask for the other type must not hide the first.
     onSent: (occurrenceId, sent) => setOutcomes(previous => ({ ...previous, [occurrenceId]: {
       occurrence_id: occurrenceId,
