@@ -22,6 +22,7 @@ import httpx
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 from db.db_client import get_db
+from hushh_mcp.services.gmail_mailbox_selected_proposal import SelectedMailboxProposalMixin
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader, RequireAccess
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
@@ -48,7 +49,7 @@ def _error(code: str, message: str, status_code: int = 409) -> GmailApiError:
     return GmailApiError(message, status_code=status_code, code=code)
 
 
-class GmailMailboxActions:
+class GmailMailboxActions(SelectedMailboxProposalMixin):
     def __init__(
         self,
         *,

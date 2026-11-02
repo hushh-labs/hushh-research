@@ -382,3 +382,32 @@ def test_invitation_read_and_client_review_keep_provider_details_out_of_durable_
     assert directive_key not in projected.state
     assert "PRIVATE_" not in projected.model_dump_json()
     assert projected.events[1].content.parts[0].function_call.args == {}
+
+
+def test_email_review_payload_is_ephemeral_but_final_answer_and_commit_locator_survive():
+    key = "hussh:pending_directive:agent_email_specialist"
+    private = {
+        "payload": {
+            "body": "PRIVATE_REVIEW_ONLY_DRAFT",
+            "fact_markdown": "PRIVATE_REVIEW_ONLY_FACT",
+        }
+    }
+    locator = {
+        "request_id": "opaque-request",
+        "digest": "opaque-digest",
+        "receipt_ref": "opaque-receipt",
+    }
+    final = _event([types.Part(text="Complete visible Email answer.")])
+    final.custom_metadata = {"kind": "one_delegated_email_answer_v1"}
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        state={key: private, "hussh:email_memory_pending": locator},
+        events=[final, Event(author="one", actions=EventActions(state_delta={key: private}))],
+    )
+    projected = durable_external_read_projection(session)
+    assert "PRIVATE_REVIEW_ONLY" not in projected.model_dump_json()
+    assert projected.events[0].content.parts[0].text == "Complete visible Email answer."
+    assert projected.state["hussh:email_memory_pending"] == locator
+    assert "PRIVATE_REVIEW_ONLY_DRAFT" in session.model_dump_json()

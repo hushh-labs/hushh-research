@@ -1644,3 +1644,22 @@ tests/test_one_runtime_configuration.py
 
 # Protected Main release clearance and current-attempt consumer boundaries.
 tests/test_deployment_security.py
+
+tests/test_email_oss_runtime.py
+
+tests/test_email_oss_routing.py
+
+tests/test_email_oss_gmail_execution.py
+
+tests/test_email_oss_memory.py
+
+tests/test_email_oss_accounting.py
+
+tests/test_email_oss_turn_context.py
+
+tests/test_email_oss_bindings.py
+tests/test_email_oss_legacy_history.py
+tests/test_email_oss_mailbox_review.py
+tests/test_email_oss_publication.py
+tests/test_email_oss_transport.py
+tests/test_email_oss_effect_failures.py

@@ -5,19 +5,16 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from ag_ui.core import EventType, RunAgentInput, UserMessage
+from ag_ui.core import EventType
 from ag_ui_adk.event_translator import adk_events_to_messages
-from google.adk.apps import App
-from google.adk.sessions import InMemorySessionService
 
 from hushh_mcp.adk_bridge import delegation
 from hushh_mcp.one_adk import queued_input
 from hushh_mcp.one_adk.agent_tree import build_one_text_agent
-from hushh_mcp.one_adk.agui_turn_timing import HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.registered_mcp_toolset import RegisteredMcpToolset
-from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.turn_completion import successful_answer_completion
 from hushh_mcp.runtime_providers import managed_text as managed
+from tests.helpers.one_streaming import run_agent_chat as _run
 from tests.services.test_azure_adk import Stream, call, message, model, response
 from tests.test_azure_web_receipts import response as search_response
 
@@ -112,37 +109,6 @@ def _root_case(monkeypatch, control, wrapped, adapter, client, authority):
     if control == "revoked":
         root.after_tool_callback = revoke_after_tool
     return root
-
-
-async def _run(root, observe=None, *, owner="owner", thread="thread"):
-    sessions = InMemorySessionService()
-    bridge = TimedADKAgent.from_app(
-        App(name="search_answer_contract", root_agent=root),
-        head=HEAD_ONE,
-        user_id_extractor=lambda _input: owner,
-        session_service=sessions,
-        use_in_memory_services=True,
-        use_thread_id_as_session_id=True,
-    )
-    state = {"hussh:user_id": owner, "hussh:consent_token": store_request_secret("synthetic")}
-    run = RunAgentInput(
-        thread_id=thread,
-        run_id="run",
-        state=state,
-        context=[],
-        forwarded_props={},
-        tools=[],
-        messages=[UserMessage(id="m", role="user", content="Find and cite the public source.")],
-    )
-    events = []
-    async for event in bridge.run(run):
-        events.append(event)
-        if observe is not None:
-            await observe(event)
-    session = await sessions.get_session(
-        app_name="search_answer_contract", user_id=owner, session_id=thread
-    )
-    return events, session
 
 
 def _observe_pending_handoff(monkeypatch, authority):
@@ -434,7 +400,14 @@ async def test_concurrent_search_streams_keep_owner_text_and_history_isolated(mo
 
 
 @pytest.mark.parametrize(
-    "kind", ["one_search_preview_v1", "one_search_result_v1", "one_delegated_search_answer_v1"]
+    "kind",
+    [
+        "one_search_preview_v1",
+        "one_search_result_v1",
+        "one_delegated_search_answer_v1",
+        "one_email_preview_v1",
+        "one_delegated_email_answer_v1",
+    ],
 )
 async def test_search_publications_revalidate_authority_after_crossing_queue(monkeypatch, kind):
     from google.adk.events import Event

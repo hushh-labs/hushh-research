@@ -7,15 +7,15 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
 
-Package count: 1272
+Package count: 1296
 
 ### License summary
 
 - `(Apache-2.0 AND BSD-3-Clause)`: 1
-- `(MIT AND Zlib)`: 1
+- `(MIT AND Zlib)`: 4
 - `(MPL-2.0 OR Apache-2.0)`: 1
-- `0BSD`: 2
-- `Apache-2.0`: 191
+- `0BSD`: 3
+- `Apache-2.0`: 196
 - `Apache-2.0 AND LGPL-3.0-or-later`: 3
 - `Apache-2.0 AND LGPL-3.0-or-later AND MIT`: 1
 - `BlueOak-1.0.0`: 11
@@ -23,9 +23,10 @@ Package count: 1272
 - `BSD-3-Clause`: 26
 - `CC-BY-4.0`: 1
 - `CC0-1.0`: 1
+- `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 916
+- `MIT`: 930
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
@@ -51,7 +52,7 @@ Package count: 1272
 - `@babel/compat-data` `7.29.7` — MIT
 - `@babel/core` `7.29.7` — MIT
 - `@babel/core/semver` `6.3.1` — ISC
-- `@babel/generator` `7.29.7` — MIT
+- `@babel/generator` `7.29.8` — MIT
 - `@babel/helper-compilation-targets` `7.29.7` — MIT
 - `@babel/helper-compilation-targets/semver` `6.3.1` — ISC
 - `@babel/helper-globals` `7.29.7` — MIT
@@ -60,12 +61,12 @@ Package count: 1272
 - `@babel/helper-string-parser` `7.29.7` — MIT
 - `@babel/helper-validator-identifier` `7.29.7` — MIT
 - `@babel/helper-validator-option` `7.29.7` — MIT
-- `@babel/helpers` `7.29.7` — MIT
-- `@babel/parser` `7.29.7` — MIT
+- `@babel/helpers` `7.29.10` — MIT
+- `@babel/parser` `7.29.9` — MIT
 - `@babel/runtime` `7.29.2` — MIT
 - `@babel/template` `7.29.7` — MIT
-- `@babel/traverse` `7.29.7` — MIT
-- `@babel/types` `7.29.7` — MIT
+- `@babel/traverse` `7.29.10` — MIT
+- `@babel/types` `7.29.8` — MIT
 - `@base-ui/react` `1.4.1` — MIT
 - `@base-ui/utils` `0.2.8` — MIT
 - `@braintree/sanitize-url` `7.1.2` — MIT
@@ -87,7 +88,11 @@ Package count: 1272
 - `@capacitor/preferences` `8.0.1` — MIT
 - `@capacitor/share` `8.0.1` — MIT
 - `@capacitor/synapse` `1.0.4` — ISC
-- `@chevrotain/types` `11.1.2` — Apache-2.0
+- `@chevrotain/cst-dts-gen` `13.2.0` — Apache-2.0
+- `@chevrotain/gast` `13.2.0` — Apache-2.0
+- `@chevrotain/regexp-to-ast` `13.2.0` — Apache-2.0
+- `@chevrotain/types` `13.2.0` — Apache-2.0
+- `@chevrotain/utils` `13.2.0` — Apache-2.0
 - `@csstools/color-helpers` `5.1.0` — MIT-0
 - `@csstools/css-calc` `2.1.4` — MIT
 - `@csstools/css-color-parser` `3.1.0` — MIT
@@ -107,7 +112,7 @@ Package count: 1272
 - `@eslint/js` `9.39.4` — MIT
 - `@eslint/object-schema` `2.1.7` — Apache-2.0
 - `@eslint/plugin-kit` `0.4.1` — Apache-2.0
-- `@fastify/busboy` `3.2.0` — MIT
+- `@fastify/busboy` `3.2.2` — MIT
 - `@firebase/ai` `2.11.1` — Apache-2.0
 - `@firebase/ai/@firebase/component` `0.7.2` — Apache-2.0
 - `@firebase/ai/@firebase/util` `1.15.0` — Apache-2.0
@@ -214,7 +219,8 @@ Package count: 1272
 - `@google-cloud/storage/google-logging-utils` `0.0.2` — Apache-2.0
 - `@googlemaps/js-api-loader` `1.16.10` — Apache-2.0
 - `@googlemaps/markerclusterer` `2.6.2` — Apache-2.0
-- `@grpc/grpc-js` `1.9.16` — Apache-2.0
+- `@grpc/grpc-js` `1.14.5` — Apache-2.0
+- `@grpc/grpc-js/@grpc/proto-loader` `0.8.1` — Apache-2.0
 - `@grpc/proto-loader` `0.7.15` — Apache-2.0
 - `@humanfs/core` `0.19.2` — Apache-2.0
 - `@humanfs/node` `0.16.8` — Apache-2.0
@@ -224,32 +230,32 @@ Package count: 1272
 - `@iconify/types` `2.0.0` — MIT
 - `@iconify/utils` `3.1.4` — MIT
 - `@img/colour` `1.1.0` — MIT
-- `@img/sharp-darwin-arm64` `0.35.4` — Apache-2.0
-- `@img/sharp-darwin-x64` `0.35.4` — Apache-2.0
-- `@img/sharp-freebsd-wasm32` `0.35.4` — Apache-2.0
-- `@img/sharp-libvips-darwin-arm64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-darwin-x64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-arm` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-arm64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-ppc64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-riscv64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-s390x` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linux-x64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linuxmusl-arm64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-libvips-linuxmusl-x64` `1.3.3` — LGPL-3.0-or-later
-- `@img/sharp-linux-arm` `0.35.4` — Apache-2.0
-- `@img/sharp-linux-arm64` `0.35.4` — Apache-2.0
-- `@img/sharp-linux-ppc64` `0.35.4` — Apache-2.0
-- `@img/sharp-linux-riscv64` `0.35.4` — Apache-2.0
-- `@img/sharp-linux-s390x` `0.35.4` — Apache-2.0
-- `@img/sharp-linux-x64` `0.35.4` — Apache-2.0
-- `@img/sharp-linuxmusl-arm64` `0.35.4` — Apache-2.0
-- `@img/sharp-linuxmusl-x64` `0.35.4` — Apache-2.0
-- `@img/sharp-wasm32` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later AND MIT
-- `@img/sharp-webcontainers-wasm32` `0.35.4` — Apache-2.0
-- `@img/sharp-win32-arm64` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later
-- `@img/sharp-win32-ia32` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later
-- `@img/sharp-win32-x64` `0.35.4` — Apache-2.0 AND LGPL-3.0-or-later
+- `@img/sharp-darwin-arm64` `0.35.5` — Apache-2.0
+- `@img/sharp-darwin-x64` `0.35.5` — Apache-2.0
+- `@img/sharp-freebsd-wasm32` `0.35.5` — Apache-2.0
+- `@img/sharp-libvips-darwin-arm64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-darwin-x64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-arm` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-arm64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-ppc64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-riscv64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-s390x` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linux-x64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linuxmusl-arm64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-libvips-linuxmusl-x64` `1.3.4` — LGPL-3.0-or-later
+- `@img/sharp-linux-arm` `0.35.5` — Apache-2.0
+- `@img/sharp-linux-arm64` `0.35.5` — Apache-2.0
+- `@img/sharp-linux-ppc64` `0.35.5` — Apache-2.0
+- `@img/sharp-linux-riscv64` `0.35.5` — Apache-2.0
+- `@img/sharp-linux-s390x` `0.35.5` — Apache-2.0
+- `@img/sharp-linux-x64` `0.35.5` — Apache-2.0
+- `@img/sharp-linuxmusl-arm64` `0.35.5` — Apache-2.0
+- `@img/sharp-linuxmusl-x64` `0.35.5` — Apache-2.0
+- `@img/sharp-wasm32` `0.35.5` — Apache-2.0 AND LGPL-3.0-or-later AND MIT
+- `@img/sharp-webcontainers-wasm32` `0.35.5` — Apache-2.0
+- `@img/sharp-win32-arm64` `0.35.5` — Apache-2.0 AND LGPL-3.0-or-later
+- `@img/sharp-win32-ia32` `0.35.5` — Apache-2.0 AND LGPL-3.0-or-later
+- `@img/sharp-win32-x64` `0.35.5` — Apache-2.0 AND LGPL-3.0-or-later
 - `@ionic/cli-framework-output` `2.2.8` — MIT
 - `@ionic/utils-array` `2.1.6` — MIT
 - `@ionic/utils-fs` `3.1.7` — MIT
@@ -269,18 +275,30 @@ Package count: 1272
 - `@lit-labs/ssr-dom-shim` `1.5.1` — BSD-3-Clause
 - `@lit/reactive-element` `2.1.2` — BSD-3-Clause
 - `@material/web` `2.4.1` — Apache-2.0
-- `@mermaid-js/parser` `1.2.1` — MIT
+- `@mermaid-js/parser` `2.0.1` — MIT
+- `@napi-rs/canvas` `1.0.13` — MIT
+- `@napi-rs/canvas-android-arm64` `1.0.13` — MIT
+- `@napi-rs/canvas-darwin-arm64` `1.0.13` — MIT
+- `@napi-rs/canvas-darwin-x64` `1.0.13` — MIT
+- `@napi-rs/canvas-linux-arm-gnueabihf` `1.0.13` — MIT
+- `@napi-rs/canvas-linux-arm64-gnu` `1.0.13` — MIT
+- `@napi-rs/canvas-linux-arm64-musl` `1.0.13` — MIT
+- `@napi-rs/canvas-linux-riscv64-gnu` `1.0.13` — MIT
+- `@napi-rs/canvas-linux-x64-gnu` `1.0.13` — MIT
+- `@napi-rs/canvas-linux-x64-musl` `1.0.13` — MIT
+- `@napi-rs/canvas-win32-arm64-msvc` `1.0.13` — MIT
+- `@napi-rs/canvas-win32-x64-msvc` `1.0.13` — MIT
 - `@napi-rs/wasm-runtime` `0.2.12` — MIT
-- `@next/env` `16.3.8` — MIT
+- `@next/env` `16.4.2` — MIT
 - `@next/eslint-plugin-next` `16.2.4` — MIT
-- `@next/swc-darwin-arm64` `16.3.8` — MIT
-- `@next/swc-darwin-x64` `16.3.8` — MIT
-- `@next/swc-linux-arm64-gnu` `16.3.8` — MIT
-- `@next/swc-linux-arm64-musl` `16.3.8` — MIT
-- `@next/swc-linux-x64-gnu` `16.3.8` — MIT
-- `@next/swc-linux-x64-musl` `16.3.8` — MIT
-- `@next/swc-win32-arm64-msvc` `16.3.8` — MIT
-- `@next/swc-win32-x64-msvc` `16.3.8` — MIT
+- `@next/swc-darwin-arm64` `16.4.2` — MIT
+- `@next/swc-darwin-x64` `16.4.2` — MIT
+- `@next/swc-linux-arm64-gnu` `16.4.2` — MIT
+- `@next/swc-linux-arm64-musl` `16.4.2` — MIT
+- `@next/swc-linux-x64-gnu` `16.4.2` — MIT
+- `@next/swc-linux-x64-musl` `16.4.2` — MIT
+- `@next/swc-win32-arm64-msvc` `16.4.2` — MIT
+- `@next/swc-win32-x64-msvc` `16.4.2` — MIT
 - `@nodable/entities` `3.0.0` — MIT
 - `@nodelib/fs.scandir` `2.1.5` — MIT
 - `@nodelib/fs.stat` `2.0.5` — MIT
@@ -288,6 +306,10 @@ Package count: 1272
 - `@nolyfill/is-core-module` `1.0.39` — MIT
 - `@opentelemetry/api` `1.9.0` — Apache-2.0
 - `@oxc-project/types` `0.139.0` — MIT
+- `@pdf-lib/standard-fonts` `1.0.0` — MIT
+- `@pdf-lib/standard-fonts/pako` `1.0.11` — (MIT AND Zlib)
+- `@pdf-lib/upng` `1.0.1` — MIT
+- `@pdf-lib/upng/pako` `1.0.11` — (MIT AND Zlib)
 - `@phosphor-icons/react` `2.1.10` — MIT
 - `@playwright/test` `1.59.1` — Apache-2.0
 - `@protobuf-ts/protoc` `2.11.1` — Apache-2.0
@@ -388,7 +410,7 @@ Package count: 1272
 - `@rolldown/binding-wasm32-wasi/@emnapi/core` `1.11.1` — MIT
 - `@rolldown/binding-wasm32-wasi/@emnapi/runtime` `1.11.1` — MIT
 - `@rolldown/binding-wasm32-wasi/@emnapi/wasi-threads` `1.2.2` — MIT
-- `@rolldown/binding-wasm32-wasi/@napi-rs/wasm-runtime` `1.1.6` — MIT
+- `@rolldown/binding-wasm32-wasi/@napi-rs/wasm-runtime` `1.2.5` — MIT
 - `@rolldown/binding-win32-arm64-msvc` `1.1.5` — MIT
 - `@rolldown/binding-win32-x64-msvc` `1.1.5` — MIT
 - `@rolldown/pluginutils` `1.0.0-rc.7` — MIT
@@ -504,6 +526,7 @@ Package count: 1272
 - `@typescript-eslint/type-utils` `8.57.0` — MIT
 - `@typescript-eslint/types` `8.57.0` — MIT
 - `@typescript-eslint/typescript-estree` `8.57.0` — MIT
+- `@typescript-eslint/typescript-estree/brace-expansion` `5.0.12` — MIT
 - `@typescript-eslint/typescript-estree/minimatch` `10.2.4` — BlueOak-1.0.0
 - `@typescript-eslint/utils` `8.57.0` — MIT
 - `@typescript-eslint/visitor-keys` `8.57.0` — MIT
@@ -530,13 +553,13 @@ Package count: 1272
 - `@unrs/resolver-binding-win32-x64-msvc` `1.11.1` — MIT
 - `@upsetjs/venn.js` `2.0.0` — MIT
 - `@vitejs/plugin-react` `6.0.1` — MIT
-- `@vitest/expect` `4.1.11` — MIT
-- `@vitest/mocker` `4.1.11` — MIT
-- `@vitest/pretty-format` `4.1.11` — MIT
-- `@vitest/runner` `4.1.11` — MIT
-- `@vitest/snapshot` `4.1.11` — MIT
-- `@vitest/spy` `4.1.11` — MIT
-- `@vitest/utils` `4.1.11` — MIT
+- `@vitest/expect` `4.1.12` — MIT
+- `@vitest/mocker` `4.1.12` — MIT
+- `@vitest/pretty-format` `4.1.12` — MIT
+- `@vitest/runner` `4.1.12` — MIT
+- `@vitest/snapshot` `4.1.12` — MIT
+- `@vitest/spy` `4.1.12` — MIT
+- `@vitest/utils` `4.1.12` — MIT
 - `@xmldom/xmldom` `0.8.15` — MIT
 - `abort-controller` `3.0.0` — MIT
 - `acorn` `8.15.0` — MIT
@@ -577,7 +600,6 @@ Package count: 1272
 - `bignumber.js` `9.3.1` — MIT
 - `bmp-js` `0.1.0` — MIT
 - `bplist-parser` `0.3.2` — MIT
-- `brace-expansion` `5.0.9` — MIT
 - `braces` `3.0.3` — MIT
 - `browserslist` `4.28.7` — MIT
 - `buffer-crc32` `0.2.13` — MIT
@@ -589,12 +611,13 @@ Package count: 1272
 - `caniuse-lite` `1.0.30001810` — CC-BY-4.0
 - `canvg` `3.0.11` — MIT
 - `ccount` `2.0.1` — MIT
-- `chai` `6.2.2` — MIT
+- `chai` `6.3.0` — MIT
 - `chalk` `4.1.2` — MIT
 - `character-entities` `2.0.2` — MIT
 - `character-entities-html4` `2.1.0` — MIT
 - `character-entities-legacy` `3.0.0` — MIT
 - `character-reference-invalid` `2.0.1` — MIT
+- `chevrotain` `13.2.0` — Apache-2.0
 - `chownr` `3.0.0` — BlueOak-1.0.0
 - `class-variance-authority` `0.7.1` — Apache-2.0
 - `client-only` `0.0.1` — MIT
@@ -690,13 +713,14 @@ Package count: 1272
 - `doctrine` `2.1.0` — Apache-2.0
 - `dom-accessibility-api` `0.5.16` — MIT
 - `dom-helpers` `5.2.1` — MIT
-- `dompurify` `3.4.13` — (MPL-2.0 OR Apache-2.0)
+- `dompurify` `3.4.17` — (MPL-2.0 OR Apache-2.0)
 - `dotenv` `17.4.2` — BSD-2-Clause
 - `dunder-proto` `1.0.1` — MIT
 - `duplexify` `4.1.3` — MIT
 - `ecdsa-sig-formatter` `1.0.11` — Apache-2.0
-- `electron-to-chromium` `1.5.420` — ISC
+- `electron-to-chromium` `1.5.463` — ISC
 - `elementtree` `0.1.7` — Apache-2.0
+- `elkjs` `0.9.3` — EPL-2.0
 - `embla-carousel` `8.6.0` — MIT
 - `embla-carousel-react` `8.6.0` — MIT
 - `embla-carousel-reactive-utils` `8.6.0` — MIT
@@ -759,8 +783,7 @@ Package count: 1272
 - `fast-png` `6.4.0` — MIT
 - `fast-xml-builder` `1.3.0` — MIT
 - `fast-xml-parser` `5.10.1` — MIT
-- `fastdom` `1.0.12` — MIT
-- `fastq` `1.20.1` — ISC
+- `fastq` `1.20.3` — ISC
 - `faye-websocket` `0.11.4` — Apache-2.0
 - `fetch-blob` `3.2.0` — MIT
 - `fflate` `0.8.3` — MIT
@@ -809,8 +832,6 @@ Package count: 1272
 - `google-auth-library/gaxios` `7.3.1` — Apache-2.0
 - `google-auth-library/node-fetch` `3.3.2` — MIT
 - `google-gax` `4.6.1` — Apache-2.0
-- `google-gax/@grpc/grpc-js` `1.14.4` — Apache-2.0
-- `google-gax/@grpc/grpc-js/@grpc/proto-loader` `0.8.1` — Apache-2.0
 - `google-gax/gcp-metadata` `6.1.1` — Apache-2.0
 - `google-gax/google-auth-library` `9.15.1` — Apache-2.0
 - `google-gax/google-logging-utils` `0.0.2` — Apache-2.0
@@ -915,8 +936,8 @@ Package count: 1272
 - `jwks-rsa` `3.2.0` — MIT
 - `jwks-rsa/jose` `4.15.9` — MIT
 - `jws` `4.0.1` — MIT
-- `katex` `0.16.47` — MIT
-- `katex/commander` `8.3.0` — MIT
+- `katex` `0.18.10` — MIT
+- `katex/commander` `15.0.0` — MIT
 - `kdbush` `4.1.0` — ISC
 - `keyv` `4.5.4` — MIT
 - `khroma` `2.1.0` — MIT
@@ -985,7 +1006,7 @@ Package count: 1272
 - `mdast-util-to-markdown` `2.1.2` — MIT
 - `mdast-util-to-string` `4.0.0` — MIT
 - `merge2` `1.4.1` — MIT
-- `mermaid` `11.17.2` — MIT
+- `mermaid` `12.2.0` — MIT
 - `micromark` `4.0.2` — MIT
 - `micromark-core-commonmark` `2.0.3` — MIT
 - `micromark-extension-gfm` `3.0.0` — MIT
@@ -1021,7 +1042,7 @@ Package count: 1272
 - `min-indent` `1.0.1` — MIT
 - `minimatch` `3.1.5` — ISC
 - `minimatch/balanced-match` `1.0.2` — MIT
-- `minimatch/brace-expansion` `1.1.18` — MIT
+- `minimatch/brace-expansion` `1.1.21` — MIT
 - `minimist` `1.2.8` — MIT
 - `minipass` `7.1.3` — BlueOak-1.0.0
 - `minizlib` `3.1.0` — MIT
@@ -1030,11 +1051,11 @@ Package count: 1272
 - `napi-postinstall` `0.3.4` — MIT
 - `native-run` `2.0.3` — MIT
 - `natural-compare` `1.4.0` — MIT
-- `next` `16.3.8` — MIT
+- `next` `16.4.2` — MIT
 - `next-themes` `0.4.6` — MIT
 - `node-domexception` `1.0.0` — MIT
 - `node-fetch` `2.7.0` — MIT
-- `node-releases` `2.0.51` — MIT
+- `node-releases` `2.0.60` — MIT
 - `nwsapi` `2.2.23` — MIT
 - `object-assign` `4.1.1` — MIT
 - `object-hash` `3.0.0` — MIT
@@ -1068,6 +1089,10 @@ Package count: 1272
 - `path-scurry` `2.0.2` — BlueOak-1.0.0
 - `path-scurry/lru-cache` `11.2.4` — BlueOak-1.0.0
 - `pathe` `2.0.3` — MIT
+- `pdf-lib` `1.17.1` — MIT
+- `pdf-lib/pako` `1.0.11` — (MIT AND Zlib)
+- `pdf-lib/tslib` `1.14.1` — 0BSD
+- `pdfjs-dist` `6.4.299` — Apache-2.0
 - `pend` `1.2.0` — MIT
 - `performance-now` `2.1.0` — MIT
 - `picocolors` `1.1.1` — ISC
@@ -1131,6 +1156,7 @@ Package count: 1272
 - `reusify` `1.1.0` — MIT
 - `rgbcolor` `1.0.1` — MIT OR SEE LICENSE IN FEEL-FREE.md
 - `rimraf` `6.1.2` — BlueOak-1.0.0
+- `rimraf/brace-expansion` `5.0.12` — MIT
 - `rimraf/glob` `13.0.6` — BlueOak-1.0.0
 - `rimraf/minimatch` `10.2.4` — BlueOak-1.0.0
 - `robust-predicates` `3.0.3` — Unlicense
@@ -1153,7 +1179,7 @@ Package count: 1272
 - `set-function-length` `1.2.2` — MIT
 - `set-function-name` `2.0.2` — MIT
 - `set-proto` `1.0.0` — MIT
-- `sharp` `0.35.4` — Apache-2.0
+- `sharp` `0.35.5` — Apache-2.0
 - `shebang-command` `2.0.0` — MIT
 - `shebang-regex` `3.0.0` — MIT
 - `side-channel` `1.1.0` — MIT
@@ -1165,7 +1191,7 @@ Package count: 1272
 - `sisteransi` `1.0.5` — MIT
 - `slice-ansi` `4.0.0` — MIT
 - `sonner` `2.0.7` — MIT
-- `source-map-js` `1.2.1` — BSD-3-Clause
+- `source-map-js` `1.2.2` — BSD-3-Clause
 - `space-separated-tokens` `2.0.2` — MIT
 - `split2` `4.2.0` — ISC
 - `stable-hash` `0.0.5` — MIT
@@ -1175,7 +1201,6 @@ Package count: 1272
 - `stop-iteration-iterator` `1.1.0` — MIT
 - `stream-events` `1.0.5` — MIT
 - `stream-shift` `1.0.3` — MIT
-- `strictdom` `1.0.1` — MIT
 - `string-width` `4.2.3` — MIT
 - `string-width/emoji-regex` `8.0.0` — MIT
 - `string.prototype.includes` `2.0.1` — MIT
@@ -1221,7 +1246,7 @@ Package count: 1272
 - `tinyglobby` `0.2.17` — MIT
 - `tinyglobby/fdir` `6.5.0` — MIT
 - `tinyglobby/picomatch` `4.0.4` — MIT
-- `tinyrainbow` `3.1.1` — MIT
+- `tinyrainbow` `3.2.0` — MIT
 - `tldts` `6.1.86` — MIT
 - `tldts-core` `6.1.86` — MIT
 - `to-regex-range` `5.0.1` — MIT
@@ -1255,7 +1280,7 @@ Package count: 1272
 - `unrs-resolver` `1.11.1` — MIT
 - `untildify` `4.0.0` — MIT
 - `untruncate-json` `0.0.1` — MIT
-- `update-browserslist-db` `1.2.3` — MIT
+- `update-browserslist-db` `1.3.4` — MIT
 - `uri-js` `4.4.1` — BSD-2-Clause
 - `use-callback-ref` `1.3.3` — MIT
 - `use-sidecar` `1.1.3` — MIT
@@ -1267,9 +1292,9 @@ Package count: 1272
 - `vfile` `6.0.3` — MIT
 - `vfile-message` `4.0.3` — MIT
 - `victory-vendor` `36.9.2` — MIT AND ISC
-- `vite` `8.1.4` — MIT
+- `vite` `8.1.6` — MIT
 - `vite/picomatch` `4.0.4` — MIT
-- `vitest` `4.1.11` — MIT
+- `vitest` `4.1.12` — MIT
 - `vitest/picomatch` `4.0.4` — MIT
 - `w3c-xmlserializer` `5.0.0` — MIT
 - `wasm-feature-detect` `1.9.0` — Apache-2.0
@@ -1304,33 +1329,34 @@ Package count: 1272
 - `yauzl` `3.2.1` — MIT
 - `yocto-queue` `0.1.0` — MIT
 - `zlibjs` `0.3.1` — MIT
-- `zod` `4.3.6` — MIT
+- `zod` `4.6.7` — MIT
 - `zod-validation-error` `4.0.2` — MIT
 - `zustand` `5.0.12` — MIT
 - `zwitch` `2.0.4` — MIT
 
 ## Backend Python packages
 
-Package count: 215
+Package count: 250
 
 ### License summary
 
 - `3-Clause BSD License`: 1
 - `Apache 2.0 License`: 1
 - `Apache License 2.0`: 1
-- `Apache Software License`: 35
+- `Apache Software License`: 40
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 28
+- `Apache-2.0`: 34
 - `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
 - `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 18
+- `BSD 3-Clause OR Apache-2.0`: 1
+- `BSD License`: 20
 - `BSD-2-Clause`: 2
-- `BSD-3-Clause`: 20
+- `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
 - `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
@@ -1338,14 +1364,37 @@ Package count: 215
 - `ISC`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 55
-- `MIT License`: 31
+- `MIT`: 59
+- `MIT License`: 43
+- `MIT License
+
+Copyright (c) 2022 OpenAI, Shantanu Jain
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+`: 1
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
 - `Python Software Foundation License`: 2
+- `UNKNOWN`: 3
 
 ### Package inventory
 
@@ -1354,8 +1403,10 @@ Package count: 215
 - `ag-ui-a2ui-toolkit` `0.0.4` — MIT
 - `ag-ui-protocol` `0.1.21` — MIT
 - `ag_ui_adk` `0.7.0` — MIT
+- `aiofiles` `24.1.0` — Apache Software License
 - `aiohappyeyeballs` `2.6.1` — Python Software Foundation License
-- `aiohttp` `3.14.3` — Apache-2.0 AND MIT
+- `aiohttp` `3.14.5` — Apache-2.0 AND MIT
+- `aiolimiter` `1.3.0` — MIT
 - `aiosignal` `1.4.0` — Apache Software License
 - `aiosqlite` `0.22.1` — MIT License
 - `annotated-doc` `0.0.4` — MIT
@@ -1366,7 +1417,8 @@ Package count: 215
 - `asyncio` `4.0.0` — Apache-2.0
 - `asyncpg` `0.31.0` — Apache-2.0
 - `attrs` `26.1.0` — MIT
-- `Authlib` `1.7.2` — BSD License
+- `aurelio-sdk` `0.0.19` — UNKNOWN
+- `Authlib` `1.9.1` — BSD License
 - `azure-core` `1.41.0` — MIT
 - `azure-identity` `1.26.0` — MIT
 - `bandit` `1.9.4` — Apache-2.0
@@ -1377,11 +1429,14 @@ Package count: 215
 - `CacheControl` `0.14.4` — Apache-2.0
 - `cachetools` `7.1.7` — MIT
 - `cbor2` `6.1.4` — MIT
-- `certifi` `2026.2.25` — Mozilla Public License 2.0 (MPL 2.0)
+- `certifi` `2026.10.19` — Mozilla Public License 2.0 (MPL 2.0)
 - `cffi` `2.0.0` — MIT
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
 - `cloudpickle` `3.1.2` — BSD License
+- `cohere` `5.21.1` — MIT License
+- `colorama` `0.4.6` — BSD License
+- `colorlog` `6.12.0` — MIT License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
@@ -1391,17 +1446,24 @@ Package count: 215
 - `dnspython` `2.9.0` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
+- `eval_type_backport` `0.4.0` — MIT License
+- `exchange_calendars` `4.13.2` — Apache-2.0
 - `execnet` `2.1.2` — MIT
 - `fastapi` `0.136.0` — MIT
-- `filelock` `3.32.5` — MIT
+- `fastavro` `1.13.1` — MIT
+- `fastembed` `0.9.1` — Apache-2.0
+- `filelock` `4.2.4` — MIT
 - `firebase_admin` `7.1.0` — Apache Software License
 - `Flask` `3.1.3` — BSD-3-Clause
+- `flatbuffers` `25.12.19` — Apache Software License
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
 - `google-adk` `2.9.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
+- `google-api-python-client` `2.201.0` — Apache Software License
 - `google-auth` `2.58.0` — Apache Software License
+- `google-auth-httplib2` `0.4.4` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
 - `google-cloud-firestore` `2.27.0` — Apache Software License
 - `google-cloud-secret-manager` `2.30.0` — Apache Software License
@@ -1422,6 +1484,7 @@ Package count: 215
 - `hpack` `4.2.0` — MIT
 - `httpcore` `1.0.9` — BSD-3-Clause
 - `httpcore2` `2.13.1` — BSD-3-Clause
+- `httplib2` `0.32.1` — MIT License
 - `httpx` `0.28.1` — BSD License
 - `httpx-sse` `0.4.3` — MIT
 - `httpx2` `2.13.1` — BSD-3-Clause
@@ -1429,6 +1492,7 @@ Package count: 215
 - `hyperframe` `6.1.0` — MIT License
 - `idna` `3.18` — BSD-3-Clause
 - `iniconfig` `2.3.0` — MIT
+- `invoke` `2.2.1` — BSD License
 - `itsdangerous` `2.2.0` — BSD License
 - `Jinja2` `3.1.6` — BSD License
 - `jiter` `0.14.0` — MIT
@@ -1439,39 +1503,49 @@ Package count: 215
 - `jsonpointer` `3.1.1` — BSD License
 - `jsonschema` `4.26.0` — MIT
 - `jsonschema-specifications` `2025.9.1` — MIT
+- `korean_lunar_calendar` `0.4.0` — MIT
 - `langchain` `1.3.13` — MIT License
-- `langchain-core` `1.4.9` — MIT License
-- `langchain-protocol` `0.0.18` — MIT License
-- `langgraph` `1.2.9` — MIT
+- `langchain-core` `1.7.3` — MIT License
+- `langchain-openai` `1.6.3` — MIT License
+- `langchain-protocol` `0.0.20` — MIT License
+- `langchain-text-splitters` `1.1.3` — MIT License
+- `langgraph` `1.2.14` — MIT
 - `langgraph-checkpoint` `4.1.1` — MIT
 - `langgraph-prebuilt` `1.1.0` — MIT
-- `langgraph-sdk` `0.4.2` — MIT
-- `langsmith` `0.10.2` — MIT
+- `langgraph-sdk` `0.4.8` — MIT
+- `langsmith` `0.14.16` — MIT License
 - `librt` `0.9.0` — MIT
 - `limits` `5.8.0` — MIT
+- `loguru` `0.7.3` — MIT License
 - `markdown-it-py` `4.0.0` — MIT License
 - `MarkupSafe` `3.0.3` — BSD-3-Clause
-- `mcp` `1.28.1` — MIT License
+- `mcp` `1.30.0` — MIT License
 - `mdurl` `0.1.2` — MIT License
+- `mistralai` `1.12.4` — UNKNOWN
+- `mmh3` `5.3.1` — MIT License
 - `mpmath` `1.3.0` — BSD License
 - `msal` `1.39.0` — MIT License
 - `msal-extensions` `1.3.1` — MIT License
-- `msgpack` `1.2.1` — Apache-2.0
-- `multidict` `6.7.1` — Apache License 2.0
+- `msgpack` `1.2.4` — Apache-2.0
+- `multidict` `6.9.1` — Apache License 2.0
 - `multitasking` `0.0.12` — Apache Software License
 - `mypy` `1.20.1` — MIT
 - `mypy_extensions` `1.1.0` — MIT
 - `narwhals` `2.25.0` — MIT
 - `networkx` `3.6.1` — BSD-3-Clause
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
-- `openai` `2.32.0` — Apache Software License
+- `onnxruntime` `1.31.1` — MIT License
+- `openai` `2.54.0` — Apache Software License
 - `openpyxl` `3.1.5` — MIT License
 - `opentelemetry-api` `1.42.1` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
+- `opentelemetry-exporter-otlp-proto-common` `1.42.1` — Apache-2.0
+- `opentelemetry-exporter-otlp-proto-http` `1.42.1` — Apache-2.0
 - `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
 - `opentelemetry-instrumentation-asgi` `0.63b1` — Apache-2.0
 - `opentelemetry-instrumentation-fastapi` `0.63b1` — Apache-2.0
 - `opentelemetry-instrumentation-httpx` `0.63b1` — Apache-2.0
+- `opentelemetry-proto` `1.42.1` — Apache-2.0
 - `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
 - `opentelemetry-sdk` `1.42.1` — Apache-2.0
 - `opentelemetry-semantic-conventions` `0.63b1` — Apache-2.0
@@ -1485,13 +1559,14 @@ Package count: 215
 - `pdfplumber` `0.11.10` — MIT License
 - `peewee` `4.0.4` — MIT
 - `phonenumbers` `9.0.28` — Apache-2.0
-- `pillow` `12.3.0` — MIT-CMU
+- `pillow` `13.0.0` — MIT-CMU
 - `platformdirs` `4.9.6` — MIT
 - `pluggy` `1.6.0` — MIT License
 - `propcache` `0.4.1` — Apache Software License
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
 - `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
+- `py_rust_stemmers` `0.1.8` — UNKNOWN
 - `pyasn1` `0.6.4` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
@@ -1500,8 +1575,10 @@ Package count: 215
 - `pydantic-settings` `2.14.2` — MIT
 - `pydantic_core` `2.46.1` — MIT
 - `Pygments` `2.20.0` — BSD-2-Clause
-- `PyJWT` `2.14.0` — MIT
+- `PyJWT` `2.15.1` — MIT
+- `pyluach` `2.3.0` — MIT License
 - `pyOpenSSL` `26.4.0` — Apache Software License
+- `pyparsing` `3.3.3` — MIT
 - `pypdfium2` `5.11.0` — BSD-3-Clause, Apache-2.0, dependency licenses
 - `pytesseract` `0.3.13` — Apache Software License
 - `pytest` `9.0.3` — MIT
@@ -1527,6 +1604,7 @@ Package count: 215
 - `safetensors` `0.8.0` — Apache Software License
 - `scikit-learn` `1.9.0` — BSD-3-Clause
 - `scipy` `1.18.1` — BSD License
+- `semantic-router` `1.1.1` — MIT
 - `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
@@ -1541,27 +1619,54 @@ Package count: 215
 - `sympy` `1.14.0` — BSD License
 - `tenacity` `9.1.4` — Apache Software License
 - `threadpoolctl` `3.6.0` — BSD License
+- `tiktoken` `0.14.0` — MIT License
+
+Copyright (c) 2022 OpenAI, Shantanu Jain
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 - `tokenizers` `0.22.2` — Apache Software License
+- `toolz` `1.2.0` — BSD-3-Clause
 - `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+- `tornado` `6.6` — Apache Software License
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
+- `types-requests` `2.33.0.20261030` — Apache-2.0
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
 - `tzdata` `2026.1` — Apache-2.0
-- `urllib3` `2.7.0` — MIT
+- `uritemplate` `4.2.0` — BSD 3-Clause OR Apache-2.0
+- `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
+- `voyageai` `0.5.0` — MIT License
 - `watchdog` `6.0.0` — Apache Software License
 - `watchfiles` `1.2.0` — MIT License
 - `webauthn` `3.0.0` — BSD-3-Clause
 - `websockets` `15.0.1` — BSD License
-- `Werkzeug` `3.1.8` — BSD-3-Clause
+- `Werkzeug` `3.1.9` — BSD-3-Clause
 - `workos` `10.5.0` — MIT
 - `wrapt` `1.17.3` — BSD License
 - `xxhash` `3.6.0` — BSD License
-- `yarl` `1.23.0` — Apache-2.0
+- `yarl` `1.25.1` — Apache-2.0
 - `yfinance` `1.3.0` — Apache Software License
 - `zstandard` `0.25.0` — BSD-3-Clause
 
@@ -1591,3 +1696,18 @@ Package count: 1
 ### Package inventory
 
 - `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)
+
+## Vendored Email execution resources
+
+Package count: 3
+
+### License summary
+
+- `GPL-3.0-only`: 1
+- `MIT`: 2
+
+### Package inventory
+
+- `theposch/gmail-mcp` `f4c8affe8c08b0fb3deb33570251ed0596e73d9d` — GPL-3.0-only; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/theposch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/executive-ai-assistant` `758db7174223da7864feea7c9f8d1aba12923037` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/eaia/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/agents-from-scratch` `603fc7a4ac6119004f43894395e504a1fefcc6c0` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/agents_from_scratch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)

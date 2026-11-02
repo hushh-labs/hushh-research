@@ -20,6 +20,8 @@ from google.adk.events import Event
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
+from hushh_mcp.one_adk.email_answer import email_answer_events
+from hushh_mcp.one_adk.email_answer import publish_email_preview as publish_email_preview
 from hushh_mcp.one_adk.queued_input import current_run
 from hushh_mcp.runtime_providers.managed_text import ManagedPrimaryTextModel, ManagedTextAgent
 
@@ -45,9 +47,24 @@ class _Answer:
     preview_bytes: int = 0
     text_part: tuple[int, int] | None = None
     hold_suffix: bool = False
+    email_preview: bool = False
+    email_owner_id: str = ""
 
 
 _MAX_PREVIEW_BYTES = 128 * 1024
+EMAIL_TERMINAL_STATUSES = frozenset(
+    {
+        "ok",
+        "connect_required",
+        "reconnect_required",
+        "permission_denied",
+        "connection_changed",
+        "source_changed",
+        "input_required",
+        "invalid_argument",
+        "response_too_large",
+    }
+)
 
 
 async def _preview_response(handoff: _Answer, agent: Any, tool_context: Any, response: Any):
@@ -302,6 +319,8 @@ class OneSearchAnswerAgent(ManagedTextAgent):
                     "one_search_preview_v1",
                     "one_search_result_v1",
                     "one_delegated_search_answer_v1",
+                    "one_delegated_email_answer_v1",
+                    "one_email_preview_v1",
                 }:
                     await self._require_publication(ctx)
                 yield event
@@ -322,6 +341,23 @@ class OneSearchAnswerAgent(ManagedTextAgent):
             async with aclosing(super()._run_async_impl(ctx)) as stream:
                 async for event in stream:
                     responses = event.get_function_responses() or []
+                    if (
+                        event.invocation_id == ctx.invocation_id
+                        and event.actions.skip_summarization
+                        and len(responses) == 1
+                        and responses[0].name == "ask_email_agent"
+                        and isinstance(responses[0].response, dict)
+                        and responses[0].response.get("status") in EMAIL_TERMINAL_STATUSES
+                        and isinstance(responses[0].response.get("text"), str)
+                        and responses[0].response["text"].strip()
+                        and not event.error_code
+                        and not event.interrupted
+                    ):
+                        for publication in email_answer_events(
+                            self.name, ctx, event, handoff, responses[0].response["text"]
+                        ):
+                            yield publication
+                        continue
                     if not (
                         handoff.text
                         and event.invocation_id == handoff.invocation_id

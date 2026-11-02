@@ -1517,24 +1517,9 @@ class GmailReceiptsService:
         return access_token
 
     async def get_compose_access_token(self, *, user_id: str) -> str:
-        """Resolve a provider-draft token only for the connected owner."""
-        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
-        if not row or self._derive_connection_state(row) != "connected":
-            raise GmailApiError("Connect Gmail first", status_code=409, code="GMAIL_NOT_CONNECTED")
-        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(row):
-            raise GmailApiError(
-                "Enable Gmail drafts before saving a draft.",
-                status_code=409,
-                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
-            )
-        access_token, current = await self._ensure_access_token(user_id=user_id)
-        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(current):
-            raise GmailApiError(
-                "Enable Gmail drafts before saving a draft.",
-                status_code=409,
-                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
-            )
-        return access_token
+        from hushh_mcp.services.gmail_execution_grants import get_compose_access_token
+
+        return await get_compose_access_token(self, user_id=user_id)
 
     async def get_modify_access_token(self, *, user_id: str, expected_google_sub: str) -> str:
         """Resolve a mailbox-organization token only for the connected owner."""
@@ -1623,26 +1608,28 @@ class GmailReceiptsService:
         )
 
     async def get_read_access_token(self, *, user_id: str, force_refresh: bool = False) -> str:
-        """Admit owner-bound Gmail reads without granting send authority.
+        from hushh_mcp.services.gmail_execution_grants import get_read_access_token
 
-        ``force_refresh`` is for a caller whose token Google just rejected
-        before its recorded expiry; it never widens the granted scopes.
-        """
+        return await get_read_access_token(self, user_id=user_id, force_refresh=force_refresh)
 
-        await self.assert_read_ready(user_id=user_id)
-        if force_refresh:
-            access_token, current_row = await self._ensure_access_token(
-                user_id=user_id, force_refresh=True
-            )
-        else:
-            access_token, current_row = await self._ensure_access_token(user_id=user_id)
-        if _GMAIL_READONLY_SCOPE not in self._granted_scopes(current_row):
-            raise GmailApiError(
-                "Reconnect Gmail to grant email reading permission.",
-                status_code=409,
-                code="GMAIL_READ_PERMISSION_REQUIRED",
-            )
-        return access_token
+    def _execution_read_binding(
+        self, user_id: str, row: dict[str, Any] | None
+    ) -> tuple[str, ...] | None:
+        from hushh_mcp.services.gmail_execution_grants import _execution_read_binding
+
+        return _execution_read_binding(self, user_id, row)
+
+    async def read_execution_grant_binding(self, *, user_id: str) -> tuple[str, ...] | None:
+        from hushh_mcp.services.gmail_execution_grants import read_execution_grant_binding
+
+        return await read_execution_grant_binding(self, user_id=user_id)
+
+    async def get_bound_read_access_token(
+        self, *, user_id: str, compose: bool = False
+    ) -> tuple[str, tuple[str, ...]]:
+        from hushh_mcp.services.gmail_execution_grants import get_bound_read_access_token
+
+        return await get_bound_read_access_token(self, user_id=user_id, compose=compose)
 
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None

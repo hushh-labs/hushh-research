@@ -86,6 +86,9 @@ _PRIVATE_STATE_KEYS = frozenset(
     {
         "temp:hussh:mcp_approval",
         "hussh:mail_read_offer",
+        "hussh:email_page",
+        "hussh:email_selection",
+        "hussh:email_memory_pending",
         "hussh:calendar_event_read_offer",
         "hussh:calendar_invitation_read_offer",
         "hussh:calendar_list_read_offer",
@@ -310,6 +313,9 @@ def drop_replayed_tool_placeholders(llm_request: Any) -> int:
     contents = getattr(llm_request, "contents", None)
     if not isinstance(contents, list):
         return 0
+    from hushh_mcp.one_adk.tool_history import normalize_tool_results
+
+    contents, invalid_results, repaired_names = normalize_tool_results(contents)
     answered = {
         part.function_response.id
         for content in contents
@@ -318,7 +324,7 @@ def drop_replayed_tool_placeholders(llm_request: Any) -> int:
         and part.function_response.id
         and not _redaction_placeholder(part)
     }
-    removed = 0
+    removed = invalid_results
     kept_contents = []
     for content in contents:
         parts = getattr(content, "parts", None)
@@ -340,4 +346,6 @@ def drop_replayed_tool_placeholders(llm_request: Any) -> int:
     llm_request.contents = kept_contents
     if removed:
         logger.info("one.history_hygiene removed=%d", removed)
+    if repaired_names:
+        logger.info("one.history_hygiene repaired_names=%d", repaired_names)
     return removed

@@ -85,41 +85,53 @@ class EmailAgentA2A:
             receipt_cursor=task.receipt_cursor,
             read_offer=task.mail_read_offer,
             require_explicit_latest=True,
+            memory_markdown=task.memory_markdown,
+            pending_email_draft=task.pending_email_draft,
+            page_context=task.email_page,
+            supports_email_reviews=task.supports_email_reviews,
+            history=task.email_history,
+            selected_messages=task.email_selection,
+            on_text=task.on_email_text,
         )
         await require_access()
-        # A specialist proposal is only a suggestion; One validates it through
-        # the generated gateway before anything runs.
-        proposal = out.get("directive")
-        cursor = out.get("receipt_cursor")
-        structured = SpecialistReadResult.model_validate(out["structured"])
-        return SpecialistTurnResult(
-            conversation_id=task.conversation_id or "",
-            text=str(out.get("response") or ""),
-            directive=(
-                A2ADirective(kind="action", payload=proposal)
-                if isinstance(proposal, dict)
-                else None
-            ),
-            is_complete=bool(out.get("isComplete", True)),
-            state_changed=False,
-            model=DELEGATED_MODEL,
-            structured=structured,
-            continuation=cursor if isinstance(cursor, dict) else None,
-            mail_read_offer=(
-                make_mail_read_offer(
-                    out.get("offer"),
-                    owner_id=task.user_id,
-                    conversation_id=task.conversation_id or "",
-                )
-                if structured.status == "ok"
-                else None
-            ),
-            mail_brief=(
-                MailBrief.model_validate(out["brief"]).model_dump(mode="json")
-                if structured.status == "ok" and isinstance(out.get("brief"), dict)
-                else None
-            ),
-        )
+        return _email_result(task, out)
+
+
+def _email_result(task: A2ATask, out: dict) -> SpecialistTurnResult:
+    # A specialist proposal is only a suggestion; One validates it through
+    # the generated gateway before anything runs.
+    proposal = out.get("directive")
+    cursor = out.get("receipt_cursor")
+    structured = SpecialistReadResult.model_validate(out["structured"])
+    return SpecialistTurnResult(
+        conversation_id=task.conversation_id or "",
+        text=str(out.get("response") or ""),
+        directive=(
+            A2ADirective(kind="action", payload=proposal) if isinstance(proposal, dict) else None
+        ),
+        is_complete=bool(out.get("isComplete", True)),
+        state_changed=bool(out.get("stateChanged", False)),
+        model=DELEGATED_MODEL,
+        structured=structured,
+        email_page=out.get("email_page"),
+        performance=out.get("performance"),
+        email_selection=out.get("email_selection"),
+        continuation=cursor if isinstance(cursor, dict) else None,
+        mail_read_offer=(
+            make_mail_read_offer(
+                out.get("offer"),
+                owner_id=task.user_id,
+                conversation_id=task.conversation_id or "",
+            )
+            if structured.status == "ok"
+            else None
+        ),
+        mail_brief=(
+            MailBrief.model_validate(out["brief"]).model_dump(mode="json")
+            if structured.status == "ok" and isinstance(out.get("brief"), dict)
+            else None
+        ),
+    )
 
 
 _singleton: EmailAgentA2A | None = None

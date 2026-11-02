@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from google.genai import types
 
 from hushh_mcp.services.email_chat_service import (
@@ -206,8 +207,6 @@ async def test_private_email_runs_shared_loop_with_scoped_broker_and_owner_store
     import json
     from dataclasses import replace
     from unittest.mock import AsyncMock
-
-    import pytest
 
     from hushh_mcp.adk_bridge import _register_builtin_specialists
     from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime, dispatch
