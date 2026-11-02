@@ -102,14 +102,16 @@ async function conflict(page) {
   await code.fill("123456");
   stage = "phone_code_confirm_valid";
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await page.getByRole("heading", { name: "This number is linked to another account", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "This number is already linked", exact: true }).waitFor();
   stage = "phone_conflict";
 }
 async function handoff(page, action, origin) {
   const created = page.waitForResponse(response => response.request().method() === "POST" &&
     new URL(response.url()).pathname === "/api/account/phone/recovery/continuations")
     .then(async response => ({ status: response.status(), body: await response.json() }));
-  await page.getByRole("button", { name: "Sign in to existing account", exact: true }).click();
+  await page.getByRole("button", { name: "Account options", exact: true }).click();
+  await page.getByRole("dialog", { name: "Account options", exact: true })
+    .getByRole("button", { name: "Sign in to existing account", exact: true }).click();
   await page.waitForURL(url => url.pathname === "/login");
   const id = requireHandoff(page.url(), origin);
   const receipt = await created;
@@ -212,11 +214,14 @@ try {
         record("recover_existing_email_account_without_transfer");
       } else if (scenario === "occupied") {
         stage = "occupied_account_boundaries";
-        await page.getByRole("button", { name: "Sign in to existing account", exact: true }).waitFor();
+        await page.getByRole("button", { name: "Account options", exact: true }).click();
+        const options = page.getByRole("dialog", { name: "Account options", exact: true });
+        await options.getByRole("button", { name: "Sign in to existing account", exact: true }).waitFor();
         for (const name of ["Use this number on this account", "Send a real SMS code", "Delete my previous account", "Review previous device access"]) {
           assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0);
         }
         assert.equal(erasures, 0); assert.equal(transfers, 0);
+        await options.getByRole("button", { name: "Close", exact: true }).click();
         await page.getByRole("button", { name: "Use a different number", exact: true }).click();
         await page.getByRole("textbox", { name: "Phone number", exact: true }).waitFor();
         record("occupied_phone_keeps_original_email_and_information");

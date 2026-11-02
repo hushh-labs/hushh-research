@@ -54670,37 +54670,12 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.recover"
-    ],
+    "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.review_previous_devices",
-      "actions:phone_mandate.send_real_sms",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
-    ],
-    "from_revision": "8b2c2ce0335c1211",
+    "deprecated": [],
+    "from_revision": null,
     "migrated": [],
-    "removed": [
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:phone_mandate.review_previous_devices",
-      "actions:phone_mandate.send_real_sms",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -57046,6 +57021,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
@@ -57433,6 +57409,7 @@
           "089dd4c9f391ecfd",
           "09508ecac56d001c",
           "0d1f4106e4b3ae29",
+          "0e067db9029f2723",
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
@@ -57573,6 +57550,7 @@
           "089dd4c9f391ecfd",
           "09508ecac56d001c",
           "0d1f4106e4b3ae29",
+          "0e067db9029f2723",
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
@@ -57936,6 +57914,7 @@
           "09508ecac56d001c",
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
+          "0e067db9029f2723",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "101c32b70ab14a4d",
@@ -58313,6 +58292,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0e067db9029f2723",
           "8b2c2ce0335c1211"
         ],
         "migration_required_graph_revisions": [],
@@ -58721,6 +58701,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
@@ -59115,6 +59096,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
@@ -59507,6 +59489,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
