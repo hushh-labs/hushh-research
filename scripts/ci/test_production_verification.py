@@ -107,6 +107,7 @@ def verify_inputs(operation: str) -> dict[str, str]:
         "phone_schema_origin_run_id": "",
         "phone_schema_origin_attempt": "",
         "nearby_check_in_cohort": "all",
+        "frontend_auth_domain_refresh": "false",
     }
 
 
