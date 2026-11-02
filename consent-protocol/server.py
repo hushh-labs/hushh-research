@@ -1,4 +1,3 @@
-# consent-protocol/server.py
 """
 FastAPI Server for Hussh Consent Protocol Agents
 
@@ -16,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
 from api import database_listener_lifecycle as _listener_lifecycle
+from api.email_router_lifecycle import warm_email_router_for_startup
 from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
@@ -728,6 +728,8 @@ async def startup_action_retrieval_warmup() -> None:
     never blocks readiness or health; a failure leaves the lazy path in place.
     """
     from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR, BAKED_MODEL_DIR_ENV
+
+    await warm_email_router_for_startup(logger)
 
     if os.getenv(BAKED_MODEL_DIR_ENV) != BAKED_MODEL_DIR or not os.path.isdir(BAKED_MODEL_DIR):
         return

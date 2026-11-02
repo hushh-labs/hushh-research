@@ -9,6 +9,8 @@ import { marketInsightsQuery } from "@/lib/kai/market-insights-query";
  * Offline vault, consent and authentication retain their Capacitor owners.
  */
 
+import { MarketInsightsEmptyError, MarketNewsSnapshotChangedError } from "@/lib/services/market-errors";
+export { MarketInsightsEmptyError, MarketNewsSnapshotChangedError, isMarketInsightsEmptyError } from "@/lib/services/market-errors";
 import { readKaiCompanyFacts } from "@/lib/services/kai-company-facts-read";
 import { readKaiStockHistory } from "@/lib/services/kai-stock-history-read";
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
@@ -358,30 +360,6 @@ function resolveClientTimezone(): string | null {
   } catch {
     return null;
   }
-}
-
-export class MarketInsightsEmptyError extends Error {
-  readonly status = 404;
-
-  constructor() {
-    super("Market insights are not ready yet.");
-    this.name = "MarketInsightsEmptyError";
-  }
-}
-
-export class MarketNewsSnapshotChangedError extends Error {
-  readonly status = 409;
-
-  constructor() {
-    super("Market news refreshed. Start again to see the latest headlines.");
-    this.name = "MarketNewsSnapshotChangedError";
-  }
-}
-
-export function isMarketInsightsEmptyError(
-  error: unknown,
-): error is MarketInsightsEmptyError {
-  return error instanceof MarketInsightsEmptyError;
 }
 
 async function classifyVaultOwnerAuthFailure(

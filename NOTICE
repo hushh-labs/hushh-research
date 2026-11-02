@@ -5,6 +5,13 @@ This product includes software developed by Hushh and distributed under the Apac
 
 Third-party dependency attributions and license summaries are documented in THIRD_PARTY_NOTICES.md.
 
+The vendored Gmail execution component under
+consent-protocol/hushh_mcp/services/email_oss includes theposch/gmail-mcp code
+under GPL-3.0-only and LangChain helpers under MIT. These are explicit exceptions
+to the first-party Apache-2.0 default, with original licenses and pinned source
+provenance in email_oss/vendor. The combined runtime is not Apache-only;
+distribution must comply with the applicable GPL terms.
+
 The onboarding Check-in location pin includes Google's Material Icons location_on
 artwork, distributed under the Apache License 2.0 (see LICENSE).
 Source: https://github.com/google/material-design-icons/blob/master/src/communication/location_on/materialicons/24px.svg

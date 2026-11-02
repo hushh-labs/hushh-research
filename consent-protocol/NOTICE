@@ -4,3 +4,9 @@ Copyright 2026 Hushh
 This backend runtime is distributed under the Apache License 2.0.
 
 Third-party dependency attributions and license summaries are documented in THIRD_PARTY_NOTICES.md.
+
+Vendored email_oss Gmail execution includes GPL-3.0-only theposch/gmail-mcp
+and MIT LangChain code. Their original licenses, revisions and modifications
+are retained in hushh_mcp/services/email_oss/vendor. These are exceptions to
+the first-party Apache-2.0 default; the combined runtime is not Apache-only.
+Distribution must comply with the applicable GPL terms.

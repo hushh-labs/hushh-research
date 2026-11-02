@@ -22,6 +22,49 @@ evaluation threshold, performance budget, kill switch, rollout, and rollback.
 Invocation authority never implies private-data access or mutation authority.
 
 
+## Email chat execution
+
+Typed Gmail chat uses `services/email_oss/runtime.py`: the installed semantic-router
+`IndexedRouter` scopes the six Email routes; LangChain `create_agent` owns the tool
+loop. `gmail_execution.py` imports the pinned upstream execution/MIME helpers;
+`vendor/PROVENANCE.md` records their exact licenses, revisions and adaptations.
+The existing OAuth vault supplies account-bound read/compose credentials; the
+central managed Azure binding supplies its approved One text deployment; the
+Email manifest authors its low thinking budget, without changing One root policy.
+The owner clock includes local day boundaries with epoch seconds, so Gmail
+calendar-day queries can use the correct timezone without a query compiler. There is no per-message
+assessment model, custom date parser or receipt-snapshot redirect on this path.
+
+Search reads one native page (25 default, 50 maximum), with one SDK HTTP batch.
+Body retrieval is explicit; supported attachments use the existing scanner and
+isolated parser. Decimal totals accept exact numeric evidence from the current
+read. Missing amounts remain unresolved. The existing encrypted Chat session
+keeps private pagination/selection metadata and complete visible assistant
+answers; raw tool results and pending draft/memory review payloads are removed
+from durable history. Only completed exclusive Email answers supply follow-up
+context. No secondary conversation or PKM store is created.
+
+New clients advertise `emailAgentContract: 1`. Their memory proposals use the
+existing client-encrypted writer and revision/commit ledger; send/label/Trash
+proposals retain the existing app review and effect owners (25 messages per
+mailbox proposal). Native drafts support text/HTML; reviewed sends support plain
+text. Outgoing file attachments remain unsupported under the current UAT
+attachment authority; PDF/CSV reading does not grant attachment delivery. Older clients keep
+read access and their existing draft UI without unsupported new review cards.
+Legacy injected ADK/voice adapters and non-UAT deployments retain their existing
+execution paths. UAT typed chat does not invoke `MailReadPlan`; UAT configuration
+failures never fall back to it. General One relays eligible Email text
+through its existing stream queue and commits one final assistant answer.
+
+The `email_oss.turn_completed` trace and tool-result `performance` distinguish
+model calls, tool calls, actual Gmail HTTP requests, API methods for completed
+operations, first model text and total time. Gmail HTTP batches still contain
+N API methods; they are not one quota operation. These timings are not browser
+paint latency. The router is baked into images, verified offline and warmed once
+per API worker before UAT accepts traffic. Missing or corrupt router assets fail
+UAT startup; runtime routing failure stops the turn rather than bypassing it.
+No embedding network request or first-chat model download occurs.
+
 ## Visual Context
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.

@@ -239,6 +239,23 @@ def load_pod_runtime_resources() -> list[dict[str, str]]:
     return [{key: item[key] for key in ("name", "version", "license", "license_file", "notice_file")}]
 
 
+def load_email_runtime_resources() -> list[dict[str, str]]:
+    directory = REPO_ROOT / "consent-protocol/hushh_mcp/services/email_oss/vendor"
+    inventory = json.loads((directory / "PROVENANCE.json").read_text(encoding="utf-8"))
+    result = []
+    for source in inventory["sources"]:
+        for entry in source["files"]:
+            path = directory / entry["path"]
+            if not path.resolve().is_relative_to(directory.resolve()) or hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+                raise ValueError("Email upstream provenance changed")
+        license_path = next(entry["path"] for entry in source["files"] if entry["upstream_path"] == "LICENSE")
+        result.append({"name": source["repository"].removeprefix("https://github.com/"),
+                       "version": source["commit"], "license": source["license"],
+                       "license_file": str((directory / license_path).relative_to(REPO_ROOT)),
+                       "notice_file": str((directory / "PROVENANCE.md").relative_to(REPO_ROOT))})
+    return result
+
+
 def load_python_packages() -> list[dict[str, str]]:
     result = subprocess.run(
         [
@@ -363,6 +380,7 @@ def main() -> int:
             ("Backend Python packages", python_packages),
             ("Vendored engineering resources", load_vendored_packages()),
             ("Private pod runtime resources", load_pod_runtime_resources()),
+            ("Vendored Email execution resources", load_email_runtime_resources()),
         ],
     )
 
@@ -370,7 +388,8 @@ def main() -> int:
         PROTOCOL_NOTICES,
         "Third-Party Notices",
         "Third-party dependency inventory for the Hushh Consent Protocol.",
-        [("Python packages", python_packages), ("Private pod runtime resources", load_pod_runtime_resources())],
+        [("Python packages", python_packages), ("Private pod runtime resources", load_pod_runtime_resources()),
+         ("Vendored Email execution resources", load_email_runtime_resources())],
     )
     return 0
 

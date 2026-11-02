@@ -2,6 +2,25 @@ version = 1
 
 [[annotations]]
 path = [
+  "consent-protocol/hushh_mcp/services/email_oss/gmail_execution.py",
+  "consent-protocol/hushh_mcp/services/email_oss/execution_types.py",
+  "consent-protocol/hushh_mcp/services/email_oss/gmail_reads.py",
+  "consent-protocol/hushh_mcp/services/email_oss/gmail_effects.py",
+  "consent-protocol/hushh_mcp/services/email_oss/mime_projection.py",
+  "consent-protocol/hushh_mcp/services/email_oss/vendor/theposch/**"
+]
+precedence = "override"
+SPDX-FileCopyrightText = "theposch/gmail-mcp contributors; Hushh adaptations documented in vendor/PROVENANCE.md"
+SPDX-License-Identifier = "GPL-3.0-only"
+
+[[annotations]]
+path = ["consent-protocol/hushh_mcp/services/email_oss/vendor/eaia/**", "consent-protocol/hushh_mcp/services/email_oss/vendor/agents_from_scratch/**"]
+precedence = "override"
+SPDX-FileCopyrightText = "LangChain, Inc. and contributors; Hushh adaptations documented in vendor/PROVENANCE.md"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = [
   "README.md",
   "contributing.md",
   "LICENSE",

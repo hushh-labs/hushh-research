@@ -41,6 +41,14 @@ function requestBody(call: number): Record<string, unknown> {
 describe("EmailDeliveryService", () => {
   beforeEach(() => { vi.clearAllMocks(); placement.mockResolvedValue(false); sessionStorage.clear(); });
 
+  it("refuses source-bound replies in private mode before any proposal can drop the binding", async () => {
+    placement.mockResolvedValue(true);
+    await expect(EmailDeliveryService.prepare({ ...AUTH, draft: replyDraft(), idempotencyKey: "reply-review" }))
+      .rejects.toThrow("source-bound Gmail replies");
+    expect(ApiService.ownerPodRequest).not.toHaveBeenCalled();
+    expect(ApiService.apiFetch).not.toHaveBeenCalled();
+  });
+
   it('binds private sends to the exact reviewed proposal and refuses changed drafts or a hub fallback', async () => {
     placement.mockResolvedValue(true);
     const draft = { to: 'to@example.com', cc: '', bcc: '', subject: 'Hello', body: 'Body' };

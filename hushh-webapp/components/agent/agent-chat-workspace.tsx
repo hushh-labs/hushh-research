@@ -152,7 +152,6 @@ import {
 } from "@/components/ui/select";
 import { EmailDraftCard, type GmailDraftSaveState } from "@/components/agent/email-draft-card";
 import { parseEmailDraftToolResult, type GmailSendReadiness } from "@/lib/agent/email-draft-tool-result";
-import { richEmailPlainText } from "@/components/agent/email-rich-text";
 import {
   AgentCalendarProposalCard,
   type CalendarProposalAction,
@@ -353,7 +352,6 @@ import {
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatConsentAccess,
   type AgentChatToolEvent,
-  type PendingEmailDraftContext,
   type SpecialistDirectiveEvent,
   type AgentSource,
   getAgentChatFeedback,
@@ -376,6 +374,9 @@ import { CalendarInvitationChat } from "@/components/calendar/calendar-invitatio
 import { attendanceResultMessage } from "@/components/calendar/calendar-invitation-actions";
 import { runCalendarDirective } from "@/lib/agent/calendar-directive-runtime";
 import { runGmailTodoDirective } from "@/lib/agent/gmail-todo-directive-runtime";
+import { createSourceBoundEmailReply, openPreparedEmailReview } from "@/lib/chat/email-draft-review";
+import { buildPendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
+import { commitEmailMemorySave, parseEmailMemorySaveDirective, projectEmailMemoryMdFromRam, type EmailMemoryCommitReceipt } from "@/lib/chat/email-memory-bridge";
 import {
   GMAIL_MAILBOX_ACTION_COPY,
   gmailMailboxAction,
@@ -982,23 +983,7 @@ export function getGmailEmailDraftPayload(
  * The draft card as the person sees it, for the next chat turn. A source-bound
  * reply shows its server-derived envelope, so that is what One is told too.
  */
-export function buildPendingEmailDraftContext(
-  draft: EmailDraft | null,
-  sourceBoundEnvelope: { to: string; subject: string } | null,
-  sourceBound: boolean,
-): PendingEmailDraftContext | null {
-  if (!draft) return null;
-  const context: PendingEmailDraftContext = {
-    to: (sourceBound ? sourceBoundEnvelope?.to ?? "" : draft.to).trim(),
-    cc: sourceBound ? "" : draft.cc.trim(),
-    bcc: sourceBound ? "" : draft.bcc.trim(),
-    subject: (sourceBound ? sourceBoundEnvelope?.subject ?? "" : draft.subject).trim(),
-    body: draft.body.trim(),
-    sourceBound,
-  };
-  if (!sourceBound && draft.driveFileId) context.driveFileId = draft.driveFileId;
-  return context.body || context.to || context.subject ? context : null;
-}
+export { buildPendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
 
 export function getGmailInformationRequestReplyPayload(
   event: AgentChatToolEvent | null,
@@ -4023,10 +4008,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
     pendingEmailDraftFrameRef.current = {
-      sourceBound: Boolean(gmailKycEmailDraftWorkflowId),
-      envelope: gmailKycEmailDraftEnvelope,
+      sourceBound: Boolean(gmailKycEmailDraftWorkflowId || emailDraftInitialValue?.sourceMailRef),
+      envelope: emailDraftInitialValue?.sourceMailRef ? emailDraftInitialValue : gmailKycEmailDraftEnvelope,
     };
-  }, [emailDraftOpen, gmailKycEmailDraftEnvelope, gmailKycEmailDraftWorkflowId]);
+  }, [emailDraftOpen, emailDraftInitialValue, gmailKycEmailDraftEnvelope, gmailKycEmailDraftWorkflowId]);
 
   const handleEmailSendStarted = (draft: EmailDraft): string => {
     const id = `email-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -4251,6 +4236,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return true;
       }
       setEmailDraftInstruction(payload.instruction);
+      setGmailKycEmailDraftWorkflowId(null);
+      setGmailKycEmailDraftEnvelope(null);
       setEmailDraftInitialValue(
         payload.initialDraft
           ? { ...payload.initialDraft, ...(payload.driveFileId ? { driveFileId: payload.driveFileId } : {}) }
@@ -4266,6 +4253,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [gmailKycEmailDraftWorkflowId, hasChatAccess, router, user],
   );
+
+  const openPreparedGmailReview = (directive: SpecialistDirectiveEvent, assistantMessageId: string) =>
+    openPreparedEmailReview(directive, assistantMessageId, {
+      hasChatAccess, requireAccess: () => { if (user) setVaultDialogOpen(true); else router.push(ROUTES.LOGIN); },
+      resetKyc: () => { setGmailKycReplyRequest(null); setGmailKycEmailDraftWorkflowId(null); setGmailKycEmailDraftEnvelope(null); },
+      setInstruction: setEmailDraftInstruction, setDraft: setEmailDraftInitialValue,
+      setAutoDraft: setEmailDraftAutoDraft, setGmailSend: setEmailDraftGmailSend,
+      setAnchor: setEmailDraftAnchorMessageId, setOpen: setEmailDraftOpen,
+    });
 
   const upsertMessageStreamEvent = (
     messageId: string,
@@ -6806,6 +6802,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           receipt: latestPkmSaveReceiptRef.current ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
           memory: agentPkmContext.text || "", events: peekLiveActivity(userId), now: Date.now(),
         }),
+        emailMemoryProjection: projectEmailMemoryMdFromRam(userId, () =>
+          chatSessionRef.current.isCurrent(chatEpoch) && !streamAbortController.signal.aborted),
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
         // Soul.md is the only saved memory supplied by chat. Connector tools
@@ -7027,6 +7025,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
+            if (openPreparedGmailReview(directive, assistantMessageId)) return;
             setPendingSpecialistDirective({ ...directive, sourceAssistantMessageId: assistantMessageId });
             if (directive.delegateAgentId === "agent_calendar" && directive.directive.payload.type === "calendar.invitations") setCalendarInvitationContext(current => current ? { ...current, needsContext: false } : null);
             if (directive.delegateAgentId === "agent_calendar" && directive.directive.payload.type === "calendar.execute_proposal") {
@@ -7267,6 +7266,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       feedAttention?: { itemId: string };
       pkmContext?: string;
       communicationPreferences?: OwnerStyleSettings;
+      emailMemoryCommit?: EmailMemoryCommitReceipt;
     } = {},
   ): Promise<FollowUpTurnResult> => {
     if (!hasChatAccess || !applicationOwnerId) return "failed";
@@ -7380,6 +7380,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ...(extra.feedAttention ? { feedAttention: extra.feedAttention } : {}),
         ...(extra.pkmContext ? { pkmContext: extra.pkmContext } : {}),
         ...(extra.communicationPreferences ? { communicationPreferences: extra.communicationPreferences } : {}),
+        ...(extra.emailMemoryCommit ? { emailMemoryCommit: extra.emailMemoryCommit } : {}),
+        emailMemoryProjection: projectEmailMemoryMdFromRam(userId, () =>
+          chatSessionRef.current.isCurrent(chatEpoch) && !streamAbortController.signal.aborted),
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
@@ -7400,6 +7403,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // onPkmResults are intentionally omitted; only the events a delegated
         // confirmation turn can actually emit are wired here.
         handlers: {
+          onSpecialistDirective: (directive) => {
+            if (streamAbortController.signal.aborted) return;
+            if (openPreparedGmailReview(directive, assistantMessageId)) return;
+            setPendingSpecialistDirective({ ...directive, sourceAssistantMessageId: assistantMessageId });
+          },
           onReceiptPrivate: () => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, current => ({ ...current, receiptPrivate: {
@@ -8931,6 +8939,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const renderEmailDraftCard = () => {
     if (!emailDraftOpen) return null;
     const workflowId = gmailKycEmailDraftWorkflowId;
+    const sourceMailRef = emailDraftInitialValue?.sourceMailRef;
     const draftOwnerId = workspaceOwnerIdRef.current;
     const draftScope = emailScopeRef.current;
     const isDraftScopeCurrent = () => emailScopeRef.current === draftScope &&
@@ -8960,64 +8969,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onDeliveryPrepared={(actionId, attemptId) => {
             if (isDraftScopeCurrent()) handleEmailDeliveryPrepared(actionId, attemptId);
           }}
-          sourceBoundEnvelope={gmailKycEmailDraftEnvelope}
+          sourceBoundEnvelope={sourceMailRef ? emailDraftInitialValue : gmailKycEmailDraftEnvelope}
           onDraftChange={handleEmailDraftChange}
           onDraftingChange={setIsEmailDrafting}
           onOpenConnections={openConnectorSurface}
-          gmailSend={workflowId ? null : emailDraftGmailSend}
+          gmailSend={workflowId || sourceMailRef ? null : emailDraftGmailSend}
           onEnableGmailSend={() => handleEnableGmailSend()}
           enablingGmailSend={gmailSendConnect.pending?.key === "gmail_send"}
-          sourceBoundReply={
-            workflowId
-              ? {
-                  send: async ({
-                    firebaseIdToken,
-                    vaultOwnerToken,
-                    draft,
-                    idempotencyKey,
-                    onSendRequestStarted,
-                    onPrepared,
-                  }) => {
-                    const body = richEmailPlainText(draft.body);
-                    if (!body) {
-                      throw new Error("Write a reply before sending it.");
-                    }
-                    const sourceBoundDraft = {
-                      ...draft,
-                      sourceWorkflowId: workflowId,
-                    };
-                    const prepared = await EmailDeliveryService.prepare({
-                      firebaseIdToken,
-                      vaultOwnerToken,
-                      draft: {
-                        ...sourceBoundDraft,
-                        body,
-                        htmlBody: draft.htmlBody ?? draft.body,
-                      },
-                      idempotencyKey,
-                    });
-                    if (!prepared.actionId) {
-                      throw new Error("Mail could not be prepared for sending.");
-                    }
-                    onPrepared?.(prepared.actionId);
-                    onSendRequestStarted?.();
-                    const sent = await EmailDeliveryService.send({
-                      firebaseIdToken,
-                      vaultOwnerToken,
-                      actionId: prepared.actionId,
-                      senderToken: prepared.senderToken,
-                      draft: {
-                        ...sourceBoundDraft,
-                        body,
-                        htmlBody: draft.htmlBody ?? draft.body,
-                      },
-                    });
-                    return { outcomeUnknown: sent.outcomeUnknown };
-                  },
-                  reportsSendStart: true,
-                }
-              : null
-          }
+          sourceBoundReply={createSourceBoundEmailReply({ workflowId, sourceMailRef, envelope: emailDraftInitialValue })}
         />
       </div>
     );
@@ -10571,6 +10530,54 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     }}
                     onCancel={() => {
                       setPendingSpecialistDirective(null);
+                    }}
+                  />
+                ) : pendingSpecialistDirective.delegateAgentId === "agent_email" &&
+                  parseEmailMemorySaveDirective(pendingSpecialistDirective.directive.payload) ? (
+                  <SpecialistDirectiveCard
+                    brand="gmail"
+                    summary="Save this detail to your private memory?"
+                    details={[{ label: "To remember", value: String(pendingSpecialistDirective.directive.payload.fact_markdown) }]}
+                    confirmLabel="Save to memory"
+                    busy={specialistBusy}
+                    onConfirm={async () => {
+                      const pending = pendingSpecialistDirective;
+                      const directive = parseEmailMemorySaveDirective(pending.directive.payload);
+                      const token = getVaultOwnerToken();
+                      if (!directive || specialistBusy || !applicationOwnerId || !vaultKey || !token) return;
+                      const ownerId = applicationOwnerId;
+                      const chatEpoch = chatSessionRef.current.value;
+                      const vaultEpoch = snapshotVaultSessionEpoch();
+                      const conversation = conversationIdRef.current;
+                      const isCurrent = () => workspaceOwnerIdRef.current === ownerId &&
+                        chatSessionRef.current.isCurrent(chatEpoch) && isVaultSessionEpochCurrent(vaultEpoch) &&
+                        conversationIdRef.current === conversation && getVaultOwnerToken() === token;
+                      setSpecialistBusy(true);
+                      try {
+                        const operation = commitEmailMemorySave({ directive, userId: ownerId,
+                          vaultKey, vaultOwnerToken: token, isCurrent,
+                          confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_request" } })
+                          .then(receipt => { if (!receipt.saved) throw new Error("Memory commit unconfirmed."); return receipt; });
+                        toast.promise(operation, { loading: "Saving to memory…", success: "Saved to memory.",
+                          error: "Memory save could not be confirmed. Review it and try again." });
+                        const receipt = await operation;
+                        if (!isCurrent()) return;
+                        setPendingSpecialistDirective(current => current === pending ? null : current);
+                        enqueueWorkspaceOperation({ id: `email-memory-${receipt.request_id}`, run: async () => {
+                          if (!isCurrent()) return;
+                          await sendFollowUpTurn("The reviewed memory write has a committed receipt. Report the verified result.",
+                            { emailMemoryCommit: receipt });
+                        } });
+                      } catch {
+                        // The promise toast owns failure; the exact reviewed card stays retryable.
+                      } finally {
+                        if (workspaceOwnerIdRef.current === ownerId && chatSessionRef.current.isCurrent(chatEpoch) &&
+                            conversationIdRef.current === conversation) setSpecialistBusy(false);
+                      }
+                    }}
+                    onCancel={() => {
+                      setPendingSpecialistDirective(null);
+                      toast.info("Memory review closed.");
                     }}
                   />
                 ) : pendingSpecialistDirective.directive.kind === "prompt" &&

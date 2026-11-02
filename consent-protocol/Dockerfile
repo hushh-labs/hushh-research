@@ -32,6 +32,12 @@ COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_cl
 COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
 RUN python -m scripts.ops.bake_drive_embedding_model
 
+# Email routing uses the upstream FastEmbed encoder, with its exact ONNX/tokenizer
+# snapshot baked and verified now. Serving workers never download router models.
+COPY hushh_mcp/services/email_oss/routing.py hushh_mcp/services/email_oss/routing.py
+COPY scripts/ops/bake_email_router_model.py scripts/ops/bake_email_router_model.py
+RUN python -m scripts.ops.bake_email_router_model
+
 # Preserve the cached dependency install and model download layers above. Compile
 # their already-installed graph offline for cold instances with bytecode writes
 # disabled; a code-only build never needs another dependency/model download here.
@@ -54,7 +60,9 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/hushh/models /opt/hushh/models
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small
+    HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small \
+    HUSHH_EMAIL_ROUTER_MODEL_CACHE=/opt/hushh/models/email-router-fastembed \
+    HF_HUB_OFFLINE=1
 
 # Make sure scripts in .local are usable
 ENV VIRTUAL_ENV=/opt/venv \
