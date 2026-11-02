@@ -75,6 +75,7 @@ from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # n
 from api.routes.one.pod_scheduled_tasks import router as pod_scheduled_tasks_router
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
 from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
+from api.routes.one.pod_todo_sources import router as pod_todo_sources_router
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
@@ -139,6 +140,7 @@ _POD_ROUTERS = (
     pod_memory_router,
     pod_ai_selection_router,  # the owner's sealed "Bring your own AI"; same two doors
     pod_connectors_router,
+    pod_todo_sources_router,
     pod_actions_router,
     pod_gmail_push_router,
     pod_browser_router,
