@@ -24207,9 +24207,11 @@
       "navigation": {
         "fallback": "setup.finish_finance",
         "routes": [
+          "/one/setup/finance",
           "/one/setup/finance/import"
         ],
         "screens": [
+          "one_setup_finance",
           "one_setup_finance_import"
         ]
       },
@@ -24920,17 +24922,17 @@
       },
       "description": "Answers the investment horizon question in the Kai preferences wizard.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.answer_horizon",
+        "binding_ref": "render:kai.setup.answer_horizon",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.answer_horizon"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.answer_horizon",
@@ -24967,7 +24969,7 @@
       "kind": "action",
       "label": "Answer Investment Horizon",
       "navigation": {
-        "fallback": "kai.setup.answer_horizon",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -25019,16 +25021,16 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "horizon",
         "how long",
         "invested"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -25082,17 +25084,17 @@
       },
       "description": "Answers the portfolio-drawdown-reaction question in the Kai preferences wizard.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.answer_drawdown",
+        "binding_ref": "render:kai.setup.answer_drawdown",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.answer_drawdown"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.answer_drawdown",
@@ -25129,7 +25131,7 @@
       "kind": "action",
       "label": "Answer Drawdown Response",
       "navigation": {
-        "fallback": "kai.setup.answer_drawdown",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -25181,16 +25183,16 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "drawdown",
         "drop",
         "reaction"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -25244,17 +25246,17 @@
       },
       "description": "Answers the volatility-comfort question in the Kai preferences wizard.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.answer_volatility",
+        "binding_ref": "render:kai.setup.answer_volatility",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.answer_volatility"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.answer_volatility",
@@ -25291,7 +25293,7 @@
       "kind": "action",
       "label": "Answer Volatility Preference",
       "navigation": {
-        "fallback": "kai.setup.answer_volatility",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -25343,16 +25345,16 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": "render.form",
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "volatility",
         "comfort",
         "swings"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -25376,8 +25378,7 @@
       "aliases": [
         "Save Finance Preferences",
         "save finance preferences",
-        "looks good, continue",
-        "finish finance setup"
+        "looks good, continue"
       ],
       "authorization": {
         "guard_ids": [
@@ -25406,17 +25407,17 @@
       },
       "description": "Saves the selected Finance preferences and continues to portfolio import without completing Finance or root setup.",
       "execution": {
-        "binding_ref": "semantic_action:kai.setup.launch_dashboard",
+        "binding_ref": "render:kai.setup.launch_dashboard",
         "executor": {
-          "kind": "existing_ui_semantic_action",
+          "kind": "typed_render",
           "settlement": "directive_ledger_settlement"
         },
         "mode": "client_directive",
         "outcome": "EXECUTE",
         "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "kai.setup.launch_dashboard"
+          "path": "",
+          "status": "unwired",
+          "target": ""
         }
       },
       "goal_id": "goal.kai.setup.launch_dashboard",
@@ -25439,7 +25440,7 @@
       "kind": "action",
       "label": "Save Finance Preferences",
       "navigation": {
-        "fallback": "kai.setup.launch_dashboard",
+        "fallback": null,
         "routes": [
           "/one/setup/finance"
         ],
@@ -25491,7 +25492,7 @@
         "requires_signed_in": true,
         "requires_vault": false
       },
-      "render_surface": null,
+      "render_surface": "render.data_card",
       "required_entities": [],
       "search_keywords": [
         "save",
@@ -25500,9 +25501,9 @@
         "continue",
         "import"
       ],
-      "settlement_proof": "directive_ledger_settlement",
+      "settlement_proof": "approved_render_acknowledgement",
       "side_effect": {
-        "classification": "client_semantic_action"
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -50925,7 +50926,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "1f141c723adcf528f133ccde8a6b209ab6c67374fa662d31426efbb52f867ced",
+      "projection_digest": "8331ac4c718fe9ea142af7a0bf2e4578678bf73da4349ec514462d0f6b6784c7",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50935,7 +50936,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "394ab286e8247254c5e1b165d8b323079c07e10825fbf3684a47fce50b669198",
+        "capability_graph_evolution": "2969348bd2316ce7f8871fe1d16ad8e3ceb9294de863ebaab0b7852409594fc9",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50944,7 +50945,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "af4afd41b0d7ed48",
+      "source_revision": "b47e6e44aa91fe5c",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -52462,7 +52463,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "af4afd41b0d7ed48",
+    "source_revision": "b47e6e44aa91fe5c",
     "web": {
       "actions": [
         {
@@ -52505,7 +52506,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "76a14ffa47759874cdef99b0c8091d0d2a1c424cbf48017360f71a4af59830ef",
+      "projection_digest": "479a8771eed1f19b7b42290a289055c58df3799cf4ac8f0a2fb0e05b9d8a61ef",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52515,7 +52516,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "394ab286e8247254c5e1b165d8b323079c07e10825fbf3684a47fce50b669198",
+        "capability_graph_evolution": "2969348bd2316ce7f8871fe1d16ad8e3ceb9294de863ebaab0b7852409594fc9",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -52524,7 +52525,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "af4afd41b0d7ed48",
+      "source_revision": "b47e6e44aa91fe5c",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -54081,7 +54082,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "af4afd41b0d7ed48",
+  "revision": "b47e6e44aa91fe5c",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -55679,10 +55680,7 @@
     },
     {
       "action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard",
+        "setup.finish_finance",
         "setup.skip_finance"
       ],
       "capability_id": "screen:/one/setup/finance",
@@ -56076,10 +56074,25 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:kai.setup.answer_drawdown",
+      "actions:kai.setup.answer_horizon",
+      "actions:kai.setup.answer_volatility",
+      "actions:kai.setup.launch_dashboard",
+      "actions:setup.finish_finance",
+      "screens:screen:/one/setup/finance",
+      "workflows:workflow.setup.finance"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": "0ed6343a6fd9e823",
+    "deprecated": [
+      "actions:kai.setup.answer_drawdown",
+      "actions:kai.setup.answer_horizon",
+      "actions:kai.setup.answer_volatility",
+      "actions:kai.setup.launch_dashboard",
+      "actions:setup.finish_finance",
+      "workflows:workflow.setup.finance"
+    ],
+    "from_revision": "af4afd41b0d7ed48",
     "migrated": [],
     "removed": []
   },
@@ -58395,21 +58408,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "394ab286e8247254c5e1b165d8b323079c07e10825fbf3684a47fce50b669198",
+    "capability_graph_evolution": "2969348bd2316ce7f8871fe1d16ad8e3ceb9294de863ebaab0b7852409594fc9",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "c451b1fa49ae14b8da0858372b8e600037c20b49dc4bf905959b8a7bb833a643",
+    "kai_action_gateway": "580ec63baefd77e58d573f60ed9ae8705b596e505c36d14b627a0579e8b4e22f",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "30061f8d855f401f5bc0b084146ca97fa9f53a0046d1de74ee955de2e67adb54",
-    "route_orchestration_index": "ffe75c5510a85caf73899377826e0ffc3f467d5f556d165f7a787c76353f336b",
+    "route_orchestration_index": "8913a912524169519dbd463a208a564d59845a5eae1ae5df2a40c70e70da8d05",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "af4afd41b0d7ed48",
+  "source_revision": "b47e6e44aa91fe5c",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "af4afd41b0d7ed48",
+    "current_graph_revision": "b47e6e44aa91fe5c",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -58669,6 +58682,7 @@
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
+          "af4afd41b0d7ed48",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -58890,6 +58904,7 @@
           "ace929102322f9c0",
           "ad3f61d47487e20e",
           "aee5093562958f50",
+          "af4afd41b0d7ed48",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
           "b78352783d3460bc",
@@ -59012,6 +59027,7 @@
           "ace929102322f9c0",
           "ad3f61d47487e20e",
           "aee5093562958f50",
+          "af4afd41b0d7ed48",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
           "b78352783d3460bc",
@@ -59495,6 +59511,7 @@
           "ad3f61d47487e20e",
           "aee5093562958f50",
           "af06ae26b8943fb1",
+          "af4afd41b0d7ed48",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
@@ -59669,7 +59686,9 @@
         "workflow_version": 1
       },
       {
-        "compatible_graph_revisions": [
+        "compatible_graph_revisions": [],
+        "migration_required_graph_revisions": [],
+        "rejected_graph_revisions": [
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -59925,6 +59944,7 @@
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
+          "af4afd41b0d7ed48",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -60050,9 +60070,7 @@
           "fe7124ad349b7300",
           "fed9c40b9bb74ea8"
         ],
-        "migration_required_graph_revisions": [],
-        "rejected_graph_revisions": [],
-        "workflow_digest": "b9af308cacdcfc415282ac8e217b71484c46041286b75585d725ae784fc666d9",
+        "workflow_digest": "3ad3db3f205b72d13c3c6d5e06ca6aa31b0c5a0018c11d23fcba22596f8fab1a",
         "workflow_id": "workflow.setup.finance",
         "workflow_version": 1
       },
@@ -60313,6 +60331,7 @@
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
+          "af4afd41b0d7ed48",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -60701,6 +60720,7 @@
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
+          "af4afd41b0d7ed48",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -61087,6 +61107,7 @@
           "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
+          "af4afd41b0d7ed48",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
@@ -62111,10 +62132,7 @@
         "server_revalidation": "identity_and_persisted_onboarding_state"
       },
       "available_action_ids": [
-        "kai.setup.answer_drawdown",
-        "kai.setup.answer_horizon",
-        "kai.setup.answer_volatility",
-        "kai.setup.launch_dashboard",
+        "setup.finish_finance",
         "setup.skip_finance"
       ],
       "capability_id": "workflow.setup.finance",
@@ -62208,7 +62226,7 @@
           "step_id": "workflow.setup.finance.navigate"
         },
         {
-          "description": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
+          "description": "The introduction never completes setup. A verified source result or explicit later choice enables the existing terminal finish.",
           "directive": null,
           "outcome": "RENDER",
           "render_surface": "existing_route_surface",
