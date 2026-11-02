@@ -100,9 +100,17 @@ class HostedPodJournal:
         return bool(result.data and result.data[0].get("admitted") is True)
 
     async def upgrade_current(
-        self, *, owner_id: str, lease: str, observed: dict, work: bool = True
+        self,
+        *,
+        owner_id: str,
+        lease: str,
+        observed: dict,
+        work: bool = True,
+        join_on_cancel: bool = False,
     ) -> bool:
-        result = await asyncio.to_thread(
+        from hushh_mcp.services.pod_files.managed_worker import database_thread
+
+        result = await database_thread(
             self._database.execute_raw,
             "SELECT public.hosted_pod_upgrade_admitted(:owner,:lease,CAST(:observed AS jsonb),:work) AS current",
             {
@@ -111,6 +119,7 @@ class HostedPodJournal:
                 "observed": json.dumps(observed, default=str),
                 "work": work,
             },
+            join_on_cancel=join_on_cancel,
         )
         return bool(result.data and result.data[0].get("current") is True)
 

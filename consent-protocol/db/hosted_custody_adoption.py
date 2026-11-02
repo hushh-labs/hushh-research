@@ -5,6 +5,12 @@ from __future__ import annotations
 import hashlib
 from typing import TYPE_CHECKING
 
+from db.hosted_custody_acl import preserve_native_family_acl
+from db.hosted_custody_qualification import (
+    QUALIFIED_FAMILY_SETTING,
+    complete_family_qualification_sql,
+)
+
 if TYPE_CHECKING:
     from db.migration_authority import MigrationManifestEntryV2
 
@@ -70,6 +76,91 @@ QUALIFIED = {
     "valid_managed_preparation_cleanup(jsonb,text,jsonb)": "45bc615c0be9c136d49c6e30c8df53990424020ec561facdc122c5f9c3049184",
     "valid_managed_preparation_cleanup_append(jsonb,jsonb)": "7fb22e756f1ca75aa7b475d8cb80a690646a1520487afa3da771cddf71eb8cb5",
 }
+
+
+HOSTED_FILES_QUALIFIED = {
+    "begin_hosted_files_executor(text,jsonb,jsonb,timestamptz,timestamptz,jsonb,text,text,text,jsonb,text,text)": "7e14a534c2e036daf27ddcd09f33efdce86470f3e0f950e7a85872f493ab4868",
+    "finish_hosted_files_executor(text,text,text)": "680c6779d5790edb6aa776c7f0192810ef54bd80109bd18b62054ff68015e5ce",
+    "guard_personal_agent_erasure_registry()": "8ac0d73779ceeb59ee17c4d8424aa897bcb8baf48ce050321982753f50dda719",
+    "guard_project_grant_registry_admission()": "85036e3d7dafeb5f97b04f8ede7a59f03a1a164b5cc3bcc86088d621ba945a46",
+    "hosted_files_executor_owner_locks_held(text)": "8b45c648b5cf7eea806d92d85eb9a9d53fe83d31a3c2aca21a7df88432677dd1",
+    "hosted_files_executor_registry_guard(jsonb,jsonb,text)": "39152aa42ebcd707d758db658b848d8923912286e2b73d884bc45a104d08d25a",
+    "hosted_files_executor_session_active(text)": "f77fcfea626d824d360eb35309fdb4cd484f8199494d56a627e77b2711d298d7",
+    "hosted_files_executor_session_held(text,jsonb)": "12590b937177f21c0b646550916810e2d388789cbb4dd13c73bc719da826503d",
+    "hosted_files_queue_erasure_settled(jsonb)": "e66c4301916451acee07adae19479db242db4b5ec56ee1cb622560bb7b2963ed",
+    "hosted_files_upgrade_host_binding(jsonb)": "45191c5ce50d6b574bf942212d8539eb6934214b04794e8df85099424dfd8c3e",
+    "personal_agent_erasure_archive(jsonb,jsonb)": "ad2df9bf0e9fa413dfc4d77d3240d1fca0815a174799631f827c8f9f8848b350",
+    "personal_agent_erasure_complete(text)": "cef92ffa3bdbdfbde965ddc8c844e78db4b1746712672f54b174756063367744",
+    "record_hosted_files_provider_settlement(text,text,text,jsonb)": "17fb62d6cdb514705a93fc415644d07ab7c4f0e0a1b89107731379f7bbb97cdd",
+    "record_hosted_files_replacement_intent(text,text,text,text,jsonb)": "a6c95e879a73693d0ec398e8dea26ec3b06f679e7c74f468040a85d355b91b92",
+    "resume_hosted_files_executor(text,jsonb,jsonb,timestamptz,timestamptz,jsonb,text,jsonb,jsonb,text,text,text)": "f8bb2f76093beb362a7f6076d10b29f674ed3bd8af3daf954e0328515f994e89",
+    "valid_erasure_substrate_inventory(jsonb,jsonb)": "a46891a22a5a07be0de6edcaa8e195b26f47951b8abf5fa5bfddec2b2b60c3ba",
+    "valid_erasure_memory_binding(jsonb,jsonb)": "3e6f72daf26d7532d6764d190cb6337410e3c97f845dbe9dfd10907dc5d5a8dd",
+    "valid_hosted_files_executor_exit(jsonb,jsonb,jsonb)": "bce1388a8f692ee7feb375ad30e2e5e36258d5adc3e0cdf07fb8dbe9791ebb72",
+    "valid_hosted_files_queue_retry(jsonb,jsonb,jsonb,text,text,text)": "79e1eddce0c7eafbf86af3a1730542a34c8f4411b3bf8cd7ba39c33cc0dae486",
+    "valid_hosted_files_replacement_intent(jsonb,jsonb,jsonb)": "26910702d679ccb7eb1e7450c96f1cda6f95148749da41baed04da47236c4b2e",
+    "valid_hosted_files_provider_settlement(text,text,jsonb,jsonb,jsonb)": "7d14722bf7c2ac947ec97be0d50fcbcb1993ddd5351f04c2644d74c378304a84",
+    "valid_hosted_files_previous_success(jsonb,jsonb)": "85039de8f907859dd1abae8f374886028dcca0a774c02674921368c1e24c7c51",
+    "valid_hosted_files_previous_failure(jsonb,jsonb)": "6f70b999485280330deb874786a4905b89221d336dd8c20af3c9bffe52bd5bfc",
+    "valid_hosted_files_no_dispatch(jsonb,jsonb)": "36f21105171f36161eef6c358a87eeb9ca85bed577af73c93ded254223a7c590",
+    "valid_hosted_files_previous_terminal(jsonb,jsonb)": "dbded18e5649dd7eaa288c4a3fe6c405789530f1c329374bec5a3e372f64cebf",
+}
+
+PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED = {
+    "personal_agent_upgrade_lease_host_binding(jsonb)": "f03be8a6d264fb22c74968c1f758b885ee18a4206895a10f77fdbf7cd583a172",
+    "azure_vm_image_publication_proven(personal_agent_registry,personal_agent_registry)": "1748051f173f41e3fdbed624b30a1027658a4448ae8592e6287196bc15bdc4fb",
+    "guard_personal_agent_upgrade_lease_host_binding()": "a229daf41718e6002b8b257cb57fcb1ed9b99a5132429437007e87c5a9c193d6",
+    # Dev 976 is the GCP notification migration. The installed Azure worker-event
+    # validator remains at its 968 body; 980 adds host binding without replacing it.
+    "valid_byoc_azure_worker_event(text,text,jsonb,jsonb,text,text)": "95233dcf09e1b7a056cf3d846beb562e157ebf5be907ba33592e96cd45654cb4",
+}
+
+HOSTED_FILES_NEW_SIGNATURES = frozenset(
+    {
+        "begin_hosted_files_executor(text,jsonb,jsonb,timestamptz,timestamptz,jsonb,text,text,text,jsonb,text,text)",
+        "finish_hosted_files_executor(text,text,text)",
+        "hosted_files_executor_owner_locks_held(text)",
+        "hosted_files_executor_registry_guard(jsonb,jsonb,text)",
+        "hosted_files_executor_session_active(text)",
+        "hosted_files_executor_session_held(text,jsonb)",
+        "hosted_files_queue_erasure_settled(jsonb)",
+        "hosted_files_upgrade_host_binding(jsonb)",
+        "record_hosted_files_replacement_intent(text,text,text,text,jsonb)",
+        "record_hosted_files_provider_settlement(text,text,text,jsonb)",
+        "resume_hosted_files_executor(text,jsonb,jsonb,timestamptz,timestamptz,jsonb,text,jsonb,jsonb,text,text,text)",
+        "valid_hosted_files_executor_exit(jsonb,jsonb,jsonb)",
+        "valid_hosted_files_queue_retry(jsonb,jsonb,jsonb,text,text,text)",
+        "valid_hosted_files_replacement_intent(jsonb,jsonb,jsonb)",
+        "valid_hosted_files_provider_settlement(text,text,jsonb,jsonb,jsonb)",
+        "valid_hosted_files_previous_success(jsonb,jsonb)",
+        "valid_hosted_files_previous_failure(jsonb,jsonb)",
+        "valid_hosted_files_no_dispatch(jsonb,jsonb)",
+        "valid_hosted_files_previous_terminal(jsonb,jsonb)",
+    }
+)
+
+PERSONAL_AGENT_UPGRADE_HOST_BINDING_SIGNATURES = frozenset(
+    PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED
+)
+
+HOSTED_FILES_SERVICE_ROLE_SIGNATURES = (
+    HOSTED_FILES_NEW_SIGNATURES | PERSONAL_AGENT_UPGRADE_HOST_BINDING_SIGNATURES
+)
+
+HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED = {
+    "valid_managed_prefix_memory_absence(jsonb,jsonb)": "248b701ed0b51582de99d9e0ae7752c08712c29b9267eab01587782cf8321b1f",
+}
+
+
+def qualified_hosted_custody_family() -> dict[str, str]:
+    """Return the exact 979/980/981 custody family required for hosted Files."""
+    return {
+        **QUALIFIED,
+        **HOSTED_FILES_QUALIFIED,
+        **PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        **HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+    }
+
 
 REFINED = {
     "expected_erasure_bootstrap_release": (
@@ -150,18 +241,43 @@ REFINED = {
 def hosted_custody_adoption(sql: str) -> str:
     from db.migration_authority import MigrationAuthorityError
 
-    qualification = _successor_qualification()
+    full_family = complete_family_qualification_sql(
+        base_family=QUALIFIED,
+        files_family=HOSTED_FILES_QUALIFIED,
+        upgrade_family=PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        native_contract_family=HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        service_role_signatures=HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
+        hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
+        native_contract_new_signatures=frozenset(),
+    )
+    qualification = full_family + _successor_qualification()
     for name, (predecessors, successor) in REFINED.items():
+        successor_digests = [successor]
+        successor_digests.extend(
+            digest
+            for family in (
+                HOSTED_FILES_QUALIFIED,
+                PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+                HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+            )
+            for signature, digest in family.items()
+            if signature.partition("(")[0] == name
+        )
         anchor = (
             f"NOT IN ({predecessors}) THEN\n  RAISE EXCEPTION 'Unqualified schema drift: {name}'"
         )
         if sql.count(anchor) != 1:
             raise MigrationAuthorityError(f"Managed custody adoption inventory changed: {name}")
+        accepted = ",".join(f"'{digest}'" for digest in dict.fromkeys(successor_digests))
         sql = sql.replace(
             anchor,
-            anchor.replace(f"NOT IN ({predecessors})", f"NOT IN ({predecessors},'{successor}')"),
+            anchor.replace(f"NOT IN ({predecessors})", f"NOT IN ({predecessors},{accepted})"),
             1,
         )
+    try:
+        sql = preserve_native_family_acl(sql)
+    except ValueError as error:
+        raise MigrationAuthorityError("Managed custody ACL source anchors changed") from error
     return _qualified_transaction(sql, qualification)
 
 
@@ -192,12 +308,15 @@ def hosted_custody_recovery_replay(entry: MigrationManifestEntryV2, sql: str) ->
     if sql.count(body) != 1:
         raise MigrationAuthorityError("Managed custody recovery guard shape changed")
     digest = QUALIFIED["guard_personal_agent_erasure_registry()"]
+    hosted_files_digest = HOSTED_FILES_QUALIFIED["guard_personal_agent_erasure_registry()"]
     wrapped = f"""DO $retain_managed_custody$
-DECLARE actual text;
+DECLARE actual text; expected text;
 BEGIN
  IF to_regprocedure('public.private_gcp_coordinates(jsonb)') IS NOT NULL THEN
+  expected:=CASE WHEN to_regclass('public.hosted_files_executor_976_rollback_source') IS NOT NULL
+    THEN '{hosted_files_digest}' ELSE '{digest}' END;
   SELECT pg_get_functiondef(to_regprocedure('public.guard_personal_agent_erasure_registry()')) INTO actual;
-  IF actual IS NULL OR encode(sha256(convert_to(actual,'UTF8')),'hex')<>'{digest}' THEN
+  IF actual IS NULL OR encode(sha256(convert_to(actual,'UTF8')),'hex')<>expected THEN
    RAISE EXCEPTION 'Unqualified managed custody recovery guard';
   END IF;
   RETURN;
@@ -227,9 +346,19 @@ def _successor_qualification() -> str:
         f"('{signature}','{digest}',{'true' if signature.partition('(')[0] in REFINED else 'false'})"
         for signature, digest in QUALIFIED.items()
     )
+    complete_family = complete_family_qualification_sql(
+        base_family=QUALIFIED,
+        files_family=HOSTED_FILES_QUALIFIED,
+        upgrade_family=PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
+        native_contract_family=HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        service_role_signatures=HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
+        hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
+        native_contract_new_signatures=frozenset(),
+    )
     qualification = f"""DO $hosted_custody_successor$
 DECLARE spec record; definition text; client_role text; footprint boolean := false;
 BEGIN
+ IF current_setting('{QUALIFIED_FAMILY_SETTING}',true)='true' THEN RETURN; END IF;
  -- Any new helper or refined successor is a footprint. A missing sentinel
  -- must not make a partial successor look like the legacy family.
  SELECT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -266,4 +395,4 @@ BEGIN
 END;
 $hosted_custody_successor$;
 """
-    return qualification
+    return complete_family + qualification

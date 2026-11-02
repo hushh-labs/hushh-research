@@ -9,12 +9,18 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from tests import hosted_pilot_readiness_cases as _readiness_cases
 from tests.pkm_conformance.postgres_harness import find_pg_bin
-from tests.test_byoc_setup_job_azure_admission_postgres import ROOT, _Client, _server
+from tests.test_byoc_setup_job_azure_admission_postgres import ROOT, _Client
 
 psycopg2 = pytest.importorskip("psycopg2")
 pytestmark = pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
 POLICY = "11111111-1111-4111-8111-111111111111"
+
+
+@pytest.fixture
+def pg(monkeypatch):
+    yield from _readiness_cases.pg.__wrapped__(monkeypatch)
 
 
 def _assignment(owner: str, number: int) -> dict:
@@ -25,19 +31,6 @@ def _assignment(owner: str, number: int) -> dict:
         "projectNumber": str(100000000000 + number),
         "region": "us-central1",
     }
-
-
-@pytest.fixture
-def pg(monkeypatch):
-    # Reuse the provision-journal fixture through its exact 954 predecessor.
-    # Its minimal vault schema lacks 955's setup projection; complete release/dev
-    # replay remains a separate required migration gate before activation.
-    server = _server(monkeypatch, last=954)
-    try:
-        server.apply_file(ROOT / "db/migrations/parked/973_hosted_pod_pilot_admission.sql")
-        yield server
-    finally:
-        server.stop()
 
 
 def _policy(
@@ -496,3 +489,7 @@ def test_verified_phone_retains_fixed_cohort_selection(pg, monkeypatch):
     from tests.helpers.hosted_pilot_selection import prove_phone_pending_selection
 
     asyncio.run(prove_phone_pending_selection(pg, monkeypatch))
+
+
+def test_hosted_files_readiness_requires_executor_binding_and_refreshed_contract(pg, monkeypatch):
+    _readiness_cases.run_readiness_case(pg, monkeypatch)

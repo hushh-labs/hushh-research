@@ -26,6 +26,7 @@ assertions are about the ORDER and CONTENT of those calls, because that is where
 
 from __future__ import annotations
 
+import asyncio
 import copy
 from dataclasses import replace
 from typing import Any, Optional
@@ -46,6 +47,11 @@ from hushh_mcp.services.personal_agent_reconcile_worker import (
     StalePod,
 )
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+from tests.helpers.pod_upgrade_lease_cases import (
+    assert_upgrade_ack,
+    provider_ack_fields,
+    provider_image_ack,
+)
 
 OLD = "sha256:" + "a" * 64
 NEW = "sha256:" + "b" * 64
@@ -1634,21 +1640,18 @@ async def test_changed_claimed_host_never_reaches_upgrade_provider(service_env, 
 
 @pytest.mark.asyncio
 async def test_upgrade_acknowledgement_is_persisted_before_provider_continues(service_env):
-    import asyncio
-
     pas, _ = service_env
     registry = FakeRegistry({"uid-1": _row()})
 
     class AcknowledgingBackend(FakeUpgradingBackend):
         async def upgrade(self, spec):
-            receipt = {"version": 1, "attemptId": spec.upgrade_attempt_id, "generation": 4}
+            receipt = provider_image_ack(spec, NEW)
             await asyncio.to_thread(spec.on_upgrade_ack, receipt)
             stored = registry.rows["uid-1"]["backend_metadata"]
-            assert stored["upgradeAcknowledgement"] == {
-                **receipt,
-                "targetImage": SOURCE_NEW,
-                "hubRevision": pas.hub_revision(),
-            }
+            assert_upgrade_ack(
+                stored,
+                {**receipt, "targetImage": SOURCE_NEW, "hubRevision": pas.hub_revision()},
+            )
             assert stored["upgradeLease"]
             raise RuntimeError("synthetic polling interrupted")
 
@@ -1662,15 +1665,13 @@ async def test_upgrade_acknowledgement_is_persisted_before_provider_continues(se
 
 @pytest.mark.asyncio
 async def test_successful_upgrade_preserves_persisted_provider_acknowledgement(service_env):
-    import asyncio
-
     pas, _ = service_env
     registry = FakeRegistry({"uid-1": _row()})
     receipts = []
 
     class AcknowledgingBackend(FakeUpgradingBackend):
         async def upgrade(self, spec):
-            receipt = {"version": 1, "attemptId": spec.upgrade_attempt_id, "generation": 4}
+            receipt = provider_image_ack(spec, NEW)
             await asyncio.to_thread(spec.on_upgrade_ack, receipt)
             receipts.append(
                 dict(registry.rows["uid-1"]["backend_metadata"]["upgradeAcknowledgement"])
@@ -1682,7 +1683,7 @@ async def test_successful_upgrade_preserves_persisted_provider_acknowledgement(s
     )
     await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
     stored = registry.rows["uid-1"]["backend_metadata"]
-    assert stored["upgradeAcknowledgement"] == {**receipts[0], "outcome": "ready"}
+    assert_upgrade_ack(stored, {**receipts[0], "outcome": "ready"}, exact=True)
     assert "upgradeLease" not in stored
 
 
@@ -1780,7 +1781,6 @@ async def test_restarted_upgrade_reconciles_receipt_without_new_admission(servic
 
 @pytest.mark.asyncio
 async def test_late_acknowledgement_is_retained_without_resuming_upgrade(service_env):
-    import asyncio
     from unittest.mock import AsyncMock
 
     pas, _ = service_env
@@ -1790,7 +1790,9 @@ async def test_late_acknowledgement_is_retained_without_resuming_upgrade(service
 
     class LateBackend(FakeUpgradingBackend):
         async def upgrade(self, spec):
-            await asyncio.to_thread(spec.on_upgrade_ack, {"attemptId": spec.upgrade_attempt_id})
+            await asyncio.to_thread(
+                spec.on_upgrade_ack, provider_image_ack(spec, NEW, versioned=False)
+            )
             pytest.fail("erasure-retained acknowledgement reopened ordinary upgrade execution")
 
     service = pas.PersonalAgentProvisioningService(registry=registry, backend=LateBackend())
@@ -1799,7 +1801,7 @@ async def test_late_acknowledgement_is_retained_without_resuming_upgrade(service
     retained = registry.retain_erasure_upgrade_ack.call_args.kwargs
     assert retained["user_id"] == "uid-1"
     assert retained["lease"] == registry.rows["uid-1"]["backend_metadata"]["upgradeLease"]
-    assert retained["receipt"]["targetImage"] == SOURCE_NEW
+    assert_upgrade_ack(retained["receipt"], provider_ack_fields(NEW, SOURCE_NEW))
     registry.retain_erasure_upgrade_ack.assert_awaited_once()
 
 

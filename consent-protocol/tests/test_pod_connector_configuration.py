@@ -201,6 +201,38 @@ async def test_byoc_restart_observes_acknowledged_revision_without_copy_or_repla
     assert not copy_log.resolved and not copy_log.copied
 
 
+@pytest.mark.asyncio
+async def test_hosted_executor_recovery_rejects_legacy_mutable_source_receipt():
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    name = ugb._service_name(HUSHH_ID)
+    service_json = _service_json(name, NEW)
+    service_json["metadata"]["generation"] = 4
+    service_json["status"]["observedGeneration"] = 4
+    service_json["spec"]["template"].setdefault("metadata", {}).setdefault("annotations", {})[
+        "hussh/restart-nonce"
+    ] = _spec().upgrade_attempt_id
+
+    class ReadOnlyRun(GcpRunClient):
+        def __init__(self):
+            pass
+
+        def get_service(self, requested):
+            assert requested == name
+            return copy.deepcopy(service_json)
+
+    receipt = GcpRunClient.upgrade_acknowledgement(
+        service_json,
+        name=name,
+        expected_uid=_spec().expected_service_uid,
+        attempt_id=_spec().upgrade_attempt_id,
+    )
+    receipt["targetImage"] = SOURCE_NEW
+    spec = replace(_spec(), hosted_files_executor=SimpleNamespace(deployed_image=NEW))
+    assert await _backend(ReadOnlyRun()).observe_upgrade(spec, receipt) is None
+
+
 @pytest.mark.parametrize("provider", ["gcp", "azure"])
 @pytest.mark.parametrize(
     "public_entries",

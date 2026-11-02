@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -89,19 +90,17 @@ def verify_queue_absence(plan: FilesCapabilityPlan, prefix: list[dict]) -> dict:
 
 
 async def claim_queue_retry(
-    *, registry, row: dict, spec, backend, operation: str
+    *,
+    registry,
+    row: dict,
+    spec,
+    backend,
+    operation: str,
+    hosted_claim: Callable[[dict, dict], Awaitable[dict]] | None = None,
 ) -> tuple[dict, list[dict]]:
     """CAS one recovery executor into the existing owner-approved reservation."""
     if (spec.files_upgrade_plan or {}).get("version") == 2:
-        if getattr(spec, "files_upgrade_recovery_job", None) is not None:
-            from .azure_configuration_recovery import claim_configuration_reconciliation
-
-            return await claim_configuration_reconciliation(
-                registry=registry, row=row, spec=spec, backend=backend, operation=operation
-            )
-        from .azure_recovery import claim_role_reconciliation
-
-        return await claim_role_reconciliation(
+        return await _claim_version_two_queue_retry(
             registry=registry, row=row, spec=spec, backend=backend, operation=operation
         )
     from hushh_mcp.services.personal_agent_provisioning_service import upgrade_approval_matches
@@ -140,6 +139,11 @@ async def claim_queue_retry(
             "absence": absence,
         },
     }
+    if hosted_claim is not None:
+        updated_row = await hosted_claim(row, retry)
+        if not isinstance(updated_row, dict) or updated_row.get("user_id") != row.get("user_id"):
+            raise RuntimeError("Managed Files retry claim was not acknowledged")
+        return updated_row, prefix
     updated = {
         **metadata,
         "filesUpgradeCheckpoint": retry,
@@ -162,3 +166,19 @@ async def claim_queue_retry(
     # Advance only the acknowledged write. The caller compares its fresh read
     # with this snapshot before executing the already frozen PodSpec.
     return {**row, "backend_metadata": updated}, prefix
+
+
+async def _claim_version_two_queue_retry(
+    *, registry, row: dict, spec, backend, operation: str
+) -> tuple[dict, list[dict]]:
+    if getattr(spec, "files_upgrade_recovery_job", None) is not None:
+        from .azure_configuration_recovery import claim_configuration_reconciliation
+
+        return await claim_configuration_reconciliation(
+            registry=registry, row=row, spec=spec, backend=backend, operation=operation
+        )
+    from .azure_recovery import claim_role_reconciliation
+
+    return await claim_role_reconciliation(
+        registry=registry, row=row, spec=spec, backend=backend, operation=operation
+    )

@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from hushh_mcp.services.compute_backend import BACKEND_GCP, BackendHandle, BackendStatus, PodSpec
+from hushh_mcp.services.compute_backend import (
+    BACKEND_GCP,
+    BackendHandle,
+    BackendStatus,
+    PodSpec,
+)
 from hushh_mcp.services.hosted_gcp_authority import HostedGcpAuthority
 from hushh_mcp.services.hosted_tier_guard import HostedTierNotPermittedError
 from hushh_mcp.services.private_gcp_deployment import PrivateGcpDeployment
@@ -20,6 +25,11 @@ class HostedGcpBackend(UserGcpBackend):
     """Keep established provider ports while making managed authority explicit."""
 
     backend_id = BACKEND_GCP
+
+    def recovery_requires_original_session(self, spec: PodSpec) -> bool:
+        return (
+            spec.files_upgrade_plan is not None and self._deployment.hosting_mode == "hussh_hosted"
+        )
 
     def __init__(
         self,
@@ -158,6 +168,30 @@ class HostedGcpBackend(UserGcpBackend):
             raise HostedTierNotPermittedError(
                 "Managed update requires its owner-approved update lease"
             )
+        if spec.files_upgrade_plan is not None:
+            from hushh_mcp.services.pod_files.hosted_executor import HostedFilesExecutor
+
+            executor = spec.hosted_files_executor
+            if not isinstance(executor, HostedFilesExecutor):
+                raise HostedTierNotPermittedError(
+                    "Managed Files requires its dedicated retained executor session"
+                )
+            # Refuse before image copy, handoff or credentials, not only at the
+            # first Files resource write.
+            if spec.hosted_admission_guard is not self._authority:
+                raise HostedTierNotPermittedError(
+                    "Managed Files authority differs from its backend"
+                )
+            from hushh_mcp.services.pod_files.managed_worker import upgrade_thread
+
+            try:
+                await upgrade_thread(spec, self._authority.require_files_work)
+                return await super().upgrade(spec)
+            finally:
+                # The UserGcpBackend joins each provider worker and callback
+                # before returning or propagating cancellation. Only now can the
+                # original database session record executor exit.
+                await executor.finish()
         return await super().upgrade(spec)
 
     async def deprovision(self, external_agent_id: str) -> None:

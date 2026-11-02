@@ -17,7 +17,7 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Durable owner recovery — 1 November 2026
+## Dev owner-cloud acceptance — 2 November 2026
 
 The existing GCP and Azure storage/custody architecture is retained. Configured
 durable pods refuse startup if identity or session-authority recovery fails,
@@ -99,13 +99,81 @@ retained both the prompt and reply. The completed receipt binds the owner
 HusshID, operation and pod incarnation. This proves installation and chat/history continuity;
 it does not independently qualify every capability or stale-writer race.
 
-**Still unverified:** the GCP owner update and completed owner turn, plus live
-stale-writer refusal after replacement. GCP's authenticated native Vertex
-`gemini-3.8-flash` count-tokens diagnostic passed; that is model access evidence,
-not a completed chat. Format recovery does not establish active-work drain or
-Browser qualification. UAT and production were not changed. Finish through the
-existing owner-approved update flow; process health and historical receipts are
-not acceptance proof.
+The latest retained Dev acceptance receipt records both selected owner journeys
+as passed. The GCP owner is on revision
+`one-pod-ha1-5oadpcws3ckh5ljoldnpujq5s6xmbox5-00021-zkp`; Azure is on
+`ca-hussh-one-pod--ud27099ccbeb7`. Both use digest
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+Owner chat and reload restored persisted history on both. The retained
+`final-acceptance-20261102.json` receipt is in the private Dev handoff.
+The follow-up hub deployment `consent-protocol-00344-5zc` did not rebuild or
+replace either pod image.
+
+This accepts those two owner-cloud journeys only. It does not prove process
+replacement durability, stale-writer refusal, active-work drain, Browser
+qualification, or the managed-pilot lifecycle below. The GCP owner lease was
+absent in its retained registry receipt. Azure's selected subscription still
+reports `Enabled` in an explicit read scoped to its subscription ID.
+
+## Managed Dev pilot — operational, acceptance pending
+
+Two retained synthetic projects have one Cloud Run service each in
+`us-central1`, each at 100% latest-revision traffic with max 1 and effective
+minimum 0. The latest scale receipt records image
+`sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1`,
+not the current owner-pod image. These scale-policy observations do not prove
+owner setup, Files, Memory Bank, encrypted-state isolation or lifecycle
+acceptance. No hosted owner has passed that full checklist yet.
+
+The refreshed native-location contract is sourced from Google's Agent Platform
+[location documentation](https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/agent-locations),
+retrieved 2 November and valid through 9 November. It excludes adopted projects;
+the two 27 October projects cannot use the new-project `ca` exception. Their
+Cloud Run services are in listed region `us-central1`. A fresh read-only central
+registry query maps both retained owners to the existing projects and services;
+both are provisioned and have no active upgrade lease or host binding. Fresh
+Cloud Run reads show revisions `...-00001-q6w` and `...-00001-j6p`, 100% traffic,
+Ready conditions, min 0 / max 1, and the older hosted image digest above.
+
+Native Agent Platform `reasoningEngines.list` reads returned HTTP 403 in both
+projects with an explicit outstanding-billing message. The projects report
+billing enabled and link to an open billing account, but that does not clear the
+provider error. Treat Engine inventory and data-path location as blocked and
+unverified, not as empty. No billing, project, or runtime changes were made.
+
+The two pilot allocations reserve $200 of work and $50 of cleanup per owner,
+totalling the existing $500 ceiling with $100 held for cleanup. This is an
+allocation ceiling, not provider-enforced spending or measured usage; actual
+pilot spend is unknown. The retained cleanup receipt still has 44 soft-deleted
+object generations and scheduled KMS destruction without physical-absence
+confirmation. Eligible readbacks remain 3 November 2026 20:05 PDT and 4 November
+2026 14:24 PDT; do not poll before then.
+
+The isolated Dev candidate integrates the hosted Files executor, the collision-
+free 979–981 migration chain and the refreshed location contract. Its first
+serial core run passed the main suite (26,414 passed, 142 skipped) and 2,192
+shared-database tests, then failed seven PostgreSQL cases whose older fixtures
+did not bind upgrade leases or attempted direct owner-coordinate/model changes
+that migration 980 now refuses. The migration guard was retained. The fixtures
+now use canonical lease claims and guarded CAS. The three related PostgreSQL
+files pass all 32 cases (16.32 seconds), including the seven initially failing
+nodes and the additional guarded Azure VM variants. Targeted Ruff and diff checks
+pass, architecture fitness reports zero new or worsened findings, and independent
+review found no blocker. Repository governance and documentation verification
+pass. The final full-suite result is still gated by exact-head PR CI; the earlier
+local core run must not be reported as green. No candidate deployment, new
+project, pod-image publication or hosted Files activation is claimed. UAT and
+production remain unchanged.
+
+The fresh Dev database read confirms migration 976 remains the ledger head:
+`976_gcp_notification_account_id_limit.sql`, checksum
+`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`, applied
+2026-11-02 00:11:32.398553 UTC. Candidate migrations 979–981 are not applied.
+
+The existing installed Browser/Puppy and lifecycle checklist remains carried
+forward, including update/removal, hosted-memory recovery and delete/re-enroll
+cycles. This candidate and the owner chat receipts above do not close those
+items; reuse prior evidence only when its owner, image and lifecycle match.
 
 ## Previous release decision — 27 October 2026
 

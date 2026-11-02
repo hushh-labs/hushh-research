@@ -28,6 +28,7 @@ from browser_runtime.qualification import (
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _SHA = re.compile(r"[0-9a-f]{40}")
 _NOTE_CATEGORIES = {"improvements", "fixes", "security"}
+_OWNER_TARGETS = {"user_gcp", "user_azure"}
 MAX_RELEASE_BYTES = 12000
 
 
@@ -59,6 +60,17 @@ _IMMUTABLE_IMAGE_RE = re.compile(r"^.+@sha256:[0-9a-fA-F]{64}$")
 def is_immutable_image_reference(reference: object) -> bool:
     """Whether an image reference is pinned to a complete OCI digest."""
     return bool(_IMMUTABLE_IMAGE_RE.fullmatch(str(reference or "").strip()))
+
+
+def qualified_owner_update_host(deployment_target: object, metadata: object) -> bool:
+    """Only known owner-cloud rows without VM host state qualify for this gate."""
+    return bool(
+        isinstance(deployment_target, str)
+        and deployment_target in _OWNER_TARGETS
+        and isinstance(metadata, dict)
+        and "hostKind" not in metadata
+        and "vmHost" not in metadata
+    )
 
 
 def validate_descriptor(value: object) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from threading import Event
 from typing import Literal
 
 from hushh_mcp.services.byoc_bootstrap_execution import BootstrapContinuation
@@ -23,9 +24,28 @@ class HostedGcpAuthority:
 
     installed_image: str | None = None
     operation_id: str | None = None
+    files_work_check: Callable[[], None] | None = field(default=None, repr=False, compare=False)
+    files_work_stopped: Event = field(default_factory=Event, repr=False, compare=False)
 
     def __call__(self) -> None:
+        self._require_files_running()
         self.check()
+        self._require_files_running()
+
+    def _require_files_running(self) -> None:
+        if self.files_work_stopped.is_set():
+            raise ValueError("Managed Files work has been stopped")
+
+    def require_files_work(self) -> None:
+        """Do not treat read-only recovery authority as permission to mutate Files."""
+        if (
+            self.operation != "upgrade"
+            or self.files_work_stopped.is_set()
+            or not callable(self.files_work_check)
+        ):
+            raise ValueError("Files mutation authority is unavailable")
+        self.files_work_check()
+        self._require_files_running()
 
     def validate_execution(self) -> None:
         self.deployment.validate(frozen=self.operation in {"cleanup", "inspect"})
