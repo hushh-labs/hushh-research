@@ -20099,14 +20099,16 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
+          "/one/setup/finance",
           "/one/setup/finance/import"
         ],
         "screens": [
+          "one_setup_finance",
           "one_setup_finance_import"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "Finance preferences and one source choice are settled."
+          "A verified portfolio source result or explicit later choice is settled."
         ],
         "active_personas": [
           "investor"
@@ -20682,9 +20684,8 @@
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.answer_horizon"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
       "control_ids": [
         "kai_wizard_investment_horizon"
@@ -20701,7 +20702,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -20800,9 +20801,8 @@
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.answer_drawdown"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
       "control_ids": [
         "kai_wizard_drawdown_response"
@@ -20819,7 +20819,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -20918,9 +20918,8 @@
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.answer_volatility"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
       "control_ids": [
         "kai_wizard_volatility_preference"
@@ -20937,7 +20936,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },
@@ -21001,8 +21000,7 @@
       "label": "Save Finance Preferences",
       "aliases": [
         "save finance preferences",
-        "looks good, continue",
-        "finish finance setup"
+        "looks good, continue"
       ],
       "search_keywords": [
         "save",
@@ -21040,9 +21038,8 @@
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "kai.setup.launch_dashboard"
+        "status": "unwired",
+        "reason": "The initial Finance questionnaire was replaced by the demo and source picker. Saved preference editing remains available in Profile."
       },
       "control_ids": [
         "kai_wizard_launch_dashboard"
@@ -21059,7 +21056,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "The mounted action reports its browser-observed outcome."
+          "current route becomes /one/setup/finance"
         ],
         "backend_effects": []
       },

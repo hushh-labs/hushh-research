@@ -213,6 +213,7 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET /api/one/finance/shares/active-recipients
 GET,PUT /api/one/plg/preferences
 POST /api/one/plg/subscriptions/check
 POST /api/one/plg/subscriptions/revoke

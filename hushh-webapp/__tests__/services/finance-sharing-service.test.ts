@@ -101,3 +101,12 @@ describe("Finance encrypted publication", () => {
     await expect(FinanceSharingService.history(context)).rejects.toThrow(/session changed/);
   });
 });
+
+it("loads only owner-scoped active-recipient metadata and rejects malformed responses", async () => {
+  mocks.api.mockResolvedValue({ ok: true, json: async () => ({ personRefs: [ref] }) });
+  expect(await FinanceSharingService.activeRecipientRefs(context)).toEqual(new Set([ref]));
+  expect(mocks.api.mock.calls[0][0]).toBe("/api/one/finance/shares/active-recipients");
+  expect(mocks.api.mock.calls[0][1].headers["X-Hushh-Consent"]).toBe("synthetic-owner");
+  mocks.api.mockResolvedValue({ ok: true, json: async () => ({ personRefs: ["not-a-person-ref"] }) });
+  await expect(FinanceSharingService.activeRecipientRefs(context)).rejects.toThrow(/Current sharing/);
+});
