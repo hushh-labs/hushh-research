@@ -7,7 +7,10 @@ import httpx
 import pytest
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
-from hushh_mcp.services.google_calendar_meeting_grant import CALENDAR_SHARED_DRIVE_METADATA_SCOPE
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
+    MEETING_SCOPES,
+)
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 from hushh_mcp.services.google_connection_service import CalendarGrantIdentity
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -325,3 +328,55 @@ def test_meet_forbidden_reason_is_closed_and_never_requests_consent(monkeypatch,
         run(svc._meet("synthetic-token", "conferenceRecords"))
     assert caught.value.state == expected
     assert "private provider text" not in str(caught.value)
+
+
+def _approved_file_state(monkeypatch, granted, provider_reason):
+    _, svc, drive = setup("calendar-3")
+    grant = CalendarGrantIdentity("owner", "calendar-3", "google-subject", BINDING)
+    monkeypatch.setattr(artifacts_module, "inspect_token", AsyncMock(return_value=set(granted)))
+    drive.get_file_facts.side_effect = DriveReadError(
+        "source_unavailable", status_code=403, provider_reason=provider_reason
+    )
+    ref = {"file_id": "approvednote123", "kind": "notes", "provenance": "approved_request"}
+    return run(svc._file("owner", grant, ref, content=False))["state"]
+
+
+@pytest.mark.parametrize(
+    "granted,provider_reason,expected",
+    [
+        # The token lacks part of what the upgrade grants: consent can still help.
+        ({CALENDAR_SHARED_DRIVE_METADATA_SCOPE}, "scope_insufficient", "permission_required"),
+        # Everything the upgrade grants is already held: another consent would loop.
+        (
+            MEETING_SCOPES | {CALENDAR_SHARED_DRIVE_METADATA_SCOPE},
+            "scope_insufficient",
+            "resource_denied",
+        ),
+        # A denial that names the file is the file's, whatever the scopes.
+        ({CALENDAR_SHARED_DRIVE_METADATA_SCOPE}, "resource_denied", "resource_denied"),
+        (set(MEETING_SCOPES), "provider_policy", "provider_policy"),
+    ],
+)
+def test_oauth_is_offered_only_for_a_missing_scope_that_consent_can_add(
+    monkeypatch, granted, provider_reason, expected
+):
+    granted = set(granted) | {CALENDAR_SHARED_DRIVE_METADATA_SCOPE}  # the approved-read floor
+    assert _approved_file_state(monkeypatch, granted, provider_reason) == expected
+
+
+def test_a_meet_scope_failure_asks_for_the_scope_and_never_a_file_state(monkeypatch):
+    _, svc, _ = setup()
+    original = httpx.AsyncClient
+    body = {"error": {"code": 403, "errors": [{"reason": "insufficientPermissions"}]}}
+
+    def handler(request):
+        return httpx.Response(403, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(handler)),
+    )
+    with pytest.raises(artifacts_module.ArtifactUnavailable) as caught:
+        run(svc._meet("synthetic-token", "conferenceRecords"))
+    assert caught.value.state == "permission_required"
