@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { mapPortfolioToDashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
-const mocks = vi.hoisted(() => ({ mobile: false, capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), stop: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
+const mocks = vi.hoisted(() => ({ mobile: false, activeRecipientRefs: vi.fn(), recipient: vi.fn(), ownerConfig: vi.fn(), capture: vi.fn(), recipients: vi.fn(), prepare: vi.fn(), publish: vi.fn(), history: vi.fn(), stop: vi.fn(), view: vi.fn(), decrypt: vi.fn(), review: vi.fn(), saved: vi.fn() }));
 const context = { userId: "owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-consent", getIdToken: async () => "synthetic-token", isCurrent: () => true };
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => mocks.mobile }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/kai", useSearchParams: () => new URLSearchParams("tab=portfolio") }));
@@ -39,6 +39,7 @@ beforeEach(() => {
     addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() }));
   mocks.mobile = false;
   mocks.capture.mockReturnValue(context);
+  mocks.activeRecipientRefs.mockResolvedValue(new Set());
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
   mocks.recipients.mockResolvedValue({ items: [{ userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Synthetic connection" }], hasMore: false });
   mocks.history.mockResolvedValue({ items: [], nextCursor: null });
@@ -52,7 +53,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 it("allows a recipient without a portfolio to manage received access but not create shares", async () => {
   mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "received" ? [grant] : [], nextCursor: null }));
   render(<FinancePortfolioSharing />);
-  expect(screen.getByRole("button", { name: "Ask an advisor" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Ask an advisor" })).toBeNull();
   expect(screen.getByRole("button", { name: "Share portfolio" })).toBeDisabled();
   expect(screen.getByText("Add a portfolio to share.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
@@ -85,10 +86,7 @@ it("keeps existing outgoing access revocable after its portfolio is removed", as
 it("opens the existing advisor, sharing and access-management flows from Portfolio", async () => {
   const view = () => render(<FinancePortfolioSharing model={model} source={source} />);
   view();
-  fireEvent.click(screen.getByRole("button", { name: "Ask an advisor" }));
-  expect(screen.getByRole("dialog", { name: "Ask an advisor" })).toBeTruthy();
-  cleanup();
-  view();
+  expect(screen.queryByRole("button", { name: "Ask an advisor" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Share portfolio" }));
   expect(screen.getByRole("dialog", { name: "Share Finance" })).toBeTruthy();
   cleanup();
@@ -98,28 +96,39 @@ it("opens the existing advisor, sharing and access-management flows from Portfol
   await waitFor(() => expect(mocks.history).toHaveBeenCalled());
 });
 
-it.each([
-  ["Snapshot", "", { mode: "snapshot", durationSeconds: 604800 }],
-  ["Snapshot", "until_stopped", { mode: "snapshot", durationSeconds: null }],
-  ["Real time", "", { mode: "ongoing", durationSeconds: null }],
-])("sends the full portfolio to an advisor in one screen as %s (ends: %s)", async (label, ends, expected) => {
-  const portfolio = { total_value: 10000, holdings: [{ symbol: "AAPL", name: "Apple", quantity: 10, price: 1000, market_value: 10000 }] };
+it.each([false, true])("uses the same controls for an advisor, with Always available (model review: %s)", async allowModel => {
   mocks.recipients.mockResolvedValue({ items: [
     { userId: "recipient", publicPersonRef: "person", keyId: "key", publicKeyJwk: {}, displayName: "Advisor", isFinanceAdvisor: true },
     { userId: "other", publicPersonRef: "other", keyId: "other-key", publicKeyJwk: {}, displayName: "Other person", isFinanceAdvisor: false },
   ], hasMore: false });
-  mocks.saved.mockResolvedValue({ model, portfolio, source, sourceFence: "a".repeat(64) });
   mocks.prepare.mockResolvedValue({ requestId: "request" });
   mocks.publish.mockResolvedValue({ items: [{ requestId: "request", status: "active" }] });
-  render(<FinanceShareFlow advisorOnly open onOpenChange={vi.fn()} model={model} source={source} />);
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
+  expect(await screen.findByLabelText("Verified advisor")).toBeTruthy();
   fireEvent.click(await screen.findByRole("checkbox", { name: /^Advisor/ }));
-  expect(screen.queryByRole("checkbox", { name: /^Other person/ })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: label }));
-  if (ends) fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: ends } });
-  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(screen.getByRole("checkbox", { name: /^Other person/ })).toBeTruthy();
+  goToAccess();
+  fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: "until_stopped" } });
+  if (allowModel) fireEvent.click(screen.getByRole("checkbox", { name: "Allow their Agent One to review" }));
+  fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
+  fireEvent.click(await screen.findByRole("button", { name: "Share with 1 person" }));
   await waitFor(() => expect(mocks.publish).toHaveBeenCalled());
-  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 2, purpose: "verified_ria_review", ...expected, showAmounts: true, model_processing: { allowed: false } });
+  expect(mocks.prepare.mock.calls[0][3]).toMatchObject({ version: 3, purpose: "verified_ria_share", mode: "snapshot", durationSeconds: null, sections: ["allocation", "performance"], showAmounts: false, model_processing: { allowed: allowModel } });
+});
+
+it("supports a custom connection duration and blocks invalid values before preview", async () => {
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^Synthetic connection/ }));
+  goToAccess();
+  expect(screen.queryByRole("option", { name: "Always", exact: true })).toBeNull();
+  fireEvent.change(screen.getByLabelText("Access ends"), { target: { value: "custom" } });
+  fireEvent.change(screen.getByLabelText("Duration amount"), { target: { value: "999" } });
+  expect(screen.getByRole("button", { name: "Preview", exact: true })).toBeDisabled();
+  expect(mocks.prepare).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Duration amount"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("Duration unit"), { target: { value: "3600" } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
+  expect(await screen.findByText("After 3 hours")).toBeTruthy();
 });
 
 it("does not report an ended confirmation as active sharing", async () => {
@@ -268,4 +277,48 @@ it("uses the other person's identity in either sharing direction @feature_connec
     expect(preview.mock.calls[1][0].detail.personRef).toBeUndefined();
     expect(mocks.stop).not.toHaveBeenCalled(); expect(mocks.decrypt).not.toHaveBeenCalled();
   } finally { window.removeEventListener("hussh:person-profile-preview", preview); }
+});
+
+it("appends repeat shares under one person while retaining each approved view and stop control", async () => {
+  mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "outgoing" ? [
+    { ...grant, id: "older", status: "stopped", ownerUserId: "owner", direction: "outgoing", createdAt: "2026-10-26T00:00:00Z" },
+    { ...grant, id: "newer", ownerUserId: "owner", direction: "outgoing", createdAt: "2026-10-28T00:00:00Z" },
+  ] : [], nextCursor: null }));
+  render(<FinanceSharingManager open onOpenChange={vi.fn()} />);
+  await screen.findByText("Earlier shares (1)");
+  expect(screen.getAllByTestId("finance-sharing-person")).toHaveLength(1);
+  expect(screen.getAllByRole("heading", { name: "Recipient" })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "View", exact: true })).toHaveLength(1);
+  fireEvent.click(screen.getByText("Earlier shares (1)"));
+  expect(document.querySelectorAll("[data-finance-grant]")).toHaveLength(2);
+});
+
+it("keeps people with active access out of Share portfolio", async () => {
+  mocks.activeRecipientRefs.mockResolvedValue(new Set(["person"]));
+  render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
+  await waitFor(() => expect(mocks.activeRecipientRefs).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByRole("checkbox", { name: /^Synthetic connection/ })).toBeNull());
+  expect(screen.getByRole("button", { name: "Manage sharing" })).toBeTruthy();
+});
+
+it("opens existing owner access in Manage sharing and requires preview before updating", async () => {
+  const existing = { ...grant, ownerUserId: "owner", recipientPersonRef: "person", direction: "outgoing" };
+  mocks.history.mockResolvedValue({ items: [existing], nextCursor: null });
+  mocks.view.mockResolvedValue(existing);
+  mocks.ownerConfig.mockResolvedValue({ source, sourceFence: "a".repeat(64), selection: { sections: ["allocation"], holdingSymbols: [], showAmounts: false, note: "" } });
+  mocks.recipient.mockResolvedValue({ userId: "recipient", publicPersonRef: "person", displayName: "Recipient", keyId: "key", publicKeyJwk: {} });
+  const latestSource = { ...source, snapshotId: "latest-active-source" };
+  mocks.saved.mockImplementation(async (_context, chosen) => ({ model, source: chosen, sourceFence: "b".repeat(64) }));
+  render(<FinanceSharingManager open preferredSource={latestSource} onOpenChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Update access", exact: true }));
+  await screen.findByRole("dialog", { name: "Update access", exact: true });
+  expect(mocks.saved).toHaveBeenCalledWith(context, latestSource);
+  expect(mocks.publish).not.toHaveBeenCalled();
+  expect(screen.getByRole("checkbox", { name: "Allocation", exact: true })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "Performance", exact: true })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true }));
+  await screen.findByRole("dialog", { name: "Review before sharing" });
+  expect(mocks.publish).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Update access", exact: true })).toBeTruthy();
 });
