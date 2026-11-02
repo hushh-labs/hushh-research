@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useSetupCapabilityCoordinator } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { FinanceImportOnboardingSetupClient } from "@/app/one/setup/finance/import/finance-import-onboarding-setup-client";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   cachedJourney: null as Record<string, unknown> | null,
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mocks.replace }),
+  usePathname: () => window.location.pathname,
   useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
@@ -115,6 +117,7 @@ describe("setup coordinator completed Location entry", () => {
   beforeEach(() => {
     mocks.cachedJourney = null;
     mocks.ownerId = "user-1";
+    publishValidatedAuthSessionOwner(mocks.ownerId);
     mocks.bootstrapState.mockReset();
     mocks.syncOnboardingJourney.mockReset();
     mocks.syncOnboardingJourney.mockResolvedValue(undefined);
@@ -128,7 +131,10 @@ describe("setup coordinator completed Location entry", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    publishValidatedAuthSessionOwner(null);
+  });
 
   it.each([
     { cached: true, setupCompleted: false, completed: false, expected: true },
@@ -271,7 +277,7 @@ describe("setup coordinator completed Location entry", () => {
     await act(async () => { expect(await mocks.sourceSettler?.(source)).toBe(true); });
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
     expect(mocks.requestNavigation).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Finish Finance setup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Finance" }));
     await waitFor(() => expect(mocks.requestNavigation).toHaveBeenCalledWith(expect.objectContaining({ href: invite })));
     expect(mocks.syncSetupCapabilities).toHaveBeenCalledWith("user-1", ["finance"]);
   });

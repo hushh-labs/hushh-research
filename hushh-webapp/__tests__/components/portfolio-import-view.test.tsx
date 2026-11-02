@@ -6,6 +6,7 @@ import { PortfolioImportView } from "@/components/kai/views/portfolio-import-vie
 vi.mock("@/lib/navigation/use-scroll-reset", () => ({
   scrollAppToTop: vi.fn(),
 }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/one/setup/finance" }));
 
 describe("PortfolioImportView", () => {
   it("keeps source choices in one compact inset list", () => {
@@ -74,5 +75,40 @@ describe("PortfolioImportView", () => {
     expect(
       screen.queryByRole("button", { name: /i'll link this later/i }),
     ).toBeNull();
+  });
+
+  it("selects a setup source without launching it until the primary action", () => {
+    const connect = vi.fn();
+    const sample = vi.fn();
+    render(<PortfolioImportView presentation="onboarding" onFileSelect={vi.fn()}
+      onSkip={vi.fn()} onConnectPlaid={connect} onPreloadSchema={sample} plaidLocalDualEnvironmentEnabled />);
+    fireEvent.click(screen.getByRole("button", { name: /Try a sample/ }));
+    expect(sample).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Load sample" }));
+    expect(sample).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: /Recommended Connect an account/ }));
+    expect(connect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Connect account", exact: true }));
+    expect(connect).toHaveBeenCalledWith("sandbox");
+  });
+
+  it("blocks all setup source actions while connecting and rejects unsupported files", () => {
+    const connect = vi.fn();
+    const skip = vi.fn();
+    const file = vi.fn();
+    const { rerender } = render(<PortfolioImportView presentation="onboarding" onFileSelect={file}
+      onSkip={skip} onConnectPlaid={connect} isConnectingPlaid />);
+    fireEvent.click(screen.getByRole("button", { name: "Opening Plaid…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(connect).not.toHaveBeenCalled();
+    expect(skip).not.toHaveBeenCalled();
+    rerender(<PortfolioImportView presentation="onboarding" onFileSelect={file}
+      onSkip={skip} plaidConfigured={false} />);
+    expect(screen.getByRole("button", { name: "Choose statement" })).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("Choose a PDF or CSV brokerage statement"), {
+      target: { files: [new File(["bad"], "not-a-statement.txt", { type: "text/plain" })] },
+    });
+    expect(file).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Choose a PDF or CSV");
   });
 });

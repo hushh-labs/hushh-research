@@ -10,7 +10,7 @@ capability setup and Connect/Location contact acquisition unchanged.
 
 > Naming: the account‑level flow and its surfaces are now called **setup**
 > (formerly "onboarding"). The canonical routes are `/one/setup` (hub),
-> `/one/setup/finance` (Finance preferences), and static
+> `/one/setup/finance` (Finance introduction and portfolio source), and static
 > `/one/setup/<capability>` workspaces. Persisted state uses `setup_*` / `nav_setup_*`
 > columns and the `hushh_setup_*` cookies. Some internal symbol names still
 > read `onboarding` for back‑compat; the user‑facing surface and routes are
@@ -134,8 +134,8 @@ flowchart TD
   Pod["Assigned private-agent pod"]
   Gmail["/one/setup/gmail (workspace)<br/>Connect, review receipt signals, Finish Gmail setup"]
   Static["/one/setup/location | email | ria | connected-systems<br/>reused feature workspace + terminal footer"]
-  Wizard["/one/setup/finance (wizard)<br/>questionnaire then persona"]
-  Import["/one/setup/finance/import<br/>Plaid, statement, or set up later"]
+  Wizard["/one/setup/finance<br/>Market, Portfolio and Stocks demo"]
+  Import["Portfolio source + explicit completion<br/>Plaid, statement, sample, or later<br/>direct resume: /one/setup/finance/import"]
   Dash["/one (dashboard)<br/>reached after the master acknowledgement"]
 
   Hub --> Placement
@@ -183,7 +183,7 @@ has passed again.
 | ----- | --------------------- | ------------------------------ | ------------------------------------ | --------------- |
 | 1     | Set up location       | workflow                       | `/one/setup/location`                | `requiresVault` |
 | 2     | Let One draft for you | workflow                       | `/one/setup/email`                   | `requiresVault` |
-| 3     | Set up your finances  | wizard                         | `/one/setup/finance` → `/finance/import` | `requiresVault` |
+| 3     | Set up your finances  | introduction and source picker | `/one/setup/finance` → `/one/setup/finance/import` | `requiresVault` |
 | 4     | Set up RIA            | advisor verification           | `/one/setup/ria`                     | `requiresVault` |
 | 5     | Link your record      | CRM registry and profile setup | `/one/setup/connected-systems`       | `requiresVault` |
 
@@ -232,7 +232,7 @@ presentation does not add a persistent shown marker or change OAuth behavior.
 ```mermaid
 flowchart TD
   One["One setup (ROOT)<br/>/one/setup<br/>once per account"]
-  Kai["Finance preferences (SUB)<br/>/one/setup/finance"]
+  Kai["Finance introduction + source (SUB)<br/>/one/setup/finance"]
   Cap["Static capability setup (SUB)<br/>/one/setup/&lt;capability&gt;"]
   Ria["RIA advisor verification (SUB)<br/>/one/setup/ria"]
   Kyc["KYC identity workflow (SUB)<br/>/one/setup/email"]
@@ -251,7 +251,7 @@ registry — add or extend an `OnboardingDefinition` instead.**
 | Flow                        | Tier   | Route                     | Reset scope | Resumable | Skippable |
 | --------------------------- | ------ | ------------------------- | ----------- | --------- | --------- |
 | One (setup hub)             | `root` | `/one/setup`              | `account`   | yes       | no — vault is required after Finish setup |
-| Finance preferences         | `sub`  | `/one/setup/finance`      | `surface`   | yes       | yes       |
+| Finance introduction/source | `sub`  | `/one/setup/finance`      | `surface`   | yes       | yes       |
 | Static capability setup     | `sub`  | `/one/setup/<capability>` | `surface`   | yes       | yes       |
 
 Note on routes: `/one/setup` is the hub and resolves the **master** account
@@ -264,8 +264,16 @@ no separate AI tile on the hub. The hosting and `connections` markers remain
 independent durable prerequisites; the older AI route remains a compatibility
 entrypoint; its legacy action remains hidden from the hub. AI access is a root prerequisite, not an
 agent capability: it does not change the capability count or publish a generated
-voice action. `/one/setup/finance` is the Finance preferences wizard and
-`/one/setup/finance/import` selects its source. Every other first-run
+voice action. `/one/setup/finance` presents an illustrative Market → Portfolio → Stocks demo,
+then the portfolio source picker and an explicit completion action. The demo
+never saves answers or completes setup. `/one/setup/finance/import` resumes
+directly at source selection. Plaid, PDF/CSV and sample choices reuse the
+existing guarded import/review paths; only a verified source result or explicit
+later choice enables completion. A persisted successful callback resumes at
+completion after refresh. The desktop layout puts copy beside the phone; mobile
+stacks it above the phone. Motion respects reduced-motion preferences. Saved
+Finance preferences remain editable in Profile; the former first-run question
+actions are unavailable in the new introduction. Every other first-run
 capability has its own static setup route. The legacy `/one/setup/[capability]`
 and `/one/setup/kai` routes are redirect-only compatibility paths with no
 completion authority or executable controls.

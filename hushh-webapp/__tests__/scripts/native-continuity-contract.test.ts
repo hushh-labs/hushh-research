@@ -423,7 +423,9 @@ ${script.slice(boundary)}`], {
 
     expect(route?.expectedMarker).toBe("native-route-one-setup-finance-import");
     expect(setupImport).toContain("<NativeTestBeacon");
-    expect(setupImport).toContain('marker="native-route-one-setup-finance-import"');
+    expect(setupImport).toMatch(
+      /marker=\{\s*showIntroduction\s*\?\s*"native-route-one-setup-finance"\s*:\s*"native-route-one-setup-finance-import"\s*\}/,
+    );
   });
 
   it("audits disabled Gmail setup through its intentional setup-hub redirect", () => {
