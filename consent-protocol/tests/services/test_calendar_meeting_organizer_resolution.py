@@ -5,12 +5,17 @@ without a database. The Postgres flow suite proves the real SQL separately.
 """
 
 import logging
+import sys
+from types import SimpleNamespace
 
 import pytest
 
 from api.routes import drive_sharing_owner
 from hushh_mcp.services import calendar_organizer_resolution as service
-from hushh_mcp.services.actor_identity_service import ActorIdentitySyncUnavailableError
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityPeerUnavailableError,
+    ActorIdentitySyncUnavailableError,
+)
 from hushh_mcp.services.calendar_invitations import attendee_status, own_attendee
 from hushh_mcp.services.drive_sharing_contract import CALENDAR_REFUSAL_REASONS, DriveSharingError
 from tests.helpers.calendar_organizer_fakes import (
@@ -157,7 +162,7 @@ async def test_dead_peers_cannot_starve_the_peers_behind_them(harness):
         Script(organizer=[[], [], ["organizer-user"]], refresh=[*dead, "stale-organizer"])
     )
     for peer in dead:
-        FakeIdentity.results[peer] = ActorIdentitySyncUnavailableError()
+        FakeIdentity.results[peer] = ActorIdentityPeerUnavailableError()
 
     assert await resolve() == "organizer-user"
 
@@ -200,17 +205,45 @@ async def test_no_stale_peers_means_a_terminal_unresolved_refusal(harness):
     assert script.organizer_queries == 1
 
 
-async def test_a_dead_peer_does_not_trap_the_requester_in_retry(harness):
-    """Deleted or disabled peers raise the same error as an outage; never retryable."""
+async def test_a_deleted_or_disabled_peer_does_not_trap_the_requester_in_retry(harness):
+    """The provider says the account is gone: final, so it is never a reason to retry."""
     harness(Script(organizer=[[]], refresh=["stale-dead"]))
-    FakeIdentity.results["stale-dead"] = ActorIdentitySyncUnavailableError()
+    FakeIdentity.results["stale-dead"] = ActorIdentityPeerUnavailableError()
     error = await refusal()
     assert (str(error), error.retryable) == ("calendar_organizer_unavailable", False)
 
 
+def test_only_a_deleted_or_disabled_account_is_final(monkeypatch):
+    from hushh_mcp.services.actor_identity_service import _sync_unavailable
+
+    NoSuchUser = type("NoSuchUser", (Exception,), {})
+    auth = SimpleNamespace(UserNotFoundError=NoSuchUser)
+    monkeypatch.setitem(sys.modules, "firebase_admin", SimpleNamespace(auth=auth))
+    for final in (NoSuchUser(), None):  # the provider's "no such user", and a disabled account
+        assert isinstance(_sync_unavailable(final), ActorIdentityPeerUnavailableError)
+    assert not isinstance(_sync_unavailable(RuntimeError("x")), ActorIdentityPeerUnavailableError)
+
+
+async def test_a_provider_outage_is_retryable_never_a_confirmed_not_connected(harness):
+    """An unreadable peer might be the organizer, so an outage leaves the answer unknown."""
+    harness(Script(organizer=[[]], refresh=["stale-a", "stale-b"], pending=[False]))
+    FakeIdentity.results["stale-a"] = ActorIdentityPeerUnavailableError()
+    FakeIdentity.results["stale-b"] = ActorIdentitySyncUnavailableError()  # outage, not final
+    for call in (resolve, readiness):
+        with pytest.raises(DriveSharingError) as caught:
+            await call()
+        assert (str(caught.value), caught.value.retryable) == (
+            "recipient_verification_unavailable",
+            True,
+        )
+        assert caught.value.diagnostic_reason == "organizer_lookup_incomplete"
+
+
 async def test_partial_refresh_failure_still_uses_the_peers_that_did_refresh(harness):
     harness(Script(organizer=[[], ["organizer-user"]], refresh=["stale-dead", "stale-live"]))
-    FakeIdentity.results["stale-dead"] = ActorIdentitySyncUnavailableError()
+    FakeIdentity.results["stale-dead"] = (
+        ActorIdentitySyncUnavailableError()
+    )  # even an outage never hides a match
     assert await resolve() == "organizer-user"
 
 
