@@ -1,4 +1,5 @@
 import { FullscreenFlowShell } from "../../components/app-ui/fullscreen-flow-shell";
+import { FinanceOnboardingFixture } from "./finance-onboarding";
 import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
 import { KaiPreferencesWizard } from "../../components/kai/onboarding/KaiPreferencesWizard";
 import { useState } from "react";
@@ -186,4 +187,4 @@ function Fixture() {
     </section>
   </main>;
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+createRoot(document.getElementById("root")!).render(document.body.dataset.financeOnboarding ? <FinanceOnboardingFixture /> : <Fixture />);
