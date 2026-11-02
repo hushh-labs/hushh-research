@@ -37,6 +37,8 @@ from hushh_mcp.services.app_intelligence_runtime import (  # noqa: E402
     service_knowledge_packages_source_digest,
 )
 from scripts import capability_graph_history as graph_history  # noqa: E402
+from scripts import capability_graph_promotion as graph_promotion  # noqa: E402
+from scripts.capability_graph_semantics import semantic_index as _semantic_index  # noqa: E402
 
 EVOLUTION_CONTRACT_PATH = ROOT / "hushh_mcp" / "agents" / "capability_graph_evolution.v1.json"
 WORKFLOW_REVISION_COMPATIBILITY_SCHEMA_VERSION = "one.workflow_revision_compatibility.v1"
@@ -53,40 +55,6 @@ OUTPUTS = (
 
 def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _semantic_index(graph: dict[str, Any]) -> dict[str, str]:
-    """Hash semantic nodes, excluding generated revision/diff metadata."""
-    nodes: dict[str, Any] = {}
-    for collection in (
-        "actions",
-        "workflows",
-        "services",
-        "screens",
-        "entities",
-        "render_surfaces",
-    ):
-        for node in graph.get(collection) or []:
-            if not isinstance(node, dict):
-                continue
-            node_id = str(node.get("capability_id") or node.get("service_id") or "").strip()
-            if node_id:
-                nodes[f"{collection}:{node_id}"] = node
-    # Model-facing service brains are semantic artifacts in their own right.
-    # They have no executable authority, so a change is non-breaking here,
-    # but excluding them would hide a package wording/policy revision from the
-    # generated semantic diff and make review of future model context harder.
-    projections = graph.get("model_projections")
-    if isinstance(projections, dict):
-        for service_id, projection in sorted(projections.items()):
-            if isinstance(projection, dict) and str(service_id or "").strip():
-                nodes[f"brains:{service_id}"] = projection
-    return {
-        node_id: hashlib.sha256(
-            json.dumps(node, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-        ).hexdigest()
-        for node_id, node in sorted(nodes.items())
-    }
 
 
 def _remote_branch_ref(value: str) -> str:
@@ -572,12 +540,14 @@ def _semantic_diff(
     graph: dict[str, Any],
     *,
     deprecations: tuple[dict[str, Any], ...] = (),
+    reuse_recorded: bool = True,
 ) -> dict[str, Any]:
     # A fresh `--check` rebuilds the same graph.  Preserve the recorded diff
     # in that case rather than comparing the graph to itself and producing an
     # artifact that changes on every verification run.
     if (
-        isinstance(previous, dict)
+        reuse_recorded
+        and isinstance(previous, dict)
         and str(previous.get("revision") or "") == str(graph.get("revision") or "")
         and isinstance(previous.get("semantic_diff"), dict)
     ):
@@ -798,19 +768,8 @@ def _merge_workflow_predecessor(
     graph["workflow_revision_compatibility"] = compatibility
 
 
-def build_payload(
-    *,
-    workflow_predecessor_refs: tuple[str, ...] = (),
-    base_ref: str | None = None,
-) -> dict[str, Any]:
-    previous = _read_previous(base_ref=base_ref)
-    deprecations = _load_evolution_deprecations()
-    graph = compile_capability_graph_from_sources()
-    if graph.get("schema_version") != CAPABILITY_GRAPH_SCHEMA_VERSION:
-        raise RuntimeError("capability graph compiler returned an unsupported schema")
-    graph = json.loads(json.dumps(graph, sort_keys=True, default=str))
-    graph["generator"] = "consent-protocol/scripts/generate_capability_graph.py"
-    graph["source_digests"] = {
+def _source_digests() -> dict[str, str]:
+    return {
         "kai_action_gateway": _sha256_file(
             ROOT / "contracts" / "kai" / "kai-action-gateway.vnext.json"
         ),
@@ -833,7 +792,24 @@ def build_payload(
         "capability_runtime_compiler": capability_graph_compiler_source_digest(),
         "capability_graph_evolution": capability_graph_evolution_source_digest(),
     }
+
+
+def build_payload(
+    *,
+    workflow_predecessor_refs: tuple[str, ...] = (),
+    base_ref: str | None = None,
+) -> dict[str, Any]:
+    previous = _read_previous(base_ref=base_ref)
+    deprecations = _load_evolution_deprecations()
+    graph = compile_capability_graph_from_sources()
+    if graph.get("schema_version") != CAPABILITY_GRAPH_SCHEMA_VERSION:
+        raise RuntimeError("capability graph compiler returned an unsupported schema")
+    graph = json.loads(json.dumps(graph, sort_keys=True, default=str))
+    graph["generator"] = "consent-protocol/scripts/generate_capability_graph.py"
+    graph["source_digests"] = _source_digests()
     semantic_diff = _semantic_diff(previous, graph, deprecations=deprecations)
+    actual_diff = _semantic_diff(previous, graph, deprecations=deprecations, reuse_recorded=False)
+    _require_acknowledged_semantic_changes(actual_diff)
     _require_acknowledged_semantic_changes(semantic_diff)
     # Ref-specific provenance is diagnostic, not a semantic transition. Only
     # canonicalize a freshly proven zero transition; keep the original comparison
@@ -852,7 +828,7 @@ def build_payload(
     graph["workflow_revision_compatibility"] = _workflow_revision_compatibility(
         previous,
         graph,
-        semantic_diff,
+        actual_diff,
     )
     declared_predecessors = dict.fromkeys(
         (
@@ -863,12 +839,34 @@ def build_payload(
     predecessors = dict.fromkeys(
         (*declared_predecessors, *_merged_workflow_predecessor_refs(base_ref))
     )
+    predecessor_graphs = []
     for ref in predecessors:
         predecessor = _read_workflow_predecessor(
             ref, allow_unpublished=ref not in declared_predecessors
         )
         if predecessor is not None:
+            predecessor_graphs.append(predecessor)
             _merge_workflow_predecessor(graph, predecessor, deprecations)
+    if (
+        (REPO_ROOT / ".git").exists()
+        and not any(actual_diff.get(key) for key in ("added", "removed", "changed"))
+        and _semantic_index(previous or {}) == _semantic_index(graph)
+    ):
+        candidate = _read_workflow_predecessor("HEAD")
+        if candidate is not None:
+            retained = graph_promotion.retained_comparison(
+                graph,
+                candidate,
+                predecessor_graphs,
+                compare=lambda old, new: _semantic_diff(
+                    old, new, deprecations=deprecations, reuse_recorded=False
+                ),
+                semantic_index=_semantic_index,
+                require_acknowledged=_require_acknowledged_semantic_changes,
+            )
+            if retained is not None:
+                graph["semantic_diff"] = retained
+                _merge_workflow_predecessor(graph, candidate, deprecations)
     return graph
 
 
