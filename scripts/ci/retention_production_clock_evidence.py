@@ -129,6 +129,11 @@ def _clock_proof_matches(record, worker_run, clock_proof):
         == clock_record.tick_completed_at
     ):
         return False
+    return _dispatch_timing_matches(record, worker_run, check, wake)
+
+
+def _dispatch_timing_matches(record, worker_run, check, wake):
+    clock_record = record.clock
     checked_at = base._stamp(check.get("completed_at"))
     wake_started = base._stamp(wake.get("started_at"))
     wake_completed = base._stamp(wake.get("completed_at"))

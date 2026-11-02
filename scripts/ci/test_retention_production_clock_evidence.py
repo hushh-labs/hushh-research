@@ -96,44 +96,6 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
                             )
                         )
 
-    def test_recorded_dispatch_overlap_requires_exact_times_and_success(self):
-        run_id = 41479685863
-        record, run, job, log, blobs, clock = clock_bound_fixture(run_id)
-        date = record.worker_created_at[:11]
-        created, completed = date + "20:30:05Z", date + "20:30:09Z"
-        record = replace(
-            record,
-            worker_created_at=created,
-            clock=replace(record.clock, wake_completed_at=completed),
-        )
-        run["created_at"] = created
-        clock["wake_job"]["completed_at"] = completed
-        with mock.patch.dict(clock_evidence.CLOCK_BOUND_RECORDS, {run_id: record}):
-
-            def prove(proof):
-                return evidence.qualify_guard_run(
-                    base.REPOSITORY,
-                    "production",
-                    run,
-                    job,
-                    log,
-                    blobs,
-                    blobs[base.WORKFLOW],
-                    clock_proof=proof,
-                )
-
-            self.assertIsNotNone(prove(clock))
-            for change in ("tick", "completion", "failed"):
-                broken = copy.deepcopy(clock)
-                if change == "tick":
-                    broken["wake_job"]["steps"][0]["completed_at"] = created
-                elif change == "completion":
-                    broken["wake_job"]["completed_at"] = date + "20:30:10Z"
-                else:
-                    broken["wake_job"]["steps"][0]["conclusion"] = "failure"
-                with self.subTest(change=change):
-                    self.assertIsNone(prove(broken))
-
     def test_event_head_and_actual_checkout_are_independent_exact_pins(self):
         run_id = 41160506962
         record, run, job, log, blobs, clock = clock_bound_fixture(run_id)
@@ -287,6 +249,45 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
             "{sha,size}",
         )
 
+
+class ClockDispatchTimingTest(unittest.TestCase):
+    def test_recorded_dispatch_overlap_requires_exact_times_and_success(self):
+        run_id = 41479685863
+        record, run, job, log, blobs, clock = clock_bound_fixture(run_id)
+        date = record.worker_created_at[:11]
+        created, completed = date + "20:30:05Z", date + "20:30:09Z"
+        record = replace(
+            record,
+            worker_created_at=created,
+            clock=replace(record.clock, wake_completed_at=completed),
+        )
+        run["created_at"] = created
+        clock["wake_job"]["completed_at"] = completed
+        with mock.patch.dict(clock_evidence.CLOCK_BOUND_RECORDS, {run_id: record}):
+
+            def prove(proof):
+                return evidence.qualify_guard_run(
+                    base.REPOSITORY,
+                    "production",
+                    run,
+                    job,
+                    log,
+                    blobs,
+                    blobs[base.WORKFLOW],
+                    clock_proof=proof,
+                )
+
+            self.assertIsNotNone(prove(clock))
+            for change in ("tick", "completion", "failed"):
+                broken = copy.deepcopy(clock)
+                if change == "tick":
+                    broken["wake_job"]["steps"][0]["completed_at"] = created
+                elif change == "completion":
+                    broken["wake_job"]["completed_at"] = date + "20:30:10Z"
+                else:
+                    broken["wake_job"]["steps"][0]["conclusion"] = "failure"
+                with self.subTest(change=change):
+                    self.assertIsNone(prove(broken))
 
 class ClockBoundNumericProofTest(unittest.TestCase):
     def test_coerced_numeric_ids_and_attempts_are_rejected(self):
