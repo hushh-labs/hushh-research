@@ -36,7 +36,7 @@ describe("CalendarAgentPage optional email choice", () => {
     mocks.startConnect.mockRejectedValue(new Error("stop after request"));
     render(<CalendarAgentPage />);
     const connect = await waitForConnectButton();
-    const choice = screen.getByRole("checkbox", { name: /Find meeting requests and reminders in my email\./ });
+    const choice = screen.getByRole("checkbox", { name: /Watch my email for meeting requests and reminders\./ });
     // Optional and off until the owner turns it on; Calendar alone is the default.
     expect(choice).not.toBeChecked();
     fireEvent.click(choice);
@@ -45,7 +45,7 @@ describe("CalendarAgentPage optional email choice", () => {
       expect(mocks.startConnect).toHaveBeenCalledWith({
         idToken: "firebase-token",
         userId: "calendar-user",
-        accessLevel: "read",
+        accessLevel: "manage",
         includeMeetingFiles: true,
       }),
     );

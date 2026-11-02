@@ -39,7 +39,9 @@ import {
   CALENDAR_SETUP_REGION_CLASSNAME,
   CALENDAR_SETUP_SHELL_CLASSNAME,
 } from "@/components/calendar/calendar-agent-page-layout";
-import { CalendarConnectHero } from "@/components/calendar/calendar-connect-hero";
+import { CalendarConnectHero, CalendarMailStep } from "@/components/calendar/calendar-connect-hero";
+import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { CalendarAddAccountPermissions, CalendarAddedAccountMail } from "@/components/calendar/calendar-add-account-flow";
 import { CalendarCompactAction } from "@/components/calendar/calendar-compact-action";
 import presentationStyles from "@/components/calendar/calendar-presentation.module.css";
 
@@ -144,6 +146,13 @@ export function CalendarAgentPage({
   const [busy, setBusyState] = useState(false);
   // Optional, off by default: also look for meeting requests in email.
   const [wantsMail, setWantsMail] = useState(false);
+  // First-time setup finishes with one Mail step so nothing asks again later.
+  const [mailStep, setMailStep] = useState<"idle" | "offer" | "done">("idle");
+  // Adding another account repeats the same setup: permissions first, Mail after.
+  const [addAccountOpen, setAddAccountOpen] = useState(false);
+  const [addedAccountMail, setAddedAccountMail] = useState<{ accountId: string; email: string } | null>(null);
+  const [addedAccountMailError, setAddedAccountMailError] = useState<string | null>(null);
+  const accountsBeforeAddRef = useRef<ReadonlySet<string> | null>(null);
   const busyRef = useRef(false);
   const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value); };
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
@@ -165,6 +174,10 @@ export function CalendarAgentPage({
     setBusy(false);
     setPopupWaiting(false);
     setDisconnectConfirmOpen(false);
+    setMailStep("idle");
+    setAddAccountOpen(false);
+    setAddedAccountMail(null);
+    accountsBeforeAddRef.current = null;
     return () => {
       statusRequestRef.current += 1;
       popupCancelRef.current?.abort();
@@ -225,6 +238,38 @@ export function CalendarAgentPage({
     (status?.connected === true && status.status !== "needs_reauth") ||
     status?.accounts?.some(account => account.connected),
   );
+
+  const showMailStep = mailStep === "offer" && connected;
+  // Already allowed (for example from Mail): skip the step instead of asking twice.
+  useEffect(() => {
+    if (!showMailStep || !user || !userId) return;
+    let live = true;
+    void user.getIdToken().then(idToken => GmailReceiptsService.getStatus({ idToken, userId, force: true }))
+      .then(next => { if (live && next.connected === true && next.send_permission_granted === true) setMailStep("done"); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [showMailStep, user, userId]);
+
+  const allowMailStep = async () => {
+    await connectMail({ onboarding: true }).catch(error => {
+      morphyToast.error(error instanceof Error ? error.message : "Mail access could not be allowed.");
+    });
+    if (!user || !userId) return;
+    try {
+      const next = await GmailReceiptsService.getStatus({ idToken: await user.getIdToken(), userId, force: true });
+      if (next.connected === true && next.send_permission_granted === true) setMailStep("done");
+    } catch { /* the step stays so the person can retry or skip */ }
+  };
+
+  useEffect(() => {
+    const before = accountsBeforeAddRef.current;
+    if (!before) return;
+    const added = status?.accounts?.find(account => account.connected && !before.has(account.account_id));
+    if (!added) return;
+    accountsBeforeAddRef.current = null;
+    setAddedAccountMailError(null);
+    setAddedAccountMail({ accountId: added.account_id, email: added.google_email || "This account" });
+  }, [status]);
 
   useEffect(() => {
     onConnectionStateChange?.(connected);
@@ -291,7 +336,7 @@ export function CalendarAgentPage({
     onSettled?.();
   };
 
-  const connect = async (accessLevel: "read" | "manage" = "read", includeCalendarList = false, additional = false,
+  const connect = async (accessLevel: "read" | "manage" = "manage", includeCalendarList = false, additional = false,
     accountId?: string, includeMeetingFiles = false, meetingReturn?: CalendarMeetingReturnContext) => {
     if (!user || !userId || busyRef.current) return;
     const targetAccountId = accountId || "default";
@@ -604,7 +649,7 @@ export function CalendarAgentPage({
         open={disconnectConfirmOpen}
         onOpenChange={setDisconnectConfirmOpen}
       >
-        <AlertDialogContent size="sm" className={presentationStyles.portal} onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
+        <AlertDialogContent size="sm" className={presentationStyles.portal} data-profile-type-scale="calendar" onCloseAutoFocus={event => { const target = disconnectTriggerRef.current?.isConnected ? disconnectTriggerRef.current : document.querySelector<HTMLButtonElement>('[data-voice-control-id="open_calendar_connector"]'); if (target) { event.preventDefault(); target.focus(); } }}>
           <AlertDialogHeader className="text-center">
             <AlertDialogTitle>Disconnect Google Calendar?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -631,7 +676,7 @@ export function CalendarAgentPage({
       </AlertDialog>
   );
 
-  const connectMail = async () => {
+  const connectMail = async (options?: { onboarding?: boolean }) => {
     if (!user || !userId || busyRef.current) return;
     const attemptIdentity = identity;
     const cancel = new AbortController();
@@ -645,8 +690,8 @@ export function CalendarAgentPage({
     try {
       const outcome = await started.result;
       if (identityRef.current !== attemptIdentity) return;
-      if (outcome !== "connected") throw new Error("Mail sending was not enabled. Your draft is still here.");
-      morphyToast.success("Mail sending enabled. Review your message again.");
+      if (outcome !== "connected") throw new Error(options?.onboarding ? "Mail access was not allowed. You can try again or skip this step." : "Mail sending was not enabled. Your draft is still here.");
+      morphyToast.success(options?.onboarding ? "Mail access allowed." : "Mail sending enabled. Review your message again.");
     } finally {
       if (identityRef.current === attemptIdentity) { setBusy(false); setPopupWaiting(false); }
     }
@@ -745,25 +790,48 @@ export function CalendarAgentPage({
     }
   };
 
-  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status) {
+  const continueAddAccount = () => {
+    // The consent window opens inside this click, so the browser keeps the gesture.
+    accountsBeforeAddRef.current = new Set(status?.accounts?.map(account => account.account_id) ?? []);
+    setAddAccountOpen(false);
+    void connect("manage", true, true, undefined, true);
+  };
+  const allowAddedAccountMail = async () => {
+    const target = addedAccountMail;
+    if (!target) return;
+    setAddedAccountMailError(null);
+    const granted = await connectSelectedFollowupMail(target.accountId).catch(() => false);
+    if (granted) { morphyToast.success("Mail allowed for this account."); setAddedAccountMail(null); }
+    else setAddedAccountMailError("Mail access was not allowed. Try again or skip this step.");
+  };
+  const addAccountDialogs = (
+    <>
+      <CalendarAddAccountPermissions open={addAccountOpen} busy={busy} onContinue={continueAddAccount} onCancel={() => setAddAccountOpen(false)} />
+      <CalendarAddedAccountMail account={addedAccountMail} busy={busy} error={addedAccountMailError} onAllow={() => { void allowAddedAccountMail(); }} onSkip={() => setAddedAccountMail(null)} />
+    </>
+  );
+
+  if ((connected || Boolean(status?.accounts?.length)) && journeyVariant === "workspace" && user && userId && status && !showMailStep) {
     return <>
       <CalendarConnectedWorkspace userId={userId} status={status} busy={busy}
         onConnect={(access, includeCalendarList) => { void connect(access, includeCalendarList); }}
-        onAddAccount={() => { void connect("manage", true, true, undefined, true); }}
+        onAddAccount={() => setAddAccountOpen(true)}
         onReconnectAccount={(accountId) => { void connect("manage", true, true, accountId); }}
-        onAllowMeetingFiles={(accountId, returnContext) => { const selected = status.accounts?.find(account => account.account_id === accountId); void connect(selected?.access_level || "read", selected?.calendar_list_access === true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
+        onAllowMeetingFiles={(accountId, returnContext) => { void connect("manage", true, accountId !== "default", accountId === "default" ? undefined : accountId, true, returnContext); }}
         onDisconnectAccount={(accountId) => { setDisconnectAccountId(accountId); setDisconnectConfirmOpen(true); }}
         onChat={(prompt, slot, invitation, attendance) => openCalendarChat(slot || invitation || attendance ? undefined : prompt?.trim() || "Summarize my calendar events and help me plan meetings", slot, invitation, attendance)}
         onDisconnect={() => { const trigger = document.activeElement; disconnectTriggerRef.current = trigger instanceof HTMLButtonElement ? trigger : null; setDisconnectConfirmOpen(true); }}
         onMailConnect={connectMail} onFollowupMailConnect={connectSelectedFollowupMail}
         connectionNotice={popupWaitingNotice} getIdToken={() => user.getIdToken()} connectionRevision={statusRequestRef.current} />
       {disconnectDialog}
+      {addAccountDialogs}
       {transitionDialog}
     </>;
   }
 
   return (
     <AppPageShell
+      data-profile-type-scale="page"
       width="reading"
       headerContentSpacing={journeyVariant === "workspace" ? "compact" : "standard"}
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
@@ -801,6 +869,14 @@ export function CalendarAgentPage({
               Try again
             </CalendarCompactAction>
           </div>
+        ) : showMailStep ? (
+          <CalendarMailStep
+            busy={busy}
+            onAllow={() => { void allowMailStep(); }}
+            onSkip={() => setMailStep("done")}
+          >
+            {popupWaitingNotice}
+          </CalendarMailStep>
         ) : showConnectHero ? (
           <CalendarConnectHero
             journeyVariant={journeyVariant}
@@ -813,7 +889,11 @@ export function CalendarAgentPage({
               // for separately, after Calendar, from the new account's card.
               if (newConnection && wantsMail && userId) rememberMailChoice(userId, []);
               else clearMailChoice();
-              void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length);
+              // First-time setup asks for everything One needs in one Google
+              // consent: events, scheduling, calendar list and meeting files.
+              // Mail follows as the next setup step.
+              if (newConnection) setMailStep("offer");
+              void connect("manage", true, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length);
             }}
           >
             {popupWaitingNotice}
@@ -872,7 +952,7 @@ export function CalendarAgentPage({
                         type="button"
                         className={`${presentationStyles.utility} text-[color:var(--app-tint)] underline-offset-4 hover:underline`}
                         disabled={busy}
-                        onClick={() => void connect("read")}
+                        onClick={() => void connect("manage", true)}
                       >
                         Allow One to find subscribed calendars
                       </button>
@@ -902,7 +982,7 @@ export function CalendarAgentPage({
                         size="prominent"
                         className="w-full rounded-full bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
                         disabled={busy}
-                        onClick={() => void connect("read", false, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length)}
+                        onClick={() => { if (!status?.accounts?.length) setMailStep("offer"); void connect("manage", true, false, undefined, status?.status !== "needs_reauth" && !status?.accounts?.length); }}
                         data-voice-control-id="open_calendar_connector"
                         data-voice-action-id={
                           journeyVariant === "onboarding"

@@ -141,3 +141,86 @@ async def test_incomplete_account_never_produces_shared_free_time(monkeypatch, f
     assert result["conflicts_complete"] is False
     assert result["shared_free_windows"] == []
     assert result["accounts"][2]["status"] == "incomplete"
+
+
+def _meeting(
+    account, event_id, guests, *, organiser="host@example.com", uid="shared", omitted=False
+):
+    """One copy of a meeting. ``guests`` maps address -> (response, note)."""
+    event = _event(account, event_id, "2026-10-21T10:00:00Z", "2026-10-21T10:30:00Z", uid=uid)
+    event["organizer"] = {"email": organiser}
+    event["attendees_omitted"] = omitted
+    event["attendees"] = [{"email": organiser, "response_status": "accepted"}] + [
+        {"email": email, "response_status": response, "comment": note}
+        for email, (response, note) in guests.items()
+    ]
+    return event
+
+
+def _accounts(*pairs):
+    return [
+        {"status": "complete", "google_email": email, "account_id": email, "events": events}
+        for email, events in pairs
+    ]
+
+
+def test_one_to_one_decline_dims_both_sides_and_names_who_declined():
+    guest = ("declined", "Clashes with a board review")
+    host = _meeting("host", "h", {"guest@example.com": guest})
+    invitee = _meeting("guest", "g", {"guest@example.com": guest})
+    board_module._mark_declines(
+        _accounts(("host@example.com", [host]), ("guest@example.com", [invitee]))
+    )
+    assert host["decline_view"]["kind"] == "only_guest"
+    assert host["decline_view"]["email"] == "guest@example.com"
+    assert host["decline_view"]["comment"] == "Clashes with a board review"
+    assert invitee["decline_view"]["kind"] == "self"
+    assert invitee["decline_view"]["comment"] == "Clashes with a board review"
+
+
+def test_group_decline_dims_only_the_person_who_declined():
+    guests = {
+        "ann@example.com": ("declined", "On leave"),
+        "bob@example.com": ("accepted", None),
+        "cy@example.com": ("needsAction", None),
+    }
+    host = _meeting("host", "h", guests)
+    ann = _meeting("ann", "a", guests)
+    bob = _meeting("bob", "b", guests)
+    board_module._mark_declines(
+        _accounts(
+            ("host@example.com", [host]), ("ann@example.com", [ann]), ("bob@example.com", [bob])
+        )
+    )
+    assert "decline_view" not in host  # the others can still meet
+    assert "decline_view" not in bob
+    assert ann["decline_view"]["kind"] == "self"
+
+
+def test_five_person_meeting_with_two_declines_keeps_the_organiser_active():
+    guests = {
+        "a@example.com": ("declined", "Clash"),
+        "b@example.com": ("declined", None),
+        "c@example.com": ("accepted", None),
+        "d@example.com": ("accepted", None),
+    }
+    host = _meeting("host", "h", guests)
+    board_module._mark_declines(_accounts(("host@example.com", [host])))
+    assert "decline_view" not in host
+
+
+def test_large_meetings_with_hidden_guests_are_never_treated_as_one_to_one():
+    host = _meeting("host", "h", {"guest@example.com": ("declined", None)}, omitted=True)
+    board_module._mark_declines(_accounts(("host@example.com", [host])))
+    assert "decline_view" not in host
+
+
+def test_a_declined_one_to_one_no_longer_conflicts_with_the_meeting_that_is_kept():
+    guest = ("declined", "Clash")
+    host = _meeting("host", "h", {"guest@example.com": guest}, uid="declined-one")
+    kept = _event("host", "kept", "2026-10-21T10:00:00Z", "2026-10-21T10:30:00Z", uid="kept")
+    other = _event("other", "o", "2026-10-21T10:00:00Z", "2026-10-21T10:30:00Z", uid="other")
+    accounts = _accounts(("host@example.com", [host, kept]), ("other@example.com", [other]))
+    assert len(_conflicts(accounts, "UTC")) == 2  # both host meetings clash with `other`
+    board_module._mark_declines(accounts)
+    assert len(_conflicts(accounts, "UTC")) == 1  # only the meeting still being attended
