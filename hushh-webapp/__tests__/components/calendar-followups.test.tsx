@@ -269,7 +269,7 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(handled).toHaveBeenCalledOnce());
     expect(window.location.search).not.toContain("followupRequest");
     // Two requests from one email link that email once, not once per request.
-    expect(screen.getAllByRole("link", { name: /Open original email/ })).toHaveLength(1);
+    expect(await screen.findAllByRole("link", { name: /Open original email/ })).toHaveLength(1);
     // A proposed meeting is never described as scheduled.
     expect(screen.getByText(/Meeting proposed · .*27 · Time to confirm · Not on your Calendar yet/)).toBeInTheDocument();
     expect(screen.queryByText(/scheduled/i)).not.toBeInTheDocument();

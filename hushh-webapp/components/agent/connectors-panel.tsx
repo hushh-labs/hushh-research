@@ -1663,7 +1663,7 @@ function OwnerConnectorsPanel({
    * stays unlocked. A settlement is only a hint: the owner-authenticated
    * status read decides what the drawer shows.
    */
-  const connectCalendar = (accessLevel: "read" | "manage" = "read") => {
+  const connectCalendar = (accessLevel: "read" | "manage" = "manage") => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || calendarLock.current) return;
     const attemptCancel = new AbortController();
@@ -1671,6 +1671,8 @@ function OwnerConnectorsPanel({
     const attempt = connectCalendarInPlace({
       owner: user,
       accessLevel,
+      includeCalendarList: true,
+      includeMeetingFiles: true,
       signal,
       cancelSignal: attemptCancel.signal,
     });
