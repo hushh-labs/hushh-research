@@ -255,6 +255,7 @@ exclude_dirs = ["tests", "__pycache__"]
 skips = ["B101"]  # Skip assert warnings
 
 [tool.pytest.ini_options]
+collect_imported_tests = true
 pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
