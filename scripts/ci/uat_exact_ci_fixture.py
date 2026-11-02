@@ -24,6 +24,15 @@ def attempt_run(candidate: str) -> dict:
     }
     return run
 
+
+def attempt_check(candidate: str) -> dict:
+    return {
+        "name": "Branch Validation Gate", "head_sha": candidate,
+        "status": "completed", "conclusion": "success",
+        "app": {"id": 15368, "slug": "github-actions"},
+        "check_suite": {"id": 77},
+    }
+
 def attempt_jobs(candidate: str, base: str, exact_name: str | None = None) -> list[dict]:
     exact_name = exact_name or f"Exact UAT Candidate ({base})"
     jobs = [

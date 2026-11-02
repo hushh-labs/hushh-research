@@ -30,29 +30,53 @@ receipts are part of the release contract.
 
 ## Normal UAT dispatch
 
-After the exact landed `main` SHA passes `Main Post-Merge Smoke Gate`, dispatch
-UAT with automatic scope resolution:
+The workflow runs from reviewed `main`; the application comes from protected
+`uat` history. Direct UAT does not require a preceding Dev deployment. Qualify
+the exact protected UAT tip against the actual accepted serving base. Main smoke
+alone cannot qualify a Main-only application SHA.
+
+Governed Write/Maintain operators can discover prerequisites entirely in Actions:
+**Deploy to UAT → Run workflow → main → operation=inspect**. Leave other inputs
+at defaults. This reads protected source and serving revision metadata through
+the existing UAT workload identity, creates no deployment record or acceptance,
+and changes no runtime state. The summary provides the application/base and
+existing CI status. Wait for an in-flight run; inspect a failed run before retrying.
+
+When qualification is missing, run **PR Validation** on **uat**, `scope=all`,
+using the shown `uat_base_sha`. After success inspect again to obtain verified
+current run/attempt/base pins. Then select `operation=deploy` from Main:
 
 ```bash
-gh workflow run deploy-uat.yml --ref main -f scope=auto -f sha=<landed-main-sha>
+gh workflow run deploy-uat.yml --ref main -f operation=inspect
+# Only when the inspection requires new qualification:
+gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<observed-serving-base>
+# Inspect again after success, then use its exact pins:
+gh workflow run deploy-uat.yml --ref main -f operation=deploy -f scope=auto \
+  -f sha=<qualified-protected-uat-tip> -f ci_run_id=<run-id> \
+  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base>
 ```
 
-`scope=auto` compares the target SHA with each service's currently deployed SHA.
-This includes every accumulated frontend/backend change when UAT lags more than
-one merge. Force `frontend`, `backend`, or `all` only after proving the complete
-target-to-deployed-service delta and recording why automatic resolution is not
-appropriate.
+New deployments require all qualification pins and validate them before security,
+capacity or mutation jobs start. Admission repeats current CI, reviewed authority,
+protected-tip and live-base proof under the mutation lock. The separate protected
+Deployment Security job remains mandatory. Operators need no personal cloud
+admin login or copy of its credential. An inspection result grants no release authority.
 
-With a blank `sha`, UAT selects the newest main commit with its own successful
-post-merge gate. If main already matches the newest UAT deployment and its
-latest status is successful, the workflow finishes successfully with a `NO_OP`
-summary only after matching the existing `deployed/uat-latest` exact-SHA receipt
-to that same successful `deploy-uat.yml` run. Rollback and rehearsal environment
-records, mismatched targets, and missing receipt proof cannot authorize a no-op.
-Selection runs before entering the UAT environment, so this no-op
-creates no deployment record, builds, traffic changes, or release tag updates.
-Unknown deployment state and unavailable or failed gates still block selection.
-An explicit SHA continues through the existing exact-SHA deployment validator.
+`scope=auto` compares each serving service with the selected application and covers
+accumulated changes. Force a lane only with complete target-to-serving delta proof.
+A blank SHA selects the protected UAT tip, never the latest Main application.
+A qualified exact per-service receipt may establish a pin-free `NO_OP`; no build,
+traffic or release-tag update occurs. A later different CI run does not invalidate
+historical acceptance, but a failed/pending rerun of the pinned run still blocks it.
+New admission requires the literal serving-base-labelled CI job; historical static
+job names remain readable only through retained acceptance. Requalify legacy CI
+before attempting a new deployment.
+
+A failed first deploy attempt can be ignored during selection only with complete,
+rechecked job/step evidence that its explicit runtime-mutation boundary and all
+mutators were skipped. Legacy failures without that marker, reruns, unknown
+operations and uncertain outcomes remain blocked. This only allows inspection of
+older independently qualified receipts; it never supplies acceptance by itself.
 
 UAT defaults `backend_image_source=auto`. When the exact accepted Dev backend
 attempt records a verified executable image, UAT revalidates that same
