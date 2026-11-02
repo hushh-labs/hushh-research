@@ -37,7 +37,11 @@ async def meet_request(token, path, params=None):
                         service_hint="meet.googleapis.com",
                     )
                     raise ArtifactUnavailable(
-                        "temporarily_unavailable" if reason == "rate_limited" else reason,
+                        "temporarily_unavailable"
+                        if reason == "rate_limited"
+                        else "permission_required"
+                        if reason == "scope_insufficient"
+                        else reason,
                         retryable=reason == "rate_limited",
                     )
                 if response.status_code == 404:

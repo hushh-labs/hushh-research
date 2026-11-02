@@ -229,3 +229,30 @@ async def test_diagnostic_fields_survive_the_production_log_redactor(caplog):
     assert "service=meet.googleapis.com" in caplog.text
     assert "consumer=projects/123456789012" in caplog.text
     assert "operation=meet.conferenceRecords.recordings" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        # Current shape: the token lacks a scope.
+        {
+            "status": "PERMISSION_DENIED",
+            "details": [
+                error_info("ACCESS_TOKEN_SCOPE_INSUFFICIENT", service="drive.googleapis.com")
+            ],
+        },
+        # Legacy shape of the same failure.
+        {"errors": [{"reason": "insufficientPermissions", "message": SECRET_TEXT}]},
+    ],
+)
+async def test_a_missing_oauth_scope_is_distinct_from_a_file_denial(error):
+    assert await classify_google_forbidden_response(forbidden(error)) == "scope_insufficient"
+
+
+@pytest.mark.parametrize(
+    "reason", ["insufficientFilePermissions", "forbidden", "appNotAuthorizedToFile", "domainPolicy"]
+)
+async def test_a_denial_that_names_the_file_is_never_read_as_a_scope_problem(reason):
+    """Negative control: sending someone to OAuth for a file they cannot see changes nothing."""
+    response = forbidden({"errors": [{"reason": reason}]})
+    assert await classify_google_forbidden_response(response) != "scope_insufficient"

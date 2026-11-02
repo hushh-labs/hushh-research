@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Set as AbstractSet
 from http.client import HTTPSConnection
 from urllib.parse import urlencode
 
@@ -16,7 +17,10 @@ from hushh_mcp.services.calendar_meeting_download import browse_file_access, sou
 from hushh_mcp.services.calendar_meeting_provider import collect_meet_pages, meet_request
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
-from hushh_mcp.services.google_calendar_meeting_grant import CALENDAR_SHARED_DRIVE_METADATA_SCOPE
+from hushh_mcp.services.google_calendar_meeting_grant import (
+    CALENDAR_SHARED_DRIVE_METADATA_SCOPE,
+    MEETING_SCOPES,
+)
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_MEET_DRIVE_READ_SCOPE,
     CALENDAR_MEET_READ_SCOPE,
@@ -30,11 +34,21 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError, GoogleDriveA
 MEET_SCOPES = {CALENDAR_MEET_READ_SCOPE, "https://www.googleapis.com/auth/meetings.space.created"}
 
 
-def _drive_error_state(error: DriveReadError) -> str:
+# What "Allow recording and notes access" asks for, and nothing broader.
+_UPGRADE_SCOPES = frozenset(MEETING_SCOPES | {CALENDAR_SHARED_DRIVE_METADATA_SCOPE})
+
+
+def _drive_error_state(error: DriveReadError, granted: AbstractSet[str] = frozenset()) -> str:
     if str(error) == "reconnect_required":
         return "temporarily_unavailable"
     if error.status_code == 403:
-        return error.provider_reason or "resource_denied"
+        reason = error.provider_reason or "resource_denied"
+        if reason == "scope_insufficient":
+            # A missing scope is cured by OAuth only while the account still lacks part of what
+            # the upgrade grants; otherwise another consent changes nothing and the denial is
+            # the file's, so never send the person around an OAuth loop for it.
+            return "resource_denied" if _UPGRADE_SCOPES <= granted else "permission_required"
+        return reason
     if str(error) == "operation_not_allowed":
         return "resource_denied"
     if str(error) == "identity_not_verified":
@@ -258,6 +272,7 @@ class CalendarMeetingArtifacts:
             return await self._file_for_chat(user_id, grant, ref, content=content)
         public_ref = {key: value for key, value in ref.items() if key != "resource_key"}
         result = {**public_ref, "state": "permission_required"}
+        scopes: set[str] = set()
         try:
 
             async def check():
@@ -334,7 +349,7 @@ class CalendarMeetingArtifacts:
         except ArtifactUnavailable as error:
             return {**public_ref, "state": error.state}
         except DriveReadError as error:
-            return {**public_ref, "state": _drive_error_state(error)}
+            return {**public_ref, "state": _drive_error_state(error, scopes)}
         except (UnicodeError, httpx.HTTPError):
             return {**public_ref, "state": "temporarily_unavailable"}
 
