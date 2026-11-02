@@ -45,6 +45,19 @@ _PAGE_MAX = 10
 AttendanceReviewKind = Literal["legacy_owner", "workspace", "rsvp"]
 
 
+# Google keeps an RSVP comment with the attendee; stay well inside its limit.
+_DECLINE_COMMENT_LIMIT = 500
+
+
+def _patch_with_comment(patch: dict[str, Any], comment: object) -> dict[str, Any]:
+    """Return the sealed attendance patch with the owner's reason attached."""
+    reason = str(comment or "").strip()
+    if not reason:
+        return patch
+    attendees = [{**item, "comment": reason} for item in patch.get("attendees", [])]
+    return {**patch, "attendees": attendees}
+
+
 def _error(message: str, status: int = 422, reason: str = "calendar_invalid_request"):
     return GoogleConnectionError(message, status_code=status, reason_code=reason)
 
@@ -841,6 +854,7 @@ class CalendarScheduleService:
         mail_only_retry: bool = False,
         exact_time: bool = False,
         message: str = "",
+        decline_reason: str = "",
         date: str = "",
         time_zone: str = "UTC",
         start_time: str = "09:00",
@@ -904,6 +918,13 @@ class CalendarScheduleService:
             "time_zone": time_zone,
             "etag": event["etag"],
             "patch": patch,
+            # The owner's own words, stored as Google's RSVP comment so the
+            # organiser's and invitee's copies can both explain the decline.
+            "decline_reason": (
+                " ".join(str(decline_reason or "").split())[:_DECLINE_COMMENT_LIMIT]
+                if response_status == "declined"
+                else ""
+            ),
             "binding": list(binding),
         }
         mail_review, link, draft, alternatives = None, None, None, []
@@ -1135,7 +1156,7 @@ class CalendarScheduleService:
                     access="manage",
                     headers={"If-Match": current["etag"]},
                     params={"sendUpdates": "all"},
-                    payload=patch,
+                    payload=_patch_with_comment(patch, plan.get("decline_reason")),
                     expected_binding=tuple(plan["binding"]),
                 )
                 own = next(

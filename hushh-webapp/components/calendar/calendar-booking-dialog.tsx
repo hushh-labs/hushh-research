@@ -161,7 +161,7 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
   };
 
   return <Dialog modal open onOpenChange={open => { if (!open) close(); }}>
-    <DialogContent className={styles.dialog} onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
+    <DialogContent className={styles.dialog} data-profile-type-scale="calendar" onEscapeKeyDown={event => { if (busy) event.preventDefault(); }} onInteractOutside={event => { if (busy) event.preventDefault(); }}>
       <DialogHeader className={styles.header}><DialogTitle>Schedule meeting</DialogTitle><DialogDescription>Nothing is scheduled yet.</DialogDescription></DialogHeader>
       {!review ? <div className={styles.fields}>
         <label>Title<Input autoFocus required maxLength={512} value={draft.title} onChange={event => edit({ title: event.target.value })} placeholder="Project planning meeting" disabled={busy} /></label>

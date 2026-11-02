@@ -62,8 +62,67 @@ def _shared_free_windows(
     ]
 
 
+def _guests(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Everyone invited except the organiser, one entry per address."""
+    organiser = str((event.get("organizer") or {}).get("email") or "").casefold()
+    seen: dict[str, dict[str, Any]] = {}
+    for attendee in event.get("attendees") or []:
+        email = str(attendee.get("email") or "").casefold()
+        if email and email != organiser:
+            seen.setdefault(email, attendee)
+    return list(seen.values())
+
+
+def _person(attendee: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "",
+        "email": str(attendee.get("email") or ""),
+        "display_name": str(attendee.get("display_name") or "").strip() or None,
+        "comment": str(attendee.get("comment") or "").strip() or None,
+    }
+
+
+def _decline_view(event: dict[str, Any], account_email: str) -> dict[str, Any] | None:
+    """Who declined this meeting, when this calendar should show it as declined.
+
+    - The owner's own decline always dims their own copy.
+    - In a one-to-one meeting the other person declining ends the meeting, so the
+      organiser's copy dims too and says who declined.
+    - In a group the others can still meet, so nothing dims for the organiser;
+      the declined guests are listed in the meeting detail instead.
+    """
+    own = next(
+        (
+            attendee
+            for attendee in _guests(event)
+            if str(attendee.get("email") or "").casefold() == account_email.casefold()
+        ),
+        None,
+    )
+    if own and own.get("response_status") == "declined":
+        return {**_person(own), "kind": "self"}
+    organiser = str((event.get("organizer") or {}).get("email") or "").casefold()
+    if not own and organiser == account_email.casefold() and not event.get("attendees_omitted"):
+        guests = _guests(event)
+        if len(guests) == 1 and guests[0].get("response_status") == "declined":
+            return {**_person(guests[0]), "kind": "only_guest"}
+    return None
+
+
+def _mark_declines(accounts: list[dict[str, Any]]) -> None:
+    for account in accounts:
+        if account["status"] != "complete":
+            continue
+        for event in account["events"]:
+            view = _decline_view(event, account["google_email"])
+            if view:
+                event["decline_view"] = view
+
+
 def _event_is_busy(event: dict[str, Any], account_email: str) -> bool:
     if event.get("status") == "cancelled" or event.get("transparency") == "transparent":
+        return False
+    if event.get("decline_view"):
         return False
     for attendee in event.get("attendees") or []:
         if str(attendee.get("email") or "").casefold() == account_email.casefold():
@@ -216,6 +275,7 @@ class CalendarAccountBoardService:
                 }
 
         accounts = await asyncio.gather(*(load(identity) for identity in identities))
+        _mark_declines(accounts)
         latest = await self.connections.calendar_accounts_status(user_id=user_id)
         if [
             (item["account_id"], item["google_email"], item["status"])

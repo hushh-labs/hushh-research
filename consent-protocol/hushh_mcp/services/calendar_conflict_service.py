@@ -150,6 +150,7 @@ class CalendarConflictService:
                 response_status="declined",
                 send_message=True,
                 message=message,
+                decline_reason=str(choice.get("reason") or ""),
                 expected_account_email=account["google_email"],
                 date=date,
                 time_zone=time_zone,

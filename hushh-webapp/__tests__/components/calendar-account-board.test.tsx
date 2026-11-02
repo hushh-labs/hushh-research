@@ -113,12 +113,61 @@ describe("three-account Calendar board", () => {
     expect(mocks.reviewWorkspaceConflict.mock.calls[0][0]).not.toHaveProperty("vaultOwnerToken");
     expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message).toContain("I need to join the client call.");
     expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].message).toContain("Planning review");
+    // The owner's own words travel separately so every copy of the meeting can explain the decline.
+    expect(mocks.reviewWorkspaceConflict.mock.calls[0][0].decline[0].reason).toBe("I need to join the client call.");
     expect(mocks.confirmWorkspaceConflict).not.toHaveBeenCalled();
     expect(within(dialog).getByText("To: organizer-one@example.com")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm selected changes" }));
     await waitFor(() => expect(mocks.confirmWorkspaceConflict).toHaveBeenCalledOnce());
     expect(within(dialog).getByText("Calendar: declined · Mail: sent")).toBeTruthy();
     expect(mocks.onChat).not.toHaveBeenCalled();
+  });
+
+  it("dims a declined one-to-one meeting for both people and says who declined and why", async () => {
+    const reason = "I have another important meeting";
+    const view = { email: "second@example.com", display_name: "Sam", comment: reason };
+    const guests = [{ email: "organizer-host@example.com", response_status: "accepted" }, { email: "second@example.com", response_status: "declined", display_name: "Sam", comment: reason }];
+    const hostCopy = { ...event("default", "host", "Testing", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"), can_decline: false,
+      organizer: { email: "organizer-host@example.com", self: true }, attendees: guests, decline_view: { kind: "only_guest" as const, ...view } };
+    const guestCopy = { ...event("second", "guest", "Testing", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"),
+      attendees: [{ ...guests[1], self: true }], decline_view: { kind: "self" as const, ...view } };
+    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], accounts: [
+      { ...board.accounts[0], events: [hostCopy] }, { ...board.accounts[1], events: [guestCopy] }, board.accounts[2],
+    ] });
+    render(page());
+    const host = within(await screen.findByRole("group", { name: "Calendar account default@example.com" }));
+    const guest = within(screen.getByRole("group", { name: "Calendar account second@example.com" }));
+    expect(host.getByText("Sam declined")).toBeTruthy();
+    expect(guest.getByText("You declined this")).toBeTruthy();
+    for (const copy of [host, guest]) expect(copy.getByRole("button", { name: /^Open Testing/ }).closest("li")).toHaveAttribute("data-declined", "true");
+    fireEvent.click(host.getByRole("button", { name: /^Open Testing/ }));
+    const note = within(await screen.findByTestId("calendar-declined-note"));
+    expect(note.getByText("Sam declined this meeting")).toBeTruthy();
+    expect(note.getByText(reason)).toBeTruthy();
+  });
+
+  it("keeps a group meeting normal for the organiser and lists who declined with their reasons", async () => {
+    const organizer = { email: "organizer-host@example.com", self: true };
+    const attendees = [
+      { email: "organizer-host@example.com", response_status: "accepted" },
+      { email: "ann@example.com", response_status: "declined", display_name: "Ann", comment: "On leave that week" },
+      { email: "bob@example.com", response_status: "declined", comment: null },
+      { email: "cy@example.com", response_status: "accepted" },
+    ];
+    const hostCopy = { ...event("default", "group", "Planning", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"), can_decline: false, organizer, attendees };
+    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], accounts: [{ ...board.accounts[0], events: [hostCopy] }, board.accounts[1], board.accounts[2]] });
+    render(page());
+    const host = within(await screen.findByRole("group", { name: "Calendar account default@example.com" }));
+    const row = host.getByRole("button", { name: /^Open Planning/ });
+    expect(row.closest("li")).not.toHaveAttribute("data-declined");
+    expect(host.getByText("2 guests declined")).toBeTruthy();
+    fireEvent.click(row);
+    const note = within(await screen.findByTestId("calendar-declined-note"));
+    expect(note.getByText("Declined (2)")).toBeTruthy();
+    expect(note.getByText("Ann")).toBeTruthy();
+    expect(note.getByText("On leave that week")).toBeTruthy();
+    expect(note.getByText("bob@example.com")).toBeTruthy();
+    expect(note.getByText("No reason shared.")).toBeTruthy();
   });
 
   it("selects each of the three accounts in Insights without the Board summary", () => {

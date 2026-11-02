@@ -1,9 +1,25 @@
 import { bookingInstant } from "./calendar-booking-time";
 
+/**
+ * Browsers still report retired tzdb names. Keep this list identical to
+ * `LEGACY_TIME_ZONES` in consent-protocol `calendar_time_zone.py`; offsets and
+ * daylight-saving rules always come from the zone itself, never a fixed offset.
+ */
+const LEGACY_TIME_ZONES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Asia/Dacca": "Asia/Dhaka",
+  "Europe/Kiev": "Europe/Kyiv",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "Pacific/Enderbury": "Pacific/Kanton",
+};
+
 /** Prefer the current tzdb name when a browser returns its older alias. */
 export function calendarTimeZone(value: string | null | undefined): string {
   const zone = value?.trim() || "UTC";
-  return zone === "Asia/Calcutta" ? "Asia/Kolkata" : zone;
+  return LEGACY_TIME_ZONES[zone] ?? zone;
 }
 
 /** Show the selected instant's UTC offset while retaining the zone for DST math. */

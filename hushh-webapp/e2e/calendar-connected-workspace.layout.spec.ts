@@ -34,7 +34,7 @@ test("Calendar product font and real action targets survive responsive boundarie
   const dialog = page.getByRole("dialog");
   await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   const title = dialog.getByRole("heading", { name: "QA Product Sync" });
-  expect(await title.evaluate(element => ({ family: getComputedStyle(element).fontFamily, size: getComputedStyle(element).fontSize, line: getComputedStyle(element).lineHeight }))).toMatchObject({ size: "20px", line: "28px" });
+  expect(await title.evaluate(element => ({ family: getComputedStyle(element).fontFamily, size: getComputedStyle(element).fontSize, line: getComputedStyle(element).lineHeight }))).toMatchObject({ size: "15px", line: "18px" });
   await expect(title).toHaveCSS("font-family", /Plus Jakarta Sans/);
   const invitationBack = dialog.getByRole("button", { name: "Invitations", exact: true });
   await expect(invitationBack).toHaveCSS("font-size", "12px");
@@ -96,8 +96,8 @@ test("three-account Board keeps its measure, heading roles and account actions a
   const dialog = page.getByRole("dialog");
   await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
   const title = dialog.getByRole("heading", { name: "QA Design Review" });
-  await expect(title).toHaveCSS("font-size", "20px");
-  await expect(title).toHaveCSS("line-height", "28px");
+  await expect(title).toHaveCSS("font-size", "15px");
+  await expect(title).toHaveCSS("line-height", "18px");
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });

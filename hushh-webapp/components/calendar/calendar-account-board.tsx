@@ -97,6 +97,31 @@ function otherSide(pair: CalendarBoardConflict, selection: Selection) {
   return identity(pair.left) === identity(selection) ? pair.right : pair.left;
 }
 
+type DeclinedGuest = { email: string; name: string; comment: string | null };
+
+function personName(person: { email?: string | null; display_name?: string | null }) {
+  return person.display_name?.trim() || person.email?.trim() || "Someone";
+}
+
+/** Guests who said no, other than the person looking at this calendar. */
+function declinedGuests(event: CalendarEventSummary, viewingEmail: string): DeclinedGuest[] {
+  const organizer = event.organizer?.email?.toLowerCase();
+  const viewer = viewingEmail.toLowerCase();
+  return (event.attendees || [])
+    .filter(guest => guest.response_status === "declined" && !guest.self && guest.email
+      && guest.email.toLowerCase() !== organizer && guest.email.toLowerCase() !== viewer)
+    .map(guest => ({ email: guest.email!, name: personName(guest), comment: guest.comment?.trim() || null }));
+}
+
+/** Plain-language state for a row: says who declined, never a system label. */
+function declineLabel(event: CalendarEventSummary, viewingEmail: string, response: string | null | undefined): string | null {
+  const view = event.decline_view;
+  if (view?.kind === "only_guest") return `${personName(view)} declined`;
+  if (view || response === "declined") return "You declined this";
+  const count = declinedGuests(event, viewingEmail).length;
+  return count ? `${count} ${count === 1 ? "guest" : "guests"} declined` : null;
+}
+
 function accountLabel(email: string | null) { return email || "Google account"; }
 function accountEmailParts(email: string): [string, string] {
   const at = email.lastIndexOf("@");
@@ -237,6 +262,20 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
   const selectedAccount = selected ? accounts.find(account => account.account_id === selected.accountId) : null;
   const selectedEvent = selectedAccount?.events.find(event => eventIdentity(event) === identity(selected!));
   const organizerEmail = selectedEvent?.organizer?.email;
+  const selectedDeclines = (() => {
+    if (!selectedEvent || !selectedAccount) return null;
+    const email = selectedAccount.google_email;
+    const view = selectedEvent.decline_view;
+    const own = selectedEvent.attendees?.find(guest => guest.email?.toLowerCase() === email.toLowerCase());
+    const others = declinedGuests(selectedEvent, email).filter(guest => guest.email.toLowerCase() !== view?.email.toLowerCase());
+    let main: { title: string; detail: string | null; reason: string } | null = null;
+    if (view?.kind === "only_guest") {
+      main = { title: `${personName(view)} declined this meeting`, detail: view.display_name ? view.email : null, reason: view.comment || "No reason shared." };
+    } else if (view || calendarResponse(selectedEvent, email) === "declined") {
+      main = { title: "You declined this meeting", detail: null, reason: view?.comment || own?.comment?.trim() || "You did not add a reason." };
+    }
+    return main || others.length ? { main, others } : null;
+  })();
   const selectedOrganizer = selectedEvent?.organizer?.displayName?.trim()
     || (organizerEmail && organizerEmail.toLowerCase() === selectedAccount?.google_email?.toLowerCase() ? "you" : organizerEmail);
   const overlaps = selected && board ? board.conflicts.filter(pair => pairIncludes(pair, selected)) : [];
@@ -265,7 +304,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     else setRevision(value => value + 1);
   };
 
-  return <AppPageShell width="agent" headerContentSpacing="compact" className={styles.shell} nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
+  return <AppPageShell width="agent" headerContentSpacing="compact" className={styles.shell} data-profile-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
     <div className={styles.content} data-calendar-account-board data-calendar-presentation>
       <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
@@ -304,12 +343,12 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 const response = calendarResponse(event, account.google_email);
                 const sourceIncluded = account.calendar_options?.find(calendar => calendar.id === (event.source_calendar_id || event.calendar_id))?.availability_default_included !== false;
                 const source = provider || (event.event_type === "birthday" ? account.google_email : event.calendar_name || "Primary calendar");
+                const dimmed = Boolean(event.decline_view) || response === "declined";
                 const eventStatus = event.status === "cancelled" ? "Cancelled"
-                  : response === "declined" ? "Declined · not busy"
-                  : event.transparency === "transparent" ? "Doesn’t block time"
-                  : !sourceIncluded ? "Not counted in free time"
-                  : response === "tentative" ? "Tentative" : null;
-                return <li key={eventIdentity(event)} className={styles.eventRow} data-ended={ended || undefined}>
+                  : declineLabel(event, account.google_email, response) ?? (event.transparency === "transparent" ? "Shown as free time"
+                    : !sourceIncluded ? "This calendar is not used for your free time"
+                    : response === "tentative" ? "You said maybe" : null);
+                return <li key={eventIdentity(event)} className={styles.eventRow} data-ended={ended || undefined} data-declined={dimmed ? true : undefined}>
                   <button type="button" className={styles.eventMain} onClick={button => open(event, button.currentTarget)} aria-label={`Open ${event.title} in ${accountLabel(account.google_email)}`}>
                     <span className={styles.eventCopy}><strong title={event.title}>{event.title}</strong><span>{eventTime(event, zone)}</span><small className={styles.eventSource}>{provider ? <CalendarMeetingIcon provider={provider} /> : null}<span title={source}>{source}</span></small>{eventStatus ? <small className={styles.eventStatus}>{eventStatus}</small> : null}</span>
                   </button>
@@ -329,7 +368,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
                 </div>
                 <p className={styles.connectionState} data-status={account.status}><span aria-hidden="true" />{account.status === "complete" ? "Connected" : account.status === "needs_reauth" ? "Reconnect needed" : "Check incomplete"}</p>
                 <div className={styles.accountTabs}><SegmentedTabs ariaLabel={`View for ${accountLabel(account.google_email)}`} variant="filter" value={view} onValueChange={value => setViews(current => ({ ...current, [account.account_id]: value as "events" | "free" }))} options={[{ value: "events", label: `Events (${account.events.length})` }, { value: "free", label: "Free time" }]} /></div>
-                {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><CalendarCompactAction onClick={() => account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? account.account_id === "default" ? onConnect("read", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</CalendarCompactAction></div> : view === "events" ? <div className={styles.accountStream}>
+                {account.status !== "complete" ? <div className={styles.accountError} role="status"><AlertTriangle aria-hidden className="size-4" /><p>{account.error || "This account could not be checked. Its time is excluded from shared availability."}</p><CalendarCompactAction onClick={() => account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? account.account_id === "default" ? onConnect("manage", true) : onReconnectAccount(account.account_id) : setRevision(value => value + 1)}>{account.status === "needs_reauth" || account.reason_code?.includes("reauth") ? "Reconnect" : "Retry check"}</CalendarCompactAction></div> : view === "events" ? <div className={styles.accountStream}>
                   {account.unreadable_calendars.length ? <p className={styles.coverage}>Event details unavailable for {account.unreadable_calendars.map(calendar => calendar.name || calendar.id).join(", ")}. Busy time is still checked.</p> : null}
                   <div className={styles.eventBreakdown}><span>{meetings.length} meeting{meetings.length === 1 ? "" : "s"}</span>{occasions.length ? <button type="button" onClick={() => setOccasionAccountId(account.account_id)} aria-label={`View ${occasions.length} occasion${occasions.length === 1 ? "" : "s"} for ${accountLabel(account.google_email)}`}><span className={styles.occasionIcons} aria-hidden="true">{occasions.some(event => boardOccasionKind(event) === "birthday") ? <Cake /> : null}{occasions.some(event => boardOccasionKind(event) === "holiday") ? <Confetti /> : null}</span>{occasions.length} occasion{occasions.length === 1 ? "" : "s"}</button> : null}</div>
                   <div className={styles.eventViewport} role="region" aria-label={`Calendar events for ${accountLabel(account.google_email)}`} tabIndex={scrollEvents ? 0 : undefined} data-scrollable={scrollEvents || undefined}>
@@ -377,7 +416,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         morphyToast.success(result.event.conference_status === "pending" ? `Event created in ${accountEmail}. Google Meet link is still being prepared.` : `Event scheduled in ${accountEmail}.`);
       }} /> : null}
       <Dialog modal open={Boolean(occasionAccount && occasionEvents.length)} onOpenChange={isOpen => { if (!isOpen) setOccasionAccountId(null); }}>
-        <DialogContent className={styles.occasionDialog}>
+        <DialogContent className={styles.occasionDialog} data-profile-type-scale="calendar">
           {occasionAccount ? <>
             <DialogHeader className={styles.occasionHeader}><DialogTitle>Occasions</DialogTitle><DialogDescription>{accountLabel(occasionAccount.google_email)}</DialogDescription></DialogHeader>
             <ul className={styles.occasionList}>{occasionEvents.map(event => {
@@ -392,12 +431,16 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
         </DialogContent>
       </Dialog>
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
-        <DialogContent className={styles.detail} onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
+        <DialogContent className={styles.detail} data-profile-type-scale="calendar" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
             <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by {selectedOrganizer}</p> : null}</DialogHeader>
             {resolving && board ? <CalendarConflictPanel key={identity(selected)} board={board} keep={{ account_id: selected.accountId, calendar_id: selected.calendarId, event_id: selected.eventId }} getIdToken={getIdToken} initialDraft={conflictDraft} onDraftChange={setConflictDraft} onBusyChange={setActionBusy} onChooseKeep={ref => setSelected({ accountId: ref.account_id, calendarId: ref.calendar_id, eventId: ref.event_id })} onMailConnect={onMailConnect} onConfirmed={() => { refreshOnClose.current = true; }} onDone={close} /> : <>
             {selectedEvent.location ? <p className={styles.detailSource}>Location: {selectedEvent.location}</p> : null}
             {selectedEvent.description ? <p className={styles.detailDescription}>{selectedEvent.description}</p> : null}
+            {!resolving && selectedDeclines ? <div className={styles.declinedNote} data-testid="calendar-declined-note">
+              {selectedDeclines.main ? <section><strong>{selectedDeclines.main.title}</strong>{selectedDeclines.main.detail ? <small>{selectedDeclines.main.detail}</small> : null}<p>{selectedDeclines.main.reason}</p></section> : null}
+              {selectedDeclines.others.length ? <section><strong>{selectedDeclines.main ? "Also declined" : `Declined (${selectedDeclines.others.length})`}</strong><ul>{selectedDeclines.others.map(guest => <li key={guest.email}><span>{guest.name}</span>{guest.name !== guest.email ? <small>{guest.email}</small> : null}{guest.comment ? <p>{guest.comment}</p> : <p className={styles.noReason}>No reason shared.</p>}</li>)}</ul></section> : null}
+            </div> : null}
             {!isCalendarEventEnded(selectedEvent, now, zone) && safeMeetingUrl(selectedEvent.conference_url) ? <CalendarJoinLink className={styles.join} url={selectedEvent.conference_url} accountEmail={selectedAccount.google_email} /> : null}
             {overlaps.length ? <div className={styles.overlapDetail}><h3><AlertTriangle aria-hidden className="size-4" />Overlapping meetings</h3>{overlaps.map(pair => { const other = otherSide(pair, selected); const event = findEvent({ accountId: other.account_id, calendarId: other.calendar_id, eventId: other.event_id }); const account = accounts.find(item => item.account_id === other.account_id); return <div key={identity(other)} className={styles.overlapItem}><strong>{event?.title || "Another meeting"}</strong><p>{accountLabel(account?.google_email || null)} · {event ? eventTime(event, zone) : "Time unavailable"}</p><p>Overlap: {availabilityTimeRangeLabel(pair.start_at, pair.end_at, zone, date)}</p></div>; })}{!board?.conflicts_complete || error ? <p role="alert">Refresh every account before resolving conflicts.</p> : <CalendarCompactAction disabled={actionBusy || busy} onClick={() => setResolving(true)}>Resolve these overlaps</CalendarCompactAction>}</div> : null}
             {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={() => { refreshOnClose.current = true; }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}

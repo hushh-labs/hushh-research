@@ -90,6 +90,8 @@ describe("Calendar Add account popup", () => {
   async function beginAddAccount() {
     render(<CalendarAgentPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Add Calendar account" }));
+    // Adding an account names every permission before Google opens.
+    fireEvent.click(await screen.findByRole("button", { name: "Continue to Google" }));
     await waitFor(() => expect((mocks.popup as unknown as {
       location: { replace: ReturnType<typeof vi.fn> };
     }).location.replace).toHaveBeenCalled());
@@ -119,5 +121,37 @@ describe("Calendar Add account popup", () => {
     expect(mocks.trackEvent).not.toHaveBeenCalledWith(
       "one_calendar_action", expect.objectContaining({ result: "success" }),
     );
+  });
+
+  it("names every permission first and opens Google only after Continue", async () => {
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add Calendar account" }));
+    const dialog = await screen.findByTestId("calendar-add-account-permissions");
+    expect(dialog).toHaveTextContent(/meeting recordings and notes/);
+    expect(dialog).toHaveTextContent(/Send meeting emails only after you review them/);
+    expect(window.open).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(window.open).not.toHaveBeenCalled();
+    expect(mocks.startConnect).not.toHaveBeenCalled();
+  });
+
+  it("offers Mail for the new account once it is connected", async () => {
+    await beginAddAccount();
+    mocks.status.mockResolvedValue({
+      configured: true, connected: true, status: "connected", access_level: "manage", scope_csv: "",
+      accounts: [
+        { account_id: "default", connected: true, status: "connected", access_level: "manage" },
+        { account_id: "extra", google_email: "extra@example.com", connected: true, status: "connected", access_level: "manage" },
+      ],
+    });
+    const attempt = JSON.parse(mocks.popupAttempt);
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {
+      origin: window.location.origin, source: mocks.popup,
+      data: { schemaVersion: 1, type: "google_oauth_settlement", attemptId: attempt.attemptId, service: "calendar", outcome: "succeeded" },
+    })));
+    const offer = await screen.findByTestId("calendar-added-account-mail", undefined, { timeout: 5000 });
+    expect(offer).toHaveTextContent("extra@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    await waitFor(() => expect(screen.queryByTestId("calendar-added-account-mail")).toBeNull());
   });
 });

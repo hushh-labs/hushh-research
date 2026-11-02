@@ -1,12 +1,12 @@
 .workspace {
-  --foundation-title2-size: 14px;
-  --foundation-title2-line: 22px;
-  --foundation-title2-weight: 600;
-  --foundation-title3-size: 14px;
-  --foundation-title3-line: 22px;
-  --foundation-title3-weight: 600;
-  --type-input-value-size: 14px;
-  --type-input-value-line: 22px;
+  --foundation-title2-size: var(--app-side-pane-row-title-size, 14px);
+  --foundation-title2-line: var(--app-side-pane-row-title-line, 22px);
+  --foundation-title2-weight: var(--app-side-pane-row-title-weight, 600);
+  --foundation-title3-size: var(--app-side-pane-row-title-size, 14px);
+  --foundation-title3-line: var(--app-side-pane-row-title-line, 22px);
+  --foundation-title3-weight: var(--app-side-pane-row-title-weight, 600);
+  --type-input-value-size: var(--profile-type-label-size, 14px);
+  --type-input-value-line: var(--profile-type-label-line, 22px);
   font-family: var(--font-app-body);
 }
 
@@ -28,26 +28,26 @@
 }
 
 .flowDescription {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
   font-weight: 400;
 }
 
 .sourceGroup {
-  --foundation-headline-size: 12px;
-  --foundation-headline-line: 18px;
-  --foundation-headline-weight: 600;
+  --foundation-headline-size: var(--app-side-pane-section-size, 12px);
+  --foundation-headline-line: var(--app-side-pane-section-line, 18px);
+  --foundation-headline-weight: var(--app-side-pane-section-weight, 600);
 }
 
 .windowPrimary {
-  font-size: 14px;
-  line-height: 21px;
-  font-weight: 550;
+  font-size: var(--app-side-pane-row-title-size, 14px);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .windowSupport {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
   font-weight: 400;
 }
 
@@ -56,16 +56,16 @@
   min-height: 44px;
   align-items: center;
   color: var(--app-accent);
-  font-size: 13px;
-  line-height: 21px;
-  font-weight: 550;
+  font-size: var(--app-side-pane-row-title-size, 13px);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .publicOffer {
   font-family: var(--font-app-body);
-  font-size: 14px;
-  line-height: 21px;
-  font-weight: 550;
+  font-size: var(--app-side-pane-row-title-size, 14px);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .joinLink {
@@ -79,57 +79,57 @@
   border-radius: 999px;
   background: var(--app-card-surface-default-solid);
   color: var(--app-accent);
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 550;
+  font-size: var(--profile-type-action-size, 12px);
+  line-height: var(--profile-type-action-line, 18px);
+  font-weight: var(--profile-type-action-weight, 550);
 }
 
 .utility {
-  --type-compact-button-label-size: 13px;
-  --type-compact-button-label-line: 21px;
-  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-size: var(--profile-type-action-size, 13px);
+  --type-compact-button-label-line: var(--profile-type-action-line, 21px);
+  --type-compact-button-label-weight: var(--profile-type-action-weight, 550);
   min-width: 44px;
   min-height: 44px;
-  font-size: 13px;
-  line-height: 21px;
-  font-weight: 550;
+  font-size: var(--app-side-pane-row-title-size, 13px);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .status {
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
+  font-size: var(--app-side-pane-row-title-size, 13px);
+  line-height: var(--app-side-pane-row-title-line, 18px);
+  font-weight: var(--app-side-pane-row-title-weight, 600);
 }
 
 .support {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
   font-weight: 400;
 }
 
 .portal {
-  --foundation-title2-size: 20px;
-  --foundation-title2-line: 28px;
-  --foundation-title2-weight: 600;
-  --foundation-title3-size: 20px;
-  --foundation-title3-line: 28px;
-  --foundation-title3-weight: 600;
-  --type-input-value-size: 14px;
-  --type-input-value-line: 22px;
+  --foundation-title2-size: var(--profile-type-dialog-title-size, 20px);
+  --foundation-title2-line: var(--profile-type-dialog-title-line, 28px);
+  --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600);
+  --foundation-title3-size: var(--profile-type-dialog-title-size, 20px);
+  --foundation-title3-line: var(--profile-type-dialog-title-line, 28px);
+  --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600);
+  --type-input-value-size: var(--profile-type-label-size, 14px);
+  --type-input-value-line: var(--profile-type-label-line, 22px);
   font-family: var(--font-app-body);
 }
 
 .portal :global(h3) {
-  --foundation-title3-size: 14px;
-  --foundation-title3-line: 22px;
-  --foundation-title3-weight: 600;
+  --foundation-title3-size: var(--app-side-pane-row-title-size, 14px);
+  --foundation-title3-line: var(--app-side-pane-row-title-line, 22px);
+  --foundation-title3-weight: var(--app-side-pane-row-title-weight, 600);
 }
 
 .portal :global(label > span),
 .portal :global(fieldset > legend) {
-  font-size: 15px;
-  line-height: 22px;
-  font-weight: 550;
+  font-size: var(--app-side-pane-row-title-size, 15px);
+  line-height: var(--app-side-pane-row-title-line, 22px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .chatCard,
@@ -139,29 +139,29 @@
 }
 
 .chatPrimary {
-  font-size: 14px;
-  line-height: 21px;
-  font-weight: 550;
+  font-size: var(--app-side-pane-row-title-size, 14px);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
 }
 
 .chatStatus {
   font-family: var(--font-app-body);
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
+  font-size: var(--app-side-pane-row-title-size, 13px);
+  line-height: var(--app-side-pane-row-title-line, 18px);
+  font-weight: var(--app-side-pane-row-title-weight, 600);
   letter-spacing: normal;
   text-transform: none;
 }
 
 .chatSupporting {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
   font-weight: 400;
 }
 
 .chatBody {
-  font-size: 14px;
-  line-height: 21px;
+  font-size: var(--profile-type-label-size, 14px);
+  line-height: var(--profile-type-label-line, 21px);
 }
 
 .calendarDirective :global([data-testid="specialist-directive-confirm"]),
@@ -179,13 +179,26 @@
   }
 
   .utility {
-    --type-compact-button-label-size: 12px;
-    font-size: 12px;
-  }
-  .sourceLink { font-size: 12px; }
+  --type-compact-button-label-size: var(--profile-type-action-size, 12px);
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, normal);
+}
+  .sourceLink { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
   .joinLink { min-width: 78px; padding-inline: 11px; }
 }
 
 @media (max-width: 350px) {
   .joinLink { min-width: 72px; padding-inline: 9px; }
 }
+
+.permissions { display: grid; gap: .5rem; }
+.permissionsHeading { color: var(--ios-account-secondary-label, var(--app-secondary-label)); font-size: var(--app-side-pane-section-size, 12px); line-height: var(--app-side-pane-section-line, 18px); font-weight: var(--app-side-pane-section-weight, 600); letter-spacing: var(--app-side-pane-section-tracking, normal); }
+.permissions ul { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.permissions li { display: flex; align-items: flex-start; gap: .5rem; color: var(--app-label); font-size: var(--profile-type-label-size, 13px); line-height: var(--profile-type-label-line, 19px); font-weight: 400; }
+.permissions li svg { margin-top: .1rem; color: var(--app-success); }
+
+/* Profile roles for dialog chrome: primary buttons take the label role and the
+   dialog description the description role. Outside the Calendar scope the
+   fallbacks keep the app-wide values. */
+.portal { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
+.portal :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }
