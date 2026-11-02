@@ -52,7 +52,7 @@
 .accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
 .accountButton { position: static; }
 .backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
-.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:not([type="search"]):focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
 .surface {
   display: flex;
   flex-direction: column;
@@ -152,6 +152,19 @@
 .phoneForm :global([data-figma-otp-actions]) { display: flex; justify-content: center; margin-top: 10px; padding: 0; }
 .phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: var(--app-accent) !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
 .recaptcha { display: none; }
+/* The conflict owns its state heading; keep the entry/OTP title out of it. */
+.content:has([data-phone-conflict]) > h1 { display: none; }
+.shell .content [data-phone-conflict-title] { font-size: clamp(28px, 3vw, 36px) !important; line-height: 1.15 !important; text-align: left !important; }
+.content:has([data-phone-conflict]) .inputRegion { margin-top: 0; }
+.surface:has([data-phone-conflict]) [data-phone-scene] > div { width: 140px; aspect-ratio: 1; }
+.surface:has([data-phone-conflict]) [data-phone-scene] > div > :not(img) { display: none; }
+.surface:has([data-phone-conflict]) [data-phone-scene] img { position: static; width: 100%; height: auto; }
+@media (min-width: 800px) {
+  .surface:has([data-phone-conflict]) [data-phone-scene] > div { width: 280px; }
+}
+@media (max-height: 690px) and (max-width: 799px) {
+  .surface:has([data-phone-conflict]) [data-phone-scene] { display: none; }
+}
 @media (max-width: 355px) {
   .surface { padding-inline: 18px; }
   .shell .content h1 { --foundation-title1-size: 28px; --foundation-title1-line: 34px; font-size: 28px !important; line-height: 34px !important; }

@@ -823,7 +823,7 @@ describe("phone conflict recovery", () => {
       confirmVerification: vi.fn().mockRejectedValue(code.startsWith("PHONE_") ? new ApiError("Conflict", 409, { detail: { code } }) : Object.assign(new Error("Occupied"), { code })) });
     const otp = await reachCodeStep(flow.startVerification);
     fireEvent.change(otp, { target: { value: "123456" } }); fireEvent.submit(otp.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Account options" })); fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
     expect(recover).toHaveBeenCalledWith("+16505550101");
     for (const label of ["Use this number on this account", "Send a real SMS code", "Delete my previous account", "Review previous device access"]) {
       expect(screen.queryByRole("button", { name: label })).toBeNull();

@@ -61,7 +61,7 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    await screen.findByRole("button", { name: "Sign in to existing account" });
+    await screen.findByRole("button", { name: "Account options" });
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:phone_conflict:back"));
     fireEvent.click(screen.getByRole("button", { name: "Shell Back" }));
     await screen.findByRole("textbox", { name: "Phone number" });
@@ -89,7 +89,7 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Account options" })); fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/account/phone/recovery/continuations", expect.objectContaining({
       method: "POST", body: JSON.stringify({ action, phone_number: "+16505550101" }),
     })));

@@ -23512,7 +23512,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The matching phone conflict choice or review must be visible."
+          "The phone conflict must be visible; open Account options before choosing sign-in."
         ],
         "active_personas": [
           "investor",
@@ -23536,6 +23536,7 @@
         "intended_handler": "PhoneVerificationFlow"
       },
       "control_ids": [
+        "phone-flow-account-options",
         "phone-flow-recover"
       ],
       "state_exposure": [
