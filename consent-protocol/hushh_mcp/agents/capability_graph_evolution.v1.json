@@ -2498,6 +2498,14 @@
       "from_version": 1,
       "to_version": null,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.recover",
+      "from_revision": "22cf4ef00a31d756",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
     }
   ]
 }

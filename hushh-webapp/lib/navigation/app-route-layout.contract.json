@@ -4642,7 +4642,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.portfolio.analysis",
-      "purpose": "Review source-backed portfolio analysis.",
+      "purpose": "Review saved portfolio facts, request an Agent One analysis, or explicitly introduce a verified human advisor.",
       "screen": "kai_portfolio_analysis",
       "entryCue": "",
       "proactivity": "ambient",
@@ -4657,7 +4657,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The route displays available saved portfolio facts and labels missing information.",
+      "completionBoundary": "Source coverage is input coverage, not model accuracy. Advisor contact, full Finance snapshot, connection, Calendar and recurring payment each retain their explicit approval and provider-evidence boundary; opening a workspace completes none of them.",
       "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -4673,7 +4673,8 @@
           }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
     }
   },
   {
@@ -6918,7 +6919,7 @@
     },
     "voicePlaybook": {
       "playbookId": "route.ria.clients",
-      "purpose": "Help the person understand and use the clients screen through its generated controls.",
+      "purpose": "Review advisor introduction requests and existing approved clients; public nearby prospects remain a separate discovery view.",
       "screen": "ria_clients",
       "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
       "proactivity": "on_entry",
@@ -6935,7 +6936,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
+      "completionBoundary": "Pending snapshots stay sealed. Accepting connects and unlocks the approved snapshot atomically; scheduling and subscribing require separate explicit confirmation and provider readback.",
       "nextRoute": "/ria/clients",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -6951,7 +6952,8 @@
           }
         }
       ],
-      "kind": "parent"
+      "kind": "parent",
+      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
     }
   },
   {
