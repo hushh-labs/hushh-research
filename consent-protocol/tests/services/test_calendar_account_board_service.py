@@ -119,6 +119,26 @@ async def test_three_account_shared_time_is_exact_intersection(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_board_returns_the_same_hussh_people_invitations_shows(monkeypatch):
+    schedules = {name: _Schedule(name) for name in ("default", "second", "third")}
+    monkeypatch.setattr(
+        board_module, "account_schedule", lambda account_id, connections: schedules[account_id]
+    )
+    seen = {}
+
+    async def portraits(*, owner_user_id, events):
+        seen["owner"] = owner_user_id
+        return {"manish@hushh.ai": {"userId": "m", "displayName": "Manish", "photoUrl": "p"}}
+
+    monkeypatch.setattr(board_module, "calendar_directory_portraits", portraits)
+    result = await CalendarAccountBoardService(_Connections()).day(
+        user_id="owner", date="2026-10-21", time_zone="UTC"
+    )
+    assert seen == {"owner": "owner"}
+    assert result["people"]["manish@hushh.ai"]["displayName"] == "Manish"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["provider", "generation"])
 async def test_incomplete_account_never_produces_shared_free_time(monkeypatch, failure):
     schedules = {

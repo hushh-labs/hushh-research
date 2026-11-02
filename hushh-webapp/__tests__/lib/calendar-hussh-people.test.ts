@@ -95,4 +95,16 @@ describe("Calendar HUSSH identity resolution", () => {
     expect(calendarHusshPerson(calendarEventPeople(known, undefined, "owner"), "peer@example.test")).toBeNull();
     expect(calendarHusshPerson(calendarEventPeople(known, {}, "owner"), "owner@example.test")?.photoUrl).toBe(husshPhoto);
   });
+
+  it("shows the owner's own HUSSH avatar on every Google account they connected", () => {
+    const people = resolve([connection("peer", "peer@example.test", husshPhoto)], {
+      ownerAccountEmails: ["Work@Example.Test", "second@example.test", "peer@example.test"],
+    });
+    for (const email of ["work@example.test", "second@example.test"]) {
+      expect(calendarHusshPerson(people, email)).toMatchObject({ userId: "owner", photoUrl: husshPhoto });
+    }
+    // The owner's own account wins over any other claim on that address.
+    expect(calendarHusshPerson(people, "peer@example.test")?.userId).toBe("owner");
+    expect(calendarHusshPerson(people, "stranger@example.test")).toBeNull();
+  });
 });

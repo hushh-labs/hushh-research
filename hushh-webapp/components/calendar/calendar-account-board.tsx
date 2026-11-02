@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle, ChevronDown, Clock, MoreHorizontal, Plus, RefreshCw } from "@/components/icons";
 import { Cake, Confetti } from "@/components/icons/ui/calendar-occasion-icons";
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
@@ -20,7 +20,7 @@ import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
 import type { GoogleCalendarAccount, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
-import { verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
+import { calendarEventPeople, calendarHusshPerson, verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
 import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -276,7 +276,10 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     }
     return main || others.length ? { main, others } : null;
   })();
-  const selectedOrganizer = selectedEvent?.organizer?.displayName?.trim()
+  // Everyone shows the HUSSH avatar they have in Profile; initials only appear for people with no HUSSH photo.
+  const people = useMemo(() => calendarEventPeople(calendarPeople, board?.people, userId), [calendarPeople, board?.people, userId]);
+  const organizerPerson = calendarHusshPerson(people, organizerEmail);
+  const selectedOrganizer = organizerPerson?.displayName?.trim() || selectedEvent?.organizer?.displayName?.trim()
     || (organizerEmail && organizerEmail.toLowerCase() === selectedAccount?.google_email?.toLowerCase() ? "you" : organizerEmail);
   const overlaps = selected && board ? board.conflicts.filter(pair => pairIncludes(pair, selected)) : [];
   const findEvent = (item: Selection) => accounts.find(account => account.account_id === item.accountId)?.events.find(event => eventIdentity(event) === identity(item));
@@ -433,13 +436,13 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
         <DialogContent className={styles.detail} data-profile-type-scale="calendar" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
-            <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by {selectedOrganizer}</p> : null}</DialogHeader>
+            <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by <CalendarPersonAvatar name={selectedOrganizer} photoUrl={organizerPerson?.photoUrl ?? null} className={styles.inlineAvatar} source="hussh" />{selectedOrganizer}</p> : null}</DialogHeader>
             {resolving && board ? <CalendarConflictPanel key={identity(selected)} board={board} keep={{ account_id: selected.accountId, calendar_id: selected.calendarId, event_id: selected.eventId }} getIdToken={getIdToken} initialDraft={conflictDraft} onDraftChange={setConflictDraft} onBusyChange={setActionBusy} onChooseKeep={ref => setSelected({ accountId: ref.account_id, calendarId: ref.calendar_id, eventId: ref.event_id })} onMailConnect={onMailConnect} onConfirmed={() => { refreshOnClose.current = true; }} onDone={close} /> : <>
             {selectedEvent.location ? <p className={styles.detailSource}>Location: {selectedEvent.location}</p> : null}
             {selectedEvent.description ? <p className={styles.detailDescription}>{selectedEvent.description}</p> : null}
             {!resolving && selectedDeclines ? <div className={styles.declinedNote} data-testid="calendar-declined-note">
               {selectedDeclines.main ? <section><strong>{selectedDeclines.main.title}</strong>{selectedDeclines.main.detail ? <small>{selectedDeclines.main.detail}</small> : null}<p>{selectedDeclines.main.reason}</p></section> : null}
-              {selectedDeclines.others.length ? <section><strong>{selectedDeclines.main ? "Also declined" : `Declined (${selectedDeclines.others.length})`}</strong><ul>{selectedDeclines.others.map(guest => <li key={guest.email}><span>{guest.name}</span>{guest.name !== guest.email ? <small>{guest.email}</small> : null}{guest.comment ? <p>{guest.comment}</p> : <p className={styles.noReason}>No reason shared.</p>}</li>)}</ul></section> : null}
+              {selectedDeclines.others.length ? <section><strong>{selectedDeclines.main ? "Also declined" : `Declined (${selectedDeclines.others.length})`}</strong><ul>{selectedDeclines.others.map(guest => <li key={guest.email}><span><CalendarPersonAvatar name={guest.name} photoUrl={calendarHusshPerson(people, guest.email)?.photoUrl ?? null} className={styles.inlineAvatar} source="hussh" />{guest.name}</span>{guest.name !== guest.email ? <small>{guest.email}</small> : null}{guest.comment ? <p>{guest.comment}</p> : <p className={styles.noReason}>No reason shared.</p>}</li>)}</ul></section> : null}
             </div> : null}
             {!isCalendarEventEnded(selectedEvent, now, zone) && safeMeetingUrl(selectedEvent.conference_url) ? <CalendarJoinLink className={styles.join} url={selectedEvent.conference_url} accountEmail={selectedAccount.google_email} /> : null}
             {overlaps.length ? <div className={styles.overlapDetail}><h3><AlertTriangle aria-hidden className="size-4" />Overlapping meetings</h3>{overlaps.map(pair => { const other = otherSide(pair, selected); const event = findEvent({ accountId: other.account_id, calendarId: other.calendar_id, eventId: other.event_id }); const account = accounts.find(item => item.account_id === other.account_id); return <div key={identity(other)} className={styles.overlapItem}><strong>{event?.title || "Another meeting"}</strong><p>{accountLabel(account?.google_email || null)} · {event ? eventTime(event, zone) : "Time unavailable"}</p><p>Overlap: {availabilityTimeRangeLabel(pair.start_at, pair.end_at, zone, date)}</p></div>; })}{!board?.conflicts_complete || error ? <p role="alert">Refresh every account before resolving conflicts.</p> : <CalendarCompactAction disabled={actionBusy || busy} onClick={() => setResolving(true)}>Resolve these overlaps</CalendarCompactAction>}</div> : null}

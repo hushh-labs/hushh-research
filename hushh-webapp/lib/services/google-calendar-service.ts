@@ -125,6 +125,7 @@ export type CalendarBoardDay = {
   date: string; time_zone: string; duration_minutes: 15 | 30 | 60;
   accounts: CalendarBoardAccount[]; complete: boolean; conflicts_complete: boolean;
   conflicts: CalendarBoardConflict[]; shared_free_windows: CalendarOpening[]; checked_at: string;
+  people?: Record<string, { userId: string; displayName: string | null; photoUrl: string | null }>;
 };
 export type CalendarEventRef = { account_id: string; calendar_id: string; event_id: string };
 export type CalendarConflictPreview = {

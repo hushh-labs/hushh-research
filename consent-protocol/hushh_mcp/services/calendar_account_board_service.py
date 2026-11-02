@@ -6,6 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+from hushh_mcp.services.calendar_directory_portraits import calendar_directory_portraits
 from hushh_mcp.services.calendar_invitations import event_bounds, occurrence_key
 from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
@@ -299,6 +300,12 @@ class CalendarAccountBoardService:
             "complete": complete,
             "conflicts_complete": conflicts_complete,
             "conflicts": _conflicts(accounts, time_zone),
+            # The same HUSSH names and photos Invitations shows, so a person looks
+            # identical on the board, in a meeting's detail and in Insights.
+            "people": await calendar_directory_portraits(
+                owner_user_id=user_id,
+                events=[event for account in accounts for event in account["events"]],
+            ),
             "shared_free_windows": shared,
             "checked_at": datetime.now(UTC).isoformat(),
         }
