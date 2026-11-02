@@ -330,17 +330,18 @@ export function connectGmailInPlace(
   );
 }
 
-/** Calendar read or scheduling (`manage`) access. */
+/** Calendar access. Setup asks for scheduling, the calendar list and meeting files at once. */
 export function connectCalendarInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
     includeCalendarList?: boolean;
+    includeMeetingFiles?: boolean;
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
   if (!input) return started("unsupported", async () => "stale");
-  const { owner, accessLevel, includeCalendarList } = input;
+  const { owner, accessLevel, includeCalendarList, includeMeetingFiles } = input;
   const granted = (status: {
     connected?: boolean;
     status?: string;
@@ -370,6 +371,7 @@ export function connectCalendarInPlace(
           idToken,
           accessLevel,
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
+          ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
         });
         if (!current()) return "stale";
         const result = await HushhAuth.connectCalendar({
@@ -377,6 +379,7 @@ export function connectCalendarInPlace(
           accessLevel: start.access_level,
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
           ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
+          ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
         });
         if (!current()) return "stale";
         const status = await GoogleCalendarService.completeNativeConnect({
@@ -394,6 +397,7 @@ export function connectCalendarInPlace(
   const attempt = createGoogleOAuthPopupAttempt("calendar", {
     ownerId: input.applicationOwnerId,
     accessLevel,
+    ...(includeMeetingFiles ? { meetingFiles: true } : {}),
   });
   const popup = openGoogleOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
@@ -417,6 +421,7 @@ export function connectCalendarInPlace(
           idToken,
           userId: input.applicationOwnerId,
           accessLevel,
+          ...(includeMeetingFiles ? { includeMeetingFiles: true } : {}),
         });
         if (!current()) return "stale";
         if (!isGoogleAuthorizeUrl(start.authorize_url)) return "failed";

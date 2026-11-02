@@ -52,9 +52,9 @@
   margin-right: var(--calendar-rail-gap);
   padding-top: 7px;
   color: var(--app-secondary-label);
-  font-size: 11.2px;
-  line-height: 19px;
-  letter-spacing: -0.025em;
+  font-size: var(--profile-type-description-size, 11.2px);
+  line-height: var(--profile-type-description-line, 19px);
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
@@ -65,7 +65,8 @@
 
 .activeTime {
   color: var(--app-accent);
-  font-size: 11px;
+  font-size: var(--profile-type-description-size, 11px);
+  line-height: var(--profile-type-description-line, normal);
 }
 
 .activeTime > span {
@@ -109,10 +110,10 @@
 .eventTitle {
   display: block;
   overflow: hidden;
-  font-size: 14px;
-  font-weight: 550;
-  line-height: 21px;
-  letter-spacing: -0.025em;
+  font-size: var(--app-side-pane-row-title-size, 14px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -121,9 +122,9 @@
   display: block;
   min-width: 0;
   color: var(--app-secondary-label);
-  font-size: 12px;
-  line-height: 18px;
-  letter-spacing: -0.02em;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
@@ -134,12 +135,12 @@
   min-width: 0;
   gap: 5px;
   color: var(--app-secondary-label);
-  font-size: 12px;
-  line-height: 18px;
-  letter-spacing: -0.02em;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
+  letter-spacing: 0;
 }
 
-.endedLabel { display: inline-flex; width: fit-content; margin-top: 3px; padding: 2px 7px; border-radius: 6px; background: color-mix(in srgb, var(--app-secondary-label) 10%, transparent); color: var(--app-secondary-label); font-size: 13px; font-weight: 600; line-height: 18px; }
+.endedLabel { display: inline-flex; width: fit-content; margin-top: 3px; padding: 2px 7px; border-radius: 6px; background: color-mix(in srgb, var(--app-secondary-label) 10%, transparent); color: var(--app-secondary-label); font-size: var(--app-side-pane-row-title-size, 13px); font-weight: var(--app-side-pane-row-title-weight, 600); line-height: var(--app-side-pane-row-title-line, 18px); }
 
 .sourceLabel {
   min-width: 0;
@@ -159,9 +160,9 @@
 .declined {
   display: block;
   color: var(--app-secondary-label);
-  font-size: 13px;
-  line-height: 18px;
-  font-weight: 600;
+  font-size: var(--app-side-pane-row-title-size, 13px);
+  line-height: var(--app-side-pane-row-title-line, 18px);
+  font-weight: var(--app-side-pane-row-title-weight, 600);
 }
 
 .rowActions {
@@ -184,9 +185,9 @@
   min-height: 44px;
   padding: 0;
   color: var(--app-accent);
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 18px;
+  font-size: var(--profile-type-action-size, 12px);
+  font-weight: var(--profile-type-action-weight, 550);
+  line-height: var(--profile-type-action-line, 18px);
   text-decoration: none;
   border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid));
   border-radius: 999px;
@@ -276,18 +277,18 @@
 
 .providerTitle {
   display: block;
-  font-size: 14px;
-  font-weight: 550;
-  line-height: 21px;
-  letter-spacing: -0.02em;
+  font-size: var(--app-side-pane-row-title-size, 14px);
+  font-weight: var(--app-side-pane-row-title-weight, 550);
+  line-height: var(--app-side-pane-row-title-line, 21px);
+  letter-spacing: 0;
 }
 
 .providerSubtitle {
   display: block;
   color: var(--app-secondary-label);
-  font-size: 12px;
-  line-height: 18px;
-  letter-spacing: -0.02em;
+  font-size: var(--profile-type-description-size, 12px);
+  line-height: var(--profile-type-description-line, 18px);
+  letter-spacing: 0;
 }
 
 .providerChevron {
@@ -347,15 +348,16 @@
   }
 
   .timeColumn {
-    padding-top: 0;
-    font-size: 13px;
-    line-height: 19px;
-    letter-spacing: -0.01em;
-  }
+  padding-top: 0;
+  font-size: var(--profile-type-description-size, 13px);
+  line-height: var(--profile-type-description-line, 19px);
+  letter-spacing: 0;
+}
 
   .activeTime {
-    font-size: 12.5px;
-  }
+  font-size: var(--profile-type-description-size, 12.5px);
+  line-height: var(--profile-type-description-line, normal);
+}
 
   .stripe {
     min-height: 62px;
@@ -366,16 +368,17 @@
   }
 
   .eventTitle {
-    font-size: 14px;
-    line-height: 21px;
-    letter-spacing: -0.033em;
-  }
+  font-size: var(--profile-type-label-size, 14px);
+  line-height: var(--profile-type-label-line, 21px);
+  letter-spacing: 0;
+}
 
   .eventTime,
   .eventSource {
-    font-size: 12px;
-    letter-spacing: -0.01em;
-  }
+  font-size: var(--profile-type-description-size, 12px);
+  letter-spacing: 0;
+  line-height: var(--profile-type-description-line, normal);
+}
 
   .eventTime {
     line-height: 18px;
@@ -429,14 +432,14 @@
   }
 
   .providerTitle {
-    font-size: 14px;
-    line-height: 21px;
-  }
+  font-size: var(--profile-type-label-size, 14px);
+  line-height: var(--profile-type-label-line, 21px);
+}
 
   .providerSubtitle {
-    font-size: 13.25px;
-    line-height: 19px;
-  }
+  font-size: var(--profile-type-description-size, 13.25px);
+  line-height: var(--profile-type-description-line, 19px);
+}
 
   .availabilityArt {
     width: 52px;

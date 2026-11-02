@@ -1,8 +1,8 @@
-.dialog { width: min(calc(100vw - 1.5rem), 36rem); max-height: min(90dvh, 48rem); gap: .8rem; padding: 1.2rem; font-family: var(--font-app-body); }
+.dialog { --foundation-title2-size: var(--profile-type-dialog-title-size, 28px); --foundation-title2-line: var(--profile-type-dialog-title-line, 36px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); --foundation-title3-size: var(--profile-type-dialog-title-size, 28px); --foundation-title3-line: var(--profile-type-dialog-title-line, 36px); --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600); width: min(calc(100vw - 1.5rem), 36rem); max-height: min(90dvh, 48rem); gap: .8rem; padding: 1.2rem; font-family: var(--font-app-body); }
 .header { gap: .2rem; padding-right: 1.5rem; text-align: left; }
 .fields { display: grid; gap: .7rem; }
-.fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: 14px; font-weight: 600; color: var(--app-label); }
-.fields select { width: 100%; min-width: 0; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: 14px; font-weight: 400; color: var(--app-label); }
+.fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-label); line-height: var(--app-side-pane-row-title-line, normal); }
+.fields select { width: 100%; min-width: 0; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: var(--profile-type-label-size, 14px); font-weight: 400; color: var(--app-label); line-height: var(--profile-type-label-line, normal); }
 .fields input { font-weight: 400; }
 .timeGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .85fr); gap: .5rem; }
 /* iOS/WebKit date and time controls keep an intrinsic width; clamp them to their cell and left-align the value like a text field. */
@@ -12,22 +12,28 @@
 .guestEntry { display: flex; gap: .4rem; min-width: 0; }
 .guestEntry button { min-height: 44px; }
 .guests { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; padding: 0; }
-.guests li { display: flex; align-items: center; gap: .3rem; padding: .25rem .3rem .25rem .6rem; border-radius: 999px; background: var(--app-accent-surface); color: var(--app-accent); font-size: 12px; }
+.guests li { display: flex; align-items: center; gap: .3rem; padding: .25rem .3rem .25rem .6rem; border-radius: 999px; background: var(--app-accent-surface); color: var(--app-accent); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
 .guests button { min-width: 32px; min-height: 32px; border-radius: 50%; font-size: 20px; }
-.accountIdentity { display: flex; align-items: center; gap: .5rem; min-width: 0; color: var(--app-secondary-label); font-size: 13px; font-weight: 400; }
+.accountIdentity { display: flex; align-items: center; gap: .5rem; min-width: 0; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 13px); font-weight: 400; line-height: var(--profile-type-description-line, normal); }
 .accountIdentity :global([data-slot="avatar"]) { width: 1.75rem; height: 1.75rem; flex: none; background: var(--app-accent-surface); }
 .accountIdentity :global([data-slot="avatar-fallback"]) { color: var(--app-accent); background: transparent; font-size: .75rem; }
 .accountIdentity > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.description { font-size: 14px; }
+.description { font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
 .description summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
 .description textarea { margin-top: .2rem; }
-.review { display: grid; gap: .3rem; padding: .8rem; border-radius: .75rem; border: 1px solid var(--app-separator); background: var(--app-card-surface-compact); font-size: 13px; overflow-wrap: anywhere; }
-.review h3 { font-size: 14px; font-weight: 650; }
+.review { display: grid; gap: .3rem; padding: .8rem; border-radius: .75rem; border: 1px solid var(--app-separator); background: var(--app-card-surface-compact); font-size: var(--profile-type-description-size, 13px); overflow-wrap: anywhere; line-height: var(--profile-type-description-line, normal); }
+.review h3 { font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 650); line-height: var(--app-side-pane-row-title-line, normal); }
 .review ul { padding-left: 1.2rem; color: var(--app-destructive); }
-.error { color: var(--app-destructive); font-size: 13px; line-height: 19px; }
-.alternatives { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: 13px; }
+.error { color: var(--app-destructive); font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, 19px); }
+.alternatives { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, normal); }
 .alternatives p { width: 100%; font-weight: 600; }
 .alternatives button { min-height: 44px; }
 .actions { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; background: var(--app-card-surface-default-solid); }
 .actions button { min-height: 44px; }
 @media (max-width: 480px) { .dialog { width: calc(100vw - 1rem); max-height: min(88dvh, 48rem); border-radius: 1rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); } .fields { gap: .85rem; } .timeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; } .timeGrid label:last-child { grid-column: 1 / -1; } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions button:last-child:nth-child(3) { grid-column: 1 / -1; height: auto; padding-block: .6rem; white-space: normal; line-height: 1.2; } }
+
+/* Profile roles for dialog chrome: primary buttons take the label role and the
+   dialog description the description role. Outside the Calendar scope the
+   fallbacks keep the app-wide values. */
+.dialog { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
+.dialog :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }

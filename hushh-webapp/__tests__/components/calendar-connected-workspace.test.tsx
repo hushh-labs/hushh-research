@@ -410,14 +410,14 @@ describe("CalendarConnectedWorkspace", () => {
     expect(screen.queryByText("Your included calendars are clear.")).toBeNull();
   });
 
-  it("provides read reconnect recovery only after the provider requests it", async () => {
+  it("provides reconnect recovery with full Calendar access only after the provider requests it", async () => {
     mocks.today.mockRejectedValueOnce(new GoogleCalendarError("Reconnect Calendar to read events.", "calendar_reauthorization_required", 401));
     render(workspace());
 
     fireEvent.click(await screen.findByRole("button", { name: /Reconnect Calendar/i }));
 
-    expect(mocks.onConnect.mock.calls[0][0]).toBe("read");
-    expect(mocks.onConnect.mock.calls[0][1]).toBeFalsy();
+    expect(mocks.onConnect.mock.calls[0][0]).toBe("manage");
+    expect(mocks.onConnect.mock.calls[0][1]).toBe(true);
     expect(screen.queryByText(/No events/i)).toBeNull();
     expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();
   });
@@ -654,7 +654,7 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(control("Free time"));
     fireEvent.click(await screen.findByRole("button", { name: "Allow Calendar access", exact: true }));
 
-    expect(mocks.onConnect).toHaveBeenCalledWith("read", true);
+    expect(mocks.onConnect).toHaveBeenCalledWith("manage", true);
     expect(screen.queryByText("No free slots in this window.")).toBeNull();
   });
 

@@ -7,6 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
@@ -186,7 +187,12 @@ def validate_plan(
     booking_source = payload.get("booking_source")
     account_id = str(payload.get("account_id") or "default")
     provided_zone = str(payload.get("time_zone") or "")
-    board_zone = "Asia/Kolkata" if provided_zone == "Asia/Calcutta" else provided_zone
+    # A board booking must name its zone; other callers default to UTC. Either
+    # way a zone that is not in the tz database is refused before anything is
+    # stored or sent, so no booking can silently fall back to the wrong clock.
+    board_zone = normalize_time_zone(
+        provided_zone, default="" if booking_source == "board" else "UTC"
+    )
     if booking_source == "board":
         validate_board_request(
             action=action,
@@ -212,7 +218,7 @@ def validate_plan(
         "event_id": event_id or None,
         "start_at": start,
         "end_at": end,
-        "time_zone": board_zone if booking_source == "board" else provided_zone or "UTC",
+        "time_zone": board_zone,
         "send_updates": bool(payload.get("send_updates", True)),
     }
     if action == "create":

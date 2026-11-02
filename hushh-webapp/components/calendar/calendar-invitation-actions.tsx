@@ -90,6 +90,8 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       offerTimes: next === "offer_times", exactTime: next === "offer_times",
       sendMessage: next === "declined" || next === "offer_times",
       message: outgoingMessage, date, timeZone: zone, startTime, endTime: proposedEndTime,
+      // The owner's own words are also kept with the RSVP so every copy of the meeting can explain the decline.
+      ...((next === "declined" || next === "offer_times") && send ? { declineReason: message.trim() } : {}),
       // The service derives elapsed duration in the selected zone, including DST.
       durationMinutes: next === "offer_times" ? Math.max(1, clockMinutes(proposedEndTime) - clockMinutes(startTime)) : Math.max(1, Math.min(1440, duration)),
       isEffectCurrent: current,
@@ -172,7 +174,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     </>}
     {failure ? <p role="alert">{failure.message}</p> : null}
     {!event.can_respond ? <p className={styles.muted}>This calendar only allows viewing. Respond from your own Calendar invitation.</p> : null}
-    {failure?.recovery === "permission" || failure?.recovery === "reconnect" || failure?.recovery === "connect" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect(failure.reasonCode === "calendar_list_permission_required" ? "read" : "manage", failure.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</CalendarCompactAction> : null}
+    {failure?.recovery === "permission" || failure?.recovery === "reconnect" || failure?.recovery === "connect" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", true)}>Allow Calendar access</CalendarCompactAction> : null}
     {(!offer || review || result || onOfferTimes) && failure?.reasonCode && ["GMAIL_NOT_CONNECTED", "GMAIL_SEND_PERMISSION_REQUIRED", "GMAIL_REAUTH_REQUIRED", "GMAIL_SEND_DISABLED", "GMAIL_SENDER_UNAVAILABLE"].includes(failure.reasonCode) && onMailConnect ? <CalendarCompactAction disabled={busy} onClick={onMailConnect}>Connect Gmail</CalendarCompactAction> : null}
   </div>;
 }
