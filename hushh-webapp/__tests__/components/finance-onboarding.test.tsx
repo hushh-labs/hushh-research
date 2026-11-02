@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   FinanceOnboardingComplete,
   FinanceOnboardingDemo,
+  FinanceSourcePicker,
 } from "@/components/kai/onboarding/finance-onboarding";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
@@ -56,6 +57,34 @@ describe("Finance introduction", () => {
     expect(done).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
     expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("uses app Back for source selection and consumes Back while importing", () => {
+    const back = vi.fn();
+    const props = {
+      onConnect: vi.fn(),
+      onStatement: vi.fn(),
+      onSample: vi.fn(),
+      onSkip: vi.fn(),
+      onBack: back,
+      plaidAvailable: true,
+      sampleAvailable: true,
+    };
+    const { rerender } = render(
+      <FinanceSourcePicker {...props} busy={false} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Back to Finance introduction" }),
+    ).toBeNull();
+    act(() => {
+      expect(unwindBackLayer("/one/setup/finance")).toBe(true);
+    });
+    expect(back).toHaveBeenCalledOnce();
+    rerender(<FinanceSourcePicker {...props} busy />);
+    act(() => {
+      expect(unwindBackLayer("/one/setup/finance")).toBe(true);
+    });
+    expect(back).toHaveBeenCalledOnce();
   });
 
   it("keeps root setup completion distinct from opening Finance", () => {

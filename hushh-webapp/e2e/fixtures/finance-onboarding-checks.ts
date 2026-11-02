@@ -1,8 +1,191 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+// A paused CSS animation freezes on the next style recalculation, so the frame
+// read straight after a pause can still be one frame behind the frozen one.
+// Treat a value as frozen only once two reads a frame apart agree; a pause that
+// never takes hold keeps changing and fails the poll instead of passing.
+async function frozenTransform(locator: Locator): Promise<string> {
+  let previous = "";
+  await expect
+    .poll(
+      async () => {
+        const current = await locator.evaluate(
+          (el) => getComputedStyle(el).transform,
+        );
+        const settled = current === previous;
+        previous = current;
+        return settled;
+      },
+      { intervals: [100], timeout: 5000 },
+    )
+    .toBe(true);
+  return previous;
+}
 
 export function registerFinanceOnboardingChecks(
   mount: (page: Page, width: number) => Promise<void>,
 ) {
+  test.describe("Finance onboarding motion parity", () => {
+    for (const width of [390, 960]) {
+      test(`Finance onboarding motion cycle and playback at ${width}px`, async ({
+        browser,
+      }, testInfo) => {
+        test.setTimeout(65000);
+        const page = await browser.newPage({
+          recordVideo: {
+            dir: testInfo.outputPath("recording"),
+            size: { width, height: width === 390 ? 844 : 720 },
+          },
+        });
+        try {
+          await page.emulateMedia({ reducedMotion: "no-preference" });
+          await mount(page, width);
+          await page.setViewportSize({
+            width,
+            height: width === 390 ? 844 : 720,
+          });
+          const demo = page.getByRole("region", { name: "Meet Finance" });
+          const phone = page.locator("[data-demo-slide]");
+          const scenes = phone.locator("[data-scene]");
+          await expect(demo).toHaveAttribute("data-playing", "true");
+          await expect(scenes).toHaveCount(3);
+          // A pointer interaction must not silently stop the timeline.
+          await page
+            .getByRole("heading", { name: "Follow the market." })
+            .click();
+          await expect(demo).toHaveAttribute("data-playing", "true");
+          // Waits only time the evidence screenshots. Animated values are polled,
+          // because WebKit screenshots and a loaded runner shift when a single
+          // read lands inside the timeline.
+          await page.waitForTimeout(1800);
+          await page.screenshot({
+            path: testInfo.outputPath("market-motion.png"),
+          });
+          const path = phone.locator('[data-scene="0"] path').first();
+          await expect
+            .poll(() =>
+              path.evaluate((el) => getComputedStyle(el).strokeDashoffset),
+            )
+            .toBe("0px");
+          await expect(phone).toHaveAttribute("data-demo-slide", "1", {
+            timeout: 6500,
+          });
+          await page.waitForTimeout(2400);
+          await page.screenshot({
+            path: testInfo.outputPath("portfolio-motion.png"),
+          });
+          await expect(phone).toHaveAttribute("data-demo-slide", "2", {
+            timeout: 6500,
+          });
+          await page.waitForTimeout(1000);
+          await page.screenshot({
+            path: testInfo.outputPath("stocks-selection.png"),
+          });
+          await page.waitForTimeout(4500);
+          await page.screenshot({
+            path: testInfo.outputPath("stocks-debate.png"),
+          });
+          const agents = phone.locator('[class*="agentCard"]');
+          const agentOpacity = () =>
+            agents
+              .first()
+              .evaluate((el) => Number(getComputedStyle(el).opacity));
+          await expect.poll(agentOpacity).toBe(1);
+          await page.waitForTimeout(4300);
+          await page.screenshot({
+            path: testInfo.outputPath("stocks-consensus.png"),
+          });
+          await expect
+            .poll(() =>
+              phone
+                .locator('[class*="decision"]')
+                .first()
+                .evaluate((el) => Number(getComputedStyle(el).opacity)),
+            )
+            .toBe(1);
+          // The Stocks scene lasts 11.8s; screenshot time is not part of it.
+          await expect(phone).toHaveAttribute("data-demo-slide", "0", {
+            timeout: 12000,
+          });
+          // Scene DOM survives the entire loop; restarting does not flash/unmount it.
+          await expect(scenes).toHaveCount(3);
+          await page
+            .getByRole("button", { name: "Pause Finance introduction" })
+            .click();
+          const progress = page.locator('[data-demo-progress="true"]');
+          await expect(demo).toHaveAttribute("data-playing", "false");
+          const before = await frozenTransform(progress);
+          await page.waitForTimeout(500);
+          expect(
+            await progress.evaluate((el) => getComputedStyle(el).transform),
+          ).toBe(before);
+          await page
+            .getByRole("button", { name: "Show Stocks introduction" })
+            .click();
+          await expect(phone).toHaveAttribute("data-demo-slide", "2");
+          await expect.poll(agentOpacity).toBe(1);
+          await expect(demo).toHaveAttribute("data-playing", "false");
+          await page
+            .getByRole("button", { name: "Play Finance introduction" })
+            .click();
+          await expect
+            .poll(() =>
+              progress.evaluate((el) => getComputedStyle(el).transform),
+            )
+            .not.toBe(before);
+          await page.evaluate(() => {
+            Object.defineProperty(document, "hidden", {
+              configurable: true,
+              value: true,
+            });
+            document.dispatchEvent(new Event("visibilitychange"));
+          });
+          await expect(demo).toHaveAttribute("data-playing", "false");
+          const hiddenFrame = await frozenTransform(progress);
+          await page.waitForTimeout(300);
+          expect(
+            await progress.evaluate((el) => getComputedStyle(el).transform),
+          ).toBe(hiddenFrame);
+          await page.evaluate(() => {
+            Reflect.deleteProperty(document, "hidden");
+            document.dispatchEvent(new Event("visibilitychange"));
+          });
+          await expect(demo).toHaveAttribute("data-playing", "true");
+          await page
+            .getByRole("button", { name: "Show Stocks introduction" })
+            .click();
+          await expect(demo).toHaveAttribute("data-playing", "true");
+          await page
+            .getByRole("button", { name: "Continue", exact: true })
+            .click();
+          await expect(
+            page.getByRole("button", { name: /Connect an account/ }),
+          ).toBeVisible();
+          await page.waitForTimeout(800);
+          await page.screenshot({
+            path: testInfo.outputPath("import-motion.png"),
+          });
+          expect(
+            await page.evaluate(
+              () => document.documentElement.scrollWidth <= innerWidth,
+            ),
+          ).toBe(true);
+          await page
+            .getByRole("button", { name: "Skip for now", exact: true })
+            .click();
+          await expect(
+            page.getByRole("heading", { name: "You're all set" }),
+          ).toBeVisible();
+          await page.waitForTimeout(600);
+          await page.screenshot({
+            path: testInfo.outputPath("completion-motion.png"),
+          });
+        } finally {
+          await page.close();
+        }
+      });
+    }
+  });
   for (const width of [320, 393, 1440])
     for (const theme of ["light", "dark"]) {
       test(`Finance approved onboarding at ${width}px in ${theme}`, async ({
@@ -33,9 +216,14 @@ export function registerFinanceOnboardingChecks(
             () => document.documentElement.scrollWidth <= innerWidth,
           ),
         ).toBe(true);
-        const introductionPath = testInfo.outputPath("finance-introduction.png");
+        const introductionPath = testInfo.outputPath(
+          "finance-introduction.png",
+        );
         await page.screenshot({ path: introductionPath, fullPage: true });
-        await testInfo.attach("Finance introduction", { path: introductionPath, contentType: "image/png" });
+        await testInfo.attach("Finance introduction", {
+          path: introductionPath,
+          contentType: "image/png",
+        });
         // The actual swipe handler advances locally; it never completes setup.
         const x = art!.x + art!.width - 12;
         const y = art!.y + 80;
@@ -70,6 +258,19 @@ export function registerFinanceOnboardingChecks(
         if (width >= 768) {
           expect(a.x + a.width).toBeLessThan(b.x);
           expect(c.x).toBe(b.x);
+          const connect = (await page
+            .getByRole("button", { name: "Connect account", exact: true })
+            .boundingBox())!;
+          const skip = (await page
+            .getByRole("button", { name: "Skip for now", exact: true })
+            .boundingBox())!;
+          const center = (a.x + b.x + b.width) / 2;
+          expect(
+            Math.abs(connect.x + connect.width / 2 - center),
+          ).toBeLessThanOrEqual(1);
+          expect(
+            Math.abs(skip.x + skip.width / 2 - center),
+          ).toBeLessThanOrEqual(1);
         } else {
           expect(a.y + a.height).toBeLessThan(b.y);
           expect(c.y).toBe(b.y);
@@ -81,7 +282,10 @@ export function registerFinanceOnboardingChecks(
         ).toBe(true);
         const pickerPath = testInfo.outputPath("finance-source-picker.png");
         await page.screenshot({ path: pickerPath, fullPage: true });
-        await testInfo.attach("Finance source picker", { path: pickerPath, contentType: "image/png" });
+        await testInfo.attach("Finance source picker", {
+          path: pickerPath,
+          contentType: "image/png",
+        });
         await sample.click();
         expect(
           await page.evaluate(() => document.body.dataset.sourceAction),
@@ -94,7 +298,10 @@ export function registerFinanceOnboardingChecks(
         ).toBeVisible();
         const completionPath = testInfo.outputPath("finance-completion.png");
         await page.screenshot({ path: completionPath, fullPage: true });
-        await testInfo.attach("Finance completion", { path: completionPath, contentType: "image/png" });
+        await testInfo.attach("Finance completion", {
+          path: completionPath,
+          contentType: "image/png",
+        });
         expect(
           await page.evaluate(() => document.body.dataset.finished),
         ).toBeUndefined();
@@ -122,11 +329,13 @@ export function registerFinanceOnboardingChecks(
       .getByRole("button", { name: "Show Stocks introduction" })
       .click();
     const phone = page.locator("[data-demo-slide]");
-    const consensus = phone.getByText("Consensus", { exact: true });
-    const clearance = await consensus.evaluate(el => {
+    const consensus = phone.locator("strong").filter({ hasText: /Decision$/ });
+    const clearance = await consensus.evaluate((el) => {
       const card = el.parentElement!.getBoundingClientRect();
       const phone = el.closest("[data-demo-slide]")!;
-      const dock = phone.querySelector('[class*="phoneDock"]')!.getBoundingClientRect();
+      const dock = phone
+        .querySelector('[class*="phoneDock"]')!
+        .getBoundingClientRect();
       return dock.top - card.bottom;
     });
     expect(clearance).toBeGreaterThanOrEqual(4);
@@ -156,7 +365,7 @@ export function registerFinanceOnboardingChecks(
     ).toBeDisabled();
     await expect(
       page.getByRole("button", { name: "Back to Finance introduction" }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: /Connect an account/ }),
     ).toBeDisabled();
