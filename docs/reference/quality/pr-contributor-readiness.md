@@ -56,10 +56,11 @@ and `contracts/architecture/runtime-topology-index.v1.json`. Review the diff
 and commit it. A review receipt minted for UI sources your branch did not
 change is not needed: CI inherits the target branch's evidence for those.
 `--check` rewrites nothing and lists every stale artifact in one run. Both
-modes need `hushh-webapp/node_modules` and run under Git Bash on Windows. Line
-endings in the Python-written files are kept as LF. The capability graph step
-needs a Python with `google-genai`; it uses `consent-protocol/.venv` when
-present, otherwise set `HUSHH_CAPABILITY_GRAPH_PYTHON`.
+modes need the webapp dependencies (`npm ci` in hushh-webapp) and run under Git
+Bash on Windows. Line endings in the Python-written files are kept as LF. The
+capability graph step needs a Python with `google-genai`; it uses the
+consent-protocol virtual environment when present, otherwise set
+`HUSHH_CAPABILITY_GRAPH_PYTHON`.
 
 `scripts/ci/orchestrate.sh governance` runs every governance check even after
 one fails, then prints a summary of all failures and exits non-zero. Fix them
