@@ -2,6 +2,4 @@
 .title { margin: 0; font-family: var(--font-app-display); font-size: var(--foundation-title1-size); font-weight: 600; line-height: var(--foundation-title1-line); letter-spacing: -.04em; text-wrap: balance; }
 .description { margin: 0; color: var(--app-secondary-label); font-size: 16px; line-height: 1.5; text-wrap: pretty; }
 .primary.primary { min-height: 52px; height: 52px; border-radius: var(--app-radius-lg); }
-.options.options { display: flex; justify-content: space-between; width: 100%; min-height: 52px; padding-inline: 0; border-top: 1px solid var(--app-separator); border-radius: 0; background: transparent; color: var(--app-label); }
-.options > span { width: 100%; justify-content: space-between; }
-.signIn.signIn { justify-content: flex-start; min-height: 48px; white-space: normal; text-align: start; }
+.deleteReview.deleteReview { min-height: 52px; padding-inline: 0; border-top: 1px solid var(--app-separator); border-radius: 0; background: transparent; color: var(--app-destructive); }

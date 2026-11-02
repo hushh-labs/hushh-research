@@ -42,6 +42,14 @@ describe("executeAgentGatewayAction connected systems", () => {
     expect(input.router.push).not.toHaveBeenCalled();
   });
 
+  it("keeps the previous-account deletion review manual-only", async () => {
+    const actionId = "phone_mandate.review_previous_deletion";
+    const input = { ...baseInput(actionId), allowedActionIds: [actionId] };
+    const result = await executeAgentGatewayAction(input);
+    expect(result).toMatchObject({ status: "blocked", reason: "manual_only" });
+    expect(input.router.push).not.toHaveBeenCalled();
+  });
+
   it("opens Connected Systems for CRM update proposals", async () => {
     const input = baseInput("connected_system.crm.update.propose");
 

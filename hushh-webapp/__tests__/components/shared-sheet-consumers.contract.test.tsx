@@ -51,7 +51,6 @@ const SHEET_CONSUMERS = [
   "components/app-ui/action-menu.tsx",
   "components/app-ui/profile-pane.tsx",
   "components/app-ui/settings-ui.tsx",
-  "components/auth/phone-conflict-recovery.tsx",
   "components/computer-use/computer-use-task-card.tsx",
   "components/connect/circles/circle-photo-editor.tsx",
   "components/connections/contact-invitation-sheet.tsx",

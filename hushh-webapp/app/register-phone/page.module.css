@@ -155,7 +155,7 @@
 .recaptcha { display: none; }
 /* The conflict owns its state heading; keep the entry/OTP title out of it. */
 .content:has([data-phone-conflict]) > h1 { display: none; }
-.shell .content [data-phone-conflict-title] { font-size: 32px !important; line-height: 1.15 !important; text-align: left !important; }
+.shell .content [data-phone-conflict-title] { font-size: clamp(24px, 6vw, 28px) !important; line-height: 1.15 !important; text-align: left !important; }
 .content:has([data-phone-conflict]) .inputRegion { margin-top: 0; }
 .shell:has([data-phone-conflict]) .backButton { display: flex; gap: 2px; width: auto; min-width: 44px; border-radius: 0; background: transparent; color: var(--app-accent); font-size: 17px; }
 .shell:has([data-phone-conflict]) .backLabel { display: inline; }
