@@ -52,6 +52,15 @@ _REVIEWED_RESTORATION_BLOCKS = frozenset(
 )
 
 
+# Exact producer exclusions from the same reviewed restoration source. Later
+# dispatch-mode guards must not invalidate its immutable nonproducer evidence.
+_REVIEWED_PRODUCER_CONDITIONS = {
+    "deploy": "github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''",
+    "stage-drive-worker": "github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'worker' && inputs.restoration_activation_run_id == ''",
+    "complete-phone-activation": "github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''",
+}
+
+
 def _require(condition: bool, reason: str) -> None:
     if not condition:
         raise ValueError(reason)
@@ -248,8 +257,16 @@ def _source(workflow: str, canonical: str, lease_markers: tuple[str, ...]) -> No
         _require(
             len(expected) == 1
             and expected[0].endswith("&& inputs.restoration_activation_run_id == ''")
-            and re.findall(r"^    if: (.+)$", _job_block(workflow, name), re.M)
-            == expected,
+            and (
+                re.findall(r"^    if: (.+)$", _job_block(workflow, name), re.M)
+                == expected
+                or (
+                    hashlib.sha256(block.encode()).hexdigest()
+                    in _REVIEWED_RESTORATION_BLOCKS
+                    and re.findall(r"^    if: (.+)$", _job_block(workflow, name), re.M)
+                    == [_REVIEWED_PRODUCER_CONDITIONS[name]]
+                )
+            ),
             "restoration producer exclusion is unproved",
         )
 

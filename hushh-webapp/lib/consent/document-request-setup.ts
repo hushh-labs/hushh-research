@@ -1,4 +1,5 @@
 import { documentShareRequestId, isDocumentShareEntry } from "@/lib/consent/document-share-consent";
+import { resolveRequesterDisplayName } from "@/lib/consent/consent-display";
 import { buildProfilePaneHref, profileConnectorsLocation } from "@/lib/navigation/profile-pane";
 import { buildProfileRoute } from "@/lib/navigation/profile-routes";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
@@ -68,4 +69,12 @@ export function documentRequestSetupLabel(state: DocumentRequestSetupState, owne
   if (owner) return state === "drive" ? "Connect Google Drive" : state === "payouts" ? "Link payouts" : "Set price";
   // The owner's Drive state is never projected to the requester.
   return state === "price" ? "Waiting for price" : "Waiting for owner setup";
+}
+
+/** To-do has no surrounding consent card to identify the person asking. */
+export function documentRequestTaskTitle(state: DocumentRequestSetupStep, counterpartLabel?: string | null): string {
+  const name = resolveRequesterDisplayName({ counterpartLabel });
+  const context = name && name.toLowerCase() !== "document request"
+    ? `Request from ${name}` : "Document request";
+  return `${documentRequestSetupLabel(state, true)} — ${context}`;
 }

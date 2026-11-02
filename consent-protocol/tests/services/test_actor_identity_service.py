@@ -505,7 +505,7 @@ async def test_native_phone_finalize_rejects_mismatched_provider_proof(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_verified_phone_owner_transfer_uses_parameterized_lock_and_ordered_rows() -> None:
+async def test_verified_phone_claim_uses_parameterized_lock_and_ordered_rows() -> None:
     statements: list[tuple[str, tuple[object, ...]]] = []
 
     class FakeConnection:
@@ -513,18 +513,22 @@ async def test_verified_phone_owner_transfer_uses_parameterized_lock_and_ordered
             statements.append((query, args))
             return "OK"
 
+        async def fetch(self, query: str, *args: object):
+            statements.append((query, args))
+            return []
+
     await ActorIdentityService._lock_and_clear_verified_phone_binding(
         FakeConnection(),  # type: ignore[arg-type]
         user_id="firebase-user-123456789012",
         phone_number="+16505550101",
     )
 
-    assert len(statements) == 2
+    assert len(statements) == 3
     lock_sql, lock_args = statements[0]
     assert "pg_advisory_xact_lock(hashtextextended($1, 0))" in lock_sql
     assert lock_args == ("actor_identity_phone_claim:+16505550101",)
     assert "+16505550101" not in lock_sql
-    clear_sql, clear_args = statements[1]
+    clear_sql, clear_args = statements[2]
     assert "WITH locked_bindings AS MATERIALIZED" in clear_sql
     assert clear_sql.index("ORDER BY user_id") < clear_sql.index("FOR UPDATE")
     assert clear_args == ("firebase-user-123456789012", "+16505550101")
@@ -660,7 +664,7 @@ async def test_firebase_sync_failure_never_logs_identity_or_phone_details(
 
 
 @pytest.mark.asyncio
-async def test_claim_verified_phone_requires_explicit_transfer_without_mutating_old_owner(
+async def test_claim_verified_phone_cannot_displace_another_email_account(
     monkeypatch,
 ) -> None:
     conn = _PhoneClaimFakeConnection()
@@ -703,25 +707,24 @@ async def test_test_phone_claim_cannot_displace_owner_but_same_owner_can_retry(m
 
 
 @pytest.mark.asyncio
-async def test_claim_verified_phone_rolls_back_duplicate_clear_when_claim_fails(
+async def test_internal_transfer_is_refused_before_pool_or_mutation_reservation(
     monkeypatch,
 ) -> None:
     from hushh_mcp.services import phone_transfer_service
 
-    conn = _PhoneClaimFakeConnection()
-    conn.rows.pop("firebase-user-123456789012")
-    before = copy.deepcopy(conn.rows)
-    conn.fail_claim = True
-    monkeypatch.setattr(
-        actor_identity_service, "get_pool", AsyncMock(return_value=_AliasFakePool(conn))
-    )
-    monkeypatch.setattr(phone_transfer_service, "lock_transfer", AsyncMock())
-    monkeypatch.setattr(phone_transfer_service, "consume", AsyncMock())
-    identity = await ActorIdentityService().claim_verified_phone(
-        user_id="firebase-user-123456789012", phone_number="+16505550101", transfer=object()
-    )
-    assert identity is None
-    assert conn.rows == before
+    pool = AsyncMock()
+    lock = AsyncMock()
+    consume = AsyncMock()
+    monkeypatch.setattr(actor_identity_service, "get_pool", pool)
+    monkeypatch.setattr(phone_transfer_service, "lock_transfer", lock)
+    monkeypatch.setattr(phone_transfer_service, "consume", consume)
+    with pytest.raises(ActorIdentityPhoneClaimConflictError):
+        await ActorIdentityService().claim_verified_phone(
+            user_id="firebase-user-123456789012", phone_number="+16505550101", transfer=object()
+        )
+    pool.assert_not_called()
+    lock.assert_not_called()
+    consume.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -114,6 +114,11 @@ failure uses the existing rollback. No database migration or backend deployment
 belongs to this frontend-only repair. Successful deployment invalidates its old
 baseline, so another fresh invocation cannot reuse the exception.
 
+Historical restoration evidence retains its reviewed producer exclusions even
+when later dispatch modes add stricter conditions. The maintenance guard accepts
+those exact exclusions only with the pinned historical restoration job; changed
+or missing exclusions still refuse deployment.
+
 ### Verify the current Production release
 
 ```bash

@@ -1267,6 +1267,18 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "advisor_review_requests",
+        "advisor_review_subscriptions",
+        "advisor_billing_cleanup"
+      ],
+      "id": "finance_advisor_handshake",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "finance_share_requests",
         "finance_access_grants"
       ],
@@ -7229,21 +7241,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "580ec63baefd77e58d573f60ed9ae8705b596e505c36d14b627a0579e8b4e22f",
+    "action_gateway": "92d156c859f60eff12f0ab146ff196e73bada22a69fe3e510efa12f1ad6f6892",
     "agent_registry": "16237dc18c0143470b6377820abdaca0e5bd255ea6f95f3183b3b9d204f23cc7",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "9d4880649f0905ebbc15ebcdf2b5113a0578a1406952b5af95cc35eac2376c0b",
+    "data_plane": "04643579d871ddbe1c1a69c85db254950461aa1157a85138cbbc2ac3735c1f9a",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "f81d3677d42b21bde6cb19ed963e1b758defd64e528901a1b4e06234c23aab8b",
-    "route_layout": "0a1169182834a6dd248b1f828ee297023f0685d209bc24113976f356da5c1f4e",
-    "surface_map": "0bd665a37a59156ccecaa26cd7339383cd84423d84d2d595bd07e628086b80aa",
+    "route_index": "1bebbfca5aa8683ec621868835a763b6f021e1cc17acb85a628d6946a44cf81f",
+    "route_layout": "5bde3af0961b3a3f3c2fa1c384ef9f449b3b399c88240813b98bd4dfb3d016d8",
+    "surface_map": "ece3f5db2e500cdfcd436901685ceb82293bcbd77c224ec160a8cfbeaec7769c",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 316,
+    "actions": 307,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7251,6 +7263,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 142
+    "table_families": 143
   }
 }

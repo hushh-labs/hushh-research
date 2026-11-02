@@ -4,6 +4,7 @@ import {
   documentRequestSetupHref,
   documentRequestSetupLabel,
   documentRequestSetupState,
+  documentRequestTaskTitle,
   type DocumentRequestSetupState,
 } from "@/lib/consent/document-request-setup";
 
@@ -12,6 +13,13 @@ import {
  * it. The Feed row, its history row and the review sheet all read this.
  */
 describe("document request setup", () => {
+  it("keeps the requester visible on setup tasks without inventing an identity", () => {
+    expect(documentRequestTaskTitle("drive", "Saru")).toBe("Connect Google Drive — Request from Saru");
+    expect(documentRequestTaskTitle("payouts", "Ravi")).toBe("Link payouts — Request from Ravi");
+    for (const label of [null, "Document request", "00000000-0000-4000-8000-000000000001"]) {
+      expect(documentRequestTaskTitle("drive", label)).toBe("Connect Google Drive — Document request");
+    }
+  });
   it("asks for the owner's Drive first, then payouts, price and payments", () => {
     const blocked = {
       ownerDriveReady: false,
