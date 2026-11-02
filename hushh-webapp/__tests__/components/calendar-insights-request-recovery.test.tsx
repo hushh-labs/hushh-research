@@ -104,6 +104,69 @@ describe("Calendar Insights Ask organizer journey", () => {
     expect(screen.queryByText(NOT_CONNECTED_HINT)).toBeNull();
   });
 
+  describe("per-type availability comes from the live check, not the library snapshot", () => {
+    // The list was scanned while the recording was reachable; opening the meeting re-verifies it.
+    const listedRecording = { ...row, artifact_kinds: ["recording"], availability: { recording: "available" },
+      file_state: "available", discovery: "checked" };
+    const library = (meeting: object) => async (path: string, body: { date: string; time_zone: string }) =>
+      path === "meetings"
+        ? { complete: true, calendar_complete: true, next_cursor: null, date: body.date, time_zone: body.time_zone,
+            account_id: "default", limitations: [], checked_events: 1, meetings: [meeting], meeting_file_access: "ready" }
+        : { complete: true, meeting_count: 0, meeting_minutes: 0, days: [], recurring: [], focus: [], overlaps: 0, back_to_back: 0 };
+    const opened = async () => {
+      await openMeeting();
+      await waitFor(() => expect(mocks.approvedDetail).toHaveBeenCalled());
+      await act(async () => { await Promise.resolve(); });
+    };
+
+    it("a type the list shows as available but the live check no longer verifies is offered again", async () => {
+      mocks.insights.mockImplementation(library(listedRecording));
+      mocks.approvedDetail.mockResolvedValue({ event: { title: row.title }, discovery: "checked", complete: true,
+        availability: { recording: "resource_denied" }, artifacts: [] });
+      mocks.requestFiles.mockResolvedValue(asked("recording"));
+      await opened();
+      fireEvent.click(await screen.findByRole("tab", { name: "Recording" })); // both are outstanding now
+      expect(screen.getByRole("tab", { name: "Notes" })).toBeInTheDocument();
+      fireEvent.click(askButton());
+      await waitFor(() => expect(mocks.requestFiles).toHaveBeenCalledTimes(1));
+      expect(mocks.requestFiles.mock.calls[0]?.[1]).toEqual(["recording"]);
+    });
+
+    it.each([
+      ["permission_required", true], // the account lacks an OAuth scope: consent can cure it
+      ["resource_denied", false], // Google denied the file itself: consent changes nothing
+    ])("a %s file offers the OAuth action only when consent can help", async (state, offersAllow) => {
+      mocks.insights.mockImplementation(library(row));
+      mocks.approvedDetail.mockResolvedValue({ event: { title: row.title }, discovery: "checked", complete: true,
+        availability: { recording: state },
+        artifacts: [{ file_id: "f".repeat(20), kind: "recording", state }] });
+      const onAllow = vi.fn();
+      render(<CalendarInsights userId="owner" account={account} today="2026-10-14" zone="UTC"
+        getIdToken={mocks.getIdToken} getVaultOwnerToken={() => "vault-owner-token"} onAllowMeetingFiles={onAllow} />);
+      fireEvent.click(screen.getByRole("button", { name: /Recordings & Notes/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Growth Sync/ }));
+      await waitFor(() => expect(mocks.approvedDetail).toHaveBeenCalled());
+      const allow = await screen.findByRole("button", { name: "Ask organizer" }).then(() =>
+        screen.queryByRole("button", { name: "Allow recording and notes access" }));
+      expect(Boolean(allow)).toBe(offersAllow);
+      if (allow) { fireEvent.click(allow); expect(onAllow).toHaveBeenCalledTimes(1); }
+    });
+
+    it("a type the live check still verifies stays available and only the other type is offered", async () => {
+      mocks.insights.mockImplementation(library(listedRecording));
+      mocks.approvedDetail.mockResolvedValue({ event: { title: row.title }, discovery: "checked", complete: true,
+        availability: { recording: "available" },
+        artifacts: [{ file_id: "f".repeat(20), kind: "recording", state: "available", title: "Meet recording" }] });
+      mocks.requestFiles.mockResolvedValue(asked("notes"));
+      await opened();
+      const ask = await screen.findByRole("button", { name: "Ask organizer" });
+      expect(screen.queryByRole("tab", { name: "Recording" })).toBeNull(); // one type left: no picker
+      fireEvent.click(ask);
+      await waitFor(() => expect(mocks.requestFiles).toHaveBeenCalledTimes(1));
+      expect(mocks.requestFiles.mock.calls[0]?.[1]).toEqual(["notes"]);
+    });
+  });
+
   it("a connected requester asks once, in one tap, and sees Request sent with no redirect", async () => {
     let accept: (value: unknown) => void = () => undefined;
     mocks.requestFiles.mockReturnValue(new Promise(resolve => { accept = resolve; }));
