@@ -38,7 +38,8 @@ import { bookingLocalFields } from "@/lib/calendar/calendar-booking-time";
 import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notification";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
-import { calendarDate, calendarProviderDayUrl, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider } from "./calendar-schedule-presentation";
+import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider, occasionDateLabel, occasionNote } from "./calendar-schedule-presentation";
+import { invitationDescription } from "./calendar-invitation-detail";
 import styles from "./calendar-account-board.module.css";
 
 type Props = {
@@ -381,12 +382,10 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
             <DialogHeader className={styles.occasionHeader}><DialogTitle>Occasions</DialogTitle><DialogDescription>{accountLabel(occasionAccount.google_email)}</DialogDescription></DialogHeader>
             <ul className={styles.occasionList}>{occasionEvents.map(event => {
               const kind = boardOccasionKind(event);
+              const note = occasionNote(invitationDescription(event.description));
               return <li key={eventIdentity(event)} className={styles.occasionItem} data-kind={kind || undefined}>
                 <span className={styles.occasionIcon} aria-hidden="true">{kind === "birthday" ? <Cake /> : <Confetti />}</span>
-                <div className={styles.occasionCopy}><strong>{event.title}</strong><span>{kind === "birthday" ? "Birthday" : "Holiday"} · {eventTime(event, zone)}</span>{event.location ? <span>{event.location}</span> : null}
-                  {event.description ? <details className={styles.occasionDetails}><summary>More details</summary><p>{event.description}</p></details> : null}
-                  <a href={calendarProviderDayUrl(date, occasionAccount.google_email)} target="_blank" rel="noopener noreferrer" className={styles.occasionProviderLink}>Open in Google Calendar</a>
-                </div>
+                <div className={styles.occasionCopy}><strong>{event.title}</strong><span>{occasionDateLabel(event, date, zone)}</span>{note ? <span>{note}</span> : null}{event.location ? <span>{event.location}</span> : null}{event.calendar_name ? <span>{event.calendar_name}</span> : null}</div>
               </li>;
             })}</ul>
           </> : null}
