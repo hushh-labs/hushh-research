@@ -106,8 +106,13 @@ as passed. The GCP owner is on revision
 `sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
 Owner chat and reload restored persisted history on both. The retained
 `final-acceptance-20261102.json` receipt is in the private Dev handoff.
-The follow-up hub deployment `consent-protocol-00344-5zc` did not rebuild or
-replace either pod image.
+The earlier follow-up hub deployment `consent-protocol-00344-5zc` did not
+rebuild or replace either pod image. The later Main-owned [Dev run
+41472919116](https://github.com/hushh-labs/hushh-research/actions/runs/41472919116)
+serves backend revision `consent-protocol-00345-z7h` from source
+`293aa0b01d3695bb57c7e144f0f8058ead4333df` at 100% traffic. It published a new
+Dev 37 offer, but neither accepted owner pod was updated: both still serve
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
 
 This accepts those two owner-cloud journeys only. It does not prove process
 replacement durability, stale-writer refusal, active-work drain, Browser
@@ -149,26 +154,72 @@ object generations and scheduled KMS destruction without physical-absence
 confirmation. Eligible readbacks remain 3 November 2026 20:05 PDT and 4 November
 2026 14:24 PDT; do not poll before then.
 
-The isolated Dev candidate integrates the hosted Files executor, the collision-
-free 979–981 migration chain and the refreshed location contract. Its first
-serial core run passed the main suite (26,414 passed, 142 skipped) and 2,192
-shared-database tests, then failed seven PostgreSQL cases whose older fixtures
-did not bind upgrade leases or attempted direct owner-coordinate/model changes
-that migration 980 now refuses. The migration guard was retained. The fixtures
-now use canonical lease claims and guarded CAS. The three related PostgreSQL
-files pass all 32 cases (16.32 seconds), including the seven initially failing
-nodes and the additional guarded Azure VM variants. Targeted Ruff and diff checks
-pass, architecture fitness reports zero new or worsened findings, and independent
-review found no blocker. Repository governance and documentation verification
-pass. The final full-suite result is still gated by exact-head PR CI; the earlier
-local core run must not be reported as green. No candidate deployment, new
-project, pod-image publication or hosted Files activation is claimed. UAT and
-production remain unchanged.
+The candidate integrates the recovered hosted Files executor, the collision-free
+979–981 migration chain and the refreshed native-location contract. Its local
+core run passed the main suite (26,414 passed, 142 skipped) and 2,192 shared-DB
+cases, then failed seven older fixture cases at the new lease-binding boundary.
+The production guard was retained; the fixtures were corrected to use canonical
+lease claims and guarded CAS. The three related PostgreSQL files then passed
+32/32 in 16.32 seconds. Targeted Ruff, documentation verification, repository
+governance and architecture fitness passed; the earlier full local core result
+remains red, not green. Independent Sol review found no blocker.
 
-The fresh Dev database read confirms migration 976 remains the ledger head:
-`976_gcp_notification_account_id_limit.sql`, checksum
-`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`, applied
-2026-11-02 00:11:32.398553 UTC. Candidate migrations 979–981 are not applied.
+[PR #8753](https://github.com/hushh-labs/hushh-research/pull/8753) merged to Dev
+as `3bf818e08edae7805ea441777b3f0796e56aff4c` at 15:33:48 UTC through the
+explicitly authorized Admin SOP. Exact-head PR Validation
+[41464156269](https://github.com/hushh-labs/hushh-research/actions/runs/41464156269),
+attempt 2, and its `CI Status Gate` passed on source
+`293aa0b01d3695bb57c7e144f0f8058ead4333df`; unresolved review threads were
+empty. Change-aware UAT, web, Android and iOS lanes were intentionally skipped.
+The Main-owned Dev deployment used `scope=auto`, which resolved to backend only;
+frontend revision `hushh-webapp-00299-lxt` stayed on source
+`1454be7511aa4bcfb85f5c52f992028991025da6`. Backend revision
+`consent-protocol-00345-z7h`, image
+`gcr.io/hushh-pda-dev/consent-protocol@sha256:56dd4c98be0576d98380c0cce270b32c6687d0e505ab00d3aed450cd3629e4cf`,
+has 100% traffic and matching live Dev source/run provenance. Schema, runtime
+parity, semantic verification and exact-SHA Dev acceptance passed. The deploy
+job took 29m29s; backend Cloud Build took 761 seconds. No UAT or Production
+change occurred.
+
+The deploy log records the Dev-only `dev-extra` lane applying migrations 979,
+980 and 981. Their source SQL SHA-256 values, which the migration writer stores
+in `schema_migrations`, are `3db2bbe1a5547d5328d45df3efb8f4d764c1e3c30877f7a5ae11c084d3f60111`,
+`1a6604bc6bbbd31607e5a8950715e20bd1065a593e9a98373f83238fef0c36dc`, and
+`4ebcb057cbca9c40271464f4f73f0f8f8b19a68a8bf44ebc68c8042444dcf779`.
+Migration 976's source checksum remains
+`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`; the
+Dev migration runner refused any applied-checksum mismatch. The post-deploy
+release schema guard passed. The 979–981 ledger rows were not separately queried
+after this run.
+
+The same Dev run built and published pod image
+`gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:61e177da29626c040b6a9d93f7c8d395f6a987bde7402f5e336ce8578499391f`.
+Its release descriptor is bound to source `293aa0b01d3695bb57c7e144f0f8058ead4333df`
+and run `41472919116`, version `2026.11-dev.37+293aa0b01d36.61e177da`. The
+Azure release repository returned the same digest, and the live Dev backend
+revision exposes that exact `HUSSH_ONE_POD_IMAGE` offer. Browser qualification
+remains false. This is artifact publication, not owner installation or image
+qualification.
+
+Both existing hosted GCP services were freshly read after deployment. They
+remain Ready at 100% traffic, min 0 / max 1, on their original
+`sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1`
+image. `HUSSH_POD_FILES_ENABLED` and `HUSSH_HOSTED_POD_TIER_ENABLED` were already
+true on the preceding shared-Dev revision and were preserved; this deploy did
+not change either flag. The deployed source still hard-refuses new managed pod
+creation, and no hosted owner update or Files operation was submitted. Managed
+pilot acceptance remains 0/2. Native Agent Platform `reasoningEngines.list`
+continues to return HTTP 403 in both projects with an outstanding-billing error;
+no payment, billing change, project creation or owner-project mutation was made.
+
+The GCP/Azure owner-cloud journey result remains 2/2 on the retained receipts;
+their owner pods remain on the already accepted digest above. The separate
+hosted lifecycle, process-replacement durability, stale-writer refusal,
+active-work drain, owner isolation, Files CRUD/restart and Memory Bank checks
+remain open. Existing allocation remains $200 work + $50 cleanup per owner
+under the $500 ceiling; actual spend is unknown. Cleanup still has 44
+soft-deleted generations and scheduled KMS destruction; next eligible native
+readbacks are 3 November 2026 20:05 PDT and 4 November 2026 14:24 PDT.
 
 The existing installed Browser/Puppy and lifecycle checklist remains carried
 forward, including update/removal, hosted-memory recovery and delete/re-enroll
