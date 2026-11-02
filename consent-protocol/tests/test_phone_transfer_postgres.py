@@ -102,13 +102,11 @@ async def test_concurrent_transfer_attempts_cannot_displace_the_existing_email_a
     database_url, monkeypatch
 ):
     pool = await asyncpg.create_pool(database_url, min_size=1, max_size=2, command_timeout=5)
-    engine = create_engine(database_url)
     monkeypatch.setattr(identity, "get_pool", AsyncMock(return_value=pool))
     monkeypatch.setattr(identity.ActorIdentityService, "_ensure_actor_spine", AsyncMock())
     monkeypatch.setattr(
         identity.ActorIdentityService, "_sync_referral_qualification_best_effort", AsyncMock()
     )
-    monkeypatch.setattr(transfer, "get_db_connection", engine.begin)
     try:
         intents, before = await seed(pool)
         async with pool.acquire() as conn:
@@ -172,9 +170,7 @@ async def test_concurrent_transfer_attempts_cannot_displace_the_existing_email_a
                 )
                 == 0
             )
-        _assert_phone_admission_after_transfer()
     finally:
-        engine.dispose()
         await pool.close()
 
 
@@ -263,18 +259,10 @@ async def test_stale_authority_cannot_move_a_binding(database_url, monkeypatch, 
                     "INSERT INTO account_generations(identity_hash,owner_id,generation) VALUES($1,'replacement-generation',1)",
                     account_deletion_user_hash("previous"),
                 )
-        if change == "generation":
-            assert (
-                await identity.ActorIdentityService().claim_verified_phone(
-                    user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
-                )
-                is None
+        with pytest.raises(identity.ActorIdentityPhoneClaimConflictError):
+            await identity.ActorIdentityService().claim_verified_phone(
+                user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
             )
-        else:
-            with pytest.raises((HTTPException, identity.ActorIdentityPhoneClaimConflictError)):
-                await identity.ActorIdentityService().claim_verified_phone(
-                    user_id="receiving-a", phone_number=PHONE, transfer=intents[0]
-                )
         async with pool.acquire() as conn:
             assert (
                 await conn.fetchval(
@@ -305,7 +293,9 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
         intents, _ = await seed(pool)
         assert await seed_committed_transfer(pool, intents[0])
         engine = create_engine(database_url)
+        monkeypatch.setattr(transfer, "get_db_connection", engine.begin)
         try:
+            _assert_phone_admission_after_transfer()
             for owner in ("previous", "receiving-a"):
                 with engine.begin() as sync_conn:
                     from hushh_mcp.services.account_deletion_lifecycle_service import (
