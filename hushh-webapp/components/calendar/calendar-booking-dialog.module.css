@@ -1,10 +1,14 @@
 .dialog { width: min(calc(100vw - 1.5rem), 36rem); max-height: min(90dvh, 48rem); gap: .8rem; padding: 1.2rem; font-family: var(--font-app-body); }
 .header { gap: .2rem; padding-right: 1.5rem; text-align: left; }
 .fields { display: grid; gap: .7rem; }
-.fields label { display: grid; gap: .3rem; min-width: 0; font-size: 14px; font-weight: 600; color: var(--app-label); }
+.fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: 14px; font-weight: 600; color: var(--app-label); }
 .fields select { width: 100%; min-width: 0; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: 14px; font-weight: 400; color: var(--app-label); }
 .fields input { font-weight: 400; }
 .timeGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .85fr); gap: .5rem; }
+/* iOS/WebKit date and time controls keep an intrinsic width; clamp them to their cell and left-align the value like a text field. */
+.timeGrid input[type="date"], .timeGrid input[type="time"] { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none; text-align: left; }
+.timeGrid input::-webkit-date-and-time-value { min-width: 0; margin: 0; text-align: left; }
+.timeGrid input::-webkit-datetime-edit { padding: 0; }
 .guestEntry { display: flex; gap: .4rem; min-width: 0; }
 .guestEntry button { min-height: 44px; }
 .guests { display: flex; flex-wrap: wrap; gap: .35rem; list-style: none; padding: 0; }
@@ -20,11 +24,10 @@
 .review { display: grid; gap: .3rem; padding: .8rem; border-radius: .75rem; border: 1px solid var(--app-separator); background: var(--app-card-surface-compact); font-size: 13px; overflow-wrap: anywhere; }
 .review h3 { font-size: 14px; font-weight: 650; }
 .review ul { padding-left: 1.2rem; color: var(--app-destructive); }
-.hint { color: var(--app-secondary-label); font-size: 12px; line-height: 18px; }
 .error { color: var(--app-destructive); font-size: 13px; line-height: 19px; }
 .alternatives { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: 13px; }
 .alternatives p { width: 100%; font-weight: 600; }
 .alternatives button { min-height: 44px; }
 .actions { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; padding-top: .5rem; background: var(--app-card-surface-default-solid); }
 .actions button { min-height: 44px; }
-@media (max-width: 480px) { .dialog { width: calc(100vw - 1rem); max-height: min(88dvh, 48rem); border-radius: 1rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); } .timeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .timeGrid label:last-child { grid-column: 1 / -1; } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions button:last-child:nth-child(3) { grid-column: 1 / -1; height: auto; padding-block: .6rem; white-space: normal; line-height: 1.2; } }
+@media (max-width: 480px) { .dialog { width: calc(100vw - 1rem); max-height: min(88dvh, 48rem); border-radius: 1rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); } .fields { gap: .85rem; } .timeGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; } .timeGrid label:last-child { grid-column: 1 / -1; } .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .actions button:last-child:nth-child(3) { grid-column: 1 / -1; height: auto; padding-block: .6rem; white-space: normal; line-height: 1.2; } }

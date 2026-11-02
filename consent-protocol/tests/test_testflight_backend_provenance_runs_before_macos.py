@@ -49,6 +49,8 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     assert 'gcloud run services describe "$BACKEND_SERVICE"' in run
     assert "metadata.labels.deploy-sha" in run
     assert 'test "$actual_sha" = "$EXPECTED_SHA"' in run
+    assert 'test "$actual_tree" = "$expected_tree"' in run
+    assert 'require-deploy-sha-on-main.sh "$actual_sha"' in run
 
 
 def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check() -> None:

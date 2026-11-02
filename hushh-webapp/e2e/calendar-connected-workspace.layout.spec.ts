@@ -472,6 +472,10 @@ for (const width of [320, 390, 1440]) {
       const accepted = item.textContent?.includes("Accepted") ?? false;
       return Boolean(item.querySelector("[data-accepted-indicator]")) === accepted;
     }))).toBe(true);
+    expect(await guests.evaluateAll(items => items.every(item => {
+      const declined = item.textContent?.includes("Declined") ?? false;
+      return Boolean(item.querySelector("[data-declined-indicator]")) === declined;
+    }))).toBe(true);
     await expect(guests.filter({ hasText: "Manish" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
     await expect(guests.filter({ hasText: "You" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
     for (const name of ["Manish", "You"]) {

@@ -19,9 +19,15 @@ type Reply = (status: number, value: unknown) => Response;
 type Request = {
   requestId: string; requester: string; organizer: string; recipientEmail: string;
   occurrenceId: string; types: Kind[]; status: Status; revision: number;
+  /** Requested types the organizer said they do not have. */
+  notAvailable: Kind[];
   prepared: { fileIds: string[]; digest: string } | null; sharedFileIds: string[];
 };
 type Job = { requestId: string; fileIds: string[] };
+/** A durable Feed event, addressed to one person (the cross-user delivery model). */
+export type FeedEvent = { type: "document_share_request" | "document_share_request_sent" | "document_share_decided"; to: string; requestId: string; revision: number };
+// Mirrors the server: these statuses already answer a type, so it is not asked again.
+const LIVE: Status[] = ["pending", "review_ready", "approved", "completed", "partial"];
 
 const HEX = (character: string) => character.repeat(64);
 const DATE = "2026-10-14";
@@ -54,6 +60,9 @@ export class CalendarMeetingWorld {
   readonly approvals: string[] = [];
   readonly sentBodies: Record<string, unknown>[] = [];
   readonly unhandled: string[] = [];
+  readonly events: FeedEvent[] = [];
+  /** Every Drive read the organizer's page made for a request (none for "Don't have"). */
+  readonly driveReads: string[] = [];
   private jobs: Job[] = [];
   private sequence = 0;
   /** Is the organizer a verified, connected One user for the requester? */
@@ -81,6 +90,10 @@ export class CalendarMeetingWorld {
   /** Requests addressed to this person as the organizer (their One Feed). */
   feedFor(person: Person): string[] {
     return [...this.requests.values()].filter(request => request.organizer === person.userId).map(request => request.requestId);
+  }
+  /** Feed events addressed to this person, oldest first. */
+  eventsFor(person: Person, type?: FeedEvent["type"]): FeedEvent[] {
+    return this.events.filter(event => event.to === person.userId && (!type || event.type === type));
   }
   shareCount(fileId?: string) { return this.shares.filter(share => !fileId || share.fileId === fileId).length; }
   request(requestId?: string): Request {
@@ -198,7 +211,8 @@ export class CalendarMeetingWorld {
         occurrence_id: selection.occurrence_id,
         requests: [...this.requests.values()].filter(request => request.requester === person.userId &&
           request.occurrenceId === selection.occurrence_id)
-          .map(request => ({ requestId: request.requestId, status: request.status, requestedTypes: request.types })),
+          .map(request => ({ requestId: request.requestId, status: request.status, requestedTypes: request.types,
+            ...(request.notAvailable.length ? { notAvailableTypes: request.notAvailable } : {}) })),
         artifacts: this.artifactsFor(String(selection.occurrence_id)).map(({ kind, state }) => ({ kind, state })),
       })) });
     }
@@ -220,13 +234,17 @@ export class CalendarMeetingWorld {
       if (body.occurrence_id !== this.target.occurrenceId) return json(409, { detail: { code: "calendar_occurrence_changed" } });
       if (!this.organizerConnected)
         return json(409, { detail: { code: "calendar_organizer_unavailable", reason: "organizer_unresolved", message: "Server wording" } });
-      const types = (body.requested_types as Kind[]).slice().sort();
-      const existing = [...this.requests.values()].find(request => request.requester === person.userId &&
-        request.occurrenceId === body.occurrence_id && request.types.join() === types.join() &&
-        request.status !== "declined" && request.status !== "failed");
-      const request = existing ?? this.create(person.userId, String(body.occurrence_id), types);
+      const wanted = (body.requested_types as Kind[]).slice().sort();
+      const mine = [...this.requests.values()].filter(request => request.requester === person.userId &&
+        request.occurrenceId === body.occurrence_id);
+      // A type already asked for, or answered "Don't have", is never asked again.
+      const answered = new Set(mine.flatMap(request => [...(LIVE.includes(request.status) ? request.types : []), ...request.notAvailable]));
+      const outstanding = wanted.filter(kind => !answered.has(kind));
+      const existing = outstanding.length ? undefined : mine.find(request => wanted.some(kind => request.types.includes(kind)));
+      const request = existing ?? this.create(person.userId, String(body.occurrence_id), outstanding);
       return json(existing ? 200 : 201, { requestType: "calendar_meeting", requestId: request.requestId,
-        recipientEmail: request.recipientEmail, status: request.status });
+        recipientEmail: request.recipientEmail, status: request.status, requestedTypes: request.types,
+        notAvailableTypes: request.notAvailable });
     }
     this.unhandled.push(route);
     return json(404, { detail: { code: "not_found" } });
@@ -238,9 +256,12 @@ export class CalendarMeetingWorld {
       requester, organizer: this.organizer.userId,
       // Derived on the server from the selected Google account, never from the browser.
       recipientEmail: this.requester.googleEmail,
-      occurrenceId, types, status: "pending", revision: 0, prepared: null, sharedFileIds: [],
+      occurrenceId, types, status: "pending", revision: 0, notAvailable: [], prepared: null, sharedFileIds: [],
     };
     this.requests.set(request.requestId, request);
+    // Durable and cross-user: the organizer is asked, the requester sees it was sent.
+    this.events.push({ type: "document_share_request", to: this.organizer.userId, requestId: request.requestId, revision: 0 });
+    this.events.push({ type: "document_share_request_sent", to: requester, requestId: request.requestId, revision: 0 });
     return request;
   }
 
@@ -250,21 +271,41 @@ export class CalendarMeetingWorld {
     const suffix = rest.join("/");
     // Only the addressed organizer may read or act on a request.
     if (!request || request.organizer !== person.userId) return json(404, { detail: { code: "request_unavailable" } });
+    const open = request.types.filter(kind => !request.notAvailable.includes(kind));
     if (method === "GET" && suffix === "") {
       return json(200, { requestType: "calendar_meeting", requestId, revision: request.revision, status: request.status,
-        recipientEmail: request.recipientEmail, ownerDriveReady: true,
+        recipientEmail: request.recipientEmail, ownerDriveReady: true, notAvailableTypes: request.notAvailable,
         meeting: { title: this.target.title, date: DATE, start_at: this.target.start, organizer_email: this.organizer.email,
           account_id: "default", occurrence_id: request.occurrenceId, requested_types: request.types,
-          exact_refs: request.types.map(kind => ({ file_id: this.target.files[kind], kind })) } });
+          exact_refs: open.map(kind => ({ file_id: this.target.files[kind], kind })) } });
+    }
+    if (method === "POST" && suffix === "unavailable") {
+      // Saved without reading Drive: only the types still open can be answered, once, for this revision.
+      const said = Array.isArray(body.types) ? body.types as Kind[] : [];
+      if (!said.length || said.some(kind => !request.types.includes(kind))) return json(400, { detail: { code: "invalid_selection" } });
+      // Repeating an answer already recorded is not an error and changes nothing.
+      if (said.every(kind => request.notAvailable.includes(kind)))
+        return json(200, { requestId, status: request.status, revision: request.revision, notAvailableTypes: request.notAvailable });
+      if (body.revision !== request.revision) return json(409, { detail: { code: "review_changed" } });
+      if (!["pending", "review_ready"].includes(request.status)) return json(409, { detail: { code: "request_unavailable" } });
+      request.notAvailable = request.types.filter(kind => request.notAvailable.includes(kind) || said.includes(kind));
+      // A review prepared for the old set is void.
+      request.prepared = null;
+      request.status = request.types.every(kind => request.notAvailable.includes(kind)) ? "declined" : "pending";
+      request.revision += 1;
+      this.events.push({ type: "document_share_decided", to: request.requester, requestId, revision: request.revision });
+      return json(200, { requestId, status: request.status, revision: request.revision, notAvailableTypes: request.notAvailable });
     }
     if (method === "GET" && suffix === "linked-files") {
-      return json(200, { files: request.types.map(kind => ({ file_id: this.target.files[kind], name: this.fileName(kind),
+      this.driveReads.push(`linked-files:${requestId}`);
+      return json(200, { files: open.map(kind => ({ file_id: this.target.files[kind], name: this.fileName(kind),
         mime_type: "application/vnd.google-apps.document", artifact_kind: kind })),
         candidateToken: { ciphertext: "sealed" }, hasMore: false, accountLabel: "Organizer Drive" });
     }
     if (method === "POST" && suffix === "review") {
+      this.driveReads.push(`review:${requestId}`);
       const ids = Array.isArray(body.fileIds) ? body.fileIds as string[] : [];
-      const allowed = request.types.map(kind => this.target.files[kind]);
+      const allowed = open.map(kind => this.target.files[kind]);
       if (body.occurrenceConfirmed !== true || !ids.length || ids.some(id => !allowed.includes(id)))
         return json(400, { detail: { code: "invalid_selection" } });
       request.prepared = { fileIds: ids, digest: `d${String(++this.sequence).padStart(63, "0")}` };

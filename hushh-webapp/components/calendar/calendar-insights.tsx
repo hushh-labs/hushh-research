@@ -23,9 +23,9 @@ import type { FollowupRequest } from "@/lib/services/calendar-followups-service"
 import { coalescedInsightsRead, insightsResourceKey, insightsSnapshot, invalidateInsightsSnapshots, mergeLibrary, storeInsightsSnapshot } from "@/lib/calendar/calendar-insights-resource";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
-import { focusedStatus, limitationText, meetingTime, requestStatusText, selectionOf } from "./calendar-insights-presentation";
+import { askedKinds, focusedStatus, limitationText, meetingTime, requestStatusText, selectionOf, visibleLimitation } from "./calendar-insights-presentation";
 import { CalendarRequestSection } from "./calendar-request-section";
-import { useMeetingRequest } from "./use-meeting-request";
+import { choiceKinds, useMeetingRequest } from "./use-meeting-request";
 import { useAccessWatch } from "@/lib/calendar/use-access-watch";
 import { useFeedRefresh } from "@/lib/calendar/use-feed-refresh";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
@@ -410,17 +410,26 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
   const missingKinds = (["recording", "notes"] as const).filter(kind => !verifiedKinds.has(kind));
   const requestStatus = (meeting: Meeting) =>
     requestStatusText(outcomes[meeting.occurrence_id], meeting.artifact_kinds.length > 0, accessExhausted);
+  // Only what is still outstanding can be asked for: not verified, not already
+  // asked for, and not already answered by the organizer.
+  const asked = askedKinds(requestOutcome || undefined);
+  const offeredKinds = missingKinds.filter(kind => !asked.includes(kind));
+  const requestSectionShown = view === "meeting" && Boolean(selected) && missingKinds.length > 0 &&
+    (offeredKinds.length > 0 || requestStatus(selectedDisplayed || selected!) !== null);
   const request = useMeetingRequest({
     selection: selected ? { account_id: account.account_id, calendar_id: selected.calendar_id, event_id: selected.id,
       occurrence_id: selected.occurrence_id, expected_grant: selected.grant_id, date: day, time_zone: zone } : null,
     contextKey: actionContext, revision, getIdToken: () => getToken.current(), getVaultOwnerToken,
-    active: canRefresh && view === "meeting" && Boolean(selected) && missingKinds.length > 0,
+    active: canRefresh && view === "meeting" && Boolean(selected) && offeredKinds.length > 0,
+    // Keep every request for the meeting: a later ask for the other type must not hide the first.
     onSent: (occurrenceId, sent) => setOutcomes(previous => ({ ...previous, [occurrenceId]: {
-      occurrence_id: occurrenceId, requests: [sent], artifacts: previous[occurrenceId]?.artifacts || [] } })),
+      occurrence_id: occurrenceId,
+      requests: [...(previous[occurrenceId]?.requests || []).filter(item => item.requestId !== sent.requestId), sent],
+      artifacts: previous[occurrenceId]?.artifacts || [] } })),
   });
   // The meeting, account, day and chosen files to come back to after Connect or Google.
   const returnContext = (): CalendarMeetingReturnContext => ({ accountId: account.account_id, day, timeZone: zone, filter, query,
-    ...(view === "meeting" && selected ? { occurrenceId: selected.occurrence_id, ...(request.choice.length ? { requestedTypes: request.choice } : {}) } : {}) });
+    ...(view === "meeting" && selected ? { occurrenceId: selected.occurrence_id, ...(request.choice ? { requestedTypes: choiceKinds(request.choice) } : {}) } : {}) });
   const restoreChoice = request.restore;
   const pendingReturn = useRef(initialLibrary?.occurrenceId ? { occurrenceId: initialLibrary.occurrenceId, types: initialLibrary.requestedTypes || [], pages: 0 } : null);
   useEffect(() => {
@@ -434,7 +443,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
     lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting");
   }, [library, restoreChoice, setDetail]);
   const contextGuard = () => { const started = currentActionContext.current; return () => currentActionContext.current === started; };
-  const copyRequestText = selected ? `Could you share the ${request.choice.join(" and ") || "recording or notes"} for ${selected.title} (${day}) with ${account.google_email || "my selected Google Calendar account"}?${buildInviteToOneUrl() ? ` If you'd like to review the request in One, join here: ${buildInviteToOneUrl()}` : ""}` : "";
+  const copyRequestText = selected ? `Could you share the ${choiceKinds(request.choice).join(" and ") || "recording or notes"} for ${selected.title} (${day}) with ${account.google_email || "my selected Google Calendar account"}?${buildInviteToOneUrl() ? ` If you'd like to review the request in One, join here: ${buildInviteToOneUrl()}` : ""}` : "";
   const meetingRow = (meeting: Meeting) => <button className={styles.row} type="button" key={meeting.occurrence_id}
     ref={node => { if (node) rowRefs.current.set(meeting.occurrence_id, node); else rowRefs.current.delete(meeting.occurrence_id); }}
     onClick={() => { lastSelectedId.current = meeting.occurrence_id; setSelected(meeting); setDetail(null); setView("meeting"); }}>
@@ -488,7 +497,7 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {searchPending ? <p role="status" className={styles.muted}>Searching meetings…</p> : !library && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meetings…</p> : null}
       {loading && library ? <p role="status" className={styles.muted}>Checking for updates…</p> : null}
       {errorCard}
-      {library?.limitations.length ? <div role="status" className={styles.muted}><p>{limitationText[library.limitations[0] || ""] || "Some meeting files could not be checked."}</p>{library.meeting_file_access === "missing" && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction> : null}</div> : library && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
+      {visibleLimitation(library?.limitations) ? <div role="status" className={styles.muted}><p>{visibleLimitation(library?.limitations)}</p>{library?.meeting_file_access === "missing" && onAllowMeetingFiles ? <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction> : null}</div> : library && !library.limitations.length && !library.complete && !library.next_cursor ? <p role="status" className={styles.muted}>This check is incomplete. Refresh to try again.</p> : null}
       {library ? <p role="status" className={styles.muted}>
         {query ? "Search results: " : ""}{library.meetings.length} meetings loaded · {availableMeetings.length} Available · {unavailableMeetings.length} Not available yet.
         {query ? " Clear search to see all meetings." : null}
@@ -504,17 +513,17 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
       {!detail && !error && canRefresh ? <p role="status" className={styles.muted}>Checking meeting files…</p> : null}
       {errorCard}
       {detail && !detail.complete ? <p role="status" className={styles.muted}>{limitationText[detail.discovery] || "Some files could not be checked. Refresh later."}</p> : null}
-      {!visibleArtifacts.length && selectedDisplayed ? <SectionCard><p>{requestStatus(selectedDisplayed) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
+      {!visibleArtifacts.length && selectedDisplayed && !requestSectionShown ? <SectionCard><p>{requestStatus(selectedDisplayed) || focusedStatus(selectedDisplayed, filter)}</p></SectionCard> : null}
       {detail ? <div className={styles.details}>{visibleArtifacts.some(item => item.kind === "recording") ? <SectionCard title="Recordings">{visibleArtifacts.filter(item => item.kind === "recording").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}
         {visibleArtifacts.some(item => item.kind === "notes") ? <SectionCard title="Meeting notes">{visibleArtifacts.filter(item => item.kind === "notes").map(item => <Artifact key={item.file_id} item={item} onOpen={file => fileAction(file, "open")} onDownload={file => fileAction(file, "download")} />)}</SectionCard> : null}</div> : null}
-      {requestOutcome?.requests.length ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!) || "Only files verified for the selected Google account appear above."}</p> : null}
+      {requestOutcome?.requests.length && !requestSectionShown ? <p role="status" className={styles.muted}>{requestStatus(selectedDisplayed || selected!) || "Only files verified for the selected Google account appear above."}</p> : null}
       {requestOutcome?.artifacts.some(item => item.state === "permission_required") && onAllowMeetingFiles ?
         <SectionCard><p>The selected Google account needs permission to check shared file names and metadata. File content stays in Google Drive.</p>
           <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
-      {missingKinds.length && selected ? <CalendarRequestSection request={request} meeting={selected} day={day}
-        accountEmail={account.google_email || "Selected Calendar account"} missingKinds={missingKinds} copyText={copyRequestText}
-        contextGuard={contextGuard} onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
+      {requestSectionShown && selected ? <CalendarRequestSection request={request} offered={offeredKinds}
+        statusText={requestStatus(selectedDisplayed || selected)} copyText={copyRequestText} contextGuard={contextGuard}
+        onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
     </>}
   </div>;
 }

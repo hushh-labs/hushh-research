@@ -178,6 +178,8 @@ describe("three-account Calendar board", () => {
     expect(within(dialog).queryByText("Your calendar updates after Google confirms the event.")).toBeNull();
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
     expect(within(dialog).getByRole("combobox", { name: "Duration" })).toHaveValue("60");
+    expect(dialog).not.toHaveTextContent("Primary calendar");
+    expect(dialog).not.toHaveTextContent("No guests creates");
     fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
     await waitFor(() => expect(mocks.reviewBoardBooking).toHaveBeenCalledOnce());
     expect(mocks.reviewBoardBooking).toHaveBeenCalledWith(expect.objectContaining({ accountId: "default", checkedAccountIds: ["default"], title: "Bug Bash", startAt: "2026-10-21T12:00:00.000Z", endAt: "2026-10-21T13:00:00.000Z" }));
@@ -193,6 +195,8 @@ describe("three-account Calendar board", () => {
     fireEvent.click(screen.getByRole("button", { name: /Schedule from shared free time/ }));
     const dialog = screen.getByRole("dialog", { name: "Schedule meeting" });
     expect(within(dialog).getByRole("button", { name: "Review meeting" })).toBeDisabled();
+    expect(within(dialog).getByRole("option", { name: "third@example.com" })).toBeTruthy();
+    expect(dialog).not.toHaveTextContent("Primary calendar");
     fireEvent.change(within(dialog).getByRole("combobox", { name: "Calendar account and destination" }), { target: { value: "third" } });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Title" }), { target: { value: "Bug Bash" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Review meeting" }));
@@ -358,6 +362,23 @@ describe("three-account Calendar board", () => {
     expect(within(occasions).getByText("Birthday")).toBeInTheDocument();
     expect(within(occasions).getByText("Festival")).toBeInTheDocument();
     expect(occasions.querySelectorAll("[data-kind]")).toHaveLength(2);
+    expect(within(occasions).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
+    expect(within(occasions).queryByText("More details")).toBeNull();
+  });
+
+  it("shows occasions the way Google Calendar does: day, note and calendar, without observance text or a provider link", async () => {
+    const holiday = { ...event("default", "diwali", "Diwali/Deepavali", "2026-11-08T00:00:00Z", "2026-11-09T00:00:00Z"), start: { date: "2026-11-08" }, end: { date: "2026-11-09" }, source_calendar_id: "en.indian#holiday@group.v.calendar.google.com", calendar_name: "Holidays in India", description: "Public holiday" };
+    const observance = { ...event("default", "naraka", "Naraka Chaturdasi", "2026-11-08T00:00:00Z", "2026-11-09T00:00:00Z"), start: { date: "2026-11-08" }, end: { date: "2026-11-09" }, source_calendar_id: "en.indian#holiday@group.v.calendar.google.com", calendar_name: "Holidays in India", description: "Observance\nTo hide observances, go to Google Calendar Settings > Holidays in India" };
+    mocks.boardDay.mockResolvedValue({ ...board, accounts: [{ ...board.accounts[0], events: [holiday, observance] }], conflicts: [] });
+    render(page({ ...status, accounts: status.accounts.slice(0, 1) }));
+    fireEvent.click(await screen.findByRole("button", { name: "View 2 occasions for default@example.com" }));
+    const dialog = screen.getByRole("dialog", { name: "Occasions" });
+    expect(within(dialog).getAllByText("Sunday, November 8")).toHaveLength(2);
+    expect(within(dialog).getByText("Public holiday")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("Holidays in India")).toHaveLength(2);
+    expect(within(dialog).queryByText(/observance/i)).toBeNull();
+    expect(within(dialog).queryByText("More details")).toBeNull();
+    expect(within(dialog).queryByRole("link")).toBeNull();
   });
 
   it("keeps initials when Google has not verified the account email", async () => {

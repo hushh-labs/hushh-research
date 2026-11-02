@@ -156,6 +156,7 @@ POST /api/one/calendar/followups/list
 POST /api/one/calendar/followups/detail
 POST /api/one/calendar/followups/resolve
 POST /api/one/calendar/followups/source
+POST /api/one/calendar/followups/source/link
 POST /api/one/calendar/followups/request
 POST /api/one/calendar/followups/booking/confirm
 POST /api/one/calendar/followups/scan

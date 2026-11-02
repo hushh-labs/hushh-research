@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from hushh_mcp.services.email_chat_service import EmailChatService
-from tests.test_email_chat_service import _TOKEN, _FakeGmail, _FakeStore
+from tests.helpers.email_chat_fakes import _TOKEN, _FakeGmail, _FakeStore
 
 
 @pytest.mark.parametrize(

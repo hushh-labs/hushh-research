@@ -59,6 +59,16 @@ export function shiftCalendarDate(date: string, days: number) {
 export function calendarDayLabel(date: string) {
   return new Intl.DateTimeFormat(undefined, { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" }).format(new Date(`${date}T12:00:00Z`));
 }
+/** "Sunday, November 8": the civil day of an occasion, written the way Google Calendar writes it. */
+export function occasionDateLabel(event: CalendarEventSummary, fallback: string, zone: string) {
+  const start = event.start?.dateTime ? Date.parse(event.start.dateTime) : NaN;
+  const day = event.start?.date || (Number.isFinite(start) ? calendarDate(start, zone) : fallback);
+  return new Intl.DateTimeFormat(undefined, { timeZone: "UTC", weekday: "long", month: "long", day: "numeric" }).format(new Date(`${day}T12:00:00Z`));
+}
+/** Drops the provider's observance boilerplate; the rest of the description is shown as written. */
+export function occasionNote(text: string) {
+  return text.split("\n").map(line => line.trim()).filter(line => line && !/^observance$/i.test(line) && !/^to hide observances\b/i.test(line)).join("\n");
+}
 export function calendarProviderDayUrl(date: string, email?: string | null) {
   const [year, month, day] = date.split("-").map(Number);
   const url = new URL(`https://calendar.google.com/calendar/u/0/r/day/${year}/${month}/${day}`);
