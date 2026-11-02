@@ -1,6 +1,6 @@
 # Finance sharing and access updates
 
-## Visual map
+## Visual Map
 
 ```mermaid
 flowchart LR
