@@ -15,6 +15,7 @@ import uat_exact_ci as subject
 from uat_exact_ci_fixture import (
     AttemptAPI as _AttemptAPI,
     attempt_jobs as _attempt_jobs,
+    attempt_check as _attempt_check,
     attempt_run as _attempt_run,
 )
 
@@ -294,14 +295,7 @@ class ExactUatAttemptTest(unittest.TestCase):
         )
         database = next(job for job in jobs if job["name"] == "Protocol Database (1/2)")
         runs = [run]
-        check = {
-            "name": "Branch Validation Gate",
-            "head_sha": candidate,
-            "status": "completed",
-            "conclusion": "success",
-            "app": {"id": 15368, "slug": "github-actions"},
-            "check_suite": {"id": 77},
-        }
+        check = _attempt_check(candidate)
 
         api = _AttemptAPI(run, jobs, runs, check)
         self.assertEqual(
@@ -351,8 +345,9 @@ class ExactUatAttemptTest(unittest.TestCase):
             return read(path)
 
         with patch.object(api, "read", side_effect=stale_run_endpoint):
-            with self.assertRaises(subject.Refused):
-                subject.verify_attempt(api, candidate, base, 123, 1)
+            for current in (True, False):
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1, current=current)
         runs[:] = [run]
 
     def _assert_clock_anomaly_requires_single_run(self, api, candidate, base, run, runs):
@@ -411,25 +406,50 @@ class ExactUatAttemptTest(unittest.TestCase):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
 
+    def test_historical_predecessor_keeps_pinned_integrity_without_electing_other_runs(self):
+        candidate, base, tree = "a" * 40, "b" * 40, "e" * 40
+        run = _attempt_run(candidate)
+        runs = [run]
+        api = _AttemptAPI(run, _attempt_jobs(candidate, base), runs, _attempt_check(candidate))
+        prior = {"sha": candidate, "base_sha": base, "authority_sha": "c" * 40,
+                 "tree": tree, "run_id": 123, "run_attempt": 1}
+        with patch.object(subject, "GitHub", return_value=api), \
+             patch.object(subject, "verify_git_authority", return_value=tree):
+            for status in ("queued", "failure", "success"):
+                runs[:] = [run, {**run, "id": 124, "status": "queued" if status == "queued" else "completed",
+                                 "conclusion": None if status == "queued" else status,
+                                 "run_started_at": "2026-10-28T00:01:00Z", "updated_at": "2026-10-28T00:01:10Z"}]
+                subject.verify_predecessor(prior, current=False)
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1)
+            runs[:] = [{**run, "run_attempt": 2}]
+            with self.assertRaises(subject.Refused):
+                subject.verify_predecessor(prior, current=False)
+            runs.clear()
+            with self.assertRaises(subject.Refused):
+                subject.verify_predecessor(prior, current=False)
+            runs[:] = [run]
+            run["conclusion"] = "failure"
+            with self.assertRaises(subject.Refused):
+                subject.verify_predecessor(prior, current=False)
+
     def test_static_name_and_historical_alias_are_exact_and_unique(self):
         candidate, base = "a" * 40, "b" * 40
         run = _attempt_run(candidate)
         runs = [run]
-        check = {
-            "name": "Branch Validation Gate",
-            "head_sha": candidate,
-            "status": "completed",
-            "conclusion": "success",
-            "app": {"id": 15368, "slug": "github-actions"},
-            "check_suite": {"id": 77},
-        }
+        check = _attempt_check(candidate)
         for exact_name in ("Exact UAT Candidate", f"Exact UAT Candidate ({base})"):
             jobs = _attempt_jobs(candidate, base, exact_name=exact_name)
             api = _AttemptAPI(run, jobs, runs, check)
             self.assertEqual(
-                subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"],
+                subject.verify_attempt(api, candidate, base, 123, 1, current=False)["run_attempt"],
                 1,
             )
+            if exact_name == "Exact UAT Candidate":
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1)
+            else:
+                subject.verify_attempt(api, candidate, base, 123, 1)
 
         jobs = _attempt_jobs(candidate, base, exact_name="Exact UAT Candidate")
         historical = next(
