@@ -44,7 +44,7 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
   return (
     <>
       <KaiControlSurface
-        open={open}
+        open={open && !manage}
         onOpenChange={(value) => {
           if (!inFlight.current) onOpenChange(value);
         }}
@@ -247,7 +247,7 @@ export function FinanceShareFlow(props: FinanceShareFlowProps) {
         ) : null}
       </KaiControlSurface>
       <FinanceSharingManager
-        open={manage}
+        open={open && manage}
         onOpenChange={setManage}
         preferredSource={source}
       />

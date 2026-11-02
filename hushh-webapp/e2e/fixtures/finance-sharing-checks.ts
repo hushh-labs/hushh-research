@@ -166,8 +166,10 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await expect(edit.getByRole("checkbox", { name: /Sample connection/ })).toHaveCount(0);
   await edit.getByRole("button", { name: "Manage sharing", exact: true }).click();
   let manager = page.getByRole("dialog", { name: "Finance sharing", exact: true });
+  await expect(page.locator('[role="dialog"][data-state="open"]')).toHaveCount(1);
   await manager.getByRole("button", { name: "Update access", exact: true }).click();
   const update = page.getByRole("dialog", { name: "Update access", exact: true });
+  await expect(page.locator('[role="dialog"][data-state="open"]')).toHaveCount(1);
   await update.getByRole("checkbox", { name: "Performance", exact: true }).uncheck();
   await update.getByRole("button", { name: "Continue", exact: true }).click();
   await update.getByLabel("Access ends").selectOption("custom");
@@ -180,6 +182,7 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await update.getByRole("button", { name: "Preview", exact: true }).click();
   const review = page.getByRole("dialog", { name: "Review before sharing", exact: true });
   await expect(review.getByText("After 3 hours", { exact: true })).toBeVisible();
+  await expect(page.locator('[role="dialog"][data-state="open"]')).toHaveCount(1);
   await review.getByRole("button", { name: "Update access", exact: true }).click();
   const done = page.getByRole("dialog", { name: "Access updated", exact: true });
   await expect(done).toBeVisible();
