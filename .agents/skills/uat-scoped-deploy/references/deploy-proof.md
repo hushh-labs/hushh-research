@@ -23,11 +23,19 @@ Main-owned workflow; it does not redefine merge or bypass semantics. New
 application source must be an exact SHA in protected `uat` history. A
 Main-only SHA is not a normal UAT source.
 
-For a direct UAT candidate, first qualify the protected UAT tip against the
-currently serving UAT SHA, then dispatch the Main-owned release workflow with
-that exact CI run and attempt:
+For a direct UAT candidate, inspect prerequisites from Main first. In Actions,
+select **Deploy to UAT → Run workflow → main → operation=inspect**, leaving
+release inputs at defaults. This uses the governed UAT identity for read-only
+serving observations, without a deployment record or runtime mutation. The
+summary identifies protected tip, serving base and current CI status. Wait for
+existing pending CI; investigate an existing failure before dispatching more CI.
+Only when missing qualification is reported, run full PR Validation on `uat`
+with the shown base. After success inspect again, then deploy with its exact
+current CI run, attempt and base. New deployments reject incomplete pins before
+security/capacity jobs; security clearance and under-lock admission remain required:
 
 ```bash
+gh workflow run deploy-uat.yml --ref main -f operation=inspect
 gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving-uat-sha>
 gh workflow run deploy-uat.yml --ref main -f scope=auto \
   -f sha=<validated-uat-sha> -f ci_run_id=<run-id> \
