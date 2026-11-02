@@ -1267,6 +1267,18 @@
     {
       "data_class": "personal_encrypted",
       "exact_tables": [
+        "advisor_review_requests",
+        "advisor_review_subscriptions",
+        "advisor_billing_cleanup"
+      ],
+      "id": "finance_advisor_handshake",
+      "lifecycle_status": "release_schema_qualification",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
         "finance_share_requests",
         "finance_access_grants"
       ],
@@ -7232,12 +7244,12 @@
     "action_gateway": "92d156c859f60eff12f0ab146ff196e73bada22a69fe3e510efa12f1ad6f6892",
     "agent_registry": "536a0fef7bfd7a0440698760490df85f543034c4f31a772e9cabffdd1a2c438d",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "9d4880649f0905ebbc15ebcdf2b5113a0578a1406952b5af95cc35eac2376c0b",
+    "data_plane": "04643579d871ddbe1c1a69c85db254950461aa1157a85138cbbc2ac3735c1f9a",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "199a3a2480c298eeda1429debc05fb20f347f8f66a932b8f83e5f42f94d722f2",
-    "route_layout": "c2f33901aefa2c4aaebe1c84d8d77cc10092b526eda6035fb98d3b91d6d29e3a",
-    "surface_map": "ccb2c630be0cd80b829a296b6a6cc278bdaaef401dcbe092292943aaaa3da896",
+    "route_index": "1bebbfca5aa8683ec621868835a763b6f021e1cc17acb85a628d6946a44cf81f",
+    "route_layout": "5bde3af0961b3a3f3c2fa1c384ef9f449b3b399c88240813b98bd4dfb3d016d8",
+    "surface_map": "ece3f5db2e500cdfcd436901685ceb82293bcbd77c224ec160a8cfbeaec7769c",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -7251,6 +7263,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 142
+    "table_families": 143
   }
 }

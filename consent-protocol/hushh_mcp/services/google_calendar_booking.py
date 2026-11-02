@@ -239,6 +239,9 @@ def validate_plan(
         )
         if booking_source == "board":
             plan.update(board_create_fields(payload, account_id, meeting_type, meeting_link))
+        from hushh_mcp.services.advisor_calendar_binding import bind_plan
+
+        bind_plan(plan, payload)
         return plan
     changes = {"title": title, "description": description, "location": location}
     plan.update({key: value for key, value in changes.items() if value})
@@ -419,4 +422,7 @@ def event_payload(plan: dict[str, Any]) -> dict[str, Any]:
                 "conferenceSolutionKey": {"type": "hangoutsMeet"},
             }
         }
+    from hushh_mcp.services.advisor_calendar_binding import bind_event
+
+    bind_event(body, plan)
     return body
