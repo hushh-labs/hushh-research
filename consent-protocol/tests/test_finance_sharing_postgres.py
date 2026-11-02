@@ -1,6 +1,7 @@
 """Actual PostgreSQL proof of encrypted Finance grant authority and recovery."""
 
 import base64
+import json
 import uuid
 
 import pytest
@@ -45,6 +46,35 @@ def finance_db(projection_db, monkeypatch):  # noqa: F811
     db.apply_migrations(["446_finance_advisor_share_options.sql"])
     db.apply_migrations(["446_finance_advisor_share_options.sql"])
     return db, FinanceSharingService(db=db)
+
+
+@pytest.mark.parametrize(
+    "policy,expires",
+    [
+        ({"version": 1, "mode": "snapshot"}, None),
+        ({"version": 3, "mode": "snapshot"}, None),
+        ({"version": 2, "mode": "snapshot"}, None),
+        ({"version": 3, "purpose": "verified_ria_share", "mode": "invalid"}, "2030-01-01"),
+    ],
+)
+def test_advisor_expiry_migration_retains_other_snapshot_and_mode_guards(
+    finance_db, policy, expires
+):
+    db, _service = finance_db
+    with pytest.raises(DBAPIError):
+        with db.engine.begin() as conn:
+            conn.execute(
+                text("""INSERT INTO finance_share_requests
+                  (owner_user_id,id,fingerprint,policy,expires_at)
+                  VALUES ('alice',CAST(:id AS uuid),:fingerprint,CAST(:policy AS jsonb),
+                    CAST(:expires AS timestamptz))"""),
+                {
+                    "id": str(uuid.uuid4()),
+                    "fingerprint": "a" * 64,
+                    "policy": json.dumps(policy),
+                    "expires": expires,
+                },
+            )
 
 
 def body(db, mode="ongoing"):
