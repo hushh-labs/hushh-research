@@ -120,9 +120,11 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
     await page.evaluate(mode => document.documentElement.classList.toggle("dark", mode === "dark"), theme);
     await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();
     const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
+    await expect(edit.getByLabel("Verified advisor", { exact: true })).toBeVisible();
     await edit.getByRole("checkbox", { name: /Sample connection/ }).check();
     await edit.getByRole("button", { name: "Continue", exact: true }).click();
     await edit.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(edit.getByRole("option", { name: "Always", exact: true })).toHaveCount(1);
     await edit.getByRole("button", { name: "Preview", exact: true }).click();
     const preview = page.getByRole("dialog", { name: "Review before sharing", exact: true });
     await expect(page.locator("body")).not.toHaveAttribute("data-finance-publishes");
@@ -156,18 +158,10 @@ for (const width of [393, 1440]) for (const theme of ["light", "dark"]) {
 
 for (const width of [393, 1440]) test(`Finance update access uses latest choices at ${width}px`, async ({ page }) => {
   await mount(page, width);
-  await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();
+  // Creation/approval is proved above. Start this independent scenario from
+  // existing approved transport data; every update still uses production UI.
+  await page.getByRole("button", { name: "Open sample existing Finance access", exact: true }).click();
   const edit = page.getByRole("dialog", { name: "Share Finance", exact: true });
-  await expect(edit.getByLabel("Verified advisor", { exact: true })).toBeVisible();
-  await edit.getByRole("checkbox", { name: /Sample connection/ }).check();
-  await edit.getByRole("button", { name: "Continue", exact: true }).click();
-  await edit.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(edit.getByRole("option", { name: "Always", exact: true })).toHaveCount(1);
-  await edit.getByRole("button", { name: "Preview", exact: true }).click();
-  let review = page.getByRole("dialog", { name: "Review before sharing", exact: true });
-  await review.getByRole("button", { name: "Share with 1 person", exact: true }).click();
-  await page.getByRole("dialog", { name: "Finance shared", exact: true }).getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByRole("button", { name: "Open sample Finance sharing", exact: true }).click();
   await expect(edit.getByRole("checkbox", { name: "Other connection 1", exact: true })).toBeVisible();
   await expect(edit.getByRole("checkbox", { name: /Sample connection/ })).toHaveCount(0);
   await edit.getByRole("button", { name: "Manage sharing", exact: true }).click();
@@ -177,14 +171,19 @@ for (const width of [393, 1440]) test(`Finance update access uses latest choices
   await update.getByRole("checkbox", { name: "Performance", exact: true }).uncheck();
   await update.getByRole("button", { name: "Continue", exact: true }).click();
   await update.getByLabel("Access ends").selectOption("custom");
-  await update.getByLabel("Duration amount").fill("3");
+  const amount = update.getByLabel("Duration amount");
+  await amount.fill("");
+  await amount.pressSequentially("3");
+  await expect(amount).toHaveValue("3");
   await update.getByLabel("Duration unit").selectOption("3600");
+  await expect(amount).toHaveValue("3");
   await update.getByRole("button", { name: "Preview", exact: true }).click();
-  review = page.getByRole("dialog", { name: "Review before sharing", exact: true });
+  const review = page.getByRole("dialog", { name: "Review before sharing", exact: true });
   await expect(review.getByText("After 3 hours", { exact: true })).toBeVisible();
   await review.getByRole("button", { name: "Update access", exact: true }).click();
   const done = page.getByRole("dialog", { name: "Access updated", exact: true });
   await expect(done).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute("data-finance-publishes", "1");
   expect(await page.evaluate(() => document.body.dataset.financeSections)).toBe("allocation");
   expect(await page.evaluate(() => document.body.dataset.financeDuration)).toBe("10800");
   await done.getByRole("button", { name: "Done", exact: true }).click();

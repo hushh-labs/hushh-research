@@ -20,7 +20,7 @@ import marketStyles from "../../components/kai/shared/market-briefing.module.css
 import { PortfolioReportAction } from "../../components/kai/cards/portfolio-report-action";
 import { FinanceShareFlow } from "../../components/kai/sharing/finance-share-flow";
 import { FinanceSharedDetail } from "../../components/kai/sharing/finance-shared-detail";
-import { sharingModel } from "./finance-sharing-boundaries";
+import { seedActiveFinanceShare, sharingModel } from "./finance-sharing-boundaries";
 import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
 import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
 import { FinancePortfolioSharing } from "../../components/kai/sharing/finance-portfolio-sharing";
@@ -67,6 +67,7 @@ function FinanceSharingFixture() {
   return <section className="mt-8">
     <p>Finance sharing · synthetic figures and connections</p>
     <button onClick={() => setOpen(true)}>Open sample Finance sharing</button>
+    <button onClick={() => { seedActiveFinanceShare(); setOpen(true); }}>Open sample existing Finance access</button>
     <button onClick={() => setReceived(true)}>Open sample received Finance</button>
     <FinanceShareFlow open={open} onOpenChange={setOpen} model={sharingModel} source={{ kind: "statement", snapshotId: null }} />
     <FinanceSharedDetail grantId={received ? "22222222-2222-4222-8222-222222222222" : null} onClose={() => setReceived(false)} />

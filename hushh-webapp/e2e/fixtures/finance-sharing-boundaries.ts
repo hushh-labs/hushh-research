@@ -22,6 +22,14 @@ function grant(direction: "outgoing" | "received", policy = basePolicy): Finance
 }
 const received = projectFinance(sharingModel, { sections: basePolicy.sections, holdingSymbols: [], showAmounts: false, note: "" }, { kind: "statement", snapshotId: null });
 let sent: FinanceGrant[] = [];
+export function seedActiveFinanceShare() {
+  sent = [grant("outgoing", {
+    ...basePolicy,
+    version: 3,
+    purpose: "verified_ria_share",
+    model_processing: { version: 1, allowed: false },
+  })];
+}
 export const FinanceSharingService = {
   activeRecipientRefs: async () => new Set(sent.filter(g => g.status === "active").map(g => g.recipientPersonRef)),
   recipients: async () => ({ items: people, hasMore: false, page: 1 }),
