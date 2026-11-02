@@ -2,6 +2,7 @@
 """Clock-bound production refusal evidence and its exact API witness."""
 
 import copy
+from dataclasses import replace
 import json
 import sys
 import unittest
@@ -17,8 +18,10 @@ from test_retention_production_evidence import clock_bound_fixture  # noqa: E402
 
 
 class ClockBoundProductionEvidenceTest(unittest.TestCase):
-    def test_only_the_ten_exact_clock_bound_history_rows_qualify(self):
+    def test_only_the_recorded_clock_bound_history_rows_qualify(self):
         expected_ids = {
+            41479685863,
+            41489711406,
             41173362210,
             41169264544,
             41164989434,
@@ -246,6 +249,45 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
             "{sha,size}",
         )
 
+
+class ClockDispatchTimingTest(unittest.TestCase):
+    def test_recorded_dispatch_overlap_requires_exact_times_and_success(self):
+        run_id = 41479685863
+        record, run, job, log, blobs, clock = clock_bound_fixture(run_id)
+        date = record.worker_created_at[:11]
+        created, completed = date + "20:30:05Z", date + "20:30:09Z"
+        record = replace(
+            record,
+            worker_created_at=created,
+            clock=replace(record.clock, wake_completed_at=completed),
+        )
+        run["created_at"] = created
+        clock["wake_job"]["completed_at"] = completed
+        with mock.patch.dict(clock_evidence.CLOCK_BOUND_RECORDS, {run_id: record}):
+
+            def prove(proof):
+                return evidence.qualify_guard_run(
+                    base.REPOSITORY,
+                    "production",
+                    run,
+                    job,
+                    log,
+                    blobs,
+                    blobs[base.WORKFLOW],
+                    clock_proof=proof,
+                )
+
+            self.assertIsNotNone(prove(clock))
+            for change in ("tick", "completion", "failed"):
+                broken = copy.deepcopy(clock)
+                if change == "tick":
+                    broken["wake_job"]["steps"][0]["completed_at"] = created
+                elif change == "completion":
+                    broken["wake_job"]["completed_at"] = date + "20:30:10Z"
+                else:
+                    broken["wake_job"]["steps"][0]["conclusion"] = "failure"
+                with self.subTest(change=change):
+                    self.assertIsNone(prove(broken))
 
 class ClockBoundNumericProofTest(unittest.TestCase):
     def test_coerced_numeric_ids_and_attempts_are_rejected(self):

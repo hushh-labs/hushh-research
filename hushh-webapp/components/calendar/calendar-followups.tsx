@@ -8,11 +8,12 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import {
-  coverageNotice, dueText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
 import { clearMailChoice, hasMailChoice } from "@/lib/calendar/calendar-mail-choice";
+import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
 
 type Props = {
@@ -32,12 +33,10 @@ const lastCatchUp = new Map<string, number>();
 // A quiet progress check while the first scan is still running; bounded so a
 // stuck account never polls forever.
 const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
-
-function displayError(error: unknown): string {
-  if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
-  if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";
-  return "Follow-ups could not be checked. Try again.";
-}
+// Each scan call does one bounded step on the server. While it reports more work
+// the card keeps asking, so the first results arrive in seconds, not scheduler
+// ticks. Capped, and it stops the moment the card goes away.
+const CATCH_UP_MAX_CALLS = 20;
 
 export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
@@ -93,7 +92,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (alive()) { setList(nextList); setLoading(false); setError(""); }
     } catch (failure) {
       // A background refresh never replaces verified items with an error.
-      if (alive() && !quiet) { setError(displayError(failure)); setLoading(false); }
+      if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
     }
   }, [userId, accountId]);
 
@@ -102,6 +101,19 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     void refresh(controller.signal);
     return () => { controller.abort(); requestSeq.current += 1; };
   }, [refresh, refreshRevision, vaultAvailable]);
+
+  const rebindMonitor = useCallback(async (current: FollowupStatus, ownerToken: string, signal?: AbortSignal) => {
+    await rebindFollowupMonitor(userId, accountId, current, zone, await tokenGetter.current(), ownerToken, signal);
+  }, [userId, accountId, zone]);
+
+  /** The previous scan call reported more work: keep going, showing results as they land. */
+  const continueScan = useCallback(async (ownerToken: string, signal?: AbortSignal) => {
+    const finished = await scanWhilePending({
+      userId, accountId, ownerToken, signal, maxCalls: CATCH_UP_MAX_CALLS - 1,
+      getIdToken: () => tokenGetter.current(), refresh: () => refresh(signal, true),
+    });
+    if (!finished) lastCatchUp.delete(`${userId}:${accountId}`);
+  }, [userId, accountId, refresh]);
 
   // Opening Insights shows what is already verified at once, then lets the
   // server continue in the background. It never blocks the card and never
@@ -118,16 +130,13 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       rebound.current = true;
       void (async () => {
         try {
-          await CalendarFollowupsService.post("preferences", {
-            user_id: userId, account_id: accountId, enabled: true,
-            notifications_enabled: status.notifications_enabled,
-            historical_start_at: status.historical_start_at,
-            time_zone: status.time_zone || zone,
-            reminder_lead_days: status.reminder_lead_days ?? 1,
-            reminder_hour: status.reminder_hour ?? 9,
-          }, await tokenGetter.current(), ownerToken, signal);
+          await rebindMonitor(status, ownerToken, signal);
           await refresh(signal, true);
-        } catch { /* the next open tries again; nothing is shown for a background rebind */ }
+        } catch {
+          // Nothing is shown for a background rebind, but a failure must not
+          // block the next attempt: the owner may reconnect Mail in the meantime.
+          rebound.current = false;
+        }
       })();
       return;
     }
@@ -138,11 +147,12 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     lastCatchUp.set(key, Date.now());
     void (async () => {
       try {
-        await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
+        const result = await CalendarFollowupsService.scan(userId, accountId, await tokenGetter.current(), ownerToken, {}, signal);
         await refresh(signal, true);
+        if (result?.state === "pending") await continueScan(ownerToken, signal);
       } catch { /* the scheduler continues without the page */ }
     })();
-  }, [status, userId, accountId, zone, refresh]);
+  }, [status, userId, accountId, zone, refresh, rebindMonitor, continueScan]);
 
   // While the first pass is still catching up, check back a few times so new
   // items appear without a manual refresh. Bounded; the scheduler does the work.
@@ -196,7 +206,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (lifetime.current?.signal.aborted || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
       setDetail(value);
       return true;
-    } catch (failure) { if (detailSeq.current === seq) setActionError(displayError(failure)); return false; }
+    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
   };
 
   const act = async (request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null = null) => {
@@ -213,7 +223,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }
       await refresh(lifetime.current?.signal, true);
       setReminderInput(""); setReminderOpen(null);
-    } catch (failure) { if (detailSeq.current === seq) setActionError(displayError(failure)); }
+    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -224,6 +234,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const turnOn = async () => {
     setBusy(true); setError("");
     try {
+      // Asking Google first would waste the owner's consent on a step that cannot finish.
+      if (!getVaultOwnerToken()) throw new Error("Unlock One before turning on email follow-ups.");
       let mailReady = Boolean(status?.mail_connected);
       if (!mailReady) {
         if (!onConnectMail) return;
@@ -244,11 +256,12 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
       }, await getIdToken(), ownerToken);
       clearMailChoice();
-      await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
+      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
       lastCatchUp.set(`${userId}:${accountId}`, Date.now());
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(displayError(failure)); }
+      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -258,10 +271,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     try {
       const ownerToken = getVaultOwnerToken();
       if (!ownerToken) throw new Error("Unlock One to check your email again.");
-      await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
+      const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken, { retry: true });
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal, true);
-    } catch (failure) { setError(displayError(failure)); }
+      if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -269,10 +283,19 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!onConnectMail) return;
     setBusy(true); setError("");
     try {
+      if (!getVaultOwnerToken()) throw new Error("Unlock One to renew email access.");
       const connected = await onConnectMail(accountId);
-      if (connected) { await checkAgain(); }
+      if (connected) {
+        // Reconnecting changes the Mail grant, so point the monitor at it first;
+        // otherwise this scan would still see the old one and ask to reconnect again.
+        const ownerToken = getVaultOwnerToken();
+        if (ownerToken && status?.monitoring_enabled) {
+          try { await rebindMonitor(status, ownerToken); } catch { /* the scan below reports what is still wrong */ }
+        }
+        await checkAgain();
+      }
       else setError("Email access was not renewed. Your follow-ups stay as they are.");
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -296,7 +319,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           ...page.conversations.filter(entry => !ids.has(entry.id)),
         ] };
       });
-    } catch (failure) { if (requestSeq.current === seq) setError(displayError(failure)); }
+    } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
     finally { setLoadingMore(false); }
   };
 
@@ -310,7 +333,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }, await getIdToken(), ownerToken);
       setSelectedId(null); setDetail(null); setSource(null);
       await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -323,7 +346,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (!ownerToken) throw new Error("Unlock One to open this email.");
       const value = await CalendarFollowupsService.source(userId, accountId, request.id, await getIdToken(), ownerToken);
       if (!lifetime.current?.signal.aborted && sourceSeq.current === seq && selectedIdRef.current === currentSelection) setSource(value);
-    } catch (failure) { if (sourceSeq.current === seq) setActionError(displayError(failure)); }
+    } catch (failure) { if (sourceSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -354,14 +377,14 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         if (lifetime.current?.signal.aborted) return;
         if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
         finishDeepLink(deepLinkRequestId);
-      } catch (failure) { setError(displayError(failure)); }
+      } catch (failure) { setError(followupErrorText(failure)); }
     })();
   // openDetail is intentionally bound to this account; the component remounts on account switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
   const rows = expanded ? list?.conversations || [] : (list?.conversations || []).slice(0, 2);
-  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage) : null;
+  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
