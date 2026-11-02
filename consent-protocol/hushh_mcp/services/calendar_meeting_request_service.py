@@ -190,6 +190,19 @@ def _existing_outcome(existing: list[dict], requested: tuple[str, ...]) -> dict:
     }
 
 
+def _artifact_kind(mime: object) -> str | None:
+    """The meeting-file kind a Drive MIME type can fulfil, or None."""
+    if isinstance(mime, str) and mime.startswith("video/"):
+        return "recording"
+    if mime in {"application/vnd.google-apps.document", "text/plain", "text/markdown"}:
+        return "notes"
+    return None
+
+
+def _candidate_file(file_id: str, name: str, mime: str, kind: str) -> dict:
+    return {"file_id": file_id, "name": name, "mime_type": mime, "artifact_kind": kind}
+
+
 class CalendarMeetingRequestService:
     def __init__(self, sharing: DriveSharingService | None = None):
         self.sharing = sharing or DriveSharingService()
@@ -329,27 +342,14 @@ class CalendarMeetingRequestService:
                     continue
                 raise
             mime = facts["mimeType"]
-            kind = (
-                "recording"
-                if isinstance(mime, str) and mime.startswith("video/")
-                else "notes"
-                if mime in {"application/vnd.google-apps.document", "text/plain", "text/markdown"}
-                else None
-            )
+            kind = _artifact_kind(mime)
             if (
                 kind == ref["kind"]
                 and (facts.get("capabilities") or {}).get("canShare") is True
                 and isinstance(facts.get("title"), str)
                 and 1 <= len(facts["title"]) <= 1024
             ):
-                files.append(
-                    {
-                        "file_id": ref["file_id"],
-                        "name": facts["title"],
-                        "mime_type": mime,
-                        "artifact_kind": kind,
-                    }
-                )
+                files.append(_candidate_file(ref["file_id"], facts["title"], mime, kind))
         await self.sharing._require_owner()
         current = await self.sharing.oauth.lifecycle.read(
             user_id=user_id, connector_id="google_drive"
@@ -398,13 +398,7 @@ class CalendarMeetingRequestService:
             if not isinstance(item, dict):
                 continue
             mime = item.get("mimeType")
-            kind = (
-                "recording"
-                if isinstance(mime, str) and mime.startswith("video/")
-                else "notes"
-                if mime in {"application/vnd.google-apps.document", "text/plain", "text/markdown"}
-                else None
-            )
+            kind = _artifact_kind(mime)
             if (
                 kind not in allowed
                 or not isinstance(item.get("id"), str)
@@ -414,14 +408,7 @@ class CalendarMeetingRequestService:
                 or (item.get("capabilities") or {}).get("canShare") is not True
             ):
                 continue
-            files.append(
-                {
-                    "file_id": item["id"],
-                    "name": item["name"],
-                    "mime_type": mime,
-                    "artifact_kind": kind,
-                }
-            )
+            files.append(_candidate_file(item["id"], item["name"], mime, kind))
         return self._candidate_response(
             user_id=user_id,
             request_id=request_id,
