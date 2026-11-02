@@ -31,6 +31,7 @@ SHA_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
 REVISION_PATTERN = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 VERIFY_DEFAULTS = {
+    "frontend_auth_domain_refresh": "false",
     "emergency_source_ref": "",
     "emergency_reason": "",
     "main_approval_sha": "",

@@ -150,7 +150,7 @@ def test_production_backend_config_stays_on_candidate_and_frontend_scope_skips_p
     )
     assert (
         frontend_sync["if"]
-        == "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')"
+        == "env.PHONE_DEPLOY_PHASE != 'cold' && steps.scope.outputs.deploy_frontend == 'true' && !inputs.frontend_auth_domain_refresh"
     )
     assert backend_sync["run"] == "bash deploy/drive/sync_runtime_config_prod.sh"
     common_sync = (ROOT / "deploy/drive/sync_runtime_config_prod.sh").read_text()
