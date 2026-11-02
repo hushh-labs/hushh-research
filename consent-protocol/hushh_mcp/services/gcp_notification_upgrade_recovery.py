@@ -249,6 +249,7 @@ def rearmed_metadata(
         "nativeRevision": native["revision"],
         "nativeAckAttemptId": native["attemptId"],
         "nativeImageDigest": native["imageDigest"],
+        "previousAckHubRevision": candidate.previous_ack.get("hubRevision") or None,
         "handoffRuntimeEpoch": handoff["runtimeEpoch"],
         "handoffReleaseRuntimeEpoch": handoff["releaseRuntimeEpoch"],
         "handoffReleaseRecord": deepcopy(handoff["releaseRecord"]),

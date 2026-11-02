@@ -247,6 +247,7 @@ async def test_recovery_rearms_same_approval_with_real_guarded_registry_cas(pg, 
     from db.db_client import DatabaseClient
 
     _row, metadata, approval = _owner_row()
+    metadata["upgradeAcknowledgement"]["hubRevision"] = ""
     support.seed_primary(pg, metadata=metadata)
     repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
     observed = await repo.get(_OWNER)
@@ -301,6 +302,7 @@ async def test_recovery_rearms_same_approval_with_real_guarded_registry_cas(pg, 
     recovery = actual["upgradeRecovery"]
     assert recovery["failedExecutorSource"] == "351d975545b490769fa28bc2ebff6cc61f9ddd37"
     assert recovery["operationId"] == _OPERATION
+    assert recovery["previousAckHubRevision"] is None
     assert recovery["operator_verified_source_provenance"]["provenance"] == (
         "operator_declared_preserved_public_evidence"
     )
@@ -318,6 +320,31 @@ def _candidate():
         review_evidence_sha256=REVIEW_EVIDENCE_SHA256,
         now=_NOW,
     )
+
+
+@pytest.mark.parametrize("legacy_revision", [None, ""])
+def test_legacy_ack_without_hub_revision_still_requires_native_predecessor(legacy_revision):
+    row, metadata, _ = _owner_row()
+    acknowledgement = metadata["upgradeAcknowledgement"]
+    if legacy_revision is None:
+        acknowledgement.pop("hubRevision")
+    else:
+        acknowledgement["hubRevision"] = legacy_revision
+
+    candidate = qualify_candidate(
+        row,
+        user_id=_OWNER,
+        target_image=REVIEWED_TARGET_IMAGE,
+        running_hub_source="9" * 40,
+        reviewed_operation_id=_OPERATION,
+        reviewed_executor_revision=REVIEWED_EXECUTOR_REVISION,
+        review_evidence_sha256=REVIEW_EVIDENCE_SHA256,
+        now=_NOW,
+    )
+    receipt = verify_native_predecessor(_native_service(), candidate)
+    assert receipt["serviceUid"] == _SERVICE_UID
+    assert receipt["generation"] == 22
+    assert receipt["attemptId"] == acknowledgement["attemptId"]
 
 
 def _failure_event(candidate):

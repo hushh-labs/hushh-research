@@ -178,6 +178,7 @@ def _validate_previous_ack(
     service_name = str(row.get("external_agent_id") or "").strip()
     service_uid = str(metadata.get("serviceUid") or "").strip()
     acknowledgement = metadata.get("upgradeAcknowledgement")
+    hub_revision = acknowledgement.get("hubRevision") if isinstance(acknowledgement, dict) else None
     if (
         not hushh_id
         or not service_name
@@ -197,8 +198,18 @@ def _validate_previous_ack(
         or acknowledgement.get("outcome") != "ready"
         or not isinstance(acknowledgement.get("attemptId"), str)
         or _SHA256.fullmatch(acknowledgement["attemptId"]) is None
-        or not isinstance(acknowledgement.get("hubRevision"), str)
-        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", acknowledgement["hubRevision"]) is None
+        # Some valid legacy receipts predate reliable K_REVISION attribution.
+        # The recovery flow independently proves the exact native predecessor
+        # (UID, generation, image, restart nonce, readiness and 100% traffic)
+        # before it can write, so an absent/empty hub revision is not a reason
+        # to strand an otherwise fully verifiable approved operation.
+        or (
+            hub_revision not in (None, "")
+            and (
+                not isinstance(hub_revision, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", hub_revision) is None
+            )
+        )
         or type(acknowledgement.get("generation")) is not int
         or acknowledgement["generation"] < 1
         or not isinstance(acknowledgement.get("image"), str)
