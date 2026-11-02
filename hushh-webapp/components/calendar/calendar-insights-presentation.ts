@@ -32,13 +32,8 @@ export type RequestRecovery = {
   copy: boolean;
 };
 
-/** Shown once, quietly, below Ask organizer, and only to someone who is not connected. It is a link to Connect. */
+/** Shown once, quietly, below Ask organizer, only after the server found no connection to the organizer. A link to Connect. */
 export const NOT_CONNECTED_HINT = "Requests work once you're connected on One.";
-export const PENDING_CONNECTION_TEXT = "Waiting for connection approval.";
-export const UNVERIFIED_ORGANIZER_RECOVERY: RequestRecovery = {
-  tone: "terminal", copy: false,
-  message: "One can't confirm who this organizer is right now, so it can't send the request. Ask the organizer directly.",
-};
 
 type RequestFailure = { status?: number; code?: string; reason?: string; message?: string } | null;
 

@@ -1,7 +1,7 @@
 .target {
-  --type-compact-button-label-size: 12px;
-  --type-compact-button-label-line: 18px;
-  --type-compact-button-label-weight: 550;
+  --type-compact-button-label-size: var(--profile-type-action-size, 12px);
+  --type-compact-button-label-line: var(--profile-type-action-line, 18px);
+  --type-compact-button-label-weight: var(--profile-type-action-weight, 550);
   min-height: 44px;
   height: auto;
   min-width: 88px;

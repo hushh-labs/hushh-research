@@ -34,7 +34,6 @@ vi.mock("@/components/calendar/calendar-followups", () => ({ CalendarFollowups: 
 
 import { CalendarInsights } from "@/components/calendar/calendar-insights";
 import { DocumentRequestReviewRouter } from "@/components/consent/calendar-meeting-review-card";
-import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService } from "@/lib/services/cache-service";
 import { CalendarInsightsRequestError, CalendarInsightsService } from "@/lib/services/calendar-insights-service";
@@ -233,46 +232,44 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     expect(world.feedFor(world.organizer)).toHaveLength(2);
   });
 
-  it("offers no Send, and creates nothing, until the requester is connected to the organizer", async () => {
+  it("Ask is never gated: an unconnected requester's tap sends nothing to anyone and says so in one plain line", async () => {
     world.organizerConnected = false;
     const requester = mountRequester();
     await openLibrary(requester.ui);
     fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
     await advance(50);
-    // Same controls as a connected person, but Ask cannot send, and one quiet line goes to Connect.
     fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
-    expect(requester.ui.getByRole("button", { name: "Ask organizer" })).toBeDisabled();
+    // No pre-check and nothing about connecting yet: the same controls a connected person sees.
+    expect(requester.ui.getByRole("button", { name: "Ask organizer" })).toBeEnabled();
+    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
+    expect(world.sentBodies).toEqual([]);
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
+    await advance(50);
     expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect");
     expect(requester.ui.queryByRole("button", { name: /^(Connect|Send request|Try again|Copy request|Invite to One)$/ })).toBeNull();
     expect(requester.ui.queryByRole("textbox", { name: "Request to send to the organizer" })).toBeNull();
     expect(requester.ui.queryByTestId("calendar-request-recovery")).toBeNull();
     expect(world.requests.size).toBe(0);
     expect(world.feedFor(world.organizer)).toEqual([]);
-    expect(world.sentBodies).toEqual([]);
     expect(world.events).toEqual([]);
   });
 
-  it("waits for a pending connection, then a durable request reaches the organizer's Feed once accepted", async () => {
+  it("the same Ask reaches the organizer's Feed once they are connected, with no reload", async () => {
     world.organizerConnected = false;
-    world.connectionPending = true;
     const requester = mountRequester();
     await openLibrary(requester.ui);
     fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
     await advance(50);
-    expect(requester.ui.getByText("Waiting for connection approval.")).toBeInTheDocument();
-    expect(requester.ui.getByRole("button", { name: "Ask organizer" })).toBeDisabled();
-    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
-    expect(world.sentBodies).toEqual([]);
-
-    // The organizer accepts. The requester's page learns of it from the Feed change, not a reload.
-    world.organizerConnected = true;
-    act(() => dispatchFeedStateChanged("arrived"));
+    fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
     await advance(50);
-    expect(requester.ui.queryByText("Waiting for connection approval.")).toBeNull();
-    // Connected now: nothing about connecting shows, and the same Ask sends.
-    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
-    await chooseAndAsk(requester.ui, ["Recording"]);
+    expect(requester.ui.getByRole("link", { name: HINT })).toBeInTheDocument();
+    expect(world.requests.size).toBe(0);
 
+    world.organizerConnected = true; // the connection is accepted while the page stays open
+    fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
+    await advance(50);
+    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
     expect(world.requests.size).toBe(1);
     expect(world.feedFor(world.organizer)).toEqual([world.request().requestId]);
     expect(world.request()).toMatchObject({ requester: world.requester.userId, organizer: world.organizer.userId,
@@ -280,20 +277,17 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     expect(requester.ui.getAllByText(SENT).length).toBeGreaterThan(0);
   });
 
-  it("a connection revoked after the check is still refused by the server at Send", async () => {
+  it("a connection revoked after the page opened is still refused by the server at Send", async () => {
     const requester = mountRequester();
     await openLibrary(requester.ui);
     fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
     await advance(50);
     fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
-    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull(); // connected: nothing about connecting
     world.organizerConnected = false;
     fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
     await advance(50);
     expect(world.sentBodies).toHaveLength(1);
-    // The server's refusal only brings back the one quiet hint; nothing was created.
-    expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect");
-    expect(requester.ui.getByRole("button", { name: "Ask organizer" })).toBeDisabled();
+    expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect"); // nothing was created
     expect(requester.ui.queryByTestId("calendar-request-recovery")).toBeNull();
     expect(world.requests.size).toBe(0);
     expect(world.feedFor(world.organizer)).toEqual([]);
