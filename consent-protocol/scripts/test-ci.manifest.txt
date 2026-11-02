@@ -252,6 +252,10 @@ tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
 tests/test_finance_sharing_contract.py
 tests/test_finance_recipient_hub_authority.py
+tests/test_advisor_review_contract.py
+tests/test_advisor_review_authority.py
+tests/test_advisor_review_postgres.py
+tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
 tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py

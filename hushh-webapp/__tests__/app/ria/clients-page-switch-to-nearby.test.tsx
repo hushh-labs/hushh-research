@@ -41,6 +41,10 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
   useStaleResource: () => ({ data: { items: [] }, loading: false, error: null }),
 }));
 
+vi.mock("@/components/kai/advisor/advisor-review-hub", () => ({
+  AdvisorReviewHub: () => null,
+}));
+
 vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
   NearbyAroundYou: () => null,
 }));
