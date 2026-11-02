@@ -15,28 +15,12 @@ from hushh_mcp.services import actor_identity_service as identity
 from hushh_mcp.services import phone_transfer_service as transfer
 from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
 from tests.helpers.phone_transfer_postgres import database_url as database_url
-from tests.helpers.phone_transfer_postgres import seed
+from tests.helpers.phone_transfer_postgres import seed, seed_committed_transfer
 
 ROOT = Path(__file__).resolve().parents[1]
 PHONE = "+16505550101"
 
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
-
-
-async def _seed_committed_transfer(pool, intent):
-    """Historical receipt fixture only; new claims cannot create this state."""
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await transfer.lock_transfer(conn, "receiving-a", intent)
-            await transfer.consume(conn, "receiving-a", PHONE, intent)
-            await conn.execute(
-                "UPDATE actor_identity_cache SET phone_number=NULL,phone_verified=FALSE WHERE user_id='previous'"
-            )
-            await conn.execute(
-                "INSERT INTO actor_identity_cache(user_id,phone_number,phone_verified) VALUES('receiving-a',$1,TRUE) ON CONFLICT(user_id) DO UPDATE SET phone_number=$1,phone_verified=TRUE",
-                PHONE,
-            )
-    return True
 
 
 async def test_phone_replay_preserves_workos_mutation_receipts(database_url):
@@ -319,7 +303,7 @@ async def test_pending_provider_work_blocks_erasure_and_rollback_removes_only_wo
     )
     try:
         intents, _ = await seed(pool)
-        assert await _seed_committed_transfer(pool, intents[0])
+        assert await seed_committed_transfer(pool, intents[0])
         engine = create_engine(database_url)
         try:
             for owner in ("previous", "receiving-a"):
@@ -395,7 +379,7 @@ async def test_receiving_identity_keeps_its_existing_provider_credential(databas
                 "UPDATE account_phone_transfers SET proof_identity_uid='receiving-a',proof_owner_id='receiving-a',unlink_required=FALSE WHERE operation_id=$1::uuid",
                 intent.operation_id,
             )
-        assert await _seed_committed_transfer(pool, intent)
+        assert await seed_committed_transfer(pool, intent)
         async with pool.acquire() as conn:
             assert (
                 await conn.fetchval(
@@ -436,7 +420,7 @@ async def test_status_cannot_release_a_live_or_uncertain_provider_dispatch(
     monkeypatch.setattr(transfer.mutations, "settle", settle)
     try:
         intents, _ = await seed(pool)
-        assert await _seed_committed_transfer(pool, intents[0])
+        assert await seed_committed_transfer(pool, intents[0])
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE account_phone_transfers SET effect_state='dispatched',committed_at=clock_timestamp()-INTERVAL '1 minute' WHERE operation_id=$1::uuid",
