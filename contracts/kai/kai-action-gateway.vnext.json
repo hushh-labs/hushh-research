@@ -46,6 +46,7 @@
     "hushh-webapp/components/agent/career-chat-actions.voice-action-contract.json",
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
     "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
+    "hushh-webapp/components/consent/answer-request-card.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/consent/hosted-document-panel.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
@@ -1308,6 +1309,37 @@
             "signed-in vault-owner token and an unlocked vault are required for card operations"
           ]
         }
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_paid_answer",
+      "surface_title": "Paid answer request",
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "contract_file": "hushh-webapp/components/consent/answer-request-card.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/consent"
+          ],
+          "screens": [
+            "consents"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": [
+            "Open a current answer request as its signed-in participant."
+          ]
+        },
+        "speaker_persona": "one"
       },
       "search": {},
       "orchestration": {
@@ -28742,6 +28774,307 @@
             "label": "Decrypt and show the card privately on this device",
             "failure_behavior": "stop",
             "service": "frontend.wallet.reveal"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "answer.request.enable_receiving",
+      "surface_id": "one_paid_answer",
+      "label": "Enable secure receiving",
+      "aliases": [],
+      "search_keywords": [
+        "answer",
+        "request",
+        "secure receiving"
+      ],
+      "meaning": "The requester unlocks and explicitly publishes this device's existing public receiving key, or creates its first key, so the owner can prepare the approved answer. This neither approves terms nor charges money. An active prepared key on another device cannot be replaced by this action.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open a current answer request as its signed-in participant."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The participant card owns current device custody and explicit recovery.",
+        "intended_handler": "AnswerRequestCard"
+      },
+      "control_ids": [
+        "answer-request-receive"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.answer.request.enable_receiving",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "answer.request.enable_receiving",
+            "label": "Enable secure receiving",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "answer.request.prepare",
+      "surface_id": "one_paid_answer",
+      "label": "Prepare approved answer",
+      "aliases": [],
+      "search_keywords": [
+        "answer",
+        "prepare",
+        "question"
+      ],
+      "meaning": "The owner explicitly prepares an answer from the exact approved scopes and composition consent while their memory is unlocked. Only requester-encrypted ciphertext is staged; this does not charge the requester or release the answer before verified payment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open a current answer request as its signed-in participant."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner's visible card owns consent-bound local preparation.",
+        "intended_handler": "AnswerRequestCard"
+      },
+      "control_ids": [
+        "answer-request-prepare"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.answer.request.prepare",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "answer.request.prepare",
+            "label": "Prepare approved answer",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "answer.request.pay",
+      "surface_id": "one_paid_answer",
+      "label": "Pay for prepared answer",
+      "aliases": [],
+      "search_keywords": [
+        "answer",
+        "pay",
+        "question"
+      ],
+      "meaning": "The requester unlocks the device holding the prepared answer's private receiving key, reviews coverage and price, and explicitly opens hosted checkout. Unlocking alone never opens checkout. Only a verified provider event releases the answer.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "Open a current answer request as its signed-in participant."
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The requester's visible card owns device custody, coverage and checkout confirmation.",
+        "intended_handler": "AnswerRequestCard"
+      },
+      "control_ids": [
+        "answer-request-unlock-pay",
+        "answer-request-pay"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/architecture/api-contracts.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.answer.request.pay",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "answer.request.pay",
+            "label": "Pay for prepared answer",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {

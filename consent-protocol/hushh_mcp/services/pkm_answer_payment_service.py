@@ -138,7 +138,11 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
                           o.status AS order_status,
                           o.stripe_checkout_url, o.paid_at, o.refunded_at, o.refund_reason,
                           o.reconciliation_required, d.has_content AS staged_has_content,
-                          d.source_revisions AS staged_revisions
+                          d.source_revisions AS staged_revisions,
+                          EXISTS(SELECT 1 FROM marketplace_recipient_keys k
+                            WHERE k.user_id=r.requester_user_id
+                              AND k.key_id=d.recipient_key_id AND k.status='active')
+                            AS staged_recipient_active
                    FROM pkm_answer_requests r
                    LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
                    LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
@@ -152,6 +156,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         row = await self._transaction(read)
         prepared = bool(
             row["staged_has_content"]
+            and row["staged_recipient_active"]
             and self._has_composed_answer({"source_revisions": row["staged_revisions"]}, row)
         )
         return {
@@ -208,9 +213,13 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
     def _require_prepared_answer(connection, request) -> None:
         staged = (
             connection.execute(
-                text("""SELECT has_content, ciphertext, iv, recipient_key_id, source_revisions
-                    FROM pkm_answer_deliveries WHERE request_id = :request FOR SHARE"""),
-                {"request": str(request["request_id"])},
+                text("""SELECT d.has_content, d.ciphertext, d.iv, d.recipient_key_id,
+                          d.source_revisions
+                    FROM pkm_answer_deliveries d
+                    JOIN marketplace_recipient_keys k ON k.key_id=d.recipient_key_id
+                      AND k.user_id=:requester AND k.status='active'
+                    WHERE d.request_id=:request FOR SHARE OF d,k"""),
+                {"request": str(request["request_id"]), "requester": request["requester_user_id"]},
             )
             .mappings()
             .first()
@@ -873,10 +882,12 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             staged = (
                 connection.execute(
                     text(
-                        """SELECT has_content, source_revisions FROM pkm_answer_deliveries
-                           WHERE request_id = :request FOR SHARE"""
+                        """SELECT d.has_content, d.source_revisions FROM pkm_answer_deliveries d
+                           JOIN marketplace_recipient_keys k ON k.key_id=d.recipient_key_id
+                             AND k.user_id=:requester AND k.status='active'
+                           WHERE d.request_id=:request FOR SHARE OF d,k"""
                     ),
-                    {"request": request_id},
+                    {"request": request_id, "requester": order["requester_user_id"]},
                 )
                 .mappings()
                 .first()

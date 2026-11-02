@@ -259,6 +259,22 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
    under locks. B's Sent documents projection is separate from A's pending/Needs You count;
    it reveals no private matches and remains available when creation is disabled.
 
+## Paid Answer Receiving and Settlement Checks
+
+1. Requester A publishes only a public receiving key before sending; storage errors,
+   setup timeout, lock, account change and unmount cannot continue a stale submission.
+   Concurrent setup preserves the first durable device key.
+2. Owner B approves exact scopes, price and model consent, then prepares before A pays.
+   Keyless older requests remain visible and repairable without starving ready work.
+3. Payment requires the staged key on A's unlocked device and current active server
+   key binding. Another participant or device cannot pay through stale presentation.
+4. Revocation after checkout preserves verified payment, blocks obsolete-key release
+   and permits consent-bound restaging only to a current requester key. Duplicate
+   signed events never duplicate delivery, earning or payment effects.
+5. Paid delivery is requester-only ciphertext; locked/account-switched views drop
+   plaintext. Deadline, full refund and owner payout execution require authenticated
+   worker evidence in the deployed environment, separately from local tests.
+
 ## Ecosystem Checks
 
 1. Agents and Operons respect consent scope boundaries.

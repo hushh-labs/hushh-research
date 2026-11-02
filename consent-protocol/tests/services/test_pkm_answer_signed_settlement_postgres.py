@@ -60,7 +60,8 @@ def status(engine, request):
 
 
 @pytest.mark.parametrize(
-    "stripe_mode,switch_live", [("test", False), ("test", True), ("live", False)]
+    "stripe_mode,switch_live,revoke_after_checkout",
+    [("test", False, False), ("test", True, False), ("live", False, False), ("test", False, True)],
 )
 @pytest.mark.parametrize(
     "event_type", ["checkout.session.completed", "checkout.session.async_payment_succeeded"]
@@ -72,6 +73,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     event_type,
     stripe_mode,
     switch_live,
+    revoke_after_checkout,
     legacy_without_receipt,
 ):
     if stripe_mode == "live":
@@ -104,6 +106,23 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     await payments.checkout(requester_user_id=REQUESTER, request_id=request)
     args = api.checkout.Session.create.call_args.kwargs
     assert args["api_key"].startswith(f"sk_{stripe_mode}_")
+    if revoke_after_checkout:
+        with answer_engine.begin() as c:
+            c.execute(
+                text("UPDATE marketplace_recipient_keys SET status='revoked' WHERE user_id=:u"),
+                {"u": REQUESTER},
+            )
+            c.execute(
+                text("""INSERT INTO marketplace_recipient_keys(user_id,key_id,public_key_jwk,algorithm)
+              SELECT user_id,'replacement-key',public_key_jwk,algorithm
+              FROM marketplace_recipient_keys WHERE user_id=:u AND key_id='key-1'"""),
+                {"u": REQUESTER},
+            )
+        with pytest.raises(AnswerPaymentError, match="answer_not_ready"):
+            await payments.checkout(requester_user_id=REQUESTER, request_id=request)
+        assert (await payments.get_payment(requester_user_id=REQUESTER, request_id=request))[
+            "preparationStatus"
+        ] != "ready"
     if legacy_without_receipt:
         with answer_engine.begin() as c:
             c.execute(
@@ -178,7 +197,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
             == 200
         )
     row = status(answer_engine, request)
-    if legacy_without_receipt:
+    if legacy_without_receipt or revoke_after_checkout:
         assert (row["status"], row["payment_status"], row["milestones"]) == ("answering", "paid", 0)
         with pytest.raises(AnswerRequestError, match="answer_unavailable"):
             await requests.fetch_answer(requester_user_id=REQUESTER, request_id=request)
@@ -188,7 +207,13 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
         if switch_live:
             monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "true")
         await _deliver_composed(
-            requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+            requests,
+            answer_engine,
+            owner_user_id=OWNER,
+            request_id=request,
+            envelope={**ENVELOPE, "recipientKeyId": "replacement-key"}
+            if revoke_after_checkout
+            else ENVELOPE,
         )
         assert api.checkout.Session.create.call_count == 1
         body = json.dumps(event).encode()
@@ -207,6 +232,9 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     )
     fetched = await requests.fetch_answer(requester_user_id=REQUESTER, request_id=request)
     assert fetched["ciphertext"] == ENVELOPE["ciphertext"]
+    assert fetched["recipientKeyId"] == (
+        "replacement-key" if revoke_after_checkout else ENVELOPE["recipientKeyId"]
+    )
     with pytest.raises(AnswerRequestError, match="answer_unavailable"):
         await requests.fetch_answer(requester_user_id="unrelated-requester", request_id=request)
     drive.process_webhook.assert_not_called()

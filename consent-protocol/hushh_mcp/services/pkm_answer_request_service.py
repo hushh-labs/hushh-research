@@ -670,9 +670,20 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def read(connection):
             row = self._row(
                 connection,
-                """SELECT owner_user_id, status, question
-                FROM pkm_answer_requests WHERE request_id=:request
-                AND (owner_user_id=:user OR requester_user_id=:user)""",
+                """SELECT r.owner_user_id, r.status, r.question,
+                   EXISTS(SELECT 1 FROM marketplace_recipient_keys k
+                     WHERE k.user_id=r.requester_user_id AND k.status='active'
+                       AND k.key_id<>'' AND k.public_key_jwk IS NOT NULL
+                       AND k.public_key_jwk<>'{}'::jsonb) AS requester_key_ready,
+                   d.recipient_key_id AS delivery_recipient_key_id,
+                   EXISTS(SELECT 1 FROM marketplace_recipient_keys staged_key
+                     WHERE staged_key.user_id=r.requester_user_id
+                       AND staged_key.key_id=d.recipient_key_id
+                       AND staged_key.status='active') AS delivery_recipient_key_active
+                FROM pkm_answer_requests r
+                LEFT JOIN pkm_answer_deliveries d ON d.request_id=r.request_id
+                WHERE r.request_id=:request
+                AND (r.owner_user_id=:user OR r.requester_user_id=:user)""",
                 {"request": request_id, "user": user_id},
             )
             if row is None:
@@ -681,6 +692,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 "role": "owner" if row["owner_user_id"] == user_id else "requester",
                 "requestStatus": row["status"],
                 "question": row["question"],
+                "requesterKeyReady": bool(row["requester_key_ready"]),
+                "deliveryRecipientKeyId": row["delivery_recipient_key_id"],
+                "deliveryRecipientKeyActive": bool(row["delivery_recipient_key_active"]),
             }
             # Before approval, the proposed selectors are for the owner's
             # review only. After approval, both people may see the exact
@@ -765,14 +779,27 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 connection.execute(
                     text(
                         """SELECT r.request_id, r.question, r.period_start, r.period_end,
-                              r.requester_user_id, r.terms_digest, r.answer_deadline_at
+                              r.requester_user_id, r.terms_digest, r.answer_deadline_at,
+                              recipient.key_id, recipient.public_key_jwk, recipient.algorithm
                        FROM pkm_answer_requests r
+                       JOIN LATERAL (
+                         SELECT k.key_id,k.public_key_jwk,k.algorithm
+                         FROM marketplace_recipient_keys k
+                         WHERE k.user_id=r.requester_user_id AND k.status='active'
+                           AND k.key_id<>'' AND k.public_key_jwk IS NOT NULL
+                           AND k.public_key_jwk<>'{}'::jsonb
+                         ORDER BY k.created_at DESC LIMIT 1
+                       ) recipient ON TRUE
                        LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
                        LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
                        WHERE r.owner_user_id = :owner
                          AND (d.request_id IS NULL OR
                               (d.has_content AND
-                               (d.source_revisions->>'_composition_terms' IS DISTINCT FROM r.terms_digest)))
+                               (d.source_revisions->>'_composition_terms' IS DISTINCT FROM r.terms_digest))
+                              OR NOT EXISTS(SELECT 1 FROM marketplace_recipient_keys staged_key
+                                WHERE staged_key.user_id=r.requester_user_id
+                                  AND staged_key.key_id=d.recipient_key_id
+                                  AND staged_key.status='active'))
                          AND EXISTS (SELECT 1 FROM connections c WHERE c.status='active'
                            AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
                              OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id)))
@@ -831,6 +858,11 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                             else None
                         ),
                         "requesterUserId": row["requester_user_id"],
+                        "recipientKey": {
+                            "keyId": row["key_id"],
+                            "publicKeyJwk": row["public_key_jwk"],
+                            "algorithm": row["algorithm"],
+                        },
                     }
                 )
             # Attach the requester's published ECDH recipient key so the device
@@ -857,32 +889,6 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     "displayName": identity.get("display_name"),
                     "email": identity.get("email"),
                     "photoUrl": identity.get("photo_url"),
-                }
-                key = (
-                    connection.execute(
-                        text(
-                            """SELECT key_id, public_key_jwk, algorithm
-                           FROM marketplace_recipient_keys
-                           WHERE user_id = :user AND status = 'active'
-                           ORDER BY created_at DESC LIMIT 1"""
-                        ),
-                        {"user": item["requesterUserId"]},
-                    )
-                    .mappings()
-                    .first()
-                )
-                if not key or not key["key_id"] or not key["public_key_jwk"]:
-                    # Not a failure: the sweep retries, exactly as the
-                    # marketplace does for RecipientKeyUnavailableError.
-                    logger.info(
-                        "answer_delivery.recipient_key_unavailable request=%s",
-                        item["requestId"],
-                    )
-                    continue
-                item["recipientKey"] = {
-                    "keyId": key["key_id"],
-                    "publicKeyJwk": key["public_key_jwk"],
-                    "algorithm": key["algorithm"],
                 }
                 ready.append(item)
             return ready
@@ -1052,10 +1058,17 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                               IS DISTINCT FROM EXCLUDED.source_revisions->>'_composition_terms'
                               AND EXCLUDED.source_revisions ? '_composition_receipt')
                            OR (NOT EXCLUDED.has_content
-                               AND NOT pkm_answer_deliveries.source_revisions ? '_composition_receipt'))"""
+                               AND NOT pkm_answer_deliveries.source_revisions ? '_composition_receipt')
+                           OR (EXCLUDED.has_content
+                               AND EXCLUDED.source_revisions ? '_composition_receipt'
+                               AND NOT EXISTS(SELECT 1 FROM marketplace_recipient_keys previous_key
+                                 WHERE previous_key.user_id=:requester
+                                   AND previous_key.key_id=pkm_answer_deliveries.recipient_key_id
+                                   AND previous_key.status='active')))"""
                 ),
                 {
                     "request": request_id,
+                    "requester": request["requester_user_id"],
                     "key_id": envelope["recipientKeyId"],
                     "ciphertext": envelope["ciphertext"],
                     "iv": envelope["iv"],

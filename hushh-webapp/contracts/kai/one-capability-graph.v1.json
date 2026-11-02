@@ -35545,6 +35545,483 @@
     },
     {
       "aliases": [
+        "Enable secure receiving"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "answer.request.enable_receiving",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The requester unlocks and explicitly publishes this device's existing public receiving key, or creates its first key, so the owner can prepare the approved answer. This neither approves terms nor charges money. An active prepared key on another device cannot be replaced by this action.",
+      "execution": {
+        "binding_ref": "render:answer.request.enable_receiving",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.answer.request.enable_receiving",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Enable secure receiving",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "answer",
+        "request",
+        "secure receiving"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Prepare approved answer"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "answer.request.prepare",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner explicitly prepares an answer from the exact approved scopes and composition consent while their memory is unlocked. Only requester-encrypted ciphertext is staged; this does not charge the requester or release the answer before verified payment.",
+      "execution": {
+        "binding_ref": "render:answer.request.prepare",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.answer.request.prepare",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Prepare approved answer",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "answer",
+        "prepare",
+        "question"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Pay for prepared answer"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_owner_token"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "answer.request.pay",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The requester unlocks the device holding the prepared answer's private receiving key, reviews coverage and price, and explicitly opens hosted checkout. Unlocking alone never opens checkout. Only a verified provider event releases the answer.",
+      "execution": {
+        "binding_ref": "render:answer.request.pay",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.answer.request.pay",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Pay for prepared answer",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/consent"
+        ],
+        "screens": [
+          "consents"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_owner_token",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "answer",
+        "pay",
+        "question"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Consent Center",
         "open consent center",
         "open consents"
@@ -49522,7 +49999,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "1bda2361ba746577dab86fd76892766c37451977f30bae99a36952f4215f5bf1",
+      "projection_digest": "2140f8984a3ec8d73e7b9375da24c3572ea724b6d5a1f6f016281688b609cd1d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49541,7 +50018,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "0e067db9029f2723",
+      "source_revision": "14a1c377ae29a999",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51059,7 +51536,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "0e067db9029f2723",
+    "source_revision": "14a1c377ae29a999",
     "web": {
       "actions": [
         {
@@ -51102,7 +51579,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "d827f22b869d5c97502bbce47fd921ba72dc9b2f217f9ed26fdbfd9cac0bbeb3",
+      "projection_digest": "b3cac8685ce759bdb453f870729cf0e408f7e82a63270bd21dce56a4f0653806",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51121,7 +51598,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "0e067db9029f2723",
+      "source_revision": "14a1c377ae29a999",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52678,7 +53155,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "0e067db9029f2723",
+  "revision": "14a1c377ae29a999",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -54668,39 +55145,18 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:answer.request.enable_receiving",
+      "actions:answer.request.pay",
+      "actions:answer.request.prepare"
+    ],
     "breaking": [],
-    "changed": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.recover"
-    ],
+    "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:phone_mandate.change_number",
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:phone_mandate.recover",
-      "actions:phone_mandate.review_previous_devices",
-      "actions:phone_mandate.send_real_sms",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
-    ],
-    "from_revision": "8b2c2ce0335c1211",
+    "deprecated": [],
+    "from_revision": "0e067db9029f2723",
     "migrated": [],
-    "removed": [
-      "actions:phone_mandate.delete_previous",
-      "actions:phone_mandate.delete_previous_cancel",
-      "actions:phone_mandate.delete_previous_confirm",
-      "actions:phone_mandate.delete_previous_verify_again",
-      "actions:phone_mandate.review_previous_devices",
-      "actions:phone_mandate.send_real_sms",
-      "actions:phone_mandate.transfer_cancel",
-      "actions:phone_mandate.transfer_confirm",
-      "actions:phone_mandate.transfer_review"
-    ]
+    "removed": []
   },
   "services": [
     {
@@ -57017,7 +57473,7 @@
     "capability_graph_evolution": "945011e9ec0cb04308368bef1a2025d51437fa9b164497886ecdbb3d11cce816",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "92d156c859f60eff12f0ab146ff196e73bada22a69fe3e510efa12f1ad6f6892",
+    "kai_action_gateway": "81e09cd54ea80bc7b6acdfb62ad913af9d0bacca2e8170619066807f2c43aa10",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -57026,9 +57482,9 @@
     "route_orchestration_index": "199a3a2480c298eeda1429debc05fb20f347f8f66a932b8f83e5f42f94d722f2",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "0e067db9029f2723",
+  "source_revision": "14a1c377ae29a999",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "0e067db9029f2723",
+    "current_graph_revision": "14a1c377ae29a999",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57046,6 +57502,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
@@ -57433,6 +57890,7 @@
           "089dd4c9f391ecfd",
           "09508ecac56d001c",
           "0d1f4106e4b3ae29",
+          "0e067db9029f2723",
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
@@ -57573,6 +58031,7 @@
           "089dd4c9f391ecfd",
           "09508ecac56d001c",
           "0d1f4106e4b3ae29",
+          "0e067db9029f2723",
           "101c32b70ab14a4d",
           "141da451575ab2fc",
           "14b86b8e434fc15c",
@@ -57936,6 +58395,7 @@
           "09508ecac56d001c",
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
+          "0e067db9029f2723",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "101c32b70ab14a4d",
@@ -58313,6 +58773,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "0e067db9029f2723",
           "8b2c2ce0335c1211"
         ],
         "migration_required_graph_revisions": [],
@@ -58721,6 +59182,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
@@ -59115,6 +59577,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
@@ -59507,6 +59970,7 @@
           "0b5a745ab3af9c5e",
           "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",

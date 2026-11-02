@@ -309,6 +309,10 @@ steps:
             fi
           fi
         fi
+        if [[ "${_DEPLOY_ENV}" == "uat" && "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_ANSWER_WORK_DRAIN_ENABLED}" != "true" ]]; then
+          echo "UAT paid answers require their independently enabled settlement drain." >&2
+          exit 1
+        fi
         if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" || "${_ANSWER_WORK_DRAIN_ENABLED}" == "true" ]]; then
           for answer_secret in "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}"; do
             if [[ -z "${answer_secret}" ]] || ! gcloud secrets describe "${answer_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then

@@ -12,6 +12,7 @@ const m = vi.hoisted(() => ({
   uid: "owner-a",
   unlocked: true,
   epoch: 0,
+  authGeneration: 0,
   vaultToken: "fixture-owner-token",
   token: vi.fn(),
   inbox: vi.fn(),
@@ -23,6 +24,8 @@ const m = vi.hoisted(() => ({
   gates: vi.fn(),
   decrypt: vi.fn(),
   sweep: vi.fn(),
+  keyId: vi.fn(),
+  setup: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: m.uid }, userId: m.uid }),
@@ -38,6 +41,7 @@ vi.mock("@/lib/vault/session-epoch", () => ({
   snapshotVaultSessionEpoch: () => m.epoch,
   isVaultSessionEpochCurrent: (epoch: number) => epoch === m.epoch,
 }));
+vi.mock("@/lib/auth/session-owner", () => ({ getAuthSessionGeneration: () => m.authGeneration }));
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: { getIdToken: m.token },
 }));
@@ -45,7 +49,7 @@ vi.mock("@/lib/services/answer-request-service", () => ({
   AnswerRequestService: {
     inbox: m.inbox,
     payment: m.payment,
-    state: m.state,
+    state: async (...args: unknown[]) => ({ requesterKeyReady: true, deliveryRecipientKeyId: "fixture-key", ...await m.state(...args) }),
     answer: m.answer,
     checkout: m.checkout,
     cancel: m.cancel,
@@ -54,7 +58,9 @@ vi.mock("@/lib/services/answer-request-service", () => ({
 }));
 vi.mock("@/lib/one-marketplace/encryption", () => ({
   decryptMarketplaceEnvelope: m.decrypt,
+  marketplaceRecipientKeyId: m.keyId,
 }));
+vi.mock("@/lib/one-marketplace/key-bootstrap", () => ({ bootstrapCurrentUserMarketplaceRecipientKey: m.setup }));
 vi.mock("@/lib/answers/answer-delivery-sweep", () => ({
   runAnswerDeliverySweep: m.sweep,
 }));
@@ -112,6 +118,64 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 import { AnswerRequestCard } from "@/components/consent/answer-request-card";
 const REQUEST = "11111111-2222-3333-4444-555555555555";
 const OTHER_REQUEST = "22222222-3333-4444-8555-666666666666";
+
+it("explains that preparation is waiting on the requester rather than retrying owner memory", async () => {
+  m.state.mockResolvedValue({ role: "owner", requestStatus: "approved", question: "Fixture question", requesterKeyReady: false, deliveryRecipientKeyId: null });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByText(/Waiting for the requester to open this question/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Prepare answer" })).toBeDisabled();
+  expect(m.sweep).not.toHaveBeenCalled();
+  expect(m.checkout).not.toHaveBeenCalled();
+});
+
+it("repairs secure receiving only for the requester without replaying approval or payment", async () => {
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Fixture question", requesterKeyReady: false, deliveryRecipientKeyId: null });
+  m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: null, preparationStatus: "preparing", amountCents: 1000 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Enable secure receiving" }));
+  await waitFor(() => expect(m.setup).toHaveBeenCalledWith(expect.objectContaining({ userId: m.uid, vaultOwnerToken: m.vaultToken, isCurrent: expect.any(Function) })));
+  expect(m.checkout).not.toHaveBeenCalled();
+  expect(m.sweep).not.toHaveBeenCalled();
+});
+
+it("withholds Pay on a device without the staged recipient key", async () => {
+  m.keyId.mockResolvedValue("another-device-key");
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Fixture question", coverage: FULL_COVERAGE });
+  m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: null, preparationStatus: "ready", amountCents: 1000 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  expect(await screen.findByText(/This device cannot receive the prepared answer/)).toBeVisible();
+  expect(screen.queryByRole("button", { name: /^Pay / })).toBeNull();
+  expect(m.setup).not.toHaveBeenCalled();
+  expect(m.checkout).not.toHaveBeenCalled();
+});
+
+it.each(["unmount", "auth episode"])("retires receiving setup after %s and coalesces rapid clicks", async change => {
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Fixture question", requesterKeyReady: false, deliveryRecipientKeyId: null });
+  m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: null, preparationStatus: "preparing", amountCents: 1000 });
+  const work = deferred<void>();
+  m.setup.mockReturnValue(work.promise);
+  const view = render(<AnswerRequestCard requestId={REQUEST} />);
+  const button = await screen.findByRole("button", { name: "Enable secure receiving" });
+  fireEvent.click(button);
+  fireEvent.click(button);
+  await waitFor(() => expect(m.setup).toHaveBeenCalledTimes(1));
+  const isCurrent = m.setup.mock.calls[0]![0].isCurrent;
+  expect(isCurrent()).toBe(true);
+  if (change === "unmount") view.unmount();
+  else m.authGeneration++;
+  expect(isCurrent()).toBe(false);
+  await act(async () => work.resolve());
+  expect(m.checkout).not.toHaveBeenCalled();
+});
+
+it("permits explicit receiving repair for a server-confirmed revoked staging key", async () => {
+  m.state.mockResolvedValue({ role: "requester", requestStatus: "approved", question: "Fixture question", requesterKeyReady: false, deliveryRecipientKeyId: "revoked-key", deliveryRecipientKeyActive: false });
+  m.payment.mockResolvedValue({ requestStatus: "approved", orderStatus: null, preparationStatus: "preparing", amountCents: 1000 });
+  render(<AnswerRequestCard requestId={REQUEST} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Enable secure receiving" }));
+  await waitFor(() => expect(m.setup).toHaveBeenCalledTimes(1));
+  expect(m.checkout).not.toHaveBeenCalled();
+});
 const FULL_COVERAGE = {
   included: [{ scope: "attr.travel.trips", label: "Trips" }],
   notIncluded: [],
@@ -132,9 +196,12 @@ function deferred<T>() {
 }
 beforeEach(() => {
   vi.resetAllMocks();
+  m.keyId.mockResolvedValue("fixture-key");
+  m.setup.mockResolvedValue({ keyId: "fixture-key" });
   m.uid = "owner-a";
   m.unlocked = true;
   m.epoch = 0;
+  m.authGeneration = 0;
   m.vaultToken = "fixture-owner-token";
   m.token.mockResolvedValue("fixture-id-token");
   m.inbox.mockResolvedValue([]);

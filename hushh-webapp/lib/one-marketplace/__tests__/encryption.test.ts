@@ -1,10 +1,68 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   decryptEnvelopeWithPrivateKey,
   encryptSliceForRecipient,
+  ensureMarketplaceRecipientKey,
+  decryptMarketplaceEnvelope,
   type MarketplaceEncryptedEnvelope,
 } from "@/lib/one-marketplace/encryption";
+
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+it("times out an unresponsive key store without poisoning the next setup attempt", async () => {
+  vi.useFakeTimers();
+  const open = vi.fn(() => ({}));
+  vi.stubGlobal("indexedDB", { open });
+  const first = expect(ensureMarketplaceRecipientKey("stalled-requester")).rejects.toThrow("did not respond");
+  await vi.advanceTimersByTimeAsync(5_000);
+  await first;
+  const retry = expect(ensureMarketplaceRecipientKey("stalled-requester")).rejects.toThrow("did not respond");
+  await vi.advanceTimersByTimeAsync(5_000);
+  await retry;
+  expect(open).toHaveBeenCalledTimes(2);
+});
+
+it("preserves the one device key across simultaneous setup and refuses storage failure", async () => {
+  const records = new Map<string, unknown>();
+  let failRead = false;
+  let writes = 0;
+  vi.stubGlobal("indexedDB", { open: () => {
+    const request: Record<string, unknown> = {};
+    const database = { close() {}, transaction: () => {
+      const transaction: Record<string, unknown> = {};
+      transaction.objectStore = () => ({
+        get: (id: string) => {
+          const read: Record<string, unknown> = {};
+          setTimeout(() => {
+            if (failRead) {
+              read.error = new Error("Storage unavailable");
+              (read.onerror as (() => void) | undefined)?.();
+              (transaction.onabort as (() => void) | undefined)?.();
+            } else {
+              read.result = records.get(id);
+              (read.onsuccess as (() => void) | undefined)?.();
+              queueMicrotask(() => (transaction.oncomplete as (() => void) | undefined)?.());
+            }
+          }, 0);
+          return read;
+        },
+        add: (record: { userId: string }) => { writes++; records.set(record.userId, record); },
+      });
+      return transaction;
+    } };
+    queueMicrotask(() => { request.result = database; (request.onsuccess as (() => void) | undefined)?.(); });
+    return request;
+  } });
+  const keys = await Promise.all(Array.from({ length: 5 }, () => ensureMarketplaceRecipientKey("concurrent-requester")));
+  expect(new Set(keys.map(key => key.keyId)).size).toBe(1);
+  expect(writes).toBe(1);
+  const envelope = await encryptSliceForRecipient({ payload: { approved: "synthetic answer" }, recipientKeyId: keys[0]!.keyId, recipientPublicKeyJwk: keys[0]!.publicKeyJwk });
+  await expect(decryptMarketplaceEnvelope({ userId: "concurrent-requester", envelope })).resolves.toEqual({ approved: "synthetic answer" });
+  failRead = true;
+  await expect(ensureMarketplaceRecipientKey("concurrent-requester")).rejects.toThrow("Storage unavailable");
+  expect(writes).toBe(1);
+});
 
 /**
  * Exercises the real ECDH P-256 -> AES-256-GCM delivery path with the buyer's
