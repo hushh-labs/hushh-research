@@ -1660,3 +1660,4 @@ tests/services/test_calendar_email_followup_oauth_postgres.py
 tests/services/test_calendar_email_followup_jhumma_postgres.py
 tests/services/test_calendar_email_followup_incremental_postgres.py
 tests/services/test_calendar_email_followup_store_postgres.py
+tests/services/test_calendar_email_followup_reassess_postgres.py
