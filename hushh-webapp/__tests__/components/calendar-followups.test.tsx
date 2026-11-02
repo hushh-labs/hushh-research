@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { CalendarFollowups } from "@/components/calendar/calendar-followups";
 import {
-  coverageNotice, dueText, gmailMessageUrl, primaryRequest, reminderText, senderName,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, primaryRequest, reminderText, senderName,
 } from "@/lib/calendar/calendar-followup-presentation";
 
 const service = vi.hoisted(() => ({
@@ -56,6 +56,14 @@ function props(accountId: string, onConnectMail: (accountId: string) => Promise<
 }
 
 describe("Follow-ups wording", () => {
+  it("keeps the unlock instruction and hides nothing else behind a generic failure", () => {
+    expect(followupErrorText(new Error("Unlock One to check your email again."))).toBe("Unlock One to check your email again.");
+    expect(followupErrorText(new Error("FOLLOWUPS_DISABLED"))).toBe("Follow-ups are not available yet. Try again later.");
+    expect(followupErrorText(new Error("mail_grant_changed"))).toBe("Follow-ups could not be checked. Try again.");
+    expect(coverageNotice({ coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0, exhausted_source_count: 0, unreadable_count: 0 }, false))
+      .toEqual({ tone: "quiet", text: "Unlock One to check your email.", action: null });
+  });
+
   const document = bList.conversations[0]!.preview_requests[0]!;
   const call = bList.conversations[0]!.preview_requests[1]!;
 
@@ -380,5 +388,30 @@ describe("Calendar Insights Follow-ups card", () => {
     await waitFor(() => expect(service.scan).toHaveBeenCalledTimes(20));
     await new Promise(resolve => setTimeout(resolve, 100));
     expect(service.scan).toHaveBeenCalledTimes(20);
+  });
+
+  it("says to unlock One instead of offering a Mail reconnect that cannot help", async () => {
+    // UAT: with the vault locked the card never listed or scanned, yet showed
+    // "Reconnect email" and a generic failure, sending the owner through Google twice.
+    service.status.mockResolvedValue(status("account_locked", {
+      monitor_current: false, scan_state: "partial", coverage: {
+        coverage: "needs_attention", attention: "reconnect_mail", waiting_source_count: 0,
+        exhausted_source_count: 0, unreadable_count: 0 } }));
+    render(<CalendarFollowups {...props("account_locked")} getVaultOwnerToken={() => null} />);
+    expect(await screen.findByText("Unlock One to check your email.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reconnect email" })).not.toBeInTheDocument();
+    expect(service.list).not.toHaveBeenCalled();
+    expect(service.scan).not.toHaveBeenCalled();
+  });
+
+  it("checks the vault before opening Google consent and names the real problem", async () => {
+    service.status.mockResolvedValue(status("account_new", {
+      mail_connected: false, monitoring_enabled: false, monitor_current: false, scan_state: "off", coverage: null }));
+    const onConnectMail = vi.fn(async () => true);
+    render(<CalendarFollowups {...props("account_new", onConnectMail)} getVaultOwnerToken={() => null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow email access" }));
+    expect(await screen.findByText("Unlock One before turning on email follow-ups.")).toBeInTheDocument();
+    expect(screen.queryByText("Follow-ups could not be checked. Try again.")).not.toBeInTheDocument();
+    expect(onConnectMail).not.toHaveBeenCalled();
   });
 });

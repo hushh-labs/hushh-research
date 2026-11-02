@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import {
-  coverageNotice, dueText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
+  coverageNotice, dueText, followupErrorText, gmailMessageUrl, isActive, reminderText, rowSummary, senderName, shortDate,
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
@@ -37,12 +37,6 @@ const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
 // the card keeps asking, so the first results arrive in seconds, not scheduler
 // ticks. Capped, and it stops the moment the card goes away.
 const CATCH_UP_MAX_CALLS = 20;
-
-function displayError(error: unknown): string {
-  if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
-  if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";
-  return "Follow-ups could not be checked. Try again.";
-}
 
 export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
@@ -98,7 +92,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (alive()) { setList(nextList); setLoading(false); setError(""); }
     } catch (failure) {
       // A background refresh never replaces verified items with an error.
-      if (alive() && !quiet) { setError(displayError(failure)); setLoading(false); }
+      if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
     }
   }, [userId, accountId]);
 
@@ -212,7 +206,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (lifetime.current?.signal.aborted || detailSeq.current !== seq || selectedIdRef.current !== conversationId) return false;
       setDetail(value);
       return true;
-    } catch (failure) { if (detailSeq.current === seq) setActionError(displayError(failure)); return false; }
+    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); return false; }
   };
 
   const act = async (request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null = null) => {
@@ -229,7 +223,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }
       await refresh(lifetime.current?.signal, true);
       setReminderInput(""); setReminderOpen(null);
-    } catch (failure) { if (detailSeq.current === seq) setActionError(displayError(failure)); }
+    } catch (failure) { if (detailSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -240,6 +234,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const turnOn = async () => {
     setBusy(true); setError("");
     try {
+      // Asking Google first would waste the owner's consent on a step that cannot finish.
+      if (!getVaultOwnerToken()) throw new Error("Unlock One before turning on email follow-ups.");
       let mailReady = Boolean(status?.mail_connected);
       if (!mailReady) {
         if (!onConnectMail) return;
@@ -265,7 +261,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal);
       if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -279,7 +275,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       progressChecks.current = 0;
       await refresh(lifetime.current?.signal, true);
       if (first?.state === "pending") void continueScan(ownerToken, lifetime.current?.signal).catch(() => undefined);
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -287,6 +283,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     if (!onConnectMail) return;
     setBusy(true); setError("");
     try {
+      if (!getVaultOwnerToken()) throw new Error("Unlock One to renew email access.");
       const connected = await onConnectMail(accountId);
       if (connected) {
         // Reconnecting changes the Mail grant, so point the monitor at it first;
@@ -298,7 +295,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         await checkAgain();
       }
       else setError("Email access was not renewed. Your follow-ups stay as they are.");
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -322,7 +319,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
           ...page.conversations.filter(entry => !ids.has(entry.id)),
         ] };
       });
-    } catch (failure) { if (requestSeq.current === seq) setError(displayError(failure)); }
+    } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
     finally { setLoadingMore(false); }
   };
 
@@ -336,7 +333,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }, await getIdToken(), ownerToken);
       setSelectedId(null); setDetail(null); setSource(null);
       await refresh(lifetime.current?.signal);
-    } catch (failure) { setError(displayError(failure)); }
+    } catch (failure) { setError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -349,7 +346,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       if (!ownerToken) throw new Error("Unlock One to open this email.");
       const value = await CalendarFollowupsService.source(userId, accountId, request.id, await getIdToken(), ownerToken);
       if (!lifetime.current?.signal.aborted && sourceSeq.current === seq && selectedIdRef.current === currentSelection) setSource(value);
-    } catch (failure) { if (sourceSeq.current === seq) setActionError(displayError(failure)); }
+    } catch (failure) { if (sourceSeq.current === seq) setActionError(followupErrorText(failure)); }
     finally { setBusy(false); }
   };
 
@@ -380,14 +377,14 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         if (lifetime.current?.signal.aborted) return;
         if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
         finishDeepLink(deepLinkRequestId);
-      } catch (failure) { setError(displayError(failure)); }
+      } catch (failure) { setError(followupErrorText(failure)); }
     })();
   // openDetail is intentionally bound to this account; the component remounts on account switch.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
   const rows = expanded ? list?.conversations || [] : (list?.conversations || []).slice(0, 2);
-  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage) : null;
+  const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
