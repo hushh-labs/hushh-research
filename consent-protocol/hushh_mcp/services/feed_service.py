@@ -38,6 +38,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from db.db_client import get_db
+from hushh_mcp.services import feed_calendar_context as calendar_context
 from hushh_mcp.services.direct_messages_service import (
     DirectMessageCipher,
     DirectMessagesError,
@@ -273,6 +274,7 @@ _SAFE_METADATA_KEYS = frozenset(
         "draft_id",
         "pwm_outcome",
         "user_facing_status",
+        *calendar_context.CALENDAR_CONTEXT_KEYS,
         # Read-time status of a historical payment instruction. The source
         # order and request remain authoritative; this bounded projection
         # prevents an old Pay row from surviving payment or expiry.
@@ -550,6 +552,7 @@ class FeedService:
         rows = self._with_wallet_card_grants(user_id, rows)
         rows = self._with_wallet_card_requests(user_id, rows)
         rows = self._with_drive_payment_status(user_id, rows)
+        rows = calendar_context.with_calendar_request_context(self._get_db, user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
             "items": [self._to_item(row, user_id) for row in rows],

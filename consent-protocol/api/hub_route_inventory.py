@@ -11,6 +11,7 @@ GET /api/connectors/google_drive/sharing/calendar-requests/{request_id}
 GET /api/connectors/google_drive/sharing/calendar-requests/{request_id}/linked-files
 POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/files
 POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/review
+POST /api/connectors/google_drive/sharing/calendar-requests/{request_id}/unavailable
 GET /api/connectors/google_drive/sharing/requests/{request_id}/one-copy/files/{file_ref}/content
 GET /api/connectors/google_drive/sharing/requests/{request_id}/delivery/source-selection
 POST /api/connectors/google_drive/sharing/requests/{request_id}/delivery/approve

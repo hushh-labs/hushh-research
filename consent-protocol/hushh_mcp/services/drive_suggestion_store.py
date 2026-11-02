@@ -4,13 +4,13 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_calendar_unavailable_store import CalendarUnavailableStore
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
-from hushh_mcp.services.drive_sharing_contract import DriveSharingError
-from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError, calendar_open_types
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 
 
-class DriveSuggestionStore(DriveSharingProjectionStore):
+class DriveSuggestionStore(CalendarUnavailableStore):
     async def due_preparations(self, limit=8):
         def operation(connection):
             return [
@@ -114,7 +114,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 "live": live,
                 "foreground": foreground,
                 **(
-                    {"calendar_types": private["calendar"]["requested_types"]}
+                    {"calendar_types": calendar_open_types(private["calendar"])}
                     if private.get("request_type") == "calendar_meeting"
                     else {}
                 ),

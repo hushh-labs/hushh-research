@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ROUTES } from "@/lib/navigation/routes";
 import { copyToClipboard } from "@/lib/utils/clipboard";
 import type { RequestRecovery } from "./calendar-insights-presentation";
 import styles from "./calendar-insights.module.css";
@@ -11,16 +9,15 @@ import styles from "./calendar-insights.module.css";
 const REQUEST_FIELD = "w-full rounded border p-2";
 
 /**
- * What a requester can do when a meeting file request cannot be sent. A
- * connection problem offers only Connect: the request is not copied around it.
- * Copy remains for refusals that are not about a connection, and as a last
- * resort when sending keeps failing. `onConnect` runs before leaving, so the
- * meeting can be restored on return. `contextGuard` snapshots the current
- * meeting and returns a check that is false once the person has moved to
- * another one, so a late result never lands there.
+ * What a requester can do when a meeting file request cannot be sent for a reason
+ * other than the connection (a connection problem is only ever a quiet hint below
+ * Ask organizer). Copy is offered for refusals where One cannot send for the
+ * person, and as a last resort when sending keeps failing. `contextGuard`
+ * snapshots the current meeting and returns a check that is false once the person
+ * has moved to another one, so a late result never lands there.
  */
-export function RequestRecoveryPanel({ recovery, copyText, onClose, onConnect, contextGuard }: {
-  recovery: RequestRecovery; copyText: string; onClose?: () => void; onConnect?: () => void; contextGuard: () => () => boolean;
+export function RequestRecoveryPanel({ recovery, copyText, onClose, contextGuard }: {
+  recovery: RequestRecovery; copyText: string; onClose?: () => void; contextGuard: () => () => boolean;
 }) {
   const [note, setNote] = useState("");
   const copy = async () => {
@@ -40,7 +37,6 @@ export function RequestRecoveryPanel({ recovery, copyText, onClose, onConnect, c
     <p role="alert">{recovery.message}</p>
     {recovery.copy ? field : null}
     <div className="flex flex-wrap gap-2">
-      {recovery.connect ? <Button asChild variant="outline"><Link href={ROUTES.CONNECT} onClick={onConnect}>Connect</Link></Button> : null}
       {recovery.copy ? <Button variant="outline" onClick={() => void copy()}>Copy request</Button> : null}
       {onClose ? <Button variant="ghost" onClick={onClose}>Close</Button> : null}
     </div>
