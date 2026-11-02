@@ -175,3 +175,144 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
             continue
         boundary = next(step for step in job["steps"] if step.get("id") == "dispatch-authority")
         assert "production_emergency.py dispatch" in boundary["run"]
+
+
+def test_auth_domain_refresh_requires_explicit_frontend_incident(monkeypatch):
+    module, environment, inputs, policy = _emergency_fixture(monkeypatch)
+    inputs.update(frontend_auth_domain_refresh=True, scope="frontend")
+    authority = module.dispatch({"inputs": inputs}, environment, policy)
+    assert authority["frontend_auth_domain_refresh"] is True
+    for key, value in [
+        ("scope", "all"),
+        ("emergency_source_ref", ""),
+        ("nearby_check_in_cohort", ""),
+        ("run_predeploy_backup_job", "true"),
+    ]:
+        with pytest.raises(ValueError):
+            module.dispatch({"inputs": {**inputs, key: value}}, environment, policy)
+
+
+def test_auth_domain_refresh_preserves_the_entire_application(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    receipt = {
+        "kind": "manual-production-predecessor-exception",
+        "scope": "frontend",
+        "authority": {"application_sha": module.CANDIDATE, "frontend_auth_domain_refresh": True},
+        "baseline": {
+            kind: {"source": module.SOURCE, "image": image} for kind, image in module.IMAGES.items()
+        },
+    }
+    module.validate_source(receipt, run=lambda *args: ".github/workflows/ci.yml\n")
+    for changes in [
+        "",
+        "hushh-webapp/app/page.tsx\n",
+        ".github/workflows/ci.yml\ndeploy/frontend.cloudbuild.yaml\n",
+    ]:
+        with pytest.raises(ValueError):
+            module.validate_source(receipt, run=lambda *args, changes=changes: changes)
+    receipt["baseline"]["backend"]["image"] = "changed"
+    with pytest.raises(ValueError):
+        module.validate_source(receipt, run=lambda *args: ".github/workflows/ci.yml\n")
+
+
+def test_auth_domain_refresh_pins_all_original_build_inputs(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    text = "\n".join(
+        f"projects/$PROJECT_ID/secrets/{name}/versions/latest"
+        for name in module.VERSIONS
+        if name != "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID"
+    )
+    text += "\ngcloud secrets versions access latest \\\n  --secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID\n"
+    pinned = module.pin_config(text)
+    for name, version in module.VERSIONS.items():
+        if name != "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID":
+            assert f"/secrets/{name}/versions/{version}" in pinned
+    assert "/versions/latest" not in pinned
+    assert "gcloud secrets versions access 1" in pinned
+    for changed in [
+        text.replace("BACKEND_URL", "FOREIGN_SECRET"),
+        text.replace("--secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID", "--secret=OTHER"),
+    ]:
+        with pytest.raises(ValueError):
+            module.pin_config(changed)
+
+
+def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch):
+    source = (ROOT / ".github/workflows/deploy-production.yml").read_text()
+    assert 'production_auth_domain_refresh.py" verify --receipt' in source
+    assert (
+        "if: steps.document-mode.outputs.configured == 'true' && !inputs.frontend_auth_domain_refresh"
+        in source
+    )
+    assert "Require current-attempt deployment security" in source
+    assert "REQUIRED_CHECK_NAME:" in source
+    assert "Pin the reviewed auth-domain-only frontend inputs" in source
+
+
+def test_auth_domain_refresh_refuses_runtime_configuration_drift(monkeypatch):
+    import copy
+
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    baseline = {
+        "metadata": {"annotations": {"autoscaling.knative.dev/maxScale": "3"}},
+        "spec": {
+            "serviceAccountName": "frontend",
+            "containers": [
+                {
+                    "image": "old",
+                    "resources": {"limits": {"memory": "1Gi"}},
+                    "env": [
+                        {
+                            "name": "BACKEND_URL",
+                            "valueFrom": {"secretKeyRef": {"name": "BACKEND_URL", "key": "latest"}},
+                        },
+                        {"name": "HUSHH_DEPLOY_SHA", "value": "old"},
+                    ],
+                }
+            ],
+        },
+    }
+    candidate = copy.deepcopy(baseline)
+    container = candidate["spec"]["containers"][0]
+    container["image"] = "new"
+    container["env"][0]["valueFrom"]["secretKeyRef"]["key"] = "3"
+    container["env"][1]["value"] = "new"
+    assert module.runtime_config(baseline, original=True) == module.runtime_config(
+        candidate, original=False
+    )
+    container["resources"]["limits"]["memory"] = "2Gi"
+    assert module.runtime_config(baseline, original=True) != module.runtime_config(
+        candidate, original=False
+    )
+    container["env"][0]["valueFrom"]["secretKeyRef"]["key"] = "latest"
+    with pytest.raises(ValueError):
+        module.runtime_config(candidate, original=False)
+
+
+def test_auth_domain_refresh_refuses_foreign_frontend_traffic(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    baseline = {"service_uid": "original", "revision": "old", "generation": "10"}
+    module.require_frontend_baseline({**baseline, "generation": "11"}, baseline)
+    for key, value in [("service_uid", "replacement"), ("revision", "other")]:
+        with pytest.raises(ValueError):
+            module.require_frontend_baseline({**baseline, key: value}, baseline)
+
+
+def test_auth_domain_refresh_uses_observed_intake_not_future_stored_policy(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    mode = {"configured": True, "enabled": True}
+    flag = {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": "false"}
+    backend = {"spec": {"containers": [{"env": [flag]}]}}
+    assert module.effective_document_mode(mode, backend) == {
+        "configured": True,
+        "stored_enabled": True,
+        "enabled": False,
+    }
+    for entries in [[], [dict(flag, value="true")], [dict(flag, valueFrom={})], [flag, flag]]:
+        with pytest.raises(ValueError):
+            module.effective_document_mode(mode, {"spec": {"containers": [{"env": entries}]}})
