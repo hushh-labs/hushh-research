@@ -54,14 +54,19 @@ export function registerFinanceOnboardingChecks(
             .getByRole("heading", { name: "Follow the market." })
             .click();
           await expect(demo).toHaveAttribute("data-playing", "true");
+          // Waits only time the evidence screenshots. Animated values are polled,
+          // because WebKit screenshots and a loaded runner shift when a single
+          // read lands inside the timeline.
           await page.waitForTimeout(1800);
           await page.screenshot({
             path: testInfo.outputPath("market-motion.png"),
           });
           const path = phone.locator('[data-scene="0"] path').first();
-          expect(
-            await path.evaluate((el) => getComputedStyle(el).strokeDashoffset),
-          ).toBe("0px");
+          await expect
+            .poll(() =>
+              path.evaluate((el) => getComputedStyle(el).strokeDashoffset),
+            )
+            .toBe("0px");
           await expect(phone).toHaveAttribute("data-demo-slide", "1", {
             timeout: 6500,
           });
@@ -81,23 +86,26 @@ export function registerFinanceOnboardingChecks(
             path: testInfo.outputPath("stocks-debate.png"),
           });
           const agents = phone.locator('[class*="agentCard"]');
-          expect(
-            await agents
+          const agentOpacity = () =>
+            agents
               .first()
-              .evaluate((el) => Number(getComputedStyle(el).opacity)),
-          ).toBe(1);
+              .evaluate((el) => Number(getComputedStyle(el).opacity));
+          await expect.poll(agentOpacity).toBe(1);
           await page.waitForTimeout(4300);
           await page.screenshot({
             path: testInfo.outputPath("stocks-consensus.png"),
           });
-          expect(
-            await phone
-              .locator('[class*="decision"]')
-              .first()
-              .evaluate((el) => Number(getComputedStyle(el).opacity)),
-          ).toBe(1);
+          await expect
+            .poll(() =>
+              phone
+                .locator('[class*="decision"]')
+                .first()
+                .evaluate((el) => Number(getComputedStyle(el).opacity)),
+            )
+            .toBe(1);
+          // The Stocks scene lasts 11.8s; screenshot time is not part of it.
           await expect(phone).toHaveAttribute("data-demo-slide", "0", {
-            timeout: 4500,
+            timeout: 12000,
           });
           // Scene DOM survives the entire loop; restarting does not flash/unmount it.
           await expect(scenes).toHaveCount(3);
@@ -115,19 +123,16 @@ export function registerFinanceOnboardingChecks(
             .getByRole("button", { name: "Show Stocks introduction" })
             .click();
           await expect(phone).toHaveAttribute("data-demo-slide", "2");
-          expect(
-            await agents
-              .first()
-              .evaluate((el) => Number(getComputedStyle(el).opacity)),
-          ).toBe(1);
+          await expect.poll(agentOpacity).toBe(1);
           await expect(demo).toHaveAttribute("data-playing", "false");
           await page
             .getByRole("button", { name: "Play Finance introduction" })
             .click();
-          await page.waitForTimeout(300);
-          expect(
-            await progress.evaluate((el) => getComputedStyle(el).transform),
-          ).not.toBe(before);
+          await expect
+            .poll(() =>
+              progress.evaluate((el) => getComputedStyle(el).transform),
+            )
+            .not.toBe(before);
           await page.evaluate(() => {
             Object.defineProperty(document, "hidden", {
               configurable: true,
