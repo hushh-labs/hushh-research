@@ -20,7 +20,10 @@ from hushh_mcp.services.gcp_notification_upgrade_recovery import (
     verify_released_handoff,
 )
 from hushh_mcp.services.personal_agent_provisioning_service import upgrade_release_id
-from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+from hushh_mcp.services.personal_agent_registry_repo import (
+    PersonalAgentRegistryRepo,
+    upgrade_lease_host_binding_matches,
+)
 from tests import standby_postgres_support as support
 from tests.pkm_conformance.postgres_harness import find_pg_bin
 
@@ -243,15 +246,17 @@ async def _rearm(pg, engine, repo, *, observed: dict, execute=True, race_writer=
 
 @pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
 @pytest.mark.asyncio
-async def test_recovery_rearms_same_approval_with_real_guarded_registry_cas(pg, engine):
+async def test_recovery_rearms_same_approval_with_real_guarded_registry_cas(
+    pg, engine, monkeypatch
+):
     from db.db_client import DatabaseClient
 
     _row, metadata, approval = _owner_row()
     metadata["upgradeAcknowledgement"]["hubRevision"] = ""
+    metadata.pop("upgradeLease")
     support.seed_primary(pg, metadata=metadata)
     repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
-    observed = await repo.get(_OWNER)
-    assert observed is not None
+    lease, observed = await _claim_recovery_lease(repo, _OWNER, monkeypatch)
     before = copy.deepcopy(observed["backend_metadata"])
     pg.execute(
         "INSERT INTO pod_lifecycle_events(user_id,seq,hushh_id,attempt,event,stage,"
@@ -277,7 +282,7 @@ async def test_recovery_rearms_same_approval_with_real_guarded_registry_cas(pg, 
         await _rearm(pg, engine, repo, observed=observed, race_writer=True)
     raced = await repo.get(_OWNER)
     assert raced is not None
-    assert raced["backend_metadata"]["upgradeLease"] == _LEASE
+    assert raced["backend_metadata"]["upgradeLease"] == lease
     assert raced["backend_metadata"]["upgradeApproval"] == approval
     assert raced["backend_metadata"]["raceWitness"] == "concurrent"
 
@@ -306,6 +311,27 @@ async def test_recovery_rearms_same_approval_with_real_guarded_registry_cas(pg, 
     assert recovery["operator_verified_source_provenance"]["provenance"] == (
         "operator_declared_preserved_public_evidence"
     )
+
+
+async def _claim_recovery_lease(repo, owner, monkeypatch):
+    from hushh_mcp.services import personal_agent_upgrade_reservations
+
+    class FixedLeaseClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            when = datetime.fromisoformat(_LEASE.split("|", 1)[0])
+            return when.astimezone(tz) if tz else when
+
+    monkeypatch.setattr(personal_agent_upgrade_reservations, "datetime", FixedLeaseClock)
+    lease_free = await repo.get(owner)
+    assert lease_free is not None
+    lease = await repo.claim_image_upgrade(
+        user_id=owner, target_image=REVIEWED_TARGET_IMAGE, observed=lease_free
+    )
+    assert lease
+    observed = await repo.get(owner)
+    assert observed is not None and upgrade_lease_host_binding_matches(observed)
+    return lease, observed
 
 
 def _candidate():

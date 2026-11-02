@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,8 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     PersonalAgentProvisioningService,
     upgrade_release_id,
 )
+from tests.hosted_files_worker_cases import *  # noqa: F403 -- bounded selected case exports
+from tests.pod_files_checkpoint_join_cases import *  # noqa: F403 -- bounded selected case exports
 from tests.test_personal_agent_upgrade_authority import (
     _approval,
     _ExecutionRegistry,
@@ -59,6 +62,16 @@ def _denied_queue_fixture():
         upgradeLease=lease,
         filesUpgradeCheckpoint=checkpoint,
         upgradeAcknowledgement={"operationId": "prior-operation"},
+    )
+    row.update(phone_e164_hash="opaque", pod_pubkey="public")
+    row["user_cloud_authorized_at"] = "2026-10-01T00:00:00+00:00"
+    from hushh_mcp.services.personal_agent_registry_repo import (
+        upgrade_host_binding_json,
+        upgrade_host_snapshot,
+    )
+
+    row["backend_metadata"]["upgradeLeaseHost"] = json.loads(
+        upgrade_host_binding_json(upgrade_host_snapshot(row))
     )
     spec = PodSpec(
         hushh_id=plan.hushhId,

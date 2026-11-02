@@ -273,7 +273,14 @@ def _execution_purpose(reservation: dict) -> Literal["bootstrap", "provision"]:
     )
 
 
-def _worker_guard(current: Any, loop: asyncio.AbstractEventLoop, owner_thread: int) -> Any:
+def _worker_guard(
+    current: Any,
+    loop: asyncio.AbstractEventLoop,
+    owner_thread: int,
+    *,
+    join_on_timeout: bool = False,
+    timeout: float = 20,
+) -> Any:
     def guard() -> None:
         if threading.get_ident() == owner_thread:
             raise ProvisionReconciliationRequired(
@@ -282,6 +289,18 @@ def _worker_guard(current: Any, loop: asyncio.AbstractEventLoop, owner_thread: i
         if not loop.is_running() or loop.is_closed():
             raise ProvisionReconciliationRequired("Hosted admission coordinator is unavailable")
         operation = current()
+        if join_on_timeout:
+            from hushh_mcp.services.pod_files.capability_checkpoint import publish_on_owner_loop
+
+            try:
+                publish_on_owner_loop(
+                    operation, owner_loop=loop, join_on_timeout=True, timeout=timeout
+                )
+            except TimeoutError:
+                raise ProvisionReconciliationRequired(
+                    "Hosted admission observation timed out"
+                ) from None
+            return
         try:
             future = asyncio.run_coroutine_threadsafe(operation, loop)
         except RuntimeError:
@@ -290,7 +309,7 @@ def _worker_guard(current: Any, loop: asyncio.AbstractEventLoop, owner_thread: i
                 "Hosted admission coordinator is unavailable"
             ) from None
         try:
-            future.result(timeout=20)
+            future.result(timeout=timeout)
         except TimeoutError:
             future.cancel()
             raise ProvisionReconciliationRequired(

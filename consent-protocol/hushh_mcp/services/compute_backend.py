@@ -155,6 +155,20 @@ class PodSpec:
     on_upgrade_idle: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
         default=None, repr=False, compare=False
     )
+    # Managed Files requires a dedicated PostgreSQL session from lease claim
+    # through provider-worker join. This remains process-local and is never
+    # serialized into a pod configuration.
+    hosted_files_executor: Any = dataclass_field(default=None, repr=False, compare=False)
+    # Called with the exact live predecessor immediately before the managed Files
+    # image replacement request; the durable intent fences its UID/generation/revision.
+    on_hosted_files_replacement_intent: Optional[Callable[[dict[str, Any]], None]] = (
+        dataclass_field(default=None, repr=False, compare=False)
+    )
+    # Called with an exact provider terminal readback after either ready settlement
+    # or documented v2 failed reconciliation of the attempted revision.
+    on_hosted_files_provider_settled: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
+        default=None, repr=False, compare=False
+    )
     # Present only for a separately approved Files resource/configuration delta.
     files_upgrade_plan: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
     # Only a fenced maintenance recovery may supply already-acknowledged steps.
@@ -299,6 +313,14 @@ class PodBootFailedError(RuntimeError):
     """
 
 
+class UpgradeAcknowledgementRetainedForErasure(RuntimeError):
+    """An exact provider acknowledgement was retained after erasure admission.
+
+    The provider adapter may perform only a read-only terminal observation of
+    that exact generation so the original executor can settle its receipt.
+    """
+
+
 @dataclass(frozen=True)
 class BackendStatus:
     """Health/liveness of a provisioned host, for the reconcile loop."""
@@ -323,6 +345,13 @@ class ComputeBackend(Protocol):
     def render_deploy_config(self, spec: PodSpec) -> dict[str, Any]: ...
 
     async def health(self) -> bool: ...
+
+
+@runtime_checkable
+class SessionBoundUpgradeRecovery(Protocol):
+    """Optional recovery boundary for work that must retain its original session."""
+
+    def recovery_requires_original_session(self, spec: PodSpec) -> bool: ...
 
 
 # Optional lifecycle capabilities, outside the five methods every provider owes: the

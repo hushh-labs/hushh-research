@@ -13,12 +13,12 @@ from hushh_mcp.services.hosted_native_memory_inventory import observe_memory_abs
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 TOKEN = "synthetic-memory-inventory"
-NOW = datetime(2026, 10, 27, 10, 20, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 2, 10, 20, tzinfo=timezone.utc)
 
 
 class MemoryNamespaceFixture:
     def __init__(self, creation, *, ca_status=404):
-        self.creation = {**deepcopy(creation), "createTime": "2026-10-27T10:00:00Z"}
+        self.creation = {**deepcopy(creation), "createTime": "2026-10-30T10:00:00Z"}
         self.ca_status, self.requests = ca_status, []
         self.ca_reads = 0
         self.fail_other = False
@@ -90,11 +90,19 @@ def runtime_negative_controls(creation, context, monkeypatch):
     ] = "prod"
     with pytest.raises(ProvisionReconciliationRequired):
         MemoryNamespaceFixture(creation).observe(creation, legacy)
-    for timestamp in ("2026-10-25T00:00:00Z", "2026-10-28T00:00:00Z"):
+    # Existing pilot projects created on 2026-10-27 predate the refreshed provider
+    # contract and must stop qualifying for this exception.
+    for timestamp in (
+        "2026-10-25T00:00:00Z",
+        "2026-10-27T10:00:00Z",
+        "2026-10-29T23:59:59Z",
+        "2026-11-03T00:00:00Z",
+    ):
         native = MemoryNamespaceFixture(creation)
         native.creation["createTime"] = timestamp
+        changed_creation = {**creation, "createTime": timestamp}
         with pytest.raises(ProvisionReconciliationRequired):
-            native.observe(creation, context)
+            native.observe(changed_creation, context)
     with pytest.raises(ProvisionReconciliationRequired):
         MemoryNamespaceFixture(creation).observe(creation, context, retained=("ca",))
     native = MemoryNamespaceFixture(creation)
@@ -107,7 +115,7 @@ def runtime_negative_controls(creation, context, monkeypatch):
     )
     with pytest.raises(ProvisionReconciliationRequired):
         MemoryNamespaceFixture(creation).observe(creation, retained)
-    monkeypatch.setattr(contract, "utc_now", lambda: datetime(2026, 11, 1, tzinfo=timezone.utc))
+    monkeypatch.setattr(contract, "utc_now", lambda: datetime(2026, 11, 10, tzinfo=timezone.utc))
     with pytest.raises(ProvisionReconciliationRequired):
         MemoryNamespaceFixture(creation).observe(creation, context)
     # Actual successful native pages outrank an expired N/A contract, even for legacy callers.
@@ -133,11 +141,14 @@ def sql_negative_controls(pg, coordinates, receipt):
         changed["coverage"][0][field] = value
         assert not valid(changed)
     for path, value in (
+        (("providerContract", "schemaVersion"), 1),
+        (("providerContract", "sourceLastUpdated"), "2026-10-26"),
         (("providerContract", "snapshotSha256"), "0" * 64),
         (("providerContract", "qualificationExpiresAt"), "2027-01-01T00:00:00Z"),
         (("projectIdentity", "projectNumber"), "999999999999"),
         (("projectIdentity", "createTime"), "2026-10-25T00:00:00Z"),
-        (("projectIdentity", "createTime"), "2026-10-28T00:00:00Z"),
+        (("projectIdentity", "createTime"), "2026-10-27T10:00:00Z"),
+        (("projectIdentity", "createTime"), "2026-11-03T00:00:00Z"),
         (("endpointObservation", "httpStatus"), 403),
         (("endpointObservation", "url"), "https://foreign.googleapis.com/"),
     ):
@@ -148,7 +159,7 @@ def sql_negative_controls(pg, coordinates, receipt):
     changed["coverage"][0]["projectIdentity"]["labels"]["hussh-provision-attempt"] = "f" * 32
     assert not valid(changed)
     changed = deepcopy(receipt)
-    changed["coverage"][0]["observedAt"] = "2026-11-01T00:00:00Z"
+    changed["coverage"][0]["observedAt"] = "2026-11-09T00:00:00Z"
     assert not valid(changed)
     changed = deepcopy(receipt)
     changed["coverage"].pop(0)
@@ -156,6 +167,9 @@ def sql_negative_controls(pg, coordinates, receipt):
 
 
 async def verify_engine_location_contract(pg, monkeypatch):
+    from tests.test_hosted_pilot_admission_postgres import ROOT
+
+    pg.apply_file(ROOT / "db/migrations/parked/981_hosted_native_location_contract.sql")
     monkeypatch.setattr(contract, "utc_now", lambda: NOW)
     context = pg.execute(
         "SELECT backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id='owner-a'"
@@ -164,6 +178,9 @@ async def verify_engine_location_contract(pg, monkeypatch):
     creation = attempt["evidence"]["reserved"]["hostedPreparation"]["completed"][0][
         "resourceObservation"
     ]["identity"]
+    # The positive case is a synthetic post-refresh pilot identity. The recorded
+    # 2026-10-27 projects intentionally remain outside this exception.
+    creation = {**creation, "createTime": "2026-10-30T10:00:00Z"}
     native = MemoryNamespaceFixture(creation)
     receipt = native.observe(creation, context)
     assert "ca" in receipt["locations"] and "ca" in receipt["locationCatalogue"]["locations"]

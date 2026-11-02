@@ -1,9 +1,7 @@
 """Minimal Cloud Run Admin (v1 knative) REST client for the GCP compute backend.
 
-Used ONLY in live mode by ``GcpBackend`` to actually create / get / delete a
-per-user Cloud Run service. The token is minted from the operator service account
-(``GCP_DEPLOY_SA_KEY_B64``); every call goes through the agent proxy + CA bundle
-the environment configures (honored automatically by requests via the proxy env).
+Used only in live mode by ``GcpBackend`` to create, get, and delete each user's
+Cloud Run service with operator credentials through the configured proxy and CA bundle.
 
 Sync + requests-based (google-auth's transport is requests); ``GcpBackend`` calls
 it off the event loop via ``asyncio.to_thread``. The v1 knative API is used because
@@ -20,6 +18,8 @@ import os
 import re
 import time
 from typing import Any, Callable, Optional
+
+from hushh_mcp.services.gcp_run_hosted_files import HostedFilesRunClientMixin
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,7 @@ def resolve_admin_project(sa_key_b64: Optional[str] = None) -> Optional[str]:
     return attached_project or None
 
 
-class GcpRunClient:
+class GcpRunClient(HostedFilesRunClientMixin):
     """Create / get / delete Cloud Run services via the v1 knative regional API."""
 
     def __init__(self, *, project: str, region: str, credentials: Any = None) -> None:

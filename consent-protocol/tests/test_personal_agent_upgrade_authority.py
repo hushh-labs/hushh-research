@@ -289,6 +289,19 @@ async def test_new_upgrade_requires_compatibility_before_cloud_access(monkeypatc
     assert "upgradeLease" not in registry.row["backend_metadata"]
 
 
+def test_installed_release_admits_retained_managed_files_and_legacy_azure_vm(monkeypatch):
+    from tests.hosted_files_upgrade_cases import installed_release_admission_case
+
+    installed_release_admission_case(monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_managed_files_fresh_executor_claim_uses_retained_backend():
+    from tests.hosted_files_upgrade_cases import managed_files_fresh_executor_claim_case
+
+    await managed_files_fresh_executor_claim_case()
+
+
 class _ExecutionRegistry(_RecoveryRegistry):
     def __init__(self, row):
         super().__init__(row)

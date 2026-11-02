@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Callable
 
 from db.area_discovery_adoption import area_discovery_qualification_sql
 from db.hosted_custody_adoption import hosted_custody_adoption, hosted_custody_recovery_replay
+from db.hosted_custody_qualification import UPGRADE_HOST_TRIGGER
+from db.private_agent_adoption_successors import qualify_private_agent_successors
 
 if TYPE_CHECKING:
     from db.migration_authority import MigrationManifestEntryV2
@@ -458,6 +460,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     additions = "".join(f"('consent_audit','{spec[0]}')," for spec in GUARDS)
     additions += "('account_deletion_tombstones','account_shared_provider_authority'),"
     additions += "('account_deletion_tombstones','one_area_discovery_erasure'),"
+    additions += f"('personal_agent_registry','{UPGRADE_HOST_TRIGGER}'),"
     block = f"DO $pod_414$\nBEGIN\n{inventory[0]}\nEND\n$pod_414$;"
     if entry.sql.count(block) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory block changed")
@@ -468,6 +471,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     sql = _retain_notification_checkpoint_successor(entry.sql)
     sql = sql.replace(column_anchor, preparation + column_anchor, 1)
     sql = hosted_custody_adoption(_retention_inventory_sql(sql))
+    sql = qualify_private_agent_successors(sql)
     qualified = block.replace(_ANCHOR, _ANCHOR + additions)
     if not entry.sql.rstrip().endswith("COMMIT;"):
         raise MigrationAuthorityError("Private-agent adoption transaction source changed")

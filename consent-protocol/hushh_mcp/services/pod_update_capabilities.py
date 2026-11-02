@@ -30,6 +30,31 @@ def approved_update_browser_qualification(row: dict, *, approved: bool) -> dict 
     return qualification
 
 
+def await_update_publication(coroutine, owner_loop, spec: PodSpec) -> None:
+    """Retain a managed Files callback until its actual owner-loop task exits."""
+    from hushh_mcp.services.pod_files.capability_checkpoint import publish_on_owner_loop
+
+    publish_on_owner_loop(
+        coroutine,
+        owner_loop=owner_loop,
+        join_on_timeout=spec.deployment_target == "gcp" and spec.files_upgrade_plan is not None,
+    )
+
+
+async def retain_late_update(
+    registry: Any, spec: PodSpec, user_id: str, lease: str, payload: dict, *, files: bool
+) -> bool:
+    """Keep late evidence on the existing owner operation and join managed SQL."""
+    name = "retain_erasure_files_upgrade_observation" if files else "retain_erasure_upgrade_ack"
+    retain = getattr(registry, name, None)
+    if retain is None:
+        return False
+    fields = {"user_id": user_id, "lease": lease, "observation" if files else "receipt": payload}
+    if spec.deployment_target == "gcp" and spec.files_upgrade_plan is not None:
+        fields["join_on_cancel"] = True
+    return bool(await retain(**fields))
+
+
 async def admit_capabilities(
     registry: Any, row: dict, *, approval_matches: bool, recoverable_operation: bool
 ) -> tuple[FilesCapabilityPlan | AzureFilesCapabilityPlan | None, GcpBrowserCapabilityPlan | None]:
@@ -52,9 +77,17 @@ async def admit_capabilities(
             "Files activation requires its exact owner approval"
         )
     if files_capability is not None and held is None:
-        from hushh_mcp.services.pod_files.capability_contract import admission_ready
+        from hushh_mcp.services.pod_files.capability_contract import (
+            admission_ready,
+            hosted_schema_ready,
+        )
 
-        if not await admission_ready(registry, files_capability):
+        ready = (
+            await hosted_schema_ready(registry)
+            if row.get("deployment_target") == "gcp"
+            else await admission_ready(registry, files_capability)
+        )
+        if not ready:
             raise PersonalAgentUpgradeUnsupportedError("Files upgrade recovery schema is not ready")
     browser_capability = (
         approved_browser_plan(approval_metadata) if isinstance(approval_metadata, dict) else None

@@ -137,7 +137,34 @@ async def _refuse_changed_bindings(server, owner, authority, request):
         "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=%s", (owner,)
     )[0][0]
 
-    def write(value):
+    def write(value, *, host_authority=False):
+        if host_authority:
+            server.execute(
+                """WITH lease_authority AS MATERIALIZED (
+                       SELECT set_config(
+                           'hushh.upgrade_lease_host_binding',
+                           format('%%s|%%s', registry.backend_metadata->>'upgradeLease',
+                                  (registry.backend_metadata->'upgradeLeaseHost')::text),
+                           true
+                       )
+                       FROM personal_agent_registry AS registry
+                       WHERE registry.user_id=%s
+                         AND registry.backend_metadata->>'upgradeLease' IS NOT NULL
+                         AND registry.backend_metadata->'upgradeLeaseHost' IS NOT NULL
+                   )
+                   UPDATE personal_agent_registry AS registry
+                   SET backend_metadata=%s::jsonb,pod_signing_pubkey=%s,placement_epoch=%s
+                   FROM lease_authority
+                   WHERE registry.user_id=%s""",
+                (
+                    owner,
+                    json.dumps(value["backend_metadata"]),
+                    value["pod_signing_pubkey"],
+                    value["placement_epoch"],
+                    owner,
+                ),
+            )
+            return
         server.execute(
             "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb,pod_signing_pubkey=%s,placement_epoch=%s WHERE user_id=%s",
             (
@@ -162,17 +189,21 @@ async def _refuse_changed_bindings(server, owner, authority, request):
                 changed["pod_signing_pubkey"] = "B" * 43 + "="
             else:
                 changed["placement_epoch"] += 1
-            if fault == "host":
+            if fault != "commit":
                 from psycopg2.errors import InsufficientPrivilege
 
-                with pytest.raises(InsufficientPrivilege, match="verified recovery"):
+                with pytest.raises(
+                    InsufficientPrivilege,
+                    match="(host-bound personal-agent upgrade lease authority|"
+                    "VM image publication requires verified recovery)",
+                ):
                     write(changed)
                 continue
-            write(changed)
+            write(changed, host_authority=True)
             assert not await asyncio.to_thread(authority.admit, str(uuid.uuid4()), request)
-            write(row)
+            write(row, host_authority=True)
     finally:
-        write(row)
+        write(row, host_authority=True)
 
 
 @pytest.mark.parametrize("cleanup_pg", ["unreserved"], indirect=True)
@@ -307,6 +338,7 @@ async def test_vm_owner_job_composes_update_and_publishes_image_recovery_atomica
 ):
     from hushh_mcp.services.azure_agent_observation import AzureJitAuthorizationRequired
     from hushh_mcp.services.azure_hosted_authority import hosted_job
+    from hushh_mcp.services.personal_agent_registry_repo import upgrade_lease_host_binding_matches
     from hushh_mcp.services.pod_update_identity import verified_upgrade_approval
     from hushh_mcp.services.user_azure_backend import jit_person_authority
 
@@ -329,6 +361,7 @@ async def test_vm_owner_job_composes_update_and_publishes_image_recovery_atomica
         "vmPower",
     }
     old = before["backend_metadata"]
+    assert upgrade_lease_host_binding_matches(before)
     if not had_power_cycle:
         for fault in ("keys", "release", "host"):
             if fault == "keys":
@@ -346,6 +379,7 @@ async def test_vm_owner_job_composes_update_and_publishes_image_recovery_atomica
     candidate["upgradeAcknowledgement"] = {**old["upgradeAcknowledgement"], "outcome": "ready"}
     candidate["upgradeApproval"] = verified_upgrade_approval(old["upgradeApproval"])
     candidate.pop("upgradeLease")
+    candidate.pop("upgradeLeaseHost")
     candidate.pop("vmPower", None)
     _refuse_vm_publication_changes(server, owner, before, candidate, intent)
     assert await repo.record_image_upgrade(

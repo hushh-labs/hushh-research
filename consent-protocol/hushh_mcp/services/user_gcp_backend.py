@@ -18,6 +18,8 @@ import base64
 import hashlib
 import logging
 import re
+from copy import deepcopy
+from functools import partial
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 if TYPE_CHECKING:
@@ -46,13 +48,24 @@ from hushh_mcp.services.owner_direct_ingress import (
     observed_ingress,
     recorded_ingress,
     rendered_cloud_run_ingress,
-    update_ingress_record,
 )
+from hushh_mcp.services.pod_files.managed_worker import upgrade_thread
 from hushh_mcp.services.pod_gmail_push_config import gmail_notification_resources
 
 logger = logging.getLogger(__name__)
 
 _SLUG = re.compile(r"[^a-z0-9-]+")
+
+
+def _submit_after_hosted_files_admission(
+    admit: Callable[[dict[str, Any]], Any] | None,
+    predecessor: dict[str, Any],
+    submit: Callable[[], Any],
+) -> Any:
+    """Run exactly one replacement only after its durable journal admission."""
+    from hushh_mcp.services.pod_files.hosted_upgrade import submit_after_admission
+
+    return submit_after_admission(admit, predecessor, submit)
 
 
 def _slug(hushh_id: str) -> str:
@@ -88,6 +101,12 @@ def _bare_service_account(value: Optional[str]) -> str:
     """
     text = str(value or "").strip()
     return text[len("serviceAccount:") :].strip() if text.startswith("serviceAccount:") else text
+
+
+def _hosted_files_handoff_options(spec: PodSpec) -> dict[str, Any]:
+    from hushh_mcp.services.pod_files.hosted_upgrade import handoff_options
+
+    return handoff_options(spec)
 
 
 def _digest_from_service(service: Optional[dict[str, Any]]) -> Optional[str]:
@@ -318,7 +337,16 @@ class UserGcpBackend:
         self._require_private_admission = require_private_admission
         self._tenancy = "user-owned"
         if private_deployment is not None:
-            private_deployment.validate()
+            frozen_operation = getattr(require_private_admission, "operation", None) in {
+                "inspect",
+                "cleanup",
+            }
+            if (
+                frozen_operation
+                and getattr(require_private_admission, "deployment", None) != private_deployment
+            ):
+                raise ValueError("Managed controller differs from its deployment assignment")
+            private_deployment.validate(frozen=frozen_operation)
             if (
                 private_deployment.hosting_mode != "hussh_hosted"
                 or private_deployment.environment != "dev"
@@ -429,11 +457,18 @@ class UserGcpBackend:
         never a fresh resolution of the mutable source tag -- so a heal can never silently
         roll the pod's image forward. Only a FIRST provision resolves the tag.
         """
+        files_guard = None
         if self._private_deployment is not None:
             self._validate_private_spec(spec)
             if self._require_private_admission is None:
                 raise RuntimeError("Managed private lifecycle admission is unavailable")
-            self._require_private_admission()
+            if spec.deployment_target == "gcp" and spec.files_upgrade_plan is not None:
+                files_guard = getattr(self._require_private_admission, "require_files_work", None)
+                if not callable(files_guard):
+                    raise RuntimeError("Managed Files mutation authority is unavailable")
+                files_guard()
+            else:
+                self._require_private_admission()
         if getattr(self._require_private_admission, "operation", None) == "inspect":
             raise RuntimeError("Update recovery cannot copy or publish an image")
         from hushh_mcp.services import pod_image_copy  # noqa: PLC0415
@@ -462,8 +497,18 @@ class UserGcpBackend:
         ):
             raise RuntimeError("Managed private image differs from its admitted digest")
         dest_ref = f"{dest_base}@{digest}"
-        if not pod_image_copy.image_exists(dest_ref, token):
-            pod_image_copy.copy_image(source, dest_ref, token)
+        if files_guard is None:
+            if not pod_image_copy.image_exists(dest_ref, token):
+                pod_image_copy.copy_image(source, dest_ref, token)
+        else:
+            import requests
+
+            from hushh_mcp.services.hosted_project_gcp_operator import GuardedOperatorSession
+
+            session = GuardedOperatorSession(requests, files_guard)
+            if not pod_image_copy.image_exists(dest_ref, token, session=session):
+                files_guard()
+                pod_image_copy.copy_image(source, dest_ref, token, session=session)
         return digest
 
     def render_bootstrap_plan(self, spec: PodSpec) -> dict[str, Any]:
@@ -922,8 +967,7 @@ class UserGcpBackend:
         allow_runtime_replace: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Require owner substrate, pin runtime terms, then reconcile direct delivery."""
-        import asyncio
-        from copy import deepcopy
+        thread = partial(upgrade_thread, spec)
 
         from hushh_mcp.services.gcp_run_client import GcpRunClient
         from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
@@ -937,7 +981,7 @@ class UserGcpBackend:
         if not url:
             raise RuntimeError("Gmail notifications require the verified pod HTTPS URL")
         inventory = self._gmail_notification_inventory(spec, url)
-        owner_header = await asyncio.to_thread(client._headers)
+        owner_header = await thread(client._headers)
         authorization = str(owner_header.get("Authorization") or "")
         if not authorization.startswith("Bearer ") or not self._bootstrap_sa:
             return service, {
@@ -951,7 +995,7 @@ class UserGcpBackend:
             token=authorization.removeprefix("Bearer "),
         )
         try:
-            await asyncio.to_thread(
+            await thread(
                 bootstrap.configure_notification_delivery,
                 self.render_bootstrap_plan(spec),
                 service_url=url,
@@ -980,18 +1024,18 @@ class UserGcpBackend:
                 raise RuntimeError(
                     "Gmail notification terms were not installed by the acknowledged upgrade"
                 )
-            current = await asyncio.to_thread(client.get_service, _service_name(spec.hushh_id))
+            current = await thread(client.get_service, _service_name(spec.hushh_id))
             GcpRunClient.require_service_uid(current, expected_uid)
             desired = deepcopy(current)
             self._apply_gmail_runtime_env(desired, spec, url)
-            await asyncio.to_thread(checkpoint, "intent", "gmail_runtime_configuration", [])
-            await asyncio.to_thread(
+            await thread(checkpoint, "intent", "gmail_runtime_configuration", [])
+            await thread(
                 client.replace_service,
                 _service_name(spec.hushh_id),
                 GcpRunClient.merge_for_replace(current, desired),
                 expected_uid=expected_uid,
             )
-            ready, service = await asyncio.to_thread(
+            ready, service = await thread(
                 client.wait_ready, _service_name(spec.hushh_id), expected_uid=expected_uid
             )
             if not ready:
@@ -1003,7 +1047,7 @@ class UserGcpBackend:
             }
             if any(actual.get(name) != value for name, value in required.items()):
                 raise RuntimeError("Gmail notification runtime configuration readback differs")
-            await asyncio.to_thread(
+            await thread(
                 checkpoint,
                 "observed",
                 "gmail_runtime_configuration",
@@ -1020,14 +1064,14 @@ class UserGcpBackend:
                     }
                 ],
             )
-        await asyncio.to_thread(checkpoint, "intent", "gmail_direct_invoker", [])
-        policy = await asyncio.to_thread(
+        await thread(checkpoint, "intent", "gmail_direct_invoker", [])
+        policy = await thread(
             client.set_invoker_binding,
             _service_name(spec.hushh_id),
             f"serviceAccount:{self._pod_service_account(spec)}",
             expected_uid=expected_uid,
         )
-        service = await asyncio.to_thread(client.get_service, _service_name(spec.hushh_id))
+        service = await thread(client.get_service, _service_name(spec.hushh_id))
         GcpRunClient.require_service_uid(service, expected_uid)
         observed_uid = GcpRunClient.service_uid(service)
         member = f"serviceAccount:{self._pod_service_account(spec)}"
@@ -1039,7 +1083,7 @@ class UserGcpBackend:
             if isinstance(binding, dict)
         ):
             raise RuntimeError("Gmail direct invoker IAM readback is unavailable")
-        await asyncio.to_thread(
+        await thread(
             checkpoint,
             "observed",
             "gmail_direct_invoker",
@@ -1057,7 +1101,7 @@ class UserGcpBackend:
                 }
             ],
         )
-        configured = await asyncio.to_thread(
+        configured = await thread(
             bootstrap.configure_notification_delivery,
             self.render_bootstrap_plan(spec),
             service_url=url,
@@ -1632,6 +1676,28 @@ class UserGcpBackend:
         import asyncio
 
         from hushh_mcp.services.gcp_upgrade_observation import observe_user_upgrade
+        from hushh_mcp.services.pod_release import image_digest
+
+        source_image = receipt.get("sourceImage", receipt.get("targetImage"))
+        source_digest = image_digest(source_image)
+        hosted_executor = spec.hosted_files_executor is not None
+        deployed_image = receipt.get("deployedImage", receipt.get("image"))
+        deployed_digest = image_digest(deployed_image)
+        if (
+            receipt.get("targetImage") != source_image
+            or deployed_digest is None
+            or (source_digest is not None and source_digest != deployed_digest)
+            or receipt.get("targetDigest", deployed_digest) != deployed_digest
+            or receipt.get("sourceDigest", deployed_digest) != deployed_digest
+            or (hosted_executor and source_digest is None)
+        ):
+            return None
+        expected_deployed_image = self._user_pod_image_ref(spec, deployed_digest)
+        if (
+            deployed_image != expected_deployed_image
+            or receipt.get("image") != expected_deployed_image
+        ):
+            return None
 
         return await observe_user_upgrade(
             await asyncio.to_thread(self._client),
@@ -1640,6 +1706,7 @@ class UserGcpBackend:
             backend_id=self.backend_id,
             spec=spec,
             receipt=receipt,
+            expected_deployed_image=expected_deployed_image,
         )
 
     async def discover_files_upgrade_ack(self, spec: PodSpec) -> Optional[dict]:
@@ -1662,12 +1729,30 @@ class UserGcpBackend:
                 expected_uid=plan.serviceUid,
                 attempt_id=spec.upgrade_attempt_id,
             )
-            plan.require_installed(observed)
+            plan.require_installed(observed, hosted=spec.private_gcp_deployment is not None)
         except (RuntimeError, ValueError):
             return None
-        if receipt["image"].rsplit("@", 1)[-1] != plan.targetImage.rsplit("@", 1)[-1]:
+        from hushh_mcp.services.pod_release import image_digest
+
+        source_image = spec.upgrade_target_image
+        source_digest = image_digest(source_image)
+        if (
+            not source_image
+            or source_image != plan.targetImage
+            or source_digest is None
+            or receipt["image"] != self._user_pod_image_ref(spec, source_digest)
+            or receipt["image"].rsplit("@", 1)[-1] != source_digest
+        ):
             return None
-        return receipt
+        deployed_image = self._user_pod_image_ref(spec, source_digest)
+        return {
+            **receipt,
+            "sourceImage": source_image,
+            "sourceDigest": source_digest,
+            "targetImage": source_image,
+            "targetDigest": source_digest,
+            "deployedImage": deployed_image,
+        }
 
     async def inspect_files_capability(self, spec: PodSpec) -> dict:
         return await self.inspect_pod_configuration(spec)
@@ -1678,30 +1763,7 @@ class UserGcpBackend:
         return await inspect_user_configuration(self, spec, name=_service_name(spec.hushh_id))
 
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
-        """Move THIS person's running pod onto the hub's current image, in place.
-
-        The one path that resolves the mutable source tag AGAIN. A heal through
-        ``provision`` deliberately converges to the digest already deployed (see
-        ``_ensure_pod_image``), so until this existed a fix shipped to the hub never
-        reached a pod that was already running: the founder's first BYOC pod ran an
-        image five commits behind the hub that had built it, and served that older
-        code's 502 on the calendar door while every hub test was green (2026-09-02).
-
-        What it preserves, and why an upgrade is not a rebuild:
-
-        * the SERVICE is replaced (PUT), never deleted, so its name, URL and the
-          hub's recorded route survive;
-        * the config is the same one ``provision`` renders, so the pod's bucket
-          (``POD_STORAGE_GCS_BUCKET`` / ``_PREFIX``), its durable identity key and
-          its service account are unchanged -- memory and identity live THERE, not
-          in the container that is being swapped;
-        * Cloud Run keeps serving the previous revision when the new one never
-          becomes Ready, and this raises rather than returns, so the caller records
-          nothing and the row keeps telling the truth about what is serving.
-
-        A pod already on the current digest is a no-op that reports ``upgraded``
-        False. No service at all is a refusal: an upgrade is not a create.
-        """
+        """Move one person's running pod onto its selected image, in place."""
         name = self._private_service_name(spec)
         route = f"{A2A_ADDRESS_BASE}/{spec.hushh_id}"
         if not self._live:
@@ -1717,292 +1779,9 @@ class UserGcpBackend:
                     "upgraded": False,
                 },
             )
-        import asyncio  # noqa: PLC0415
+        from hushh_mcp.services.user_gcp_upgrade import upgrade_user_gcp
 
-        from hushh_mcp.services.gcp_run_client import GcpRunClient
-
-        expected_uid = spec.expected_service_uid
-        if not isinstance(expected_uid, str) or not expected_uid.strip():
-            raise RuntimeError("pod incarnation unverified; recovery required before upgrade")
-        client = await asyncio.to_thread(self._client)
-        existing = await asyncio.to_thread(client.get_service, name)
-        if existing is None:
-            raise RuntimeError(
-                f"cannot upgrade {name}: no pod service exists in the person's project; "
-                "provision (or adopt) it instead"
-            )
-        GcpRunClient.require_service_uid(existing, expected_uid)
-        from hushh_mcp.services.pod_connector_configuration import (
-            capture_gcp_connector_repair,
-            gcp_connector_environment,
-            reconcile_connector_environment,
-            require_gcp_connector_configuration,
-        )
-
-        connector_environment, connector_repair = capture_gcp_connector_repair(
-            existing, spec.upgrade_operation_id
-        )
-        from hushh_mcp.services.pod_files.capability_update import approved_upgrade_plan
-
-        files_capability = approved_upgrade_plan(
-            spec, existing, project=self._user_project, bootstrap_sa=self._bootstrap_sa
-        )
-        from hushh_mcp.services.pod_browser.capability_update import approved_upgrade_browser_plan
-
-        browser_capability = approved_upgrade_browser_plan(
-            spec, existing, project=self._user_project, bootstrap_sa=self._bootstrap_sa
-        )
-        if browser_capability is not None:
-            from hushh_mcp.services.pod_browser.delivery import require_gcp_delivery
-
-            await asyncio.to_thread(require_gcp_delivery, client, browser_capability)
-        from hushh_mcp.services.hosted_update_configuration import require_update_observation
-
-        require_update_observation(existing, spec, runtime=self._pod_service_account(spec))
-        previous_digest = _digest_from_service(existing)
-        handoff = None
-        handoff_incarnation = None
-        replacement_submitted = False
-        definitive_failure = False
-        if spec.upgrade_operation_id:
-            from hushh_mcp.services.pod_upgrade_handoff import (
-                PodUpgradeHandoffClient,
-                service_incarnation,
-            )
-
-            pod_url = GcpRunClient.service_url(existing)
-            handoff_incarnation = service_incarnation(existing)
-            if not pod_url or not handoff_incarnation:
-                raise RuntimeError("pod upgrade handoff capability is unavailable")
-            handoff = PodUpgradeHandoffClient(url=pod_url, hushh_id=spec.hushh_id)
-            try:
-                idle_receipt = await asyncio.to_thread(
-                    handoff.prepare_and_wait,
-                    operation_id=spec.upgrade_operation_id,
-                    incarnation=handoff_incarnation,
-                )
-                if spec.on_upgrade_idle is not None:
-                    await asyncio.to_thread(spec.on_upgrade_idle, idle_receipt)
-            except Exception:
-                try:
-                    await asyncio.to_thread(
-                        handoff.release,
-                        operation_id=spec.upgrade_operation_id,
-                        incarnation=handoff_incarnation,
-                    )
-                except Exception:
-                    logger.info(
-                        "user_gcp_backend.handoff_release_after_prepare_failed",
-                        exc_info=True,
-                    )
-                raise
-        try:
-            # `None` for the recorded digest is the whole difference from a heal: resolve
-            # the source tag fresh and copy THAT digest into the person's registry.
-            approved_ref = str(spec.upgrade_target_image or "").strip()
-            recorded_digest = approved_ref.rsplit("@", 1)[-1] if "@" in approved_ref else None
-            if approved_ref and (not recorded_digest or not recorded_digest.startswith("sha256:")):
-                raise RuntimeError("approved upgrade image is not an immutable digest")
-            image_digest = await asyncio.to_thread(self._ensure_pod_image, spec, recorded_digest)
-            config = self.render_deploy_config(spec, image_digest=image_digest)
-            existing_url = GcpRunClient.service_url(existing)
-            notification_inventory = None
-            if self._gmail_notification_blocker(spec) is None:
-                if not existing_url:
-                    raise RuntimeError("Gmail notifications require the existing verified pod URL")
-                notification_inventory = self._apply_gmail_runtime_env(config, spec, existing_url)
-            before_env = {
-                item.get("name"): item.get("value")
-                for item in existing.get("spec", {})
-                .get("template", {})
-                .get("spec", {})
-                .get("containers", [{}])[0]
-                .get("env", [])
-            }
-            notification_changed = notification_inventory is not None and any(
-                before_env.get(key) != value
-                for key, value in notification_inventory["runtimeEnv"].items()
-            )
-            from hushh_mcp.services.pod_upgrade_configuration import (
-                preserve_image_upgrade_configuration,
-            )
-
-            preserve_image_upgrade_configuration(
-                existing, config, connector_environment=connector_environment
-            )
-            if browser_capability is not None:
-                await asyncio.to_thread(require_gcp_delivery, client, browser_capability)
-                browser_capability.apply_configuration(existing, config, spec.browser_qualification)
-            if files_capability is not None:
-                from hushh_mcp.services.pod_files.capability_bootstrap import (
-                    apply_upgrade_configuration,
-                )
-
-                await asyncio.to_thread(
-                    apply_upgrade_configuration,
-                    files_capability,
-                    client,
-                    spec,
-                    existing,
-                    config,
-                    bootstrap_sa=self._bootstrap_sa,
-                    service_name=name,
-                )
-            changed = (
-                image_digest != previous_digest
-                or files_capability is not None
-                or browser_capability is not None
-                or notification_changed
-                or connector_repair
-            )
-            svc: Optional[dict[str, Any]] = existing
-            if changed:
-                if notification_changed:
-                    await asyncio.to_thread(
-                        spec.on_notification_checkpoint,
-                        "intent",
-                        "gmail_runtime_configuration",
-                        [],
-                    )
-                reconcile_connector_environment(
-                    gcp_connector_environment(existing), connector_environment
-                )
-                replacement_submitted = True
-                acknowledged = await asyncio.to_thread(
-                    client.replace_service,
-                    name,
-                    client.merge_for_replace(
-                        existing, config, revision_nonce=spec.upgrade_attempt_id
-                    ),
-                    expected_uid=expected_uid,
-                )
-                acknowledgement_options = {}
-                if spec.on_upgrade_ack is not None:
-                    receipt = GcpRunClient.upgrade_acknowledgement(
-                        acknowledged,
-                        name=name,
-                        expected_uid=expected_uid,
-                        attempt_id=spec.upgrade_attempt_id or "",
-                    )
-                    if connector_environment:
-                        receipt["connectorEnvironment"] = connector_environment
-                    await asyncio.to_thread(spec.on_upgrade_ack, receipt)
-                    acknowledgement_options["expected_generation"] = receipt["generation"]
-                ready, svc = await asyncio.to_thread(
-                    client.wait_ready,
-                    name,
-                    expected_uid=expected_uid,
-                    **acknowledgement_options,
-                    **(
-                        {"expected_revision_nonce": spec.upgrade_attempt_id}
-                        if spec.upgrade_attempt_id
-                        else {}
-                    ),
-                )
-                if not ready:
-                    boot_failure = GcpRunClient.ready_failure(svc)
-                    if boot_failure is not None:
-                        definitive_failure = True
-                        raise PodBootFailedError(
-                            f"pod {name} failed to start on {image_digest[:19]}: "
-                            f"{' '.join(boot_failure.split())[:200]} -- the previous "
-                            "revision keeps serving"
-                        )
-                    raise RuntimeError(
-                        f"upgrade of {name} to {image_digest[:19]} was not confirmed Ready "
-                        "in time; nothing recorded, the next sweep re-checks"
-                    )
-                if notification_changed:
-                    observed_env = {
-                        item.get("name"): item.get("value")
-                        for item in svc["spec"]["template"]["spec"]["containers"][0].get("env", [])
-                    }
-                    if any(
-                        observed_env.get(key) != value
-                        for key, value in notification_inventory["runtimeEnv"].items()
-                    ):
-                        raise RuntimeError("Gmail acknowledged upgrade runtime terms differ")
-                    await asyncio.to_thread(
-                        spec.on_notification_checkpoint,
-                        "observed",
-                        "gmail_runtime_configuration",
-                        [
-                            {
-                                "step": "gmail_runtime_configuration",
-                                "status": 200,
-                                "ok": True,
-                                "configurationObservation": {
-                                    "service": name,
-                                    "serviceUid": expected_uid,
-                                    "runtimeEnv": notification_inventory["runtimeEnv"],
-                                },
-                            }
-                        ],
-                    )
-            elif handoff is not None and handoff_incarnation:
-                # A no-op never submits a replacement, so the old incarnation must
-                # resume accepting work before returning to the caller.
-                await asyncio.to_thread(
-                    handoff.release,
-                    operation_id=spec.upgrade_operation_id or "",
-                    incarnation=handoff_incarnation,
-                )
-        except Exception:
-            if (
-                handoff is not None
-                and handoff_incarnation
-                and (not replacement_submitted or definitive_failure)
-            ):
-                try:
-                    await asyncio.to_thread(
-                        handoff.release,
-                        operation_id=spec.upgrade_operation_id or "",
-                        incarnation=handoff_incarnation,
-                    )
-                except Exception:
-                    logger.info("user_gcp_backend.handoff_release_failed", exc_info=True)
-            raise
-        url = client.service_url(svc)
-        svc, gmail_metadata = await self._configure_gmail_delivery(
-            client, spec, service=svc, expected_uid=expected_uid, allow_runtime_replace=False
-        )
-        from hushh_mcp.services.gcp_upgrade_observation import verified_capabilities
-
-        capability_metadata = verified_capabilities(spec, svc, replacement=replacement_submitted)
-        require_gcp_connector_configuration(svc, connector_environment)
-        logger.info(
-            "user_gcp_backend.upgraded service=%s changed=%s from=%s to=%s",
-            name,
-            changed,
-            (previous_digest or "-")[:19],
-            image_digest[:19],
-        )
-        return BackendHandle(
-            external_agent_id=name,
-            a2a_route=route,
-            status="live",
-            backend=self.backend_id,
-            backend_metadata={
-                "tenancy": self._tenancy,
-                "project": self._user_project,
-                "region": spec.region or self._user_region,
-                "service": name,
-                "url": url or "",
-                "gmailNotifications": gmail_metadata,
-                **update_ingress_record(spec),
-                "image": self._user_pod_image_ref(spec, image_digest),
-                "source_image": spec.upgrade_target_image or self._image,
-                "image_digest": image_digest,
-                "previous_image_digest": previous_digest,
-                "upgraded": changed,
-                "serviceUid": expected_uid,
-                "keyless": True,
-                "credential": "impersonated bootstrap SA, 15-minute token",
-                "runtime_service_account": self._pod_service_account(spec),
-                "livenessMode": _liveness_mode(_rendered_min_scale(config)),
-                **capability_metadata,
-            },
-        )
+        return await upgrade_user_gcp(self, spec, name=name, route=route)
 
     def runtime_identity_for(self, spec: PodSpec) -> str:
         """The identity this person's pod will present to the hub, known BEFORE the

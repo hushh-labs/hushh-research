@@ -168,6 +168,7 @@ def _generate_access_token(
     session: Any = None,
     source_token: Optional[str] = None,
     lifetime: str = _BOOTSTRAP_LIFETIME,
+    guard: Callable[[], None] | None = None,
 ) -> tuple[int, Optional[dict], str]:
     """The raw impersonation round-trip, shared by mint and the liveness probe.
 
@@ -185,6 +186,8 @@ def _generate_access_token(
         from hushh_mcp.services.gcp_run_client import load_operator_credentials  # noqa: PLC0415
 
         creds = load_operator_credentials()
+        if guard is not None:
+            guard()
         creds.refresh(Request())
         source_token = creds.token
 
@@ -201,6 +204,8 @@ def _generate_access_token(
             "consent plane's own identity before touching anything in their cloud."
         )
 
+    if guard is not None:
+        guard()
     response = session.post(
         f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{bootstrap_sa}"
         ":generateAccessToken",
@@ -222,6 +227,7 @@ def mint_bootstrap_token(
     session: Any = None,
     source_token: Optional[str] = None,
     lifetime: str = _BOOTSTRAP_LIFETIME,
+    guard: Callable[[], None] | None = None,
 ) -> str:
     """Impersonate the user's bootstrap SA and return a short-lived access token.
 
@@ -230,7 +236,11 @@ def mint_bootstrap_token(
     after the user revoked their grant, which is precisely the control being tested.
     """
     status, body, text = _generate_access_token(
-        bootstrap_sa=bootstrap_sa, session=session, source_token=source_token, lifetime=lifetime
+        bootstrap_sa=bootstrap_sa,
+        session=session,
+        source_token=source_token,
+        lifetime=lifetime,
+        guard=guard,
     )
     if status != 200:
         # 403 is the customer's binding; 401 is ours. Naming the wrong one costs an
