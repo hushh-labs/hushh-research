@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarInsightsRequestError, CalendarInsightsService, type MeetingFileKind, type MeetingRequestState, type VerifiedMeetingSelection } from "@/lib/services/calendar-insights-service";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { NOT_CONNECTED_NOTICE, isConnectionRefusal, requestRecovery, type RequestRecovery } from "./calendar-insights-presentation";
+import { isConnectionRefusal, requestRecovery, type RequestRecovery } from "./calendar-insights-presentation";
 
 export type RequestKind = MeetingFileKind;
 /** What the person picks: one file type, or both. */
@@ -29,7 +29,7 @@ function failureOf(error: unknown) {
  * Recording, Notes or Both and asks the organizer. There is no pre-check: Ask is
  * always available once a type is chosen, and the server decides when the
  * request is created. A connected requester's request goes to the organizer's
- * One Feed; for anyone else nothing is sent and one plain line says so.
+ * One Feed; for anyone else nothing is sent and the quiet Connect hint appears.
  *
  * `contextKey` identifies the meeting and account. Everything resets when it
  * changes, and a late answer for another meeting is dropped.
@@ -42,6 +42,8 @@ export function useMeetingRequest({ selection, contextKey, getIdToken, getVaultO
   const [choice, setChoice] = useState<RequestChoice | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  // Set only when the server found no connection to the organizer; nothing was sent.
+  const [notConnected, setNotConnected] = useState(false);
   // Set only by a send that failed; a terminal one has no Ask action left.
   const [failure, setFailure] = useState<RequestRecovery | null>(null);
   const epoch = snapshotVaultSessionEpoch();
@@ -53,7 +55,7 @@ export function useMeetingRequest({ selection, contextKey, getIdToken, getVaultO
     const restored = restoring.current;
     restoring.current = null;
     const types = restored && restored.occurrenceId === latest.current.selection?.occurrence_id ? restored.types : [];
-    setChoice(kindsChoice(types)); setNotice(""); setFailure(null); setBusy(false);
+    setChoice(kindsChoice(types)); setNotice(""); setNotConnected(false); setFailure(null); setBusy(false);
   }, [contextKey]);
 
   /** Seed the next meeting selection, e.g. when returning from Google. */
@@ -73,7 +75,7 @@ export function useMeetingRequest({ selection, contextKey, getIdToken, getVaultO
     if (!target || sending || !kinds.length) return;
     const vaultToken = latest.current.getVaultOwnerToken();
     if (!vaultToken) { setNotice("Unlock your vault to ask the organizer."); return; }
-    setBusy(true); setNotice(""); setFailure(null);
+    setBusy(true); setNotice(""); setNotConnected(false); setFailure(null);
     try {
       const result = await CalendarInsightsService.requestFiles(target, kinds, await latest.current.getIdToken(), vaultToken);
       if (latest.current.contextKey !== started || !isVaultSessionEpochCurrent(epoch)) return;
@@ -87,7 +89,7 @@ export function useMeetingRequest({ selection, contextKey, getIdToken, getVaultO
       if (latest.current.contextKey !== started) return;
       const reason = failureOf(error);
       // The server could not find the organizer among the requester's connections: nothing was sent.
-      if (isConnectionRefusal(reason)) { setNotice(NOT_CONNECTED_NOTICE); return; }
+      if (isConnectionRefusal(reason)) { setNotConnected(true); return; }
       const recovery = requestRecovery(reason);
       setFailure(recovery);
       // A terminal refusal is explained by its own panel; a retryable one keeps the notice.
@@ -96,8 +98,8 @@ export function useMeetingRequest({ selection, contextKey, getIdToken, getVaultO
   }, [epoch]);
 
   return {
-    choice, busy, notice, failure, ask, restore,
-    choose: (next: RequestChoice) => { setChoice(next); setFailure(null); setNotice(""); },
+    choice, busy, notice, notConnected, failure, ask, restore,
+    choose: (next: RequestChoice) => { setChoice(next); setFailure(null); setNotice(""); setNotConnected(false); },
     close: () => setFailure(null),
   };
 }

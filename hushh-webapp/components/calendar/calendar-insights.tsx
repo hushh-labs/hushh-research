@@ -29,7 +29,7 @@ import { choiceKinds, useMeetingRequest } from "./use-meeting-request";
 import { useAccessWatch } from "@/lib/calendar/use-access-watch";
 import { useFeedRefresh } from "@/lib/calendar/use-feed-refresh";
 import { buildInviteToOneUrl } from "@/lib/connect/invite-to-one";
-import type { CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
+import { markCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import presentationStyles from "./calendar-presentation.module.css";
 import styles from "./calendar-insights.module.css";
 
@@ -521,7 +521,8 @@ export function CalendarInsights({ userId, account, today, zone, connectionRevis
           <CalendarCompactAction onClick={() => onAllowMeetingFiles(account.account_id, returnContext())}>Allow recording and notes access</CalendarCompactAction>
         </SectionCard> : null}
       {requestSectionShown && selected ? <CalendarRequestSection request={request} offered={offeredKinds}
-        statusText={requestStatus(selectedDisplayed || selected)} copyText={copyRequestText} contextGuard={contextGuard} /> : null}
+        statusText={requestStatus(selectedDisplayed || selected)} copyText={copyRequestText} contextGuard={contextGuard}
+        onConnect={() => markCalendarMeetingOAuthReturn(userId, returnContext())} /> : null}
     </>}
   </div>;
 }

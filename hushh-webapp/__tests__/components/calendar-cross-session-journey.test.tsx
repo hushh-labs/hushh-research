@@ -43,7 +43,6 @@ const SHARING = "Checking access…";
 const SENT = "Request sent · Waiting for organizer";
 const UNVERIFIED = "Sharing finished, but this account's access isn't verified yet.";
 const HINT = "Requests work once you're connected on One.";
-const NOTICE = "Couldn't send: you and the organizer aren't connected on One yet.";
 const NO_RECORDING = "The organizer says they don't have the recording.";
 let world: CalendarMeetingWorld;
 
@@ -240,14 +239,14 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     fireEvent.click(requester.ui.getByRole("button", { name: /Hussh Growth Sync/ }));
     await advance(50);
     fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
-    // No pre-check, no hint, no Connect: the same controls a connected person sees.
+    // No pre-check and nothing about connecting yet: the same controls a connected person sees.
     expect(requester.ui.getByRole("button", { name: "Ask organizer" })).toBeEnabled();
     expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
     expect(world.sentBodies).toEqual([]);
     fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
     await advance(50);
-    expect(requester.ui.getByText(NOTICE)).toBeInTheDocument();
-    expect(requester.ui.queryByRole("link", { name: /connect/i })).toBeNull();
+    expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect");
+    expect(requester.ui.queryByRole("button", { name: /^(Connect|Send request|Try again|Copy request|Invite to One)$/ })).toBeNull();
     expect(requester.ui.queryByRole("textbox", { name: "Request to send to the organizer" })).toBeNull();
     expect(requester.ui.queryByTestId("calendar-request-recovery")).toBeNull();
     expect(world.requests.size).toBe(0);
@@ -264,13 +263,13 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     fireEvent.click(requester.ui.getByRole("tab", { name: "Recording" }));
     fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
     await advance(50);
-    expect(requester.ui.getByText(NOTICE)).toBeInTheDocument();
+    expect(requester.ui.getByRole("link", { name: HINT })).toBeInTheDocument();
     expect(world.requests.size).toBe(0);
 
     world.organizerConnected = true; // the connection is accepted while the page stays open
     fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
     await advance(50);
-    expect(requester.ui.queryByText(NOTICE)).toBeNull();
+    expect(requester.ui.queryByRole("link", { name: HINT })).toBeNull();
     expect(world.requests.size).toBe(1);
     expect(world.feedFor(world.organizer)).toEqual([world.request().requestId]);
     expect(world.request()).toMatchObject({ requester: world.requester.userId, organizer: world.organizer.userId,
@@ -288,7 +287,7 @@ describe("Calendar recordings and notes: requester and organizer as separate ses
     fireEvent.click(requester.ui.getByRole("button", { name: "Ask organizer" }));
     await advance(50);
     expect(world.sentBodies).toHaveLength(1);
-    expect(requester.ui.getByText(NOTICE)).toBeInTheDocument(); // nothing was created
+    expect(requester.ui.getByRole("link", { name: HINT })).toHaveAttribute("href", "/one/connect"); // nothing was created
     expect(requester.ui.queryByTestId("calendar-request-recovery")).toBeNull();
     expect(world.requests.size).toBe(0);
     expect(world.feedFor(world.organizer)).toEqual([]);

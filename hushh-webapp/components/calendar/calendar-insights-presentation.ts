@@ -32,8 +32,8 @@ export type RequestRecovery = {
   copy: boolean;
 };
 
-/** Shown when Ask was tapped but the organizer is not among the requester's connections: nothing was sent. */
-export const NOT_CONNECTED_NOTICE = "Couldn't send: you and the organizer aren't connected on One yet.";
+/** Shown once, quietly, below Ask organizer, only after the server found no connection to the organizer. A link to Connect. */
+export const NOT_CONNECTED_HINT = "Requests work once you're connected on One.";
 
 type RequestFailure = { status?: number; code?: string; reason?: string; message?: string } | null;
 
@@ -73,8 +73,8 @@ export function requestRecovery(failure: RequestFailure): RequestRecovery {
   }
   if (code === "calendar_organizer_unavailable" && reason === "organizer_missing")
     return terminal("This meeting has no organizer One can reach. Copy your request and send it directly.", { copy: true });
-  // Callers read a connection refusal with isConnectionRefusal and show NOT_CONNECTED_NOTICE.
-  if (isConnectionRefusal(failure)) return terminal(NOT_CONNECTED_NOTICE);
+  // A connection refusal never reaches here: callers read it with isConnectionRefusal and show the quiet hint.
+  if (isConnectionRefusal(failure)) return terminal(NOT_CONNECTED_HINT);
   const message = failure?.message || "Meeting request could not be sent.";
   // `sharing_unavailable` is a service-level condition: retry, or reach out directly.
   return { tone: "retry", message, copy: code === "sharing_unavailable" };
