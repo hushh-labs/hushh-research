@@ -140,11 +140,17 @@ both are provisioned and have no active upgrade lease or host binding. Fresh
 Cloud Run reads show revisions `...-00001-q6w` and `...-00001-j6p`, 100% traffic,
 Ready conditions, min 0 / max 1, and the older hosted image digest above.
 
-Native Agent Platform `reasoningEngines.list` reads returned HTTP 403 in both
-projects with an explicit outstanding-billing message. The projects report
-billing enabled and link to an open billing account, but that does not clear the
-provider error. Treat Engine inventory and data-path location as blocked and
-unverified, not as empty. No billing, project, or runtime changes were made.
+The last retained native Agent Platform `reasoningEngines.list` responses (2
+November) returned HTTP 403 in both projects with an explicit outstanding-
+billing message. Fresh read-only attempts during this continuation, using the
+locally available ADC, operator and named account identities, returned HTTP 403
+permission denied for both hosted projects; those credentials could not
+re-read project billing information, Engine inventory or location. The earlier
+billing read recorded both projects as billing-enabled and linked to open
+account `014D7F-FD970D-D2459E`, but neither that linkage nor the older provider
+error proves the present balance or Engine state. Keep billing, Engine inventory
+and data-path location unverified, not empty. No billing, project, IAM or runtime
+changes were made.
 
 The two pilot allocations reserve $200 of work and $50 of cleanup per owner,
 totalling the existing $500 ceiling with $100 held for cleanup. This is an
@@ -208,13 +214,15 @@ image. `HUSSH_POD_FILES_ENABLED` and `HUSSH_HOSTED_POD_TIER_ENABLED` were alread
 true on the preceding shared-Dev revision and were preserved; this deploy did
 not change either flag. The deployed source still hard-refuses new managed pod
 creation, and no hosted owner update or Files operation was submitted. Managed
-pilot acceptance remains 0/2. Native Agent Platform `reasoningEngines.list`
-continues to return HTTP 403 in both projects with an outstanding-billing error;
-no payment, billing change, project creation or owner-project mutation was made.
+pilot acceptance remains 0/2. The last retained Engine responses reported
+outstanding billing; fresh checks could not distinguish a billing block from
+missing project authorization. No payment, billing change, project creation,
+IAM grant or owner-project mutation was made.
 
 The GCP/Azure owner-cloud journey result remains 2/2 on the retained receipts;
-their owner pods remain on the already accepted digest above. The separate
-hosted lifecycle, process-replacement durability, stale-writer refusal,
+their owner pods remain on digest
+`sha256:3c3615f2a6e3dbfaa436d061b3580b0a416c56a9507ab8083f6f1aaa7df42610`.
+The separate hosted lifecycle, process-replacement durability, stale-writer refusal,
 active-work drain, owner isolation, Files CRUD/restart and Memory Bank checks
 remain open. Existing allocation remains $200 work + $50 cleanup per owner
 under the $500 ceiling; actual spend is unknown. Cleanup still has 44
