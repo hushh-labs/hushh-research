@@ -1,4 +1,26 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+// A paused CSS animation freezes on the next style recalculation, so the frame
+// read straight after a pause can still be one frame behind the frozen one.
+// Treat a value as frozen only once two reads a frame apart agree; a pause that
+// never takes hold keeps changing and fails the poll instead of passing.
+async function frozenTransform(locator: Locator): Promise<string> {
+  let previous = "";
+  await expect
+    .poll(
+      async () => {
+        const current = await locator.evaluate(
+          (el) => getComputedStyle(el).transform,
+        );
+        const settled = current === previous;
+        previous = current;
+        return settled;
+      },
+      { intervals: [100], timeout: 5000 },
+    )
+    .toBe(true);
+  return previous;
+}
 
 export function registerFinanceOnboardingChecks(
   mount: (page: Page, width: number) => Promise<void>,
@@ -83,9 +105,8 @@ export function registerFinanceOnboardingChecks(
             .getByRole("button", { name: "Pause Finance introduction" })
             .click();
           const progress = page.locator('[data-demo-progress="true"]');
-          const before = await progress.evaluate(
-            (el) => getComputedStyle(el).transform,
-          );
+          await expect(demo).toHaveAttribute("data-playing", "false");
+          const before = await frozenTransform(progress);
           await page.waitForTimeout(500);
           expect(
             await progress.evaluate((el) => getComputedStyle(el).transform),
@@ -115,9 +136,7 @@ export function registerFinanceOnboardingChecks(
             document.dispatchEvent(new Event("visibilitychange"));
           });
           await expect(demo).toHaveAttribute("data-playing", "false");
-          const hiddenFrame = await progress.evaluate(
-            (el) => getComputedStyle(el).transform,
-          );
+          const hiddenFrame = await frozenTransform(progress);
           await page.waitForTimeout(300);
           expect(
             await progress.evaluate((el) => getComputedStyle(el).transform),
