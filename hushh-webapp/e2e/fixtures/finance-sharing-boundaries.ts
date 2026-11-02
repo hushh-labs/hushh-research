@@ -12,8 +12,8 @@ const capture = () => context;
 export function useFinanceShareContext() { return { capture, session: "synthetic-session", ready: true }; }
 export async function readSavedFinance() { return { model: sharingModel, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
 export function pendingFinanceShare() { return null; }
-const people = [{ userId: "synthetic-recipient", displayName: "Sample connection", publicPersonRef: "11111111-1111-4111-8111-111111111111", keyId: "synthetic-key", publicKeyJwk: { kty: "EC" } }];
-people.push(...Array.from({ length: 24 }, (_, index) => ({ ...people[0]!, userId: `synthetic-${index}`, displayName: `Other connection ${index + 1}` })));
+const people = [{ userId: "synthetic-recipient", displayName: "Sample connection", isFinanceAdvisor: true, publicPersonRef: "11111111-1111-4111-8111-111111111111", keyId: "synthetic-key", publicKeyJwk: { kty: "EC" } }];
+people.push(...Array.from({ length: 24 }, (_, index) => ({ ...people[0]!, userId: `synthetic-${index}`, displayName: `Other connection ${index + 1}`, isFinanceAdvisor: false, publicPersonRef: `11111111-1111-4111-8111-${String(index + 2).padStart(12, "0")}` })));
 const basePolicy: FinancePolicy = { version: 1, mode: "snapshot", sections: ["allocation", "performance"], showAmounts: false, selectionHash: "a".repeat(64), model_processing: { version: 1, allowed: true }, durationSeconds: 86400 };
 const stamp = new Date().toISOString();
 function grant(direction: "outgoing" | "received", policy = basePolicy): FinanceGrant {
@@ -23,14 +23,19 @@ function grant(direction: "outgoing" | "received", policy = basePolicy): Finance
 const received = projectFinance(sharingModel, { sections: basePolicy.sections, holdingSymbols: [], showAmounts: false, note: "" }, { kind: "statement", snapshotId: null });
 let sent: FinanceGrant[] = [];
 export const FinanceSharingService = {
+  activeRecipientRefs: async () => new Set(sent.filter(g => g.status === "active").map(g => g.recipientPersonRef)),
   recipients: async () => ({ items: people, hasMore: false, page: 1 }),
   history: async (_context: unknown, direction: "outgoing" | "received") => ({ items: direction === "received" ? [grant("received")] : sent, nextCursor: null }),
   prepare: async (_context: unknown, _config: unknown, _projection: unknown, policy: FinancePolicy) => ({ requestId: grant("outgoing").requestId, policy }),
   publish: async (_context: unknown, prepared: { policy: FinancePolicy }) => {
     document.body.dataset.financePublishes = String(Number(document.body.dataset.financePublishes || 0) + 1);
+    document.body.dataset.financeDuration = String(prepared.policy.durationSeconds);
+    document.body.dataset.financeSections = prepared.policy.sections.join();
     sent = [grant("outgoing", prepared.policy)]; return { items: sent };
   },
-  view: async () => grant("received"),
+  view: async () => sent[0] ?? grant("received"),
+  recipient: async () => people[0],
+  ownerConfig: async () => ({ source: { kind: "statement", snapshotId: null }, sourceFence: "a".repeat(64), selection: { sections: sent[0]?.policy.sections ?? basePolicy.sections, holdingSymbols: [], showAmounts: false, note: "" } }),
   decrypt: async () => received,
   stop: async () => { document.body.dataset.financeEnded = "true"; return { stopped: true }; },
   review: async () => { document.body.dataset.financeReviews = "1"; return "Synthetic review: the shared allocation is concentrated in equities."; },

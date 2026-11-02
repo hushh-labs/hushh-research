@@ -11,14 +11,15 @@ export type FinanceSelection = { sections: FinanceSection[]; holdingSymbols: str
 export type FinanceSource = { kind: "statement" | "plaid"; snapshotId: string | null; representation?: "current-v7" };
 export type FinancePolicyV1 = {
   version: 1; mode: "snapshot" | "ongoing"; sections: FinanceSection[]; selectionHash: string;
-  showAmounts: boolean; model_processing: { version: 1; allowed: boolean }; durationSeconds: 3600 | 86400 | 604800 | null;
+  showAmounts: boolean; model_processing: { version: 1; allowed: boolean }; durationSeconds: number | null;
 };
 export type FinancePolicyV2 = {
   version: 2; purpose: "verified_ria_review"; mode: "snapshot" | "ongoing"; sections: FinanceSection[]; selectionHash: string;
   showAmounts: true; model_processing: { version: 1; allowed: false }; durationSeconds: 3600 | 86400 | 604800 | null;
 };
-export type FinancePolicy = FinancePolicyV1 | FinancePolicyV2;
-export type FinancePolicyInput = Omit<FinancePolicyV1, "selectionHash"> | Omit<FinancePolicyV2, "selectionHash">;
+export type FinancePolicyV3 = Omit<FinancePolicyV1, "version"> & { version: 3; purpose: "verified_ria_share" };
+export type FinancePolicy = FinancePolicyV1 | FinancePolicyV2 | FinancePolicyV3;
+export type FinancePolicyInput = Omit<FinancePolicyV1, "selectionHash"> | Omit<FinancePolicyV2, "selectionHash"> | Omit<FinancePolicyV3, "selectionHash">;
 export type FinanceGrant = {
   id: string; requestId: string; ownerUserId: string; recipientUserId: string; recipientPersonRef: string; recipientKeyId: string;
   senderName: string; recipientName: string; policy: FinancePolicy; revision: number; contentHash: string;
@@ -42,7 +43,7 @@ const recipientEnvelopeSchema = z.object({
 const financePolicyV1Schema = z.object({
   version: z.literal(1), mode: z.enum(["snapshot", "ongoing"]), sections: z.array(z.enum(financeSections)).min(1).max(4), selectionHash: hexHash,
   showAmounts: z.boolean(), model_processing: z.object({ version: z.literal(1), allowed: z.boolean() }).strict(),
-  durationSeconds: z.union([z.literal(3600), z.literal(86400), z.literal(604800), z.null()]),
+  durationSeconds: z.number().int().min(60).max(604800).nullable(),
 }).strict().refine(p => new Set(p.sections).size === p.sections.length && (p.mode !== "snapshot" || p.durationSeconds !== null));
 const financePolicyV2Schema = z.object({
   version: z.literal(2), purpose: z.literal("verified_ria_review"), mode: z.enum(["snapshot", "ongoing"]),
@@ -50,7 +51,13 @@ const financePolicyV2Schema = z.object({
   showAmounts: z.literal(true), model_processing: z.object({ version: z.literal(1), allowed: z.literal(false) }).strict(),
   durationSeconds: z.union([z.literal(3600), z.literal(86400), z.literal(604800), z.null()]),
 }).strict().refine(p => new Set(p.sections).size === 3 && ["allocation", "performance", "holdings"].every(s => p.sections.includes(s as FinanceSection)));
-export const financePolicySchema = z.union([financePolicyV1Schema, financePolicyV2Schema]);
+const financePolicyV3Schema = z.object({
+  version: z.literal(3), purpose: z.literal("verified_ria_share"), mode: z.enum(["snapshot", "ongoing"]),
+  sections: z.array(z.enum(financeSections)).min(1).max(4), selectionHash: hexHash,
+  showAmounts: z.boolean(), model_processing: z.object({ version: z.literal(1), allowed: z.boolean() }).strict(),
+  durationSeconds: z.number().int().min(60).max(604800).nullable(),
+}).strict().refine(p => new Set(p.sections).size === p.sections.length);
+export const financePolicySchema = z.union([financePolicyV1Schema, financePolicyV2Schema, financePolicyV3Schema]);
 export const financeGrantSchema = z.object({
   id: z.string().uuid(), requestId: z.string().uuid(), ownerUserId: z.string().min(1).max(160), recipientUserId: z.string().min(1).max(160), recipientPersonRef: z.string().uuid(), recipientKeyId: z.string().min(1).max(160),
   senderName: z.string().max(300), recipientName: z.string().max(300), policy: financePolicySchema, revision: z.number().int().positive(), contentHash: hexHash,
@@ -123,7 +130,7 @@ export async function financeDigest(value: string): Promise<string> {
 }
 
 export const financeContext = (g: Pick<FinanceGrant, "requestId" | "id" | "ownerUserId" | "recipientUserId" | "policy" | "revision">) => JSON.stringify([
-  g.policy.version === 2 ? "finance-share-v2:verified_ria_review" : "finance-share-v1", g.requestId, g.id, g.ownerUserId, g.recipientUserId, g.policy.mode,
+  g.policy.version === 3 ? "finance-share-v3:verified_ria_share" : g.policy.version === 2 ? "finance-share-v2:verified_ria_review" : "finance-share-v1", g.requestId, g.id, g.ownerUserId, g.recipientUserId, g.policy.mode,
   [...g.policy.sections].sort(), g.policy.selectionHash, g.policy.showAmounts,
   g.policy.model_processing.allowed, g.policy.durationSeconds, g.revision,
 ]);

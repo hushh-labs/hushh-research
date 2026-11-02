@@ -203,7 +203,7 @@ class FinanceSharingService:
                     raise FinanceSharingError("FINANCE_SHARE_RECIPIENT_INVALID")
                 recipients.append((person["user_id"], item))
             lock_connection_graph_users(conn, user_ids=sorted([owner, *[r[0] for r in recipients]]))
-            if body.policy.version == 2:
+            if body.policy.version in (2, 3):
                 for uid in sorted(r[0] for r in recipients):
                     require_advisor(conn, uid)
             self._key(conn, owner, body.ownerConfig.recipientKeyId)
@@ -250,7 +250,39 @@ class FinanceSharingService:
                         "message": message_id,
                     },
                 )
+            # The connection graph locks serialize replacement with creation,
+            # refresh and revoke. Delivery and retirement commit together;
+            # a rejected replacement leaves the previous approval intact.
+            for uid, _item in recipients:
+                conn.execute(
+                    text("""UPDATE finance_access_grants g SET
+                      revoked_at=clock_timestamp(),envelope=NULL,owner_envelope=NULL
+                      WHERE g.owner_user_id=:owner AND g.recipient_user_id=:recipient
+                        AND g.request_id<>CAST(:request AS uuid) AND g.revoked_at IS NULL
+                        AND EXISTS(SELECT 1 FROM finance_share_requests r
+                          WHERE r.owner_user_id=g.owner_user_id AND r.id=g.request_id
+                            AND (r.expires_at IS NULL OR r.expires_at>clock_timestamp()))"""),
+                    {"owner": owner, "recipient": uid, "request": request_id},
+                )
             return request_grants(conn, self._SELECT, owner, request_id)
+
+    def active_recipients(self, owner):
+        """Owner-only picker metadata; no Finance contents or ciphertext."""
+        with self.db.engine.begin() as conn:
+            self._ready(conn)
+            found = rows(
+                conn,
+                """SELECT DISTINCT rp.public_person_ref FROM finance_access_grants g
+                  JOIN finance_share_requests r ON r.owner_user_id=g.owner_user_id AND r.id=g.request_id
+                  JOIN actor_profiles rp ON rp.user_id=g.recipient_user_id
+                  WHERE g.owner_user_id=:owner AND g.revoked_at IS NULL
+                    AND (r.expires_at IS NULL OR r.expires_at>clock_timestamp())
+                  ORDER BY rp.public_person_ref LIMIT 10001""",
+                {"owner": owner},
+            )
+            if len(found) > 10000:
+                raise FinanceSharingError("FINANCE_SHARE_RECIPIENT_LIMIT", 409)
+            return {"personRefs": [str(item["public_person_ref"]) for item in found]}
 
     def history(self, viewer, *, direction="outgoing", cursor=None):
         with self.db.engine.begin() as conn:
@@ -281,7 +313,7 @@ class FinanceSharingService:
                 raise FinanceSharingError("FINANCE_SHARE_NOT_FOUND", 404)
             # Acquire graph locks before grant locks, exactly as create/refresh/revoke.
             self._connection(conn, self.db, row["owner_user_id"], row["recipient_user_id"])
-            if viewer == row["recipient_user_id"] and decoded(row["policy"])["version"] == 2:
+            if viewer == row["recipient_user_id"] and decoded(row["policy"])["version"] in (2, 3):
                 require_advisor(conn, viewer)
             self._purge(conn, viewer)
             row = one(
@@ -317,6 +349,8 @@ class FinanceSharingService:
                 or row["recipient_key_id"] != body.envelope.recipientKeyId
             ):
                 raise FinanceSharingError("FINANCE_SHARE_REVISION_CHANGED", 409)
+            if decoded(row["policy"])["version"] in (2, 3):
+                require_advisor(conn, row["recipient_user_id"])
             self._key(conn, row["recipient_user_id"], body.envelope.recipientKeyId)
             self._key(conn, owner, body.ownerEnvelope.recipientKeyId)
             updated = conn.execute(

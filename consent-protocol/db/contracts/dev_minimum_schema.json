@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 445,
+  "expected_migration_version": 446,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
