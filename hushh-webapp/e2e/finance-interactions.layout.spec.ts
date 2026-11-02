@@ -1,3 +1,4 @@
+import { registerAdvisorReviewChecks } from "./fixtures/advisor-review-checks";
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerFinanceChartChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks, expectMarketLocalTimes } from "./fixtures/finance-screen-checks";
@@ -49,6 +50,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
         ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
@@ -89,6 +91,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
         ...[
           "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
           "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
@@ -459,3 +462,5 @@ registerStockQuoteRecoveryChecks(mount);
 registerFinanceScreenChecks(mount);
 
 registerFinanceOnboardingChecks((page, width) => mount(page, width, true));
+
+registerAdvisorReviewChecks(mount);

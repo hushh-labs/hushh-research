@@ -33,6 +33,7 @@ import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card"
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
 import { PortfolioBriefing, PortfolioAnalysis } from "@/components/kai/views/portfolio-briefing";
+import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
@@ -2072,7 +2073,7 @@ export function DashboardMasterView({
           </SurfaceCard>
         ) : null}
 
-        {section === "analysis" ? <PortfolioAnalysis model={model} source={sourceDisplayLabel} /> : null}
+        {section === "analysis" ? <><AdvisorReviewHub source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} /><PortfolioAnalysis model={model} source={sourceDisplayLabel} /></> : null}
 
         {section === "performance" ? (
           <section className="space-y-4">
