@@ -139,30 +139,23 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
-  it("keeps both native Close paths locked until uncertain phone transfer settles", async () => {
+  it("keeps an occupied phone linked to its existing account in native Profile", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);
     const close = vi.fn();
-    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(new ApiError("Review transfer", 409, { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" }));
-    vi.spyOn(auth, "confirmPhoneTransfer").mockRejectedValueOnce(new ApiError("Check progress", 409, { code: "PHONE_TRANSFER_IN_PROGRESS" })).mockResolvedValueOnce(auth.user);
+    vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(new ApiError("Occupied", 409, { code: "PHONE_ALREADY_VERIFIED" }));
+    const transfer = vi.spyOn(auth, "confirmPhoneTransfer");
     render(<StepProgressProvider><ProfilePage presentation="native-page" nativeMenuOpen
       onNativeMenuClose={close} paneLocation={{ panel: "account", detail: "phone" }} /></StepProgressProvider>);
     const input = await screen.findByRole("textbox", { name: "Phone number" });
-    fireEvent.change(input, { target: { value: "6505550101" } });
-    fireEvent.submit(input.closest("form")!);
+    fireEvent.change(input, { target: { value: "6505550101" } }); fireEvent.submit(input.closest("form")!);
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm phone transfer" }));
-    const progress = await screen.findByRole("button", { name: "Check transfer progress" });
-    fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
-    fireEvent.click(screen.getByRole("button", { name: "Menu Close Profile" }));
-    expect(close).not.toHaveBeenCalled();
-    expect(auth.startPhoneVerification).toHaveBeenCalledOnce();
-    fireEvent.click(progress);
-    await waitFor(() => expect(auth.confirmPhoneTransfer).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Check transfer progress" })).toBeNull());
+    await screen.findByRole("button", { name: "Sign in to existing account" });
+    expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete my previous account" })).toBeNull();
+    expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();
   });

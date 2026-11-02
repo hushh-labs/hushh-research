@@ -9898,7 +9898,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
+          "completion_boundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
           "next_route": "/one/setup",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -9927,19 +9927,10 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
-        "phone_mandate.delete_previous",
-        "phone_mandate.delete_previous_cancel",
-        "phone_mandate.delete_previous_confirm",
-        "phone_mandate.delete_previous_verify_again",
         "phone_mandate.recover",
-        "phone_mandate.review_previous_devices",
         "phone_mandate.select_country",
-        "phone_mandate.send_real_sms",
         "phone_mandate.submit_code",
-        "phone_mandate.submit_number",
-        "phone_mandate.transfer_cancel",
-        "phone_mandate.transfer_confirm",
-        "phone_mandate.transfer_review"
+        "phone_mandate.submit_number"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -11061,5 +11052,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "6ea155c775cd7d457353516f1578d6fb82e2fc4a689f41aaaa73a92e0e0fe7ec"
+  "content_sha256": "0b00efac295eadf8ea7f81240d9df1cf8703b79bbb7b6de51f089759849e7751"
 }

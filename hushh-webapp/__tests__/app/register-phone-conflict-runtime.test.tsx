@@ -61,12 +61,8 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    const review = await screen.findByRole("button", { name: "Use this number on this account" });
+    await screen.findByRole("button", { name: "Sign in to existing account" });
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:phone_conflict:back"));
-    fireEvent.click(review);
-    await screen.findByRole("heading", { name: "Use this number on this account?" });
-    fireEvent.click(screen.getByRole("button", { name: "Shell Back" }));
-    await screen.findByRole("heading", { name: "This number is linked to another account" });
     fireEvent.click(screen.getByRole("button", { name: "Shell Back" }));
     await screen.findByRole("textbox", { name: "Phone number" });
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:none:no_back"));
@@ -78,7 +74,7 @@ describe("register-phone conflict runtime", () => {
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
-  it.each(["recover", "delete", "revoke"] as const)("creates a server-bound %s continuation before leaving the current account", async (action) => {
+  it.each(["recover"] as const)("creates a server-bound %s continuation before leaving the current account", async (action) => {
     const continuationId = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/phone/recovery/continuations")
       ? Response.json({ continuation_id: continuationId, state: "awaiting_previous_sign_in", expires_at: "2099-01-01T00:00:00Z" })
@@ -93,7 +89,7 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: action === "delete" ? "Delete my previous account" : action === "revoke" ? "Review previous device access" : "Recover my previous account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/account/phone/recovery/continuations", expect.objectContaining({
       method: "POST", body: JSON.stringify({ action, phone_number: "+16505550101" }),
     })));
@@ -103,46 +99,6 @@ describe("register-phone conflict runtime", () => {
     expect(destination.searchParams.get("redirect")).toBe(`/register-phone?recovery=${continuationId}`);
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
-  });
-  it("deletes the linked account in place with the retained SMS proof, then claims the number", async () => {
-    const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a11";
-    const bodies: Record<string, unknown>[] = [];
-    let claims = 0;
-    vi.mocked(fetch).mockImplementation(async (url, init) => {
-      const path = String(url);
-      if (init?.body) bodies.push({ path, ...JSON.parse(String(init.body)) });
-      if (path.endsWith("/phone/linked-account/deletions")) {
-        return Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" });
-      }
-      if (path.endsWith("/phone/linked-account/deletions/confirm")) return Response.json({ operation_id: operation, state: "admitted" });
-      if (path.endsWith("/phone/claim") && ++claims > 1) {
-        return Response.json({ success: true, user_id: "account-owner", phone_verified: true,
-          identity: { user_id: "account-owner", phone_number: "+16505550101", phone_verified: true } });
-      }
-      return Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 });
-    });
-    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
-    const phone = await screen.findByRole("textbox", { name: "Phone number" });
-    fireEvent.change(phone, { target: { value: "6505550101" } });
-    fireEvent.submit(phone.closest("form")!);
-    const code = await screen.findByRole("textbox", { name: "One-time code" });
-    fireEvent.change(code, { target: { value: "123456" } });
-    fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
-    await screen.findByRole("heading", { name: "Delete the account linked to ••01?" });
-    const remove = screen.getByRole("button", { name: "Delete and continue" });
-    expect(remove).toBeDisabled();
-    fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
-    fireEvent.click(remove);
-    await waitFor(() => expect(claims).toBe(2));
-    expect(bodies.find(body => String(body.path).endsWith("/deletions/confirm"))).toEqual({
-      path: "/api/account/phone/linked-account/deletions/confirm", operation_id: operation,
-      phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token",
-    });
-    // One SMS: the retained proof serves the deletion and the follow-up claim.
-    expect(mocks.phoneClaimToken).toHaveBeenCalledOnce();
-    expect(bodies.some(body => String(body.path).endsWith("/phone/recovery/continuations"))).toBe(false);
-    expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
   it("keeps a wrong-owner continuation generic and never dispatches deletion", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
@@ -156,13 +112,13 @@ describe("register-phone conflict runtime", () => {
     expect(vi.mocked(fetch).mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
-  it("@feature_account_deletion @trace_loop leaves the previous-account sign-in loop for the number's in-place choices", async () => {
+  it("@feature_account_deletion @trace_loop returns to phone entry without permitting another email to delete the existing account", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     window.history.replaceState({}, "", `/register-phone?recovery=${id}`);
     vi.mocked(fetch).mockResolvedValue(Response.json({continuation_id: id, state: "awaiting_previous_sign_in"}));
     render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
-    fireEvent.click(await screen.findByRole("button", { name: "Verify the number here" }));
-    // Back to this account's phone form, where Delete my previous account runs in place; no sign-out handoff.
+    fireEvent.click(await screen.findByRole("button", { name: "Use a different number" }));
+    // Back to phone entry; another account cannot delete the phone's holder.
     expect(mocks.routerReplace).toHaveBeenCalledWith("/register-phone");
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });

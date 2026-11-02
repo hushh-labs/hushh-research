@@ -2659,7 +2659,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Phone verification completes only after the backend confirms the phone binding and any transfer provider work is settled.",
+      "completionBoundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2676,7 +2676,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: transfer review and linked-account deletion review return to recovery choices, choices return to phone entry, and a dispatched transfer or unconfirmed deletion consumes Back until status settles. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; active verification consumes Back until the request settles. Another email account cannot transfer or delete the number holder. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {

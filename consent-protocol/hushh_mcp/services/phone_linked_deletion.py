@@ -93,11 +93,12 @@ def _production_runtime() -> bool:
 
 
 def enabled() -> bool:
-    """Off in production until the founder chooses its safeguards; explicit env wins."""
-    explicit = str(os.getenv("HUSHH_PHONE_LINKED_DELETION_ENABLED") or "").strip().lower()
-    if explicit:
-        return explicit in {"1", "true", "yes", "on"}
-    return not _production_runtime()
+    """Phone proof cannot delete another email account to reclaim its number.
+
+    Original-owner deletion remains available after independent account sign-in.
+    Historical operation status and cancellation remain readable.
+    """
+    return False
 
 
 def _require_enabled() -> None:
