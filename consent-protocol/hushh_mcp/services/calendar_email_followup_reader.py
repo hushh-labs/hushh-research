@@ -34,10 +34,14 @@ _SECTION_OVERLAP_CHARS = 256
 class CompleteMailReadError(RuntimeError):
     """Value-free provider or coverage error; never includes message content."""
 
-    def __init__(self, code: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self, code: str, *, retryable: bool = False, retry_after: int | None = None
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.retryable = retryable
+        # Seconds the provider asked us to wait; bounded by the caller.
+        self.retry_after = retry_after
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,9 @@ class CompleteMailMessage:
     body: str
     body_digest: str
     sections: tuple[BodySection, ...]
+    # Standard automated-mail hints (RFC 3834, list headers). Context for the
+    # extraction child only; never a decision by themselves.
+    signals: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -162,64 +169,6 @@ async def profile_history_id(
     return value
 
 
-async def history_message_page(
-    *,
-    client: httpx.AsyncClient,
-    token: str,
-    start_history_id: str,
-    page_token: str | None,
-    require_current: Callable[[], Awaitable[None]],
-) -> tuple[tuple[tuple[str, str], ...], str | None, str]:
-    if not start_history_id.isdigit() or (page_token and len(page_token) > 2048):
-        raise CompleteMailReadError("invalid_scan_checkpoint")
-    params = {
-        "startHistoryId": start_history_id,
-        "maxResults": "25",
-        "historyTypes": "messageAdded",
-    }
-    if page_token:
-        params["pageToken"] = page_token
-    await require_current()
-    try:
-        payload = await _bounded_get(
-            client, url=f"{_GMAIL_BASE}/history", token=token, params=params
-        )
-    except CompleteMailReadError as exc:
-        if exc.code == "source_unavailable":
-            raise CompleteMailReadError("history_gap") from None
-        raise
-    await require_current()
-    raw = payload.get("history", [])
-    if not isinstance(raw, list) or len(raw) > 25:
-        raise CompleteMailReadError("invalid_provider_response")
-    messages: dict[str, str] = {}
-    for history in raw:
-        if not isinstance(history, dict) or not isinstance(history.get("messagesAdded", []), list):
-            raise CompleteMailReadError("invalid_provider_response")
-        for added in history.get("messagesAdded", []):
-            item = added.get("message") if isinstance(added, dict) else None
-            if not isinstance(item, dict) or not all(
-                isinstance(item.get(key), str) and _PROVIDER_ID.fullmatch(item[key])
-                for key in ("id", "threadId")
-            ):
-                raise CompleteMailReadError("invalid_provider_response")
-            messages[item["id"]] = item["threadId"]
-            # The HTTP response is already capped at 4 MiB; a busy History
-            # record must not stall all later mail at an arbitrary 200 IDs.
-            if len(messages) > 10000:
-                raise CompleteMailReadError("history_page_too_large")
-    next_token = payload.get("nextPageToken")
-    current_history_id = payload.get("historyId")
-    if (
-        next_token is not None
-        and (not isinstance(next_token, str) or len(next_token) > 2048)
-        or not isinstance(current_history_id, str)
-        or not current_history_id.isdigit()
-    ):
-        raise CompleteMailReadError("invalid_provider_response")
-    return tuple(messages.items()), next_token, current_history_id
-
-
 def split_complete_body(
     body: str,
     *,
@@ -279,7 +228,7 @@ async def _bounded_get(
     *,
     url: str,
     token: str,
-    params: dict[str, str] | None = None,
+    params: dict[str, str] | list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     try:
         # Message IDs and mailbox query terms must not enter HTTP client traces.
@@ -297,17 +246,59 @@ async def _bounded_get(
         raise CompleteMailReadError("mail_temporarily_unavailable", retryable=True) from None
 
 
+_RATE_REASONS = frozenset(
+    {"ratelimitexceeded", "userratelimitexceeded", "quotaexceeded", "backenderror"}
+)
+_MAX_RETRY_AFTER = 3600
+
+
+def _retry_after(response: httpx.Response) -> int | None:
+    value = response.headers.get("retry-after", "")
+    if value.isdigit():
+        return min(int(value), _MAX_RETRY_AFTER)
+    return None
+
+
+async def _error_reason(response: httpx.Response) -> str:
+    """Gmail's machine reason for a 403; content is never retained or logged."""
+    content = bytearray()
+    async for chunk in response.aiter_bytes():
+        content.extend(chunk)
+        if len(content) > 65536:
+            return ""
+    try:
+        errors = json.loads(content)["error"]["errors"]
+        return str(errors[0].get("reason", "")).casefold()
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return ""
+
+
 async def _bounded_response(response: httpx.Response) -> dict[str, Any]:
-    if response.status_code in {401, 403}:
+    status = response.status_code
+    if status == 401:
         raise CompleteMailReadError("mail_permission_required")
-    if response.status_code == 404:
+    if status == 403:
+        # Gmail reports short-term rate limits as 403. Telling them apart from
+        # a missing permission is what keeps a busy minute from asking the
+        # owner to reconnect Mail.
+        if await _error_reason(response) in _RATE_REASONS:
+            raise CompleteMailReadError(
+                "mail_rate_limited", retryable=True, retry_after=_retry_after(response)
+            )
+        raise CompleteMailReadError("mail_permission_required")
+    if status == 404:
         raise CompleteMailReadError("source_unavailable")
-    if response.status_code >= 400:
+    if status == 429:
+        raise CompleteMailReadError(
+            "mail_rate_limited", retryable=True, retry_after=_retry_after(response)
+        )
+    if status >= 400:
         raise CompleteMailReadError(
             "mail_temporarily_unavailable",
-            retryable=response.status_code in {429, 500, 502, 503, 504},
+            retryable=status in {500, 502, 503, 504},
+            retry_after=_retry_after(response),
         )
-    if response.status_code != 200:
+    if status != 200:
         raise CompleteMailReadError("invalid_provider_response")
     content = bytearray()
     async for chunk in response.aiter_bytes():
@@ -406,6 +397,26 @@ async def _hydrate_readable_parts(
     return root
 
 
+_KEPT_HEADERS = frozenset(
+    {"subject", "from", "auto-submitted", "precedence", "list-id", "list-unsubscribe"}
+)
+_NO_REPLY = re.compile(r"(?:^|[<\s])(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?)@", re.I)
+
+
+def automated_signals(headers: dict[str, str]) -> tuple[str, ...]:
+    """Standard machine-mail hints; they inform the model, never decide for it."""
+    signals: set[str] = set()
+    if headers.get("auto-submitted", "no").strip().casefold() not in {"", "no"}:
+        signals.add("auto_submitted")
+    if headers.get("precedence", "").strip().casefold() in {"bulk", "list", "junk"}:
+        signals.add("bulk_precedence")
+    if headers.get("list-id") or headers.get("list-unsubscribe"):
+        signals.add("mailing_list")
+    if _NO_REPLY.search(headers.get("from", "")):
+        signals.add("no_reply_sender")
+    return tuple(sorted(signals))
+
+
 async def read_complete_message(
     *,
     client: httpx.AsyncClient,
@@ -460,7 +471,7 @@ async def read_complete_message(
         key, value = header.get("name"), header.get("value")
         if not isinstance(key, str) or not isinstance(value, str):
             raise CompleteMailReadError("invalid_provider_response")
-        if key.lower() in {"subject", "from"} and key.lower() not in safe_headers:
+        if key.lower() in _KEPT_HEADERS and key.lower() not in safe_headers:
             safe_headers[key.lower()] = value[:512]
     return CompleteMailMessage(
         message_id=message_id,
@@ -471,4 +482,5 @@ async def read_complete_message(
         body=body,
         body_digest=hashlib.sha256(body.encode("utf-8")).hexdigest(),
         sections=sections,
+        signals=automated_signals(safe_headers),
     )

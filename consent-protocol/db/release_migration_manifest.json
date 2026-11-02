@@ -379,7 +379,8 @@
     "441_sms_alarm_capability.sql",
     "442_calendar_mail_read_grant.sql",
     "443_calendar_email_followups.sql",
-    "444_calendar_email_followup_delivery.sql"
+    "444_calendar_email_followup_delivery.sql",
+    "445_calendar_email_followup_relevance.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -805,6 +806,7 @@
     "441_sms_alarm_capability.sql": "rollback/441_sms_alarm_capability.rollback.sql",
     "442_calendar_mail_read_grant.sql": "rollback/442_calendar_mail_read_grant.rollback.sql",
     "443_calendar_email_followups.sql": "rollback/443_calendar_email_followups.rollback.sql",
-    "444_calendar_email_followup_delivery.sql": "rollback/444_calendar_email_followup_delivery.rollback.sql"
+    "444_calendar_email_followup_delivery.sql": "rollback/444_calendar_email_followup_delivery.rollback.sql",
+    "445_calendar_email_followup_relevance.sql": "rollback/445_calendar_email_followup_relevance.rollback.sql"
   }
 }
