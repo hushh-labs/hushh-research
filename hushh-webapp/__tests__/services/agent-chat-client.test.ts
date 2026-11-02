@@ -1,3 +1,4 @@
+import { registerEmailAgentContractCases } from "../lib/chat/email-agent-contract-cases";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockTransport = vi.hoisted(() => ({
@@ -163,6 +164,7 @@ const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
 
 describe("One chat key transport", () => {
+  registerEmailAgentContractCases(mockTransport);
   it("forwards a valid selected Calendar zone for one turn, then returns to the device zone", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();
@@ -1086,7 +1088,7 @@ describe("AG-UI Agent One client", () => {
     expect(experiences).toEqual(["one.scope_discovery.v1"]);
     expect(experienceIds).toEqual(["activity-1"]);
     expect(mockTransport.runAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ tools: expect.arrayContaining([expect.objectContaining({ name: "list_recent_receipts" }), expect.objectContaining({ name: "receipt_spending" })]), context: [], forwardedProps: expect.any(Object) }),
+      expect.objectContaining({ tools: expect.arrayContaining([expect.objectContaining({ name: "list_recent_receipts" }), expect.objectContaining({ name: "receipt_spending" })]), context: [], forwardedProps: expect.objectContaining({ emailAgentContract: 1 }) }),
       expect.objectContaining({ url: "/api/one/agent-chat", threadId: "thread-1" }),
     );
   });

@@ -6449,7 +6449,7 @@ async def test_every_email_proposal_is_refused_and_never_executed(payload):
     assert not any(key.startswith(_STATE_PENDING_DIRECTIVE) for key in context.state)
 
 
-def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_search_for_mail():
+def test_one_routes_gmail_receipts_live_and_keeps_saved_snapshot_explicit():
     enabled = _one_runtime_instruction(
         SimpleNamespace(
             state={
@@ -6460,18 +6460,18 @@ def test_one_routes_receipt_analysis_to_dedicated_functions_and_keeps_inbox_sear
         )
     )
     assert "MAIL READ ADMISSION: enabled" in enabled
-    assert "list_recent_receipts" in enabled and "receipt_spending" in enabled
-    assert "never ask_email_agent, an inbox search or memory arithmetic" in enabled
-    assert "State the coverage and limits the result gives" in enabled
-    assert "A request for emails that mention a receipt is an inbox search" in enabled
-    assert "never receipts or attachments" not in enabled
+    assert "ask_email_agent" in enabled
+    assert "Gmail receipts and invoices also use" in enabled
+    assert "unless the person explicitly asks for saved receipts" in enabled
+    assert "source-backed answer and coverage limits" in enabled
+    assert "never ask_email_agent, an inbox search or memory arithmetic" not in enabled
     # With Mail chat reads off (voice, signed out), nothing about receipts is promised.
     disabled = _one_runtime_instruction(
         SimpleNamespace(state={STATE_USER_ID: "owner", _tree.STATE_VOICE_CONTEXT: {}})
     )
     assert "MAIL READ ADMISSION: disabled" in disabled
     assert "saved receipt memory" not in disabled
-    assert "One's receipt functions, never this tool" in _tree.ask_email_agent.__doc__
+    assert "Search receipts, invoices and bills live" in _tree.ask_email_agent.__doc__
 
 
 def test_package_exports_keep_the_existing_agent_entrypoints():

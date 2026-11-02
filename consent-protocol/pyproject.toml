@@ -87,6 +87,10 @@ dependencies = [
     "idna>=3.10,<4",
     "certifi>=2026.10.19",
     "exchange-calendars>=4.11,<5",
+    "semantic-router[fastembed]==1.1.1",
+    "google-api-python-client==2.201.0",
+    "langchain==1.3.13",
+    "langchain-openai==1.6.3",
 ]
 
 [dependency-groups]
@@ -255,6 +259,7 @@ exclude_dirs = ["tests", "__pycache__"]
 skips = ["B101"]  # Skip assert warnings
 
 [tool.pytest.ini_options]
+collect_imported_tests = true
 pythonpath = ["."]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

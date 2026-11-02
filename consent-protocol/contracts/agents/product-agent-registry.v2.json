@@ -1156,7 +1156,8 @@
       "action_ids": [],
       "authorities": {
         "actions": [
-          "google.gmail.modify.confirmed"
+          "google.gmail.modify.confirmed",
+          "google.gmail.compose.owner_request"
         ],
         "data": [],
         "invocation": [
@@ -1179,7 +1180,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Reads, searches, summarizes and triages Gmail: unread, senders, needs a reply, action items, meetings, detail requests and security alerts. Changes need review; drafts and sends stay with One.",
+      "description": "Live Gmail search, receipts, threads and supported attachments through scoped upstream tools; encrypted memory proposals and existing reviewed Gmail changes.",
       "evaluations": [],
       "failure_states": [
         "auth_required",
@@ -1192,7 +1193,13 @@
       "legacy_ids": [],
       "manifest_path": "consent-protocol/hushh_mcp/agents/email/agent.yaml",
       "manifest_version": 2,
-      "model": "gemini-default",
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
       "name": "Email Agent",
       "native_requirements": [],
       "one_exposure": {
@@ -1230,13 +1237,20 @@
       "runtime": {
         "adk_mode": "task",
         "factory": null,
-        "kind": "adk",
+        "kind": "hybrid",
         "transport": [
           "in_process",
           "chat"
         ]
       },
       "side_effects": [
+        {
+          "confirmation": "none",
+          "idempotent": false,
+          "max_retries": 0,
+          "name": "gmail_draft_creation",
+          "timeout_seconds": 20
+        },
         {
           "confirmation": "explicit_user_confirmation",
           "idempotent": true,
@@ -1705,7 +1719,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "c8ef4ccbaea6aaf6c0df5919081b354cf2ce80a2259a3864a536ed12f816f871",
+      "system_instruction_sha256": "7648909d3fc98eb58788a9cc67880486b775d1b8a3b3d2dddbfba442ac6a7702",
       "telemetry_namespace": "agent.email",
       "tools": [
         {
@@ -1740,7 +1754,7 @@
         }
       ],
       "ui_type": "chat",
-      "version": "1.2.0"
+      "version": "1.3.0"
     },
     {
       "action_ids": [],
@@ -4740,7 +4754,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "f28f766c24554b6c8d2b622b36dd0c089900dc117e72137b0fa6ecd33e29c4ba",
+      "system_instruction_sha256": "4359f7c07acbc50a823edcc36eedc5cce95ec18224f29c69df223d98aac62462",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

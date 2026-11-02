@@ -37,9 +37,10 @@ def test_mail_routing_has_one_owner_per_request_kind():
     # Regression: an earlier rule ("never the platform Email specialist") won
     # over MAIL READ ADMISSION because the instruction says earlier rules win.
     assert "never the platform Email specialist" not in composed
-    assert "Call ask_email_agent once with their words" in composed
+    assert "Call ask_email_agent once with the person's words" in composed
     assert "recipient_names" in composed
-    assert "Spending, purchases, receipts, invoices, bills" in composed
+    assert "Gmail live with the requested date range" in composed
+    assert "unless the person explicitly asks for saved receipts" in composed
     assert "Bank spending uses Finance" not in composed
     # Regression: "bills due" briefs went to ask_email_agent while bills belonged to the
     # receipt functions, so the same question had two owners.

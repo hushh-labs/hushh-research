@@ -53,6 +53,7 @@ from hushh_mcp.one_adk.consent_continuation import (
     continued_outcomes,
 )
 from hushh_mcp.one_adk.conversation_titles import ensure_conversation_titles
+from hushh_mcp.one_adk.email_memory_turn import admit_email_memory
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -506,6 +507,12 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # Live Mirror facts packet. Popped before the bridge can copy forwarded
     # props; only an unlocked owner turn stores it (below).
     raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    try:
+        email_memory = admit_email_memory(
+            forwarded, user_id=user_id, admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Email memory context is invalid.") from None
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
@@ -531,6 +538,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
+        and forwarded.get("emailAgentContract") == 1,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
@@ -556,6 +565,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        **email_memory,
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,

@@ -444,6 +444,21 @@ describe("buildPendingEmailDraftContext", () => {
     });
   });
 
+  it("keeps a generic Gmail reply's sealed source across revisions without retargeting KYC", () => {
+    const sourceMailRef = "rs1.nX4-qL9_c2VhbGVkLXJlcGx5LXNvdXJjZQ";
+    const envelope = { to: "original@example.com", subject: "Re: Original thread" };
+    expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef }, envelope, true)).toEqual({
+      ...envelope, cc: "", bcc: "", body: draft.body, sourceBound: true, sourceMailRef,
+    });
+    for (const invalid of ["provider-thread-id", ` ${sourceMailRef}`, `rs1.${"a".repeat(2045)}`]) {
+      expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef: invalid }, envelope, true)).toBeNull();
+    }
+    expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef }, null, false)).toBeNull();
+    expect(buildPendingEmailDraftContext({ ...draft, sourceMailRef, sourceWorkflowId: "kyc-workflow" }, envelope, true)).toBeNull();
+    expect(buildPendingEmailDraftContext({ ...draft, sourceWorkflowId: "kyc-workflow" }, envelope, true))
+      .not.toHaveProperty("sourceMailRef");
+  });
+
   it("sends nothing when no draft is on screen", () => {
     expect(buildPendingEmailDraftContext(null, null, false)).toBeNull();
     expect(

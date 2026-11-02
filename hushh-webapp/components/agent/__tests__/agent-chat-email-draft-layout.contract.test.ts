@@ -5,11 +5,47 @@ import { describe, expect, it, vi } from "vitest";
 import ts from "typescript";
 import { publishValidatedAuthSessionPrincipal, snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import type { ComponentProps } from "react";
+import type { EmailDraftCard } from "@/components/agent/email-draft-card";
+import { createSourceBoundEmailReply } from "@/lib/chat/email-draft-review";
+import { EmailDeliveryService, type EmailDraft } from "@/lib/services/email-delivery-service";
 
 const source = readFileSync(
   join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
   "utf8",
 );
+
+// Execute the authored render callback and actual reply adapter; the element
+// factory observes props without mounting the native workspace or copying policy.
+function renderedEmailDraft(input: {
+  draft: EmailDraft; workflowId?: string; kycEnvelope?: { to: string; subject: string };
+}): ComponentProps<typeof EmailDraftCard> {
+  const start = source.indexOf("  const renderEmailDraftCard = () => {");
+  const end = source.indexOf("  const latestRetryableAssistantId =", start);
+  expect(start).toBeGreaterThan(-1);
+  expect(end).toBeGreaterThan(start);
+  const compiled = ts.transpileModule(source.slice(start, end) + "\nreturn renderEmailDraftCard();", {
+    fileName: "email-draft-render.tsx",
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React, jsxFactory: "element" },
+  }).outputText;
+  const deps = {
+    element: (_type: unknown, props: unknown, ...children: unknown[]) => ({ props, children }),
+    EmailDraftCard: "EmailDraftCard", emailDraftOpen: true,
+    gmailKycEmailDraftWorkflowId: input.workflowId ?? null,
+    emailDraftInitialValue: input.draft, gmailKycEmailDraftEnvelope: input.kycEnvelope ?? null,
+    workspaceOwnerIdRef: { current: "draft-owner" },
+    emailScopeRef: { current: { ownerId: "draft-owner", epoch: snapshotVaultSessionEpoch() } },
+    isVaultSessionEpochCurrent, emailDraftAnchorMessageId: "draft-message",
+    emailDraftInstruction: "Review the reply", emailDraftAutoDraft: false,
+    closeEmailDraft: vi.fn(), handleEmailSendStarted: vi.fn(), handleEmailDraftChange: vi.fn(),
+    setIsEmailDrafting: vi.fn(), openConnectorSurface: vi.fn(), emailDraftGmailSend: null,
+    gmailSendConnect: { pending: null }, createSourceBoundEmailReply,
+  };
+  const tree = new Function(...Object.keys(deps), compiled)(...Object.values(deps)) as {
+    children: { props: ComponentProps<typeof EmailDraftCard> }[];
+  };
+  return tree.children[0].props;
+}
 
 // Execute the same workspace callbacks at their service ports. The native
 // workspace cannot be mounted here; no authorization logic is copied to this fixture.
@@ -188,12 +224,10 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain("message.id === emailDraftAnchorMessageId");
     expect(source).toContain("renderEmailDraftCard()");
     expect(source).toContain("sourceBoundReply=");
-    expect(source).toContain("sourceBoundEnvelope={gmailKycEmailDraftEnvelope}");
+    expect(source).toContain("sourceBoundReply={createSourceBoundEmailReply(");
     expect(source).toContain("source.reply_to?.trim() || source.from.trim()");
     expect(source).not.toContain("sourceBoundContext=");
     expect(source).not.toContain("gmailKycRequestSummary");
-    expect(source).toContain("sourceWorkflowId: workflowId");
-    expect(source).toContain("const prepared = await EmailDeliveryService.prepare");
     expect(source).not.toContain("GmailInformationRequestsService.prepareReply");
     expect(source).not.toContain("GmailKycReplyCard");
     expect(source).toContain("itemsAfterMessage.get(message.id)");
@@ -210,6 +244,39 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).not.toContain(
       'className="shrink-0 border-t border-border/70 bg-background px-3 pt-3 sm:px-5"',
     );
+  });
+
+  it.each(["KYC", "generic", "compose"] as const)("preserves the authored %s envelope and reply authority through the send owner", async (kind) => {
+    const draft: EmailDraft = { to: "original@example.com", cc: "", bcc: "", subject: "Re: Original", body: "Reviewed reply." };
+    const sourceMailRef = "rs1.nX4-qL9_c2VhbGVkLXJlcGx5LXNvdXJjZQ";
+    const kycEnvelope = { to: "verifier@example.com", subject: "Re: Verification" };
+    const prepare = vi.spyOn(EmailDeliveryService, "prepare").mockResolvedValue({ actionId: "prepared-action", senderToken: "sender-review", expiresAt: null });
+    const send = vi.spyOn(EmailDeliveryService, "send").mockResolvedValue({ actionId: "prepared-action", messageId: "sent-message", threadId: "original-thread", outcomeUnknown: false });
+    try {
+      const props = renderedEmailDraft({ draft: kind === "generic" ? { ...draft, sourceMailRef } : draft,
+        ...(kind === "KYC" ? { workflowId: "kyc-workflow", kycEnvelope } : {}) });
+      expect(prepare).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+      expect(props.sourceBoundEnvelope).toEqual(kind === "KYC" ? kycEnvelope : kind === "generic" ? { ...draft, sourceMailRef } : null);
+      if (kind === "compose") {
+        expect(props.sourceBoundReply).toBeNull();
+        return;
+      }
+      expect(props.sourceBoundReply?.reportsSendStart).toBe(true);
+      await props.sourceBoundReply!.send({ firebaseIdToken: "firebase-token", vaultOwnerToken: "owner-token", idempotencyKey: "reviewed-send",
+        draft: { ...draft, to: "redirect@example.com", cc: "extra@example.com", sourceWorkflowId: "other-workflow", sourceMailRef: "untrusted-reference" } });
+      const reviewedDraft = prepare.mock.calls[0][0].draft;
+      expect(reviewedDraft).toMatchObject(kind === "KYC" ? { sourceWorkflowId: "kyc-workflow", sourceMailRef: undefined }
+        : { ...draft, sourceMailRef, sourceWorkflowId: undefined });
+      expect(send).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ actionId: "prepared-action", senderToken: "sender-review", draft: reviewedDraft }));
+      send.mockClear();
+      prepare.mockRejectedValueOnce(new Error("Preparation refused"));
+      await expect(props.sourceBoundReply!.send({ firebaseIdToken: "firebase-token", vaultOwnerToken: "owner-token", draft, idempotencyKey: "refused-review" })).rejects.toThrow("Preparation refused");
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      prepare.mockRestore();
+      send.mockRestore();
+    }
   });
 
   it("keeps the composer open while a mail draft waits for review", () => {

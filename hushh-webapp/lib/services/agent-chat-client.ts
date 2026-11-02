@@ -25,6 +25,8 @@ import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent }
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
+import { parseGmailReviewDirective, type PendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
+import { emailMemoryCommitPayload, parseEmailMemorySaveDirective, type EmailMemoryCommitReceipt, type EmailMemoryProjection } from "@/lib/chat/email-memory-bridge";
 import {
   QUEUED_INPUT_EVENT,
   parseQueuedInputNotice,
@@ -217,6 +219,8 @@ export type SpecialistDirectiveEvent = {
   message: string;
   stateChanged: boolean;
 };
+
+export { parseGmailReviewDirective, type GmailReviewDirective } from "@/lib/chat/email-agent-contract";
 
 export type AgentSource = {
   agentId: string;
@@ -1115,21 +1119,7 @@ export type AgentChatConsentContinuation = {
   sharedInformation?: string;
 };
 
-/**
- * The person's unsent mail draft as it is on screen, so a follow-up turn can
- * revise it. It grants nothing: One can only open a replacement review card,
- * and sending still needs the person's Send click on that card.
- */
-export type PendingEmailDraftContext = {
-  to: string;
-  cc: string;
-  bcc: string;
-  subject: string;
-  body: string;
-  driveFileId?: string;
-  /** A reply to the selected Gmail request; its envelope stays server-derived. */
-  sourceBound: boolean;
-};
+export type { PendingEmailDraftContext } from "@/lib/chat/email-agent-contract";
 
 /** Start the first catalog read beside memory preparation, without adding a cache. */
 export function prepareAgentChatConnectorConfigurations(input: {
@@ -1205,6 +1195,10 @@ export async function streamAgentChat(input: {
   /** One saved Drive result, checked against the current owner and live Drive before use. */
   driveSearchSelection?: { jobId: string; position: number };
   pendingEmailDraft?: PendingEmailDraftContext | null;
+  /** Same canonical, owner-authorized RAM document; never a legacy-domain fallback. */
+  emailMemoryProjection?: EmailMemoryProjection | null;
+  /** A confirmed commit locator; ingress independently checks the PKM ledger. */
+  emailMemoryCommit?: EmailMemoryCommitReceipt;
   /**
    * Deprecated compatibility input. Ignored: receipt detail is admitted only
    * through a current owner-authorized dedicated function continuation.
@@ -1528,11 +1522,13 @@ export async function streamAgentChat(input: {
               timezone,
               turnLocation,
               pkmContext: input.pkmContext,
+              emailMemoryProjection: input.emailMemoryProjection,
+              ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
               communicationPreferences,
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+              ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -1940,6 +1936,10 @@ export async function streamAgentChat(input: {
             typeof val.delegateAgentId === "string"
           ) {
             const directivePayload = (val.payload || {}) as Record<string, unknown>;
+            if (directivePayload.kind === "email_memory_save" &&
+                (val.delegateAgentId !== "agent_email" || !parseEmailMemorySaveDirective(directivePayload))) continue;
+            if (directivePayload.type === "gmail.review_requested" &&
+                (val.delegateAgentId !== "agent_email" || !parseGmailReviewDirective(directivePayload))) continue;
             const directiveEvent: SpecialistDirectiveEvent = {
               delegateAgentId: val.delegateAgentId,
               directive: {
@@ -1947,7 +1947,7 @@ export async function streamAgentChat(input: {
                 payload: directivePayload,
               },
               message: String(directivePayload.summary || val.message || ""),
-              stateChanged: true,
+              stateChanged: directivePayload.kind !== "email_memory_save" && directivePayload.type !== "gmail.review_requested",
             };
             handlers.onSpecialistDirective?.(directiveEvent);
             continue;
@@ -2028,10 +2028,12 @@ export async function streamAgentChat(input: {
                   forwardedProps: {
                     ...await connectorProjection(),
                     timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
+                    emailMemoryProjection: input.emailMemoryProjection,
+                    ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
-                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2,
+                    ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}), emailDraftContract: 2, emailAgentContract: 1,
                     screenContext: input.screenContext,
                     ...(approval ? { mcpApproval: {
                       directiveId: approval.directiveId, connectorId: approval.connectorId,
@@ -2130,13 +2132,15 @@ export async function streamAgentChat(input: {
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,
+        emailMemoryProjection: input.emailMemoryProjection,
+        ...(input.emailMemoryCommit ? { emailMemoryCommit: emailMemoryCommitPayload(input.emailMemoryCommit) } : {}),
         communicationPreferences,
         personSelectionHandle: input.personSelectionHandle,
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
         ...(input.pendingEmailDraft ? { pendingEmailDraft: input.pendingEmailDraft } : {}),
         // The mail draft envelope version this client reads. The server reads it per request, so resumed runs send it too.
-        emailDraftContract: 2,
+        emailDraftContract: 2, emailAgentContract: 1,
         screenContext: input.screenContext,
         ...(input.consentContinuation ? { consentContinuation: input.consentContinuation } : {}),
         ...(input.financeShare ? { financeShare: input.financeShare } : {}),
@@ -2165,7 +2169,7 @@ export async function streamAgentChat(input: {
       agent.setMessages(receiptToolResults.map(item => ({ id: crypto.randomUUID(), role: "tool" as const, toolCallId: item.toolCallId,
         content: JSON.stringify({ schema: "receipt_result.v1", operation: item.toolName, ephemeral_result: true }) })));
       await runUntilTerminal({ tools, context: [], forwardedProps: {
-        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2,
+        timezone, screenContext: input.screenContext, communicationPreferences, receiptToolResults, emailDraftContract: 2, emailAgentContract: 1,
       } });
       if (!receiptSessionCurrent()) throw new Error("Receipt authority changed. Ask again.");
     }
@@ -2281,7 +2285,7 @@ export async function streamAgentIntro(input: {
     await agent.runAgent({
       tools: [],
       context: [],
-      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone() },
+      forwardedProps: { screenContext: input.screenContext, timezone: browserTimeZone(), emailAgentContract: 1 },
     }, subscriber);
   } finally {
     liveness.stop();

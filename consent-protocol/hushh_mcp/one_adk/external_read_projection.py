@@ -43,6 +43,7 @@ _EPHEMERAL = frozenset(
         "temp:hussh:pending_email_draft",
         "hussh:gmail_information_request_context",
         "hussh:pending_directive:gmail_information_request_reply",
+        "hussh:pending_directive:agent_email_specialist",
     }
 )
 _PRIVATE_DRAFT_TOOLS = frozenset(
