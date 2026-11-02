@@ -199,15 +199,28 @@ def require_frontend_baseline(current: dict, baseline: dict) -> None:
             "Frontend traffic or identity changed before promotion")
 
 
-def qualify_document_mode(args, mode: dict) -> None:
+def qualify_document_mode(args, mode: dict) -> dict:
     require(args.project == "hushh-pda" and args.environment == "production"
             and not any((args.production_restoration, args.verify_previous,
                          args.staged_worker_run_id, args.activation_run_id, args.cold_release_mode,
-                         args.rollback_report, args.manual_rollback, args.rebind_backend_report,
-                         mode["enabled"])), "Auth-domain repair cannot change document custody")
+                         args.rollback_report, args.manual_rollback, args.rebind_backend_report)), "Auth-domain repair cannot change document custody")
     receipt = json.loads(args.frontend_auth_domain_receipt.read_text())
     require(receipt["authority"]["application_sha"] == args.target_sha, "Auth-domain source mismatch")
     unchanged_backend(receipt)
+    backend = importlib.import_module("production_emergency").provider(
+        "revisions", receipt["baseline"]["backend"]["revision"])
+    return effective_document_mode(mode, backend)
+
+
+def effective_document_mode(mode: dict, backend: dict) -> dict:
+    # Stored future policy is not the immutable restored revision's admission.
+    # The original restoration pinned literal OFF, which wins runtime hydration.
+    flags = [entry for container in backend.get("spec", {}).get("containers", [])
+             for entry in container.get("env", [])
+             if entry.get("name") == "PROTECTED_DOCUMENT_DELIVERY_ENABLED"]
+    require(len(flags) == 1 and flags[0].get("value") == "false"
+            and "valueFrom" not in flags[0], "Serving document intake is not explicitly disabled")
+    return {**mode, "stored_enabled": mode["enabled"], "enabled": False}
 
 
 class SameOriginRedirect(HTTPRedirectHandler):

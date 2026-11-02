@@ -300,3 +300,19 @@ def test_auth_domain_refresh_refuses_foreign_frontend_traffic(monkeypatch):
     for key, value in [("service_uid", "replacement"), ("revision", "other")]:
         with pytest.raises(ValueError):
             module.require_frontend_baseline({**baseline, key: value}, baseline)
+
+
+def test_auth_domain_refresh_uses_observed_intake_not_future_stored_policy(monkeypatch):
+    _emergency_fixture(monkeypatch)
+    module = importlib.import_module("production_auth_domain_refresh")
+    mode = {"configured": True, "enabled": True}
+    flag = {"name": "PROTECTED_DOCUMENT_DELIVERY_ENABLED", "value": "false"}
+    backend = {"spec": {"containers": [{"env": [flag]}]}}
+    assert module.effective_document_mode(mode, backend) == {
+        "configured": True,
+        "stored_enabled": True,
+        "enabled": False,
+    }
+    for entries in [[], [dict(flag, value="true")], [dict(flag, valueFrom={})], [flag, flag]]:
+        with pytest.raises(ValueError):
+            module.effective_document_mode(mode, {"spec": {"containers": [{"env": entries}]}})

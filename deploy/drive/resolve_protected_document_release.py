@@ -462,7 +462,7 @@ def main() -> int:
             )
         unchanged_frontend = args.frontend_auth_domain_receipt is not None
         if unchanged_frontend:
-            run_path(str(ROOT / "scripts/ci/production_auth_domain_refresh.py"))["qualify_document_mode"](args, mode)
+            mode = run_path(str(ROOT / "scripts/ci/production_auth_domain_refresh.py"))["qualify_document_mode"](args, mode)
         if (
             not args.production_restoration and not unchanged_frontend
             and mode["configured"]
