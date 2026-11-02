@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
-import time
 from unittest.mock import Mock
 
 import pytest
@@ -20,6 +17,13 @@ from hushh_mcp.services.pkm_answer_payment_service import (
     PkmAnswerPaymentService,
 )
 from hushh_mcp.services.pkm_answer_request_service import AnswerRequestError
+from tests.helpers.answer_signed_settlement import (
+    SECRET,
+    dispatch_signed_purchase,
+    revoke_staged_key_and_check_checkout,
+    signed,
+    status,
+)
 from tests.services.test_pkm_answer_races_postgres import _approved, payments_enabled  # noqa: F401
 from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     ENVELOPE,
@@ -32,31 +36,6 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     clean,
     connector_postgres_url,
 )
-
-SECRET = b"whsec_payment_test_secret_value"
-
-
-def signed(body):
-    timestamp = int(time.time())
-    signature = hmac.new(SECRET, f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
-    return {"Stripe-Signature": f"t={timestamp},v1={signature}"}
-
-
-def status(engine, request):
-    with engine.connect() as c:
-        return (
-            c.execute(
-                text("""SELECT r.status, o.status AS payment_status,
-            (SELECT count(*) FROM feed_events WHERE source_row_id='answer_request:'||r.request_id::text
-              AND event_type='answer_delivered') AS milestones,
-            (SELECT count(*) FROM pkm_answer_payment_webhook_events WHERE request_id=r.request_id) AS events
-            FROM pkm_answer_requests r JOIN pkm_answer_payment_orders o USING(request_id)
-            WHERE r.request_id=:r"""),
-                {"r": request},
-            )
-            .mappings()
-            .one()
-        )
 
 
 @pytest.mark.parametrize(
@@ -107,22 +86,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     args = api.checkout.Session.create.call_args.kwargs
     assert args["api_key"].startswith(f"sk_{stripe_mode}_")
     if revoke_after_checkout:
-        with answer_engine.begin() as c:
-            c.execute(
-                text("UPDATE marketplace_recipient_keys SET status='revoked' WHERE user_id=:u"),
-                {"u": REQUESTER},
-            )
-            c.execute(
-                text("""INSERT INTO marketplace_recipient_keys(user_id,key_id,public_key_jwk,algorithm)
-              SELECT user_id,'replacement-key',public_key_jwk,algorithm
-              FROM marketplace_recipient_keys WHERE user_id=:u AND key_id='key-1'"""),
-                {"u": REQUESTER},
-            )
-        with pytest.raises(AnswerPaymentError, match="answer_not_ready"):
-            await payments.checkout(requester_user_id=REQUESTER, request_id=request)
-        assert (await payments.get_payment(requester_user_id=REQUESTER, request_id=request))[
-            "preparationStatus"
-        ] != "ready"
+        await revoke_staged_key_and_check_checkout(answer_engine, payments, request, REQUESTER)
     if legacy_without_receipt:
         with answer_engine.begin() as c:
             c.execute(
@@ -173,29 +137,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
             }
         },
     }
-    monkeypatch.setattr(routes, "PkmAnswerPaymentService", lambda: payments)
-    drive = Mock()
-    monkeypatch.setattr(routes, "_service", lambda: drive)
-    app = FastAPI()
-    app.include_router(routes.webhook_router)
-    client = TestClient(app)
-    body = json.dumps(event).encode()
-    tampered = body.replace(b'"amount_total": 1000', b'"amount_total": 100')
-    assert (
-        client.post(
-            "/api/payments/stripe/webhook", content=tampered, headers=signed(body)
-        ).status_code
-        == 400
-    )
-    assert status(answer_engine, request)["payment_status"] == "checkout_open"
-    for current in [event, event, {**event, "id": "evt_distinct_same_purchase"}]:
-        body = json.dumps(current).encode()
-        assert (
-            client.post(
-                "/api/payments/stripe/webhook", content=body, headers=signed(body)
-            ).status_code
-            == 200
-        )
+    client, drive = dispatch_signed_purchase(monkeypatch, payments, event, answer_engine, request)
     row = status(answer_engine, request)
     if legacy_without_receipt or revoke_after_checkout:
         assert (row["status"], row["payment_status"], row["milestones"]) == ("answering", "paid", 0)

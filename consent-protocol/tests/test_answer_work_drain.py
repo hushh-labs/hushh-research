@@ -32,45 +32,7 @@ def scheduler_cli(tmp_path):
     root = Path(__file__).resolve().parents[2]
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    driver = tmp_path / "cloud.py"
-    driver.write_text(
-        """import json,os,sys
-from pathlib import Path
-args=sys.argv[1:]
-path=Path(os.environ["FAKE_CLOUD_STATE"])
-state=json.loads(path.read_text())
-state["calls"].append(args)
-def save(): path.write_text(json.dumps(state))
-if args[:3]==["scheduler","jobs","describe"]:
-    save()
-    if state.get("deny"):
-        print("PERMISSION_DENIED",file=sys.stderr);sys.exit(1)
-    if state["job"] is None:
-        print("NOT_FOUND",file=sys.stderr);sys.exit(1)
-    if any("value(state,schedule," in a for a in args):
-        values=state["config"]
-        print("\\t".join([state["job"],values["schedule"],values["uri"],"POST",values["oidc-service-account-email"],values["oidc-token-audience"]]))
-    else: print(state["job"])
-elif args[:2]==["scheduler","jobs"]:
-    verb=args[2]
-    if verb=="create" and state.get("create_failures",0):
-        state["create_failures"]-=1
-        save()
-        print("ERROR: (gcloud.scheduler.jobs.create.http) "+state["create_error"]+": identity unavailable",file=sys.stderr)
-        sys.exit(1)
-    if verb in {"create","update"}:
-        state["config"]={a[2:].split("=",1)[0]:a.split("=",1)[1] for a in args if a.startswith("--") and "=" in a}
-    if verb in {"create","resume"}: state["job"]="ENABLED"
-    if verb=="pause": state["job"]="PAUSED"
-    save()
-elif args[:3]==["iam","service-accounts","describe"] and not state["identity"]:
-    save();print("NOT_FOUND",file=sys.stderr);sys.exit(1)
-elif args[:3]==["iam","service-accounts","create"]:
-    state["identity"]=True;save()
-else: save()
-""",
-        encoding="utf-8",
-    )
+    driver = Path(__file__).parent / "fixtures/answer_scheduler_cloud.py"
     command = fake_bin / "gcloud"
     command.write_text(
         '#!/usr/bin/env bash\nexec "$FAKE_PYTHON" "$FAKE_CLOUD_DRIVER" "$@"\n', encoding="utf-8"

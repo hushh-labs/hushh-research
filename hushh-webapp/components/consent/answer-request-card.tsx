@@ -1,7 +1,7 @@
 "use client";
 
+import { coverageLabel, validAnswerCoverage } from "@/lib/answers/answer-request-coverage";
 import { answerStageTiming } from "@/lib/answers/answer-stage-timing";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 
@@ -29,12 +29,11 @@ import { AuthService } from "@/lib/services/auth-service";
 import {
   AnswerRequestService,
   type AnswerPaymentView,
-  type AnswerRequestCoverage,
   type AnswerRequestState,
   type PendingAnswerRequest,
 } from "@/lib/services/answer-request-service";
-import { decryptMarketplaceEnvelope, marketplaceRecipientKeyId } from "@/lib/one-marketplace/encryption";
-import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
+import { decryptMarketplaceEnvelope } from "@/lib/one-marketplace/encryption";
+import { useAnswerRequestAction, useAnswerRequestReceiving } from "@/components/consent/use-answer-request-actions";
 import { AnswerRequestReview } from "@/components/consent/answer-request-review";
 import { Button } from "@/lib/morphy-ux/button";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
@@ -59,21 +58,6 @@ export interface AnswerRequestCardProps {
 
 function money(cents: number | null): string {
   return cents === null ? "" : `$${(cents / 100).toFixed(0)}`;
-}
-
-function validAnswerCoverage(value: AnswerRequestCoverage | undefined): value is AnswerRequestCoverage {
-  if (!value || !Array.isArray(value.included) || !Array.isArray(value.notIncluded) ||
-      !value.included.length || value.included.length + value.notIncluded.length > 12) return false;
-  const rows = [...value.included, ...value.notIncluded];
-  if (rows.some(entry => !entry || typeof entry.scope !== "string" ||
-      !/^attr\.[a-z0-9_]+(?:\.[a-z0-9_*]+)+$/.test(entry.scope) ||
-      !(entry.label === null || typeof entry.label === "string" && entry.label.length <= 160))) return false;
-  return new Set(rows.map(entry => entry.scope)).size === rows.length;
-}
-
-function coverageLabel(label: string | null): string {
-  const clean = label?.replace(/\s+/g, " ").trim();
-  return clean && !/[\u0000-\u001f\u007f]/.test(clean) ? clean.slice(0, 120) : "Requested information";
 }
 
 export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
@@ -112,12 +96,10 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   >(null);
   const [pendingOpen, setPendingOpen] = useState<{ userId: string; requestId: string } | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
-  const [deviceKeyReady, setDeviceKeyReady] = useState(false);
   const mounted = useRef(true);
-  const operationRef = useRef<symbol | null>(null);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; operationRef.current = null; };
+    return () => { mounted.current = false; };
   }, []);
 
   const load = useCallback(async () => {
@@ -174,7 +156,6 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   }, [requestId, userId]);
 
   useEffect(() => {
-    operationRef.current = null;
     setLoading(true);
     setState(null);
     setPending(null);
@@ -201,16 +182,6 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     };
   }, [load, vaultOwnerToken]);
 
-  useEffect(() => {
-    setDeviceKeyReady(false);
-    if (!userId || !isVaultUnlocked || state?.role !== "requester" || !state.deliveryRecipientKeyId) return;
-    let retired = false;
-    const epoch = snapshotVaultSessionEpoch();
-    void marketplaceRecipientKeyId(userId).then(keyId => {
-      if (!retired && isVaultSessionEpochCurrent(epoch)) setDeviceKeyReady(keyId === state.deliveryRecipientKeyId);
-    }).catch(() => { /* Unavailable local custody cannot authorize payment. */ });
-    return () => { retired = true; };
-  }, [state, userId, isVaultUnlocked, vaultOwnerToken]);
 
   useEffect(() => {
     if (!state?.role || ["answered", "cancelled", "declined", "expired"].includes(payment?.requestStatus ?? state.requestStatus)) return;
@@ -222,44 +193,11 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     return () => window.clearInterval(timer);
   }, [load, state?.role, state?.requestStatus, payment?.requestStatus]);
 
-  const run = useCallback(async (
-    action: (token: string, epoch: number, isCurrent: () => boolean) => Promise<unknown>,
-  ) => {
-    if (operationRef.current || !mounted.current) return;
-    const operation = Symbol();
-    operationRef.current = operation;
-    const epoch = snapshotVaultSessionEpoch();
-    const authGeneration = getAuthSessionGeneration();
-    const owner = userId;
-    const valid = () =>
-      mounted.current && operationRef.current === operation && authGeneration === getAuthSessionGeneration() &&
-      ownerRef.current === owner && requestRef.current === requestId && isVaultSessionEpochCurrent(epoch);
-    setBusy(true);
-    setError(null);
-    try {
-      const token = await AuthService.getIdToken();
-      if (!token) throw new Error("Sign in to continue.");
-      if (!valid())
-        throw new Error("Session changed. Open this request again.");
-      await action(token, epoch, valid);
-      if (!valid()) return;
-      if (userId) CacheSyncService.onConsentMutated(userId);
-      dispatchConsentStateChanged({
-        userId,
-        requestId: `answer_request:${requestId}`,
-      });
-      await load();
-    } catch (cause) {
-      if (valid()) setError(
-        cause instanceof Error ? cause.message : "That could not be completed.",
-      );
-    } finally {
-      if (operationRef.current === operation) {
-        operationRef.current = null;
-        if (mounted.current) setBusy(false);
-      }
-    }
-  }, [load, requestId, userId]);
+  const run = useAnswerRequestAction({ userId, requestId, load, setBusy, setError });
+  const { deviceKeyReady, openCheckout, setupReceiving } = useAnswerRequestReceiving({
+    state, requestId, run, coverageVerified: validAnswerCoverage(state?.coverage),
+    onUnlock: () => setUnlockOpen(true),
+  });
 
   // Most "Preparation could not finish" failures are a single transient
   // revision conflict (another write landed mid-read) that a fresh reread
@@ -297,31 +235,6 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     }
     setPrepareOutcome(result.delivered ? "delivered" : "empty");
   });
-
-  const openCheckout = () =>
-    run(async (token, epoch, current) => {
-      if (!validAnswerCoverage(state?.coverage))
-        throw new Error("Answer coverage could not be verified. Refresh this question before paying.");
-      if (!userId || !isVaultUnlocked) throw new Error("Unlock your vault before paying for this answer.");
-      const fresh = await AnswerRequestService.state(token, requestId);
-      const keyId = await marketplaceRecipientKeyId(userId);
-      if (!current()) return;
-      if (!fresh.deliveryRecipientKeyId || fresh.deliveryRecipientKeyId !== keyId || fresh.requesterKeyReady === false)
-        throw new Error("This device cannot receive the prepared answer. Open this question on the device that sent it before paying.");
-      const url = await AnswerRequestService.checkout(token, requestId);
-      // Validated as a Stripe-hosted host by the service before we get here.
-      if (current()) window.location.assign(url);
-    });
-
-  const setupReceiving = () => {
-    if (!isVaultUnlocked || !vaultOwnerToken) { setUnlockOpen(true); return; }
-    void run(async (_token, _epoch, current) => {
-      if (!userId || state?.role !== "requester") throw new Error("Open your own request to enable receiving.");
-      if (state.deliveryRecipientKeyId && state.deliveryRecipientKeyActive !== false && await marketplaceRecipientKeyId(userId) !== state.deliveryRecipientKeyId)
-        throw new Error("Use the device that sent this request. Creating a new key cannot unlock an already prepared answer.");
-      await bootstrapCurrentUserMarketplaceRecipientKey({ userId, vaultOwnerToken, isCurrent: current });
-    });
-  };
 
   useEffect(() => {
     setAnswer(null);

@@ -43,6 +43,11 @@ from hushh_mcp.services.pkm_answer_config import (
     available_answer_payment_modes,
 )
 from hushh_mcp.services.pkm_answer_config import answer_payment_config as _config
+from hushh_mcp.services.pkm_answer_receiving_queries import (
+    PAYMENT_WITH_RECIPIENT_STATE,
+    PREPARED_ACTIVE_DELIVERY,
+    SETTLEMENT_ACTIVE_DELIVERY,
+)
 
 #: Registered in the Stripe webhook dispatcher. An unregistered kind would fall
 #: through to the Drive handler, which returns early and reports success to
@@ -131,22 +136,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
         def read(connection):
             row = self._row(
                 connection,
-                """SELECT r.status AS request_status, r.amount_cents, r.currency,
-                          r.request_id, r.owner_user_id, r.terms_digest, r.composer_consent_digest,
-                          r.answer_deadline_at, r.question,
-                          (r.approved_at < clock_timestamp() - interval '2 minutes') AS preparation_overdue,
-                          o.status AS order_status,
-                          o.stripe_checkout_url, o.paid_at, o.refunded_at, o.refund_reason,
-                          o.reconciliation_required, d.has_content AS staged_has_content,
-                          d.source_revisions AS staged_revisions,
-                          EXISTS(SELECT 1 FROM marketplace_recipient_keys k
-                            WHERE k.user_id=r.requester_user_id
-                              AND k.key_id=d.recipient_key_id AND k.status='active')
-                            AS staged_recipient_active
-                   FROM pkm_answer_requests r
-                   LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
-                   LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
-                   WHERE r.request_id = :request AND r.requester_user_id = :requester""",
+                PAYMENT_WITH_RECIPIENT_STATE,
                 {"request": request_id, "requester": requester_user_id},
             )
             if row is None:
@@ -213,12 +203,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
     def _require_prepared_answer(connection, request) -> None:
         staged = (
             connection.execute(
-                text("""SELECT d.has_content, d.ciphertext, d.iv, d.recipient_key_id,
-                          d.source_revisions
-                    FROM pkm_answer_deliveries d
-                    JOIN marketplace_recipient_keys k ON k.key_id=d.recipient_key_id
-                      AND k.user_id=:requester AND k.status='active'
-                    WHERE d.request_id=:request FOR SHARE OF d,k"""),
+                text(PREPARED_ACTIVE_DELIVERY),
                 {"request": str(request["request_id"]), "requester": request["requester_user_id"]},
             )
             .mappings()
@@ -881,12 +866,7 @@ class PkmAnswerPaymentService(ExternalConnectorLifecycleStore):
             # survive, and a staged answer never needs it.
             staged = (
                 connection.execute(
-                    text(
-                        """SELECT d.has_content, d.source_revisions FROM pkm_answer_deliveries d
-                           JOIN marketplace_recipient_keys k ON k.key_id=d.recipient_key_id
-                             AND k.user_id=:requester AND k.status='active'
-                           WHERE d.request_id=:request FOR SHARE OF d,k"""
-                    ),
+                    text(SETTLEMENT_ACTIVE_DELIVERY),
                     {"request": request_id, "requester": order["requester_user_id"]},
                 )
                 .mappings()
