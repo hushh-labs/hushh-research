@@ -20,7 +20,10 @@ from hushh_mcp.services.calendar_email_followup_extraction import (
     ValidatedUpdate,
 )
 from hushh_mcp.services.calendar_email_followup_reader import CompleteMailMessage
-from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
+from hushh_mcp.services.calendar_email_followup_relevance import (
+    ASSESSMENT_VERSION,
+    similar_titles,
+)
 from hushh_mcp.services.calendar_email_followup_store_types import (
     FollowupStateError,
     Monitor,
@@ -83,6 +86,91 @@ def known_requests(
         .all()
     )
     return {row["evidence_hmac"]: row for row in rows}
+
+
+# Opens one sealed field of an existing row: (ciphertext, row id, purpose) -> value.
+Open = Callable[[str, str, str], str]
+
+
+def _same_dates(row: Mapping[str, Any], candidate: ValidatedCandidate) -> bool:
+    def day(value: Any) -> str | None:
+        return value.isoformat() if value else None
+
+    proposed_at = row["proposed_at"]
+    return (
+        day(row["due_date"]) == candidate.due_date
+        and day(row["proposed_date"]) == candidate.proposed_date
+        and (
+            proposed_at is None
+            if candidate.proposed_at is None
+            else proposed_at == datetime.fromisoformat(candidate.proposed_at)
+        )
+    )
+
+
+def _squash(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def adopt_legacy_rows(
+    conn: Any,
+    monitor: Monitor,
+    message_hmac: str,
+    candidates: Sequence[ValidatedCandidate],
+    known: dict[str, Mapping[str, Any]],
+    open_value: Open,
+) -> None:
+    """Let a reassessed candidate take over the earlier-contract row it restates.
+
+    The evidence key includes the model's title, so a fresh assessment of the
+    same sentence usually has a new key. Without this step the earlier row would
+    be hidden and a new pending one created, so a task the owner already marked
+    done, snoozed or dismissed would come back. A candidate adopts a row of the
+    same message when kind and dates are identical and it quotes the same words
+    or titles the same obligation; the row keeps its decision and reminders.
+    """
+    rows = (
+        conn.execute(
+            text("""SELECT id,kind,due_date,proposed_date,proposed_at,
+            quote_ciphertext,title_ciphertext,assessment_version
+            FROM calendar_email_followup_requests
+            WHERE user_id=:user_id AND account_id=:account_id
+              AND source_message_hmac=:message_hmac
+              AND assessment_version<:version AND suppressed_at IS NULL
+            ORDER BY created_at,id"""),
+            {
+                "user_id": monitor.user_id,
+                "account_id": monitor.account_id,
+                "message_hmac": message_hmac,
+                "version": ASSESSMENT_VERSION,
+            },
+        )
+        .mappings()
+        .all()
+    )
+    claimed = {str(row["id"]) for row in known.values()}
+    rows = [row for row in rows if str(row["id"]) not in claimed]
+    for candidate in candidates:
+        if candidate.evidence_key in known:
+            continue
+        for row in rows:
+            row_id = str(row["id"])
+            if row["kind"] != candidate.kind or not _same_dates(row, candidate):
+                continue
+            quote = open_value(row["quote_ciphertext"], row_id, "quote")
+            title = open_value(row["title_ciphertext"], row_id, "title")
+            if _squash(quote) != _squash(candidate.quote) and not similar_titles(
+                title, candidate.title
+            ):
+                continue
+            conn.execute(
+                text("""UPDATE calendar_email_followup_requests SET evidence_hmac=:key
+                WHERE id=CAST(:id AS UUID)"""),
+                {"id": row_id, "key": candidate.evidence_key},
+            )
+            known[candidate.evidence_key] = row
+            rows.remove(row)
+            break
 
 
 def upsert_conversation(

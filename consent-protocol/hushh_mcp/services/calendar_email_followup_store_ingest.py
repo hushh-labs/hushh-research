@@ -124,6 +124,17 @@ class _MessageIngest:
                     new_id=conversation_id,
                     sealed=sealed,
                 )
+                if reassess:
+                    commit.adopt_legacy_rows(
+                        conn,
+                        monitor,
+                        message_hmac,
+                        assessment.candidates,
+                        known,
+                        lambda ciphertext, row_id, purpose: self._open(
+                            ciphertext, monitor, row_id, purpose
+                        ),
+                    )
                 for candidate in assessment.candidates:
                     prior = known.get(candidate.evidence_key)
                     if prior is None:

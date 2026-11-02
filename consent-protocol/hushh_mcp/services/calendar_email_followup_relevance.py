@@ -141,6 +141,11 @@ def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
     return len(left & right) / len(left | right)
 
 
+def similar_titles(left: str, right: str) -> bool:
+    """True when two titles word the same obligation (the same bar as ``same_request``)."""
+    return _jaccard(title_tokens(left), title_tokens(right)) >= 0.5
+
+
 class _Dedupable(Protocol):
     kind: str
     title: str
