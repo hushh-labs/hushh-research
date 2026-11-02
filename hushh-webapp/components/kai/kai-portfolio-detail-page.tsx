@@ -2,6 +2,7 @@
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
+import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import type { PortfolioDashboardSection } from "@/components/kai/views/dashboard-master-view";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { buildKaiPortfolioSectionRoute } from "@/lib/navigation/routes";
@@ -39,6 +40,7 @@ export function KaiPortfolioDetailPage({
         dashboardSection={section}
         onStateChange={setFlowState}
       />
+      {section === "analysis" && flowState === "import_required" ? <AdvisorReviewHub /> : null}
     </AppPageShell>
   );
 }

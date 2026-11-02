@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from api.routes import (
+    advisor_billing_webhook,
     document_delivery,
     document_delivery_background,
     drive_groups,
@@ -24,6 +25,7 @@ from api.routes import (
 def register_connector_routes(app: FastAPI) -> None:
     """Retain canonical router order, authority, prefixes and separate webhooks."""
     for router in (
+        advisor_billing_webhook.router,
         external_connectors.router,
         drive_sharing.router,
         document_delivery.router,

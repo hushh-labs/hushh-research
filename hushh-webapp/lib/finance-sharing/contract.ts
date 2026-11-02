@@ -36,7 +36,7 @@ export const financeOwnerConfigSchema = z.object({
   selection: z.object({ sections: z.array(z.enum(financeSections)).min(1).max(4), holdingSymbols: z.array(z.string().regex(/^[A-Z0-9.^-]{1,16}$/)).max(100), showAmounts: z.boolean(), note: z.string().max(1000) }).strict(),
   commitmentNonce: hexHash.optional(),
 }).strict();
-const recipientEnvelopeSchema = z.object({
+export const recipientEnvelopeSchema = z.object({
   algorithm: z.literal("ECDH-P256-AES256-GCM"), recipientKeyId: z.string().min(1).max(160), ciphertext: z.string().min(24).max(180000).regex(/^[A-Za-z0-9_-]+$/), iv: z.string().regex(/^[A-Za-z0-9_-]{16}$/),
   senderEphemeralPublicKeyJwk: z.object({ kty: z.literal("EC"), crv: z.literal("P-256"), x: z.string().regex(/^[A-Za-z0-9_-]{43}$/), y: z.string().regex(/^[A-Za-z0-9_-]{43}$/), ext: z.literal(true).optional(), key_ops: z.array(z.string()).length(0).optional() }).strict(),
 }).strict();

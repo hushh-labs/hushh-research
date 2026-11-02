@@ -1,3 +1,4 @@
+import { AdvisorReviewFixture } from "./advisor-review";
 import { FullscreenFlowShell } from "../../components/app-ui/fullscreen-flow-shell";
 import { FinanceOnboardingFixture } from "./finance-onboarding";
 import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
@@ -119,6 +120,7 @@ function Fixture() {
       statusMessage="Reading your statement"
       rawStreamLines={updated ? Array.from({ length: 15 }, (_, i) => `[THINKING] Processing holding ${i}`) : ["[THINKING] Reading statement"]} />
     <FinanceSharingFixture />
+    <AdvisorReviewFixture />
     <div data-testid="after-import">After import</div>
     <div data-testid="review-scroll" style={{ height: 220, overflow: "auto" }}>
       <HoldingRowActions symbol="TEST" layout="row" onEdit={() => setAction("Edit TEST")} onToggleDelete={() => setAction("Delete TEST")} />
