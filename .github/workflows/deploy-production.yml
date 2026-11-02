@@ -17,6 +17,10 @@ on:
         required: false
         default: ""
         type: string
+      frontend_auth_domain_refresh:
+        description: "Reviewed auth-domain-only repair of the restored frontend; requires incident source and reason"
+        type: boolean
+        default: false
       emergency_source_ref:
         description: "Manual incident branch based on serving production; leave blank for normal promotion"
         type: string
@@ -184,6 +188,7 @@ jobs:
       - name: Validate operation and verify-only input boundary before credentials
         id: validate
         env:
+          INPUT_FRONTEND_AUTH_DOMAIN_REFRESH: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
           INPUT_OPERATION: ${{ inputs.operation || 'deploy' }}
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_EMERGENCY_SOURCE_REF: ${{ inputs.emergency_source_ref }}
@@ -446,7 +451,7 @@ jobs:
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py "${RUNNER_TEMP}/release-tools/"
           cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
-          cp scripts/ci/production_emergency.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/production_emergency.py scripts/ci/production_auth_domain_refresh.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/require-deploy-sha-on-main.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
@@ -504,7 +509,7 @@ jobs:
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
           for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py \
-            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
+            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "scripts/ci/$tool" "${RUNNER_TEMP}/release-tools/$tool"
@@ -587,7 +592,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
           for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py \
-            production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
+            production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
             cp "${RUNNER_TEMP}/release-tools/$tool" "scripts/ci/$tool"
@@ -942,7 +947,9 @@ jobs:
           if [ -n "$STAGED_WORKER_RUN_ID" ]; then retained=(--staged-worker-run-id "$STAGED_WORKER_RUN_ID"); fi
           if [ "$PHONE_DEPLOY_PHASE" = cold ]; then retained=(--cold-release-mode); fi
           if [ -n "${{ inputs.restoration_validation_run }}" ]; then restoration=(--production-restoration); fi
-          python3 deploy/drive/resolve_protected_document_release.py "${restoration[@]}" "${retained[@]}" \
+          refresh=()
+          if [ "${{ inputs.frontend_auth_domain_refresh }}" = true ]; then refresh=(--frontend-auth-domain-receipt /tmp/prod-emergency-admission.json); fi
+          python3 deploy/drive/resolve_protected_document_release.py "${restoration[@]}" "${retained[@]}" "${refresh[@]}" \
             --project "${{ env.GCP_PROJECT_ID }}" --environment production \
             --target-sha "${{ github.event.inputs.sha }}" \
             --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/protected-document-reader-commit")" \
@@ -1071,7 +1078,7 @@ jobs:
           chmod +x /usr/local/bin/cloud-sql-proxy
 
       - name: Verify protected document reader and rollback compatibility
-        if: steps.document-mode.outputs.configured == 'true'
+        if: steps.document-mode.outputs.configured == 'true' && !inputs.frontend_auth_domain_refresh
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1165,7 +1172,7 @@ jobs:
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync frontend hosted runtime secrets
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && steps.scope.outputs.deploy_frontend == 'true' && !inputs.frontend_auth_domain_refresh
         shell: bash
         run: |
           set -euo pipefail
@@ -1231,6 +1238,10 @@ jobs:
       # never promoted from UAT. It builds while the backend image, fence,
       # migrations and backend candidate checks run, and the lane comes back
       # for it right before the frontend deploy.
+      - name: Pin the reviewed auth-domain-only frontend inputs
+        if: inputs.frontend_auth_domain_refresh
+        run: python3 "${RUNNER_TEMP}/release-tools/production_auth_domain_refresh.py" pin --receipt /tmp/prod-emergency-admission.json
+
       - name: Start frontend image build in parallel
         id: start-frontend-image-build
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.scope.outputs.deploy_frontend == 'true')
@@ -2395,6 +2406,10 @@ jobs:
             --sha "${{ inputs.sha }}" --run-id "$GITHUB_RUN_ID" --owned-proxy \
             --output /tmp/prod-restoration-pretraffic-schema.json
 
+      - name: Verify unchanged backend before auth-domain promotion
+        if: inputs.frontend_auth_domain_refresh
+        run: python3 "${RUNNER_TEMP}/release-tools/production_auth_domain_refresh.py" candidate --receipt /tmp/prod-emergency-admission.json --candidate "${{ steps.candidate-state.outputs.frontend_revision }}"
+
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success'))
@@ -2491,6 +2506,9 @@ jobs:
           set -euo pipefail
           bash scripts/ci/cloudrun-http-health.sh \
             "${{ steps.frontend-url.outputs.url }}" "/" 3 30 5 200
+          if [ "${{ inputs.frontend_auth_domain_refresh }}" = true ]; then
+            python3 "${RUNNER_TEMP}/release-tools/production_auth_domain_refresh.py" verify --receipt /tmp/prod-emergency-admission.json --candidate "${{ steps.candidate-state.outputs.frontend_revision }}"
+          fi
 
       - name: Verify production account-session contract
         id: health-account-session-contract

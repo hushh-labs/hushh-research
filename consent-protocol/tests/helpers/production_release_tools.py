@@ -20,6 +20,7 @@ DRIVE_PRODUCTION_TOOLS = (
 
 
 CI_PRODUCTION_TOOLS = (
+    "production_auth_domain_refresh.py",
     "uat-retention-maintenance.py",
     "retention_publication.py",
     "retention_publication_source.py",
