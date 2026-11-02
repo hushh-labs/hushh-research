@@ -152,6 +152,16 @@ describe("Calendar Insights Ask organizer journey", () => {
       if (allow) { fireEvent.click(allow); expect(onAllow).toHaveBeenCalledTimes(1); }
     });
 
+    it("an attendee's incomplete check names Google's real limit instead of telling them to refresh", async () => {
+      mocks.insights.mockImplementation(library(row));
+      mocks.approvedDetail.mockResolvedValue({ event: { title: row.title }, discovery: "attendee_discovery_limited",
+        complete: false, availability: {}, artifacts: [] });
+      await opened();
+      expect(await screen.findByText(/Google lists a meeting's files only for its organizer/)).toBeInTheDocument();
+      expect(screen.queryByText(/Refresh later/)).toBeNull();
+      expect(screen.getByRole("button", { name: "Ask organizer" })).toBeInTheDocument(); // the fallback is unchanged
+    });
+
     it("a type the live check still verifies stays available and only the other type is offered", async () => {
       mocks.insights.mockImplementation(library(listedRecording));
       mocks.approvedDetail.mockResolvedValue({ event: { title: row.title }, discovery: "checked", complete: true,

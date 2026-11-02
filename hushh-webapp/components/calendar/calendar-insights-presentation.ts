@@ -5,6 +5,7 @@ export const limitationText: Record<string, string> = {
   permission_required: "Allow recording and notes access for this Google account.",
   resource_denied: "Google denied access to an exact linked file. Check its sharing or organization policy.",
   meet_discovery_denied: "Google denied the Meet discovery check. Whether a recording or notes exist is unknown.",
+  attendee_discovery_limited: "Google lists a meeting's files only for its organizer. Files linked to this meeting that your Google account can open appear here; others may exist.",
   account_mismatch: "The selected Google account no longer matches this meeting grant. Refresh the account.",
   provider_configuration: "Google's meeting-file service isn't enabled for Hushh One yet. Retrying won't help; this needs a setup change on our side.",
   provider_policy: "Your Google organization does not allow this meeting-file check.",
