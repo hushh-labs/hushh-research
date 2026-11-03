@@ -6,8 +6,11 @@ import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upg
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { normalizeDetailedPersona, type DetailedPersonaAnswers } from "@/lib/kai/detailed-persona";
 import { normalizeLossCapacity, type LossCapacity } from "@/lib/kai/investing-persona";
+import { applyKaiPreferenceUpdates } from "@/lib/kai/profile-preferences";
 import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+
+export { resolveHorizonAnchorAt, shouldPromptForHorizonAnchor } from "@/lib/kai/profile-preferences";
 
 const FINANCIAL_DOMAIN = "financial";
 const SCHEMA_VERSION = 3 as const;
@@ -154,27 +157,6 @@ export function mapRiskProfile(score: number): RiskProfile {
   if (score <= 2) return "conservative";
   if (score <= 4) return "balanced";
   return "aggressive";
-}
-
-export function shouldPromptForHorizonAnchor(params: {
-  mode: "onboarding" | "edit";
-  previousHorizon: InvestmentHorizon | null;
-  nextHorizon: InvestmentHorizon | null;
-}): boolean {
-  if (params.mode !== "edit") return false;
-  if (!params.previousHorizon) return false;
-  return params.previousHorizon !== params.nextHorizon;
-}
-
-export function resolveHorizonAnchorAt(params: {
-  previousAnchorAt: string | null;
-  now: string;
-  choice: HorizonAnchorChoice;
-}): string {
-  if (params.choice === "keep_original") {
-    return params.previousAnchorAt ?? params.now;
-  }
-  return params.now;
 }
 
 function createDefaultProfile(now?: Date): KaiProfileV2 {
@@ -604,71 +586,12 @@ export class KaiProfileService {
             // Saving preferences implies "not skipped".
             skipped_preferences: false,
           },
-          preferences: { ...current.preferences },
+          preferences: recomputeDerived(
+            applyKaiPreferenceUpdates(current.preferences, params, iso),
+            iso,
+          ),
           updated_at: iso,
         };
-
-        // Investment horizon (with anchor semantics)
-        if (params.updates.investment_horizon !== undefined) {
-          const nextHorizon = params.updates.investment_horizon;
-          const prevHorizon = next.preferences.investment_horizon;
-          if (nextHorizon !== prevHorizon) {
-            next.preferences.investment_horizon = nextHorizon;
-            next.preferences.investment_horizon_selected_at = iso;
-
-            if (!prevHorizon) {
-              // First time selection: anchor = now.
-              next.preferences.investment_horizon_anchor_at = iso;
-            } else if (
-              shouldPromptForHorizonAnchor({
-                mode: params.mode,
-                previousHorizon: prevHorizon,
-                nextHorizon,
-              })
-            ) {
-              const choice: HorizonAnchorChoice =
-                params.horizonAnchorChoice ?? "from_now";
-              next.preferences.investment_horizon_anchor_at =
-                resolveHorizonAnchorAt({
-                  previousAnchorAt:
-                    next.preferences.investment_horizon_anchor_at,
-                  now: iso,
-                  choice,
-                });
-            } else {
-              // onboarding mode, or null->value edits
-              next.preferences.investment_horizon_anchor_at = iso;
-            }
-          }
-        }
-
-        if (params.updates.drawdown_response !== undefined) {
-          const nextDrawdown = params.updates.drawdown_response;
-          if (nextDrawdown !== next.preferences.drawdown_response) {
-            next.preferences.drawdown_response = nextDrawdown ?? null;
-            next.preferences.drawdown_response_selected_at = iso;
-          }
-        }
-
-        if (params.updates.volatility_preference !== undefined) {
-          const nextVol = params.updates.volatility_preference;
-          if (nextVol !== next.preferences.volatility_preference) {
-            next.preferences.volatility_preference = nextVol ?? null;
-            next.preferences.volatility_preference_selected_at = iso;
-          }
-        }
-
-        if (params.updates.loss_capacity !== undefined) {
-          next.preferences.loss_capacity = normalizeLossCapacity(
-            params.updates.loss_capacity,
-          );
-        }
-        if (params.updates.detailed_assessment_v1 !== undefined) {
-          next.preferences.detailed_assessment_v1 = normalizeDetailedPersona(
-            params.updates.detailed_assessment_v1,
-          );
-        }
-        next.preferences = recomputeDerived(next.preferences, iso);
         committedProfile = next;
         return {
           domainData: buildFinancialProfileDomain({
