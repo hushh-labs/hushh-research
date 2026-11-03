@@ -82,7 +82,7 @@ REQUIRED_JOBS = {
     if name != "Web Editor Performance (macOS)"
     and not name.startswith("Web Full Suite (Vitest)")
     and not name.startswith("Web Targeted Contracts (browser-")
-} | {"Web Unit Contracts", "Web Targeted Contracts (browser)"}
+} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
 
 

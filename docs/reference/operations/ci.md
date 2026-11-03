@@ -60,8 +60,10 @@ its exact changed-file list. `focused` keeps authority/security checks and
 affected owners; `release` adds core release-authority checks; `diagnostic`
 runs the retained historical full set, including optional hygiene. A full local
 core mirror is for cross-stage dependency changes or diagnosis, not a required
-pre-push step. Safari layout/performance checks are developer-local; native
-checks run when native source or its contract changes. Unknown selection stays
+pre-push step. Safari presentation/performance checks are developer-local. The separate
+Protected Document WebKit check remains required for its native cryptography
+boundary, until the pinned Linux engine passes those regression vectors. Native
+app checks run when native source or its contract changes. Unknown selection stays
 conservative, and security/source-authority gates remain blocking. Dev can
 deploy an exact CI-green branch SHA without merging application content to main.
 

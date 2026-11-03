@@ -28,6 +28,7 @@ LANES = {
         "web-targeted-browser",
         "web-full-suite-check",
         "integration-check",
+        "document-webkit-check",
     ),
     "backend": (
         "protocol-check",
@@ -35,6 +36,7 @@ LANES = {
         "protocol-database-check-two",
         "mcp-package-check",
         "integration-check",
+        "document-webkit-check",
     ),
     "ios": ("ios-native-check",),
     "android": ("android-native-check",),

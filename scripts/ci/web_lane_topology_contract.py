@@ -86,6 +86,7 @@ def _assert_status_gate(workflow: str) -> None:
         "web-full-suite-check",
         "protocol-database-check",
         "protocol-database-check-two",
+        "document-webkit-check",
     )
     needs = gate.split("    needs:\n", 1)[1].split("\n    if:", 1)[0]
     for job in required_jobs:
@@ -120,6 +121,10 @@ def _assert_status_gate(workflow: str) -> None:
     )
     assert not re.search(r"^  web-editor-performance-check:$", workflow, re.M)
     assert "WEB_EDITOR_PERF" not in gate
+    document = _job_block(workflow, "document-webkit-check")
+    assert 'name: "Protected Document WebKit (macOS)"' in document
+    assert "--ci-macos-webkit" in document and "test:layout-editor-performance" not in document
+    assert '"$DOCUMENT_WEBKIT" != success' in gate
 
 
 def assert_web_lane_topology(

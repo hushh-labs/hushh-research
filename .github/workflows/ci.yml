@@ -308,8 +308,6 @@ jobs:
               - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/deploy-dev.yml'
               - '.github/workflows/deploy-production.yml'
-              # The protocol lane's guard pins it to the editor lane's steps.
-              - '.github/workflows/editor-performance-nightly.yml'
               - '!scripts/ci/web-check.sh'
               - '!scripts/ci/web-full-check.sh'
               - '!scripts/ci/web-full-suite-check.sh'
@@ -319,6 +317,8 @@ jobs:
               - '!consent-protocol/tests/test_deployment_security_broker.py'
               - '!consent-protocol/tests/test_predecessor_acceptance_contract.py'
               - '!consent-protocol/tests/test_ci_status_gate_fails_closed.py'
+              - '!consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py'
+              - '!consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py'
               - '!consent-protocol/tests/test_direct_uat_acceptance.py'
               - '!consent-protocol/tests/test_uat_application_selection.py'
               - '!consent-protocol/tests/test_uat_paused_drive_maintenance.py'
@@ -879,6 +879,54 @@ jobs:
       WEB_TARGETED_PART: browser
       WEB_TARGETED_LABEL: browser
       PLAYWRIGHT_SHARD: ""
+
+  # Native WebKit cryptography is a protected-document boundary, independent
+  # of optional editor timing. Keep its real-SQL proof until Linux passes the
+  # pinned leading-zero X25519 vectors; no crypto substitution is permitted.
+  document-webkit-check:
+    name: "Protected Document WebKit (macOS)"
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web dependencies and browsers
+        working-directory: hushh-webapp
+        run: |
+          npm ci
+          npx playwright install webkit
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        id: document-python
+        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+
+      - name: Prepare isolated document PostgreSQL binaries
+        id: document-postgres
+        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        run: |
+          brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
+          pg_bin="$(brew --prefix postgresql@16)/bin"
+          test -x "$pg_bin/initdb"
+          echo "$pg_bin" >> "$GITHUB_PATH"
+          echo "HUSHH_TEST_PG_BIN=$pg_bin" >> "$GITHUB_ENV"
+
+      - name: Verify native WebKit protected documents through real SQL
+        id: document-webkit
+        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
 
   web-full-suite-check:
     name: "Web Unit Contracts"
@@ -1682,6 +1730,7 @@ jobs:
       - protocol-database-check-two
       - mcp-package-check
       - integration-check
+      - document-webkit-check
       - main-freshness-gate
     if: always()
     runs-on: ubuntu-24.04
@@ -1712,6 +1761,7 @@ jobs:
           PROTOCOL_DATABASE_TWO="${{ needs['protocol-database-check-two'].result }}"
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
+          DOCUMENT_WEBKIT="${{ needs['document-webkit-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
           AUTH_HEALTH_ONLY="${{ needs.paths.outputs.auth_health_only }}"
           FRONTEND_SELECTED="${{ needs['preflight-gate'].outputs.frontend }}"
@@ -1815,7 +1865,11 @@ jobs:
           fi
           if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
           if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_BROWSER" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          if { [ "$FRONTEND_SELECTED" = true ] || [ "$BACKEND_SELECTED" = true ]; } && [ "$DOCUMENT_WEBKIT" != success ]; then
+            echo "Protected document delivery requires successful native WebKit cryptography."
+            fail=1
+          fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_BROWSER" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION" "$DOCUMENT_WEBKIT" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -1876,6 +1930,7 @@ jobs:
           record_failure "Protocol Database" "$PROTOCOL_DATABASE" "$BACKEND_SELECTED"
           record_failure "MCP Package" "$MCP_PACKAGE" "$BACKEND_SELECTED"
           record_failure "Integration" "$INTEGRATION" "$INTEGRATION_REQUIRED"
+          record_failure "Protected Document WebKit" "$DOCUMENT_WEBKIT" "$INTEGRATION_REQUIRED"
           for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED"; do
             case "${lane#*=}" in
               true|false) ;;

@@ -111,6 +111,7 @@ CHECKS = (
     _check("ios-appstore-dispatch", "node", "--test", "scripts/release/dispatch-ios-appstore.test.mjs"),
     _check("android-store-dispatch", "node", "--test", "scripts/release/dispatch-android-playstore.test.mjs"),
     _check("ios-build-number", "python3", "scripts/ci/test_resolve_ios_build_number.py"),
+    _check("ci-path-ownership", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py", "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py", groups=("controller",)),
     _check("ci-cache-scopes", "python3", "scripts/ci/test_ci_cache_scopes.py"),
     _check("docs-verify", "./bin/hushh", "docs", "verify", diagnostic=True),
     _check("data-model-audit", "./bin/hushh", "codex", "data-model-audit", diagnostic=True),
@@ -211,6 +212,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if path in {
         "hushh-webapp/scripts/testing/affected-tests.mjs",
         "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+        "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
+        "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
     }:
         return frozenset({"controller"}), None
     if root == ".agents":

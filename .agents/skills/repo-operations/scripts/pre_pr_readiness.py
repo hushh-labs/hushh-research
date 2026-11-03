@@ -259,7 +259,16 @@ def _focused(args: argparse.Namespace, c: dict[str, Any], temp: Path, *, stream:
     web = {**common, "WEB_TARGETED_CHANGED_FILES": "\n".join(c["files"]), "CI_ACCOUNT_DELETION_CLIENT_OWNED": "0", "WEB_TARGETED_PART": "node"}
     stages = (["web-core", "web-targeted", "web-full-suite"] if c["lanes"]["frontend"] else [])
     if c["lanes"]["backend"]: stages += ["protocol", "mcp-package"]
-    for stage in stages: run(stage.replace("-", "_"), ["bash", "scripts/ci/orchestrate.sh", stage], web)
+    for stage in stages:
+        stage_env = dict(web)
+        if stage == "protocol":
+            # Match the CI parallel owner with synthetic fixture authority;
+            # database services remain separate hosted checks.
+            stage_env.update(TESTING="true", PROTOCOL_TEST_PARTITION="parallel",
+                             APP_SIGNING_KEY="test_secret_key_for_ci_only_32chars_min",
+                             VAULT_DATA_KEY="0" * 64,
+                             HUSHH_DEVELOPER_TOKEN="test_hushh_developer_token_for_ci")
+        run(stage.replace("-", "_"), ["bash", "scripts/ci/orchestrate.sh", stage], stage_env)
     return checks, commands
 
 
