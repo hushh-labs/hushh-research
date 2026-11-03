@@ -39,6 +39,8 @@ const REGISTERED_CONTRACT_INPUTS = new Set([
   "app/register-phone/page.voice-action-contract.json",
   "contracts/kai/kai-action-gateway.vnext.json",
   "contracts/kai/one-capability-graph.v1.json",
+  "contracts/kai/one-route-orchestration-index.v1.json",
+  "cache-coherence-screen-manifest.generated.json",
   "frontend-native-surface-map.generated.json",
   "lib/navigation/app-route-layout.contract.json",
 ]);
@@ -64,7 +66,6 @@ function isRuntimeModule(file) {
 function isSharedDependency(file) {
   return /^(?:package(?:-lock)?\.json|vitest\.config\.[jt]s|vite\.config\.[jt]s|tsconfig[^/]*\.json)$/.test(file) ||
     file === "__tests__/setup.ts" ||
-    file === "app/globals.css" ||
     file === "app/layout.tsx" ||
     file === "app/providers.tsx" ||
     /^(?:components\/(?:app-ui|ui)|lib\/capacitor)\//.test(file) ||
@@ -72,7 +73,10 @@ function isSharedDependency(file) {
 }
 
 function isRegisteredContractInput(file) {
-  return REGISTERED_CONTRACT_INPUTS.has(file);
+  // All authored route action contracts share the UI compiler owner. Keep
+  // these as graph inputs (not exclusions), so their consumers are tested.
+  return REGISTERED_CONTRACT_INPUTS.has(file) ||
+    /^app\/.+\/page\.voice-action-contract\.json$/.test(file);
 }
 
 function isOtherOwnerFile(file) {
@@ -657,7 +661,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
   const unitFiles = changed.files.filter((file) =>
     !/^(?:contracts\/ui-review\/|docs\/|e2e\/)/.test(file) &&
     !isOtherOwnerFile(file) &&
-    !file.endsWith(".md") && !(file.endsWith(".css") && file !== "app/globals.css"));
+    !file.endsWith(".md") && !file.endsWith(".css"));
   if (requestedLevel === "focused" && unitFiles.length === 0) {
     return { ...base, effectiveLevel: "focused", changedFiles: changed.files, noUnitImpact: true };
   }

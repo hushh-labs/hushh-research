@@ -104,14 +104,18 @@ run_check() {
     fi
   fi
   echo "== Targeted web check: $name =="
+  local result=0
   if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != "diagnostic" ] && [ "$(check_part "$@")" = "browser" ]; then
-    if ! python3 "$REPO_ROOT/scripts/ci/web-browser-core.py" "$3"; then
-      failed_checks+=("$name")
-    fi
-    return 0
+    python3 "$REPO_ROOT/scripts/ci/web-browser-core.py" "$3" || result=$?
+  else
+    (cd "$WEB_DIR" && "$@") || result=$?
   fi
-  if ! (cd "$WEB_DIR" && "$@"); then
-    echo "!! Targeted web check failed: $name"
+  if [ "$result" -ge 124 ]; then
+    echo "Targeted check interrupted: $name (exit $result)" >&2
+    exit "$result"
+  fi
+  if [ "$result" -ne 0 ]; then
+    echo "!! Targeted web check failed: $name (exit $result)"
     failed_checks+=("$name")
   fi
 }
