@@ -443,6 +443,7 @@ def main() -> int:
     parser.add_argument("--predecessor", type=Path)
     parser.add_argument("--base-sha")
     parser.add_argument("--authority-sha")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"), default="uat")
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--ci-run-id", type=int)

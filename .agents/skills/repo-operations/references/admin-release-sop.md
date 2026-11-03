@@ -1,5 +1,4 @@
 # Admin Merge And Release SOP
-
 This is the canonical authority contract for merging, Admin PR landing, and
 deploying Hussh environments. Every skill or workflow that reaches a merge,
 deployment, rollback, or environment-promotion decision must route here through

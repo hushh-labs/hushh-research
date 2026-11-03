@@ -571,7 +571,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
         run: |
@@ -661,7 +661,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
 
       - uses: actions/setup-node@v6
         with:
@@ -846,7 +846,7 @@ jobs:
           PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
           PLAYWRIGHT_LINE_REPORTER: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
           WEB_TARGETED_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
@@ -1539,7 +1539,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base_sha="${{ github.event.pull_request.base.sha }}"
             target_sha="${{ github.event.pull_request.head.sha }}"
-          elif [[ "${{ github.event_name }}" == workflow_dispatch && "$SOURCE_REF" == refs/heads/uat && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
+          elif [[ "${{ github.event_name }}" == workflow_dispatch && ( "$SOURCE_REF" == refs/heads/uat || "$SOURCE_REF" == refs/heads/uat-isolated ) && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
             [[ "$UAT_SOURCE_BASE" =~ ^[0-9a-f]{40}$ ]]
             base_sha="$UAT_SOURCE_BASE"
             target_sha="${{ github.sha }}"
@@ -1695,7 +1695,7 @@ jobs:
   # This job alone never authorizes a release or replaces the aggregate gate.
   uat-exact-source:
     name: "Exact UAT Candidate"
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -1884,7 +1884,7 @@ jobs:
               fail=1
             fi
             # The freshness job runs only for these bases; elsewhere its skip is legitimate.
-            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
+            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ] || [ "$BASE_REF" = "uat-isolated" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
               echo "A pull request into ${BASE_REF} requires a successful Base Freshness Gate."
               fail=1
             fi
@@ -1937,7 +1937,7 @@ jobs:
           record_failure "Governance" "$REPO_GOVERNANCE" true
           record_failure "Path filters" "$PATHS" true
           if [ "$EVENT_NAME" = "pull_request" ] \
-            && { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ]; }; then
+            && { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ] || [ "$BASE_REF" = "uat-isolated" ]; }; then
             record_failure "Base Freshness Gate" "$MAIN_FRESHNESS" true
           fi
           record_failure "Preflight Gate" "$PREFLIGHT" true
