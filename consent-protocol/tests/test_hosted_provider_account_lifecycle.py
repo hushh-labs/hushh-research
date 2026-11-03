@@ -5,7 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from hushh_mcp.services.hosted_provider_account_transition import PLACEMENTS
+from hushh_mcp.services.hosted_provider_account_transition import (
+    PLACEMENTS,
+    TRANSITION_ACTOR_PRINCIPAL,
+)
 from scripts.ops.hosted_provider_account_evidence import _current_erasure_tombstone_pair
 from scripts.ops.hosted_provider_account_identity import (
     EXPECTED_OPERATOR,
@@ -83,8 +86,8 @@ async def test_billing_start_and_resume_delegate_only_after_reviewed_actor_gate(
     snapshot = _runtime_snapshot_for_action(hushh_id)
     transition = _FakeTransition()
     verified = SimpleNamespace(
-        principal=EXPECTED_OPERATOR,
-        email=EXPECTED_OPERATOR.removeprefix("user:"),
+        principal=TRANSITION_ACTOR_PRINCIPAL,
+        email=TRANSITION_ACTOR_PRINCIPAL.removeprefix("user:"),
         email_verified=True,
         token=None,
     )
@@ -239,7 +242,12 @@ async def test_remove_delegates_to_existing_erasure_reservation(monkeypatch):
     assert calls == [(base["user_id"], erasure_attempt)]
 
 
-def test_named_gcloud_operator_token_is_captured_in_memory(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "principal",
+    [EXPECTED_OPERATOR, TRANSITION_ACTOR_PRINCIPAL],
+    ids=("legacy-removal-actor", "dotted-transition-actor"),
+)
+def test_named_gcloud_operator_token_is_captured_in_memory(monkeypatch, tmp_path, principal):
     import subprocess
 
     executable = tmp_path / "gcloud"
@@ -253,7 +261,7 @@ def test_named_gcloud_operator_token_is_captured_in_memory(monkeypatch, tmp_path
         return subprocess.CompletedProcess(args, 0, stdout="ya29.fake.operator.token\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    credentials = NamedGcloudOperatorCredentials()
+    credentials = NamedGcloudOperatorCredentials(principal=principal)
 
     credentials.refresh()
 
@@ -263,7 +271,7 @@ def test_named_gcloud_operator_token_is_captured_in_memory(monkeypatch, tmp_path
         str(executable.resolve()),
         "auth",
         "print-access-token",
-        f"--account={EXPECTED_OPERATOR.removeprefix('user:')}",
+        f"--account={principal.removeprefix('user:')}",
     ]
     assert calls[0][1]["shell"] is False
     assert calls[0][1]["capture_output"] is True

@@ -398,6 +398,68 @@ def _install_983_and_assert_readiness(ctx) -> None:
     assert _ready(ctx), "Dev runtime readiness rejected the complete 983 family"
 
 
+def _install_984_and_assert_readiness(ctx) -> None:
+    _owner_execute(
+        ctx,
+        (ROOT / "db/migrations/parked/984_hosted_provider_account_dotted_actor.sql").read_text(
+            encoding="utf-8"
+        ),
+    )
+    assert _ready(ctx), "Dev runtime readiness rejected the complete 984 family"
+
+
+def _assert_984_validator_closed_family(ctx) -> None:
+    from db.hosted_custody_qualification import CUSTODY_PROFILE_ENV
+
+    signature = "public.valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
+    definition = _owner_execute(ctx, "SELECT pg_get_functiondef(%s::regprocedure)", (signature,))[
+        0
+    ][0]
+    _owner_execute(
+        ctx,
+        "CREATE OR REPLACE FUNCTION public.valid_hosted_provider_account_transition_intent("
+        "p_row jsonb,p_intent jsonb) RETURNS boolean LANGUAGE plpgsql STABLE "
+        "SET search_path=public AS $$ BEGIN RETURN true; END; $$",
+    )
+    assert not _ready(ctx), "runtime readiness accepted a drifted 984 intent validator"
+    _owner_execute(ctx, definition)
+    assert _ready(ctx), "runtime readiness rejected the restored 984 intent validator"
+    _owner_execute(
+        ctx,
+        "ALTER FUNCTION public.valid_hosted_provider_account_transition_intent(jsonb,jsonb) "
+        "RENAME TO valid_hosted_provider_account_transition_intent_missing",
+    )
+    assert not _ready(ctx), "runtime readiness accepted a missing 984 intent validator"
+    _owner_execute(
+        ctx,
+        "ALTER FUNCTION public.valid_hosted_provider_account_transition_intent_missing(jsonb,jsonb) "
+        "RENAME TO valid_hosted_provider_account_transition_intent",
+    )
+    assert _ready(ctx), "runtime readiness rejected the restored 984 intent validator"
+    _owner_execute(
+        ctx,
+        f"GRANT EXECUTE ON FUNCTION {signature} TO anon",
+    )
+    assert not _ready(ctx), "runtime readiness accepted an ACL-open 984 intent validator"
+    _owner_execute(ctx, f"REVOKE ALL ON FUNCTION {signature} FROM anon")
+    assert _ready(ctx), "runtime readiness rejected the restored 984 intent ACL"
+    ctx.monkeypatch.setenv(CUSTODY_PROFILE_ENV, "strict")
+    assert not _ready(ctx), "strict runtime readiness accepted the Dev-only 984 successor"
+    for key, value in dev_custody_environment().items():
+        ctx.monkeypatch.setenv(key, value)
+    assert _ready(ctx), "Dev runtime readiness rejected the restored 984 family"
+
+
+def _rollback_984_without_evidence(ctx) -> None:
+    _owner_execute(
+        ctx,
+        (
+            ROOT / "db/migrations/rollback/984_hosted_provider_account_dotted_actor.rollback.sql"
+        ).read_text(encoding="utf-8"),
+    )
+    assert _ready(ctx), "Dev runtime readiness rejected the restored 983 family"
+
+
 def _assert_resolver_closed_family(ctx) -> None:
     signature = "public.hosted_provider_effective_billing_account(jsonb)"
     definition = _owner_execute(ctx, "SELECT pg_get_functiondef(%s::regprocedure)", (signature,))[
@@ -474,6 +536,9 @@ def run_dev_owner_only_readiness_scenario(pg, monkeypatch, request, tmp_path) ->
     _assert_transition_trigger_state(ctx, "zx_hosted_provider_account_transition_registry", "982")
     _assert_clean_pre983_resolvers(ctx)
     _install_983_and_assert_readiness(ctx)
+    _install_984_and_assert_readiness(ctx)
+    _assert_984_validator_closed_family(ctx)
+    _rollback_984_without_evidence(ctx)
     _assert_resolver_closed_family(ctx)
     _assert_transition_trigger_state(
         ctx, "zx_hosted_provider_account_transition_registry", "provider-transition"

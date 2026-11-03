@@ -13,11 +13,11 @@ import pytest
 
 from hushh_mcp.services.hosted_operator_identity import VerifiedOperator, verify_operator
 from hushh_mcp.services.hosted_provider_account_transition import (
-    ACTOR_PRINCIPAL,
     IMAGE_DIGEST,
     OLD_BILLING_ACCOUNT,
     PLACEMENTS,
     TARGET_BILLING_ACCOUNT,
+    TRANSITION_ACTOR_PRINCIPAL,
     HostedProviderAccountTransition,
 )
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
@@ -226,10 +226,10 @@ def _transition_scenario(monkeypatch, put_mode: str):
     row, identity = _placement_row(owner_id, placement)
     operator_token = "synthetic-access-token"
     operator = VerifiedOperator(
-        principal=ACTOR_PRINCIPAL,
+        principal=TRANSITION_ACTOR_PRINCIPAL,
         token=operator_token,
         subject="google-subject-a",
-        email="kushaltrivedi97@gmail.com",
+        email=TRANSITION_ACTOR_PRINCIPAL.removeprefix("user:"),
         email_verified=True,
         verified_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -290,3 +290,121 @@ async def test_provider_account_transition_persists_before_single_put_and_resume
     first = await scenario.service.start(owner_id=scenario.owner_id)
     if _assert_first_outcome(scenario, first, put_mode):
         await _assert_get_only_resume(scenario)
+    else:
+        get_count = len(scenario.session.get_urls)
+        assert await scenario.service.resume(owner_id=scenario.owner_id) == {
+            "phase": "settled",
+            "generation": 2,
+        }
+        assert len(scenario.session.get_urls) == get_count
+
+
+@pytest.mark.parametrize(
+    ("principal", "email", "email_verified", "subject"),
+    [
+        (TRANSITION_ACTOR_PRINCIPAL, "foreign@example.test", True, "subject-a"),
+        (TRANSITION_ACTOR_PRINCIPAL, "kushal.trivedi97@gmail.com", False, "subject-a"),
+        (TRANSITION_ACTOR_PRINCIPAL, "kushal.trivedi97@gmail.com", True, ""),
+        ("user:kushaltrivedi97@gmail.com", "kushaltrivedi97@gmail.com", True, "legacy"),
+    ],
+    ids=("wrong-email", "unverified-email", "missing-subject", "legacy-actor-new-start"),
+)
+async def test_new_intent_requires_exact_dotted_verified_actor(
+    monkeypatch, principal, email, email_verified, subject
+):
+    scenario = _transition_scenario(monkeypatch, "success")
+    invalid = VerifiedOperator(
+        principal=principal,
+        token=scenario.operator_token,
+        subject=subject,
+        email=email,
+        email_verified=email_verified,
+        verified_at=datetime.now(timezone.utc).isoformat(),
+    )
+    scenario.service._runtime._verify_operator_fn = lambda *_args, **_kwargs: invalid
+
+    with pytest.raises(ProvisionReconciliationRequired, match="actor is invalid"):
+        await scenario.service.start(owner_id=scenario.owner_id)
+
+    assert scenario.journal.events == []
+    assert scenario.session.put_count == 0
+    assert scenario.session.get_urls == []
+
+
+async def test_dotted_operator_cannot_take_over_retained_legacy_intent(monkeypatch):
+    scenario = _transition_scenario(monkeypatch, "success")
+    intent = {
+        "version": 1,
+        "ownerId": scenario.owner_id,
+        "attemptId": scenario.placement["attemptId"],
+        "placementEpoch": 0,
+        "operationId": scenario.placement["operationId"],
+        "projectId": scenario.placement["projectId"],
+        "projectNumber": scenario.placement["projectNumber"],
+        "oldBillingAccount": OLD_BILLING_ACCOUNT,
+        "targetBillingAccount": TARGET_BILLING_ACCOUNT,
+        "actorPrincipal": "user:kushaltrivedi97@gmail.com",
+        "actorVerification": {
+            "version": 1,
+            "provider": "google",
+            "verificationMethod": "google_userinfo_access_token_verified",
+            "verificationEndpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+            "subject": "legacy-subject",
+            "principal": "user:kushaltrivedi97@gmail.com",
+            "email": "kushaltrivedi97@gmail.com",
+            "emailVerified": True,
+            "verifiedAt": datetime.now(timezone.utc).isoformat(),
+        },
+        "serviceUid": scenario.placement["serviceUid"],
+        "runtimePrincipal": scenario.placement["runtimePrincipal"],
+        "imageDigest": IMAGE_DIGEST,
+        "intentAt": datetime.now(timezone.utc).isoformat(),
+    }
+    scenario.row["backend_metadata"]["provisionAttempt"]["providerAccountTransition"] = {
+        "version": 1,
+        "generation": 2,
+        "phase": "unknown",
+        "intent": intent,
+        "settlements": [{"version": 1, "outcome": "unknown", "observedAt": intent["intentAt"]}],
+    }
+
+    with pytest.raises(ProvisionReconciliationRequired, match="actor is invalid"):
+        await scenario.service.resume(owner_id=scenario.owner_id)
+
+    assert scenario.session.get_urls == []
+    assert scenario.session.put_count == 0
+
+
+@pytest.mark.parametrize(
+    ("email", "subject"),
+    [
+        ("foreign@example.test", "google-subject-a"),
+        ("kushal.trivedi97@gmail.com", "different-subject"),
+    ],
+    ids=("retained-email-mismatch", "retained-subject-mismatch"),
+)
+async def test_resume_requires_exact_recorded_dotted_email_and_subject(monkeypatch, email, subject):
+    scenario = _transition_scenario(monkeypatch, "success")
+    await scenario.service.start(owner_id=scenario.owner_id)
+    transition = scenario.row["backend_metadata"]["provisionAttempt"]["providerAccountTransition"]
+    transition["phase"] = "unknown"
+    transition["generation"] = 2
+    transition["settlements"] = [
+        {"version": 1, "outcome": "unknown", "observedAt": transition["intent"]["intentAt"]}
+    ]
+    mismatched_operator = VerifiedOperator(
+        principal=TRANSITION_ACTOR_PRINCIPAL,
+        token=scenario.operator_token,
+        subject=subject,
+        email=email,
+        email_verified=True,
+        verified_at=datetime.now(timezone.utc).isoformat(),
+    )
+    scenario.service._runtime._verify_operator_fn = lambda *_args, **_kwargs: mismatched_operator
+    before_get_count = len(scenario.session.get_urls)
+
+    with pytest.raises(ProvisionReconciliationRequired, match="actor"):
+        await scenario.service.resume(owner_id=scenario.owner_id)
+
+    assert len(scenario.session.get_urls) == before_get_count
+    assert scenario.session.put_count == 1

@@ -11,6 +11,7 @@ from hushh_mcp.services.hosted_operator_identity import VerifiedOperator
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 
 ACTOR_PRINCIPAL = "user:kushaltrivedi97@gmail.com"
+TRANSITION_ACTOR_PRINCIPAL = "user:kushal.trivedi97@gmail.com"
 OLD_BILLING_ACCOUNT = "billingAccounts/014D7F-FD970D-D2459E"
 TARGET_BILLING_ACCOUNT = "billingAccounts/013848-8258FA-2D068F"
 IMAGE_DIGEST = "sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1"
@@ -171,7 +172,9 @@ def new_intent(
     now: datetime,
 ) -> dict[str, Any]:
     actor_verification = operator.provider_account_transition_verification()
-    if actor_verification["verificationMethod"] != "google_userinfo_access_token_verified":
+    if not valid_operator_identity(operator, expected=TRANSITION_ACTOR_PRINCIPAL) or (
+        actor_verification["verificationMethod"] != "google_userinfo_access_token_verified"
+    ):
         raise ProvisionReconciliationRequired("Provider account transition proof type differs")
     return {
         "version": 1,
@@ -198,9 +201,17 @@ def validate_retained_intent(intent: dict[str, Any], placement: dict[str, Any], 
     evidence = intent.get("actorVerification") if isinstance(intent, dict) else None
     attempt = row.get("backend_metadata", {}).get("provisionAttempt", {})
     retained_transition = attempt.get("providerAccountTransition", {})
-    allow_legacy_actor_proof = (
+    exact_retained_intent = (
         isinstance(retained_transition, dict) and retained_transition.get("intent") == intent
     )
+    actor_principal = intent.get("actorPrincipal")
+    if not isinstance(actor_principal, str) or actor_principal not in {
+        ACTOR_PRINCIPAL,
+        TRANSITION_ACTOR_PRINCIPAL,
+    }:
+        raise ProvisionReconciliationRequired("Provider account transition actor is malformed")
+    if actor_principal == ACTOR_PRINCIPAL and not exact_retained_intent:
+        raise ProvisionReconciliationRequired("Legacy provider transition actor is not retained")
     if (
         intent.get("ownerId") != row.get("user_id")
         or intent.get("attemptId") != placement["attemptId"]
@@ -210,31 +221,42 @@ def validate_retained_intent(intent: dict[str, Any], placement: dict[str, Any], 
         or intent.get("placementEpoch") != placement["placementEpoch"]
         or intent.get("oldBillingAccount") != OLD_BILLING_ACCOUNT
         or intent.get("targetBillingAccount") != TARGET_BILLING_ACCOUNT
-        or intent.get("actorPrincipal") != ACTOR_PRINCIPAL
+        or actor_principal not in {ACTOR_PRINCIPAL, TRANSITION_ACTOR_PRINCIPAL}
         or intent.get("serviceUid") != placement["serviceUid"]
         or intent.get("runtimePrincipal") != placement["runtimePrincipal"]
         or intent.get("imageDigest") != IMAGE_DIGEST
-        or not valid_retained_actor_verification(evidence, allow_legacy=allow_legacy_actor_proof)
+        or not valid_retained_actor_verification(
+            evidence,
+            actor_principal=actor_principal,
+            allow_legacy=exact_retained_intent,
+        )
         or row.get("status") != "provisioned"
     ):
         raise ProvisionReconciliationRequired("Provider account transition intent is malformed")
 
 
-def valid_retained_actor_verification(evidence: Any, *, allow_legacy: bool) -> bool:
+def valid_retained_actor_verification(
+    evidence: Any, *, actor_principal: str, allow_legacy: bool
+) -> bool:
     if not isinstance(evidence, dict):
         return False
+    expected_email = actor_principal.removeprefix("user:")
     common = (
         evidence.get("version") == 1
         and evidence.get("provider") == "google"
-        and evidence.get("principal") == ACTOR_PRINCIPAL
-        and evidence.get("email") == ACTOR_PRINCIPAL.removeprefix("user:")
+        and evidence.get("principal") == actor_principal
+        and evidence.get("email") == expected_email
         and evidence.get("emailVerified") is True
         and _SUBJECT_PATTERN.fullmatch(str(evidence.get("subject") or "")) is not None
         and isinstance(evidence.get("verifiedAt"), str)
         and bool(evidence.get("verifiedAt"))
     )
     userinfo = _valid_userinfo_proof(evidence, common)
-    legacy = allow_legacy and _valid_legacy_proof(evidence, common)
+    legacy = (
+        allow_legacy
+        and actor_principal == ACTOR_PRINCIPAL
+        and _valid_legacy_proof(evidence, common)
+    )
     return bool(userinfo or legacy)
 
 
@@ -286,10 +308,11 @@ def _valid_legacy_proof(evidence: dict[str, Any], common: bool) -> bool:
     )
 
 
-def valid_operator_identity(operator: VerifiedOperator) -> bool:
+def valid_operator_identity(operator: VerifiedOperator, *, expected: str = ACTOR_PRINCIPAL) -> bool:
     return (
-        operator.principal == ACTOR_PRINCIPAL
-        and operator.email == ACTOR_PRINCIPAL.removeprefix("user:")
+        expected in {ACTOR_PRINCIPAL, TRANSITION_ACTOR_PRINCIPAL}
+        and operator.principal == expected
+        and operator.email == expected.removeprefix("user:")
         and operator.email_verified is True
         and _SUBJECT_PATTERN.fullmatch(operator.subject) is not None
     )

@@ -13,6 +13,7 @@ from hushh_mcp.services.hosted_provider_account_transition_billing import (
 )
 from hushh_mcp.services.hosted_provider_account_transition_contracts import (
     ACTOR_PRINCIPAL,
+    TRANSITION_ACTOR_PRINCIPAL,
     installed_source_revision,
     new_intent,
     placement_for_row,
@@ -49,7 +50,7 @@ class HostedProviderAccountTransitionRuntime:
         placement, attempt, creation = placement_for_row(row, owner_id)
         if "providerAccountTransition" in attempt:
             raise ProvisionReconciliationRequired("Provider account transition already exists")
-        operator = await self._verify_actor()
+        operator = await self._verify_actor(TRANSITION_ACTOR_PRINCIPAL)
         intent = new_intent(row, placement, attempt, creation, operator, self._clock())
         try:
             admitted = await self._journal.record_provider_account_transition_intent(
@@ -80,16 +81,27 @@ class HostedProviderAccountTransitionRuntime:
             raise ProvisionReconciliationRequired("Provider account transition is unavailable")
         phase, generation = transition.get("phase"), transition.get("generation")
         intent = transition.get("intent")
-        if phase == "settled":
-            return {"phase": "settled", "generation": generation}
-        if phase not in {"intent", "unknown"} or type(generation) is not int:
+        if phase not in {"intent", "unknown", "settled"} or type(generation) is not int:
             raise ProvisionReconciliationRequired("Provider account transition is malformed")
-        if generation != (1 if phase == "intent" else 2) or not isinstance(intent, dict):
+        expected_generation = {"intent": 1, "unknown": 2}.get(phase)
+        if (
+            (expected_generation is not None and generation != expected_generation)
+            or (phase == "settled" and generation not in {2, 3})
+            or not isinstance(intent, dict)
+        ):
             raise ProvisionReconciliationRequired("Provider account transition is malformed")
         validate_retained_intent(intent, placement, row)
-        operator = await self._verify_actor()
+        expected_actor = intent.get("actorPrincipal")
+        if not isinstance(expected_actor, str) or expected_actor not in {
+            ACTOR_PRINCIPAL,
+            TRANSITION_ACTOR_PRINCIPAL,
+        }:
+            raise ProvisionReconciliationRequired("Provider transition actor is malformed")
+        operator = await self._verify_actor(expected_actor)
         if not _operator_matches_intent(operator, intent):
             raise ProvisionReconciliationRequired("Provider transition actor differs from intent")
+        if phase == "settled":
+            return {"phase": "settled", "generation": generation}
         return await self._billing.observe_and_maybe_link(
             placement=placement,
             creation=creation,
@@ -110,19 +122,26 @@ class HostedProviderAccountTransitionRuntime:
             )
         return row
 
-    async def _verify_actor(self) -> VerifiedOperator:
+    async def _verify_actor(self, expected: str) -> VerifiedOperator:
+        credentials = self._credentials
+        if isinstance(credentials, dict):
+            credentials = credentials.get(expected)
+        if credentials is None:
+            raise ProvisionReconciliationRequired(
+                "Provider account transition actor credential is unavailable"
+            )
         try:
             operator = await asyncio.to_thread(
                 self._verify_operator_fn,
-                self._credentials,
+                credentials,
                 self._session,
-                expected=ACTOR_PRINCIPAL,
+                expected=expected,
             )
         except Exception as exc:  # noqa: BLE001 - no provider work without named actor proof
             raise ProvisionReconciliationRequired(
                 "Provider account transition actor could not be verified"
             ) from exc
-        if not valid_operator_identity(operator):
+        if not valid_operator_identity(operator, expected=expected):
             raise ProvisionReconciliationRequired("Provider account transition actor is invalid")
         return operator
 

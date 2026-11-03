@@ -447,5 +447,9 @@ def _stop_replay_target(ctx):
 
 def _assert_resolution_rollback_refuses_retained_evidence(ctx):
     with pytest.raises(ctx.psycopg2.errors.ObjectNotInPrerequisiteState, match="forward recovery"):
+        ctx.pg.apply_file(ctx.dotted_actor_rollback)
+    ctx.pg.execute("ROLLBACK")
+    with pytest.raises(ctx.psycopg2.errors.ObjectNotInPrerequisiteState, match="forward recovery"):
         ctx.pg.apply_file(ctx.resolution_rollback)
+    ctx.pg.execute("ROLLBACK")
     ctx.client._engine.dispose()

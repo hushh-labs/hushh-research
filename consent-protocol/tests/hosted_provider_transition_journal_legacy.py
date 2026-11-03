@@ -20,6 +20,12 @@ def _check_rollback_and_apply_transition(ctx):
     ctx.resolution_rollback = (
         ctx.ROOT / "db/migrations/rollback/983_hosted_provider_account_resolution.rollback.sql"
     )
+    ctx.dotted_actor_migration = (
+        ctx.ROOT / "db/migrations/parked/984_hosted_provider_account_dotted_actor.sql"
+    )
+    ctx.dotted_actor_rollback = (
+        ctx.ROOT / "db/migrations/rollback/984_hosted_provider_account_dotted_actor.rollback.sql"
+    )
     ctx.archive_definition_before = ctx.pg.execute(
         "SELECT pg_get_functiondef('public.personal_agent_erasure_archive(jsonb,jsonb)'::regprocedure)"
     )[0][0]
@@ -54,6 +60,24 @@ def _check_rollback_and_apply_transition(ctx):
         )
     }
     ctx.pg.apply_file(ctx.resolution_migration)
+    ctx.resolution_definition_after_983 = ctx.pg.execute(
+        "SELECT pg_get_functiondef('public.valid_hosted_provider_account_transition_intent(jsonb,jsonb)'::regprocedure)"
+    )[0][0]
+    ctx.pg.apply_file(ctx.dotted_actor_migration)
+    ctx.pg.apply_file(ctx.dotted_actor_migration)
+    assert (
+        ctx.pg.execute(
+            "SELECT encode(sha256(convert_to(pg_get_functiondef('public.valid_hosted_provider_account_transition_intent(jsonb,jsonb)'::regprocedure),'UTF8')),'hex')"
+        )[0][0]
+        == "1e6e47e1b467fbe95a0c7c16a6643ae71580c8c36d96038bac6f7bdc869578f1"
+    )
+    ctx.pg.apply_file(ctx.dotted_actor_rollback)
+    assert (
+        ctx.pg.execute(
+            "SELECT pg_get_functiondef('public.valid_hosted_provider_account_transition_intent(jsonb,jsonb)'::regprocedure)"
+        )[0][0]
+        == ctx.resolution_definition_after_983
+    )
     ctx.pg.apply_file(ctx.resolution_rollback)
     assert (
         ctx.pg.execute(
@@ -123,6 +147,7 @@ def _record_legacy_transition(ctx):
     )[0][0]
     assert ctx.legacy_before_983["intent"]["actorVerification"] == ctx.legacy_actor_verification
     ctx.pg.apply_file(ctx.resolution_migration)
+    ctx.pg.apply_file(ctx.dotted_actor_migration)
     ctx.legacy_row = ctx.pg.execute(
         "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-b'"
     )[0][0]
@@ -253,15 +278,15 @@ def _create_new_intent_fixture(ctx):
             "projectNumber": item["projectNumber"],
             "oldBillingAccount": "billingAccounts/014D7F-FD970D-D2459E",
             "targetBillingAccount": "billingAccounts/013848-8258FA-2D068F",
-            "actorPrincipal": "user:kushaltrivedi97@gmail.com",
+            "actorPrincipal": "user:kushal.trivedi97@gmail.com",
             "actorVerification": {
                 "version": 1,
                 "provider": "google",
                 "verificationMethod": "google_userinfo_access_token_verified",
                 "verificationEndpoint": "https://openidconnect.googleapis.com/v1/userinfo",
                 "subject": "synthetic-google-subject",
-                "principal": "user:kushaltrivedi97@gmail.com",
-                "email": "kushaltrivedi97@gmail.com",
+                "principal": "user:kushal.trivedi97@gmail.com",
+                "email": "kushal.trivedi97@gmail.com",
                 "emailVerified": True,
                 "verifiedAt": now.isoformat(),
             },
@@ -278,6 +303,7 @@ def _create_new_intent_fixture(ctx):
     ctx.legacy_candidate = deepcopy(ctx.intent)
     ctx.legacy_candidate_at = datetime.now(timezone.utc).isoformat()
     ctx.legacy_candidate["intentAt"] = ctx.legacy_candidate_at
+    ctx.legacy_candidate["actorPrincipal"] = "user:kushaltrivedi97@gmail.com"
     ctx.legacy_candidate["actorVerification"] = {
         **ctx.legacy_actor_verification,
         "verifiedAt": ctx.legacy_candidate_at,

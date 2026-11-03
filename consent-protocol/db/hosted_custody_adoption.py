@@ -135,6 +135,9 @@ HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED = {
     "valid_erasure_managed_project_retirement(jsonb,text,jsonb)": "fd94f3bd8a45790f4177fbdfc496a186ed18824c1c75ebadca0ce8862966640e",
     "hosted_prefix_abort_admitted(text,text,jsonb)": "8ea7a69c33a0b33e5c7ddbd640966a059dbcc9a74723e79af754e3ce5469e65c",
 }
+HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256 = (
+    "1e6e47e1b467fbe95a0c7c16a6643ae71580c8c36d96038bac6f7bdc869578f1"
+)
 HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES = frozenset(
     {
         "valid_hosted_provider_account_transition_intent(jsonb,jsonb)",
@@ -303,9 +306,15 @@ def hosted_custody_adoption(sql: str) -> str:
         provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
             "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
         ],
+        provider_transition_intent_additional_successor_sha256=(
+            HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
+        ),
         provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
         provider_account_resolution_service_role_signatures=(
             HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
+        provider_account_resolution_intent_successor_sha256=(
+            HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
         ),
     )
     qualification = full_family + _successor_qualification(profile=profile)
@@ -324,6 +333,8 @@ def hosted_custody_adoption(sql: str) -> str:
         )
         if name == "personal_agent_erasure_archive":
             successor_digests.append(HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256)
+        if name == "valid_hosted_provider_account_transition_intent":
+            successor_digests.append(HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256)
         anchor = (
             f"NOT IN ({predecessors}) THEN\n  RAISE EXCEPTION 'Unqualified schema drift: {name}'"
         )
@@ -409,9 +420,19 @@ def _successor_qualification(profile: HostedCustodyProfile | None = None) -> str
         if selected_profile.is_dev_control_plane_owner
         else {}
     )
+    dotted_actor_successors = (
+        {
+            "valid_hosted_provider_account_transition_intent(jsonb,jsonb)": (
+                HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
+            )
+        }
+        if selected_profile.is_dev_control_plane_owner
+        else {}
+    )
     values = ",".join(
         f"('{signature}','{digest}',{'true' if signature.partition('(')[0] in REFINED else 'false'},"
-        f"'{resolution_successors.get(signature, '')}')"
+        f"'{resolution_successors.get(signature, '')}',"
+        f"'{dotted_actor_successors.get(signature, '')}')"
         for signature, digest in QUALIFIED.items()
     )
     complete_family = complete_family_qualification_sql(
@@ -429,9 +450,15 @@ def _successor_qualification(profile: HostedCustodyProfile | None = None) -> str
         provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
             "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
         ],
+        provider_transition_intent_additional_successor_sha256=(
+            HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
+        ),
         provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
         provider_account_resolution_service_role_signatures=(
             HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
+        provider_account_resolution_intent_successor_sha256=(
+            HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
         ),
     )
     qualification = f"""DO $hosted_custody_successor$
@@ -442,9 +469,9 @@ BEGIN
  -- must not make a partial successor look like the legacy family.
  SELECT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname='public' AND p.proname IN
-   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor)
+   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor,dev_additional_successor)
     WHERE NOT refined)) INTO footprint;
- FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor) LOOP
+ FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor,dev_additional_successor) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
   IF definition IS NOT NULL AND (NOT spec.refined OR encode(sha256(convert_to(definition,'UTF8')),'hex')=spec.digest) THEN
    footprint := true;
@@ -454,17 +481,19 @@ BEGIN
  IF NOT footprint THEN RETURN; END IF;
  IF EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname='public' AND p.proname IN
-   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor))
-  AND NOT EXISTS(SELECT 1 FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor)
+   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor,dev_additional_successor))
+  AND NOT EXISTS(SELECT 1 FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor,dev_additional_successor)
    WHERE to_regprocedure('public.'||expected.signature)=p.oid)) THEN
   RAISE EXCEPTION 'Unqualified managed custody function overload';
  END IF;
- FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor) LOOP
+ FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor,dev_additional_successor) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
   IF definition IS NULL OR (
      encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.digest
      AND (spec.dev_successor='' OR
-       encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.dev_successor)) THEN
+       encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.dev_successor)
+     AND (spec.dev_additional_successor='' OR
+       encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.dev_additional_successor)) THEN
    RAISE EXCEPTION 'Unqualified managed custody successor: %',spec.signature;
   END IF;
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',to_regprocedure('public.'||spec.signature));

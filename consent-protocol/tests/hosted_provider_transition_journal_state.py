@@ -9,6 +9,33 @@ import pytest
 
 
 def _assert_retained_admission_shape(ctx):
+    ctx.intent_row_for_shape = ctx.pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-a'"
+    )[0][0]
+    ctx.sql_new_intent = {**ctx.intent, "minimumSourceRevision": "d" * 40}
+    assert ctx.pg.execute(
+        "SELECT valid_hosted_provider_account_transition_intent(%s::jsonb,%s::jsonb)",
+        (json.dumps(ctx.intent_row_for_shape), json.dumps(ctx.sql_new_intent)),
+    )[0][0]
+    ctx.invalid_dotted_intents = []
+    ctx.wrong_dotted_email = deepcopy(ctx.sql_new_intent)
+    ctx.wrong_dotted_email["actorVerification"]["email"] = "kushaltrivedi97@gmail.com"
+    ctx.invalid_dotted_intents.append(ctx.wrong_dotted_email)
+    ctx.missing_dotted_subject = deepcopy(ctx.sql_new_intent)
+    ctx.missing_dotted_subject["actorVerification"].pop("subject")
+    ctx.invalid_dotted_intents.append(ctx.missing_dotted_subject)
+    ctx.legacy_id_proof_for_dotted = deepcopy(ctx.sql_new_intent)
+    ctx.legacy_id_proof_for_dotted["actorVerification"] = {
+        **ctx.legacy_actor_verification,
+        "principal": "user:kushal.trivedi97@gmail.com",
+        "email": "kushal.trivedi97@gmail.com",
+    }
+    ctx.invalid_dotted_intents.append(ctx.legacy_id_proof_for_dotted)
+    for invalid_intent in ctx.invalid_dotted_intents:
+        assert not ctx.pg.execute(
+            "SELECT valid_hosted_provider_account_transition_intent(%s::jsonb,%s::jsonb)",
+            (json.dumps(ctx.intent_row_for_shape), json.dumps(invalid_intent)),
+        )[0][0]
     assert not ctx.pg.execute(
         "SELECT valid_hosted_provider_account_transition_intent(%s::jsonb,%s::jsonb)",
         (
@@ -251,7 +278,7 @@ def _settle_transition_and_check_effective_account(ctx):
         "projectNumber": ctx.item_a["projectNumber"],
         "billingAccountName": "billingAccounts/013848-8258FA-2D068F",
         "billingEnabled": True,
-        "actorPrincipal": "user:kushaltrivedi97@gmail.com",
+        "actorPrincipal": "user:kushal.trivedi97@gmail.com",
         "operationId": ctx.item_a["operationId"],
     }
     assert not asyncio.run(

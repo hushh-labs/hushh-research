@@ -5,7 +5,10 @@ import os
 from dataclasses import replace
 from typing import Any
 
-from hushh_mcp.services.hosted_provider_account_transition import PLACEMENTS
+from hushh_mcp.services.hosted_provider_account_transition import (
+    PLACEMENTS,
+    TRANSITION_ACTOR_PRINCIPAL,
+)
 from scripts.ops.hosted_provider_account_identity import (
     CENTRAL_PROJECT,
     EXPECTED_OPERATOR,
@@ -58,7 +61,7 @@ async def perform_action(
     if action == "associate-account":
         if phase != "none":
             raise OperatorRefused("provider account transition already has evidence")
-        await runtime._require_named_operator(EXPECTED_OPERATOR)
+        await runtime._require_named_operator(TRANSITION_ACTOR_PRINCIPAL)
         return _safe_result(await runtime.transition_factory().start(owner_id=owner))
     if action == "resume":
         if _creation_recovery_ready(authority_row):
@@ -352,11 +355,13 @@ class NamedGcloudOperatorCredentials:
     before persisting any intent or issuing a provider billing request.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, principal: str = EXPECTED_OPERATOR) -> None:
         import os
         import shutil
 
-        self._account = EXPECTED_OPERATOR.removeprefix("user:")
+        if principal not in {EXPECTED_OPERATOR, TRANSITION_ACTOR_PRINCIPAL}:
+            raise OperatorRefused("named gcloud account is outside the transition actor set")
+        self._account = principal.removeprefix("user:")
         configured = os.getenv("HUSHH_GCLOUD_EXECUTABLE")
         found = configured or shutil.which("gcloud")
         self._binary = os.path.realpath(found) if found and os.path.isabs(found) else None

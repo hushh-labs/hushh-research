@@ -468,11 +468,10 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         if rich_dev:
             manifest = json.loads((cp / "db/dev_migration_manifest.json").read_text())
             for filename in manifest["ordered_migrations"]:
-                if int(filename[:3]) in {900, 944, 955, 958, 965, 982, 983}:
-                    # 982/983 are qualified only for the pinned shared-Dev
-                    # cluster. This synthetic legacy database deliberately has
-                    # no Dev attestation; their dedicated PostgreSQL suites
-                    # exercise the real Dev-profile qualification.
+                if int(filename[:3]) in {900, 944, 955, 958, 965, 982, 983, 984}:
+                    # 982/983/984 are qualified only for the pinned shared-Dev
+                    # custody profile. This synthetic legacy database has no
+                    # Dev attestation; dedicated PostgreSQL suites cover it.
                     continue
                 with conn.cursor() as cur:
                     cur.execute((MIGRATIONS_DIR / "parked" / filename).read_text())

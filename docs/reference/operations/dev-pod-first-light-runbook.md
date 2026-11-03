@@ -864,14 +864,28 @@ Vertex reads must use their matching endpoint; `us` and `eu` use Google's
 Regional Endpoint Proxy. Native location discovery alone does not prove that an
 Engine namespace was read successfully.
 The generic Vertex catalogue also contains `ca`, outside the Engine capability
-domain in Google's pinned October 26 agent-location contract. Only these new
-managed dev projects may retain a separate `not_applicable` observation: exact
-native creation time and attempt labels, the reviewed contract hash and expiry,
-and an independently observed unavailable endpoint are required. The catalogue
-entry remains visible. A successful listing takes precedence; older/BYOC
-projects, denied reads, unknown locations and expired qualification still refuse.
-The pinned qualification expires October 31; refreshing it requires reviewing
-the provider contract and its owning SQL validator together.
+domain in Google's pinned Agent Platform location contract. The active v2
+snapshot records the provider page update from 2026-10-30, its retrieval at
+2026-11-02T10:13:01Z, and a qualification expiry of 2026-11-09T00:00:00Z;
+migration 981 pins the same snapshot and cutoff. I rechecked the official
+location page on 2026-11-03 UTC:
+the region list and Memory Bank / Agent Gateway exclusions still match. Google's
+Memory Bank guide now also states that CMEK is unavailable for global Memory
+Bank or Sessions and for a deployed Runtime on a multi-region endpoint; the
+hosted pilot uses its regional `us-central1` memory location and does not select
+those global or multi-region modes.
+
+Only a new managed Dev project created on or after 2026-10-30 may
+retain the separate `not_applicable` observation for `ca`: exact native creation
+time and attempt labels, the reviewed contract hash and expiry, and an
+independently observed unavailable endpoint are required. The catalogue entry
+remains visible. A successful listing takes precedence; older/BYOC projects,
+denied reads, unknown locations and expired qualification still refuse. Native
+Resource Manager readback recorded synthetic project A as created at
+`2026-10-27T17:25:16.698Z` and project B at `2026-10-27T17:28:35.604Z`; neither
+qualifies for the post-October-30 `ca` exception. If the provider contract or
+its relevant capability facts change, update the evidence and matching SQL
+validator together in a new forward migration; never extend only the expiry.
 
 `cleanup_managed_preparation` covers the earlier project/billing preparation
 boundary. A terminal failed billing or authorization step retains its failure;

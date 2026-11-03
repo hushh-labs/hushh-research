@@ -17,9 +17,13 @@ from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from hushh_mcp.services.hosted_provider_account_transition import PLACEMENTS
+from hushh_mcp.services.hosted_provider_account_transition import (
+    PLACEMENTS,
+    TRANSITION_ACTOR_PRINCIPAL,
+)
 from scripts.ops.hosted_provider_account_identity import (
     CENTRAL_PROJECT,
+    EXPECTED_OPERATOR,
     REVIEWED_FOLDER_ID,
     InventorySnapshot,
     OperatorRefused,
@@ -165,7 +169,12 @@ def _build_runtime() -> OperatorRuntime:
 
     scopes = ["https://www.googleapis.com/auth/cloud-platform"]
     read_credentials, _ = google.auth.default(scopes=scopes, quota_project_id=CENTRAL_PROJECT)
-    operator_credentials = NamedGcloudOperatorCredentials()
+    operator_credentials = {
+        TRANSITION_ACTOR_PRINCIPAL: NamedGcloudOperatorCredentials(
+            principal=TRANSITION_ACTOR_PRINCIPAL
+        ),
+        EXPECTED_OPERATOR: NamedGcloudOperatorCredentials(),
+    }
     return HostedProviderAccountRuntime(
         credentials=read_credentials,
         operator_credentials=operator_credentials,
@@ -218,9 +227,12 @@ class HostedProviderAccountRuntime:
     def _verify_operator(self, *, expected: str) -> Any:
         from hushh_mcp.services.hosted_operator_identity import verify_operator
 
-        if self.operator_credentials is None:
+        credentials = self.operator_credentials
+        if isinstance(credentials, dict):
+            credentials = credentials.get(expected)
+        if credentials is None:
             raise OperatorRefused("named billing operator credential is unavailable")
-        return verify_operator(self.operator_credentials, self.session, expected=expected)
+        return verify_operator(credentials, self.session, expected=expected)
 
     async def _require_named_operator(self, expected: str) -> Any:
         try:

@@ -13,6 +13,7 @@ from hushh_mcp.services.hosted_provider_account_transition_contracts import (
     OLD_BILLING_ACCOUNT,
     PLACEMENTS,
     TARGET_BILLING_ACCOUNT,
+    TRANSITION_ACTOR_PRINCIPAL,
 )
 from hushh_mcp.services.hosted_provider_account_transition_runtime import (
     HostedProviderAccountTransitionRuntime,
@@ -24,6 +25,7 @@ __all__ = [
     "OLD_BILLING_ACCOUNT",
     "PLACEMENTS",
     "TARGET_BILLING_ACCOUNT",
+    "TRANSITION_ACTOR_PRINCIPAL",
     "HostedProviderAccountTransition",
     "verify_operator",
 ]

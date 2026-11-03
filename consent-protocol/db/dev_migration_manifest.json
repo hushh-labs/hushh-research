@@ -96,7 +96,8 @@
     "980_personal_agent_upgrade_host_binding.sql",
     "981_hosted_native_location_contract.sql",
     "982_hosted_provider_account_transition.sql",
-    "983_hosted_provider_account_resolution.sql"
+    "983_hosted_provider_account_resolution.sql",
+    "984_hosted_provider_account_dotted_actor.sql"
   ],
   "deferred_release_migrations": [
     {

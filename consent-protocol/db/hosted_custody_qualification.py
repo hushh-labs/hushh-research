@@ -216,8 +216,10 @@ def complete_family_qualification_sql(
     provider_transition_trigger: tuple[str, str] | None = None,
     provider_transition_archive_sha256: str | None = None,
     provider_transition_intent_successor_sha256: str | None = None,
+    provider_transition_intent_additional_successor_sha256: str = "",
     provider_account_resolution_family: Mapping[str, str] | None = None,
     provider_account_resolution_service_role_signatures: Set[str] = frozenset(),
+    provider_account_resolution_intent_successor_sha256: str = "",
 ) -> str:
     """Fail closed on partial family footprints and qualify exact installed metadata."""
     qualified_native_contract_family = dict(native_contract_family)
@@ -278,6 +280,12 @@ def complete_family_qualification_sql(
         provider_transition_trigger=provider_transition_trigger,
         provider_transition_archive_sha256=provider_transition_archive_sha256,
         provider_transition_intent_successor_sha256=provider_transition_intent_successor_sha256,
+        provider_transition_intent_additional_successor_sha256=(
+            provider_transition_intent_additional_successor_sha256
+        ),
         provider_account_resolution_family=provider_account_resolution_family,
         provider_account_resolution_service_role_signatures=provider_account_resolution_service_role_signatures,
+        provider_account_resolution_intent_successor_sha256=(
+            provider_account_resolution_intent_successor_sha256
+        ),
     )

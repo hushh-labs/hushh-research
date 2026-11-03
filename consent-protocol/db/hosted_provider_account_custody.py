@@ -39,7 +39,7 @@ BEGIN
           AND NOT (e.signature='valid_hosted_provider_account_transition_intent(jsonb,jsonb)'
               AND @ALLOWED_ROLE@ IS TRUE
               AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')
-                   ='@INTENT_SUCCESSOR_SHA256@'))
+                   IN ('@INTENT_SUCCESSOR_SHA256@','@INTENT_ADDITIONAL_SUCCESSOR_SHA256@')))
       OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proleakproof IS TRUE
       OR p.proisstrict IS TRUE OR p.proretset IS TRUE OR p.prokind<>'f'
       OR p.proargmodes IS NOT NULL OR p.provariadic<>0
@@ -108,7 +108,11 @@ BEGIN
  IF EXISTS(SELECT 1 FROM (VALUES @VALUES@) e(signature,digest,direct_service)
     LEFT JOIN pg_proc p ON p.oid=to_regprocedure('public.'||e.signature)
     WHERE p.oid IS NULL
-      OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
+      OR (encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
+          AND NOT (e.signature='valid_hosted_provider_account_transition_intent(jsonb,jsonb)'
+              AND @ALLOWED_ROLE@ IS TRUE
+              AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')
+                  ='@INTENT_SUCCESSOR_SHA256@'))
       OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proleakproof IS TRUE
       OR p.proisstrict IS TRUE OR p.proretset IS TRUE OR p.prokind<>'f'
       OR p.proargmodes IS NOT NULL OR p.provariadic<>0
@@ -147,6 +151,7 @@ def _provider_transition_family_qualification_sql(
     archive_sha256: str,
     dev_profile: bool,
     intent_successor_sha256: str = "",
+    intent_additional_successor_sha256: str = "",
 ) -> str:
     values = ",".join(f"('{signature}','{digest}')" for signature, digest in sorted(family.items()))
     names = sorted({signature.partition("(")[0] for signature in family})
@@ -161,6 +166,7 @@ def _provider_transition_family_qualification_sql(
             "FAMILY_COUNT": str(len(family)),
             "VALUES": values,
             "INTENT_SUCCESSOR_SHA256": intent_successor_sha256,
+            "INTENT_ADDITIONAL_SUCCESSOR_SHA256": intent_additional_successor_sha256,
             "TRIGGER_SHA256": trigger_sha256,
         },
     )
@@ -171,6 +177,7 @@ def _provider_account_resolution_family_qualification_sql(
     family: Mapping[str, str],
     service_role_signatures: Set[str],
     dev_profile: bool,
+    intent_successor_sha256: str = "",
 ) -> str:
     values = ",".join(
         f"('{signature}','{digest}',{'true' if signature in service_role_signatures else 'false'})"
@@ -185,6 +192,7 @@ def _provider_account_resolution_family_qualification_sql(
             "ALLOWED_ROLE": "TRUE" if dev_profile else "FALSE",
             "NAMES_SQL": ",".join(f"'{name}'" for name in names),
             "FAMILY_COUNT": str(len(family)),
+            "INTENT_SUCCESSOR_SHA256": intent_successor_sha256,
         },
     )
 
@@ -197,8 +205,10 @@ def append_provider_account_qualification_sql(
     provider_transition_trigger,
     provider_transition_archive_sha256,
     provider_transition_intent_successor_sha256,
+    provider_transition_intent_additional_successor_sha256,
     provider_account_resolution_family,
     provider_account_resolution_service_role_signatures,
+    provider_account_resolution_intent_successor_sha256,
 ) -> str:
     if provider_transition_family is not None or provider_transition_trigger is not None:
         required = (
@@ -217,6 +227,9 @@ def append_provider_account_qualification_sql(
             archive_sha256=provider_transition_archive_sha256,
             dev_profile=profile.is_dev_control_plane_owner,
             intent_successor_sha256=provider_transition_intent_successor_sha256,
+            intent_additional_successor_sha256=(
+                provider_transition_intent_additional_successor_sha256
+            ),
         )
         sql = sql + transition_sql if profile.is_dev_control_plane_owner else transition_sql + sql
     if provider_account_resolution_family is not None:
@@ -224,5 +237,6 @@ def append_provider_account_qualification_sql(
             family=provider_account_resolution_family,
             service_role_signatures=provider_account_resolution_service_role_signatures,
             dev_profile=profile.is_dev_control_plane_owner,
+            intent_successor_sha256=provider_account_resolution_intent_successor_sha256,
         )
     return sql
