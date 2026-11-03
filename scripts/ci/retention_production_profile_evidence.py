@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import replace
 from datetime import timedelta
+from functools import lru_cache
 from urllib.parse import urlencode
 
 import retention_preflight_evidence as base
@@ -69,6 +70,7 @@ def _valid_sha(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
 
 
+@lru_cache(maxsize=256)
 def _is_ancestor(owner, repository, ancestor, descendant):
     """Prove ancestry through one bounded GitHub compare response."""
     _require(
@@ -112,6 +114,7 @@ def _is_ancestor(owner, repository, ancestor, descendant):
     return True
 
 
+@lru_cache(maxsize=256)
 def _read_blob(owner, repository, path, ref):
     _require(
         owner,
@@ -161,6 +164,8 @@ def _run_matches(summary, attempt):
 
 
 def _worker_is_exact(owner, repository, run, job):
+    from retention_production_clock_evidence import settled_production_failure
+
     exact = bool(
         repository == base.REPOSITORY
         and isinstance(run, dict)
@@ -172,7 +177,7 @@ def _worker_is_exact(owner, repository, run, job):
         and run.get("path") == base.WORKFLOW
         and run.get("head_branch") == "main"
         and _valid_sha(run.get("head_sha"))
-        and __import__("retention_production_clock_evidence").settled_production_failure(run, job)
+        and settled_production_failure(run, job)
         and run.get("display_title") in WORKER_TITLES
         and _login(run, "actor") == "github-actions[bot]"
         and _login(run, "triggering_actor") == "github-actions[bot]"
