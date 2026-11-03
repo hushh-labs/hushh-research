@@ -1,6 +1,7 @@
 """Exercise operational-reference admission through immutable proof and Git ports."""
 
 import copy
+import importlib
 import json
 import subprocess
 import tempfile
@@ -484,7 +485,12 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
             with mock.patch.object(control, "_continuation_source", return_value=None):
                 self.assertIsNone(control.admit("0" * 40, "frontend"))
             control.apply()
-            for sha, scope in (("0" * 40, "backend"), (primary, "frontend")):
+            refresh = importlib.import_module("production_auth_domain_refresh")
+            for sha, scope in (
+                ("0" * 40, "backend"),
+                (primary, "frontend"),
+                (refresh.CANDIDATE, "frontend"),
+            ):
                 with (
                     self.subTest(sha=sha, scope=scope),
                     self.assertRaisesRegex(
@@ -496,3 +502,121 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
             self.assertIsNone(control.admit(primary, "all"))
             case.cas.assert_called_once()
             self.assertEqual(case.remote, case.intent["new_oid"])
+
+    def test_control_admits_only_trusted_exact_auth_domain_frontend_continuation(
+        self,
+    ):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        repository = "hushh-labs/hushh-research"
+        policy_path = (
+            Path(control.__file__).resolve().parents[2] / "config/ci-governance.json"
+        )
+        policy = json.loads(policy_path.read_text())
+        actor = policy["production"]["manual_dispatch_users"][0]
+        inputs = {
+            "sha": refresh.CANDIDATE,
+            "scope": "frontend",
+            "frontend_auth_domain_refresh": True,
+            "emergency_source_ref": "fix/auth-domain-refresh",
+            "emergency_reason": "Restore the reviewed production sign-in domain",
+        }
+        environment = {
+            "GITHUB_REPOSITORY": repository,
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_WORKFLOW_REF": (
+                f"{repository}/.github/workflows/deploy-production.yml@refs/heads/main"
+            ),
+            "GITHUB_SHA": "1" * 40,
+            "GITHUB_ACTOR": actor,
+            "GITHUB_TRIGGERING_ACTOR": actor,
+            "GITHUB_RUN_ID": "701",
+            "GITHUB_RUN_ATTEMPT": "2",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            event_path = Path(directory) / "event.json"
+
+            def attempt(
+                *,
+                selected_inputs=None,
+                sha=refresh.CANDIDATE,
+                scope="frontend",
+                source=refresh.SOURCE,
+                anchor=None,
+                environment_changes=None,
+            ):
+                event_path.write_text(
+                    json.dumps(
+                        {"inputs": inputs if selected_inputs is None else selected_inputs}
+                    )
+                )
+                current_environment = {
+                    **environment,
+                    "GITHUB_EVENT_PATH": str(event_path),
+                    **(environment_changes or {}),
+                }
+                with (
+                    mock.patch.object(proof, "read_original", return_value={}),
+                    mock.patch.object(control, "record_anchor", return_value=anchor),
+                    mock.patch.object(
+                        control, "_continuation_source", return_value=source
+                    ),
+                    mock.patch.dict("os.environ", current_environment, clear=False),
+                ):
+                    control.admit(sha, scope)
+
+            attempt()
+            anchor = {
+                "sealed_boundary": {
+                    "checkpoint": {"plan": {"primary_sha": refresh.SOURCE}}
+                }
+            }
+            with (
+                mock.patch.object(
+                    control,
+                    "_auth_domain_frontend_exception",
+                    wraps=control._auth_domain_frontend_exception,
+                ) as repair_exception,
+                self.assertRaisesRegex(
+                    ValueError, "transition_requires_original_source"
+                ),
+            ):
+                attempt(anchor=anchor)
+            repair_exception.assert_not_called()
+            invalid = (
+                {"sha": "e" * 40},
+                {"scope": "all"},
+                {"frontend_auth_domain_refresh": False},
+                {"restoration_activation_run_id": "700"},
+            )
+            for changes in invalid:
+                with (
+                    self.subTest(changes=changes),
+                    self.assertRaisesRegex(
+                        ValueError, "transition_requires_original_source"
+                    ),
+                ):
+                    attempt(selected_inputs={**inputs, **changes})
+            with self.assertRaisesRegex(
+                ValueError, "transition_requires_original_source"
+            ):
+                attempt(
+                    selected_inputs={**inputs, "sha": "e" * 40},
+                    sha="e" * 40,
+                )
+            for bad_source, bad_environment in (
+                ("e" * 40, None),
+                (refresh.SOURCE, {"GITHUB_ACTOR": "unapproved-actor"}),
+                (refresh.SOURCE, {"GITHUB_REF": "refs/heads/fix/incident"}),
+            ):
+                with (
+                    self.subTest(source=bad_source, environment=bad_environment),
+                    self.assertRaisesRegex(
+                        ValueError, "transition_requires_original_source"
+                    ),
+                ):
+                    attempt(
+                        source=bad_source,
+                        environment_changes=bad_environment,
+                    )
