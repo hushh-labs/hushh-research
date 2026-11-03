@@ -60,6 +60,18 @@ def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:
         assert "ci-path-ownership" in selection.check_ids
 
 
+def test_backend_runtime_secret_sync_is_a_controller_owner() -> None:
+    selection = build_selection(
+        {
+            "CI_VALIDATION_LEVEL": "focused",
+            "CI_CHANGED_FILES": "scripts/ops/sync_backend_runtime_secrets.py\n",
+        }
+    )
+    assert selection.error is None
+    assert selection.groups == ("controller",)
+    assert "resolve-deploy-scope" in selection.check_ids
+
+
 def test_known_product_path_does_not_expand_critical_groups() -> None:
     selection = build_selection(
         {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "hushh-webapp/app/page.tsx"}
@@ -219,6 +231,7 @@ def main() -> int:
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
         test_secret_scan_owner_does_not_become_unknown_during_branch_sync,
+        test_backend_runtime_secret_sync_is_a_controller_owner,
         test_known_product_path_does_not_expand_critical_groups,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
