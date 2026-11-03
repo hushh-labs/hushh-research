@@ -175,11 +175,34 @@ def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
 
 def verify_post_release_failure(repository: str, run: dict, release: dict) -> None:
     """A failed hygiene step never substitutes for successful release gates."""
-    result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
-    jobs = result.get("jobs") or []
-    if result.get("total_count") != 1 or len(jobs) != 1:
+    attempt = run.get("run_attempt", 1)
+    if type(attempt) is not int or attempt < 1:
+        raise retention.UnsafeState("production deployment attempt is invalid")
+    result = api(repository, f"runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
+    jobs = result.get("jobs")
+    if (not isinstance(jobs, list) or not 1 <= len(jobs) <= 100
+            or result.get("total_count") != len(jobs)
+            or any(not isinstance(job, dict) for job in jobs)):
         raise retention.UnsafeState("production deployment job inventory is incomplete")
-    job = jobs[0]
+    deploy = [job for job in jobs if job.get("name") == "Deploy Production Scope"]
+    if len(deploy) != 1 or any(
+        job.get("status") != "completed"
+        or job.get("conclusion") not in {"success", "skipped"}
+        for job in jobs if job.get("name") != "Deploy Production Scope"
+    ):
+        raise retention.UnsafeState("production failure includes another job")
+    # New workflows include dispatch/security and conditional activation jobs.
+    # A skipped mandatory clearance is not a legitimate skipped activation.
+    if len(jobs) > 1:
+        for name in ("Validate Production dispatch mode",
+                     "Deployment security / Verify repository secret clearance"):
+            matched = [job for job in jobs if job.get("name") == name]
+            if len(matched) != 1 or matched[0].get("conclusion") != "success":
+                raise retention.UnsafeState("production mandatory preflight did not succeed")
+    current = uncached_api(repository, f"runs/{run['id']}")
+    if current.get("run_attempt", 1) != attempt or current.get("status") != "completed":
+        raise retention.UnsafeState("production deployment attempt changed during inspection")
+    job = deploy[0]
     steps = job.get("steps") or []
     by_name = {step.get("name"): step for step in steps}
     failed = [step.get("name") for step in steps if step.get("conclusion") == "failure"]

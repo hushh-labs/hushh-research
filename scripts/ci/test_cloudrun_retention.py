@@ -784,6 +784,40 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             self.assertEqual(run_id, 200)
             self.assertIs(release, older)
 
+    def test_cleanup_failure_accepts_complete_multi_job_attempt_only(self):
+        run, original_jobs, release = self.production_cleanup_failure()
+        run["run_attempt"] = 2
+        jobs = copy.deepcopy(original_jobs)
+        jobs["jobs"].extend([
+            {"name": "Validate Production dispatch mode", "status": "completed", "conclusion": "success"},
+            {"name": "Deployment security / Verify repository secret clearance", "status": "completed", "conclusion": "success"},
+            {"name": "Stage qualified production Drive worker", "status": "completed", "conclusion": "skipped"},
+        ])
+        jobs["total_count"] = len(jobs["jobs"])
+        for defect in (None, "security_skipped", "other_failure", "new_attempt", "publication_failure"):
+            with self.subTest(defect=defect):
+                observed = copy.deepcopy(jobs)
+                current = dict(run)
+                if defect == "security_skipped":
+                    observed["jobs"][2]["conclusion"] = "skipped"
+                elif defect == "other_failure":
+                    observed["jobs"][3]["conclusion"] = "failure"
+                elif defect == "new_attempt":
+                    current["run_attempt"] = 3
+                elif defect == "publication_failure":
+                    observed["jobs"][0]["steps"][-1]["name"] = "Fail workflow when production release did not end healthy"
+                def read(_repo, endpoint):
+                    if "/jobs?" in endpoint:
+                        self.assertIn("/attempts/2/", endpoint)
+                        return observed
+                    return current
+                with mock.patch.object(MAINTENANCE, "api", side_effect=read):
+                    if defect is None:
+                        MAINTENANCE.verify_post_release_failure("org/repo", run, release)
+                    else:
+                        with self.assertRaises(MAINTENANCE.retention.UnsafeState):
+                            MAINTENANCE.verify_post_release_failure("org/repo", run, release)
+
     def test_cleanup_only_failure_requires_complete_release_proof_before_cloud_auth(
         self,
     ):
