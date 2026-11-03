@@ -507,6 +507,14 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         self.assertIsNone(self._qualify(unapproved))
         unapproved[0].api.assert_not_called()
 
+    def test_clock_attempt_timestamp_representation_keeps_identity_exact(self):
+        summary = {"id": 41537628196, "run_attempt": 1,
+                   "created_at": "2026-11-02T22:28:57Z", "head_sha": "a" * 40}
+        attempt = {**summary, "created_at": "2026-11-02T22:28:58Z"}
+        self.assertTrue(profile_evidence._run_matches(summary, attempt))
+        self.assertFalse(profile_evidence._run_matches(summary, {**attempt, "head_sha": "b" * 40}))
+        self.assertFalse(profile_evidence._run_matches(summary, {**attempt, "created_at": "2026-11-02T22:29:00Z"}))
+
     def test_later_main_worker_accepts_exact_profile_and_historic_clock_blobs(self):
         case = self._case()
         owner, _record, worker, job, _log, _blobs, clock = case

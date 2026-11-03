@@ -143,9 +143,16 @@ def _read_blob(owner, repository, path, ref):
 
 
 def _run_matches(summary, attempt):
+    # GitHub's run list and attempt endpoint can differ by one second for the
+    # same first attempt (observed on 41537628196). Keep identity/source exact;
+    # admit only that bounded timestamp representation difference.
+    created = base._stamp(summary.get("created_at"))
+    attempted = base._stamp(attempt.get("created_at")) if isinstance(attempt, dict) else None
     return bool(
         isinstance(attempt, dict)
-        and all(summary.get(key) == attempt.get(key) for key in _RUN_FIELDS)
+        and all(summary.get(key) == attempt.get(key) for key in _RUN_FIELDS if key != "created_at")
+        and created is not None and attempted is not None
+        and timedelta(0) <= attempted - created <= timedelta(seconds=2)
         and _positive_int(summary.get("id"))
         and _positive_int(attempt.get("id"))
         and type(summary.get("run_attempt")) is int
