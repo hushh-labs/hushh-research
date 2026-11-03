@@ -20,6 +20,28 @@ describe("occupied phone verification", () => {
     expect(start).toHaveBeenCalledOnce(); expect(transfer).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
     expect(flow.confirmVerification).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
   });
+  it("confirms the prepared SMS deletion once and resumes onboarding without another code", async () => {
+    const prepare = vi.fn().mockResolvedValue({
+      operation_id: "prepared-op", state: "prepared", transport: "sms", phone_hint: "••01",
+    });
+    const user = { uid: "onboarding-owner" };
+    const remove = vi.fn().mockResolvedValue(user);
+    const confirm = vi.fn().mockRejectedValue(new ApiError("Occupied", 409, { detail: { code: "PHONE_ALREADY_VERIFIED" } }));
+    const flow = renderPhoneVerificationFlow({
+      confirmVerification: confirm, prepareLinkedDeletion: prepare, confirmLinkedDeletion: remove,
+    });
+    const input = await reachCodeStep(flow.startVerification);
+    fireEvent.change(input, { target: { value: "123456" } }); fireEvent.submit(input.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
+    const submit = await screen.findByRole("button", { name: "Delete and continue" });
+    expect(submit).toBeDisabled();
+    expect(screen.queryByRole("textbox", { name: "Verification code" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
+    fireEvent.click(submit);
+    await waitFor(() => expect(flow.onCompleted).toHaveBeenCalledWith(user));
+    expect(remove).toHaveBeenCalledExactlyOnceWith({ operationId: "prepared-op", phoneNumber: "+16505550101", testCode: undefined });
+    expect(flow.startVerification).toHaveBeenCalledOnce();
+  });
   it("leaves an incorrect OTP editable without authorizing a phone takeover", async () => {
     const confirm = vi.fn().mockRejectedValue(new ApiError("Invalid", 401, { detail: { code: "UAT_PHONE_TEST_INVALID_CODE" } }));
     const flow = renderPhoneVerificationFlow({ confirmVerification: confirm, codePresentation: "onboarding" });
