@@ -1246,13 +1246,15 @@ ordinary deployments retain their candidate reservations.
 Preserved release tools are overlaid into their authored workspace paths before
 use. Run emergency admission/recheck from `scripts/ci/`, since companion readers
 resolve `deploy/phone` and `deploy/drive` relative to that repository root.
-The exact auth refresh first binds the immutable release and observed serving
-pair. Its mandatory live anchor/schema recheck follows Python/proxy setup and
-precedes mutations; the post-build recheck repeats it. Both rechecks use the
-initialized project environment through `uv run --frozen --project`, preserving
-the workspace directory and installed database reader. Ordinary admission keeps
-its immediate live validation. A metadata receipt never substitutes for either
-live recheck.
+The exact auth refresh binds the immutable restored-release evidence and observed
+serving pair. Before mutation and after image builds, it rechecks the annotated
+recovery reference, canonical restoration receipt, actual serving backend identity,
+IAM, service controls and original 100% traffic. Both rechecks use the initialized
+project environment through `uv run --frozen --project`, preserving the workspace.
+These checks read no database and do not activate or qualify a staged backend or
+worker. Their independent schema/producer/WorkOS qualification remains mandatory
+for the existing backend/activation paths. A metadata receipt never substitutes
+for the auth repair's live serving checks.
 
 Phone-lease history discovery and ancestry remain ordered. Independent per-run
 attempt/artifact proofs use at most three readers with the same inherited

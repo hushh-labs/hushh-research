@@ -414,7 +414,10 @@ def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch, tm
         if step.get("name") == "Recheck manual incident source and serving baseline before mutation"
     )
     assert setup < proxy < recheck
-    assert "inputs.frontend_auth_domain_refresh" in steps[proxy]["if"]
+    assert (
+        steps[proxy]["if"]
+        == "steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'"
+    )
     # Execute the actual gate with command-only stand-ins: scope refusal must
     # precede invocation, and ordinary/cold operations retain their reservations.
     for name, body in (

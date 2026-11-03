@@ -1085,7 +1085,7 @@ jobs:
           protocol-dir: ./consent-protocol
 
       - name: Install Cloud SQL Auth Proxy
-        if: inputs.frontend_auth_domain_refresh || steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
