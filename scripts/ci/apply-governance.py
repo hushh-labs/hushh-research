@@ -192,7 +192,8 @@ def current_team_members(slug: str = TEAM_SLUG) -> list[str]:
 
 
 def apply_review_bypass(
-    branch: str, desired: list[str], *, team_slug: str | None, apply: bool
+    branch: str, desired: list[str], *, team_slug: str | None, apply: bool,
+    require_code_owner_reviews: bool | None = None,
 ) -> bool:
     """Reconcile authored user/team allowances while preserving other settings."""
     data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"]) or {}
@@ -203,7 +204,8 @@ def apply_review_bypass(
     cur = sorted(u["login"] for u in bp.get("users", []) if u.get("login"))
     current_teams = sorted(t["slug"] for t in bp.get("teams", []) if t.get("slug"))
     team_slugs = [team_slug] if team_slug else []
-    if cur == desired and current_teams == team_slugs:
+    owner_review = bool(rpr.get("require_code_owner_reviews", False)) if require_code_owner_reviews is None else require_code_owner_reviews
+    if cur == desired and current_teams == team_slugs and bool(rpr.get("require_code_owner_reviews", False)) == owner_review:
         print(f"  ✓ {branch} review bypass already in sync: users={desired}, teams={team_slugs}")
         return False
     print(f"  Δ {branch} review bypass: users={cur} -> {desired}; teams={current_teams} -> {team_slugs}")
@@ -213,7 +215,7 @@ def apply_review_bypass(
 
     payload = {
         "dismiss_stale_reviews": bool(rpr.get("dismiss_stale_reviews", False)),
-        "require_code_owner_reviews": bool(rpr.get("require_code_owner_reviews", False)),
+        "require_code_owner_reviews": owner_review,
         "require_last_push_approval": bool(rpr.get("require_last_push_approval", False)),
         "required_approving_review_count": int(rpr.get("required_approving_review_count", 1)),
         "bypass_pull_request_allowances": {
@@ -359,11 +361,13 @@ def main() -> int:
     print("\n2. governed branch protection review_bypass_users")
     changed_main = apply_review_bypass(
         "main", desired_review_bypass(policy, "main"),
-        team_slug=policy["main"].get("review_bypass_team_slug"), apply=args.apply
+        team_slug=policy["main"].get("review_bypass_team_slug"), apply=args.apply,
+        require_code_owner_reviews=policy["main"].get("require_code_owner_reviews"),
     )
     changed_train = apply_review_bypass(
         train_branch, desired_review_bypass(policy, "pr_train"),
-        team_slug=policy["pr_train"].get("review_bypass_team_slug"), apply=args.apply
+        team_slug=policy["pr_train"].get("review_bypass_team_slug"), apply=args.apply,
+        require_code_owner_reviews=policy["pr_train"].get("require_code_owner_reviews"),
     )
 
     print("\n3. org team membership, mirrored from config/ci-governance.json")

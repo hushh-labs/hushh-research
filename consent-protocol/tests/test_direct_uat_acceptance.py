@@ -126,6 +126,7 @@ def prerequisite_fixture(monkeypatch):
     "case,reason",
     [
         ("ready", "qualified_current_ci"),
+        ("static_bound", "qualified_current_ci"),
         ("missing", "qualification_missing"),
         ("no_exact_job", "qualification_missing"),
         ("empty_base", "qualification_missing"),
@@ -163,6 +164,16 @@ def test_actions_inspection_offers_only_current_full_exact_source_ci(monkeypatch
         job["name"] = (
             "Exact UAT Candidate" if case == "legacy" else f"Exact UAT Candidate ({'d' * 40})"
         )
+    elif case == "static_bound":
+        job = next(job for job in transport.jobs if job["name"].startswith("Exact UAT Candidate"))
+        job["name"] = "Exact UAT Candidate"
+        job["steps"].insert(
+            0,
+            {
+                "name": f"Verify exact serving base ({'c' * 40})",
+                "conclusion": "success",
+            },
+        )
     elif case == "missing_job":
         transport.jobs = [job for job in transport.jobs if job["name"] != "Secret Scan"]
     elif case == "advanced":
@@ -183,7 +194,7 @@ def test_actions_inspection_offers_only_current_full_exact_source_ci(monkeypatch
         }
         transport.runs.append(other)
     result = subject.inspect(api, "a" * 40, read_live=lambda _: deepcopy(serving))
-    assert result["ready"] == (case == "ready")
+    assert result["ready"] == (case in {"ready", "static_bound"})
     assert result["reason_code"] == reason
     rendered = subject.render(result)
     assert ("Run workflow:" in rendered) == (
@@ -295,9 +306,13 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert early["if"] == "steps.resolve-sha.outputs.decision != 'NO_OP'"
     assert "secrets.GH_SECURITY_ALERTS_TOKEN" not in str(inspector)
     ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    assert (
-        ci["jobs"]["uat-exact-source"]["name"] == "Exact UAT Candidate (${{ inputs.uat_base_sha }})"
-    )
+    exact = ci["jobs"]["uat-exact-source"]
+    assert exact["name"] == "Exact UAT Candidate"
+    step_names = [step.get("name") for step in exact["steps"]]
+    assert "Verify exact serving base (${{ inputs.uat_base_sha }})" in step_names
+    assert step_names.index(
+        "Verify exact serving base (${{ inputs.uat_base_sha }})"
+    ) < step_names.index("Verify the exact UAT checkout")
 
 
 @pytest.mark.parametrize(

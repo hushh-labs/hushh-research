@@ -25,7 +25,7 @@ def protection_payload(policy: dict) -> dict:
         "enforce_admins": True,
         "required_pull_request_reviews": {
             "dismiss_stale_reviews": False,
-            "require_code_owner_reviews": False,
+            "require_code_owner_reviews": bool(policy.get("require_code_owner_reviews", False)),
             "required_approving_review_count": policy["required_approving_reviews"],
             "require_last_push_approval": policy["require_last_push_approval"],
             "bypass_pull_request_allowances": {
@@ -74,13 +74,14 @@ def _same_protection(current: dict, desired: dict) -> bool:
     return current.get("restrictions") is None
 
 
-def _assert_no_unowned_protection(current: dict) -> None:
+def _assert_no_unowned_protection(current: dict, desired: dict | None = None) -> None:
     """Do not weaken controls absent from the selected authored policy."""
     reviews = current.get("required_pull_request_reviews") or {}
     bypass = reviews.get("bypass_pull_request_allowances") or {}
     if current.get("restrictions") or bypass.get("apps") or reviews.get("dismissal_restrictions"):
         raise SystemExit("Existing push/review restrictions require explicit reconciliation")
-    if reviews.get("dismiss_stale_reviews") or reviews.get("require_code_owner_reviews"):
+    owner_expected = bool((desired or {}).get("required_pull_request_reviews", {}).get("require_code_owner_reviews"))
+    if reviews.get("dismiss_stale_reviews") or (reviews.get("require_code_owner_reviews") and not owner_expected):
         raise SystemExit("Existing stronger review policy requires explicit reconciliation")
     for key in ("required_linear_history", "required_signatures", "block_creations",
                 "lock_branch", "allow_fork_syncing"):
@@ -128,8 +129,8 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         # A missing branch is not permission to create one during reconciliation.
         read(["api", f"repos/{repo}/git/ref/heads/{quote(branch, safe='')}"])
         current = json.loads(output) if not code else {}
-        _assert_no_unowned_protection(current)
         desired = protection_payload(source)
+        _assert_no_unowned_protection(current, desired)
         plans.append((branch, endpoint, desired, current, desired_queue, current_queue, matches))
     for branch, endpoint, desired, current, queue, previous, matches in plans:
         protection_changed = not _same_protection(current, desired)
