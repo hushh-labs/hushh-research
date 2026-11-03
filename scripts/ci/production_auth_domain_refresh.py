@@ -22,6 +22,11 @@ from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 
 SOURCE = "d8a5fa4858741e611d39fd4f1f28b1ab930d057c"
+# The held production operational tag points at this staged backend revision.
+ACTIVE_ANCHOR_SOURCE = "4452c7121c80ef73e8e6d43cd7af19b20f679a83"
+# The sealed cold-proof primary is distinct from both the staged anchor source
+# and the restored healthy application source.
+ACTIVE_ANCHOR_PRIMARY_SOURCE = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
 CANDIDATE = "00507b68ea293524f73ad42b1839984bcaa46c98"
 IMAGES = {
     "frontend": "gcr.io/hushh-pda/hushh-webapp@sha256:88ac5b5b659f6c851e80f3926d553d4443fd4408f283df09a3974650eebecf98",
@@ -88,6 +93,104 @@ def validate_source(receipt: dict, *, run=command) -> None:
                 "Production no longer matches the reviewed restored application")
     changed = set(run("git", "diff", "--name-only", "--no-renames", SOURCE, target).splitlines())
     require(changed and changed <= ALLOWED_DIFF, "Repair changes application content")
+
+
+def qualify_backend_acceptance_origin(
+    receipt: dict, profile: dict, revision: dict
+) -> dict:
+    """Bind the one accepted restoration run to the physical serving backend."""
+    authority = receipt.get("authority", {})
+    baseline = receipt.get("baseline", {}).get("backend", {})
+    identity = profile.get("backend", {})
+    backend = {
+        "run_id": str(identity.get("run_id", "")),
+        "source": identity.get("source"),
+        "revision": identity.get("revision"),
+        "uid": identity.get("uid"),
+        "service_uid": identity.get("service_uid"),
+    }
+    metadata = revision.get("metadata", {})
+    labels = metadata.get("labels", {})
+    operational = profile.get("operational_reference")
+    import production_backend_successor as tag_reference
+    require(
+        isinstance(operational, dict)
+        and set(operational)
+        == {"ref", "tag_oid", "commit", "healthy_message", "anchor_record", "tag_object"}
+        and operational.get("ref") == tag_reference.REF
+        and bool(re.fullmatch(r"[0-9a-f]{40}", str(operational.get("tag_oid", ""))))
+        and operational.get("commit") == SOURCE
+        and isinstance(operational.get("healthy_message"), str)
+        and len(operational["healthy_message"].encode()) <= 65536
+        and isinstance(operational.get("tag_object"), str)
+        and len(operational["tag_object"].encode()) <= 131072,
+        "Operational reference is not bound to the reviewed restored source",
+    )
+    tag = tag_reference.tag_identity(operational["tag_object"])
+    tag_healthy, tagged_anchor = tag_reference.split(tag["message"], tag["commit"])
+    require(
+        tag["tag_oid"] == operational["tag_oid"]
+        and tag["commit"] == SOURCE
+        and tag_healthy == operational["healthy_message"]
+        and tagged_anchor == operational.get("anchor_record"),
+        "Operational annotated tag differs from its serialized reference",
+    )
+    anchor_record = operational.get("anchor_record")
+    if anchor_record is not None:
+        tag_reference.validate(anchor_record, operational["healthy_message"], SOURCE)
+        require(
+            anchor_record.get("source") == ACTIVE_ANCHOR_SOURCE
+            and anchor_record.get("healthy_commit") == SOURCE,
+            "Operational anchor does not match the reviewed staged/healthy sources",
+        )
+    else:
+        tag_reference.healthy_fields(operational["healthy_message"], SOURCE)
+    require(
+        receipt.get("kind") == "manual-production-predecessor-exception"
+        and receipt.get("scope") == "frontend"
+        and authority.get("frontend_auth_domain_refresh") is True
+        and authority.get("application_sha") == CANDIDATE
+        and baseline.get("source") == SOURCE
+        and baseline.get("image") == IMAGES["backend"]
+        and type(profile.get("run_id")) is int
+        and profile["run_id"] > 0
+        and profile["run_id"] != int(backend["run_id"])
+        and type(profile.get("run_attempt")) is int
+        and profile["run_attempt"] > 0
+        and bool(re.fullmatch(r"[0-9a-f]{40}", str(profile.get("workflow_sha", ""))))
+        and profile.get("source") == SOURCE
+        and identity.get("sha") == SOURCE
+        and identity.get("source") == SOURCE
+        and identity.get("image") == baseline.get("image")
+        and bool(re.fullmatch(r"[1-9][0-9]*", backend["run_id"]))
+        and backend["source"] == SOURCE
+        and bool(re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(backend["revision"])))
+        and all(isinstance(backend[key], str) and 0 < len(backend[key]) <= 256
+                for key in ("uid", "service_uid"))
+        and baseline.get("revision") == backend["revision"]
+        and baseline.get("revision_uid") == backend["uid"]
+        and baseline.get("service_uid") == backend["service_uid"]
+        and metadata.get("name") == backend["revision"]
+        and metadata.get("uid") == backend["uid"]
+        and revision.get("status", {}).get("imageDigest") == baseline.get("image")
+        and labels.get("serving.knative.dev/service") == "consent-protocol"
+        and labels.get("deploy-env") == "production"
+        and labels.get("deploy-source") == "deploy-production"
+        and labels.get("deploy-sha") == SOURCE
+        and labels.get("github-run-id") == backend["run_id"],
+        "Current restoration acceptance does not identify the serving backend",
+    )
+    return {
+        "schema_version": 1,
+        "kind": "production-auth-domain-backend-acceptance",
+        "run_id": profile["run_id"],
+        "run_attempt": profile["run_attempt"],
+        "workflow_sha": profile["workflow_sha"],
+        "source": profile["source"],
+        "backend": backend,
+        "backend_image": identity["image"],
+        "operational_reference": operational,
+    }
 
 
 def pin_config(text: str) -> str:

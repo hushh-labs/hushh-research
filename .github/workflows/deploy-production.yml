@@ -508,7 +508,7 @@ jobs:
           done
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
-          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py \
+          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py \
             production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
@@ -591,7 +591,7 @@ jobs:
           done
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
-          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py \
+          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py \
             production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
@@ -670,6 +670,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           STAGED_WORKER_RUN_ID: ${{ inputs.phone_worker_stage_run_id }}
           TARGET_SHA: ${{ inputs.sha }}
+          AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
+          RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
         run: |
           set -euo pipefail
           umask 077
@@ -683,6 +685,14 @@ jobs:
           import production_retention_context as retention_context
           anchor = control.record_anchor(proof.read_original())
           run_id = os.environ["STAGED_WORKER_RUN_ID"]
+          if os.environ["AUTH_DOMAIN_REPAIR"] == "true":
+              if (os.environ["RELEASE_MODE"] != "manual-emergency"
+                  or os.environ["PHONE_DEPLOY_PHASE"] != "standard" or run_id):
+                  raise SystemExit("Auth-domain repair cannot consume staged worker authority")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                  output.write("loaded=false\n")
+              print("Auth-domain frontend-only repair does not consume a staged backend worker.")
+              raise SystemExit(0)
           if anchor is not None and os.environ["PHONE_DEPLOY_PHASE"] != "cold" and not run_id:
               raise SystemExit("Production transition requires its qualified staged worker run")
           if run_id:
@@ -3084,60 +3094,6 @@ jobs:
               ;;
           esac
 
-      - name: Upload production deploy artifacts
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
-        uses: actions/upload-artifact@v6
-        with:
-          name: prod-release-${{ github.run_id }}
-          if-no-files-found: error
-          path: |
-            /tmp/phone-rollback/
-            /tmp/prod-predecessor-acceptance.json
-            /tmp/prod-restoration-validation.json
-            /tmp/prod-restoration-pretraffic-schema.json
-            /tmp/prod-restoration-prerollback-schema.json
-            /tmp/prod-restoration-rollback-cleanup-*
-            /tmp/prod-runtime-secret-sync.json
-            /tmp/prod-frontend-runtime-secret-sync.json
-            /tmp/prod-runtime-parity.json
-            /tmp/prod-protected-document-release.json
-            /tmp/prod-document-reader-compatibility.json
-            /tmp/prod-connected-systems-availability.json
-            /tmp/prod-connected-systems.log
-            /tmp/prod-backend-provenance.json
-            /tmp/prod-frontend-provenance.json
-            /tmp/prod-backend-image.json
-            /tmp/prod-backend-image-manifest.json
-            /tmp/prod-backend-image-promotion-source.json
-            /tmp/prod-uat-backend-image.json
-            /tmp/prod-uat-backend-image-manifest.json
-            /tmp/prod-frontend-image.json
-            /tmp/prod-frontend-image-manifest.json
-            /tmp/prod-backend-candidate.json
-            /tmp/prod-backend-candidate-readiness.json
-            /tmp/prod-backend-candidate-health.json
-            /tmp/prod-account-deletion-fence-install.log
-            /tmp/prod-account-deletion-revisions.json
-            /tmp/prod-account-deletion-unfenced-preflight.log
-            /tmp/prod-account-deletion-fence-premigration.log
-            /tmp/prod-account-deletion-boundary.log
-            /tmp/prod-account-deletion-boundary-preactivation.log
-            /tmp/prod-account-deletion-scheduler-setup.log
-            /tmp/prod-account-deletion-scheduler-config.json
-            /tmp/prod-account-deletion-scheduler-finished-logs.json
-            /tmp/prod-account-deletion-activation.json
-            /tmp/prod-account-deletion-scheduler-evidence.json
-            /tmp/prod-account-deletion-cleanup-health.json
-            /tmp/prod-account-deletion-revision-retirement.json
-            /tmp/prod-account-deletion-fence-removal.log
-            /tmp/cloud-sql-proxy-prod.log
-            /tmp/cloud-sql-proxy-prod-fence.log
-            /tmp/cloud-sql-proxy-prod-drift-gate.log
-            /tmp/cloud-sql-proxy-prod-rollback.log
-            /tmp/cloud-sql-proxy-prod-activation.log
-            /tmp/prod-release-status.json
-            ${{ runner.temp }}/qualified-worker-stage/
-
       - name: Deployment Summary
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
         shell: bash
@@ -3222,6 +3178,7 @@ jobs:
           FRONTEND_SERVICE_URL: ${{ steps.frontend-url.outputs.url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ACTOR: ${{ github.triggering_actor }}
+          AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
         run: |
           set -euo pipefail
           STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
@@ -3231,8 +3188,62 @@ jobs:
           fi
           bash "${RUNNER_TEMP}/release-tools/tag-last-known-good.sh"
 
-      - name: Retire unused production tags after a healthy release
+      - name: Upload production deploy artifacts
         if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-release-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            /tmp/phone-rollback/
+            /tmp/prod-predecessor-acceptance.json
+            /tmp/prod-restoration-validation.json
+            /tmp/prod-restoration-pretraffic-schema.json
+            /tmp/prod-restoration-prerollback-schema.json
+            /tmp/prod-restoration-rollback-cleanup-*
+            /tmp/prod-runtime-secret-sync.json
+            /tmp/prod-frontend-runtime-secret-sync.json
+            /tmp/prod-runtime-parity.json
+            /tmp/prod-protected-document-release.json
+            /tmp/prod-document-reader-compatibility.json
+            /tmp/prod-connected-systems-availability.json
+            /tmp/prod-connected-systems.log
+            /tmp/prod-backend-provenance.json
+            /tmp/prod-frontend-provenance.json
+            /tmp/prod-backend-image.json
+            /tmp/prod-backend-image-manifest.json
+            /tmp/prod-backend-image-promotion-source.json
+            /tmp/prod-uat-backend-image.json
+            /tmp/prod-uat-backend-image-manifest.json
+            /tmp/prod-frontend-image.json
+            /tmp/prod-frontend-image-manifest.json
+            /tmp/prod-backend-candidate.json
+            /tmp/prod-backend-candidate-readiness.json
+            /tmp/prod-backend-candidate-health.json
+            /tmp/prod-account-deletion-fence-install.log
+            /tmp/prod-account-deletion-revisions.json
+            /tmp/prod-account-deletion-unfenced-preflight.log
+            /tmp/prod-account-deletion-fence-premigration.log
+            /tmp/prod-account-deletion-boundary.log
+            /tmp/prod-account-deletion-boundary-preactivation.log
+            /tmp/prod-account-deletion-scheduler-setup.log
+            /tmp/prod-account-deletion-scheduler-config.json
+            /tmp/prod-account-deletion-scheduler-finished-logs.json
+            /tmp/prod-account-deletion-activation.json
+            /tmp/prod-account-deletion-scheduler-evidence.json
+            /tmp/prod-account-deletion-cleanup-health.json
+            /tmp/prod-account-deletion-revision-retirement.json
+            /tmp/prod-account-deletion-fence-removal.log
+            /tmp/cloud-sql-proxy-prod.log
+            /tmp/cloud-sql-proxy-prod-fence.log
+            /tmp/cloud-sql-proxy-prod-drift-gate.log
+            /tmp/cloud-sql-proxy-prod-rollback.log
+            /tmp/cloud-sql-proxy-prod-activation.log
+            /tmp/prod-release-status.json
+            ${{ runner.temp }}/qualified-worker-stage/
+
+      - name: Retire unused production tags after a healthy release
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always()) && !inputs.frontend_auth_domain_refresh
         shell: bash
         env:
           BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_serving }}
@@ -3255,11 +3266,22 @@ jobs:
           timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release
 
       - name: Fail workflow when production release did not end healthy
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: always() && (inputs.frontend_auth_domain_refresh || env.PHONE_DEPLOY_PHASE != 'cold')
         shell: bash
+        env:
+          AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
+          SHA: ${{ inputs.sha }}
         run: |
           set -euo pipefail
           STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$AUTH_DOMAIN_REPAIR" = true ]; then
+            if [ "$STATUS" != healthy ]; then
+              echo "Auth-domain repair did not produce a healthy frontend release."
+              exit 1
+            fi
+            python3 scripts/ci/production_backend_successor_control.py auth-publish-verify \
+              --sha "$SHA" --status /tmp/prod-release-status.json
+          fi
           if [ "$STATUS" = pending_activation ]; then
             echo "Runtime gates passed; deletion remains fenced pending canonical retirement and explicit activation. No healthy release is claimed." >> "$GITHUB_STEP_SUMMARY"
             exit 0
