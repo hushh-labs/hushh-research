@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 import retention_preflight_evidence as base
 import retention_production_clock_records as records
 import retention_production_evidence as production
+import retention_publication_source as publication_source
 
 APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
 PROFILE_NAME = "publication-84b"
@@ -112,37 +113,6 @@ def _is_ancestor(owner, repository, ancestor, descendant):
         "production source ancestry is not bounded and exact",
     )
     return True
-
-
-@lru_cache(maxsize=256)
-def _read_blob(owner, repository, path, ref):
-    _require(
-        owner,
-        repository == base.REPOSITORY and _valid_sha(ref),
-        "production source blob reference is invalid",
-    )
-    response = owner.command(
-        "gh",
-        "api",
-        f"repos/{repository}/contents/{path}?ref={ref}",
-        "--jq",
-        "{sha,size}",
-    )
-    try:
-        blob = json.loads(response)
-    except (TypeError, ValueError):
-        raise owner.retention.UnsafeState(
-            "production source blob evidence is invalid"
-        ) from None
-    _require(
-        owner,
-        isinstance(blob, dict)
-        and _valid_sha(blob.get("sha"))
-        and type(blob.get("size")) is int
-        and blob["size"] >= 0,
-        "production source blob evidence is incomplete",
-    )
-    return blob
 
 
 def _run_matches(summary, attempt):
@@ -398,11 +368,12 @@ def _clock_proof(owner, repository, worker_run, candidate):
     _is_ancestor(owner, repository, clock_head, worker_run["head_sha"])
     template = _profile_template(owner)
     expected_sources = records.CLOCK_BOUND_SOURCE_PROFILES[template.source_profile]
-    actual_sources = {
-        path: _read_blob(owner, repository, path, clock_head)
-        for path in expected_sources
-    }
-    workflow_blob = _read_blob(owner, repository, clock_evidence.CLOCK_WORKFLOW, clock_head)
+    source_paths = (*expected_sources, clock_evidence.CLOCK_WORKFLOW)
+    source_metadata = publication_source.read_source(
+        owner, repository, clock_head, source_paths
+    )
+    actual_sources = {path: source_metadata[path] for path in expected_sources}
+    workflow_blob = source_metadata[clock_evidence.CLOCK_WORKFLOW]
     proof = {
         "run": attempt,
         "check_job": check,

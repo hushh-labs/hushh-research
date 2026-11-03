@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Clock-bound production refusal evidence and its exact API witness."""
 
+import contextvars
 import copy
-from dataclasses import replace
 import json
 import sys
+import threading
+import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -16,6 +19,7 @@ import retention_production_clock_evidence as clock_evidence  # noqa: E402
 import retention_production_clock_records as records  # noqa: E402
 import retention_production_evidence as evidence  # noqa: E402
 import retention_production_profile_evidence as profile_evidence  # noqa: E402
+import retention_publication_source as publication_source  # noqa: E402
 from test_retention_production_evidence import clock_bound_fixture  # noqa: E402
 
 
@@ -548,8 +552,19 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         clock_run["head_sha"] = older_clock
         for clock_job in (clock["check_job"], clock["wake_job"]):
             clock_job["head_sha"] = older_clock
-        record, proof = profile_evidence.discover_record(
-            owner, base.REPOSITORY, worker, job
+        with mock.patch.object(
+            publication_source,
+            "read_source",
+            wraps=publication_source.read_source,
+        ) as read_source:
+            record, proof = profile_evidence.discover_record(
+                owner, base.REPOSITORY, worker, job
+            )
+        self.assertEqual(read_source.call_count, 1)
+        self.assertEqual(
+            set(read_source.call_args.args[3]),
+            {*records.CLOCK_BOUND_SOURCE_PROFILES[profile_evidence.PROFILE_NAME],
+             clock_evidence.CLOCK_WORKFLOW},
         )
         self.assertEqual(record.worker_head_sha, later_main)
         self.assertEqual(record.worker_checkout_sha, later_main)
@@ -616,6 +631,126 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
             profile_evidence.discover_record(owner, base.REPOSITORY, worker, job)
         self.assertFalse(
             any("/contents/" in call.args[2] for call in owner.command.call_args_list)
+        )
+
+
+class PublicationSourceReaderTest(unittest.TestCase):
+    def setUp(self):
+        publication_source._read_pinned_blob.cache_clear()
+
+    def tearDown(self):
+        publication_source._read_pinned_blob.cache_clear()
+
+    def test_default_profile_reads_owner_then_its_exact_source_set(self):
+        source_profile = next(iter(base.SOURCE_PROFILES.values()))
+        revision = "9" * 40
+        owner = mock.Mock()
+        owner.retention = mock.Mock(UnsafeState=_UnsafeProfileState)
+        calls = []
+
+        def command(*args):
+            path, ref = args[2].split("/contents/", 1)[1].split("?ref=", 1)
+            calls.append((path, ref))
+            sha, size = source_profile[path]
+            return json.dumps({"sha": sha, "size": size})
+
+        owner.command.side_effect = command
+        result = publication_source.read_source(owner, base.REPOSITORY, revision)
+        self.assertEqual(
+            result,
+            {
+                path: {"sha": sha, "size": size}
+                for path, (sha, size) in source_profile.items()
+            },
+        )
+        self.assertEqual(calls[0], (base.OWNER, revision))
+        self.assertEqual(set(calls), {(path, revision) for path in source_profile})
+
+    def test_pinned_metadata_reuse_does_not_cross_revision_or_cache_live_refs(self):
+        publication_source._read_pinned_blob.cache_clear()
+        paths = (
+            base.OWNER,
+            base.WORKFLOW,
+            records.PUBLICATION,
+            clock_evidence.CLOCK_WORKFLOW,
+        )
+        first_sha = profile_evidence.APPROVED_SOURCE_SHA
+        later_sha = "3803d08f2f94c54e9cd6853ba423a269812cd068"
+        owner = mock.Mock()
+        owner.retention = mock.Mock(UnsafeState=_UnsafeProfileState)
+        calls = []
+
+        def command(*args):
+            path, revision = args[2].split("/contents/", 1)[1].split("?ref=", 1)
+            calls.append((path, revision))
+            sha = ("b" if revision == later_sha else "a") * 40
+            return json.dumps(
+                {
+                    "sha": sha,
+                    "size": len(path) + len(revision),
+                }
+            )
+
+        owner.command.side_effect = command
+        first = publication_source.read_source(owner, base.REPOSITORY, first_sha, paths)
+        self.assertEqual(len(first), len(paths))
+        publication_source.read_source(owner, base.REPOSITORY, first_sha, paths)
+        self.assertEqual(calls.count((paths[0], first_sha)), 1)
+
+        later = publication_source.read_source(owner, base.REPOSITORY, later_sha, paths)
+        self.assertNotEqual(first[paths[0]], later[paths[0]])
+        publication_source.read_source(owner, base.REPOSITORY, "main", paths)
+        publication_source.read_source(owner, base.REPOSITORY, "main", paths)
+        self.assertEqual(len(calls), len(paths) * 4)
+        self.assertEqual(
+            {revision for _, revision in calls}, {first_sha, later_sha, "main"}
+        )
+        self.assertEqual(calls.count((paths[0], "main")), 2)
+
+    def test_parallel_blob_reads_inherit_context_and_join_within_three_workers(self):
+        deadline = contextvars.ContextVar("test_source_read_deadline", default=None)
+        deadline.set("active-pass-deadline")
+        lock = threading.Lock()
+        active = 0
+        max_active = 0
+        observed_deadlines = []
+        owner = mock.Mock()
+        owner.retention = mock.Mock(UnsafeState=_UnsafeProfileState)
+
+        def command(*args):
+            nonlocal active, max_active
+            path, revision = args[2].split("/contents/", 1)[1].split("?ref=", 1)
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                observed_deadlines.append(deadline.get())
+            try:
+                time.sleep(0.02)
+                return json.dumps(
+                    {
+                        "sha": "a" * 40,
+                        "size": len(path) + len(revision),
+                    }
+                )
+            finally:
+                with lock:
+                    active -= 1
+
+        owner.command.side_effect = command
+        paths = (
+            base.OWNER,
+            base.WORKFLOW,
+            records.PUBLICATION,
+            clock_evidence.CLOCK_WORKFLOW,
+        )
+        result = publication_source.read_source(
+            owner, base.REPOSITORY, profile_evidence.APPROVED_SOURCE_SHA, paths
+        )
+        self.assertEqual(set(result), set(paths))
+        self.assertLessEqual(max_active, 3)
+        self.assertGreater(max_active, 1)
+        self.assertEqual(
+            observed_deadlines, ["active-pass-deadline"] * len(paths)
         )
 
 
