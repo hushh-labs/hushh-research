@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 
 from hushh_mcp.services.hosted_provider_account_transition import PLACEMENTS
@@ -10,6 +15,32 @@ from scripts.ops.hosted_provider_account_identity import (
     execute_action,
 )
 from tests.helpers.hosted_provider_account_ops import _Runtime, _snapshot
+
+
+def test_operator_inventory_import_does_not_require_hub_crypto_secrets():
+    environment = os.environ.copy()
+    for name in (
+        "APP_SIGNING_KEY",
+        "APP_SIGNING_KEY_CIPHERTEXT",
+        "VAULT_DATA_KEY",
+        "VAULT_DATA_KEY_CIPHERTEXT",
+        "KMS_KEK_RESOURCE",
+    ):
+        environment.pop(name, None)
+    # Local .env files must not repopulate the keys removed for this check.
+    environment["PYTHON_DOTENV_DISABLED"] = "1"
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import scripts.ops.hosted_provider_account_inventory"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.asyncio
