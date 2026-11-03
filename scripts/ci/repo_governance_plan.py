@@ -90,6 +90,13 @@ CHECKS = (
     _check("production-capacity-recovery", "python3", "scripts/ci/test_production_capacity_recovery.py", groups=("retention",)),
     _check("production-verification", "python3", "scripts/ci/test_production_verification.py", groups=("controller", "release")),
     _check("production-verification-workflow", "python3", "scripts/ci/test_production_verification_workflow.py", groups=("controller", "release")),
+    _check(
+        "account-deletion-release-workflow",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q",
+        "consent-protocol/tests/test_account_deletion_release_workflow.py",
+        groups=("controller",),
+    ),
     _check("passkey-domain-associations", "python3", "scripts/ci/test_verify_passkey_domain_associations.py", groups=("controller",)),
     _check("prod-places-readiness", "python3", "scripts/ci/test_verify_prod_places_readiness.py", groups=("controller",)),
     _check("uat-verification-plan", "python3", "scripts/ci/test_resolve_uat_verification_plan.py"),
@@ -229,6 +236,12 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         if parts[1] == "ops" and "runtime_topology" in lower:
             return frozenset(), None
         if path in {"scripts/ci/resolve-ci-changed-files.sh", "scripts/ci/document-delivery-check.sh"}:
+            return frozenset({"controller"}), None
+        if path in {
+            "scripts/ci/promotion_approval.py",
+            "scripts/ci/secret-scan.sh",
+            "scripts/ci/test_secret_scan_ranges.py",
+        }:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/repo-governance-check.sh",
