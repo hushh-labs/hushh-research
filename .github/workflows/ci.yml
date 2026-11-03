@@ -191,6 +191,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - name: Install UI contract parser for governance
+        working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
+        run: npm ci --ignore-scripts --no-audit --progress=false
+
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -238,6 +242,7 @@ jobs:
       ios: ${{ steps.resolve.outputs.ios }}
       android: ${{ steps.resolve.outputs.android }}
       editor: ${{ steps.resolve.outputs.editor }}
+      document: ${{ steps.resolve.outputs.document }}
       auth_health_only: ${{ steps.resolve.outputs.auth_health_only }}
       auth_health: ${{ steps.filter.outputs.auth_health }}
     steps:
@@ -324,12 +329,42 @@ jobs:
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
+              # These exact synthetic fixture paths have a focused controller
+              # owner; edits to the separate phone-history consumer modules still
+              # select their existing Protocol coverage.
+              - '!consent-protocol/tests/helpers/production_release_tools.py'
+              - '!consent-protocol/tests/test_production_restoration_operation.py'
               # The required Governance auth-health step owns this full suite,
               # including mixed CI changes; keep real backend contracts below.
               - '!consent-protocol/tests/test_auth_health_inventory.py'
               - '!consent-protocol/tests/test_direct_uat_acceptance.py'
               - '!consent-protocol/tests/test_uat_application_selection.py'
               - '!consent-protocol/tests/test_uat_paused_drive_maintenance.py'
+            # Native WebKit proves protected-document crypto and phone recovery.
+            # Styling and unrelated application features do not require macOS.
+            document:
+              - 'hushh-webapp/{package.json,package-lock.json,tsconfig.json,vite.config.*,playwright.config.*}'
+              - 'hushh-webapp/lib/{auth,crypto,consent,vault,firebase,documents,document-delivery,trusted-device,cache,navigation,onboarding,runtime}/**'
+              - 'hushh-webapp/lib/services/{api-service,auth-service,account-service,account-identity-service,cache-service,consent-service,phone*,vault*,document*,drive*,post-auth-route*,pre-vault-user-state*,onboarding-route-cookie,external-connector*,google-drive-picker*}*'
+              - 'hushh-webapp/components/{auth,vault,consent,documents,onboarding}/**'
+              - 'hushh-webapp/app/{login,register-phone,api/auth,api/consent,api/account}/**'
+              - 'hushh-webapp/e2e/fixtures/{hosted-document*,phone-conflict*}'
+              - 'hushh-webapp/scripts/testing/{hosted-document*,phone-conflict*,document-loop-diagnostics.mjs}'
+              - 'consent-protocol/{pyproject.toml,uv.lock,db/**}'
+              - 'consent-protocol/api/{utils/**,middleware.py,runtime_settings.py,app.py,routes/account*/**,routes/consent*/**,routes/document*/**,routes/drive*/**}'
+              - 'consent-protocol/hushh_mcp/services/document_delivery/**'
+              - 'hushh-webapp/components/profile/{trusted-device*,use-trusted-device*,use-device-revocation-proof*}'
+              - 'scripts/ci/{document-delivery-check.sh,integration-check.sh}'
+              - 'consent-protocol/api/routes/{account*,consent*,document*,drive*,phone*,db_proxy}.py'
+              - 'hushh-webapp/hooks/use-auth.ts'
+              - 'hushh-webapp/components/profile/device-revocation-proof.ts'
+              - 'consent-protocol/hushh_mcp/{consent,crypto}/**'
+              - 'consent-protocol/hushh_mcp/runtime_settings.py'
+              - 'consent-protocol/.github/actions/setup-python-uv/**'
+              - 'consent-protocol/hushh_mcp/services/{account*,consent*,document*,drive*,phone*,connector*,key*,vault*,actor_identity*,trusted_device*,device_action*,connection_graph*,external_connector*,google_drive*,owner_placement_guard,stripe*,scope_commerce*}.py'
+              - 'consent-protocol/tests/{test_account_phone_browser.py,services/test_document_delivery*,helpers/document_delivery*,helpers/phone_conflict*,helpers/phone_transfer*}'
+              - 'consent-protocol/tests/services/{test_drive_sharing_store,test_drive_document_selection,test_drive_request_payment}.py'
+              - 'consent-protocol/tests/{drive_postgres_test_support.py,pkm_conformance/postgres_harness*}'
             ios:
               - 'hushh-webapp/ios/**'
               - 'hushh-webapp/lib/capacitor/**'
@@ -533,14 +568,17 @@ jobs:
             echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
             echo "editor=${{ steps.override.outputs.editor }}" >> "$GITHUB_OUTPUT"
+            echo "document=true" >> "$GITHUB_OUTPUT"
             echo "auth_health_only=false" >> "$GITHUB_OUTPUT"
           else
             if [ "$CI_VALIDATION_LEVEL" = release ]; then
               echo 'frontend=true' >> "$GITHUB_OUTPUT"
               echo 'backend=true' >> "$GITHUB_OUTPUT"
+              echo 'document=true' >> "$GITHUB_OUTPUT"
             else
               echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
               echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+              echo "document=${{ steps.filter.outputs.document }}" >> "$GITHUB_OUTPUT"
             fi
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
@@ -599,6 +637,7 @@ jobs:
       ios: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.ios }}
       android: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.android }}
       editor: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.editor }}
+      document: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'false' || needs.paths.outputs.document }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -899,7 +938,7 @@ jobs:
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
+      (needs['preflight-gate'].outputs.document == 'true')
     runs-on: macos-15
     timeout-minutes: 20
     steps:
@@ -919,14 +958,14 @@ jobs:
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         id: document-python
-        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        if: needs['preflight-gate'].outputs.document == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
 
       - name: Prepare isolated document PostgreSQL binaries
         id: document-postgres
-        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        if: needs['preflight-gate'].outputs.document == 'true'
         run: |
           brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
           pg_bin="$(brew --prefix postgresql@16)/bin"
@@ -936,7 +975,7 @@ jobs:
 
       - name: Verify native WebKit protected documents through real SQL
         id: document-webkit
-        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
+        if: needs['preflight-gate'].outputs.document == 'true'
         run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
 
   web-full-suite-check:
@@ -1499,7 +1538,7 @@ jobs:
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
+      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true' || needs['preflight-gate'].outputs.document == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -1549,6 +1588,7 @@ jobs:
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
+          CI_DOCUMENT_CONTRACT_REQUIRED: ${{ needs['preflight-gate'].outputs.document }}
           CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
           CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
           CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/ci-verification-plan.json
@@ -1782,6 +1822,7 @@ jobs:
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           DOCUMENT_WEBKIT="${{ needs['document-webkit-check'].result }}"
+          DOCUMENT_SELECTED="${{ needs['preflight-gate'].outputs.document }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
           AUTH_HEALTH_ONLY="${{ needs.paths.outputs.auth_health_only }}"
           FRONTEND_SELECTED="${{ needs['preflight-gate'].outputs.frontend }}"
@@ -1847,14 +1888,14 @@ jobs:
             echo "Changed backend sources require a successful MCP package check."
             fail=1
           fi
-          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
+          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ] || [ "$DOCUMENT_SELECTED" = "true" ]; } && [ "$INTEGRATION" != "success" ]; then
             echo "Changed frontend or backend sources require a successful integration check."
             fail=1
           fi
           # An output that is neither true nor false selected nothing above, so
           # every lane it should have required would pass unrun. That is a
           # broken paths job, never a skip.
-          for lane in "frontend=${{ needs['preflight-gate'].outputs.frontend }}" "backend=${{ needs['preflight-gate'].outputs.backend }}" "ios=${{ needs['preflight-gate'].outputs.ios }}" "android=${{ needs['preflight-gate'].outputs.android }}" "editor=${{ needs['preflight-gate'].outputs.editor }}"; do
+          for lane in "frontend=${{ needs['preflight-gate'].outputs.frontend }}" "backend=${{ needs['preflight-gate'].outputs.backend }}" "ios=${{ needs['preflight-gate'].outputs.ios }}" "android=${{ needs['preflight-gate'].outputs.android }}" "editor=${{ needs['preflight-gate'].outputs.editor }}" "document=$DOCUMENT_SELECTED"; do
             case "${lane#*=}" in
               true|false) ;;
               *) echo "Path filter output ${lane%%=*} is '${lane#*=}', not true or false."; fail=1 ;;
@@ -1885,7 +1926,7 @@ jobs:
           fi
           if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
           if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          if { [ "$FRONTEND_SELECTED" = true ] || [ "$BACKEND_SELECTED" = true ]; } && [ "$DOCUMENT_WEBKIT" != success ]; then
+          if [ "$DOCUMENT_SELECTED" = true ] && [ "$DOCUMENT_WEBKIT" != success ]; then
             echo "Protected document delivery requires successful native WebKit cryptography."
             fail=1
           fi
@@ -1940,7 +1981,7 @@ jobs:
           if [ "$FRONTEND_SELECTED" = "true" ]; then
             BROWSER_REQUIRED=true
           fi
-          if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ]; then
+          if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ] || [ "$DOCUMENT_SELECTED" = "true" ]; then
             INTEGRATION_REQUIRED=true
           fi
           record_failure "Browser Contracts" "$WEB_BROWSER" "$BROWSER_REQUIRED"
@@ -1950,7 +1991,7 @@ jobs:
           record_failure "Protocol Database" "$PROTOCOL_DATABASE" "$BACKEND_SELECTED"
           record_failure "MCP Package" "$MCP_PACKAGE" "$BACKEND_SELECTED"
           record_failure "Integration" "$INTEGRATION" "$INTEGRATION_REQUIRED"
-          record_failure "Protected Document WebKit" "$DOCUMENT_WEBKIT" "$INTEGRATION_REQUIRED"
+          record_failure "Protected Document WebKit" "$DOCUMENT_WEBKIT" "$DOCUMENT_SELECTED"
           for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED"; do
             case "${lane#*=}" in
               true|false) ;;

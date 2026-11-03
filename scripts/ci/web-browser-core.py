@@ -137,13 +137,23 @@ def main() -> int:
                                   cwd=WEB, env=env, check=False)
         if prepared.returncode:
             return prepared.returncode
+    return run_selected(selected, env)
+
+
+def run_selected(selected: list[list[str]], env: dict[str, str]) -> int:
+    failed: list[str] = []
     for command in selected:
-        print("Functional browser:", shlex.join(command), flush=True)
+        label = shlex.join(command)
+        print("Functional browser:", label, flush=True)
         proc = subprocess.run([str(WEB / "node_modules/.bin/playwright"), "test", *command],
                               cwd=WEB, env=env, check=False)
+        if proc.returncode < 0 or proc.returncode >= 124:
+            return 128 - proc.returncode if proc.returncode < 0 else proc.returncode
         if proc.returncode:
-            return proc.returncode
-    return 0
+            failed.append(f"{label} (exit {proc.returncode})")
+    if failed:
+        print("Failed browser commands:\n  - " + "\n  - ".join(failed), flush=True)
+    return int(bool(failed))
 
 
 if __name__ == "__main__":

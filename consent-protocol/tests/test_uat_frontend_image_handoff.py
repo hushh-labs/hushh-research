@@ -58,6 +58,17 @@ def test_late_frontend_wait_is_independent_of_probes_and_keeps_the_complete_buil
     assert steps["await-frontend-image"]["waitFor"] == ["build-backend-image", "verify-runtime-iam"]
     assert steps["inspect-frontend-image-manifest"]["waitFor"] == ["await-frontend-image"]
     assert steps["pin-frontend-image"]["waitFor"] == ["inspect-frontend-image-manifest"]
+    # The stable Cloud SDK builder only ships Python inside the SDK.
+    sdk_image = steps["verify-runtime-iam"]["name"]
+    assert re.fullmatch(
+        r"gcr[.]io/google[.]com/cloudsdktool/google-cloud-cli:.+@sha256:[0-9a-f]{64}", sdk_image
+    )
+    for step_id in ("verify-runtime-iam", "await-frontend-image", "pin-frontend-image"):
+        assert steps[step_id]["name"] == sdk_image
+        assert any(
+            entry.startswith("PATH=") and "/platform/bundledpythonunix/bin:" in entry
+            for entry in steps[step_id]["env"]
+        ), step_id
     assert steps[module.FRONTEND_STEPS[0]]["waitFor"] == ["pin-frontend-image"]
     assert steps["verify-managed-provider-readiness"]["waitFor"] == [
         "deploy-backend",
