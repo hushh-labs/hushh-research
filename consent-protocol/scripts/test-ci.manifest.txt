@@ -254,6 +254,7 @@ tests/test_finance_sharing_contract.py
 tests/test_finance_recipient_hub_authority.py
 tests/test_advisor_review_contract.py
 tests/test_advisor_review_authority.py
+tests/services/test_one_portfolio_review.py
 tests/test_advisor_review_postgres.py
 tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
