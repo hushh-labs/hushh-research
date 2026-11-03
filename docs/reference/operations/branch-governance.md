@@ -81,6 +81,23 @@ branches refuse. The combined-result rollout removes queue bypass before relaxin
 strict branch-age checks. Source intent is not proof of live settings; read them
 back after the reviewed activation.
 
+Roll out combined-result validation separately on every destination (`main`,
+`dev`, `uat` and the retained train). Admission executes authority code from the
+merge group's protected **base**, so including the helper for the first time in
+the activation PR is insufficient:
+
+1. Land the queue helper, its dependencies and focused tests through the existing
+   validation path; leave the current queue workflow active.
+2. Land the activation workflow after verifying that foundation exists in the
+   destination base. Preserve unrelated destination changes during each sync.
+3. Observe a successful subsequent combined-result run using the corrected
+   helper. The activation PR itself cannot certify a helper fix absent from its
+   base.
+4. Apply the reviewed merger/review restrictions, remove queue bypass, then
+   relax strict ancestry checks and read back the resulting policy.
+
+These are source and policy operations only. They do not deploy an application.
+
 Before enabling intake, preserve existing refs and outstanding work, prepare each
 branch from the then-current Main baseline, and apply/read back its protection.
 The existing `uat` ref must not be reset merely because its history is old.
@@ -121,9 +138,10 @@ The following work remains before the UAT selection transition:
 
 1. Maintain Dev intake without discarding train or active branch work.
 2. Select dependency-complete changes into UAT; stabilize there and carry fixes
-   back to Dev. Keep both deployments manual. Until the direct-CI path is
-   qualified, the final assembled SHA still needs Dev acceptance; an original
-   cherry-picked commit's receipt cannot qualify it.
+   back to Dev. Keep both deployments manual. Direct UAT uses exact assembled-SHA
+   qualification; an original cherry-picked commit's receipt cannot qualify it.
+   Verify the direct route's admission and serving evidence before claiming the
+   transition is operationally complete.
 3. Promote the exact UAT-qualified application SHA through a reviewed Main
    promotion. Record the Main approval merge separately, prove no new content was
    introduced, and preserve service-specific acceptance and rollback.
