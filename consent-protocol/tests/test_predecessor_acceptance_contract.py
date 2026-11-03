@@ -54,8 +54,8 @@ def test_distinct_main_approval_requires_identical_uat_content_and_incorporation
     accepted = git("rev-parse", "HEAD")
     git("update-ref", "refs/remotes/origin/main", accepted)
     record = approval.verify(application, accepted, resolve=git)
-    assert approval.uat_source(application, resolve=git) == ("main", "Main Post-Merge Smoke Gate")
-    assert approval.uat_source(accepted, resolve=git) == ("main", "Main Post-Merge Smoke Gate")
+    with pytest.raises(ValueError, match="not in protected UAT history"):
+        approval.uat_source(accepted, resolve=git)
     assert record["application_sha"] == application
     assert record["main_approval_sha"] == accepted
     assert record["predecessor_acceptance_required"] == "uat-exact-application-sha"

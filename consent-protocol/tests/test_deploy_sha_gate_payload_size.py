@@ -254,7 +254,9 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
     selector = next(step for step in steps if step.get("id") == "application-authority")
     assert "promotion_approval.py uat" in selector["run"]
     admission = next(
-        step for step in steps if step.get("name") == "Validate deployment SHA against main"
+        step
+        for step in steps
+        if step.get("name") == "Validate deployment SHA in selected protected history"
     )
     assert (
         admission["env"]["REQUIRED_CHECK_NAME"]

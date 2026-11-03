@@ -7,7 +7,8 @@ if [ "$#" -gt 1 ]; then echo 'Unexpected document gate arguments.' >&2; exit 64;
 case "$mode" in
   all) ;;
   --ci-linux-document)
-    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64 ;;
+    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64
+    browser_engines=(chromium) ;;
   --ci-macos-webkit)
     [ "${CI:-}:${RUNNER_OS:-}" = 'true:macOS' ] || exit 64
     browser_engines=(webkit) ;;
@@ -36,15 +37,26 @@ echo '== Browser contracts: protected documents and phone recovery through real 
 (
   cd "$REPO_ROOT/consent-protocol"
   document='tests/services/test_document_delivery_browser.py'
-  webkit_node="${document}::test_protected_document_browser_payment_preview_download_revoke[webkit]"
+  document_webkit_node="${document}::test_protected_document_browser_payment_preview_download_revoke[webkit]"
+  phone_webkit_nodes=(
+    'tests/test_account_phone_browser.py::test_recorded_phone_browser_journeys[webkit-apple.com-False]'
+    'tests/test_account_phone_browser.py::test_recorded_phone_browser_journeys[webkit-apple.com-True]'
+  )
   tests=("$document" tests/test_account_phone_browser.py)
   # Playwright's pinned GTK WebKit drops valid leading-zero X25519 key bytes
   # (WebKit/WebKit#72772). Run this unchanged native-crypto flow on macOS;
   # restore Linux placement only after the pinned engine passes those vectors.
   # No crypto substitution, xfail, retry or general WebKit exclusion is allowed.
   case "$mode" in
-    --ci-linux-document) tests+=(--deselect "$webkit_node") ;;
-    --ci-macos-webkit) tests=("$webkit_node") ;;
+    --ci-linux-document)
+      tests+=(--deselect "$document_webkit_node")
+      for phone_webkit_node in "${phone_webkit_nodes[@]}"; do
+        tests+=(--deselect "$phone_webkit_node")
+      done
+      ;;
+    --ci-macos-webkit)
+      tests=("$document_webkit_node" "${phone_webkit_nodes[@]}")
+      ;;
   esac
   TESTING=true DB_OFFLINE=1 OFFLINE_DB_PATH="$test_dir/protocol.db" \
   GOOGLE_CLOUD_PROJECT=hushh-ci-test REQUIRE_CONNECTOR_POSTGRES=1 REQUIRE_PHONE_TRANSFER_POSTGRES=1 \

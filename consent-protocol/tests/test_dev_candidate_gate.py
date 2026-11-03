@@ -354,7 +354,7 @@ def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promot
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
     assert names.index("Resolve fixed deployment target") < names.index("Checkout deployment SHA")
-    assert names.index("Validate deployment SHA against requested ref") < names.index(
+    assert names.index("Validate deployment SHA in protected Dev history") < names.index(
         "Checkout deployment SHA"
     )
     assert names.index("Checkout deployment SHA") < names.index(
