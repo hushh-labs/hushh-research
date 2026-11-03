@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
 from functools import lru_cache
@@ -16,9 +18,10 @@ import retention_publication_source as publication_source
 
 APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
-PROFILE_NAME = "publication-84b-blobless-v1"
+PROFILE_NAME = "publication-ea056-blobless-v2"
 PROFILE_TEMPLATE_RUN_ID = 41489711406
 MAX_CLOCK_RUNS = 100
+_CLOCK_READERS = 3
 MAX_COMPARE_COMMITS = 250
 MAX_LOOKBACK = timedelta(hours=3)
 CHECK_NAME = "Check for due maintenance without cloud credentials"
@@ -225,6 +228,23 @@ def _clock_rows(owner, repository, summary):
     return attempt, rows
 
 
+def _clock_rows_parallel(owner, repository, summaries):
+    if not summaries:
+        return []
+    with ThreadPoolExecutor(max_workers=min(_CLOCK_READERS, len(summaries))) as executor:
+        reads = [
+            executor.submit(
+                contextvars.copy_context().run,
+                _clock_rows,
+                owner,
+                repository,
+                summary,
+            )
+            for summary in summaries
+        ]
+        return [read.result() for read in reads]
+
+
 def _profile_template(owner):
     template = records.CLOCK_BOUND_RECORDS.get(PROFILE_TEMPLATE_RUN_ID)
     _require(
@@ -241,7 +261,6 @@ def _profile_template(owner):
 def _dynamic_record(owner, template, worker, job, clock_run, check, wake):
     from retention_production_clock_records import ClockEvidence
 
-    source_profile = _clock_source_profile(owner, clock_run.get("display_title"))
     tick = _named_step(wake, "Send one capacity-maintenance-tick")
     _require(
         owner,
@@ -275,7 +294,6 @@ def _dynamic_record(owner, template, worker, job, clock_run, check, wake):
     )
     return replace(
         template,
-        source_profile=source_profile,
         worker_head_sha=worker["head_sha"],
         worker_created_at=worker["created_at"],
         worker_job_id=job["id"],
@@ -296,17 +314,64 @@ def _named_step(job, name):
     return matches[0] if len(matches) == 1 else {}
 
 
-def _clock_source_profile(owner, title):
-    """Select one exact known source family from the clock title version."""
+def _source_profile_paths(owner):
+    profiles = records.CLOCK_BOUND_SOURCE_PROFILES
+    families = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES
+    _require(
+        owner,
+        bool(profiles) and set(profiles) == set(families),
+        "registered production source profiles have incomplete clock-family bindings",
+    )
+    path_sets = {frozenset(profile) for profile in profiles.values()}
+    _require(
+        owner,
+        len(path_sets) == 1,
+        "registered production source profiles have inconsistent source paths",
+    )
+    return tuple(sorted(next(iter(path_sets))))
+
+
+def _clock_source_profile(owner, title, source_metadata):
+    """Select one exact source tuple bound to the authored clock workflow family."""
     import retention_production_clock_evidence as clock_evidence
 
-    workflow_blob = clock_evidence._clock_workflow_blob_for_title(title)
-    if workflow_blob == clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB:
-        return PROFILE_NAME
-    if workflow_blob == clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB:
-        return PROFILE_TEMPLATE_SOURCE
-    _require(owner, False, "capacity clock title or source version is unapproved")
-    raise AssertionError("unreachable")
+    expected_clock_blob = clock_evidence._clock_workflow_blob_for_title(title)
+    _require(
+        owner,
+        expected_clock_blob is not None
+        and isinstance(source_metadata, dict)
+        and source_metadata.get(clock_evidence.CLOCK_WORKFLOW)
+        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]},
+        "capacity clock title or workflow source is unapproved",
+    )
+    if expected_clock_blob == clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB:
+        expected_family = records.CLOCK_FAMILY_CURRENT_STATIC
+    elif expected_clock_blob == clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB:
+        expected_family = records.CLOCK_FAMILY_HISTORICAL_NUMBERED
+    else:
+        _require(owner, False, "capacity clock workflow family is unapproved")
+        raise AssertionError("unreachable")
+
+    profiles = records.CLOCK_BOUND_SOURCE_PROFILES
+    families = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES
+    source_paths = _source_profile_paths(owner)
+    actual_sources = {path: source_metadata.get(path) for path in source_paths}
+    matches = []
+    for name, profile in profiles.items():
+        if families[name] != expected_family:
+            continue
+        expected_sources = {
+            path: {"sha": sha, "size": size}
+            for path, (sha, size) in profile.items()
+        }
+        if actual_sources == expected_sources:
+            matches.append(name)
+    _require(
+        owner,
+        len(matches) == 1,
+        "capacity clock source tuple has no unique approved profile for its workflow family",
+    )
+    return matches[0]
 
 
 def _job_names(owner, jobs):
@@ -323,7 +388,7 @@ def _clock_candidates(owner, repository, worker_run, worker_job):
     import retention_production_clock_evidence as clock_evidence
 
     rows, worker_created = _inventory(owner, repository, worker_run)
-    candidates = []
+    eligible = []
     for summary in rows:
         _require(
             owner,
@@ -335,9 +400,12 @@ def _clock_candidates(owner, repository, worker_run, worker_job):
             "capacity clock inventory contains an unknown run",
         )
         created = base._stamp(summary["created_at"])
-        if created > worker_created:
-            continue
-        attempt, jobs = _clock_rows(owner, repository, summary)
+        if created <= worker_created:
+            eligible.append(summary)
+
+    clock_rows = _clock_rows_parallel(owner, repository, eligible)
+    candidates = []
+    for summary, (attempt, jobs) in zip(eligible, clock_rows, strict=True):
         names = _job_names(owner, jobs)
         if not {CHECK_NAME, WAKE_NAME} <= names:
             continue
@@ -370,25 +438,25 @@ def _clock_proof(owner, repository, worker_run, candidate):
     )
     clock_title = attempt.get("display_title")
     expected_clock_blob = clock_evidence._clock_workflow_blob_for_title(clock_title)
-    source_profile = _clock_source_profile(owner, clock_title)
     _require(
         owner,
         attempt.get("run_attempt") == 1
         and _valid_sha(attempt.get("head_sha"))
         and _login(attempt, "actor") == "github-actions[bot]"
         and _login(attempt, "triggering_actor") == "github-actions[bot]"
-        and expected_clock_blob is not None
-        and record.source_profile == source_profile,
+        and expected_clock_blob is not None,
         "capacity clock source or identity is unapproved",
     )
     clock_head = attempt["head_sha"]
     _is_ancestor(owner, repository, clock_head, worker_run["head_sha"])
     _profile_template(owner)
-    expected_sources = records.CLOCK_BOUND_SOURCE_PROFILES[source_profile]
-    source_paths = (*expected_sources, clock_evidence.CLOCK_WORKFLOW)
+    source_paths = (*_source_profile_paths(owner), clock_evidence.CLOCK_WORKFLOW)
     source_metadata = publication_source.read_source(
         owner, repository, clock_head, source_paths
     )
+    source_profile = _clock_source_profile(owner, clock_title, source_metadata)
+    record = replace(record, source_profile=source_profile)
+    expected_sources = records.CLOCK_BOUND_SOURCE_PROFILES[source_profile]
     actual_sources = {path: source_metadata[path] for path in expected_sources}
     workflow_blob = source_metadata[clock_evidence.CLOCK_WORKFLOW]
     proof = {

@@ -1328,6 +1328,12 @@ call added before the guard there needs the same review.
 Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
+The complete bounded inventory is read before qualification. Independent run
+proofs use at most three workers; results and proof lines are consumed in the
+original chronological order. Only a verified newer publication can exclude a
+completed older run. Active runs and equal-boundary results still require proof.
+All readers inherit the same 90-second lookup deadline and are joined on exit;
+concurrency does not grant cleanup authority or extend the five-minute pass.
 The reviewed workflow source can identify a skipped primary deployment job even
 when GitHub reports its unevaluated name. The job must be uniquely bound to the
 exact attempt, completed, skipped and unstarted; earlier attempts still require

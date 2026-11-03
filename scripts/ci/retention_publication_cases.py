@@ -1,10 +1,12 @@
 """Publication-barrier regression cases composed by the existing retention suite."""
 
 import contextlib
+import contextvars
 import copy
 import importlib
 import io
 import json
+import threading
 from unittest import mock
 
 import retention_publication as publication
@@ -15,6 +17,30 @@ MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
 class ExistingPublicationCases:
+    @staticmethod
+    def _publication_run(run_id, updated_at, *, status="completed", attempts=1, conclusion="success"):
+        return {
+            "id": run_id,
+            "run_attempt": attempts,
+            "path": publication.WORKFLOW,
+            "head_sha": f"{run_id:040x}",
+            "head_branch": "main",
+            "event": "workflow_dispatch",
+            "repository": {"full_name": publication.REPOSITORY},
+            "head_repository": {"full_name": publication.REPOSITORY},
+            "status": status,
+            "conclusion": conclusion,
+            "updated_at": updated_at,
+        }
+
+    @staticmethod
+    def _publication_owner():
+        owner = mock.Mock()
+        owner.SCOPED_TICK_TITLES = {"uat": "uat tick", "production": "production tick"}
+        owner._github_timestamp = MAINTENANCE._github_timestamp
+        owner.retention = mock.Mock(UnsafeState=MAINTENANCE.retention.UnsafeState)
+        return owner
+
     def test_exact_thousand_run_search_cap_is_not_complete_history(self):
         rows = [{"id": number} for number in range(1, 1001)]
 
@@ -156,6 +182,165 @@ class ExistingPublicationCases:
                 MAINTENANCE.assert_checkpoint_publication("org/repo", "production")
                 # The negative control (an unscoped tick) is still walked run by run.
                 self.assertEqual(len(job_calls), expected_job_calls)
+
+    def test_batched_publication_walk_preserves_boundary_order_and_deadline(self):
+        deadline = contextvars.ContextVar("publication_walk_deadline", default=None)
+        deadline.set("active-90-second-guard")
+        lock = threading.Lock()
+        active = 0
+        max_active = 0
+        observed_contexts = []
+        calls = {}
+        owner = self._publication_owner()
+        runs = [
+            self._publication_run(104, "2026-10-30T12:00:12Z", attempts=2, conclusion="failure"),
+            self._publication_run(103, "2026-10-30T12:00:11Z", attempts=0),
+            self._publication_run(102, "2026-10-30T12:00:10Z"),
+            self._publication_run(101, "2026-10-30T12:00:09Z", status="in_progress"),
+            self._publication_run(100, "2026-10-30T12:00:08Z"),
+        ]
+        published_at = owner._github_timestamp("2026-10-30T12:00:11.500Z")
+
+        def attempt(_owner, _repository, run, number, _environment, *, proof_lines):
+            nonlocal active, max_active
+            run_id = run["id"]
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                observed_contexts.append(deadline.get())
+                calls.setdefault(run_id, []).append(number)
+            try:
+                if run_id == 104 and number == 2:
+                    proof_lines.append({"run_id": run_id, "attempt": number})
+                    return False
+                if run_id == 104 and number == 1:
+                    proof_lines.append({"run_id": run_id, "attempt": number})
+                    return published_at
+                if run_id == 102:
+                    proof_lines.append({"run_id": run_id, "ignored": True})
+                    raise MAINTENANCE.retention.UnsafeState("stale row failure")
+                if run_id == 101:
+                    proof_lines.append({"run_id": run_id, "pending": True})
+                    return False
+                raise AssertionError("irrelevant fourth run must not be submitted")
+            finally:
+                with lock:
+                    active -= 1
+
+        with (
+            mock.patch.object(publication, "_inventory", return_value=runs),
+            mock.patch.object(publication, "_attempt", side_effect=attempt),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            publication.assert_published(owner, publication.REPOSITORY, "uat")
+
+        proofs = [
+            json.loads(line.partition("=")[2])
+            for line in output.getvalue().splitlines()
+        ]
+        self.assertEqual([proof["run_id"] for proof in proofs], [104, 104, 101])
+        self.assertEqual(calls[104], [2, 1])
+        self.assertNotIn(103, calls, "invalid attempt count on an irrelevant row is ignored")
+        self.assertEqual(calls[102], [1])
+        self.assertNotIn(100, calls)
+        self.assertIn(101, calls, "in-progress rows remain relevant below the boundary")
+        self.assertEqual(active, 0, "all worker reads must be joined before return")
+        self.assertEqual(set(observed_contexts), {"active-90-second-guard"})
+
+    def test_publication_reads_use_three_context_propagating_workers(self):
+        deadline = contextvars.ContextVar("publication_worker_deadline", default=None)
+        deadline.set("live-guard-context")
+        barrier = threading.Barrier(3)
+        lock = threading.Lock()
+        active = 0
+        max_active = 0
+        contexts = []
+        owner = self._publication_owner()
+        runs = [
+            self._publication_run(
+                400 + index,
+                f"2026-10-30T12:00:{20 - index:02d}Z",
+                status="in_progress",
+            )
+            for index in range(5)
+        ]
+
+        def attempt(_owner, _repository, _run, _number, _environment, *, proof_lines):
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                contexts.append(deadline.get())
+            try:
+                if len(contexts) <= 3:
+                    barrier.wait(timeout=2)
+                return False
+            finally:
+                with lock:
+                    active -= 1
+
+        with (
+            mock.patch.object(publication, "_inventory", return_value=runs),
+            mock.patch.object(publication, "_attempt", side_effect=attempt) as read,
+        ):
+            publication.assert_published(owner, publication.REPOSITORY, "uat")
+
+        self.assertEqual(read.call_count, 5)
+        self.assertEqual(max_active, 3)
+        self.assertEqual(active, 0)
+        self.assertEqual(contexts, ["live-guard-context"] * 5)
+
+    def test_equal_boundary_failure_is_relevant_and_older_error_cannot_mask_it(self):
+        older_finished = threading.Event()
+        calls = {}
+        owner = self._publication_owner()
+        runs = [
+            self._publication_run(203, "2026-10-30T12:00:12Z", attempts=2, conclusion="failure"),
+            self._publication_run(202, "2026-10-30T12:00:11Z"),
+            self._publication_run(201, "2026-10-30T12:00:10Z"),
+        ]
+        boundary = owner._github_timestamp("2026-10-30T12:00:11Z")
+
+        def attempt(_owner, _repository, run, number, _environment, *, proof_lines):
+            run_id = run["id"]
+            calls.setdefault(run_id, []).append(number)
+            if run_id == 203 and number == 2:
+                return False
+            if run_id == 203:
+                return boundary
+            if run_id == 202:
+                if not older_finished.wait(timeout=2):
+                    raise AssertionError("older failure did not settle first")
+                raise MAINTENANCE.retention.UnsafeState(
+                    "equal-boundary inventory is incomplete"
+                )
+            older_finished.set()
+            raise MAINTENANCE.retention.UnsafeState("older row must be ignored")
+
+        with (
+            mock.patch.object(publication, "_inventory", return_value=runs),
+            mock.patch.object(publication, "_attempt", side_effect=attempt),
+            self.assertRaisesRegex(
+                MAINTENANCE.retention.UnsafeState,
+                "equal-boundary inventory is incomplete",
+            ),
+        ):
+            publication.assert_published(owner, publication.REPOSITORY, "uat")
+        self.assertEqual(calls[203], [2, 1])
+        self.assertIn(202, calls, "an updated_at equal to the boundary is still read")
+        self.assertTrue(older_finished.is_set(), "all active reads must be joined")
+
+    def test_incomplete_jobs_inventory_still_refuses_publication(self):
+        owner = self._publication_owner()
+        run = self._publication_run(301, "2026-10-30T12:00:12Z")
+        owner.api.return_value = {"total_count": 1, "jobs": []}
+        with (
+            mock.patch.object(publication, "_inventory", return_value=[run]),
+            self.assertRaisesRegex(
+                MAINTENANCE.retention.UnsafeState, "job inventory is incomplete"
+            ),
+        ):
+            publication.assert_published(owner, publication.REPOSITORY, "uat")
 
 
 def legacy_fixture():

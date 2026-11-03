@@ -31,6 +31,23 @@ CLOCK_BOUND_SOURCE_PROFILES = {
         base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
         PUBLICATION: ("84b57d0be377d71efa2c38b08d138924e8750b74", 18398),
     },
+    "publication-ea056-blobless-v2": {
+        # Bounded parallel reads preserve the same source authority while
+        # reducing the maintenance guard's sequential GitHub API latency.
+        base.OWNER: ("9e68a94bd33110370e57c2e34871f7bd6b8bd7d3", 90389),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("ea05641ea008f72cda4cceece9c14d0f322f46e7", 21087),
+    },
+}
+
+CLOCK_FAMILY_HISTORICAL_NUMBERED = "historical-numbered"
+CLOCK_FAMILY_CURRENT_STATIC = "current-static"
+CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES = {
+    "publication-84b": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-939f": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-98e": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-84b-blobless-v1": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-ea056-blobless-v2": CLOCK_FAMILY_CURRENT_STATIC,
 }
 
 
