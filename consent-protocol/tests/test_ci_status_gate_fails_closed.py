@@ -25,20 +25,22 @@ LANES = {
     "frontend": (
         "web-core-check",
         "web-targeted-check",
+        "web-targeted-browser",
         "web-full-suite-check",
         "integration-check",
-        "web-editor-performance-check",
+        "document-webkit-check",
     ),
     "backend": (
         "protocol-check",
         "protocol-database-check",
+        "protocol-database-check-two",
         "mcp-package-check",
         "integration-check",
-        "web-editor-performance-check",
+        "document-webkit-check",
     ),
     "ios": ("ios-native-check",),
     "android": ("android-native-check",),
-    "editor": ("web-editor-performance-check",),
+    "editor": (),
 }
 # No path filter: these must succeed on every event.
 AUTHORITY = (
@@ -259,15 +261,16 @@ def test_protocol_partitions_use_independent_database_jobs_without_omitting_a_ph
         assert selected[0]["env"]["PROTOCOL_TEST_PARTITION"] == phase
         assert "@127.0.0.1:5432/command_test" in selected[0]["env"]["ONE_COMMAND_TEST_DATABASE_URL"]
     assert jobs["protocol-check"]["services"] == jobs["protocol-database-check"]["services"]
-    assert jobs["protocol-database-check"]["strategy"] == {
-        "fail-fast": False,
-        "matrix": {"shard": [1, 2]},
-    }
+    for name, index in (("protocol-database-check", "1"), ("protocol-database-check-two", "2")):
+        assert jobs[name]["env"]["CI_DATABASE_SHARD"] == index
+        assert jobs[name]["services"] == jobs["protocol-check"]["services"]
+        assert jobs[name]["runs-on"] == "ubuntu-24.04"
+
     database = jobs["protocol-database-check"]["steps"][-1]
     assert database["working-directory"] == "consent-protocol"
     assert database["run"] == "bash scripts/run-test-ci.sh"
     assert database["env"]["PROTOCOL_DATABASE_SHARD_COUNT"] == "2"
-    assert database["env"]["PROTOCOL_DATABASE_SHARD_INDEX"] == "${{ matrix.shard }}"
+    assert database["env"]["PROTOCOL_DATABASE_SHARD_INDEX"] == "${{ env.CI_DATABASE_SHARD }}"
 
 
 def test_the_gate_always_runs_and_waits_for_every_lane() -> None:
@@ -310,7 +313,7 @@ def test_summary_reports_selected_unselected_blocked_and_first_failure(
     blocked = replace(_selected(), outputs={**_selected().outputs, "editor": ""})
     passed, output = _verdict(blocked, tmp_path)
     assert not passed
-    assert "| Editor | blocked (unknown selection) |" in output
+    assert "Path selection editor" in output
 
     for scope, expected in (
         ("frontend", "diagnostic-only dispatch scope 'frontend'"),

@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
-"""The split web lanes must still run everything the unsplit lanes ran.
+"""Check focused CI roles and preserve explicit local diagnostic commands.
 
-PR Validation runs two web lanes as matrices to shorten the critical path:
+Hosted CI has separate unsharded ``node`` and ``browser`` targeted jobs, one
+affected unit-contract job, and two database jobs for backend changes. The
+node/browser selector remains a disjoint partition of selected packs; unknown
+browser selection stays conservative. Safari layout and web performance remain
+developer-local diagnostics, while native lanes run for native surfaces.
 
-* ``Web Targeted Contracts`` as a ``node`` leg and four native Playwright
-  browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
-* ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency and History motion as a macOS browser job, outside Linux's
-  software-rendered WebKit layout pack, scheduled and required whenever the
-  ``editor`` path filter matches.
-
-A split is only safe while it is a partition: every matched pack runs in exactly
-one leg, the legs together run what a single ``all`` run does, every shard of
-the matrix is scheduled, and the contract verifiers run exactly once. This
-drives the real scripts with a stub ``npm`` that records what would have run,
-so the assertion is about the scripts' behaviour, not about their text.
-
-With web dependencies installed, ``--collect-browser-shards`` also uses native
-Playwright ``--list`` to prove that all four shards partition every browser command
-selected for this diff. It never starts a browser or runs test hooks.
+Historical Playwright shard collection and full-suite shard verification remain
+available only as explicit local diagnostics. ``--collect-browser-shards`` uses
+Playwright ``--list`` and never starts a browser or runs test hooks.
 """
 
 from __future__ import annotations
@@ -331,7 +322,7 @@ def test_full_suite_shards_run_verifiers_once() -> None:
         assert code == 2 and not calls, f"shard spec {bad!r} was accepted"
 
 
-def test_workflow_schedules_every_leg_and_shard() -> None:
+def test_workflow_schedules_focused_jobs_and_database_pair() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
@@ -342,8 +333,13 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         workflow, re.S,
     )
     assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert "if: failure() && matrix.part == 'browser'" in evidence[1]
-    assert "name: synthetic-layout-failures-${{ matrix.label }}" in evidence[1]
+    assert (
+        "if: ${{ (failure() || cancelled()) && env.WEB_TARGETED_PART == 'browser' }}"
+        in evidence[1]
+    )
+    assert (
+        "name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}" in evidence[1]
+    )
     paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
     assert paths
     assert [line.strip() for line in paths[1].splitlines()] == [
@@ -353,8 +349,15 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         "hushh-webapp/test-results/calendar-connected-*/trace.zip",
         "hushh-webapp/test-results/calendar-connected-*/test-failed-*.png",
         "hushh-webapp/test-results/calendar-connected-*/error-context.md",
+        "hushh-webapp/test-results/direct-chat.layout-*/trace.zip",
+        "hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/direct-chat.layout-*/error-context.md",
+        "hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png",
+        "hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md",
     ], "do not broaden synthetic evidence into protected browser artifacts"
-    shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
+    shard = "          PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}\n"
     broken = workflow.replace(shard, shard + shard, 1)
     assert broken != workflow
     try:
@@ -523,7 +526,7 @@ def main() -> int:
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_layout_overlap_retains_selected_coverage_and_failure_propagation,
         test_full_suite_shards_run_verifiers_once,
-        test_workflow_schedules_every_leg_and_shard,
+        test_workflow_schedules_focused_jobs_and_database_pair,
         test_browser_shard_setting_is_validated_before_any_pack,
     )
     for test in tests:

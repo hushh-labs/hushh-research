@@ -1,9 +1,10 @@
 name: Deploy to Dev
+run-name: Dev · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}
 
-# Dev Fast Lane: dev deploys are decoupled from main. main stays the
-# UAT -> production signoff lane; dev deploys the protected development branch
-# (dev) by default, or any CI-green ref a governed
-# maintainer chooses. Contract: docs/reference/operations/dev-fast-lane.md
+# Dev Fast Lane: dev deploys are decoupled from main. Normal application
+# deploys must select a SHA in protected dev history; ref is only a lookup
+# hint. The separate pod-publication target keeps its reviewed source rules.
+# Contract: docs/reference/operations/dev-fast-lane.md
 on:
   workflow_dispatch:
     inputs:
@@ -35,7 +36,7 @@ on:
           - backend
           - frontend
       ref:
-        description: "Branch/ref to deploy (default: dev, the development intake lane)"
+        description: "Ref used to locate the application SHA; normal deploys require protected dev membership"
         required: false
         default: "dev"
         type: string
@@ -45,7 +46,7 @@ on:
         default: false
         type: boolean
       sha:
-        description: "Exact CI-green SHA to deploy (blank defaults to head of ref; must be reachable from ref)"
+        description: "Exact CI-green SHA to deploy (blank resolves from ref; the SHA must be reachable from protected dev)"
         required: false
         type: string
 
@@ -171,15 +172,16 @@ jobs:
           echo "ref=$DEPLOY_REF" >> "$GITHUB_OUTPUT"
           echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
-      # Dev correctness gate: the SHA must be reachable from the requested
-      # ref AND carry a green authoritative full-CI check. The check name
-      # differs by commit kind (PR head / merge-queue train head / main
+      # Dev correctness gate: the SHA must be reachable from protected dev,
+      # regardless of which ref was used to locate it, and carry a green
+      # authoritative full-CI check. The check name differs by commit kind
+      # (PR head / merge-queue train head / main
       # merge commit), so this is an any-of list. No signoff gate here by
       # design — dev does not route through main.
-      - name: Validate deployment SHA against requested ref
+      - name: Validate deployment SHA in protected Dev history
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REQUIRED_BRANCH: ${{ steps.resolve-sha.outputs.ref }}
+          REQUIRED_BRANCH: dev
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
@@ -1812,7 +1814,10 @@ jobs:
             fi
             echo "## Dev Release"
             echo ""
-            echo "- SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Application SHA: \`${{ steps.resolve-sha.outputs.sha }}\`"
+            echo "- Application lookup ref: \`${{ steps.resolve-sha.outputs.ref }}\`"
+            echo "- Source authority: protected \`dev\` history"
+            echo "- Workflow SHA: \`${{ github.workflow_sha }}\`"
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
             echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason || 'isolated_preview' }}\`"
             echo "- PKM preservation: \`${{ steps.verify-pkm-preservation.outcome || 'not_selected' }}\`"

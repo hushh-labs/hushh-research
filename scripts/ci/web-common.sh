@@ -77,6 +77,13 @@ web_ci_changed_files() {
     return
   fi
 
+  if [ "${GITHUB_ACTIONS:-}" = true ] && [ -n "${WEB_TARGETED_BASE_SHA:-}" ] && [ -n "${WEB_TARGETED_HEAD_SHA:-}" ]; then
+    git rev-parse --verify "${WEB_TARGETED_BASE_SHA}^{commit}" >/dev/null
+    git rev-parse --verify "${WEB_TARGETED_HEAD_SHA}^{commit}" >/dev/null
+    git diff --name-only "$WEB_TARGETED_BASE_SHA" "$WEB_TARGETED_HEAD_SHA"
+    return
+  fi
+
   local local_changes
   local_changes="$(
     {

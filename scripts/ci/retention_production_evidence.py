@@ -12,6 +12,7 @@ still walked, and unknown evidence remains a refusal.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import timedelta
 from typing import Any
@@ -83,7 +84,6 @@ SOURCE_PROFILES = (
     },
 )
 
-
 # GitHub prints this setup action input's multi-line default without line stamps.
 # Only this exact block, directly after its exact header, inherits that header's
 # stamp; every other unstamped line still refuses, and all content is still scanned.
@@ -126,14 +126,33 @@ def _raw_rows(log, job):
     return None if normalized is None else base._raw_rows(normalized, job)
 
 
-def _steps_match(job: dict[str, Any]) -> bool:
+def _steps_match(job: dict[str, Any], *, clock_bound: bool = False) -> bool:
     steps = job.get("steps")
-    if not isinstance(steps, list) or len(steps) != len(STEP_NAMES):
+    if clock_bound:
+        from retention_production_clock_evidence import CLOCK_BOUND_STEP_NAMES
+
+        names = CLOCK_BOUND_STEP_NAMES
+    else:
+        names = STEP_NAMES
+    if not isinstance(steps, list) or len(steps) != len(names):
         return False
     numbers = []
-    for step, name in zip(steps, STEP_NAMES, strict=True):
+    for step, name in zip(steps, names, strict=True):
         conclusion = (
-            "failure" if name == PREPARE else "skipped" if name == SAVE else "success"
+            {
+                "Prepare operational database verification runtime": "skipped",
+                "Select maintenance Python runtime": "skipped",
+                "Install operational Cloud SQL Auth Proxy": "skipped",
+                "Publish operational backend reference under deployment lock": "skipped",
+                PREPARE: "failure",
+                SAVE: "skipped",
+            }.get(name, "success")
+            if clock_bound
+            else "failure"
+            if name == PREPARE
+            else "skipped"
+            if name == SAVE
+            else "success"
         )
         if (
             not isinstance(step, dict)
@@ -149,13 +168,21 @@ def _steps_match(job: dict[str, Any]) -> bool:
 
 
 def _step(job: dict[str, Any], name: str) -> dict[str, Any]:
-    return job["steps"][STEP_NAMES.index(name)]
+    matches = [step for step in job["steps"] if step.get("name") == name]
+    return matches[0] if len(matches) == 1 else {}
 
 
-def actual_checkout(log: str, job: dict[str, Any]) -> str | None:
+def _full_name(run: dict[str, Any], key: str) -> str | None:
+    repository = run.get(key) if isinstance(run, dict) else None
+    return repository.get("full_name") if isinstance(repository, dict) else None
+
+
+def actual_checkout(
+    log: str, job: dict[str, Any], *, clock_bound: bool = False
+) -> str | None:
     """Extract only a complete finalized transcript's exact checkout command result."""
     rows = _raw_rows(log, job)
-    if rows is None or not _steps_match(job):
+    if rows is None or not _steps_match(job, clock_bound=clock_bound):
         return None
     checkout = base._step_rows(rows, _step(job, base._CHECKOUT))
     commands = [i for i, body in enumerate(checkout) if body == base._CHECKOUT_COMMAND]
@@ -169,9 +196,7 @@ def _prepare_segment(rows, job):
     prepare, report = _step(job, PREPARE), _step(job, REPORT)
     begin, finish = (base._stamp(prepare.get(key)) for key in ("started_at", "completed_at"))
     start, end = (base._stamp(report.get(key)) for key in ("started_at", "completed_at"))
-    markers = [
-        (index, at) for index, (at, body) in enumerate(rows) if body == base.REPORT_GROUP
-    ]
+    markers = [(index, at) for index, (at, body) in enumerate(rows) if body == base.REPORT_GROUP]
     if not (
         begin
         and finish
@@ -189,7 +214,11 @@ def _prepare_segment(rows, job):
     return [body for _, body in segment]
 
 
-def _guard_failure(rows, job) -> bool:
+def _guard_failure(
+    rows, job, *, expected_diagnostic_sha256=None, clock_bound=False
+) -> bool:
+    if not _steps_match(job, clock_bound=clock_bound):
+        return False
     prepare = _prepare_segment(rows, job)
     width = len(PREPARE_COMMAND)
     positions = [
@@ -207,9 +236,15 @@ def _guard_failure(rows, job) -> bool:
         body for _, body in rows if body.startswith("Hosted maintenance stopped:")
     ]
     errors = [body for _, body in rows if "##[error]" in body]
+    diagnostic_matches = len(tail) == 2 and tail[0] in DIAGNOSTICS
+    if expected_diagnostic_sha256 is not None and len(tail) == 2:
+        diagnostic_matches = (
+            hashlib.sha256(tail[0].encode("utf-8")).hexdigest()
+            == expected_diagnostic_sha256
+        )
     return (
         len(tail) == 2
-        and tail[0] in DIAGNOSTICS
+        and diagnostic_matches
         and tail[1] == base._EXIT
         and diagnostics == [tail[0]]
         and errors == [base._EXIT]
@@ -227,19 +262,41 @@ def _reviewed(source_blobs, workflow_blob) -> bool:
 
 
 def qualify_guard_run(
-    repository, environment, run, job, log, source_blobs, workflow_blob
+    repository,
+    environment,
+    run,
+    job,
+    log,
+    source_blobs,
+    workflow_blob,
+    clock_proof=None,
 ):
-    """One exact completed attempt may prove no custody mutation; never older custody."""
+    """Qualify a reviewed manual refusal; clock events use their exact owner."""
+    if isinstance(run, dict) and run.get("event") == "repository_dispatch":
+        from retention_production_clock_evidence import (
+            qualify_guard_run as qualify_clock,
+        )
+
+        return qualify_clock(
+            repository,
+            environment,
+            run,
+            job,
+            log,
+            source_blobs,
+            workflow_blob,
+            clock_proof=clock_proof,
+        )
     if not isinstance(run, dict) or not isinstance(job, dict):
         return None
-    if not (
+    common = (
         repository == base.REPOSITORY
         and environment == ENVIRONMENT
+        and run.get("event") == "workflow_dispatch"
         and run.get("status") == "completed"
         and run.get("conclusion") == "failure"
         and run.get("path") == base.WORKFLOW
         and run.get("head_branch") == "main"
-        and run.get("event") == "workflow_dispatch"
         and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
         and all(
             type(value) is int and value > 0
@@ -247,10 +304,18 @@ def qualify_guard_run(
         )
         and run["run_attempt"] <= 10
         and all(
-            (run.get(key) or {}).get("full_name") == repository
+            _full_name(run, key) == repository
             for key in ("repository", "head_repository")
         )
-        and job.get("name") == JOB
+    )
+    if (
+        not common
+        or not _reviewed(source_blobs, workflow_blob)
+        or not _steps_match(job)
+    ):
+        return None
+    if not (
+        job.get("name") == JOB
         and job.get("status") == "completed"
         and job.get("conclusion") == "failure"
         and job.get("head_branch") == "main"
@@ -258,16 +323,11 @@ def qualify_guard_run(
         and type(job.get("run_attempt")) is int
         and job.get("run_attempt") == run["run_attempt"]
         and job.get("head_sha") == run["head_sha"]
-        and _steps_match(job)
     ):
         return None
-    rows, checkout = _raw_rows(log, job), actual_checkout(log, job)
-    if (
-        rows is None
-        or checkout is None
-        or not _reviewed(source_blobs, workflow_blob)
-        or not _guard_failure(rows, job)
-    ):
+    rows = _raw_rows(log, job)
+    checkout = actual_checkout(log, job)
+    if rows is None or checkout is None or not _guard_failure(rows, job):
         return None
     return {
         "run_id": run["id"],

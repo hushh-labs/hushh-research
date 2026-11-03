@@ -72,9 +72,21 @@ Non-owned surfaces:
 
 ## Required Checks
 
-```bash
-cd hushh-webapp && npm run test:ci
-cd hushh-webapp && npm run verify:service-boundary
-cd consent-protocol && python3 -m pytest tests/quality -q
-./bin/hushh codex data-model-audit
-```
+Select the nearest owner check for the changed contract and include adjacent
+callers when the change crosses a boundary. The full frontend and protocol
+suites remain available for release qualification, dependency-wide changes and
+diagnosis; they are not the default for every incremental PR.
+
+CI validation profiles preserve the security and source-authority baseline:
+
+- `focused`: always-run authority checks plus regression owners selected from
+  the exact changed-file list;
+- `release`: core release-authority owners plus affected regression owners;
+- `diagnostic`: the historical full check set, including optional hygiene.
+
+Treat missing or unknown changed-file metadata conservatively. Browser checks
+run in hosted CI when selected; use Safari layout or performance diagnostics
+locally when those engine-specific contracts change. Run native checks only
+when native source or its contract changes. Never turn an unrun check into a
+pass or remove a live security, consent, data-model or deployment gate to make
+the selection smaller.

@@ -43,7 +43,8 @@ SHA, author, review state, mergeability, and check rollup from live GitHub state
 Required pre-merge proof:
 
 1. base/lane is allowed by `config/ci-governance.json` and PR Base Policy;
-2. local changed-surface checks, DCO, secret hygiene, and governance checks pass;
+2. the applicable focused or release validation, DCO, secret hygiene, and
+   governance checks pass; diagnostic-only hygiene is not a required PR gate;
 3. every required check on the exact current PR head is terminal and successful;
    intentionally skipped path lanes are recorded as evidence, while unexpected
    auxiliary failures still block;

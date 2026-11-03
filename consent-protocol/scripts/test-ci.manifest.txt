@@ -1646,3 +1646,4 @@ tests/test_one_runtime_configuration.py
 
 # Protected Main release clearance and current-attempt consumer boundaries.
 tests/test_deployment_security.py
+tests/test_uat_paused_drive_maintenance.py
