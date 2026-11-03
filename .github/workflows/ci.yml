@@ -191,6 +191,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - name: Install UI contract parser for governance
+        working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
+        run: npm ci --ignore-scripts --no-audit --progress=false
+
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -324,6 +328,11 @@ jobs:
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
+              # These exact synthetic fixture paths have a focused controller
+              # owner; edits to the separate phone-history consumer modules still
+              # select their existing Protocol coverage.
+              - '!consent-protocol/tests/helpers/production_release_tools.py'
+              - '!consent-protocol/tests/test_production_restoration_operation.py'
               # The required Governance auth-health step owns this full suite,
               # including mixed CI changes; keep real backend contracts below.
               - '!consent-protocol/tests/test_auth_health_inventory.py'

@@ -665,10 +665,34 @@ jobs.
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. Explicit diagnostic
    shards remain available through `WEB_FULL_SUITE_SHARD`.
+   The selector sends registered JSON contract inputs through Vitest's related
+   dependency graph, keeps unknown runtime JSON fail-closed, and leaves the exact
+   iOS XCTest and phone-flow browser harness to their platform/browser owners.
+   Import analysis uses the locked TypeScript 5.9.3 parser installed from the
+   existing UI tooling lock before selection. It scans runtime and Vitest roots,
+   then follows local imports, re-exports, literal CommonJS `require` calls, and
+   proven `createRequire(import.meta.url)` aliases into helpers, including
+   unit-reachable E2E or script helpers. It resolves literal imports and unique
+   top-level constant-string identifiers; a test that dynamically imports or
+   requires a changed file is selected directly. An unresolved computed import,
+   require, or unproved `createRequire` alias in a unit-only helper selects every
+   whole Vitest owner of that helper. Runtime-reachable unresolved loaders,
+   parser or module-resolution errors, and graphs exceeding the 64 MiB,
+   250,000-state, or 500,000-edge bounds retain diagnostic coverage. E2E-only imports remain
+   with the browser owner unless a unit/runtime root imports that helper. The
+   tracked web JS/TS tree measures 44.57 MiB, above the former 32 MiB cap; the
+   larger finite limit is not a latency guarantee.
 4. Backend changes require `Protocol`, `Protocol Database (1/2)`,
    `Protocol Database (2/2)`, `MCP Package` and `Integration`. The database jobs
    use separate PostgreSQL services and serial test partitions; both must
    succeed. Unselected lanes may skip, but selected lanes cannot pass by skip.
+
+The exact production-restoration fixture helper and test module use a focused
+Governance controller owner. It runs the restoration suite, both phone-schema
+history consumers, and the single historical Drive release-tooling case. Only
+those two fixture paths stay out of Protocol/Database path selection; adjacent
+phone-history tests, runtime modules, schemas and migrations still select their
+existing backend owners.
 
 The affected unit selector does not own standalone Node verifiers: analytics'
 Android-scope verifier and Node failure tests remain in the targeted Node job.
