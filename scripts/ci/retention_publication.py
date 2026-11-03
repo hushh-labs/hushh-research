@@ -290,42 +290,74 @@ def _publication_time(owner, saved, job):
     return completed
 
 
-def _inventory(owner, repository):
-    """Finish bounded metadata discovery before any checkpoint can end the walk."""
-    collected, seen, total = [], set(), None
-    for page in range(1, 11):
-        result = owner.api(
-            repository,
-            f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
-        )
-        runs = result.get("workflow_runs")
-        count = result.get("total_count")
+def _inventory_response(owner, response, expected_total, offset, seen):
+    count = response.get("total_count")
+    runs = response.get("workflow_runs")
+    _require(
+        owner,
+        type(count) is int
+        and 0 <= count < 1000
+        and (expected_total is None or count == expected_total)
+        and isinstance(runs, list)
+        and len(runs) == min(100, count - offset),
+        "maintenance history is incomplete; reconciliation required",
+    )
+    for run in runs:
         _require(
             owner,
-            type(count) is int
-            and 0 <= count < 1000
-            and (total is None or total == count)
-            and isinstance(runs, list)
-            and len(runs) == min(100, count - len(collected)),
-            "maintenance history is incomplete; reconciliation required",
+            isinstance(run, dict)
+            and type(run.get("id")) is int
+            and run["id"] > 0
+            and run["id"] not in seen,
+            "maintenance history identity is ambiguous",
         )
-        total = count
-        for run in runs:
-            _require(
-                owner,
-                isinstance(run, dict)
-                and type(run.get("id")) is int
-                and run["id"] > 0
-                and run["id"] not in seen,
-                "maintenance history identity is ambiguous",
-            )
-            seen.add(run["id"])
-            collected.append(run)
-        if len(collected) == total:
-            return collected
-    raise owner.retention.UnsafeState(
-        "maintenance history exceeds bounded inventory; reconciliation required"
+        seen.add(run["id"])
+    return count, runs
+
+
+def _inventory_page(owner, repository, page):
+    return owner.api(
+        repository,
+        f"workflows/capacity-maintenance.yml/runs?branch=main&per_page=100&page={page}",
     )
+
+
+def _inventory(owner, repository):
+    """Finish bounded metadata discovery before any checkpoint can end the walk."""
+    seen, collected = set(), []
+    total, runs = _inventory_response(
+        owner, _inventory_page(owner, repository, 1), None, 0, seen
+    )
+    collected.extend(runs)
+    if len(collected) == total:
+        return collected
+
+    page_count = (total + 99) // 100
+    with ThreadPoolExecutor(max_workers=min(_PUBLICATION_READERS, page_count - 1)) as executor:
+        for start in range(2, page_count + 1, _PUBLICATION_READERS):
+            pages = range(start, min(start + _PUBLICATION_READERS, page_count + 1))
+            futures = []
+            try:
+                for page in pages:
+                    context = contextvars.copy_context()
+                    future = executor.submit(
+                        context.run, _inventory_page, owner, repository, page
+                    )
+                    futures.append((page, future))
+                for page, future in futures:
+                    _, runs = _inventory_response(
+                        owner, future.result(), total, (page - 1) * 100, seen
+                    )
+                    collected.extend(runs)
+            finally:
+                for _, future in futures:
+                    future.cancel()
+    _require(
+        owner,
+        len(collected) == total,
+        "maintenance history is incomplete; reconciliation required",
+    )
+    return collected
 
 
 def _attempt_run(owner, repository, run, count, environment):

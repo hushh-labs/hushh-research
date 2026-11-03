@@ -57,6 +57,110 @@ class ExistingPublicationCases:
         ):
             publication._inventory(MAINTENANCE, "org/repo")
 
+    def test_inventory_reads_remaining_pages_in_bounded_context_copied_order(self):
+        request_context = contextvars.ContextVar("inventory-request-context", default=None)
+        request_context.set("bounded-read")
+        start_together = threading.Barrier(3)
+        page_three_done = threading.Event()
+        lock = threading.Lock()
+        active = 0
+        maximum_active = 0
+        observed_contexts = []
+
+        def response(page):
+            first_id = (page - 1) * 100 + 1
+            row_count = min(100, 350 - (page - 1) * 100)
+            return {
+                "total_count": 350,
+                "workflow_runs": [
+                    {"id": run_id} for run_id in range(first_id, first_id + row_count)
+                ],
+            }
+
+        def api(_repository, endpoint):
+            nonlocal active, maximum_active
+            page = int(endpoint.rsplit("=", 1)[1])
+            if page == 1:
+                return response(page)
+            with lock:
+                active += 1
+                maximum_active = max(maximum_active, active)
+                observed_contexts.append(request_context.get())
+            try:
+                start_together.wait(timeout=2)
+                if page == 2:
+                    if not page_three_done.wait(timeout=2):
+                        raise AssertionError("page 3 did not complete")
+                if page == 3:
+                    page_three_done.set()
+                return response(page)
+            finally:
+                with lock:
+                    active -= 1
+
+        owner = self._publication_owner()
+        owner.api.side_effect = api
+        rows = publication._inventory(owner, "org/repo")
+
+        self.assertEqual([row["id"] for row in rows], list(range(1, 351)))
+        self.assertEqual(maximum_active, 3)
+        self.assertEqual(observed_contexts, ["bounded-read"] * 3)
+
+    def test_inventory_rejects_changed_totals_duplicate_ids_and_short_pages(self):
+        def rows(page, *, duplicate=False, short=False):
+            first_id = (page - 1) * 100 + 1
+            row_count = min(100, 201 - (page - 1) * 100)
+            if short:
+                row_count -= 1
+            values = list(range(first_id, first_id + row_count))
+            if duplicate:
+                values[0] = 1
+            return [{"id": run_id} for run_id in values]
+
+        for defect in ("changed_total", "duplicate", "short"):
+            def api(_repository, endpoint, defect=defect):
+                page = int(endpoint.rsplit("=", 1)[1])
+                count = 202 if defect == "changed_total" and page == 2 else 201
+                return {
+                    "total_count": count,
+                    "workflow_runs": rows(
+                        page,
+                        duplicate=defect == "duplicate" and page == 2,
+                        short=defect == "short" and page == 2,
+                    ),
+                }
+
+            owner = self._publication_owner()
+            owner.api.side_effect = api
+            with (
+                self.subTest(defect=defect),
+                self.assertRaises(MAINTENANCE.retention.UnsafeState),
+            ):
+                publication._inventory(owner, "org/repo")
+
+    def test_inventory_joins_other_page_reads_after_one_page_fails(self):
+        start_together = threading.Barrier(2)
+        page_three_finished = threading.Event()
+
+        def api(_repository, endpoint):
+            page = int(endpoint.rsplit("=", 1)[1])
+            if page == 1:
+                return {
+                    "total_count": 201,
+                    "workflow_runs": [{"id": run_id} for run_id in range(1, 101)],
+                }
+            start_together.wait(timeout=2)
+            if page == 2:
+                raise RuntimeError("page read failed")
+            page_three_finished.set()
+            return {"total_count": 201, "workflow_runs": [{"id": 201}]}
+
+        owner = self._publication_owner()
+        owner.api.side_effect = api
+        with self.assertRaisesRegex(RuntimeError, "page read failed"):
+            publication._inventory(owner, "org/repo")
+        self.assertTrue(page_three_finished.is_set())
+
     def test_publication_guard_accepts_newer_checkpoint_but_rejects_missing_upload(
         self,
     ):

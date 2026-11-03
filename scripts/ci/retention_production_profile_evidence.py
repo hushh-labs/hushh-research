@@ -18,7 +18,7 @@ import retention_publication_source as publication_source
 
 APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
 PROFILE_TEMPLATE_SOURCE = "publication-84b"
-PROFILE_NAME = "publication-ea056-blobless-v2"
+PROFILE_NAME = "publication-aec6-blobless-v2"
 PROFILE_TEMPLATE_RUN_ID = 41489711406
 MAX_CLOCK_RUNS = 100
 _CLOCK_READERS = 3
