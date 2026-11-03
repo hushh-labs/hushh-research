@@ -1844,7 +1844,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
     def test_deployments_check_pending_mutations_inside_the_environment_lock(self):
         root = pathlib.Path(__file__).resolve().parents[2]
         for filename, environment in (
-            ("deploy-uat.yml", "uat"),
+            ("deploy-uat-implementation.yml", "uat"),
             ("deploy-production.yml", "production"),
         ):
             with self.subTest(workflow=filename):
@@ -2238,7 +2238,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 self.assertIn(prefix + "python3 scripts/ci/runtime-capacity-budget.py", line)
                 self.assertNotIn("--foreground", line)
 
-        for name in ("deploy-uat.yml", "deploy-production.yml"):
+        for name in ("deploy-uat-implementation.yml", "deploy-production.yml"):
             with self.subTest(workflow=name):
                 source = (workflow_dir / name).read_text()
                 check_deadlines(source)
@@ -2843,7 +2843,7 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             )
 
         for file, label in (
-            ("deploy-uat.yml", "UAT"),
+            ("deploy-uat-implementation.yml", "UAT"),
             ("deploy-production.yml", "production"),
         ):
             with self.subTest(environment=label):

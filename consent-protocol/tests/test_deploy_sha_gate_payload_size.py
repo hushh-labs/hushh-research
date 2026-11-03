@@ -235,9 +235,10 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
                     consumers.setdefault(path.name, []).append(accepted)
     # Dev accepts a dispatched branch gate outright. Production accepts it only
     # for the explicit manual incident route, always paired with CI Status Gate.
-    assert sorted(consumers) == ["deploy-dev.yml", "deploy-production.yml"]
+    assert sorted(consumers) == ["deploy-dev-implementation.yml", "deploy-production.yml"]
     assert all(
-        "Branch Validation Gate" in accepted.split(",") for accepted in consumers["deploy-dev.yml"]
+        "Branch Validation Gate" in accepted.split(",")
+        for accepted in consumers["deploy-dev-implementation.yml"]
     )
     for accepted in consumers["deploy-production.yml"]:
         assert "CI Status Gate,Branch Validation Gate" in accepted
@@ -249,7 +250,9 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
         "manual-emergency" in accepted or accepted == "CI Status Gate,Branch Validation Gate"
         for accepted in consumers["deploy-production.yml"]
     )
-    uat = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    uat = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     steps = uat["jobs"]["deploy"]["steps"]
     selector = next(step for step in steps if step.get("id") == "application-authority")
     assert "promotion_approval.py uat" in selector["run"]

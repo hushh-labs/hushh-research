@@ -1164,6 +1164,35 @@ trusted reusable release wiring and matching-branch cloud identity qualification
 the broker's presence alone does not enable the route. Keep `ci-security`
 Main-only and never pass its token into Dev/UAT caller jobs.
 
+### Matching-branch release control
+
+Dev and UAT use identical thin entrypoint files across branches. Their application
+runs originate from `dev` and `uat` respectively; the reusable implementation is
+resolved from reviewed Main. No push or merge dispatches a deployment. Pod artifact
+publication retains its separate Main-only operation; it does not install an
+owner release.
+
+The unprivileged request job lives in each Dev/UAT implementation and uses only
+its ordinary Actions token. The protected Main broker alone reads repository
+alerts. Production, rollback, native and package callers retain their existing
+read-only Actions permissions and inline protected check. Do not add a write-token
+requester to their shared reusable workflow.
+
+Receipts distinguish caller SHA, application SHA, implementation SHA and broker
+SHA. Historical Main-origin receipts remain readable, but their provenance cannot
+be relabelled as an environment-branch execution. Downstream consumers verify
+GitHub's recorded reusable path/revision and the current attempt before accepting
+the new job-name prefix or artifact.
+
+Activation order: land reviewed tooling; sync the operations delta into the
+protected environment branches; reconcile environment branch rules and the
+[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission);
+then verify hosted read-only admission. Existing UAT `operation=inspect` checks
+prerequisites without release mutation. Until activation/readback is recorded,
+matching-branch routing is source-complete only; do not dispatch a normal release
+merely to test it. A failure in setup, authority or deployment still stops dependent
+work; independent validation assertions are collected before the final failed result.
+
 The standalone CI Security Alerts workflow and its PR receipt polling are retired.
 Rerunning PR validation does not create another workflow. Historical receipt readers
 remain for retained evidence; they do not establish new deployment clearance.

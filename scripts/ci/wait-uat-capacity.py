@@ -102,7 +102,21 @@ def require_success(result: subprocess.CompletedProcess[str], operation: str) ->
 
 def verify_request(target_sha: str) -> None:
     if os.environ.get("GITHUB_REF_NAME") != "main":
-        raise AdmissionError("UAT admission requires a main-branch dispatch")
+        from release_acceptance_provenance import deployment_authority
+        try:
+            run_id = int(os.environ["GITHUB_RUN_ID"])
+            observed = json.loads(require_success(command([
+                "gh", "api", f"repos/hushh-labs/hushh-research/actions/runs/{run_id}",
+            ]), "UAT caller verification"))
+            authority = deployment_authority(observed, "uat")
+            if (os.environ.get("GITHUB_REF_NAME") != "uat"
+                    or observed.get("run_attempt") != int(os.environ["GITHUB_RUN_ATTEMPT"])
+                    or observed.get("status") != "in_progress"
+                    or authority["caller_sha"] != os.environ.get("GITHUB_SHA")
+                    or authority["tooling_sha"] != os.environ.get("RELEASE_TOOLING_SHA")):
+                raise ValueError("current caller or implementation changed")
+        except (KeyError, TypeError, ValueError) as error:
+            raise AdmissionError("UAT admission requires verified Main implementation provenance") from error
     if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
         raise AdmissionError("UAT admission requires an exact 40-character SHA")
     actor = os.environ.get("GITHUB_ACTOR", "")

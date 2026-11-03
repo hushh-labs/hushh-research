@@ -623,6 +623,6 @@ def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_relea
     testflight = _workflow("ship-ios-testflight.yml")
     assert workflow["jobs"]["release"]["concurrency"] == testflight["jobs"]["ship"]["concurrency"]
     assert workflow["jobs"]["release"]["concurrency"]["group"] == "ios-build-and-upload"
-    uat = _workflow("deploy-uat.yml")
+    uat = _workflow("deploy-uat-implementation.yml")
     assert "release" not in uat["jobs"] and "cadence" not in uat["jobs"]
     assert uat["jobs"]["deploy"]["concurrency"]["group"] == "deploy-uat"

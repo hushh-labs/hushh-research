@@ -29,8 +29,8 @@ def test_ci_smoke_and_uat_share_the_selector() -> None:
     for workflow in (
         ".github/workflows/ci.yml",
         ".github/workflows/main-post-merge-smoke.yml",
-        ".github/workflows/deploy-dev.yml",
-        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-dev-implementation.yml",
+        ".github/workflows/deploy-uat-implementation.yml",
     ):
         require(workflow, selector, "verification-plan")
 
@@ -46,7 +46,7 @@ def test_ci_passes_selector_decision_to_integration() -> None:
 
 def _uat_step(name: str, field: str = "run") -> str:
     """One checked-in deploy-uat step: its dedented run script, or its whole block."""
-    workflow = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(encoding="utf-8")
     match = re.search(
         rf"(?ms)^(      - name: {re.escape(name)}\n.*?^        run: \|\n(.*?))(?=^      - name: )",
         workflow,
@@ -167,7 +167,7 @@ def test_uat_plan_steps_bind_only_their_inputs() -> None:
     }
     plan_block = _uat_step("Resolve UAT verification plan", "block")
     assert "secrets." not in plan_block and "github.token" not in plan_block
-    require(".github/workflows/deploy-uat.yml", "            /tmp/uat-verification-base-*.json\n")
+    require(".github/workflows/deploy-uat-implementation.yml", "            /tmp/uat-verification-base-*.json\n")
 
 
 def test_uat_plan_compares_only_from_accepted_serving_shas() -> None:
@@ -224,12 +224,12 @@ def test_smoke_receives_selector_decision_without_reclassification() -> None:
 
 
 def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
-    workflow = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(encoding="utf-8")
     assert workflow.index("- name: Resolve deployment scope") < workflow.index(
         "- name: Enforce UAT database connection budget before deployment"
     )
     require(
-        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-uat-implementation.yml",
         "DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}",
         "--candidate-service consent-protocol-drive-worker",
         "--frontend-only",
@@ -250,7 +250,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
 
 def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
     require(
-        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-uat-implementation.yml",
         "name: uat-verification-plan",
         "VERIFICATION_PLAN_LANES: ${{ steps.verification-plan.outputs.lanes }}",
         '"lanes": json.loads(os.environ.get("VERIFICATION_PLAN_LANES") or "{}")',
@@ -265,7 +265,7 @@ def test_uat_publishes_lane_reasons_in_summary_and_release_artifacts() -> None:
 
 def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
     require(
-        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-uat-implementation.yml",
         "id: frontend-analytics-candidate",
         '--update-tags="analytics-candidate=${smoke_revision}"',
         "--remove-secrets=BACKEND_URL,DEVELOPER_API_URL",
@@ -285,7 +285,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         'analytics_smoke_required = os.environ.get("DEPLOY_FRONTEND") == "true"',
         '"analytics_smoke": {',
     )
-    content = (ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    content = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(encoding="utf-8")
     candidate_step = content.split(
         "      - name: Resolve zero-traffic frontend analytics candidate", 1
     )[1].split("      - name: Verify governed analytics transport on zero-traffic UAT candidate", 1)[0]
@@ -317,7 +317,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
         not in content
     )
     require(
-        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-uat-implementation.yml",
         'release_revision="${{ steps.candidate-state.outputs.frontend_revision }}"',
         'smoke_revision="${release_revision}"',
         '--update-tags="analytics-candidate=${smoke_revision}"',
@@ -328,7 +328,7 @@ def test_uat_frontend_release_blocks_on_real_analytics_smoke() -> None:
 def test_uat_and_production_resolve_frontend_candidate_by_exact_deploy_labels() -> None:
     resolver = "scripts/ci/resolve-cloud-run-deploy-revision.py"
     require(
-        ".github/workflows/deploy-uat.yml",
+        ".github/workflows/deploy-uat-implementation.yml",
         resolver,
         "--deploy-env uat",
         "--deploy-source deploy-uat",

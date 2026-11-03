@@ -277,7 +277,9 @@ def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, 
 
 
 def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
     assert inspector["environment"] == {"name": "uat", "deployment": False}
