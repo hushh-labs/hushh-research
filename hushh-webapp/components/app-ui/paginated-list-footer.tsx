@@ -25,6 +25,7 @@ export function PaginatedListFooter({
   hasMore,
   onPrevious,
   onNext,
+  pending = false,
   className,
 }: {
   page: number;
@@ -33,6 +34,7 @@ export function PaginatedListFooter({
   hasMore: boolean;
   onPrevious: () => void;
   onNext: () => void;
+  pending?: boolean;
   className?: string;
 }) {
   if (!shouldRenderPaginatedListFooter({ page, limit, total, hasMore })) {
@@ -59,7 +61,7 @@ export function PaginatedListFooter({
           type="button"
           variant="ghost"
           size="sm"
-          disabled={safePage <= 1}
+          disabled={pending || safePage <= 1}
           onClick={onPrevious}
           aria-label="Go to previous page"
         >
@@ -69,7 +71,7 @@ export function PaginatedListFooter({
           type="button"
           variant="ghost"
           size="sm"
-          disabled={!hasMore}
+          disabled={pending || !hasMore}
           onClick={onNext}
           aria-label="Go to next page"
         >

@@ -169,7 +169,7 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
           <option value="">Choose a writable account</option>
           {accounts.map(item => <option key={item.account_id} value={item.account_id}>{item.google_email || "Google account"}{item.access_level === "manage" ? "" : " · Allow scheduling"}</option>)}
         </select></label> : null}
-        {account ? <p className={styles.accountIdentity}><CalendarPersonAvatar name={accountEmail} photoUrl={accountPhoto} source="hussh" /><span>{accountEmail}</span></p> : null}
+        {account ? <p className={styles.accountIdentity}><CalendarPersonAvatar name={accountEmail} photoUrl={accountPhoto} size="sm" source="hussh" /><span>{accountEmail}</span></p> : null}
         {account && account.access_level !== "manage" ? <Button variant="outline" disabled={busy} onClick={() => onRequireWrite(account.account_id)}>Allow scheduling on {account.google_email}</Button> : null}
         <div className={styles.timeGrid}><label>Date<Input type="date" value={draft.date} onChange={event => edit({ date: event.target.value })} disabled={busy} /></label><label>Start<Input type="time" value={draft.time} onChange={event => edit({ time: event.target.value })} disabled={busy} /></label><label>Duration<select value={draft.duration} onChange={event => edit({ duration: Number(event.target.value) as Draft["duration"] })} disabled={busy}><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>60 min</option></select></label></div>
         <label>Guests (optional)<div className={styles.guestEntry}><Input type="email" list={contactsId} value={guestInput} onChange={event => { setGuestInput(event.target.value); setReview(null); reviewedContext.current = null; }} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addGuest(); } }} placeholder="name@example.com" disabled={busy} /><Button type="button" variant="outline" onClick={addGuest} disabled={busy}>Add</Button></div></label>
@@ -183,7 +183,7 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
       {review ? <section className={styles.review} aria-label="Meeting review">
         <h3>Review details</h3>
         <p><strong>{review.plan.title}</strong> · {displayTime(review.plan.start_at)} – {new Date(review.plan.end_at).toLocaleTimeString(undefined, { timeZone: review.plan.time_zone, timeStyle: "short" })}</p>
-        <p className={styles.accountIdentity}><CalendarPersonAvatar name={reviewEmail} photoUrl={reviewPhoto} source="hussh" /><span>{reviewEmail}</span></p>
+        <p className={styles.accountIdentity}><CalendarPersonAvatar name={reviewEmail} photoUrl={reviewPhoto} size="sm" source="hussh" /><span>{reviewEmail}</span></p>
         <p>{review.plan.attendees.length ? `Invitations: ${review.plan.attendees.join(", ")}` : "Personal block · No invitations"}</p>
         <p>{review.plan.meeting_type === "google_meet" ? "Google Meet link requested" : review.plan.meeting_type === "external_link" ? review.plan.meeting_link : review.plan.location}</p>
         {review.plan.description ? <p>{review.plan.description}</p> : null}
