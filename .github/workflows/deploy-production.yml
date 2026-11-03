@@ -837,7 +837,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RELEASE_MODE" = manual-emergency ]; then
-            python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" admit \
+            python3 scripts/ci/production_emergency.py admit \
               --scope "$RESOLVED_SCOPE" --output /tmp/prod-emergency-admission.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1085,7 +1085,7 @@ jobs:
           protocol-dir: ./consent-protocol
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
+        if: inputs.frontend_auth_domain_refresh || steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1185,7 +1185,7 @@ jobs:
         run: |
           set -euo pipefail
           bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
-          python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" recheck \
+          python3 scripts/ci/production_emergency.py recheck \
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync frontend hosted runtime secrets
@@ -1433,7 +1433,7 @@ jobs:
         run: |
           set -euo pipefail
           bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
-          python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" recheck \
+          python3 scripts/ci/production_emergency.py recheck \
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync canonical hosted runtime secrets
