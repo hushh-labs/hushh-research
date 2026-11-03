@@ -36,6 +36,20 @@ fi
 # Resolve the exact test selection before dependency setup so non-owning matrix
 # shards can exit without installing packages. If selection cannot be trusted,
 # the helper emits diagnostic mode and every historical shard still runs.
+ensure_ui_contract_parser() {
+  if (cd "$WEB_DIR" && node -e "import('./scripts/architecture/ui-source-index.mjs')" >/dev/null 2>&1); then
+    return 0
+  fi
+
+  echo "Installing the locked UI contract parser before resolving affected tests."
+  (
+    cd "$WEB_DIR/scripts/architecture/ui-contract-tools"
+    npm ci --ignore-scripts --no-audit --progress=false
+  )
+}
+
+ensure_ui_contract_parser
+
 PLAN_FILE="$(mktemp "${TMPDIR:-/tmp}/hushh-web-vitest-plan.XXXXXX")"
 trap 'rm -f "$PLAN_FILE"' EXIT
 node "$WEB_DIR/scripts/testing/affected-tests.mjs" plan >"$PLAN_FILE"

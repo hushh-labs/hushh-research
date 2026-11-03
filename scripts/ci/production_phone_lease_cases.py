@@ -233,6 +233,8 @@ class ProductionPhoneLeaseCases:
                     release_slow.wait(timeout=2)
                     raise lease.retention.UnsafeState("slow failure 300")
                 if run_id == 400:
+                    if not slow_started.wait(timeout=5):
+                        raise AssertionError("slow read never started")
                     failed_400.set()
                     raise lease.retention.UnsafeState("ordered failure 400")
                 return original(repository, run, number, api, workflow)

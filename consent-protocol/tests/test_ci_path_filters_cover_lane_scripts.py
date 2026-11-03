@@ -84,6 +84,16 @@ DELETION_RELEASE_INPUTS = (
     "scripts/ops/sync_frontend_runtime_secrets.py",
     "config/runtime-capacity.json",
 )
+RESTORATION_FIXTURE_INPUTS = (
+    "consent-protocol/tests/helpers/production_release_tools.py",
+    "consent-protocol/tests/test_production_restoration_operation.py",
+)
+RESTORATION_FIXTURE_OWNER_TESTS = (
+    "consent-protocol/tests/test_production_restoration_operation.py",
+    "consent-protocol/tests/test_phone_schema_origin.py",
+    "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+    "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
+)
 
 
 class _Filter:
@@ -479,6 +489,40 @@ def test_production_emergency_authority_test_is_controller_owned_not_backend() -
         path,
     ]
     assert "protocol-check" not in commands
+
+
+def test_restoration_fixture_inputs_select_transitive_controller_owner_only() -> None:
+    backend = _filters()["backend"]
+    for path in RESTORATION_FIXTURE_INPUTS:
+        assert not backend.match_file(path), path
+    for path in (
+        "consent-protocol/tests/test_phone_schema_origin.py",
+        "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+        "consent-protocol/tests/test_prod_drive_deploy_contract.py",
+        "consent-protocol/hushh_mcp/services/account_deletion_service.py",
+        "consent-protocol/db/schema.sql",
+        "consent-protocol/migrations/20261001_example.sql",
+    ):
+        assert backend.match_file(path), path
+
+    plan = _governance_plan(RESTORATION_FIXTURE_INPUTS)
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["controller"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["production-restoration-fixture-owner"] == [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        "consent-protocol",
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        *RESTORATION_FIXTURE_OWNER_TESTS,
+    ]
+    assert "protocol-check" not in commands
+    assert "cloudrun-retention" not in commands
 
 
 def test_document_delivery_ci_contract_paths_select_controller_owner_not_backend() -> None:
