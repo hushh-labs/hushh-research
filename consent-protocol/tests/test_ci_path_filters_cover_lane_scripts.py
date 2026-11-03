@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -15,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 ORCHESTRATOR = "scripts/ci/orchestrate.sh"
 SCRIPTS_CI = "scripts/ci/"
-THIS_FILE = Path(__file__).resolve().relative_to(ROOT).as_posix()
 AUTH_HEALTH_SOURCE = "deploy/observability/auth_health_job.py"
 AUTH_HEALTH_TESTS = (
     "consent-protocol/tests/test_auth_health_deployment.py",
@@ -41,19 +41,6 @@ AUTH_HEALTH_PATHS = frozenset(
 )
 WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
-# Code each side's lanes execute, beyond the scripts/ci closure. The native
-# shells are excluded from the web side: the web lanes read them as data, and
-# a release-lane script named in a plist comment is not a web-lane dependency.
-LANE_CODE_ROOTS = {
-    "frontend": ("hushh-webapp/", "deploy/mail-api/"),
-    "backend": ("consent-protocol/", "packages/hushh-mcp/"),
-}
-LANE_CODE_EXCLUDED = (
-    "hushh-webapp/ios/",
-    "hushh-webapp/android/",
-    "consent-protocol/.github/",
-    "consent-protocol/docs/",
-)
 LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend)\s*==\s*'true'")
 STAGE_ARM_RE = re.compile(r"^    ([\w|-]+)\)\n(.*?)^      ;;", re.MULTILINE | re.DOTALL)
 ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
@@ -62,9 +49,12 @@ ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 EXPECTED_JOBS = {
     "web-core-check": {"frontend"},
     "web-targeted-check": {"frontend"},
+    "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
+    "document-webkit-check": {"frontend", "backend"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
+    "protocol-database-check-two": {"backend"},
     "mcp-package-check": {"backend"},
     "integration-check": {"frontend", "backend"},
 }
@@ -170,6 +160,25 @@ def _resolve_path_outputs(
     return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
 
+def _governance_plan(paths: tuple[str, ...]) -> dict:
+    env = {
+        **os.environ,
+        "CI_VALIDATION_LEVEL": "focused",
+        "CI_CHANGED_FILES": "\n".join(paths),
+    }
+    env.pop("CI_CHANGED_FILES_FILE", None)
+    result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
+        [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 2), result.stderr
+    return yaml.safe_load(result.stdout)
+
+
 @cache
 def _tracked_files() -> tuple[str, ...]:
     listing = subprocess.run(  # noqa: S603 - fixed argv, read-only
@@ -251,32 +260,6 @@ def _job_scripts(job: str) -> set[str]:
     return _closure(entry)
 
 
-def _uncovered_lane_scripts(filters: dict[str, _Filter]) -> list[str]:
-    problems: list[str] = []
-    for job, lanes in sorted(_lane_jobs().items()):
-        for script in sorted(_job_scripts(job)):
-            if not any(filters[lane].match_file(script) for lane in lanes):
-                problems.append(f"{job} runs {script}, which schedules none of {sorted(lanes)}")
-    return problems
-
-
-def _lane_code_references(lane: str) -> dict[str, set[str]]:
-    # git grep narrows thousands of tracked files to the few naming a script;
-    # the boundary-aware regex then decides what each of those actually names.
-    argv = ["git", "grep", "-l", "-z", "-I", "-F"]
-    for path in _scripts_ci_files():
-        argv += ["-e", Path(path).name]
-    argv += ["--", *LANE_CODE_ROOTS[lane], ":!*.md", f":!{THIS_FILE}"]
-    argv += [f":!{excluded}" for excluded in LANE_CODE_EXCLUDED]
-    completed = subprocess.run(argv, cwd=ROOT, check=False, capture_output=True)  # noqa: S603
-    assert completed.returncode in (0, 1), completed.stderr.decode("utf-8", "replace")
-    found: dict[str, set[str]] = {}
-    for path in filter(None, completed.stdout.decode("utf-8").split("\0")):
-        for script in _referenced_scripts(_read(path)):
-            found.setdefault(script, set()).add(path)
-    return found
-
-
 def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
     # Under the default 'some', a '!' pattern MATCHES every file it does not
     # name, which would schedule that lane for almost any change.
@@ -340,8 +323,11 @@ def test_auth_health_selection_falls_back_for_mixed_unknown_and_non_pr_paths(
     outputs, resolved = _auth_health_decision(unknown_code, tmp_path)
     assert outputs["auth_health"] == "false"
     assert outputs["non_auth_health"] == "true"
-    assert outputs["backend"] == "true"
+    assert outputs["backend"] == "false"
     assert resolved["auth_health_only"] == "false"
+    plan = _governance_plan(unknown_code)
+    assert "unrecognized scripts owner path" in plan["selection_error"]
+    assert set(plan["selected_groups"]) >= {"controller", "retention", "agent"}
 
     for event in ("push", "workflow_dispatch", "merge_group"):
         _, resolved = _auth_health_decision((AUTH_HEALTH_SOURCE,), tmp_path, event)
@@ -399,11 +385,11 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
         "consent-protocol/docs/example.py",
         "consent-protocol/docs/schema.json",
         runtime,
-        "scripts/ci/protocol-check.sh",
-        ".github/workflows/ci.yml",
     ):
         assert backend.match_file(path), path
     assert any(backend.match_file(path) for path in (reference, runtime))
+    assert not backend.match_file("scripts/ci/protocol-check.sh")
+    assert not backend.match_file(".github/workflows/ci.yml")
 
 
 def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
@@ -458,43 +444,27 @@ def test_lane_discovery_finds_every_path_filtered_lane() -> None:
     }
 
 
-def test_every_script_a_lane_runs_schedules_that_lane() -> None:
-    problems = _uncovered_lane_scripts(_filters())
-    assert not problems, "Grow the path filter, do not shrink this check:\n" + "\n".join(problems)
-    assert all(_filters()[lane].match_file(ORCHESTRATOR) for lane in ("frontend", "backend"))
-
-
-def test_every_script_the_lanes_own_code_names_schedules_that_lane() -> None:
+def test_ci_helpers_use_source_aware_governance_instead_of_broad_app_lanes() -> None:
     filters = _filters()
-    problems: list[str] = []
-    for lane in LANE_CODE_ROOTS:
-        for script, users in sorted(_lane_code_references(lane).items()):
-            if not filters[lane].match_file(script):
-                problems.append(f"{script} (named by {sorted(users)[:3]}) is not in {lane}")
-    assert not problems, "Grow the path filter, do not shrink this check:\n" + "\n".join(problems)
+    scripts = _scripts_ci_files()
+    assert scripts
+    assert not any(
+        filters[lane].match_file(path) for path in scripts for lane in ("frontend", "backend")
+    ), "CI-only helpers must not fan out into application lanes"
+
+    plan = _governance_plan(scripts)
+    if plan["selection_error"]:
+        # Any unclassified helper forces the full regression set; it cannot
+        # disappear just because it is no longer a frontend/backend trigger.
+        assert set(plan["selected_groups"]) >= {"controller", "retention", "agent"}
+    else:
+        assert set(plan["selected_groups"]) <= {"controller", "retention", "agent"}
 
 
-def test_no_scripts_ci_file_falls_through_every_filter() -> None:
-    filters = _filters()
-    unscheduled = [
-        path
-        for path in _scripts_ci_files()
-        if not (filters["frontend"].match_file(path) or filters["backend"].match_file(path))
-    ]
-    assert not unscheduled, f"scripts/ci files that schedule no lane: {unscheduled}"
-
-
-def test_the_checker_catches_a_filter_that_drops_a_lane_script() -> None:
-    # Negative control: remove the orchestrator from the web side and the
-    # integration lane's PKM gate from the backend side; both must be named.
-    patterns = _filter_patterns()
-    patterns["frontend"] = [p for p in patterns["frontend"] if p != ORCHESTRATOR]
-    patterns["backend"] = [*patterns["backend"], "!scripts/ci/pkm-upgrade-gate.sh"]
-    problems = "\n".join(_uncovered_lane_scripts(_filters(patterns)))
-    assert f"web-core-check runs {ORCHESTRATOR}" in problems
-    assert f"web-targeted-check runs {ORCHESTRATOR}" in problems
-    # integration runs on either side; excluding the gate from backend leaves
-    # frontend, which never had it, so it must be reported.
-    assert "integration-check runs scripts/ci/pkm-upgrade-gate.sh" in problems
-    # And the unmutated filters report nothing, so the above is the mutation.
-    assert not _uncovered_lane_scripts(_filters())
+def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
+    plan = _governance_plan(("scripts/ci/new-unowned-check.py",))
+    assert (
+        plan["selection_error"]
+        == "unrecognized scripts owner path: scripts/ci/new-unowned-check.py"
+    )
+    assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}
