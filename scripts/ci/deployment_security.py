@@ -15,7 +15,7 @@ from github_security_authority import GitHub, Refused, SHA, inventory, positive
 
 REPOSITORY = "hushh-labs/hushh-research"
 CALLERS = {
-    "deploy-dev.yml", "deploy-uat.yml", "deploy-production.yml", "deploy-uat-one-chat.yml",
+    "deploy-dev.yml", "deploy-uat.yml", "deploy-production.yml",
     "validate-plg-frontend-source.yml", "release-ios-appstore.yml", "ship-ios-testflight.yml",
     "ship-android-playstore-v1.yml", "publish-hushh-mcp.yml",
     "rollback.yml",

@@ -297,7 +297,6 @@ Never rename required job/check contexts for cosmetic consistency.
 | --- | --- | --- |
 | Validation | `ci.yml`, `queue-validation.yml`, `main-post-merge-smoke.yml` | PR checks; identical-tree queue reuse; landed-main smoke. No duplicate full suite in the queue |
 | Deployment | `deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml` | Governed manual exact-SHA deployment through existing shared build/provenance helpers |
-| Scoped compatibility deployment | `deploy-uat-one-chat.yml` | Explicit backend cutover with its own capacity/recovery contract; no schedule or automatic deployment |
 | Native releases | `ship-ios-testflight.yml`, `release-ios-appstore.yml`, `ship-android-playstore-v1.yml` | Explicit release or continuation of a known upload; recovery does not rebuild/upload again |
 | Device qualification | `ios-voice-device.yml` | Internal reusable physical-device evidence, selected by the native release; no standalone dispatch |
 | Capacity | `capacity-maintenance-clock.yml`, `capacity-maintenance.yml` | Due-work controller, authenticated bounded cleanup; timer wait occurs before runner assignment |
@@ -311,6 +310,10 @@ with authorized UAT log-reading credentials. It reads only that build and its
 probe job (24 hours, bounded records and timeout), sanitizes the output and
 removes temporary handles on failure. It grants no deployment acceptance and
 replaces the standalone diagnostic workflow.
+
+Backend-only UAT changes use the normal UAT deployment scope. The retired
+One-chat cutover retains its historical provenance readers and numeric workflow
+identity; its fixed-source exceptions grant no new release authority.
 
 
 The separate weekly offline pod drill and weekday completion-judge workflow

@@ -142,7 +142,13 @@ def api(repository: str, endpoint: str):
     key = (repository, endpoint)
     if cache is not None and key in cache:
         return deepcopy(cache[key])
-    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    # GitHub may stop resolving a retired workflow by filename. Preserve its
+    # observed repository-local ID for history reads; origin checks still verify path.
+    retired = f"workflows/{ONE_CHAT_WORKFLOW}/"
+    if endpoint.startswith(retired) and repository != "hushh-labs/hushh-research":
+        raise retention.UnsafeState("retired workflow identity belongs to a different repository")
+    resolved = "workflows/382099846/" + endpoint[len(retired):] if endpoint.startswith(retired) else endpoint
+    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{resolved}"))
     if cache is not None:
         cache[key] = deepcopy(result)
     return result

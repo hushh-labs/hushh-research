@@ -239,14 +239,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json"',
         'cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"',
     )
-    require(
-        ".github/workflows/deploy-uat-one-chat.yml",
-        "--inherit-candidate-service consent-protocol",
-        'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"',
-        'cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py"',
-        '"${RUNNER_TEMP}/capacity-tools/runtime_capacity_volume.py" scripts/ci/',
-        'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"',
-    )
+
 
     require(
         ".github/workflows/deploy-production.yml",

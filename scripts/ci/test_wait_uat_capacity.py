@@ -345,8 +345,8 @@ class CapacityAdmissionTests(unittest.TestCase):
 
 
 class WorkflowWiringTests(unittest.TestCase):
-    def test_both_requests_wait_outside_shared_mutation_lock(self) -> None:
-        for filename in ("deploy-uat.yml", "deploy-uat-one-chat.yml"):
+    def test_uat_requests_wait_outside_shared_mutation_lock(self) -> None:
+        for filename in ("deploy-uat.yml",):
             with self.subTest(workflow=filename):
                 source = (ROOT / ".github/workflows" / filename).read_text()
                 self.assertIn("group: uat-release-requests-", source)
@@ -413,13 +413,6 @@ class WorkflowWiringTests(unittest.TestCase):
             promotion.index(
                 'gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}"'
             ),
-        )
-        one_chat = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
-        self.assertIn("group: uat-release-requests-backend", one_chat)
-        self.assertIn("needs: [wait-capacity, deployment-security]", one_chat)
-        self.assertLess(
-            one_chat.index("- name: Enforce UAT database connection budget"),
-            one_chat.index("- name: Deploy and verify only the backend service"),
         )
 
     def test_hourly_cleanup_has_no_waiting_followup(self):
