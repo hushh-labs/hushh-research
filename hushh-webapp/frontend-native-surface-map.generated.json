@@ -4059,7 +4059,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.kai.portfolio.analysis",
-          "purpose": "Review source-backed portfolio analysis.",
+          "purpose": "Review saved portfolio facts, request an Agent One analysis, or explicitly introduce a verified human advisor.",
           "screen": "kai_portfolio_analysis",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -4074,7 +4074,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "The route displays available saved portfolio facts and labels missing information.",
+          "completion_boundary": "Source coverage is input coverage, not model accuracy. Advisor contact, full Finance snapshot, connection, Calendar and recurring payment each retain their explicit approval and provider-evidence boundary; opening a workspace completes none of them.",
           "next_route": "/one/kai?tab=portfolio",
           "return_policy": "navigate",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -8705,31 +8705,26 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "flow",
-        "exemption_reason": "Finance preferences use the existing full-height wizard inside the setup route.",
-        "shell_verification_file": "app/one/setup/kai/page.tsx",
+        "exemption_reason": "Finance introduction and source selection share the existing fullscreen setup coordinator.",
+        "shell_verification_file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
         "shell_verification_includes": [
-          "--top-content-pad"
+          "FullscreenFlowShell"
         ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.finance",
-          "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
+          "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
           "screen": "one_setup_finance",
-          "entry_cue": "Answer the visible Finance question to continue.",
+          "entry_cue": "Explore the introduction or skip to portfolio sources.",
           "proactivity": "on_entry",
-          "primary_action_id": "kai.setup.answer_horizon",
+          "primary_action_id": "setup.finish_finance",
           "happy_path_action_ids": [
-            "kai.setup.answer_horizon",
-            "kai.setup.answer_drawdown",
-            "kai.setup.answer_volatility",
-            "kai.setup.launch_dashboard",
+            "setup.finish_finance",
             "setup.skip_finance"
           ],
-          "required_inputs": [
-            "investment_horizon"
-          ],
+          "required_inputs": [],
           "recoveries": {
             "blocked": "Explain the current guard and retain the goal.",
             "cancelled": "Keep Finance setup open and preserve the active goal.",
@@ -8738,9 +8733,9 @@
             "callback_error": "Return to Finance setup without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
-          "next_route": "/one/setup/finance/import",
-          "return_policy": "navigate",
+          "completion_boundary": "The introduction never completes setup. A verified source result or explicit later choice enables the existing terminal finish.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -10205,7 +10200,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.ria.clients",
-          "purpose": "Help the person understand and use the clients screen through its generated controls.",
+          "purpose": "Review advisor introduction requests and existing approved clients; public nearby prospects remain a separate discovery view.",
           "screen": "ria_clients",
           "entry_cue": "You can say “Open RIA Clients” to use the primary control on this screen.",
           "proactivity": "on_entry",
@@ -10222,7 +10217,7 @@
             "callback_error": "Return to the verified callback recovery path without claiming success.",
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
+          "completion_boundary": "Pending snapshots stay sealed. Accepting connects and unlocks the approved snapshot atomically; scheduling and subscribing require separate explicit confirmation and provider readback.",
           "next_route": "/ria/clients",
           "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -11066,5 +11061,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "fca16008ea0a3d9ceb0e5dbdb9f9003fb000beac18d3ca4afeb30d4234447485"
+  "content_sha256": "d2e50d6f50db6dacf2257f62048dcacfcd22b994cb81a8e44277b05ad13689b3"
 }

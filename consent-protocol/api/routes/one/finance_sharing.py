@@ -97,6 +97,11 @@ async def history(
     )
 
 
+@router.get("/active-recipients")
+async def active_recipients(owner: str = Depends(identity)):
+    return await run_in_threadpool(FinanceSharingService().active_recipients, owner)
+
+
 @router.get("/{grant_id}")
 async def view(grant_id: UUID, viewer: str = Depends(identity)):
     return await run_in_threadpool(FinanceSharingService().view, viewer, str(grant_id))

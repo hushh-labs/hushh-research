@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from .a2a import router as a2a_router
 from .a2a import well_known_router as a2a_well_known_router
+from .advisor_reviews import router as advisor_reviews_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
@@ -91,6 +92,7 @@ router.include_router(a2a_well_known_router)
 router.include_router(a2a_router)
 router.include_router(retired_voice_router)
 router.include_router(advisors_router)
+router.include_router(advisor_reviews_router)
 router.include_router(agent_chat_router)
 router.include_router(agent_prompt_router)
 router.include_router(connections_router)

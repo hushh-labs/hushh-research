@@ -12,6 +12,7 @@ import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
 import finance from "@/components/kai/shared/finance-workspace.module.css";
+import { FinanceSourcePicker } from "@/components/kai/onboarding/finance-onboarding";
 
 const PlaidIcon = ({ className, ...props }: React.SVGProps<SVGSVGElement>) => (
   <svg
@@ -44,6 +45,8 @@ interface PortfolioImportViewProps {
   plaidLocalDualEnvironmentEnabled?: boolean;
   /** Setup routes provide their own single terminal deferral action. */
   showSkip?: boolean;
+  presentation?: "list" | "onboarding";
+  onIntroductionBack?: () => void;
 }
 
 /**
@@ -62,6 +65,8 @@ export function PortfolioImportView({
   plaidConfigured = true,
   plaidLocalDualEnvironmentEnabled = false,
   showSkip = true,
+  presentation = "list",
+  onIntroductionBack,
 }: PortfolioImportViewProps) {
   const [selectionError, setSelectionError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -134,6 +139,18 @@ export function PortfolioImportView({
   }, [isPreloadingSchema, isUploading, onPreloadSchema]);
 
   const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid;
+
+  if (presentation === "onboarding") {
+    return <>
+      <input ref={fileInputRef} type="file" accept=".csv,.pdf" onChange={handleFileChange}
+        className="sr-only" disabled={isBusy} aria-label="Choose a PDF or CSV brokerage statement" />
+      <FinanceSourcePicker onConnect={handleConnectPlaid} onStatement={() => fileInputRef.current?.click()}
+        onSample={handlePreloadSchema} onSkip={onSkip} onBack={onIntroductionBack} busy={isBusy}
+        plaidAvailable={Boolean(onConnectPlaid && plaidConfigured)} sampleAvailable={Boolean(onPreloadSchema)}
+        status={isConnectingPlaid ? "Opening Plaid…" : isPreloadingSchema ? "Loading sample…" : "Importing statement…"}
+        error={selectionError} />
+    </>;
+  }
 
   return (
     <div className={`${finance.workspace} w-full pb-2`}>

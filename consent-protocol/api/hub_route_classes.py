@@ -58,6 +58,7 @@ RouteKey = tuple[str, str]
 # One line per path: "<METHODS> <path> [@pending:<lane>]", grouped under its class.
 _INVENTORY = """
 [CONTENT]
+POST /api/one/finance/advisor-reviews/{request_id}/meeting/action
 GET,POST /api/connectors/google_drive/sharing/packets/{packet_id}/preview
 POST /api/one/todos/suggestions
 POST /api/one/calendar/board/day
@@ -211,6 +212,7 @@ POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
+GET /api/one/finance/shares/active-recipients
 GET,PUT /api/one/plg/preferences
 POST /api/one/plg/subscriptions/check
 POST /api/one/plg/subscriptions/revoke
@@ -261,11 +263,20 @@ POST /api/pkm/domains/{domain}/scope-exposure
 GET /api/pkm/memory/mutation-impact/{user_id}/{domain}
 GET /api/pkm/scopes/{user_id}
 [NETWORK]
+POST /api/one/finance/advisor-reviews/candidates
+POST /api/one/finance/advisor-reviews/{request_id}/decision
+POST /api/one/finance/advisor-reviews/{request_id}/meeting
+POST /api/one/finance/advisor-reviews/{request_id}/meeting/decision
+POST /api/one/finance/advisor-reviews/{request_id}/plan
+POST /api/one/finance/advisor-reviews/{request_id}/checkout
+DELETE,GET /api/one/finance/advisor-reviews/{request_id}/billing
 GET /api/one/messages/unread-count
 POST /api/one/world-model/invitation-preview
 POST /api/one/calendar/rescheduling/options
 GET /api/one/source-snapshots/document-request-payments
 [CIPHERTEXT]
+GET,POST /api/one/finance/advisor-reviews
+GET /api/one/finance/advisor-reviews/{request_id}
 GET,POST /api/one/finance/shares
 DELETE,GET,PUT /api/one/finance/shares/{grant_id}
 POST /api/one/pod/browser-approval/export

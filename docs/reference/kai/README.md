@@ -33,6 +33,10 @@ flowchart TD
 ```
 
 Kai-specific architecture, runtime, rollout, and audit references live here.
+Finance access controls and replacement semantics are documented in
+[Finance sharing and access updates](./finance-sharing.md).
+[Finance advisor introductions](./advisor-handshake.md) documents the combined
+request, connection, Calendar and test-subscription boundary.
 One-owned product-surface contracts live in [../one/README.md](../one/README.md).
 
 Within the seven-layer platform architecture, Kai spans Layer 5 through Layer 7: intelligence, experience, and channel delivery.

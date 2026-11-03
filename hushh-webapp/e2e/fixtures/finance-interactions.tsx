@@ -1,4 +1,6 @@
+import { AdvisorReviewFixture } from "./advisor-review";
 import { FullscreenFlowShell } from "../../components/app-ui/fullscreen-flow-shell";
+import { FinanceOnboardingFixture } from "./finance-onboarding";
 import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
 import { KaiPreferencesWizard } from "../../components/kai/onboarding/KaiPreferencesWizard";
 import { useState } from "react";
@@ -19,7 +21,7 @@ import marketStyles from "../../components/kai/shared/market-briefing.module.css
 import { PortfolioReportAction } from "../../components/kai/cards/portfolio-report-action";
 import { FinanceShareFlow } from "../../components/kai/sharing/finance-share-flow";
 import { FinanceSharedDetail } from "../../components/kai/sharing/finance-shared-detail";
-import { sharingModel } from "./finance-sharing-boundaries";
+import { seedActiveFinanceShare, sharingModel } from "./finance-sharing-boundaries";
 import { PortfolioOverview } from "../../components/kai/views/portfolio-overview";
 import { PortfolioBriefing } from "../../components/kai/views/portfolio-briefing";
 import { FinancePortfolioSharing } from "../../components/kai/sharing/finance-portfolio-sharing";
@@ -66,6 +68,7 @@ function FinanceSharingFixture() {
   return <section className="mt-8">
     <p>Finance sharing · synthetic figures and connections</p>
     <button onClick={() => setOpen(true)}>Open sample Finance sharing</button>
+    <button onClick={() => { seedActiveFinanceShare(); setOpen(true); }}>Open sample existing Finance access</button>
     <button onClick={() => setReceived(true)}>Open sample received Finance</button>
     <FinanceShareFlow open={open} onOpenChange={setOpen} model={sharingModel} source={{ kind: "statement", snapshotId: null }} />
     <FinanceSharedDetail grantId={received ? "22222222-2222-4222-8222-222222222222" : null} onClose={() => setReceived(false)} />
@@ -117,6 +120,7 @@ function Fixture() {
       statusMessage="Reading your statement"
       rawStreamLines={updated ? Array.from({ length: 15 }, (_, i) => `[THINKING] Processing holding ${i}`) : ["[THINKING] Reading statement"]} />
     <FinanceSharingFixture />
+    <AdvisorReviewFixture />
     <div data-testid="after-import">After import</div>
     <div data-testid="review-scroll" style={{ height: 220, overflow: "auto" }}>
       <HoldingRowActions symbol="TEST" layout="row" onEdit={() => setAction("Edit TEST")} onToggleDelete={() => setAction("Delete TEST")} />
@@ -186,4 +190,4 @@ function Fixture() {
     </section>
   </main>;
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+createRoot(document.getElementById("root")!).render(document.body.dataset.financeOnboarding ? <FinanceOnboardingFixture /> : <Fixture />);
