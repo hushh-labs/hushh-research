@@ -2464,6 +2464,23 @@
       "trust_boundary": "Trusted hub and database administrator; runtime and migration credentials currently share a SQL role. Hash-only owner assignments and public cloud coordinates, no provider credentials. Allocation ceilings do not establish measured usage or enforce external provider spend. Billable activation remains disabled.",
       "plaintext_posture": "control_plane_metadata_only",
       "expected_row_growth": "at most one policy row, two distinct fixed owner/project assignments, total40000 cents work plus10000 cents cleanup, split equally and never replenished by a retry"
+    },
+    {
+      "id": "finance_advisor_handshake",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "release_schema_qualification",
+      "exact_tables": [
+        "advisor_review_requests",
+        "advisor_review_subscriptions",
+        "advisor_billing_cleanup"
+      ],
+      "primary_access_path": "One explicitly approved connection and full Finance snapshot request; participant-scoped review workspaces, Calendar time agreement and test-only recurring Stripe plans.",
+      "retention_policy": "Pending request and snapshot access expire after seven days. Expired ciphertext is cleared on participant reconciliation; terminal requests retain minimal consent metadata until account reset or erasure. Billing cleanup retains provider references without owner identity until confirmed cancellation.",
+      "deletion_behavior": "Ordered account cleanup removes either participant request; actor-profile foreign keys cascade. Subscription deletion queues checkout expiry and subscription cancellation in a provider-only cleanup outbox, drained by the existing packet-order worker. Signed late payment events for erased requests also queue cancellation.",
+      "trust_boundary": "Recipient Finance ciphertext is withheld until verified RIA acceptance atomically activates the canonical connection. Every read rechecks participant, status, expiry, advisor role, current key and connection. Blocking/disconnection is terminal. Explicit two-party time agreement precedes the existing Calendar review/execute boundary. Test-mode Stripe price, plan revision, destination and provider payment state are authoritative; payment never broadens consent or permits trading.",
+      "plaintext_posture": "introduction_relationship_meeting_and_billing_metadata_only_finance_contents_recipient_encrypted",
+      "expected_row_growth": "one_open_review_per_owner_advisor_pair_one_subscription_per_review_and_bounded_provider_cleanup_refs"
     }
   ]
 }

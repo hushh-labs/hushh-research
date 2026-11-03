@@ -253,6 +253,10 @@ tests/test_scoped_export_download.py
 tests/test_financial_raw_records_not_shareable.py
 tests/test_finance_sharing_contract.py
 tests/test_finance_recipient_hub_authority.py
+tests/test_advisor_review_contract.py
+tests/test_advisor_review_authority.py
+tests/test_advisor_review_postgres.py
+tests/test_advisor_review_calendar.py
 tests/test_finance_consent_lifecycle.py
 tests/test_finance_pod_owner_feed.py
 tests/test_partner_developer_apps.py
@@ -1345,6 +1349,7 @@ tests/test_pod_gmail_local.py
 tests/test_pod_gmail_push_config.py
 tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
+tests/test_pod_todo_sources.py
 
 tests/test_personal_agent_notification_checkpoint.py
 tests/test_pod_browser_azure_probe.py
@@ -1602,6 +1607,7 @@ tests/test_phone_transfer_postgres.py
 tests/test_phone_linked_deletion_postgres.py
 
 tests/test_phone_transfer_authority.py
+tests/test_phone_binding_policy.py
 tests/test_phone_bootstrap.py
 tests/test_phone_schema_qualification.py
 tests/test_phone_schema_origin.py
@@ -1669,3 +1675,4 @@ tests/services/test_calendar_email_followup_store_postgres.py
 tests/services/test_calendar_email_followup_reassess_postgres.py
 tests/services/test_calendar_email_followup_reminder_timing_postgres.py
 tests/services/test_calendar_email_followup_boundaries.py
+tests/test_uat_paused_drive_maintenance.py

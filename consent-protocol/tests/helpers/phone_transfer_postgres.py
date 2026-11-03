@@ -136,3 +136,19 @@ async def seed(pool, *, fail_write=False):
                 "ALTER TABLE actor_identity_cache ADD CONSTRAINT fail_receiving_claim CHECK(user_id <> 'receiving-a')"
             )
         return intents, before
+
+
+async def seed_committed_transfer(pool, intent):
+    """Historical receipt fixture only; new claims cannot create this state."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await transfer.lock_transfer(conn, "receiving-a", intent)
+            await transfer.consume(conn, "receiving-a", PHONE, intent)
+            await conn.execute(
+                "UPDATE actor_identity_cache SET phone_number=NULL,phone_verified=FALSE WHERE user_id='previous'"
+            )
+            await conn.execute(
+                "INSERT INTO actor_identity_cache(user_id,phone_number,phone_verified) VALUES('receiving-a',$1,TRUE) ON CONFLICT(user_id) DO UPDATE SET phone_number=$1,phone_verified=TRUE",
+                PHONE,
+            )
+    return True

@@ -24,7 +24,7 @@ function baseInput(actionId: string) {
 }
 
 describe("executeAgentGatewayAction connected systems", () => {
-  it("refuses a parked previous-account deletion directive at the current executor", async () => {
+  it("refuses a parked directive for retired previous-account deletion", async () => {
     const { parseParkedAppActionDirective } = await import("@/lib/services/agent-chat-client");
     const directive = parseParkedAppActionDirective({
       status: "ready_to_run",
@@ -38,7 +38,7 @@ describe("executeAgentGatewayAction connected systems", () => {
     };
     const result = await executeAgentGatewayAction(input);
 
-    expect(result).toMatchObject({ status: "blocked", reason: "manual_only" });
+    expect(result).toMatchObject({ status: "invalid", reason: "missing_action" });
     expect(input.router.push).not.toHaveBeenCalled();
   });
 

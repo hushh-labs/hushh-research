@@ -307,7 +307,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
   const liveTasks = useTodoLiveTasks({
     userId, vaultOwnerToken, idTokenProvider: user ? idTokenProvider : null, enabled: writeReady, tasks,
   });
-  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError } = liveTasks;
+  const { pending, agentFeed, retryKyc, calendar, upcoming, agentLoadError, agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading } = liveTasks;
   const gmail = useGmailConnectorStatus({
     userId,
     idTokenProvider: user ? idTokenProvider : null,
@@ -575,6 +575,15 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             <Button variant="none" effect="fade" size="compact" onClick={() => { calendar.refresh(); upcoming.refresh(); }}>Retry</Button>
           </div>
         ) : null}
+        {writeReady && emailReadError ? (
+          <div className="flex items-center gap-2" role="status">
+            <HelperText as="p">Email tasks couldn’t load.</HelperText>
+            <Button variant="none" effect="fade" size="compact" onClick={() => { void liveTasks.refreshSources(); }}>Retry</Button>
+          </div>
+        ) : null}
+        {writeReady && upcoming.incomplete ? (
+          <HelperText as="p" role="status">Some Calendar events aren’t shown. <Link href="/one/calendar">Open Calendar</Link></HelperText>
+        ) : null}
         {writeReady && !itemsLoading && totalToday > 0 ? (
           <div className="mt-5 flex items-center gap-4" aria-live="polite">
             <CaptionText data-profile-role="description" className="shrink-0 tabular-nums !text-[color:var(--app-secondary-label)]">
@@ -628,7 +637,7 @@ function OwnerTodoListPage({ epoch }: { epoch: number }) {
             onToggle={toggleTask}
             onDelete={requestDelete}
           />
-        ) : itemsLoadError || agentLoadError || calendarReadError || liveTasks.sourceError ? null : (
+        ) : itemsLoadError || agentLoadError || calendarReadError || emailReadError || emailReadLoading ? null : (
           <div data-todo-empty-state="true" className="flex max-w-sm items-start gap-3 px-1 py-4 text-left">
             <ProfilePaneTaskAddIcon size={26} className="mt-0.5 shrink-0" />
             <div className="min-w-0">

@@ -101,10 +101,24 @@ export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "
  * wording and an action; this is never shown as a warning while Google is
  * simply being retried.
  */
-export function coverageNotice(coverage: FollowupCoverage | null | undefined): CoverageNotice | null {
+export function coverageNotice(coverage: FollowupCoverage | null | undefined, vaultUnlocked = true): CoverageNotice | null {
   if (!coverage || coverage.coverage === "complete") return null;
   if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Catching up on your email…", action: null };
+  // Reconnecting or retrying needs the unlocked vault. Offering either while it is
+  // locked sends the owner through Google again without fixing anything.
+  if (!vaultUnlocked) return { tone: "quiet", text: "Unlock One to check your email.", action: null };
   if (coverage.attention === "reconnect_mail") return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
   if (coverage.attention === "provider_unavailable") return { tone: "action", text: "Google is not responding right now. We’ll keep trying.", action: "retry" };
   return { tone: "action", text: "A few emails could not be read yet.", action: "retry" };
+}
+
+/**
+ * What the card says when a request fails. A locked vault is the owner's to fix
+ * and says so; it is never reported as a failed check.
+ */
+export function followupErrorText(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith("Unlock One")) return error.message;
+  if (error instanceof Error && error.message === "FOLLOWUPS_DISABLED") return "Follow-ups are not available yet. Try again later.";
+  if (error instanceof Error && error.message === "selected_mail_permission_required") return "Reconnect Mail for this account.";
+  return "Follow-ups could not be checked. Try again.";
 }

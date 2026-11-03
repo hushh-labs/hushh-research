@@ -1,7 +1,6 @@
 "use client";
 
 import { performPhoneRecovery } from "./use-phone-recovery-handoff";
-import { usePhoneLinkedDeletion } from "./use-phone-linked-deletion";
 import type { LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
 import type { LinkedDeletionPreparation } from "@/lib/services/phone-recovery-service";
 
@@ -50,7 +49,7 @@ import {
   ComboboxList,
 } from "@/lib/morphy-ux/ui/combobox";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
+import { isPhoneOwnershipConflict, resolvePhoneFailureMessage } from "@/lib/auth/phone-conflict-copy";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -63,9 +62,6 @@ import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import { PhoneConflictRecovery } from "@/components/auth/phone-conflict-recovery";
-import { startJourneyTrace } from "@/lib/observability/journey-trace";
-
-const tracePhone = startJourneyTrace("phone_transfer");
 
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
@@ -134,9 +130,7 @@ export function usePhoneVerificationFlow({
   currentPhoneNumber,
   startVerification,
   confirmVerification,
-  confirmTransfer, confirmLinkedDeletion, prepareLinkedDeletion, cancelLinkedDeletion,
   recoverPreviousAccount,
-  deletePreviousAccount, revokePreviousAccountDevices,
   onCompleted,
   onContinueExisting,
   codePresentation = "default",
@@ -150,7 +144,7 @@ export function usePhoneVerificationFlow({
 }: PhoneVerificationFlowProps) {
   const pathname = usePathname();
   const [formOwner, setFormOwner] = useState(ownerKey);
-  const visit = useMemo(() => ({ active: false, ownerKey, verified: false, verifiedUser: undefined as User | null | undefined, entryRevision: 0, smsTransport: false }), [ownerKey]);
+  const visit = useMemo(() => ({ active: false, ownerKey, verified: false, verifiedUser: undefined as User | null | undefined, entryRevision: 0 }), [ownerKey]);
   const entryRevision = visit.entryRevision;
   const [, publishEntryRevision] = useState(0);
   const advanceEntryRevision = useCallback(() => {
@@ -174,11 +168,7 @@ export function usePhoneVerificationFlow({
   );
   const [verificationCode, setVerificationCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<"choices" | "review" | "delete" | null>(null);
-  const [transferPending, setTransferPending] = useState(false);
-  const [transferEligible, setTransferEligible] = useState(false);
-  // Learned from the server's typed refusal; this environment cannot move a number at all.
-  const [transferUnavailable, setTransferUnavailable] = useState(false);
+  const [conflict, setConflict] = useState<"choices" | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [step, setStep] = useState<VerificationStep>(
     mode === "link" && currentPhoneNumber ? "linked" : "phone",
@@ -191,21 +181,14 @@ export function usePhoneVerificationFlow({
   // attempt starts -- closes that cross-action race, not just same-action
   // double-clicks.
   const phoneFlowInFlightRef = useMemo(() => ({ current: false, visit }), [visit]);
-  const transferGuard = useMemo(() => ({ pending: false, visit }), [visit]);
-  const deletionGuard = useMemo(() => ({ pending: false, visit }), [visit]);
   useLayoutEffect(() => {
-    onNavigationGuardChange?.(() => current() && (phoneFlowInFlightRef.current || transferGuard.pending || deletionGuard.pending));
+    onNavigationGuardChange?.(() => current() && phoneFlowInFlightRef.current);
     return () => onNavigationGuardChange?.(null);
-  }, [current, onNavigationGuardChange, phoneFlowInFlightRef, transferGuard, deletionGuard]);
+  }, [current, onNavigationGuardChange, phoneFlowInFlightRef]);
 
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
-  const deletion = usePhoneLinkedDeletion({ phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current,
-    inFlight: phoneFlowInFlightRef, setBusy, setConflict, setError: setOperationError,
-    prepare: prepareLinkedDeletion, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
-    fallback: () => performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError),
-    onDeleted: async verified => { visit.verified = true; visit.verifiedUser = verified; setConflict(null); changeStep("linked"); await onCompleted(verified); } });
   const seededOwner = useRef(ownerKey);
   useEffect(() => {
     stepRef.current = step;
@@ -236,9 +219,9 @@ export function usePhoneVerificationFlow({
     setCountryQuery("");
     setVerificationCode("");
     setCodeError(null); setOperationError(null); setBusy(false);
-    setConflict(null); setTransferPending(false); transferGuard.pending = false; deletionGuard.pending = false;
+    setConflict(null);
     changeStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
-  }, [currentPhoneNumber, mode, ownerKey, changeStep, visit, transferGuard, deletionGuard]);
+  }, [currentPhoneNumber, mode, ownerKey, changeStep, visit]);
 
   // Start on the person's own country, not on ours.
   //
@@ -271,10 +254,6 @@ export function usePhoneVerificationFlow({
   const returnToPhoneNumber = useCallback(() => {
     if (!current()) return true;
     if (phoneFlowInFlightRef.current) return true;
-    visit.smsTransport = false;
-    if (conflict === "review" && !transferPending) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
-    if (conflict === "delete") { if (deletion.leave()) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); } return true; }
-    if (transferPending) return true;
     advanceEntryRevision();
     setVerificationCode("");
     setCodeError(null);
@@ -282,7 +261,7 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, transferPending, visit, deletion]);
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision]);
 
   useEffect(() => {
     onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
@@ -431,8 +410,8 @@ export function usePhoneVerificationFlow({
   usePublishVoiceSurfaceMetadata(
     conflict ? {
       screenId: pathname === ROUTES.PHONE_MANDATE ? "phone_mandate" : "profile_account",
-      title: transferPending ? "Phone transfer pending" : "Phone recovery choices",
-      purpose: "Choose how to recover a phone link without revealing the previous account.",
+      title: "Phone linked to another email account",
+      purpose: "Sign in to the existing account or use a different number without revealing the linked email.",
       actions: [], controls: [],
       interactionLayer: {
         schemaVersion: "voice_interaction_layer.v1", id: "phone_conflict", kind: "confirmation",
@@ -545,11 +524,9 @@ export function usePhoneVerificationFlow({
     async (
       resendCode = false,
       phoneNumberOverride?: string,
-      transport?: "sms",
     ): Promise<StartVerificationOutcome> => {
-      const freshSms = transport === "sms" && conflict === "choices" && !transferEligible;
-      if (!current() || allowedOperation.current?.() === false || entryRevision !== visit.entryRevision || (conflict !== null && !freshSms) || busy || phoneFlowInFlightRef.current ||
-          (!freshSms && (resendCode ? stepRef.current !== "code" : stepRef.current !== "phone"))) {
+      if (!current() || allowedOperation.current?.() === false || entryRevision !== visit.entryRevision || conflict !== null || busy || phoneFlowInFlightRef.current ||
+          (resendCode ? stepRef.current !== "code" : stepRef.current !== "phone")) {
         return "busy";
       }
       const normalizedPhone = (
@@ -580,7 +557,7 @@ export function usePhoneVerificationFlow({
       rejectedPhoneInputRef.current = false;
       setPhoneNumberError(null);
 
-      if (!freshSms && currentPhoneNumber && normalizedPhone === currentPhoneNumber && !Capacitor.isNativePlatform()) {
+      if (currentPhoneNumber && normalizedPhone === currentPhoneNumber && !Capacitor.isNativePlatform()) {
         trackEvent("phone_verification_completed", {
           action: "existing",
           result: "success",
@@ -597,8 +574,7 @@ export function usePhoneVerificationFlow({
       setOperationError(null);
       let committed = false;
       try {
-        if (!resendCode) visit.smsTransport = freshSms;
-        const result = await startVerification(normalizedPhone, { resendCode, ...(visit.smsTransport ? { transport: "sms" as const } : {}) });
+        const result = await startVerification(normalizedPhone, { resendCode });
         if (!current()) return "busy";
         setConflict(null);
         trackEvent("phone_verification_started", {
@@ -642,8 +618,8 @@ export function usePhoneVerificationFlow({
         const message = committed ? "Phone verified. Couldn’t refresh Account. You can return to Account." :
           phoneFailureMessage(error, "Couldn't send the verification code. Please try again.");
         setOperationError(message);
-        if (["PHONE_TEST_NUMBER_IN_USE", "PHONE_ALREADY_VERIFIED", "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT"].includes(apiErrorCode(error) ?? "")) {
-          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible(false); setConflict("choices"); changeStep("code");
+        if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
+          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setConflict("choices"); changeStep("code");
         }
         if (committed) { morphyToast.error(message); return "auto_verified"; }
         trackEvent("phone_verification_started", {
@@ -674,7 +650,6 @@ export function usePhoneVerificationFlow({
       visit,
       entryRevision,
       conflict,
-      transferEligible,
       advanceEntryRevision,
     ],
   );
@@ -812,8 +787,8 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't verify the phone number. Please try again.");
         setOperationError(message);
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
-        if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE"].includes(apiErrorCode(error) ?? "")) {
-          advanceEntryRevision(); setTransferEligible(apiErrorCode(error) !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
+        if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
+          advanceEntryRevision(); setVerificationCode(""); setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
           action: mode,
@@ -852,34 +827,10 @@ export function usePhoneVerificationFlow({
     await submitVerificationCode(verificationCode, { notify: true });
   }, [submitVerificationCode, verificationCode]);
 
-  const handleTransfer = useCallback(async () => {
-    if (!current() || allowedOperation.current?.() === false || busy || phoneFlowInFlightRef.current || conflict !== "review" || visit.entryRevision !== entryRevision || !transferEligible || !confirmTransfer) return;
-    phoneFlowInFlightRef.current = true; setBusy(true); setOperationError(null);
-    let committed = false;
-    try {
-      const verified = await confirmTransfer();
-      if (!current()) return;
-      committed = true; visit.verified = true; visit.verifiedUser = verified;
-      setConflict(null); setTransferPending(false); transferGuard.pending = false; changeStep("linked");
-      await onCompleted(verified);
-    } catch (error) {
-      if (current() && !committed) {
-        const actionRequired = apiErrorCode(error) === "PHONE_TRANSFER_ACTION_REQUIRED";
-        const pending = actionRequired || apiErrorCode(error) === "PHONE_TRANSFER_IN_PROGRESS";
-        transferGuard.pending = pending; setTransferPending(pending);
-        tracePhone("transfer_refused", { code: apiErrorCode(error) ?? "unknown", controls_hidden: apiErrorCode(error) === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE" });
-        if (apiErrorCode(error) === "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE") { setTransferUnavailable(true); advanceEntryRevision(); setConflict("choices"); }
-        setOperationError(actionRequired ? "Phone transfer needs a security check. Contact one@hushh.ai and check progress again." : pending ? "Finishing phone transfer. Check progress again." :
-          phoneFailureMessage(error, error instanceof Error ? error.message : "Phone transfer could not be confirmed. Please retry."));
-      }
-    } finally { phoneFlowInFlightRef.current = false; if (current()) setBusy(false); }
-  }, [busy, conflict, confirmTransfer, current, changeStep, onCompleted, visit, entryRevision, transferEligible, phoneFlowInFlightRef, transferGuard, advanceEntryRevision]);
-
-  const recoverPrevious = useCallback(async (deleting: boolean | "revoke") => {
-    if (!current() || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current || transferPending) return;
-    const recover = deleting === "revoke" ? revokePreviousAccountDevices : deleting ? deletePreviousAccount : recoverPreviousAccount;
-    await performPhoneRecovery(recover, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError);
-  }, [current, busy, transferPending, revokePreviousAccountDevices, deletePreviousAccount, recoverPreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
+  const recoverPrevious = useCallback(async () => {
+    if (!current() || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
+    await performPhoneRecovery(recoverPreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError);
+  }, [current, busy, recoverPreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
 
   useLocalOnboardingActionHandler(
     "phone_mandate.submit_code",
@@ -948,12 +899,7 @@ export function usePhoneVerificationFlow({
   );
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
-    conflict, transferPending, transferEligible, transferUnavailable, handleTransfer, recoverPrevious,
-    deletionReview: deletion.prepared, deletionNeedsFreshProof: deletion.freshProof, deletionUnconfirmed: deletion.unconfirmed,
-    deletePrevious: deletion.review, confirmDeletion: deletion.submit,
-    restartVerification: () => { if (current() && !phoneFlowInFlightRef.current && deletion.leave()) { advanceEntryRevision(); setVerificationCode(""); setOperationError(null); setConflict(null); changeStep("phone"); } },
-    startFreshSms: () => handleStartVerification(false, submittedPhoneNumber, "sms"),
-    reviewTransfer: () => { if (current() && visit.entryRevision === entryRevision && conflict === "choices" && transferEligible && !busy && !phoneFlowInFlightRef.current) { advanceEntryRevision(); setConflict("review"); setOperationError(null); } },
+    conflict, recoverPrevious,
     countries: PHONE_COUNTRY_OPTIONS,
     selectedCountry, selectedCountryOption, selectedCountryDisplayLabel, countryQuery, countryInputValue, countryComboboxOpen,
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,
@@ -985,8 +931,7 @@ export function PhoneVerificationForm({ model, className, style, onCancel, codeP
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,
     setCountryComboboxOpen, setCountryQuery, handleCountrySelection, handlePhoneNumberChange, handlePhoneNumberPaste,
     handleStartVerification, handleContinueExisting, returnToPhoneNumber, handleSubmit, changeCode } = model;
-  if (model.conflict) return <PhoneConflictRecovery {...model} conflict={model.conflict}
-    className={className} style={style} submissionBlocked={submissionBlocked} />;
+  if (model.conflict) return <PhoneConflictRecovery {...model} className={className} style={style} />;
   if (step === "linked") {
     return (
       <div className={className} style={style}>

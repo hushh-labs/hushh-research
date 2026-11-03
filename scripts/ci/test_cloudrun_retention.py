@@ -1861,12 +1861,13 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
                 )
                 with self.assertRaises(AssertionError):
                     check_actions_read(missing_read)
-                missing_token = source.replace(
+                prefix = source[:source.index("  deploy:\n") + len("  deploy:\n")]
+                missing_token = prefix + deploy.replace(
                     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n", "", 1
                 )
                 with self.assertRaises(AssertionError):
                     check_actions_read(missing_token)
-                wrong_token = source.replace(
+                wrong_token = prefix + deploy.replace(
                     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n",
                     "          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}suffix\n", 1
                 )

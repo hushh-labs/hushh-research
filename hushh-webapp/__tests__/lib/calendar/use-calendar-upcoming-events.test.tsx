@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useCalendarUpcomingEvents } from "@/lib/calendar/use-calendar-upcoming-events";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 
 vi.mock("@/lib/services/google-calendar-service", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/services/google-calendar-service")>(),
@@ -31,6 +32,35 @@ const RAW_EVENT = {
 };
 
 describe("useCalendarUpcomingEvents", () => {
+  it("refreshes after an owner's Calendar change and foreground return, never after disconnect", async () => {
+    mockedListEvents.mockResolvedValue({ events: [] });
+    const { result, rerender, unmount } = renderHook(({ connected }) => useCalendarUpcomingEvents({
+      userId: "user-1", vaultOwnerToken: "fixture-token", isConnected: connected,
+    }), { initialProps: { connected: true } });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    act(() => notifyCalendarChanged("different-owner"));
+    expect(mockedListEvents).toHaveBeenCalledTimes(1);
+    act(() => notifyCalendarChanged("user-1"));
+    await waitFor(() => expect(mockedListEvents).toHaveBeenCalledTimes(2));
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(mockedListEvents).toHaveBeenCalledTimes(3));
+    rerender({ connected: false });
+    act(() => notifyCalendarChanged("user-1"));
+    expect(mockedListEvents).toHaveBeenCalledTimes(3);
+    unmount();
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(mockedListEvents).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps truncated provider results explicitly partial", async () => {
+    mockedListEvents.mockResolvedValueOnce({ events: [RAW_EVENT], truncated: true });
+    const { result } = renderHook(() => useCalendarUpcomingEvents({
+      userId: "user-1", vaultOwnerToken: "fixture-token", isConnected: true,
+    }));
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.events).toHaveLength(1);
+    expect(result.current.incomplete).toBe(true);
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });

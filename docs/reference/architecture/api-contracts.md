@@ -1,5 +1,25 @@
 # API Contracts
 
+## Owner-local Calendar and email tasks
+
+One's To-do list reads private Google metadata directly from the owner's signed,
+pinned agent endpoint. These routes are mounted only by `pod_server.py` and admitted
+by exact client/ingress allowlists, an app-role session with `pkm.read`, the current
+owner, and a held incarnation. Admission is rechecked after provider work. Hub
+consent tokens, device sessions and status-only sessions do not authorize content.
+
+| Endpoint | Contract |
+| --- | --- |
+| `POST /api/one/pod/calendar/events` | Offset-aware `start_at`/`end_at`, at most seven days; up to five bounded primary-calendar pages, with explicit `truncated`. Returns task IDs bound to owner/account, title, times, status and a validated Meet URL. |
+| `GET /api/one/pod/gmail/todos` | Up to 25 recent-thread reply tasks using the existing metadata-only reader. Returns opaque owner/account-bound keys, action titles, `complete` and `scope=recent_threads`; no provider IDs, snippets or message bodies. |
+
+Responses are `private, no-store`. The ports use the owner's existing pod-sealed
+Google grants and do not invoke a model, mutate Calendar/mail, or read hub content
+tables. Provider grant failures remain distinct from app authentication failures.
+The existing owner-cloud hosting restriction remains; managed-hosting Google reads
+and private Calendar invitation actions are not enabled by these routes. Existing
+owner agents need the updated image before the new paths can serve their app.
+
 ## Feed counterpart profile presentation
 
 Feed metadata may include `counterpart_person_ref`, resolved at read time from
@@ -5497,24 +5517,22 @@ app contracts, name directory behavior, location grants and native UI are unchan
 
 ### Phone conflict recovery and trusted-device boundary
 
-Web, iOS and Android use the same phone conflict model. A conflict reveals no
-previous-account name, email, identifiers, devices or information. The choices
-are **Use this number on this account**, **Recover my previous account**,
-**Delete my previous account**, and **Review previous device access**. Recovery,
-deletion and device review create an opaque, fifteen-minute continuation and
-resume the selected action at `/register-phone?recovery=<uuid>` after Google or
-Apple sign-in. The continuation grants no account authority. Only the matching
-independently authenticated previous owner may see its masked phone hint and
-their own account/device details. An expired or changed binding ends the request.
-Deletion reuses existing owner verification, fresh same-owner reauthentication,
-any required linked-phone proof, and explicit irreversible confirmation. A final
-continuation refusal is a definite pre-erasure failure and preserves the session. Phone-origin proof
-is accepted only as the secondary possession proof and cannot admit a primary
-application session, read a previous owner profile, mint an owner capability or approve a new trusted device. Existing
-owner-authenticated trusted-device listing and revocation keep their hub-first,
-pod-propagation and uncertain-outcome contracts. This does not create a universal
-browser/mobile session registry; currently enrolled trusted devices retain their
-existing platform coverage.
+Across Web, iOS and Android, a verified phone number can belong to only one active email account.
+A number already linked to another account cannot be transferred or reclaimed
+using SMS possession or a configured test code. The conflict offers **Sign in to
+existing account** and **Use a different number**, without revealing that
+account's email, name, identifiers, devices or information. Recovery uses the
+existing opaque fifteen-minute continuation and requires independent sign-in to
+the matching original account. The continuation grants no account authority.
+Same-owner retries and replacement with an unoccupied number remain supported.
+Proper full-account deletion releases its number through the existing lifecycle;
+this rule does not permanently reserve phone numbers or merge accounts by email.
+
+Existing original-owner deletion and trusted-device review require that owner's
+independent authentication and retain their confirmation and proof boundaries.
+Historical recovery links remain supported. Phone-origin proof cannot admit a
+primary application session, enumerate another owner's information, mint an
+owner capability, or approve a new trusted device.
 
 `POST /api/account/phone/recovery/continuations` accepts the selected `recover`,
 `delete` or `revoke` action and normalized phone. Its response is deliberately
@@ -5546,117 +5564,27 @@ fences a prepared operation before reporting `not_started`.
 Unknown dispatches remain visible and require status reconciliation or support.
 A completed hub receipt is separate from signed pod-delivery completion.
 
-`POST /api/account/phone/transfer/prepare` requires the current Firebase bearer,
-`expected_user_id` matching the captured application owner and an independent
-`phone_id_token`. The server verifies its phone provider, revocation, exact UID,
-authentication age and provider fictional-number config. Membership in a server
-fixed-code list does not disqualify an independently verified real SMS proof.
-The response is an opaque `transfer_id` and intent `expires_at`. This is a
-server authorization deadline, not a promise about provider OTP lifetime.
-Provider fictional-number, emulator, reviewer and shared test-code proofs cannot
-transfer a number. Occupied fixed-code challenges do not silently switch to SMS: a
-human may explicitly request a fresh SMS proof. Failed or malformed eligibility
-checks stop with a typed error; only a successful non-test result permits ordinary
-SMS fallback. The shared production Firebase mutation fence remains authoritative
-in nonproduction; that refusal is permanent for the current authentication plane,
-not a reason to retry the same transfer.
-If removing the phone would strand an established phone-only identity, existing
-account recovery is required first.
+`POST /api/account/phone/claim` refuses an occupied number with HTTP 409
+`PHONE_ALREADY_VERIFIED`. The canonical writer checks ownership under the shared
+per-phone advisory lock and ordered row locks, so concurrent real, native,
+configured-test, and background claims cannot displace another active account.
+The existing partial unique verified-phone index remains authoritative; no new
+email index or phone-to-email history reservation is introduced.
 
-`POST /api/account/phone/transfer/confirm` repeats those proofs and requires
-`transfer_id` and literal `confirmed: true`. The canonical phone writer consumes
-the proof event and expected source/receiving binding revisions atomically under
-existing lifecycle, identity-generation, per-phone and ordered row locks. A
-stale/expired intent, generation change, ABA binding change or concurrent loser
-moves nothing. Only the old phone link changes; old files, encrypted PKM, vault
-and account remain. A phone credential already owned by the receiving identity
-is preserved. A temporary phone-only proof identity is also never unlinked or
-deleted by transfer; it supplies possession only. Established phone-only accounts
-require independent recovery. Old phone-origin admission is fenced, and existing owner-token
-lineage is retired under its canonical renewal lock; Google/Apple access can
-renew through the existing owner flow.
+The compatibility `/phone/transfer/prepare` and `/phone/transfer/confirm` endpoints
+also refuse with `PHONE_ALREADY_VERIFIED`, before provider proof, intent creation,
+capability revocation or ownership changes. Previously prepared transfers cannot
+be confirmed. Owner-scoped `GET /phone/transfer/{transfer_id}`, existing committed
+provider-effect settlement, notices and erasure fences remain supported. Release
+must drain older producer revisions; do not reverse historical committed effects.
 
-External unlink reserves the existing Firebase mutation journal in that same
-transaction and dispatches at most once. It never deletes or disables an identity,
-and does not explicitly revoke independent Google/Apple refresh sessions.
-`GET /api/account/phone/transfer/{transfer_id}` is owner-scoped and reports
-`not_started`, `in_progress`, `action_required`, or `completed`. Before reporting
-`not_started`, it expires the prepared intent under its row lock so a confirm
-still awaiting provider preflight cannot commit afterward. The spent proof receipt
-remains through the maximum five-minute proof window, including for the per-owner
-intent bound. A lost confirm response permits only status checks until
-authoritative readback. The hub worker
-resumes reserved effects, fairly scans uncertain receipts and reconciles local completion from the journal
-without replaying an uncertain POST. A transient provider read cannot settle an
-uncertain write or release its generation fence. An unchanged uncertain provider
-outcome needs operator reconciliation; the screen names support rather than
-claiming ongoing automatic completion. Account erasure waits for committed
-provider work so its recovery context cannot disappear. Existing deletion 202
-and cleanup-pending behavior remains authoritative.
-
-Phone-proven deletion of the linked account (migration 436) lets a signed-in
-person who proves possession of a number delete the account that currently holds
-it, then verify the number on their own account. One number belongs to one
-account. `POST /api/account/phone/linked-account/deletions` takes
-`{phone_number}` and always returns the same `prepared` shape: operation ID,
-`expires_at` (five minutes), a `••NN` hint from the submitted number and
-`transport`. Whether the number has a holder, or a protected one, is never
-revealed before proof. `POST /api/account/phone/linked-account/deletions/confirm`
-requires `operation_id`, the same `phone_number`, literal `confirmed: true` and
-exactly one proof: a fresh real-SMS `phone_id_token` (transfer-grade: Firebase
-phone provider, authentication within 300 seconds, not a provider fictional
-number, single-use authentication event) or, only for configured UAT fixture
-numbers outside any production runtime, the fixture `test_code`. Five wrong
-fixture codes cancel the operation. After proof the server rechecks the
-holder's exact binding (digest, binding revision, generation) under its locks,
-refuses reviewer fixtures (`PHONE_LINKED_ACCOUNT_PROTECTED`) and phone-only
-identities that could never be claimed afterwards
-(`PHONE_LINKED_DELETION_RECOVERY_REQUIRED`), records admission before dispatch,
-and runs the existing full-account erasure for the holder. The erasure's
-admission transaction rechecks the binding again under the holder's exclusive
-lifecycle locks; a moved number refuses with `PHONE_LINKED_DELETION_STALE` and
-commits nothing. Receipts are `admitted`, `refused` (with the existing deletion
-refusal codes) or `action_required`. A lost response is read back through
-`GET /api/account/phone/linked-account/deletions/{operation_id}`, which settles
-only from the committed full-account tombstone and never dispatches again;
-`POST …/{operation_id}/cancel` fences a prepared operation. The person then
-claims the number through the existing `/phone/claim` or `/phone/uat-test/*`
-writers. An explicit OTP claim is never blocked by a holder whose full-account
-deletion is committed: the canonical per-number writer detaches that dead
-binding atomically. Provisional phone-orphan intents and background provider
-hydration never release a binding. Production stays off until
-`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set; while off, the delete choice
-keeps the previous-account sign-in handoff.
-
-Native verification extends the existing isolated proof bridge rather than
-linking the primary Firebase user. Owner/attempt fences suppress stale native
-callbacks. Harmless rerenders, typing and background/foreground events do not
-start a challenge. Resend is explicit and retires the prior local challenge.
-Web reCAPTCHA keeps its React-owned host attached and creates a fresh SDK-owned
-child for each attempt. Clearing or retrying the SDK cannot detach React's
-insertion anchor when the OTP form changes to account-conflict recovery.
-Native Profile Close consults the same visit-scoped pending-operation guard as
-the phone flow; it cannot discard an uncertain transfer before status settles.
-No provider expiry countdown is invented. Native provider error mapping follows
-[Firebase's published error contract](https://docs.cloud.google.com/identity-platform/docs/error-codes);
-wrong code, provider-expired code, missing local session, ownership conflict and
-provider outage remain distinct.
-
-Migration `425` holds short-lived transfer receipts and independent hash-only
-retired-phone admission fences. Unsettled remote work blocks rollback; rollback
-removes its erasure trigger before the workflow table and retains security fences.
-The existing `AUTH_PHONE_RECOVERY_ENABLED` rollout flag and request-scoped auth
-traces are reused. Monitoring extends the existing auth failure metric, without
-phone/token labels. The existing verified-email gate sends static phone-link
-security notices after the binding commit; uncertain sends are not blindly replayed.
-
-Verification has separate lanes: focused unit/component tests, disposable
-PostgreSQL concurrency/rollback proof, generated UI/native contracts, hosted CI,
-deployment schema/provider qualification, and physical-device real-SMS journeys.
-Passing an earlier lane does not declare a later lane complete. Release requires
-Identity Platform config-read permission, permitted identity mutation authority,
-qualified migrations 425 and 428, existing alert delivery and real Web/iOS/Android SMS,
-resend, account-switch, outage and device-revocation rehearsals.
+Phone-proven linked-account deletion is disabled in every environment, even if
+`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set. Both new preparation and confirmation
+of old prepared operations refuse with `PHONE_LINKED_DELETION_UNAVAILABLE` before
+proof or erasure dispatch. A caller cannot delete another email account to claim
+its number. Historical linked-deletion status and cancellation remain available.
+The original owner may still independently sign in and use ordinary account
+deletion; no live account or existing phone binding is changed by this release.
 
 ## Private-pod memory processing consent
 
