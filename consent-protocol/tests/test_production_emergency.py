@@ -1,6 +1,8 @@
 """Explicit production incident authority and paired-baseline refusal boundaries."""
 
 import importlib
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -276,7 +278,7 @@ def test_auth_domain_refresh_pins_all_original_build_inputs(monkeypatch):
             module.pin_config(changed)
 
 
-def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch):
+def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch, tmp_path):
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
     source = (ROOT / ".github/workflows/deploy-production.yml").read_text()
     assert 'production_auth_domain_refresh.py" verify --receipt' in source
@@ -339,6 +341,61 @@ def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch):
     tagger = (ROOT / "scripts/ci/tag-last-known-good.sh").read_text()
     assert "production_backend_successor_control.py auth-publish" in tagger
     assert 'git push origin "refs/tags/${TAG}"' in tagger
+
+    capacity = next(
+        step
+        for step in steps
+        if step.get("name") == "Enforce production database connection budget before deployment"
+    )
+    assert capacity["env"]["AUTH_DOMAIN_REPAIR"] == final_gate["env"]["AUTH_DOMAIN_REPAIR"]
+    assert capacity["env"]["REQUESTED_SCOPE"] == "${{ inputs.scope }}"
+    # Execute the actual gate with command-only stand-ins: scope refusal must
+    # precede invocation, and ordinary/cold operations retain their reservations.
+    for name, body in (
+        ("timeout", '#!/bin/sh\nshift 3\nexec "$@"\n'),
+        ("python3", '#!/bin/sh\nprintf "%s\\n" "$*" > "$CAPTURE"\n'),
+    ):
+        path = tmp_path / name
+        path.write_text(body)
+        path.chmod(0o700)
+    cases = (
+        ({}, 0, "--no-candidates"),
+        ({"AUTH_DOMAIN_REPAIR": "false"}, 0, "--environment production"),
+        (
+            {"AUTH_DOMAIN_REPAIR": "false", "PHONE_DEPLOY_PHASE": "cold"},
+            0,
+            "--candidate-service consent-protocol",
+        ),
+        ({"REQUESTED_SCOPE": "all"}, 1, None),
+        ({"STAGED_WORKER_LOADED": "true"}, 1, None),
+        ({"STAGED_WORKER_LOADED": ""}, 1, None),
+    )
+    for index, (overrides, expected_code, suffix) in enumerate(cases):
+        capture = tmp_path / f"capacity-{index}"
+        environment = {
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "CAPTURE": str(capture),
+            "AUTH_DOMAIN_REPAIR": "true",
+            "REQUESTED_SCOPE": "frontend",
+            "PHONE_DEPLOY_PHASE": "standard",
+            "STAGED_WORKER_LOADED": "false",
+            "RESTORATION_RUN": "",
+            "PHONE_ROLLBACK_SHA": "",
+            **overrides,
+        }
+        result = subprocess.run(  # noqa: S603 - execute the checked-in workflow against local stubs
+            ["bash", "-c", capacity["run"]],
+            env=environment,
+            capture_output=True,
+            timeout=5,
+        )
+        assert result.returncode == expected_code
+        if suffix is None:
+            assert not capture.exists()
+        else:
+            assert capture.read_text().strip().endswith(suffix)
+            if overrides.get("AUTH_DOMAIN_REPAIR") == "false":
+                assert "--no-candidates" not in capture.read_text().split()
 
 
 def test_auth_domain_refresh_refuses_runtime_configuration_drift(monkeypatch):

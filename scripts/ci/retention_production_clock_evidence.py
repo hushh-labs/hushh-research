@@ -300,6 +300,9 @@ def qualify_guard_run(
             job,
             expected_diagnostic_sha256=record.diagnostic_sha256,
             clock_bound=True,
+            allow_clock_records=(
+                record.source_profile == "publication-aec6-blobless-v2"
+            ),
         )
     ):
         return None
