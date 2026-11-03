@@ -61,11 +61,7 @@
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
-      "ankitkumarsingh1702",
-      "DamriaNeelesh",
-      "imsharukhan"
+      "ankitkumarsingh1702"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -76,8 +72,27 @@
       "config/ci-governance.json",
       "config/protected-behaviors.json",
       "config/runtime-capacity.json",
-      "config/release-cadence.json"
-    ]
+      "config/release-cadence.json",
+      ".github/CODEOWNERS",
+      "AGENTS.md",
+      ".agents/instructions.md",
+      ".agents/README.md",
+      ".agents/config.toml",
+      ".agents/routing/",
+      ".agents/subagents/",
+      ".agents/workflows/",
+      ".agents/skills/repo-context/",
+      ".agents/skills/repo-operations/",
+      ".agents/skills/quality-contracts/",
+      ".agents/skills/security-audit/",
+      ".agents/skills/iam-consent-governance/",
+      ".agents/skills/agent-orchestration-governance/",
+      ".agents/skills/codex-skill-authoring/",
+      ".agents/skills/verify-before-claim/",
+      ".agents/skills/docs-governance/",
+      "docs/vision/agent-ontology.md"
+    ],
+    "require_code_owner_reviews": true
   },
   "pr_train": {
     "required_status_check": "CI Status Gate",
@@ -113,7 +128,8 @@
       "anoushkauoc",
       "Roopmann30",
       "imsharukhan"
-    ]
+    ],
+    "require_code_owner_reviews": true
   },
   "dev": {
     "environment": "dev",

@@ -57,7 +57,7 @@ MANIFEST_FILES = (
     "deploy/mail-api/package.json", "consent-protocol/pyproject.toml",
 )
 
-REQUIRED_JOBS = {
+LEGACY_REQUIRED_JOBS = {
     "Secret Scan",
     "DCO",
     "Governance",
@@ -77,6 +77,14 @@ REQUIRED_JOBS = {
     "Web Targeted Contracts (node)",
     *(f"Web Targeted Contracts (browser-{index}-of-4)" for index in (1, 2, 3, 4)),
 }
+REQUIRED_JOBS = {
+    name for name in LEGACY_REQUIRED_JOBS
+    if name != "Web Editor Performance (macOS)"
+    and not name.startswith("Web Full Suite (Vitest)")
+    and not name.startswith("Web Targeted Contracts (browser-")
+} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
+
 
 
 def require(value: object, message: str) -> None:
@@ -194,16 +202,41 @@ def _started(run: dict) -> tuple[datetime, int]:
         raise Refused("CI chronology is unavailable") from None
 
 
-def _exact_candidate_job(jobs, base, *, current=True):
+def _static_candidate_base_is_bound(job, base):
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return False
+    bound = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict)
+        and step.get("name") == f"Verify exact serving base ({base})"
+        and step.get("conclusion") == "success"
+    ]
+    source = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and step.get("name") == "Verify the exact UAT checkout"
+    ]
+    return len(bound) == 1 and len(source) == 1 and bound[0] < source[0]
+
+
+def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
     base_name = f"Exact UAT Candidate ({base})"
     matches = [
         job for job in jobs if job.get("name") in {"Exact UAT Candidate", base_name}
     ]
     require(
-        len(matches) == 1 and (not current or matches[0].get("name") == base_name),
+        len(matches) == 1,
         "UAT CI requires a unique successful qualification labelled with its exact serving base",
     )
-    return matches[0]
+    exact_job = matches[0]
+    if exact_job.get("name") == "Exact UAT Candidate" and not allow_legacy_static:
+        require(
+            _static_candidate_base_is_bound(exact_job, base),
+            "Static UAT CI qualification did not verify its exact serving base before source validation",
+        )
+    return exact_job
 
 
 
@@ -217,15 +250,20 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
         and inventory["total_count"] == len(jobs) <= 100,
         "UAT CI job inventory is incomplete",
     )
-    exact_job = _exact_candidate_job(jobs, base, current=current)
-    for name in REQUIRED_JOBS:
+    # Only historical serving receipts may use the prior immutable workflow's
+    # inventory. Current qualification requires the new release-core policy.
+    legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
+    exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
+    required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
+    for name in required_jobs:
         matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1
             and matches[0].get("run_id") == run_id
             and matches[0].get("head_sha") == candidate
             and matches[0].get("status") == "completed"
-            and matches[0].get("conclusion") == "success",
+            and (matches[0].get("conclusion") == "success"
+                 or (not legacy and name in OPTIONAL_NATIVE and matches[0].get("conclusion") == "skipped")),
             "UAT CI did not complete its exact-source and aggregate gates",
         )
         required_step = None
@@ -249,6 +287,11 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
         and exact_job.get("conclusion") == "success",
         "UAT CI did not complete its exact-source and aggregate gates",
     )
+    if not legacy:
+        policy_steps = [step for step in exact_job.get("steps", [])
+                        if step.get("name") == "Verify release-level core selection"]
+        require(len(policy_steps) == 1 and policy_steps[0].get("conclusion") == "success",
+                "Focused CI cannot establish release-level qualification")
     exact_steps = [
         step
         for step in exact_job.get("steps", [])
