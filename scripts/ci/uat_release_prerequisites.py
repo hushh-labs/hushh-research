@@ -90,13 +90,20 @@ def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=
         ):
             raise Refused("UAT scope does not identify an approved head's landed release PR")
         landed = pr["merge_commit_sha"]
+        try:
+            head_tree = git_identity("rev-parse", f"{head}^{{tree}}")
+        except Refused:
+            # Squashed/deleted branches may only retain the reviewed GitHub PR ref.
+            exact.git("fetch", "--no-tags", "--no-recurse-submodules", "origin", f"refs/pull/{number}/head")
+            if git_identity("rev-parse", "FETCH_HEAD") != head:
+                raise Refused("The retained GitHub UAT PR ref does not match the approved head") from None
+            head_tree = git_identity("rev-parse", f"{head}^{{tree}}")
         parent = git_identity("rev-parse", f"{landed}^1")
         comparison = git_identity("merge-base", "--all", parent, head)
         # Compare complete trees, including modes, generated files and removals.
         tree = git_identity("rev-parse", f"{prior}^{{tree}}")
         if (git_identity("rev-parse", f"{comparison}^{{tree}}") != tree
-                or git_identity("rev-parse", f"{head}^{{tree}}")
-                != git_identity("rev-parse", f"{landed}^{{tree}}")):
+                or head_tree != git_identity("rev-parse", f"{landed}^{{tree}}")):
             raise Refused("UAT candidate contains changes outside the approved PR delta against the serving base")
         prior = landed
     if prior != sha:
