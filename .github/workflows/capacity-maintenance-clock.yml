@@ -1,5 +1,5 @@
 name: "Schedule Capacity Maintenance"
-run-name: "Capacity clock · ${{ github.event_name }} · run ${{ github.run_number }}"
+run-name: "Capacity clock"
 
 # Makes Capacity Maintenance's hourly policy real without adding a run there
 # every hour. GitHub delivered only 3-6 of the 24 daily runs of its hourly
