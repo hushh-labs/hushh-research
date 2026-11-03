@@ -527,6 +527,16 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         owner.api.side_effect = api
         self.assertIsNotNone(self._qualify(case))
 
+    def test_settled_production_job_does_not_wait_for_other_environment(self):
+        case = self._case()
+        case[2].update(status="pending", conclusion=None)
+        self.assertIsNotNone(self._qualify(case))
+        case = self._case()
+        case[2].update(status="pending", conclusion=None)
+        case[3].update(status="in_progress", conclusion=None)
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(case)
+
     def test_later_main_worker_accepts_exact_profile_and_historic_clock_blobs(self):
         case = self._case()
         owner, _record, worker, job, _log, _blobs, clock = case

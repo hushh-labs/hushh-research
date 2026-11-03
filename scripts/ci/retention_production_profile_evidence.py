@@ -172,8 +172,7 @@ def _worker_is_exact(owner, repository, run, job):
         and run.get("path") == base.WORKFLOW
         and run.get("head_branch") == "main"
         and _valid_sha(run.get("head_sha"))
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "failure"
+        and __import__("retention_production_clock_evidence").settled_production_failure(run, job)
         and run.get("display_title") in WORKER_TITLES
         and _login(run, "actor") == "github-actions[bot]"
         and _login(run, "triggering_actor") == "github-actions[bot]"

@@ -28,6 +28,16 @@ CLOCK_WORKFLOW_BLOB = ("8f81156d0b980c19da5bbaf3187eb071e58b8af1", 9365)
 MAX_WAKE_TO_WORKER_SECONDS = 2
 
 
+def settled_production_failure(run, job):
+    """An independent queued UAT job cannot reopen a settled production job."""
+    workflow_state = (
+        (run.get("status") == "completed" and run.get("conclusion") == "failure")
+        or (run.get("status") in {"pending", "queued", "waiting", "in_progress"}
+            and run.get("conclusion") is None)
+    )
+    return workflow_state and job.get("status") == "completed" and job.get("conclusion") == "failure"
+
+
 def _strict_int_equals(value, expected):
     return type(value) is int and type(expected) is int and value == expected
 
@@ -182,8 +192,7 @@ def _clock_bound_run_matches(
     return bool(
         repository == base.REPOSITORY
         and _strict_int_equals(run.get("run_attempt"), 1)
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "failure"
+        and settled_production_failure(run, job)
         and run.get("path") == base.WORKFLOW
         and run.get("head_branch") == "main"
         and run.get("event") == "repository_dispatch"
