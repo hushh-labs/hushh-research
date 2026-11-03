@@ -296,7 +296,6 @@ Never rename required job/check contexts for cosmetic consistency.
 | Family | Workflow files | Purpose / trigger |
 | --- | --- | --- |
 | Validation | `ci.yml`, `queue-validation.yml`, `main-post-merge-smoke.yml` | PR checks; identical-tree queue reuse; landed-main smoke. No duplicate full suite in the queue |
-| Readiness exam | `readiness-exam.yml` | Main-owned pre-merge counterpart of the UAT provider exam: `pull_request_target` on anchored instruction files plus maintainer controls; Main's graders read PR text as data under a probe-only identity; advisory until promoted |
 | Deployment | `deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml` | Governed manual exact-SHA deployment through existing shared build/provenance helpers |
 | Scoped compatibility deployment | `deploy-uat-one-chat.yml` | Explicit backend cutover with its own capacity/recovery contract; no schedule or automatic deployment |
 | Native releases | `ship-ios-testflight.yml`, `release-ios-appstore.yml`, `ship-android-playstore-v1.yml`, `resume-ios-testflight.yml` | Explicit release or continuation of a known upload; recovery does not rebuild/upload again |
@@ -1171,11 +1170,9 @@ Rerunning PR validation does not create another workflow. Historical receipt rea
 remain for retained evidence; they do not establish new deployment clearance.
 Synchronize an old feature branch with its destination before retrying legacy CI.
 Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
-`pull_request_target` event to avoid visible workflow entries. The one sanctioned
-privileged `pull_request_target` workflow is `readiness-exam.yml`: it checks out
-only Main, reads PR files as data through the contents API and never installs or
-runs them. `scripts/ci/test_readiness_exam_workflow.py` pins that boundary and
-refuses deploy environments in every PR-triggered workflow.
+`pull_request_target` event to avoid visible workflow entries. Automatic AI review, including the Readiness Exam, is removed. Product/provider
+qualification remains an explicitly selected release operation, not a PR reviewer.
+Retained probe identities remain constrained until their credentials are retired.
 
 
 ## Advisory Checks (Non-Blocking By Default)
@@ -1948,3 +1945,17 @@ before selection; dev and production retain their predeployment Vertex gate.
 Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core, targeted Node/browser contracts and affected Web Unit Contracts.
 
 Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.
+
+### Focused browser and unit selection
+
+Known backend, contract and package paths keep their existing verification owner;
+explicit browser-pack matches still take precedence. Unknown application impact
+or failed planning retains conservative browser coverage. Global CSS changes
+require the normal compile path, without expanding the unit suite. Authored route
+contracts and the generated route/cache manifests feed the unit dependency graph.
+
+The protected-document and phone browser contract selects both Linux Chromium
+and native macOS WebKit from the same `document` decision. Styling and unrelated
+application changes do not select that macOS job. Parameterized browser identities
+are partitioned by engine, so adding a fixture parameter cannot move a WebKit case
+onto Linux. Release qualification retains both engines.

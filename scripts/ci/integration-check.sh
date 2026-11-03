@@ -34,7 +34,11 @@ bash "$REPO_ROOT/scripts/ci/account-deletion-check.sh"
 # A new hosted path cannot pass on mocked component success or direct SQL-paid
 # assignment. These loops use production clients, routes and PostgreSQL: protected
 # document delivery plus phone recovery, erasure and device-action admission.
-bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh" "$document_mode"
+case "${CI_DOCUMENT_CONTRACT_REQUIRED:-true}" in
+  true) bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh" "$document_mode" ;;
+  false) echo 'Protected document and phone browser contracts are unchanged.' ;;
+  *) echo 'Invalid document contract selection.' >&2; exit 64 ;;
+esac
 
 # Expensive zero-loss rehearsal belongs only to PKM upgrade compatibility
 # changes. GitHub workflows resolve this through the canonical changed-SHA

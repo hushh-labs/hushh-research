@@ -233,6 +233,8 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         ("hushh-webapp/lib/voice/voice-session.ts\nconsent-protocol/tests/test_phone.py\nhushh-webapp/contracts/ui-review/back/review.json", "false"),
         ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/tests/test_phone.py", "true"),
         ("consent-protocol/tests/test_phone.py", "false"),
+        ("consent-protocol/hushh_mcp/services/advisor_review_service.py", "false"),
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/api/routes/one/finance_sharing.py", "true"),
     ):
         code, values, calls, output = _browser_plan(changed)
         assert code == 0, output[-2000:]
