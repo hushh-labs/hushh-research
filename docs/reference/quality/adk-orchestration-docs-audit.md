@@ -234,6 +234,18 @@ forward, including update/removal, hosted-memory recovery and delete/re-enroll
 cycles. This candidate and the owner chat receipts above do not close those
 items; reuse prior evidence only when its owner, image and lifecycle match.
 
+### Current execution checkpoint — 3 November 2026 UTC
+
+The Dev owner-pilot candidate is PR [#8782](https://github.com/hushh-labs/hushh-research/pull/8782), head `c9d8ca92fe45f0a9b6d31f959d2190e84716fce3`. It contains the explicit Dev owner-only custody profile, journaled provider-account transition and effective-account resolution in new forward migrations 982/983, and report-first operator inventory/actions. The existing live ledger remains at 981; these migrations have not been applied. No owner service or image has been changed. Managed acceptance remains 0/2.
+
+The initial exact CI run found one candidate-specific synthetic replay failure: the unattested local fixture replayed Dev-cluster-pinned migrations 982/983. Commit `11cbf001a3` excludes only those migrations from that synthetic fixture; the accepted-Dev replay and separate Dev-custody qualification each passed locally. The Linux integration harness also installed Chromium while selecting two existing WebKit phone cases. Commit `c9d8ca92fe` corrects the engine selection; the focused harness suite passed 10 tests and shell syntax/diff checks passed. Exact-head CI `41587311174` is running for the current candidate.
+
+Eleven other Protocol workflow-contract failures from the earlier exact run were reproduced on clean `origin/dev` `577f1d2a05b601bec2ffdbb32f23c213fc9e37e0`. They assert UAT/production or Main-owned Dev workflow steps absent from that Dev baseline. Keep those failures classified as existing Dev CI debt; do not change UAT/production release behavior in this pilot. The current exact run must confirm whether those baseline failures remain after the targeted corrections. A red required check blocks merge and deployment.
+
+Main workflow PR [#8784](https://github.com/hushh-labs/hushh-research/pull/8784), head `d8880f3ec2e839181f56f3d16cefa76ad5c01d72`, carries the capability-gated Dev custody profile into Main-owned deploy workflow and the same narrow Linux browser-install correction. Its focused local workflow suite passed 13 tests; the harness suite passed 10, and actionlint/Ruff/shell syntax checks passed. Exact-head CI `41587284546` is running. Merge and Main Post-Merge Smoke remain separate required gates; this change does not deploy application source.
+
+No Dev schema, IAM, billing, project, Cloud Run, owner-session, or browser mutation has been performed for this candidate. Existing GCP/Azure owner-cloud receipts remain the latest evidence and are not a fresh post-candidate acceptance. The model dropdown implementation reads the connected owner runtime's advertised provider/model; its 13 focused UI/service tests passed previously, but live display is not yet verified against this candidate. Dev acceptance remains operationally blocked on exact CI and governed release, not on a new architecture decision.
+
 ## Previous release decision — 27 October 2026
 
 **Production recovery is verified. Release-system activation and installed-owner
