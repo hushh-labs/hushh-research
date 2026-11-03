@@ -53,6 +53,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
+        "scripts/ci/integration-check.sh",
         "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
