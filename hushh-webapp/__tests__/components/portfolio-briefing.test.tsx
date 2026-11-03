@@ -29,8 +29,9 @@ describe("portfolio briefing", () => {
     expect(open).toHaveBeenCalledOnce();
     unmount();
     render(<PortfolioAnalysis model={model} source="Statement" />);
-    expect(screen.getByText("Value history", { selector: "dt" }).nextElementSibling?.textContent).toBe("Unavailable");
-    expect(screen.getByText(/Larger · 90.0%/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Balance history" })).toBeTruthy();
+    expect(screen.getByText("No dated balances for this portfolio.")).toBeTruthy();
+    expect(screen.getByText("Larger", { selector: "dt" }).nextElementSibling?.textContent).toBe("90.0%");
   });
   it("shows saved positions and allocation without inventing performance contributions", () => {
     const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [

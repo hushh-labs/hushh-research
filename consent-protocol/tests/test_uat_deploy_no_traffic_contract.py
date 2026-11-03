@@ -1816,14 +1816,23 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
             and 'echo "status=$STATUS" >> "$GITHUB_OUTPUT"' in status[0].get("run", "")
             and "steps.release-status.outputs.status || 'unknown'" in summary[0].get("run", "")
             and "|| 'unknown'" in summary[0].get("run", "")
-            and failure[0].get("if") == "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
+            and failure[0].get("if")
+            == (
+                "always() && (inputs.frontend_auth_domain_refresh || "
+                "env.PHONE_DEPLOY_PHASE != 'cold')"
+            )
             and 'if [ "$STATUS" = pending_activation ]; then' in failure[0].get("run", "")
             and 'if [ "$STATUS" != "healthy" ]; then' in failure[0].get("run", "")
             and 'echo "Production release did not end healthy."' in failure[0].get("run", "")
         )
 
     assert is_fail_closed(yaml.safe_load(workflow))
-    for mutation in ("inverted_classification", "healthy_default", "inverted_guard"):
+    for mutation in (
+        "inverted_classification",
+        "healthy_default",
+        "inverted_guard",
+        "missing_auth_repair",
+    ):
         changed = yaml.safe_load(workflow)
         status = next(
             step
@@ -1842,11 +1851,13 @@ def test_production_release_result_fails_closed_on_upstream_or_missing_classific
             )
         elif mutation == "healthy_default":
             status["run"] = status["run"].replace('STATUS="blocked"', 'STATUS="healthy"', 1)
-        else:
+        elif mutation == "inverted_guard":
             guard["run"] = guard["run"].replace(
                 'if [ "$STATUS" != "healthy" ]; then',
                 'if [ "$STATUS" = "healthy" ]; then',
             )
+        else:
+            guard["if"] = "env.PHONE_DEPLOY_PHASE != 'cold' && (always())"
         assert not is_fail_closed(changed)
     misleading = yaml.safe_load(workflow)
     summary = next(

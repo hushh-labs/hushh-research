@@ -57,7 +57,7 @@ MANIFEST_FILES = (
     "deploy/mail-api/package.json", "consent-protocol/pyproject.toml",
 )
 
-REQUIRED_JOBS = {
+LEGACY_REQUIRED_JOBS = {
     "Secret Scan",
     "DCO",
     "Governance",
@@ -77,6 +77,14 @@ REQUIRED_JOBS = {
     "Web Targeted Contracts (node)",
     *(f"Web Targeted Contracts (browser-{index}-of-4)" for index in (1, 2, 3, 4)),
 }
+REQUIRED_JOBS = {
+    name for name in LEGACY_REQUIRED_JOBS
+    if name != "Web Editor Performance (macOS)"
+    and not name.startswith("Web Full Suite (Vitest)")
+    and not name.startswith("Web Targeted Contracts (browser-")
+} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
+
 
 
 def require(value: object, message: str) -> None:
@@ -194,20 +202,45 @@ def _started(run: dict) -> tuple[datetime, int]:
         raise Refused("CI chronology is unavailable") from None
 
 
-def _exact_candidate_job(jobs, base):
-    legacy_name = f"Exact UAT Candidate ({base})"
+def _static_candidate_base_is_bound(job, base):
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return False
+    bound = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict)
+        and step.get("name") == f"Verify exact serving base ({base})"
+        and step.get("conclusion") == "success"
+    ]
+    source = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and step.get("name") == "Verify the exact UAT checkout"
+    ]
+    return len(bound) == 1 and len(source) == 1 and bound[0] < source[0]
+
+
+def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
+    base_name = f"Exact UAT Candidate ({base})"
     matches = [
-        job for job in jobs if job.get("name") in {"Exact UAT Candidate", legacy_name}
+        job for job in jobs if job.get("name") in {"Exact UAT Candidate", base_name}
     ]
     require(
         len(matches) == 1,
-        "UAT CI did not complete its exact-source and aggregate gates",
+        "UAT CI requires a unique successful qualification labelled with its exact serving base",
     )
-    return matches[0]
+    exact_job = matches[0]
+    if exact_job.get("name") == "Exact UAT Candidate" and not allow_legacy_static:
+        require(
+            _static_candidate_base_is_bound(exact_job, base),
+            "Static UAT CI qualification did not verify its exact serving base before source validation",
+        )
+    return exact_job
 
 
 
-def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
+def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory = api.read(f"{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     jobs = inventory.get("jobs")
@@ -217,15 +250,20 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
         and inventory["total_count"] == len(jobs) <= 100,
         "UAT CI job inventory is incomplete",
     )
-    exact_job = _exact_candidate_job(jobs, base)
-    for name in REQUIRED_JOBS:
+    # Only historical serving receipts may use the prior immutable workflow's
+    # inventory. Current qualification requires the new release-core policy.
+    legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
+    exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
+    required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
+    for name in required_jobs:
         matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1
             and matches[0].get("run_id") == run_id
             and matches[0].get("head_sha") == candidate
             and matches[0].get("status") == "completed"
-            and matches[0].get("conclusion") == "success",
+            and (matches[0].get("conclusion") == "success"
+                 or (not legacy and name in OPTIONAL_NATIVE and matches[0].get("conclusion") == "skipped")),
             "UAT CI did not complete its exact-source and aggregate gates",
         )
         required_step = None
@@ -249,6 +287,11 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
         and exact_job.get("conclusion") == "success",
         "UAT CI did not complete its exact-source and aggregate gates",
     )
+    if not legacy:
+        policy_steps = [step for step in exact_job.get("steps", [])
+                        if step.get("name") == "Verify release-level core selection"]
+        require(len(policy_steps) == 1 and policy_steps[0].get("conclusion") == "success",
+                "Focused CI cannot establish release-level qualification")
     exact_steps = [
         step
         for step in exact_job.get("steps", [])
@@ -281,7 +324,7 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
 
 
 
-def _latest_attempt_inventory(api, candidate, run_id, attempt):
+def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory_path = f"{prefix}/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch&head_sha={candidate}&per_page=100"
     rows = api.read(inventory_path)
@@ -297,6 +340,22 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt):
         for item in runs
         if item.get("head_sha") == candidate and item.get("head_branch") == "uat"
     ]
+    if not current:
+        # Historical serving acceptance binds one immutable successful run. A
+        # different CI run cannot revoke it, but a rerun of this very run must
+        # still corroborate the pinned attempt even if /runs/{id} is stale.
+        pinned = [item for item in relevant if item.get("id") == run_id]
+        require(
+            len(pinned) == 1
+            and type(pinned[0].get("id")) is int
+            and type(pinned[0].get("run_attempt")) is int
+            and pinned[0]["run_attempt"] == attempt,
+            "Historical UAT CI pinned attempt is missing or superseded",
+        )
+        return inventory_path, {
+            key: pinned[0].get(key)
+            for key in ("id", "run_attempt", "head_sha", "head_branch")
+        }
     attempts = []
     for item in relevant:
         identifier, current_attempt = item.get("id"), item.get("run_attempt")
@@ -323,7 +382,7 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt):
 
 
 def verify_attempt(
-    api: GitHub, candidate: str, base: str, run_id: int, attempt: int
+    api: GitHub, candidate: str, base: str, run_id: int, attempt: int, *, current=True
 ) -> dict:
     require(SHA.fullmatch(candidate), "Full application SHA is required")
     require(SHA.fullmatch(base), "Full UAT serving-base SHA is required")
@@ -347,17 +406,25 @@ def verify_attempt(
         and run.get("conclusion") == "success",
         "UAT CI is not a successful exact-branch dispatch",
     )
-    _verify_run_jobs(api, run, candidate, base, run_id, attempt)
-    inventory_path, rows = _latest_attempt_inventory(api, candidate, run_id, attempt)
-    current = verify_source(
+    _verify_run_jobs(api, run, candidate, base, run_id, attempt, current=current)
+    inventory_path, rows = _latest_attempt_inventory(
+        api, candidate, run_id, attempt, current=current
+    )
+    rechecked_source = verify_source(
         api.read,
         REPOSITORY,
         {"run_id": run_id, "attempt": attempt, "head_sha": candidate},
     )
     require(
-        current == source
+        rechecked_source == source
         and api.read(f"{prefix}/runs/{run_id}") == run
-        and api.read(inventory_path) == rows,
+        and (
+            api.read(inventory_path) == rows
+            if current
+            else _latest_attempt_inventory(
+                api, candidate, run_id, attempt, current=False
+            )[1] == rows
+        ),
         "UAT CI changed during verification",
     )
     return {"run_id": run_id, "run_attempt": attempt}
@@ -371,7 +438,10 @@ def verify_predecessor(prior: dict, *, current: bool) -> None:
     api = GitHub(REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     if current:
         require_protected_tip(api, candidate)
-    verify_attempt(api, candidate, prior["base_sha"], prior["run_id"], prior["run_attempt"])
+    verify_attempt(
+        api, candidate, prior["base_sha"], prior["run_id"], prior["run_attempt"],
+        current=current,
+    )
     if current:
         require_protected_tip(api, candidate)
 

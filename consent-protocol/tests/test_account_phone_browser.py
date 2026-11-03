@@ -337,7 +337,9 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
             elif scenario == "delete_linked":
                 await _assert_linked_deleted(conn, recorded, baseline)
             else:
-                await _assert_preserved(conn, recorded, baseline, scenario)
+                await _assert_preserved(
+                    conn, recorded, baseline, scenario, recovery_action="delete"
+                )
         outcomes.append(scenario)
         return {"persisted": True}
 

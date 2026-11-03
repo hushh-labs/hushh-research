@@ -24,7 +24,22 @@ def attempt_run(candidate: str) -> dict:
     }
     return run
 
-def attempt_jobs(candidate: str, base: str, exact_name: str | None = None) -> list[dict]:
+
+def attempt_check(candidate: str) -> dict:
+    return {
+        "name": "Branch Validation Gate", "head_sha": candidate,
+        "status": "completed", "conclusion": "success",
+        "app": {"id": 15368, "slug": "github-actions"},
+        "check_suite": {"id": 77},
+    }
+
+def attempt_jobs(
+    candidate: str,
+    base: str,
+    exact_name: str | None = None,
+    *,
+    bind_static_base: bool = True,
+) -> list[dict]:
     exact_name = exact_name or f"Exact UAT Candidate ({base})"
     jobs = [
         {
@@ -54,6 +69,16 @@ def attempt_jobs(candidate: str, base: str, exact_name: str | None = None) -> li
         )
         if step:
             job["steps"] = [{"name": step, "conclusion": "success"}]
+        if name == exact_name:
+            if exact_name == "Exact UAT Candidate" and bind_static_base:
+                job["steps"].insert(
+                    0,
+                    {
+                        "name": f"Verify exact serving base ({base})",
+                        "conclusion": "success",
+                    },
+                )
+            job["steps"].append({"name": "Verify release-level core selection", "conclusion": "success"})
         if name == "Branch Validation Gate":
             job["check_run_url"] = (
                 f"https://api.github.com/repos/{subject.REPOSITORY}/check-runs/10"

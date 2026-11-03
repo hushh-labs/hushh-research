@@ -8705,7 +8705,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "flow",
-        "exemption_reason": "Finance introduction and source selection share the existing fullscreen setup coordinator.",
+        "exemption_reason": "Finance introduction, investing preferences and source selection share the existing fullscreen setup coordinator.",
         "shell_verification_file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
         "shell_verification_includes": [
           "FullscreenFlowShell"
@@ -8717,7 +8717,7 @@
           "playbook_id": "route.one.setup.finance",
           "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
           "screen": "one_setup_finance",
-          "entry_cue": "Explore the introduction or skip to portfolio sources.",
+          "entry_cue": "Explore the introduction, then answer or skip investing preferences.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_finance",
           "happy_path_action_ids": [
@@ -9927,7 +9927,7 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
-        "phone_mandate.recover",
+        "phone_mandate.review_previous_deletion",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",
         "phone_mandate.submit_number"
@@ -11052,5 +11052,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "7edce226c1504420d6ae25a64e30a4db681d033914cdce6eaa8d3313c4ce18f3"
+  "content_sha256": "f84bacca1ce9c7e61171b8577d7cee5c9a78d88de376f5e568779b9dae5553fe"
 }

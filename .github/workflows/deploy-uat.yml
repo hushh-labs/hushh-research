@@ -1,9 +1,17 @@
 name: Deploy to UAT
-run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }} · scope ${{ inputs.scope || 'auto' }}
+run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
 
 on:
   workflow_dispatch:
     inputs:
+      operation:
+        description: "Inspect prerequisites without deploying, or deploy a qualified application"
+        required: true
+        default: deploy
+        type: choice
+        options:
+          - deploy
+          - inspect
       target:
         description: "Standard shared UAT deployment"
         required: true
@@ -30,11 +38,11 @@ on:
         required: false
         type: string
       ci_run_attempt:
-        description: "Current successful attempt of that UAT validation run"
+        description: "Required for deploy: current successful attempt (inspection supplies this)"
         required: false
         type: string
       ci_base_sha:
-        description: "Serving UAT application SHA used for exact-source validation"
+        description: "Required for deploy: qualified serving-base SHA (inspection supplies this)"
         required: false
         type: string
       backend_image_source:
@@ -116,15 +124,58 @@ env:
 concurrency:
   # Backend candidates share one admission queue. Explicit frontend-only
   # requests can proceed while backend revisions finish draining.
-  group: uat-release-requests-${{ inputs.scope == 'frontend' && 'frontend' || 'backend' }}
+  group: uat-release-requests-${{ inputs.operation == 'inspect' && 'inspect' || inputs.scope == 'frontend' && 'frontend' || 'backend' }}
   cancel-in-progress: false
   queue: max
 
 jobs:
+  inspect-prerequisites:
+    name: Inspect UAT prerequisites (no deployment)
+    if: inputs.operation == 'inspect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Assert inspection originates from main
+        run: test "$GITHUB_REF_NAME" = main
+      - name: Checkout Main inspection tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Assert manual UAT dispatch actor policy
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+      - name: Refuse release overrides before authentication
+        env:
+          WORKFLOW_INPUTS: ${{ toJSON(inputs) }}
+        run: python3 scripts/ci/uat_release_prerequisites.py validate-inspection
+      - name: Authenticate for read-only UAT observations
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+      - name: Inspect protected candidate and current exact-source CI
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHORITY_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"
+
   deployment-security:
     name: Deployment security
     needs: select-target
-    if: needs.select-target.outputs.decision != 'NO_OP'
+    if: inputs.operation != 'inspect' && needs.select-target.outputs.decision != 'NO_OP'
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
@@ -135,6 +186,7 @@ jobs:
 
   select-target:
     name: Select UAT target
+    if: inputs.operation != 'inspect'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -194,6 +246,19 @@ jobs:
           fi
           python3 scripts/ci/uat_application_selection.py \
             --scope "${{ inputs.scope }}" --github-output --allow-no-op
+
+      - name: Validate exact-source qualification before release jobs
+        if: steps.resolve-sha.outputs.decision != 'NO_OP'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+        run: |
+          python3 scripts/ci/uat_release_prerequisites.py validate-deployment \
+            --sha "$APPLICATION_SHA" --ci-run-id "$CI_RUN_ID" \
+            --ci-attempt "$CI_ATTEMPT" --base-sha "$CI_BASE_SHA"
 
       - name: Validate one-time Vertex probe exception
         if: inputs.skip_managed_vertex_probe_once
@@ -1137,6 +1202,12 @@ jobs:
               --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
               --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           fi
+
+      # A skipped boundary plus skipped mutators can prove a failed attempt
+      # never changed runtime state. Any attempted boundary remains conservative.
+      - name: Begin UAT runtime mutation
+        id: begin-uat-mutation
+        run: echo 'UAT runtime mutation boundary entered'
 
       - name: Sync canonical hosted runtime secrets
         shell: bash
@@ -2375,8 +2446,18 @@ jobs:
         working-directory: hushh-webapp
         env:
           UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}
+          BACKEND_CANDIDATE_URL: ${{ steps.backend-candidate-state.outputs.backend_candidate_url }}
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
         run: |
           set -euo pipefail
+          if [ "${DEPLOY_BACKEND}" = "true" ]; then
+            # Warm the same tagged backend the zero-traffic frontend will call.
+            # A cold instance can outlast the reviewer's 30-second proxy deadline.
+            test -n "${BACKEND_CANDIDATE_URL}"
+            curl --fail --silent --show-error --max-time 120 \
+              "${BACKEND_CANDIDATE_URL%/}/health/ready" |
+              jq -e '.status == "ready"' >/dev/null
+          fi
           reviewer_uid="$(gcloud secrets versions access latest \
             --secret=REVIEWER_UID \
             --project="${{ env.GCP_PROJECT_ID }}")"
@@ -2408,7 +2489,7 @@ jobs:
           fi
 
       - name: Remove zero-traffic frontend analytics candidate tag
-        if: always() && steps.scope.outputs.deploy_frontend == 'true'
+        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -2442,7 +2523,7 @@ jobs:
           fi
 
       - name: Restore canonical frontend backend bindings
-        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success'
+        if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-frontend.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3138,7 +3219,7 @@ jobs:
 
       - name: Roll back backend revision
         id: rollback-backend
-        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3234,7 +3315,7 @@ jobs:
 
       - name: Roll back frontend revision
         id: rollback-frontend
-        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3463,7 +3544,7 @@ jobs:
 
       - name: Deploy and attest private Drive worker
         id: deploy-drive-worker
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         env:
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
@@ -3504,7 +3585,7 @@ jobs:
 
       - name: Verify paused Drive maintenance unchanged
         id: verify-paused-drive-maintenance
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3526,7 +3607,7 @@ jobs:
 
       - name: Pause Data packets scheduler when UAT activation is off
         id: pause-drive-groups
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-drive-worker.outcome == 'success'
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker != true && vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.deploy-drive-worker.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3539,7 +3620,7 @@ jobs:
 
       - name: Deploy isolated V1 Drive worker while legacy jobs stay paused
         id: deploy-drive-v1-worker
-        if: always() && !cancelled() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && (inputs.preserve_paused_drive_worker != true || steps.verify-paused-drive-maintenance.outcome == 'success') && (inputs.preserve_paused_drive_worker == true || steps.deploy-drive-worker.outcome == 'success') && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success'
+        if: always() && !cancelled() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && (inputs.preserve_paused_drive_worker != true || steps.verify-paused-drive-maintenance.outcome == 'success') && (inputs.preserve_paused_drive_worker == true || steps.deploy-drive-worker.outcome == 'success') && steps.activate-account-deletion.outcome == 'success' && steps.activate-personal-gmail-monitor.outcome == 'success' && steps.activate-pwm-notifications.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         env:
           DRIVE_WORK_DRAIN_ENABLED: ${{ vars.DRIVE_V1_WORK_DRAIN_UAT_ENABLED || 'true' }}
@@ -3591,7 +3672,7 @@ jobs:
 
       - name: Verify legacy paused Drive state after V1 rollout
         id: verify-paused-drive-after-v1
-        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success'
+        if: always() && !cancelled() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3609,7 +3690,7 @@ jobs:
 
       - name: Restore V1 lane if paired paused-state gate failed
         id: restore-drive-v1-after-postgate
-        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success' && steps.verify-paused-drive-after-v1.outcome != 'success'
+        if: always() && inputs.preserve_paused_drive_worker == true && steps.deploy-drive-v1-worker.outcome == 'success' && steps.verify-paused-drive-after-v1.outcome != 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3618,7 +3699,7 @@ jobs:
 
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3629,7 +3710,7 @@ jobs:
 
       - name: Verify isolated V1 lane rollback after failed rollout
         id: verify-drive-v1-worker-rollback
-        if: always() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && (inputs.preserve_paused_drive_worker == true || vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true') && steps.deploy-drive-v1-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3642,7 +3723,7 @@ jobs:
 
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && ((inputs.preserve_paused_drive_worker == true && (steps.verify-paused-drive-maintenance.outcome != 'success' || steps.deploy-drive-v1-worker.outcome != 'success' || steps.verify-paused-drive-after-v1.outcome != 'success')) || (inputs.preserve_paused_drive_worker != true && (steps.deploy-drive-worker.outcome != 'success' || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED != 'true' && steps.pause-drive-groups.outcome != 'success'))) || (vars.DRIVE_FOUR_GROUP_INDEX_UAT_ENABLED == 'true' && steps.deploy-drive-v1-worker.outcome != 'success')) && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -3653,7 +3734,7 @@ jobs:
 
       - name: Verify Drive scheduler after worker failure
         id: verify-drive-worker-scheduler-rollback
-        if: always() && inputs.preserve_paused_drive_worker != true && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && inputs.preserve_paused_drive_worker != true && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3946,7 +4027,7 @@ jobs:
           PY
 
       - name: Produce exact-SHA UAT acceptance
-        if: always()
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped'
         run: |
           python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
             --environment uat --status /tmp/uat-release-status.json \
@@ -3954,7 +4035,7 @@ jobs:
             --output /tmp/uat-acceptance/acceptance.json
 
       - name: Upload immutable UAT acceptance
-        if: always()
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped'
         uses: actions/upload-artifact@v6
         with:
           name: release-acceptance-uat-${{ github.run_id }}-${{ github.run_attempt }}
@@ -3964,7 +4045,7 @@ jobs:
       - name: Cancel an unused parallel frontend image build
         # Hygiene only: a release that stopped before the frontend deploy leaves
         # the web build running. It never affects release classification.
-        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success'
+        if: always() && steps.start-frontend-image-build.outputs.build_id != '' && steps.build-frontend-image.outcome != 'success' && steps.begin-uat-mutation.outcome != 'skipped'
         continue-on-error: true
         shell: bash
         env:
@@ -4151,7 +4232,7 @@ jobs:
 
       - name: Tag this release as last known good
         id: tag-last-known-good
-        if: always()
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped'
         # Advisory annotation, not a release-health signal: the deploy above
         # already succeeded and classified healthy by this point. A tagging
         # failure (e.g. a transient push conflict) must never turn a healthy
@@ -4179,7 +4260,7 @@ jobs:
           bash scripts/ci/tag-last-known-good.sh
 
       - name: Retire old UAT revision tags after a healthy release
-        if: always()
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         env:
           BACKEND_CURRENT: ${{ steps.final-state.outputs.backend_revision }}

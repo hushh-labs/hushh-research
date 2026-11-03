@@ -1162,11 +1162,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                          WHERE r.status = 'answering'
                            AND r.answer_deadline_at IS NOT NULL
                            AND r.answer_deadline_at < clock_timestamp()
-                           -- NOT EXISTS, not a LEFT JOIN: Postgres refuses
-                           -- FOR UPDATE on the nullable side of an outer join.
-                           AND NOT EXISTS (
-                             SELECT 1 FROM pkm_answer_deliveries d
-                             WHERE d.request_id = r.request_id)
+                           -- An unreleased stage can remain after receiving-key
+                           -- recovery. Only 'answered' proves delivery; staging
+                           -- must not prevent the paid deadline refund.
                          ORDER BY r.answer_deadline_at
                          LIMIT :limit FOR UPDATE SKIP LOCKED)
                        RETURNING request_id"""

@@ -84,3 +84,59 @@ async def revoke_staged_key_and_check_checkout(answer_engine, payments, request,
     assert (await payments.get_payment(requester_user_id=requester, request_id=request))[
         "preparationStatus"
     ] != "ready"
+
+
+async def assert_key_recovery_refund(
+    requests, engine, request, recovery, envelope, owner, requester
+):
+    from hushh_mcp.services.pkm_answer_request_service import AnswerRequestError
+
+    if recovery == "timeout":
+        with engine.begin() as connection:
+            connection.execute(
+                text("""UPDATE pkm_answer_requests
+                        SET answer_deadline_at=clock_timestamp()-interval '1 hour'
+                        WHERE request_id=:r"""),
+                {"r": request},
+            )
+        assert await requests.expire_overdue() == {"expired": 1, "refunds_filed": 1}
+        expected_status, reason = "expired", "answer_timeout"
+    else:
+        # Revocation still rejects delivery to the old key, even for an empty answer.
+        with pytest.raises(AnswerRequestError, match="invalid_envelope"):
+            await requests.deliver(
+                owner_user_id=owner, request_id=request, envelope=envelope, has_content=False
+            )
+        assert await requests.deliver(
+            owner_user_id=owner,
+            request_id=request,
+            envelope={**envelope, "recipientKeyId": "replacement-key"},
+            has_content=False,
+        ) == {"delivered": True, "hasContent": False}
+        expected_status, reason = "answered", "empty_answer"
+    assert await requests.expire_overdue() == {"expired": 0, "refunds_filed": 0}
+    with engine.connect() as connection:
+        row = (
+            connection.execute(
+                text("""SELECT r.status, o.owner_earning_status, f.reason,
+                           d.recipient_key_id, d.has_content
+                    FROM pkm_answer_requests r
+                    JOIN pkm_answer_payment_orders o USING(request_id)
+                    JOIN pkm_answer_payment_refunds f USING(request_id)
+                    JOIN pkm_answer_deliveries d USING(request_id)
+                    WHERE r.request_id=:r"""),
+                {"r": request},
+            )
+            .mappings()
+            .one()
+        )
+    assert row["status"] == expected_status
+    assert row["owner_earning_status"] == "none"
+    assert row["reason"] == reason
+    if recovery == "empty":
+        assert row["recipient_key_id"] == "replacement-key" and row["has_content"] is False
+        fetched = await requests.fetch_answer(requester_user_id=requester, request_id=request)
+        assert fetched["hasContent"] is False and fetched["recipientKeyId"] == "replacement-key"
+    else:
+        with pytest.raises(AnswerRequestError, match="answer_unavailable"):
+            await requests.fetch_answer(requester_user_id=requester, request_id=request)

@@ -79,8 +79,8 @@ STAGE_RECIPIENT_DELIVERY = """INSERT INTO pkm_answer_deliveries
                               AND EXCLUDED.source_revisions ? '_composition_receipt')
                            OR (NOT EXCLUDED.has_content
                                AND NOT pkm_answer_deliveries.source_revisions ? '_composition_receipt')
-                           OR (EXCLUDED.has_content
-                               AND EXCLUDED.source_revisions ? '_composition_receipt'
+                           OR ((NOT EXCLUDED.has_content
+                                OR EXCLUDED.source_revisions ? '_composition_receipt')
                                AND NOT EXISTS(SELECT 1 FROM marketplace_recipient_keys previous_key
                                  WHERE previous_key.user_id=:requester
                                    AND previous_key.key_id=pkm_answer_deliveries.recipient_key_id

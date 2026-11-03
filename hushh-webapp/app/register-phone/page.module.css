@@ -49,10 +49,11 @@
   touch-action: manipulation;
 }
 .backButton { left: max(18px, env(safe-area-inset-left, 0px)); }
+.backLabel { display: none; }
 .accountActions { position: fixed; z-index: 50; top: calc(var(--phone-safe-top) + 14px); right: max(18px, env(safe-area-inset-right, 0px)); }
 .accountButton { position: static; }
 .backButton:hover, .accountButton:hover { background: var(--phone-line); color: var(--phone-text); }
-.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
+.backButton:focus-visible, .accountButton:focus-visible, .shell button:focus-visible, .shell input:not([type="search"]):focus-visible { outline: 3px solid var(--app-accent); outline-offset: 3px; }
 .surface {
   display: flex;
   flex-direction: column;
@@ -152,6 +153,28 @@
 .phoneForm :global([data-figma-otp-actions]) { display: flex; justify-content: center; margin-top: 10px; padding: 0; }
 .phoneForm :global([data-figma-otp-actions] button) { min-height: 44px; color: var(--app-accent) !important; font-family: var(--font-app-body); font-size: 14px; font-weight: 500; }
 .recaptcha { display: none; }
+/* The conflict owns its state heading; keep the entry/OTP title out of it. */
+.content:has([data-phone-conflict]) > h1 { display: none; }
+.shell .content [data-phone-conflict-title] { font-size: clamp(24px, 6vw, 28px) !important; line-height: 1.15 !important; text-align: left !important; }
+.content:has([data-phone-conflict]) .inputRegion { margin-top: 0; }
+.shell:has([data-phone-conflict]) .backButton { display: flex; gap: 2px; width: auto; min-width: 44px; border-radius: 0; background: transparent; color: var(--app-accent); font-size: 17px; }
+.shell:has([data-phone-conflict]) .backLabel { display: inline; }
+.surface:has([data-phone-conflict]) [data-phone-scene] > div { width: min(100%, 208px); aspect-ratio: 1.15; }
+.surface:has([data-phone-conflict]) [data-phone-scene] > div > :not(img):not([data-phone-conflict-art]) { display: none; }
+.surface:has([data-phone-conflict]) [data-phone-scene] img { left: -8%; top: -6%; width: 100%; height: auto; }
+.surface:has([data-phone-conflict]) [data-phone-conflict-art] { display: block; position: absolute; z-index: 3; right: 0; top: 8%; width: 45%; height: auto; color: var(--app-accent); transform: rotate(5deg); }
+@media (min-width: 800px) {
+  .surface:has([data-phone-conflict]) { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  .surface:has([data-phone-conflict]) .content { max-width: 480px; }
+  .shell .content [data-phone-conflict-title] { font-size: clamp(36px, 3.4vw, 48px) !important; }
+  .surface:has([data-phone-conflict]) [data-phone-scene] > div { width: min(100%, 400px); }
+}
+@media (min-height: 691px) and (max-width: 799px) {
+  .surface:has([data-phone-conflict]) { justify-content: flex-start; gap: 24px; padding-top: max(96px, calc(var(--phone-safe-top) + 80px)); }
+}
+@media (max-height: 690px) and (max-width: 799px) {
+  .surface:has([data-phone-conflict]) [data-phone-scene] { display: none; }
+}
 @media (max-width: 355px) {
   .surface { padding-inline: 18px; }
   .shell .content h1 { --foundation-title1-size: 28px; --foundation-title1-line: 34px; font-size: 28px !important; line-height: 34px !important; }

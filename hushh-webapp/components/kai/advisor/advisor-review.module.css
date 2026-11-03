@@ -171,3 +171,36 @@
     transition: none;
   }
 }
+
+.reviewSummary {
+  display: grid;
+  gap: 1rem;
+  margin-block: 1rem;
+  align-items: start;
+}
+.reviewScore {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 8rem;
+  padding: 0.875rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--app-accent) 9%, var(--card));
+  font-variant-numeric: tabular-nums;
+}
+.reviewScore strong {
+  font-size: 1.75rem;
+  line-height: 1.15;
+}
+.reviewScore small {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.reviewScore meter {
+  width: 100%;
+  accent-color: var(--app-accent);
+}
+@media (min-width: 640px) {
+  .reviewSummary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

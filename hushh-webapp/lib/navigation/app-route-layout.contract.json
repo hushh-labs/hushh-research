@@ -2676,7 +2676,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; active verification consumes Back until the request settles. Another email account cannot transfer or delete the number holder. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; active verification or deletion-review handoff consumes Back until the request settles. Deletion requires independent previous-account sign-in and confirmation; phone proof cannot transfer or delete the number holder. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {
@@ -3851,7 +3851,7 @@
   {
     "route": "/one/setup/finance",
     "mode": "flow",
-    "exemptionReason": "Finance introduction and source selection share the existing fullscreen setup coordinator.",
+    "exemptionReason": "Finance introduction, investing preferences and source selection share the existing fullscreen setup coordinator.",
     "shellVerification": {
       "file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
       "includes": [
@@ -3862,7 +3862,7 @@
       "playbookId": "route.one.setup.finance",
       "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
       "screen": "one_setup_finance",
-      "entryCue": "Explore the introduction or skip to portfolio sources.",
+      "entryCue": "Explore the introduction, then answer or skip investing preferences.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_finance",
       "happyPathActionIds": [

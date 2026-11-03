@@ -4,16 +4,23 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.services.connections_service import ConnectionsService
-from hushh_mcp.services.finance_sharing_service import one, require_advisor
+from hushh_mcp.services.finance_sharing_service import FinanceSharingError, one, require_advisor
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
 
-def candidates(viewer, *, query="", crds=None):
+def candidates(viewer, *, query="", crds=None, connected=False, page=1):
     database = get_db()
+    has_more = False
     if crds is None:
-        directory = ConnectionsService().search_directory(
-            viewer, query=query, audience="ria", limit=30
+        connections = ConnectionsService()
+        directory = (
+            connections.list_connections_page(viewer, audience="ria", page=page, limit=30)
+            if connected
+            else connections.search_directory(
+                viewer, query=query, audience="ria", name_only=True, page=page, limit=30
+            )
         )
+        has_more = directory["hasMore"]
         ids = [person["userId"] for person in directory["items"]]
     else:
         with database.engine.connect() as conn:
@@ -27,14 +34,20 @@ def candidates(viewer, *, query="", crds=None):
                 .all()
             )
     result = []
-    location = OneLocationAgentService()
+    visible = OneLocationAgentService().search_directory_candidates(
+        owner_user_id=viewer, candidate_user_ids=list(ids), limit=30
+    )
+    eligible_ids = {person["userId"] for person in visible["items"]}
     with database.engine.begin() as conn:
-        for uid in sorted(set(ids)):
-            if uid == viewer or not location.is_directory_candidate(
-                owner_user_id=viewer, candidate_user_id=uid
-            ):
+        for uid in dict.fromkeys(ids):
+            if uid == viewer or uid not in eligible_ids:
                 continue
-            require_advisor(conn, uid)
+            try:
+                require_advisor(conn, uid)
+            except FinanceSharingError as exc:
+                if exc.code == "FINANCE_ADVISOR_NOT_VERIFIED":
+                    continue
+                raise
             row = one(
                 conn,
                 """SELECT p.public_person_ref,r.display_name,r.bio,
@@ -61,4 +74,4 @@ def candidates(viewer, *, query="", crds=None):
                         "ready": bool(row["key_id"]),
                     }
                 )
-    return result
+    return {"items": result, "hasMore": has_more}

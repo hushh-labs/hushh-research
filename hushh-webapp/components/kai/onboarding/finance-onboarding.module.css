@@ -5,7 +5,7 @@
   max-width: 880px;
   margin-inline: auto;
   min-width: 0;
-  --onboarding-ease: var(--motion-ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+  --onboarding-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --foundation-title1-size: 28px;
   --foundation-title1-line: 36px;
   --foundation-title1-weight: 600;
@@ -73,280 +73,26 @@
   position: relative;
   display: grid;
   grid-template-rows: auto minmax(280px, 1fr) auto;
-  min-height: min(
-    760px,
-    calc(
-      100dvh - var(--top-content-pad, 80px) - var(--app-scroll-bottom-pad, 40px)
-    )
-  );
-  padding-top: 44px;
+  min-height: min(760px, calc(100dvh - var(--top-content-pad, 80px) - 28px));
+  padding-top: 14px;
   touch-action: pan-y;
 }
 .skipDemo {
+  z-index: 1;
   position: absolute;
   right: 0;
   top: 0;
 }
 .introduction {
   min-height: 120px;
-  animation: introduction 400ms var(--onboarding-ease);
+  position: relative;
+  height: 120px;
 }
 .phoneRegion {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 12px 0 24px;
-}
-.phone {
-  width: 212px;
-  height: 428px;
-  padding: 6px;
-  border-radius: 36px;
-  background: #161618;
-  border: 1px solid var(--border);
-  box-shadow: 0 24px 32px -20px rgb(0 0 0 / 0.5);
-}
-.phoneScreen {
-  position: relative;
-  height: 100%;
-  border-radius: 30px;
-  background: var(--muted);
-  overflow: hidden;
-  padding: 28px 10px 48px;
-}
-.island {
-  position: absolute;
-  width: 48px;
-  height: 13px;
-  border-radius: 20px;
-  top: 8px;
-  left: calc(50% - 24px);
-  background: #000;
-}
-.phoneTabs {
-  display: flex;
-  border-radius: 9px;
-  background: var(--border);
-  padding: 2px;
-  height: 26px;
-}
-.phoneTabs span {
-  flex: 1;
-  font-size: 9px;
-  line-height: 22px;
-  text-align: center;
-  border-radius: 7px;
-}
-.phoneTabs span[data-active="true"] {
-  background: var(--app-card-surface-default-solid, var(--background));
-  color: var(--app-accent);
-}
-.phoneContent {
-  display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  animation: introduction 600ms var(--onboarding-ease);
-}
-.miniCard {
-  padding: 10px;
-  border-radius: 14px;
-  background: var(--app-card-surface-default-solid, var(--background));
-}
-.phone i,
-.phone b {
-  display: block;
-  height: 4px;
-  width: 55%;
-  background: var(--muted-foreground);
-  opacity: 0.25;
-  border-radius: 3px;
-  margin-bottom: 5px;
-}
-.phone b {
-  width: 65%;
-  height: 7px;
-  opacity: 0.7;
-}
-.phone .valueLine {
-  width: 72%;
-  height: 16px;
-  margin: 12px 0;
-}
-.phone .shortLine {
-  width: 32%;
-}
-.marketTiles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 7px;
-  gap: 6px;
-  border-radius: 16px;
-  background: var(--app-card-surface-default-solid, var(--background));
-}
-.marketTiles > div {
-  padding: 6px;
-  background: var(--muted);
-  border-radius: 10px;
-}
-.marketTiles svg {
-  display: block;
-  width: 100%;
-  height: 24px;
-}
-.marketTiles path,
-.stockChart path {
-  stroke-dasharray: 190;
-  stroke-dashoffset: 190;
-  animation: draw 1800ms var(--onboarding-ease) forwards;
-}
-.newsRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-.newsRow:last-child {
-  border-bottom: 0;
-}
-.newsRow > div {
-  flex: 1;
-}
-.newsRow > span {
-  width: 28px;
-  height: 28px;
-  background: color-mix(in srgb, var(--app-accent) 12%, transparent);
-  border-radius: 8px;
-}
-.newsRow i {
-  width: 78%;
-}
-.newsRow b {
-  width: 95%;
-  height: 4px;
-  opacity: 0.3;
-}
-.factLines,
-.ringCard {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-.factLines i {
-  width: 40%;
-}
-.ringCard svg {
-  width: 64px;
-  height: 64px;
-  flex: none;
-}
-.ringCard > div {
-  flex: 1;
-}
-.allocation {
-  display: flex;
-  height: 7px;
-  overflow: hidden;
-  border-radius: 8px;
-  margin: 8px 0;
-}
-.allocation span:nth-child(1) {
-  width: 65%;
-  background: var(--app-accent);
-}
-.allocation span:nth-child(2) {
-  width: 20%;
-  background: #5bb5c9;
-}
-.allocation span:nth-child(3) {
-  flex: 1;
-  background: #63c174;
-}
-.allocationRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 7px;
-}
-.allocationRow span {
-  width: 5px;
-  height: 5px;
-  background: var(--app-accent);
-  border-radius: 50%;
-}
-.allocationRow i {
-  margin: 0;
-}
-.phoneDock {
-  position: absolute;
-  bottom: 10px;
-  left: 14px;
-  right: 14px;
-  height: 30px;
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  background: var(--app-card-surface-default-solid, var(--background));
-}
-.phoneDock span {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
-  background: var(--border);
-}
-.phoneDock [data-active] {
-  background: var(--app-accent);
-}
-.stockLine {
-  display: flex;
-  gap: 8px;
-}
-.stockLine > span {
-  width: 24px;
-  height: 24px;
-  background: var(--muted);
-  border-radius: 8px;
-}
-.stockLine > div {
-  flex: 1;
-}
-.stockChart {
-  width: 100%;
-  height: 36px;
-  margin-top: 8px;
-}
-.agentCard {
-  display: flex;
-  gap: 8px;
-  padding: 7px 9px;
-}
-.agentCard i:last-child {
-  display: none;
-}
-.phone[data-demo-slide="2"] .phoneContent {
-  gap: 6px;
-}
-.agentCard > span {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  background: color-mix(in srgb, var(--app-accent) 10%, transparent);
-  border-radius: 8px;
-  text-align: center;
-  font-size: 10px;
-  line-height: 24px;
-  color: var(--app-accent);
-}
-.agentCard > div {
-  flex: 1;
-}
-.phone strong {
-  display: block;
-  font-size: 9px;
-  line-height: 12px;
-  margin-bottom: 5px;
-  font-weight: 600;
 }
 .demoFooter {
   display: flex;
@@ -379,27 +125,10 @@
 }
 .import {
   position: relative;
-  min-height: min(
-    760px,
-    calc(
-      100dvh - var(--top-content-pad, 80px) - var(--app-scroll-bottom-pad, 40px)
-    )
-  );
+  min-height: min(760px, calc(100dvh - var(--top-content-pad, 80px) - 28px));
   display: flex;
   flex-direction: column;
   padding-top: 24px;
-}
-.back {
-  align-self: flex-start;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--muted);
-  color: var(--foreground);
-  display: grid;
-  place-items: center;
-  margin-bottom: 14px;
 }
 .importHeading {
   margin-bottom: 20px;
@@ -520,12 +249,7 @@
 }
 .complete {
   display: flex;
-  min-height: min(
-    760px,
-    calc(
-      100dvh - var(--top-content-pad, 80px) - var(--app-scroll-bottom-pad, 40px)
-    )
-  );
+  min-height: min(760px, calc(100dvh - var(--top-content-pad, 80px) - 28px));
   flex-direction: column;
   gap: 24px;
 }
@@ -611,7 +335,7 @@
     grid-column: 2;
   }
   .importFooter {
-    align-items: flex-end;
+    align-items: center;
   }
   .importFooter .utility {
     width: 240px;
@@ -624,10 +348,6 @@
   }
 }
 @media (max-height: 740px) and (max-width: 767px) {
-  .phone {
-    flex-shrink: 0;
-    transform: scale(0.82);
-  }
   .phoneRegion {
     height: 370px;
     padding: 0;
@@ -636,12 +356,235 @@
     min-height: 100px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .introduction,
-  .phoneContent,
-  .marketTiles path,
-  .stockChart path {
-    animation: none;
-    stroke-dashoffset: 0;
+
+.introductionScene {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  transition: visibility 0s 640ms;
+}
+.introductionScene > * {
+  opacity: 0;
+  transform: translateY(14px);
+  filter: blur(6px);
+  transition:
+    opacity 520ms ease,
+    transform 640ms var(--onboarding-ease),
+    filter 520ms ease;
+}
+.introductionScene[data-active="true"] {
+  visibility: visible;
+  transition-delay: 0s;
+}
+.introductionScene[data-active="true"] > * {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+.introductionScene > :nth-child(2) {
+  transition-delay: 60ms;
+}
+.introductionScene > :nth-child(3) {
+  transition-delay: 140ms;
+}
+.playback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.dots span {
+  position: relative;
+  overflow: hidden;
+  width: 8px;
+  transition: width 400ms ease;
+}
+.dots [aria-current] span {
+  width: 28px;
+  background: var(--border);
+}
+.dots i {
+  display: block;
+  position: absolute;
+  inset: 0;
+  background: var(--foreground);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.dots i[data-demo-progress="true"] {
+  animation: sceneProgress linear both;
+}
+.demo[data-playing="false"] * {
+  animation-play-state: paused !important;
+}
+.sourceCard {
+  animation: sourceEnter 600ms var(--onboarding-ease) both;
+  transition:
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+.sourceCard:nth-child(1) {
+  animation-delay: 120ms;
+}
+.sourceCard:nth-child(2) {
+  animation-delay: 210ms;
+}
+.sourceCard:nth-child(3) {
+  animation-delay: 300ms;
+}
+.connectionLine {
+  position: relative;
+}
+.connectionLine::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 0;
+  height: 6px;
+  width: 6px;
+  border-radius: 50%;
+  background: var(--app-accent);
+  animation: connectionTravel 2s ease-in-out infinite;
+}
+.import,
+.complete {
+  animation: pageEnter 520ms var(--onboarding-ease) both;
+}
+@keyframes sceneProgress {
+  from {
+    transform: scaleX(0);
   }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes connectionTravel {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  20%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
+}
+.demo[data-reduced-motion="true"] *,
+.demo[data-reduced-motion="true"] {
+  animation: none !important;
+  transition: none !important;
+}
+.demo[data-reduced-motion="true"] .dots [aria-current] i {
+  transform: scaleX(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .surface,
+  .surface *,
+  .surface *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .dots [aria-current] i {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes sourceEnter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.introductionScene[data-previous="true"] > * {
+  transform: translateY(-14px);
+}
+.introductionScene[data-active="true"] > * {
+  transform: none;
+}
+.pages {
+  position: relative;
+  overflow: clip;
+}
+.enteringPage {
+  animation: enterPage 520ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.leavingPage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: leavePage 520ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.pages[data-direction="-1"] .enteringPage {
+  animation-name: enterPageBack;
+}
+.pages[data-direction="-1"] .leavingPage {
+  animation-name: leavePageBack;
+}
+@keyframes enterPage {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes leavePage {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes enterPageBack {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes leavePageBack {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+.pages .import,
+.pages .complete {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .enteringPage,
+  .leavingPage {
+    animation: none;
+  }
+}
+
+.emptyPage {
+  display: none;
+}
+.leavingPage * {
+  animation: none !important;
+  transition: none !important;
 }

@@ -19,6 +19,7 @@ from hushh_mcp.services.pkm_answer_payment_service import (
 from hushh_mcp.services.pkm_answer_request_service import AnswerRequestError
 from tests.helpers.answer_signed_settlement import (
     SECRET,
+    assert_key_recovery_refund,
     dispatch_signed_purchase,
     revoke_staged_key_and_check_checkout,
     signed,
@@ -39,8 +40,15 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
 
 
 @pytest.mark.parametrize(
-    "stripe_mode,switch_live,revoke_after_checkout",
-    [("test", False, False), ("test", True, False), ("live", False, False), ("test", False, True)],
+    "stripe_mode,switch_live,key_recovery",
+    [
+        ("test", False, None),
+        ("test", True, None),
+        ("live", False, None),
+        ("test", False, "restage"),
+        ("test", False, "empty"),
+        ("test", False, "timeout"),
+    ],
 )
 @pytest.mark.parametrize(
     "event_type", ["checkout.session.completed", "checkout.session.async_payment_succeeded"]
@@ -52,7 +60,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     event_type,
     stripe_mode,
     switch_live,
-    revoke_after_checkout,
+    key_recovery,
     legacy_without_receipt,
 ):
     if stripe_mode == "live":
@@ -70,6 +78,11 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     await _deliver_composed(
         requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
     )
+    if key_recovery == "empty":
+        # An empty retry cannot replace an answer sealed to a still-active key.
+        assert await requests.deliver(
+            owner_user_id=OWNER, request_id=request, envelope=ENVELOPE, has_content=False
+        ) == {"delivered": True, "hasContent": True}
     # Duplicate staging hits migration179's real unique index, without rollback.
     await _deliver_composed(
         requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
@@ -85,7 +98,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     await payments.checkout(requester_user_id=REQUESTER, request_id=request)
     args = api.checkout.Session.create.call_args.kwargs
     assert args["api_key"].startswith(f"sk_{stripe_mode}_")
-    if revoke_after_checkout:
+    if key_recovery:
         await revoke_staged_key_and_check_checkout(answer_engine, payments, request, REQUESTER)
     if legacy_without_receipt:
         with answer_engine.begin() as c:
@@ -139,11 +152,17 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     }
     client, drive = dispatch_signed_purchase(monkeypatch, payments, event, answer_engine, request)
     row = status(answer_engine, request)
-    if legacy_without_receipt or revoke_after_checkout:
+    if legacy_without_receipt or key_recovery:
         assert (row["status"], row["payment_status"], row["milestones"]) == ("answering", "paid", 0)
         with pytest.raises(AnswerRequestError, match="answer_unavailable"):
             await requests.fetch_answer(requester_user_id=REQUESTER, request_id=request)
         assert len(await requests.claim_answerable(owner_user_id=OWNER)) == 1
+        if key_recovery in {"empty", "timeout"}:
+            await assert_key_recovery_refund(
+                requests, answer_engine, request, key_recovery, ENVELOPE, OWNER, REQUESTER
+            )
+            assert api.checkout.Session.create.call_count == 1
+            return
         # The old paid order can be repaired under exactly the old terms. A
         # successful Gemini receipt is still mandatory; no new checkout occurs.
         if switch_live:
@@ -154,7 +173,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
             owner_user_id=OWNER,
             request_id=request,
             envelope={**ENVELOPE, "recipientKeyId": "replacement-key"}
-            if revoke_after_checkout
+            if key_recovery
             else ENVELOPE,
         )
         assert api.checkout.Session.create.call_count == 1
@@ -175,7 +194,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     fetched = await requests.fetch_answer(requester_user_id=REQUESTER, request_id=request)
     assert fetched["ciphertext"] == ENVELOPE["ciphertext"]
     assert fetched["recipientKeyId"] == (
-        "replacement-key" if revoke_after_checkout else ENVELOPE["recipientKeyId"]
+        "replacement-key" if key_recovery else ENVELOPE["recipientKeyId"]
     )
     with pytest.raises(AnswerRequestError, match="answer_unavailable"):
         await requests.fetch_answer(requester_user_id="unrelated-requester", request_id=request)

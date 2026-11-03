@@ -249,7 +249,7 @@ async def list_followups(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
-        result = await store.list_conversations(monitor, limit=50, offset=payload.offset)
+        result = await store.list_conversations(monitor, limit=15, offset=payload.offset)
         await _require_current(store, monitor, grant)
         return result
     except Exception as exc:

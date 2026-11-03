@@ -215,8 +215,15 @@ def _prepare_segment(rows, job):
 
 
 def _guard_failure(
-    rows, job, *, expected_diagnostic_sha256=None, clock_bound=False
+    rows,
+    job,
+    *,
+    expected_diagnostic_sha256=None,
+    clock_bound=False,
+    allow_clock_records=False,
 ) -> bool:
+    if type(allow_clock_records) is not bool or (allow_clock_records and not clock_bound):
+        return False
     if not _steps_match(job, clock_bound=clock_bound):
         return False
     prepare = _prepare_segment(rows, job)
@@ -236,6 +243,35 @@ def _guard_failure(
         body for _, body in rows if body.startswith("Hosted maintenance stopped:")
     ]
     errors = [body for _, body in rows if "##[error]" in body]
+    if clock_bound:
+        from retention_uat_guard_evidence import (
+            MAX_PROOF_RECORDS,
+            _proof_record,
+        )
+
+        if (
+            not isinstance(expected_diagnostic_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", expected_diagnostic_sha256) is None
+            or not 2 <= len(tail) <= MAX_PROOF_RECORDS + 2
+            or tail[-1] != base._EXIT
+        ):
+            return False
+        stops = [
+            body
+            for body in tail[:-1]
+            if not allow_clock_records
+            or not _proof_record(body, allow_clock_records=True)
+        ]
+        if len(stops) != 1:
+            return False
+        diagnostic = stops[0]
+        return (
+            hashlib.sha256(diagnostic.encode("utf-8")).hexdigest()
+            == expected_diagnostic_sha256
+            and diagnostics == [diagnostic]
+            and errors == [base._EXIT]
+        )
+
     diagnostic_matches = len(tail) == 2 and tail[0] in DIAGNOSTICS
     if expected_diagnostic_sha256 is not None and len(tail) == 2:
         diagnostic_matches = (

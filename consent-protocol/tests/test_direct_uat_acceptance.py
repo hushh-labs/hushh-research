@@ -13,7 +13,10 @@ from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("job", ["protocol-check", "web-full-suite-check"])
+@pytest.mark.parametrize(
+    "job",
+    ["protocol-check", "web-full-suite-check", "web-targeted-check", "web-targeted-browser"],
+)
 def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
     job: str,
 ) -> None:
@@ -91,3 +94,316 @@ def test_direct_receipt_rejects_wrong_source_scope_attempt_or_shape(changed):
         module._provenance.validate_uat_ci_predecessor(
             {**predecessor(), **changed}, SHA, {"backend"}
         )
+
+
+def prerequisite_fixture(monkeypatch):
+    from copy import deepcopy
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    import uat_release_prerequisites as subject
+    from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attempt_run
+
+    base = "c" * 40
+    run = attempt_run(SHA)
+    transport = AttemptAPI(run, attempt_jobs(SHA, base), [run], attempt_check(SHA))
+
+    class API:
+        reads = 0
+        changed_tip = False
+
+        def read(self, path):
+            if path.endswith("/branches/uat"):
+                self.reads += 1
+                sha = "e" * 40 if self.changed_tip and self.reads > 2 else SHA
+                return {"protected": True, "commit": {"sha": sha}}
+            return deepcopy(transport.read(path))
+
+    monkeypatch.setattr(subject.exact, "verify_git_authority", lambda *args, **kwargs: "b" * 40)
+    serving = {
+        name: {"sha": base, "revision": name + "-00001-abc"} for name in ("backend", "frontend")
+    }
+    return subject, API(), transport, serving
+
+
+@pytest.mark.parametrize(
+    "case,reason",
+    [
+        ("ready", "qualified_current_ci"),
+        ("static_bound", "qualified_current_ci"),
+        ("missing", "qualification_missing"),
+        ("no_exact_job", "qualification_missing"),
+        ("empty_base", "qualification_missing"),
+        ("pending", "qualification_in_flight"),
+        ("failed", "qualification_failed"),
+        ("legacy", "qualification_base_unpublished"),
+        ("wrong_base", "qualification_base_changed"),
+        ("missing_job", "qualification_unverified"),
+        ("advanced", "qualification_unverified"),
+        ("newer_failed", "qualification_failed"),
+    ],
+)
+def test_actions_inspection_offers_only_current_full_exact_source_ci(monkeypatch, case, reason):
+    from copy import deepcopy
+
+    subject, api, transport, serving = prerequisite_fixture(monkeypatch)
+    if case == "missing":
+        transport.runs = []
+    elif case in {"pending", "failed"}:
+        transport.run.update(
+            status="in_progress" if case == "pending" else "completed",
+            conclusion=None if case == "pending" else "failure",
+        )
+    elif case in {"no_exact_job", "empty_base"}:
+        if case == "no_exact_job":
+            transport.jobs = [
+                job for job in transport.jobs if not job["name"].startswith("Exact UAT Candidate")
+            ]
+        else:
+            next(job for job in transport.jobs if job["name"].startswith("Exact UAT Candidate"))[
+                "name"
+            ] = "Exact UAT Candidate ()"
+    elif case in {"legacy", "wrong_base"}:
+        job = next(job for job in transport.jobs if job["name"].startswith("Exact UAT Candidate"))
+        job["name"] = (
+            "Exact UAT Candidate" if case == "legacy" else f"Exact UAT Candidate ({'d' * 40})"
+        )
+    elif case == "static_bound":
+        job = next(job for job in transport.jobs if job["name"].startswith("Exact UAT Candidate"))
+        job["name"] = "Exact UAT Candidate"
+        job["steps"].insert(
+            0,
+            {
+                "name": f"Verify exact serving base ({'c' * 40})",
+                "conclusion": "success",
+            },
+        )
+    elif case == "missing_job":
+        transport.jobs = [job for job in transport.jobs if job["name"] != "Secret Scan"]
+    elif case == "advanced":
+        original = subject.exact.verify_attempt
+
+        def racing(*args, **kwargs):
+            transport.runs[0]["run_attempt"] = 2
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(subject.exact, "verify_attempt", racing)
+    elif case == "newer_failed":
+        other = {
+            **deepcopy(transport.run),
+            "id": 124,
+            "conclusion": "failure",
+            "run_started_at": "2026-10-29T00:00:00Z",
+            "updated_at": "2026-10-29T00:01:00Z",
+        }
+        transport.runs.append(other)
+    result = subject.inspect(api, "a" * 40, read_live=lambda _: deepcopy(serving))
+    assert result["ready"] == (case in {"ready", "static_bound"})
+    assert result["reason_code"] == reason
+    rendered = subject.render(result)
+    assert ("Run workflow:" in rendered) == (
+        case in {"missing", "no_exact_job", "empty_base", "legacy", "wrong_base"}
+    )
+    if case == "pending":
+        assert "do not dispatch a replacement" in rendered
+    if case == "ready":
+        assert result["ci_run_id"] == 123 and result["ci_run_attempt"] == 1
+        assert f"ci_base_sha={'c' * 40}" in rendered
+
+
+@pytest.mark.parametrize("case", ["tip", "serving", "mixed", "unknown", "authority"])
+def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypatch, case):
+    from copy import deepcopy
+
+    subject, api, _, serving = prerequisite_fixture(monkeypatch)
+    api.changed_tip = case == "tip"
+    if case in {"mixed", "unknown"}:
+        serving["frontend"]["sha"] = "d" * 40 if case == "mixed" else ""
+    if case == "authority":
+
+        def unreviewed(*args):
+            raise subject.Refused("UAT CI authority differs from reviewed Main")
+
+        monkeypatch.setattr(subject.exact, "verify_git_authority", unreviewed)
+    calls = 0
+
+    def live(_):
+        nonlocal calls
+        calls += 1
+        result = deepcopy(serving)
+        if case == "serving" and calls > 1:
+            result["backend"]["revision"] = "backend-00002-abc"
+        return result
+
+    with pytest.raises(subject.Refused):
+        subject.inspect(api, "a" * 40, read_live=live)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("sha", SHA),
+        ("ci_run_id", "123"),
+        ("ci_base_sha", "c" * 40),
+        ("scope", "backend"),
+        ("backend_image_source", "build-from-source"),
+        ("run_live_model_checks", True),
+        ("preserve_paused_drive_worker", "true"),
+    ],
+)
+def test_inspection_refuses_release_overrides_before_authentication(monkeypatch, key, value):
+    subject, *_ = prerequisite_fixture(monkeypatch)
+    inputs = {
+        "operation": "inspect",
+        "target": "shared-uat",
+        "scope": "auto",
+        "backend_image_source": "auto",
+        "sha": "",
+        "run_live_model_checks": False,
+    }
+    subject.validate_inspection(inputs)
+    with pytest.raises(subject.Refused):
+        subject.validate_inspection({**inputs, key: value})
+
+
+@pytest.mark.parametrize(
+    "pins", [("", "", ""), ("123", "", "c" * 40), ("123", "1", "bad"), ("123", "0", "c" * 40)]
+)
+def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, pins):
+    subject, *_ = prerequisite_fixture(monkeypatch)
+    api = mock.Mock()
+    with pytest.raises(subject.Refused):
+        subject.validate_deployment(api, SHA, *pins)
+    api.read.assert_not_called()
+
+
+def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    jobs = workflow["jobs"]
+    inspector = jobs["inspect-prerequisites"]
+    assert inspector["environment"] == {"name": "uat", "deployment": False}
+    assert inspector["if"] == "inputs.operation == 'inspect'"
+    assert inspector["permissions"] == {
+        "contents": "read",
+        "actions": "read",
+        "checks": "read",
+        "id-token": "write",
+    }
+    steps = inspector["steps"]
+    validate = next(
+        i for i, step in enumerate(steps) if "validate-inspection" in step.get("run", "")
+    )
+    auth = next(
+        i for i, step in enumerate(steps) if "google-github-actions/auth@" in step.get("uses", "")
+    )
+    assert validate < auth
+    assert not any("upload-artifact" in step.get("uses", "") for step in steps)
+    assert jobs["select-target"]["if"] == "inputs.operation != 'inspect'"
+    assert "inputs.operation != 'inspect'" in jobs["deployment-security"]["if"]
+    for name in ("deploy", "wait-capacity"):
+        assert (
+            "select-target" in jobs[name]["needs"] and "deployment-security" in jobs[name]["needs"]
+        )
+        assert "decision == 'DEPLOY_EXACT_SHA'" in jobs[name]["if"]
+    steps = jobs["select-target"]["steps"]
+    early = next(step for step in steps if "validate-deployment" in step.get("run", ""))
+    assert early["if"] == "steps.resolve-sha.outputs.decision != 'NO_OP'"
+    assert "secrets.GH_SECURITY_ALERTS_TOKEN" not in str(inspector)
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    exact = ci["jobs"]["uat-exact-source"]
+    assert exact["name"] == "Exact UAT Candidate"
+    step_names = [step.get("name") for step in exact["steps"]]
+    assert "Verify exact serving base (${{ inputs.uat_base_sha }})" in step_names
+    assert step_names.index(
+        "Verify exact serving base (${{ inputs.uat_base_sha }})"
+    ) < step_names.index("Verify the exact UAT checkout")
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "later_queued",
+        "later_failed",
+        "later_success",
+        "inventory_race",
+        "advanced",
+        "attempt_race",
+        "pending",
+        "failed_job",
+        "pending_job",
+        "incomplete_inventory",
+    ],
+)
+def test_real_historical_acceptance_keeps_pinned_run_authority(monkeypatch, case):
+    import hashlib
+    import json
+    from copy import deepcopy
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    subject, api, transport, _ = prerequisite_fixture(monkeypatch)
+    module, client, receipts, responses, pins = _acceptance_fixture()
+    prior = {**predecessor(), "run_id": 123, "run_attempt": 1}
+    receipts["uat"]["predecessor"] = prior
+    archive = BytesIO()
+    with ZipFile(archive, "w") as bundle:
+        bundle.writestr("acceptance.json", json.dumps(receipts["uat"]))
+    digest = "sha256:" + hashlib.sha256(archive.getvalue()).hexdigest()
+    responses["artifacts/21/zip"] = archive.getvalue()
+    responses["artifacts/21"].update(digest=digest, size_in_bytes=len(archive.getvalue()))
+    pins["uat"]["artifact_digest"] = digest
+    monkeypatch.setattr(subject.exact, "GitHub", lambda *_: api)
+    if case.startswith("later_"):
+        conclusion = case.removeprefix("later_")
+        transport.runs.append(
+            {
+                **deepcopy(transport.run),
+                "id": 124,
+                "status": "queued" if conclusion == "queued" else "completed",
+                "conclusion": {"failed": "failure", "queued": None}.get(conclusion, "success"),
+                "run_started_at": "2026-10-29T00:00:00Z",
+                "updated_at": "2026-10-29T00:01:00Z",
+            }
+        )
+    elif case == "advanced":
+        transport.runs[0]["run_attempt"] = 2
+    elif case == "pending":
+        transport.run.update(status="in_progress", conclusion=None)
+    elif case in {"failed_job", "pending_job"}:
+        transport.jobs[0].update(
+            status="completed" if case == "failed_job" else "in_progress",
+            conclusion="failure" if case == "failed_job" else None,
+        )
+    original_read, reads = api.read, 0
+
+    def racing_read(path):
+        nonlocal reads
+        value = original_read(path)
+        if "/workflows/ci.yml/runs?" in path:
+            reads += 1
+            if case == "incomplete_inventory":
+                value["total_count"] += 1
+            elif case == "inventory_race" and reads > 1:
+                value["workflow_runs"].append({**deepcopy(transport.run), "id": 124})
+                value["total_count"] += 1
+            elif case == "attempt_race" and reads > 1:
+                value["workflow_runs"][0]["run_attempt"] = 2
+        return value
+
+    api.read = racing_read
+    if case.startswith("later_") or case == "inventory_race":
+        accepted = client.accept(pins["uat"], "uat", SHA, "backend")
+        assert accepted["run_id"] == 20
+        if case.startswith("later_"):
+            with pytest.raises(subject.Refused):
+                subject.exact.verify_attempt(api, SHA, "c" * 40, 123, 1)
+    else:
+        with pytest.raises(module.Refused):
+            client.accept(pins["uat"], "uat", SHA, "backend")
+
+
+def test_explicit_deploy_cannot_claim_an_unrecorded_base_from_static_ci(monkeypatch):
+    subject, api, transport, _ = prerequisite_fixture(monkeypatch)
+    job = next(job for job in transport.jobs if job["name"].startswith("Exact UAT Candidate"))
+    job["name"] = "Exact UAT Candidate"
+    with pytest.raises(subject.Refused):
+        subject.validate_deployment(api, SHA, "123", "1", "d" * 40)
