@@ -166,6 +166,7 @@ def _governance_plan(paths: tuple[str, ...]) -> dict:
         "CI_VALIDATION_LEVEL": "focused",
         "CI_CHANGED_FILES": "\n".join(paths),
     }
+    env.pop("CI_CHANGED_FILES_FILE", None)
     result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
         [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],
         cwd=ROOT,
