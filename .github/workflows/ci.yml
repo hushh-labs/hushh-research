@@ -950,7 +950,8 @@ jobs:
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Unknown change coverage runs the full unit suite on this job.
+    timeout-minutes: 45
     # One affected/core unit owner; full historical shards remain a diagnostic command.
     steps:
       - uses: actions/checkout@v6
