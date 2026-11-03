@@ -10,7 +10,10 @@ export const sharingModel = mapPortfolioToDashboardViewModel({
 const context = { userId: "synthetic-owner", vaultKey: "fixture-only", vaultOwnerToken: "fixture-only", getIdToken: async () => "fixture-only", isCurrent: () => true };
 const capture = () => context;
 export function useFinanceShareContext() { return { capture, session: "synthetic-session", ready: true }; }
-export async function readSavedFinance() { return { model: sharingModel, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
+export async function readSavedFinance() {
+  const updated = document.body.dataset.portfolioReviewChanged === "true";
+  return { model: updated ? { ...sharingModel, hero: { ...sharingModel.hero, totalValue: 12000 } } : sharingModel,
+    profile: { preferences: { investment_horizon: "long_term", drawdown_response: "stay", volatility_preference: "moderate", loss_capacity: "flexible" } }, source: { kind: "statement" as const, snapshotId: null }, sourceFence: "a".repeat(64) }; }
 export function pendingFinanceShare() { return null; }
 const people = [{ userId: "synthetic-recipient", displayName: "Sample connection", isFinanceAdvisor: true, publicPersonRef: "11111111-1111-4111-8111-111111111111", keyId: "synthetic-key", publicKeyJwk: { kty: "EC" } }];
 people.push(...Array.from({ length: 24 }, (_, index) => ({ ...people[0]!, userId: `synthetic-${index}`, displayName: `Other connection ${index + 1}`, isFinanceAdvisor: false, publicPersonRef: `11111111-1111-4111-8111-${String(index + 2).padStart(12, "0")}` })));

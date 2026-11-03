@@ -4,6 +4,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { normalizeDetailedPersona, type DetailedPersonaAnswers } from "@/lib/kai/detailed-persona";
 import { normalizeLossCapacity, type LossCapacity } from "@/lib/kai/investing-persona";
 import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -40,6 +41,7 @@ export type KaiPreferences = {
   volatility_preference_selected_at: string | null;
 
   loss_capacity?: LossCapacity | null;
+  detailed_assessment_v1?: DetailedPersonaAnswers | null;
 
   risk_score: number | null; // 0..6
   risk_profile: RiskProfile | null;
@@ -77,7 +79,7 @@ export type KaiOnboardingCompletion = KaiSetupCompletion;
 export type KaiPreferencesUpdate = Partial<
   Pick<
     KaiPreferences,
-    "investment_horizon" | "drawdown_response" | "volatility_preference" | "loss_capacity"
+    "investment_horizon" | "drawdown_response" | "volatility_preference" | "loss_capacity" | "detailed_assessment_v1"
   >
 >;
 
@@ -271,6 +273,7 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
         prefsRaw.volatility_preference_selected_at
       ),
       loss_capacity: normalizeLossCapacity(prefsRaw.loss_capacity),
+      detailed_assessment_v1: normalizeDetailedPersona(prefsRaw.detailed_assessment_v1),
       risk_score,
       risk_profile,
       risk_profile_selected_at: normalizeOptionalIso(
@@ -658,6 +661,11 @@ export class KaiProfileService {
         if (params.updates.loss_capacity !== undefined) {
           next.preferences.loss_capacity = normalizeLossCapacity(
             params.updates.loss_capacity,
+          );
+        }
+        if (params.updates.detailed_assessment_v1 !== undefined) {
+          next.preferences.detailed_assessment_v1 = normalizeDetailedPersona(
+            params.updates.detailed_assessment_v1,
           );
         }
         next.preferences = recomputeDerived(next.preferences, iso);

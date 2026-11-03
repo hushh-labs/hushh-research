@@ -1,3 +1,4 @@
+import { detailedPersonaSignals } from "./detailed-persona";
 import type { KaiPreferences } from "@/lib/services/kai-profile-service";
 
 export type LossCapacity = "essentials" | "delay_goal" | "flexible";
@@ -8,6 +9,7 @@ export type PersonaPreferences = Pick<
   | "drawdown_response"
   | "volatility_preference"
   | "loss_capacity"
+  | "detailed_assessment_v1"
 >;
 
 export function normalizeLossCapacity(value: unknown): LossCapacity | null {
@@ -48,6 +50,10 @@ const personas = {
 
 /** An initial preference label. Horizon and capacity constrain guidance separately. */
 export function getInvestingPersona(preferences: PersonaPreferences) {
+  if (preferences.detailed_assessment_v1) {
+    const { kind } = detailedPersonaSignals(preferences.detailed_assessment_v1);
+    return { kind, ...personas[kind] };
+  }
   const reaction = preferences.drawdown_response;
   const comfort = preferences.volatility_preference;
   let kind: keyof typeof personas = "exploring";
@@ -64,17 +70,24 @@ export function getInvestingPersona(preferences: PersonaPreferences) {
   return { kind, ...personas[kind] };
 }
 
+export function portfolioPlanningSignals(preferences: PersonaPreferences) {
+  const assessment = preferences.detailed_assessment_v1;
+  const detailed = assessment ? detailedPersonaSignals(assessment) : null;
+  return {
+    horizon: detailed?.horizon ?? preferences.investment_horizon,
+    lossCapacity: detailed?.lossCapacity ?? preferences.loss_capacity ?? null,
+  };
+}
+
 export function personaPlanningNote(preferences: PersonaPreferences): string {
-  if (
-    preferences.loss_capacity === "essentials" ||
-    preferences.investment_horizon === "short_term"
-  ) {
+  const { horizon, lossCapacity } = portfolioPlanningSignals(preferences);
+  if (lossCapacity === "essentials" || horizon === "short_term") {
     return "One will look first at the money you may need soon.";
   }
-  if (preferences.loss_capacity === "delay_goal") {
+  if (lossCapacity === "delay_goal") {
     return "One will highlight risks that could delay your goal.";
   }
-  if (!preferences.investment_horizon || !preferences.loss_capacity) {
+  if (!horizon || !lossCapacity) {
     return "One may ask when you’ll need the money or what losses you can afford.";
   }
   return "One will consider your withdrawal timing and ability to absorb losses.";

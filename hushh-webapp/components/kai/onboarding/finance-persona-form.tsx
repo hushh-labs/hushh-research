@@ -77,6 +77,39 @@ export function FinancePersonaBadge({
   );
 }
 
+export function FinancePersonaReveal({
+  preferences,
+  onDone,
+  actionLabel,
+}: {
+  preferences: PersonaPreferences;
+  onDone: () => void;
+  actionLabel: string;
+}) {
+  return (
+    <section className={styles.reveal} aria-label="Your investing persona">
+      <h2
+        className="ui-text-section-label"
+        tabIndex={-1}
+        ref={(heading) => heading?.focus()}
+      >
+        Your investing persona
+      </h2>
+      <FinancePersonaBadge preferences={preferences} />
+      <p>{getInvestingPersona(preferences).description}</p>
+      <p className="ui-text-helper-text">{personaPlanningNote(preferences)}</p>
+      <ShellActionSurface
+        variant="pill"
+        className={styles.primary}
+        rippleEffect="fill"
+        onClick={onDone}
+      >
+        {actionLabel}
+      </ShellActionSurface>
+    </section>
+  );
+}
+
 export function FinancePersonaForm({
   initial,
   onboarding = false,
@@ -129,26 +162,11 @@ export function FinancePersonaForm({
 
   if (saved) {
     return (
-      <section className={styles.reveal} aria-label="Your investing persona">
-        <h2
-          className="ui-text-section-label"
-          tabIndex={-1}
-          ref={(heading) => heading?.focus()}
-        >
-          Your investing persona
-        </h2>
-        <FinancePersonaBadge preferences={saved} />
-        <p>{getInvestingPersona(saved).description}</p>
-        <p className="ui-text-helper-text">{personaPlanningNote(saved)}</p>
-        <ShellActionSurface
-          variant="pill"
-          className={styles.primary}
-          rippleEffect="fill"
-          onClick={onDone}
-        >
-          {onboarding ? "Continue to import" : "Back to analysis"}
-        </ShellActionSurface>
-      </section>
+      <FinancePersonaReveal
+        preferences={saved}
+        onDone={onDone}
+        actionLabel={onboarding ? "Continue to import" : "Back to analysis"}
+      />
     );
   }
 

@@ -78,6 +78,7 @@ export async function advisorRequest<T>(
   path = "",
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   requireFinanceSession(context);
   const token = await context.getIdToken();
@@ -87,7 +88,8 @@ export async function advisorRequest<T>(
     {
       method,
       cache: "no-store",
-      isEffectCurrent: context.isCurrent,
+      signal,
+      isEffectCurrent: () => context.isCurrent() && !signal?.aborted,
       headers: {
         Authorization: `Bearer ${token}`,
         "X-Hushh-Consent": context.vaultOwnerToken,

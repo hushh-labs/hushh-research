@@ -252,3 +252,57 @@ it("retakes a saved persona in Portfolio Analysis and updates its badge", async 
     expect.objectContaining({ mode: "edit" }),
   );
 });
+
+it("saves the 13-question assessment and lets the owner retake it", async () => {
+  state.getProfile.mockResolvedValue({
+    preferences: {
+      investment_horizon: "long_term",
+      drawdown_response: "reduce",
+      volatility_preference: "small",
+      loss_capacity: "flexible",
+    },
+  });
+  const onSaved = vi.fn();
+  render(
+    <PortfolioPersona
+      context={{
+        userId: "owner",
+        vaultKey: "synthetic",
+        vaultOwnerToken: "synthetic",
+        getIdToken: async () => "synthetic",
+        isCurrent: () => state.current,
+      }}
+      onSaved={onSaved}
+    />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Refine your persona" }),
+  );
+  for (let index = 0; index < 13; index++) {
+    expect(screen.getByText(`Question ${index + 1} of 13`)).toBeVisible();
+    fireEvent.click(screen.getAllByRole("radio")[index < 8 ? 2 : 0]);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: index === 12 ? "Save assessment" : "Continue",
+      }),
+    );
+  }
+  expect(
+    await screen.findByRole("heading", { name: "Your investing persona" }),
+  ).toBeVisible();
+  expect(
+    screen.getByText("One will look first at the money you may need soon."),
+  ).toBeVisible();
+  expect(state.savePreferences).toHaveBeenCalledWith(
+    expect.objectContaining({
+      updates: {
+        detailed_assessment_v1: [...Array(8).fill(2), ...Array(5).fill(0)],
+      },
+    }),
+  );
+  expect(onSaved).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
+  expect(screen.getByText("Growth-oriented")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Retake assessment" }));
+  expect(screen.getAllByRole("radio")[2]).toBeChecked();
+});

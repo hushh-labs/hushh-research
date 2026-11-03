@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
@@ -17,12 +18,17 @@ import styles from "./advisor-review.module.css";
 export function AdvisorReviewHub({
   source,
   advisor = false,
+  model,
+  children,
 }: {
   source?: FinanceSource;
   advisor?: boolean;
+  model?: DashboardViewModel;
+  children?: ReactNode;
 }) {
   const { capture, ready, session } = useFinanceShareContext();
   const [generation, setGeneration] = useState(0);
+  const [personaRevision, setPersonaRevision] = useState(0);
   const [creating, setCreating] = useState(false);
   const { context, workspaceKey } = useMemo(
     () => ({
@@ -93,14 +99,23 @@ export function AdvisorReviewHub({
       className={styles.stack}
       aria-label={advisor ? "Advisor review requests" : "Human advisor review"}
     >
-      {!advisor && context ? (
-        <PortfolioPersona key={workspaceKey} context={context} />
-      ) : null}
-      {context && source ? (
+      {!advisor && context && source && model ? (
         <PortfolioAgentReview
           key={workspaceKey}
           context={context}
           source={source}
+          model={model}
+          scope={session}
+          personaRevision={personaRevision}
+          onFindAdvisor={() => setCreating(true)}
+        />
+      ) : null}
+      {children}
+      {!advisor && context ? (
+        <PortfolioPersona
+          key={workspaceKey}
+          context={context}
+          onSaved={() => setPersonaRevision((revision) => revision + 1)}
         />
       ) : null}
       <div className={styles.card}>
