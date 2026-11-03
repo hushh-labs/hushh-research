@@ -60,6 +60,51 @@ def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:
         assert "ci-path-ownership" in selection.check_ids
 
 
+def test_production_emergency_authority_test_selects_controller_owner() -> None:
+    path = "consent-protocol/tests/test_production_emergency.py"
+    selection = build_selection(
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
+    )
+    assert selection.error is None
+    assert selection.groups == ("controller",)
+    selected = {
+        check.check_id: check
+        for check in CHECKS
+        if check.check_id in selection.check_ids
+    }
+    assert "production-emergency-authority" in selected
+    assert "protocol-check" not in selected
+    assert selected["production-emergency-authority"].argv == (
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q", path,
+    )
+
+
+def test_document_delivery_ci_contract_paths_select_controller_owner() -> None:
+    paths = (
+        "consent-protocol/tests/helpers/document_delivery_ci.py",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+    )
+    for path in paths:
+        selection = build_selection(
+            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
+        )
+        assert selection.error is None
+        assert selection.groups == ("controller",)
+        selected = {
+            check.check_id: check
+            for check in CHECKS
+            if check.check_id in selection.check_ids
+        }
+        assert "uat-deploy-parallelism" in selected
+        assert "protocol-check" not in selected
+        assert selected["uat-deploy-parallelism"].argv == (
+            "uv", "run", "--frozen", "--project", "consent-protocol",
+            "python", "-m", "pytest", "-q",
+            "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        )
+
+
 def test_known_product_path_does_not_expand_critical_groups() -> None:
     selection = build_selection(
         {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "hushh-webapp/app/page.tsx"}
