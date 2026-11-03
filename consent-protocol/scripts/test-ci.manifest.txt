@@ -1631,6 +1631,15 @@ tests/test_hosted_pod_preparation_postgres.py
 
 tests/test_hosted_private_runtime.py
 tests/test_pod_runtime_writer.py
+
+# Hosted provider-account identity, lifecycle, runtime, and custody proofs.
+tests/test_hosted_provider_account_ops.py
+tests/test_hosted_provider_account_inventory.py
+tests/test_hosted_provider_account_lifecycle.py
+tests/test_hosted_provider_account_runtime.py
+tests/test_hosted_custody_readiness_postgres.py
+tests/test_hosted_provider_transition_journal_postgres.py
+
 # Additive server-readable copies preserve legacy sale authority.
 tests/services/test_document_delivery_background.py
 tests/services/test_document_delivery_background_source.py
