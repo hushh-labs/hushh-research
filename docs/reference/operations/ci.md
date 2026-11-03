@@ -648,6 +648,9 @@ jobs.
    work, while unknown selection or planner failure keeps all browser packs
    enabled. The `CI Status Gate` requires both jobs when frontend paths select
    them. `scripts/ci/test_web_ci_lane_partition.py` protects the split.
+   Functional planning retains every authored Chromium or mobile-Chrome project,
+   including commands that also name WebKit. Repeated `--project` flags do not
+   replace an earlier selection; unknown projects and unresolved specs refuse.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. Explicit diagnostic
@@ -662,6 +665,12 @@ Android-scope verifier and Node failure tests remain in the targeted Node job.
 `verify:voice-gateway` and the other explicit contract verifiers run once in
 their owning job. Standalone focused npm commands retain their complete
 behavior; the lane-partition contract protects these boundaries.
+
+The integration document gate installs Chromium on Linux and runs the document
+and Google-phone journeys there. The required macOS `document-webkit-check` job
+runs the document and Apple-phone WebKit journeys. Their exact test identities
+form a complete, non-overlapping partition; local `all` mode retains both engines.
+Installing one engine must never leave another engine's case selected.
 
 Flake budget: in CI each Playwright test gets one retry (`retries` in
 `hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
@@ -1319,6 +1328,15 @@ call added before the guard there needs the same review.
 Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
+The complete bounded inventory is read before qualification. Independent run
+proofs use at most three workers; results and proof lines are consumed in the
+original chronological order. Only a verified newer publication can exclude a
+completed older run. Active runs and equal-boundary results still require proof.
+All readers inherit the same 90-second lookup deadline and are joined on exit;
+concurrency does not grant cleanup authority or extend the five-minute pass.
+Production's independent phone-lease and checkpoint-publication proofs overlap
+within that same deadline. Both must succeed and all readers must exit before
+checkpoint restoration or any provider mutation; either refusal blocks admission.
 The reviewed workflow source can identify a skipped primary deployment job even
 when GitHub reports its unevaluated name. The job must be uniquely bound to the
 exact attempt, completed, skipped and unstarted; earlier attempts still require

@@ -31,6 +31,23 @@ CLOCK_BOUND_SOURCE_PROFILES = {
         base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
         PUBLICATION: ("84b57d0be377d71efa2c38b08d138924e8750b74", 18398),
     },
+    "publication-aec6-blobless-v2": {
+        # Bounded inventory reads preserve the same source authority while
+        # reducing the maintenance guard's sequential GitHub API latency.
+        base.OWNER: ("1a55968b771cf1c393284394034978dbdf9049a6", 91239),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
+    },
+}
+
+CLOCK_FAMILY_HISTORICAL_NUMBERED = "historical-numbered"
+CLOCK_FAMILY_CURRENT_STATIC = "current-static"
+CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES = {
+    "publication-84b": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-939f": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-98e": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-84b-blobless-v1": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-aec6-blobless-v2": CLOCK_FAMILY_CURRENT_STATIC,
 }
 
 

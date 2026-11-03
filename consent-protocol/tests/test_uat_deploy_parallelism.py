@@ -470,13 +470,13 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
     "ci,mode,runner,expected",
     document_delivery_ci.DOCUMENT_PLATFORM_CASES,
 )
-def test_document_gate_preserves_official_mirrors_and_both_browser_engines(
+def test_document_gate_preserves_official_mirrors_and_partitions_browser_engines(
     tmp_path, ci, mode, runner, expected
 ):
     document_delivery_ci.assert_document_platform(tmp_path, ci, mode, runner, expected)
 
 
-def test_document_crypto_requires_both_platforms_without_broadening_editor_work():
+def test_document_crypto_runs_native_webkit_on_required_macos_job():
     document_delivery_ci.assert_document_platform_wiring()
 
 
