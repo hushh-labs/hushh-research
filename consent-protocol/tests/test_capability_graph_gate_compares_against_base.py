@@ -464,3 +464,50 @@ def test_zero_transition_is_canonical_across_ancestral_bases_and_still_checks_ev
         )
         with pytest.raises(SystemExit, match="artifacts are stale"):
             generator.main()
+
+
+def test_exact_uat_checks_the_serving_transition_and_landed_pr_mirrors(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo.git("checkout", "-q", "main")
+    serving = repo.git("rev-parse", "HEAD")
+    candidate = deepcopy(V1)
+    candidate["revision"] = V2_REVISION
+    candidate["actions"].append({**deepcopy(candidate["actions"][0]), "capability_id": "Y"})
+    monkeypatch.setattr(generator, "compile_capability_graph_from_sources", lambda: candidate)
+
+    serving_payload = generator.build_payload(base_ref=serving)
+    assert serving_payload["semantic_diff"]["added"] == ["actions:Y"]
+    repo.write_graph(serving_payload)
+    parent = repo.commit("land the additive graph")
+    pr_payload = generator.build_payload(base_ref=parent)
+    pr_payload["semantic_diff"] = {
+        key: None if key == "from_revision" else [] for key in pr_payload["semantic_diff"]
+    }
+    repo.write_graph(pr_payload)
+    repo.commit("record the zero comparison in the next reviewed graph")
+    repo.git("checkout", "-q", "-b", "uat-follow-up")
+    (repo.root / "proof.txt").touch()
+    repo.commit("land another reviewed change")
+    repo.git("checkout", "-q", "main")
+    repo.git("merge", "--no-ff", "--no-edit", "uat-follow-up")
+    monkeypatch.setattr(
+        "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", serving]
+    )
+    with pytest.raises(SystemExit, match="artifacts are stale"):
+        generator.main()
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat")
+    monkeypatch.setenv("GITHUB_SHA", repo.git("rev-parse", "HEAD"))
+    monkeypatch.setenv("CI_VALIDATION_LEVEL", "release")
+    assert generator.main() == 0
+
+    generator.OUTPUTS[1].write_text("{}\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="artifacts are stale"):
+        generator.main()
+
+    repo.write_graph(pr_payload)
+    candidate["actions"][0]["execution"]["binding_ref"] = "breaking-binding"
+    with pytest.raises(RuntimeError, match="unacknowledged breaking changes"):
+        generator.main()
