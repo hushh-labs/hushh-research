@@ -84,7 +84,12 @@ def main() -> int:
         )
         if not all(SHA.fullmatch(v) for v in values):
             raise ValueError("Full immutable SHAs are required")
-        subprocess.run(["git", "fetch", "--no-tags", "origin", "main", args.source_branch if args.mode == "uat" else "uat"], check=True)
+        source_branch = args.source_branch if args.mode == "uat" else "uat"
+        subprocess.run([
+            "git", "fetch", "--no-tags", "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            f"+refs/heads/{source_branch}:refs/remotes/origin/{source_branch}",
+        ], check=True)
         if args.mode == "uat":
             branch, checks = uat_source(args.application_sha, branch=args.source_branch)
             if args.github_output is None:

@@ -53,7 +53,7 @@ class ExactUatCiTest(unittest.TestCase):
         with patch.object(subject, "git", side_effect=observed), patch.object(subject, "verify_invocation_authority"):
             with self.assertRaisesRegex(subject.Refused, "tip changed"):
                 subject.verify_git_authority(candidate, base, authority)
-            self.assertEqual(calls[0], ("fetch", "--no-tags", "origin", "main", "uat"))
+            self.assertEqual(calls[0], ("fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/uat:refs/remotes/origin/uat"))
             calls.clear()
             self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "e" * 40)
             self.assertNotIn(("rev-parse", "origin/uat"), calls)

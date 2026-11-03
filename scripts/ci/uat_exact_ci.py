@@ -119,7 +119,11 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
     )
     require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
     if current:
-        git("fetch", "--no-tags", "origin", "main", branch)
+        git(
+            "fetch", "--no-tags", "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+        )
         require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
                 "UAT tip changed; qualify the current protected candidate")
     git("merge-base", "--is-ancestor", authority, "origin/main")
