@@ -183,7 +183,7 @@ class DeploymentSecurityTest(unittest.TestCase):
         import yaml
 
         root = Path(__file__).resolve().parents[2]
-        for name in gate.CALLERS - {"deployment-security.yml"}:
+        for name in gate.CALLERS:
             with self.subTest(workflow=name):
                 source = (root / ".github/workflows" / name).read_text()
                 jobs = yaml.safe_load(source)["jobs"]
@@ -242,9 +242,18 @@ class DeploymentSecurityTest(unittest.TestCase):
             declaration.get("secrets"),
             {"GH_SECURITY_ALERTS_TOKEN": {"required": True}},
         )
-        for name in gate.CALLERS - {"deployment-security.yml"}:
+        for name in gate.CALLERS:
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(jobs["permissions"].get("actions"), "read", name)
+        for name in ("deployment-security.yml", "ios-voice-device.yml"):
+            internal = yaml.safe_load((root / ".github/workflows" / name).read_text())
+            self.assertEqual(set(internal.get("on", internal.get(True))), {"workflow_call"})
+            self.assertNotIn(name, gate.CALLERS)
+        hardware = yaml.safe_load((root / ".github/workflows/ios-voice-device.yml").read_text())
+        self.assertEqual(set(hardware["jobs"]), {"hardware-capture"})
+        check = hardware["jobs"]["hardware-capture"]["steps"][0]
+        self.assertEqual(check["env"]["SECURITY_ATTEMPT"], "${{ inputs.security_attempt }}")
+        self.assertIn('"$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT"', check["run"])
         self.assertIn("environment: ci-security", reusable)
         self.assertIn("ref: ${{ github.sha }}", reusable)
         self.assertNotIn("application_ref }}\n          persist", reusable)

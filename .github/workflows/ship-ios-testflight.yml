@@ -1,6 +1,7 @@
 name: Ship iOS to TestFlight
 
-# This workflow creates a normal UAT-backed TestFlight build only. It never
+# New builds use UAT. upload_run_id resumes the exact existing binary, preserving
+# its original backend. This workflow never
 # creates an App Store version or submits the app for public App Store review.
 # The one valid build is assigned to the configured internal and external
 # TestFlight groups. External availability remains pending until Apple grants
@@ -9,6 +10,10 @@ name: Ship iOS to TestFlight
 on:
   workflow_dispatch:
     inputs:
+      upload_run_id:
+        description: Resume distribution of this existing upload instead of building again; leave blank for a new build.
+        required: false
+        type: string
       sha:
         description: Exact green main SHA to ship. Blank selects latest main.
         required: false
@@ -64,11 +69,12 @@ jobs:
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
-      application_ref: ${{ inputs.sha || github.sha }}
+      application_ref: ${{ inputs.upload_run_id != '' && github.sha || inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    if: inputs.upload_run_id == ''
     needs: deployment-security
     name: Resolve green UAT release source
     runs-on: ubuntu-latest
@@ -738,3 +744,128 @@ jobs:
       - name: Remove protected distribution files
         if: always()
         run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"
+
+  resume:
+    if: inputs.upload_run_id != ''
+    needs: deployment-security
+    runs-on: ubuntu-latest
+    environment: uat
+    timeout-minutes: 35
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      UPLOAD_RUN_ID: ${{ inputs.upload_run_id }}
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Validate dispatch and original upload provenance
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_VERSION: ${{ inputs.marketing_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REQUIRE_HARDWARE: ${{ inputs.require_hardware }}
+          RUN_CORE_TESTS: ${{ inputs.run_core_tests }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          [[ "$UPLOAD_RUN_ID" =~ ^[0-9]+$ ]]
+          if [[ -n "$REQUESTED_SHA" || -n "$REQUESTED_VERSION" || "$DRY_RUN" == true || "$REQUIRE_HARDWARE" == true || "$RUN_CORE_TESTS" == true ]]; then
+            echo "Existing-upload recovery cannot change source/version or accept build-only options. Supply upload_run_id only." >&2
+            exit 1
+          fi
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+          gh api "repos/$GH_REPO/actions/runs/$UPLOAD_RUN_ID" > "$RUNNER_TEMP/upload-run.json"
+          # A Release iOS to App Store run uploads the same kind of build (for
+          # example a production-backed one) and writes the same receipt.
+          jq -e '(.path == ".github/workflows/ship-ios-testflight.yml" or .path == ".github/workflows/release-ios-appstore.yml") and .head_branch == "main" and .event == "workflow_dispatch"' "$RUNNER_TEMP/upload-run.json" >/dev/null
+          gh run download "$UPLOAD_RUN_ID" --name testflight-upload-receipt --dir "$RUNNER_TEMP/receipt"
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+          receipt = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'receipt/testflight-upload-receipt.json').read_text())
+          assert receipt['bundle_id'] == 'com.hushh.app'
+          assert re.fullmatch(r'[0-9a-f]{40}', receipt['source_sha'])
+          assert re.fullmatch(r'[0-9]+', receipt['build_number'])
+          assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', receipt['marketing_version'])
+          subprocess.run(['git', 'merge-base', '--is-ancestor', receipt['source_sha'], 'origin/main'], check=True)
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              for field in ('source_sha', 'build_number', 'marketing_version'):
+                  out.write(f'{field.upper()}={receipt[field]}\n')
+          PY
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pyjwt cryptography
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Materialize protected TestFlight configuration
+        run: bash scripts/ci/materialize-ios-testflight-release-config.sh
+      - name: Reconcile the existing uploaded build
+        id: processing
+        run: |
+          python scripts/ci/wait_for_testflight_build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id com.hushh.app --marketing-version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER" \
+            --timeout-seconds 1200 --poll-interval-seconds 30 --output-json "$RUNNER_TEMP/testflight-build.json"
+      - name: Resume idempotent group distribution
+        id: distribution
+        run: |
+          python scripts/ci/distribute-testflight-build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id com.hushh.app --marketing-version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER" \
+            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
+            --internal-group-id "$ASC_INTERNAL_GROUP_ID" --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
+            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
+      - name: Bind recovery evidence to the original upload
+        run: |
+          PYTHONPATH=scripts/ci python - <<'PY'
+          import json, os, pathlib
+          from release_cadence_native import bind_recovery
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          path = root / 'testflight-distribution.json'
+          value = bind_recovery(json.loads((root / 'upload-run.json').read_text()),
+                                json.loads((root / 'receipt/testflight-upload-receipt.json').read_text()),
+                                int(os.environ['GITHUB_RUN_ID']), int(os.environ['GITHUB_RUN_ATTEMPT']),
+                                json.loads(path.read_text()))
+          path.write_text(json.dumps(value, sort_keys=True) + '\n')
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: testflight-resumed-distribution
+          path: ${{ runner.temp }}/testflight-distribution.json
+          if-no-files-found: warn
+      - name: Recovery summary
+        if: always()
+        env:
+          PROCESSING: ${{ steps.processing.outcome }}
+          DISTRIBUTION: ${{ steps.distribution.outcome }}
+        run: |
+          echo "Existing upload run: $UPLOAD_RUN_ID; build: ${BUILD_NUMBER:-unresolved}; source: ${SOURCE_SHA:-unresolved}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processing: $PROCESSING; distribution: $DISTRIBUTION. No archive, upload, or App Intent tests executed." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove protected files
+        if: always()
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          for name in ('asc.p8', 'asc-beta-review-contact.json', 'asc-beta-review-notes.txt'):
+              pathlib.Path(os.environ['RUNNER_TEMP'], name).unlink(missing_ok=True)
+          PY

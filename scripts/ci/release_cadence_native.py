@@ -9,7 +9,8 @@ from urllib.parse import urlencode
 from release_cadence import UnsafeRelease, require, trusted_run
 
 UPLOAD_FIELDS = ("source_sha", "build_number", "marketing_version", "bundle_id")
-RESUME = "resume-ios-testflight.yml"
+RESUME = "resume-ios-testflight.yml"  # Historical receipts remain readable.
+RECOVERY_WORKFLOWS = ("ship-ios-testflight.yml", RESUME)
 
 
 def bind_recovery(upload_run: dict, upload: dict, run_id: int, attempt: int, distribution: dict) -> dict:
@@ -49,17 +50,21 @@ def completion(repository: str, run: dict, sha: str) -> dict:
         distribution = artifact_json(repository, run["id"], f"one-voice-testflight-evidence-{sha}", "testflight-distribution.json", optional=True)
         if isinstance(distribution, dict) and distribution.get("internal") == "active" and distribution.get("build_id"):
             return {}
-    # Recovery is uncommon: cap the single read instead of walking arbitrary
-    # history in the short controller. A truncated inventory never proves delivery.
+    # Search a bounded newest window for positive, exact-bound recovery evidence.
+    # Ordinary builds cannot prove recovery; older candidates may require an
+    # explicit new recovery run rather than an unbounded history walk.
     query = urlencode({"branch": "main", "event": "workflow_dispatch", "created": ">=" + run["created_at"], "per_page": 20})
-    inventory = api(f"repos/{repository}/actions/workflows/{RESUME}/runs?{query}")
-    require(isinstance(inventory, dict) and type(inventory.get("total_count")) is int
-            and isinstance(inventory.get("workflow_runs"), list) and 0 <= inventory["total_count"] <= 20
-            and inventory["total_count"] == len(inventory["workflow_runs"]), "TestFlight recovery inventory is truncated")
+    recoveries = []
+    for workflow in RECOVERY_WORKFLOWS:
+        inventory = api(f"repos/{repository}/actions/workflows/{workflow}/runs?{query}")
+        require(isinstance(inventory, dict) and type(inventory.get("total_count")) is int
+                and isinstance(inventory.get("workflow_runs"), list) and inventory["total_count"] >= 0
+                and min(inventory["total_count"], 20) == len(inventory["workflow_runs"]), "TestFlight recovery inventory is malformed")
+        recoveries.extend((workflow, row) for row in inventory["workflow_runs"])
     _, governance = configuration()
     allowed = governance["uat"]["manual_dispatch_users"]
-    for recovery in inventory["workflow_runs"]:
-        if not (trusted_run(recovery, repository, RESUME) and recovery.get("event") == "workflow_dispatch"
+    for workflow, recovery in recoveries:
+        if not (trusted_run(recovery, repository, workflow) and recovery.get("event") == "workflow_dispatch"
                 and recovery.get("status") == "completed" and recovery.get("conclusion") == "success"
                 and (recovery.get("actor") or {}).get("login") in allowed
                 and (recovery.get("triggering_actor") or (recovery.get("actor") if recovery.get("run_attempt", 1) == 1 else {}) or {}).get("login") in allowed):
