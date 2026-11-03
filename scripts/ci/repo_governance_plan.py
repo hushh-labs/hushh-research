@@ -19,6 +19,18 @@ MAX_CHANGED_PATHS = 2048
 MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
+RESTORATION_FIXTURE_INPUTS = frozenset(
+    {
+        "consent-protocol/tests/helpers/production_release_tools.py",
+        "consent-protocol/tests/test_production_restoration_operation.py",
+    }
+)
+RESTORATION_FIXTURE_TESTS = (
+    "consent-protocol/tests/test_production_restoration_operation.py",
+    "consent-protocol/tests/test_phone_schema_origin.py",
+    "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+    "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
+)
 
 
 @dataclass(frozen=True)
@@ -95,6 +107,12 @@ CHECKS = (
         "uv", "run", "--frozen", "--project", "consent-protocol",
         "python", "-m", "pytest", "-q",
         "consent-protocol/tests/test_production_emergency.py",
+        groups=("controller",),
+    ),
+    _check(
+        "production-restoration-fixture-owner",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q", *RESTORATION_FIXTURE_TESTS,
         groups=("controller",),
     ),
     _check(
@@ -238,6 +256,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_production_emergency.py",
         "consent-protocol/tests/test_uat_deploy_parallelism.py",
         "consent-protocol/tests/helpers/document_delivery_ci.py",
+        *RESTORATION_FIXTURE_INPUTS,
     }:
         return frozenset({"controller"}), None
     if root == ".agents":
@@ -258,6 +277,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/promotion_approval.py",
             "scripts/ci/secret-scan.sh",
             "scripts/ci/test_secret_scan_ranges.py",
+            "scripts/ci/tag-last-known-good.sh",
         }:
             return frozenset({"controller"}), None
         if path in {
