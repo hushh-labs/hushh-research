@@ -493,3 +493,12 @@ def test_document_crypto_runs_native_webkit_on_required_macos_job():
 )
 def test_integration_document_mode_is_explicit_and_validated(tmp_path, mode, runner, expected):
     document_delivery_ci.assert_integration_mode(tmp_path, mode, runner, expected)
+
+
+@pytest.mark.parametrize("selection,expected", [("false", 0), ("unknown", 64)])
+def test_integration_document_selection_keeps_default_and_refuses_malformed(
+    tmp_path, selection, expected
+):
+    document_delivery_ci.assert_integration_mode(
+        tmp_path, ("--ci-linux-document",), "Linux", expected, selection
+    )

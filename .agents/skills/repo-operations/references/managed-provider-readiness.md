@@ -35,21 +35,19 @@ Each rule names the check that enforces it today, or its gap.
 
 1. **No post-merge-only gates.** A check that can block a release needs a pre-merge
    counterpart for the files it depends on.
-   - Enforced (advisory): the [pre-merge readiness exam](pre-merge-readiness-exam.md)
-     grades every live case whose anchored text a PR changes.
-   - Gap: it reports without blocking until promoted. Changes to graded code and
-     schemas run only offline Protocol tests before merge; the UAT exam grades them
-     live.
+   - Automatic AI review is retired. Affected offline functional contracts run
+     before merge; provider qualification is an explicit release operation.
+     A fixture pass does not certify live model access or behavior.
 2. **Declare what a check grades.** One manifest lists each case's instruction
    anchors and code paths. Mark anchored text `graded by readiness exam: <case>`.
-   Editing an anchor triggers the pre-merge exam.
+   Editing an anchor selects its affected offline contracts.
    - Enforced: `consent-protocol/config/readiness-exam-manifest.v1.json` lists
      every exam case with its grader, provider references, anchors and code paths.
      `tests/scripts/test_readiness_exam_manifest.py` requires every anchor to
      resolve, every marker to name its cases, no stray markers, and full coverage of
      the required capabilities and managed text scopes. Check locally with
      `python scripts/readiness_exam_manifest.py --check`.
-   - Enforced (advisory): a PR that edits a live anchor runs the pre-merge exam.
+   - Live grading is requested explicitly; it is not an automatic PR review.
 3. **Same model, same settings.** A check that predicts a gate uses that gate's
    provider, deployment, reasoning setting and output schema. A pass on another
    model, such as Dev's Gemini for the Azure gate, is not evidence.
@@ -127,8 +125,7 @@ Each rule names the check that enforces it today, or its gap.
    negative control (a known-bad input that must fail) and a positive control, both
    run before merge.
    - Enforced: the planner probe's parametrized defect tests, and the pre-merge
-     exam's offline controls (`test_readiness_exam_premerge.py`,
-     `scripts/ci/test_readiness_exam_workflow.py`).
+     exam's retained offline controls (`test_readiness_exam_premerge.py`).
    - Gap: the exam's live controls need the probe identity; run them before
      promotion.
 9. **Trusted code holds the credentials.** A pre-merge live check runs main's grader
@@ -137,10 +134,8 @@ Each rule names the check that enforces it today, or its gap.
    - Enforced: GitHub workload identity is bound to protected environments on
      `refs/heads/main`; see `deploy/iam/setup_production_github_wif.sh` for the
      production condition.
-   - Enforced: only the pre-merge exam job requests an OIDC token, in the main-only
-     `readiness-exam` environment, from Main's checkout. PR files are read as data.
-     `scripts/ci/test_readiness_exam_workflow.py` pins this and refuses deploy
-     environments in any PR-triggered workflow.
+   - The retired exam no longer has a workflow. Its historical environment must
+     remain Main-only while cloud trust exists; deleting YAML does not revoke IAM.
    - Gap: the probe-only Entra app is created by owner setup (below).
 10. **One source of truth.** One manifest and one grader serve PR, Dev and UAT. No
     duplicate graders and no second semantic stage.
@@ -148,8 +143,7 @@ Each rule names the check that enforces it today, or its gap.
       one planner producer
       (`consent-protocol/scripts/probe_drive_activity_planner.py`) keeps its dedicated
       tests.
-    - Enforced: the pre-merge exam selects cases from the same manifest and runs the
-      same probes and graders.
+    - Explicit provider diagnostics reuse the same manifest and graders.
 11. **Broken main has an owner.** The PR that broke a check owns the fix-forward;
     restoring the last passing text is the default. Post the reason code and the
     breaking commit where the team sees them.

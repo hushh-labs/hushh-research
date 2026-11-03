@@ -222,10 +222,15 @@ def _service_partition(config, read, opts):
     non_database = set(config["non_database_services"])
     if None in service_names:
         raise BudgetError("Cloud Run service inventory contains an unnamed service")
-    if service_names - profiled != non_database:
+    optional_non_database = set(config.get("optional_non_database_services", ()))
+    if optional_non_database & (profiled | non_database):
+        raise BudgetError("Optional non-DB services overlap another capacity classification")
+    unknown = service_names - profiled - non_database - optional_non_database
+    missing_non_database = non_database - service_names
+    if unknown or missing_non_database:
         raise BudgetError(
-            f"Cloud Run service inventory drift: unprofiled={sorted((service_names - profiled) - non_database)}, "
-            f"missing declared non-DB={sorted(non_database - service_names)}"
+            f"Cloud Run service inventory drift: unprofiled={sorted(unknown)}, "
+            f"missing declared non-DB={sorted(missing_non_database)}"
         )
     required = {
         name
@@ -237,7 +242,7 @@ def _service_partition(config, read, opts):
             f"required database services missing: {sorted(required - service_names)}"
         )
 
-    return service_names, non_database
+    return service_names, non_database | (optional_non_database & service_names)
 
 
 def _job_inventory(read, opts, parallel):
