@@ -330,6 +330,10 @@ jobs:
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
               - '!consent-protocol/scripts/test-ci.manifest.txt'
+              # Synthetic release-controller tests have a focused Governance owner.
+              - '!consent-protocol/tests/test_dco_history_sync.py'
+              - '!consent-protocol/tests/test_managed_vertex_readiness_script.py'
+              - '!consent-protocol/tests/test_one_chat_service_only_release.py'
               - '!consent-protocol/tests/test_deployment_security.py'
               - '!consent-protocol/tests/test_deployment_security_broker.py'
               - '!consent-protocol/tests/test_predecessor_acceptance_contract.py'

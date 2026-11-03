@@ -19,6 +19,12 @@ MAX_CHANGED_PATHS = 2048
 MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
+RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_dco_history_sync.py",
+    "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+    "consent-protocol/tests/test_one_chat_service_only_release.py",
+    "consent-protocol/tests/test_deployment_security.py",
+)
 RESTORATION_FIXTURE_INPUTS = frozenset(
     {
         "consent-protocol/tests/helpers/production_release_tools.py",
@@ -49,6 +55,8 @@ def _check(check_id: str, *argv: str, groups: Sequence[str] = (), diagnostic: bo
 # regression group remain in the focused baseline; non-blocking hygiene is
 # diagnostic-only, and the named regression groups are selected by changed path.
 CHECKS = (
+    _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
     _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
     _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
@@ -257,6 +265,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_uat_deploy_parallelism.py",
         "consent-protocol/tests/helpers/document_delivery_ci.py",
         *RESTORATION_FIXTURE_INPUTS,
+        *RELEASE_CONTROLLER_TESTS,
     }:
         return frozenset({"controller"}), None
     if root == ".agents":

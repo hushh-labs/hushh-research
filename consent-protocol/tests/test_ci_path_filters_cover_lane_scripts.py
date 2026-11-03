@@ -617,3 +617,32 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
         == "unrecognized scripts owner path: scripts/ci/new-unowned-check.py"
     )
     assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}
+
+
+def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
+    paths = (
+        "consent-protocol/tests/test_dco_history_sync.py",
+        "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+        "consent-protocol/tests/test_one_chat_service_only_release.py",
+        "consent-protocol/tests/test_deployment_security.py",
+    )
+    backend = _filters()["backend"]
+    assert all(not backend.match_file(path) for path in paths)
+    assert backend.match_file("consent-protocol/tests/test_account_deletion_service.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/account_deletion_service.py")
+    plan = _governance_plan(paths)
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["controller"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["release-controller-contracts"] == [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        "consent-protocol",
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        *paths,
+    ]
