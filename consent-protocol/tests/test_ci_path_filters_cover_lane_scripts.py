@@ -61,10 +61,13 @@ EXPECTED_JOBS = {
 
 # Actual shared runtime/image inputs used by the governed environment releases.
 # Application flags, policy and SQL already fall under consent-protocol/**.
-DELETION_RELEASE_INPUTS = (
+# Workflow-only changes use the focused controller owner below.
+DELETION_RELEASE_WORKFLOWS = (
     ".github/workflows/deploy-dev.yml",
     ".github/workflows/deploy-uat.yml",
     ".github/workflows/deploy-production.yml",
+)
+DELETION_RELEASE_INPUTS = (
     "deploy/drive/rollback_after_worker_failure.sh",
     "deploy/backend.cloudbuild.yaml",
     "deploy/backend-image.cloudbuild.yaml",
@@ -408,10 +411,26 @@ def test_environment_only_deletion_inputs_schedule_the_required_backend_lane() -
     )
 
 
+def test_deploy_workflow_edits_select_controller_contract_without_backend_lane() -> None:
+    backend = _filters()["backend"]
+    for path in DELETION_RELEASE_WORKFLOWS:
+        assert not backend.match_file(path), path
+        plan = _governance_plan((path,))
+        assert plan["selection_error"] is None
+        assert plan["selected_groups"] == ["controller"]
+        selected = {row["id"] for row in plan["commands"]}
+        assert "account-deletion-release-workflow" in selected
+
+    promotion_plan = _governance_plan(("scripts/ci/promotion_approval.py",))
+    assert promotion_plan["selection_error"] is None
+    assert promotion_plan["selected_groups"] == ["controller"]
+    assert "account-deletion-release-workflow" in {row["id"] for row in promotion_plan["commands"]}
+
+
 def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() -> None:
     excluded = {
         "deploy/account-deletion/activate_release.py",
-        ".github/workflows/deploy-dev.yml",
+        "deploy/backend.cloudbuild.yaml",
         "scripts/ops/sync_backend_runtime_secrets.py",
     }
     patterns = _filter_patterns()

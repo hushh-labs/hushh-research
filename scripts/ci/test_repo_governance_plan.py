@@ -50,6 +50,16 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
     assert "skill-lint" not in selection.check_ids
 
 
+def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:
+    for path in ("scripts/ci/secret-scan.sh", "scripts/ci/test_secret_scan_ranges.py"):
+        selection = build_selection(
+            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
+        )
+        assert selection.error is None
+        assert selection.groups == ("controller",)
+        assert "ci-path-ownership" in selection.check_ids
+
+
 def test_known_product_path_does_not_expand_critical_groups() -> None:
     selection = build_selection(
         {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "hushh-webapp/app/page.tsx"}
@@ -208,6 +218,7 @@ def main() -> int:
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
+        test_secret_scan_owner_does_not_become_unknown_during_branch_sync,
         test_known_product_path_does_not_expand_critical_groups,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
@@ -224,4 +235,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -8,6 +8,7 @@ import json
 from unittest import mock
 
 import retention_publication as publication
+import retention_publication_source as publication_source
 import retention_preflight_evidence as evidence
 
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
@@ -295,16 +296,28 @@ class LegacyPublicationCases:
             return json.dumps(source or {"sha": digest, "size": size})
 
         reader = importlib.import_module("verify-predecessor-acceptance")
-        with (
-            mock.patch.object(MAINTENANCE, "api", side_effect=api),
-            mock.patch.object(
-                MAINTENANCE, "command", side_effect=command
-            ) as source_read,
-            mock.patch.object(MAINTENANCE, "trusted_checkpoint_run", return_value=True),
-            mock.patch.object(reader, "bounded_github_read", return_value=raw),
-            contextlib.redirect_stdout(io.StringIO()) as output,
-        ):
-            MAINTENANCE.assert_checkpoint_publication(publication.REPOSITORY, "uat")
+        # Tests inject different source metadata for the same immutable fixture
+        # revision. Production correctly caches immutable blob metadata across a
+        # maintenance pass; isolate that cache so one test cannot mask another's
+        # fixture or call-count assertion.
+        publication_source._read_pinned_blob.cache_clear()
+        try:
+            with (
+                mock.patch.object(MAINTENANCE, "api", side_effect=api),
+                mock.patch.object(
+                    MAINTENANCE, "command", side_effect=command
+                ) as source_read,
+                mock.patch.object(
+                    MAINTENANCE, "trusted_checkpoint_run", return_value=True
+                ),
+                mock.patch.object(reader, "bounded_github_read", return_value=raw),
+                contextlib.redirect_stdout(io.StringIO()) as output,
+            ):
+                MAINTENANCE.assert_checkpoint_publication(
+                    publication.REPOSITORY, "uat"
+                )
+        finally:
+            publication_source._read_pinned_blob.cache_clear()
         return calls, source_read.call_args_list, output.getvalue()
 
     def test_frozen_precheckpoint_failure_uses_actual_checkout_and_preserves_older_boundary(

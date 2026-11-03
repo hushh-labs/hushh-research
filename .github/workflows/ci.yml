@@ -268,10 +268,11 @@ jobs:
           # The web lanes run orchestrate.sh, its web-*.sh scripts and the
           # shared UI review-base resolver. The shared web-common.sh
           # helper also schedules backend contracts that exercise its fixtures.
-          # Every other script, including any
-          # added later, stays on the backend side, which covers the protocol,
-          # MCP and integration lanes and every deploy script the protocol
-          # tests exercise. orchestrate.sh dispatches both sides and is in both.
+          # Every other script, including any added later, stays on the backend
+          # side, which covers the protocol, MCP and integration lanes.
+          # Environment workflow YAML is covered by focused controller owners;
+          # runtime, build and deletion inputs below remain backend-side.
+          # orchestrate.sh dispatches both sides and is in both.
           # Guarded by
           # consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py
           filters: |
@@ -305,9 +306,6 @@ jobs:
               - 'scripts/ops/upsert_gcp_secret.py'
               - 'scripts/ops/sync_frontend_runtime_secrets.py'
               - 'config/runtime-capacity.json'
-              - '.github/workflows/deploy-uat.yml'
-              - '.github/workflows/deploy-dev.yml'
-              - '.github/workflows/deploy-production.yml'
               - '!scripts/ci/web-check.sh'
               - '!scripts/ci/web-full-check.sh'
               - '!scripts/ci/web-full-suite-check.sh'
