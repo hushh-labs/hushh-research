@@ -1139,24 +1139,36 @@ Do not add new CI/parity scripts without replacing or consolidating an existing 
 
 ## Lean Required Gate Model
 
-The required pre-merge lane stays intentionally small:
+The required pre-merge lane stays focused:
 
-1. secret scan
-2. DCO signoff
-3. governance drift (`docs verify`, Apache/license surface, skill lint)
-4. release contract alignment (`./bin/hushh db verify-release-contract`)
-5. changed-surface web/backend checks
-6. cross-surface integration checks
+1. Always-blocking security, source-authority, DCO, PR-base/freshness, and status
+   checks.
+2. Baseline governance, including the Apache/license surface and database
+   release-contract checks, plus regression owners selected by changed paths.
+3. Changed-surface web/backend checks and cross-surface Integration; selected
+   database and native checks remain required when their surfaces change.
+
+The local `focused` profile keeps those authority checks and affected owners.
+`release` adds release-authority owners. Full `docs verify`, skill lint,
+architecture-size and broad agent-hygiene checks remain available in the
+`diagnostic` profile; they are not required for every focused pre-PR run.
+Unknown or incomplete path selection widens regression coverage or fails closed.
 
 Post-merge smoke remains the deployment eligibility gate for `main`.
 
 Practical maintainer rule:
 
 1. Use `git commit -s` for new branch commits that are headed to GitHub.
-2. Run `./bin/hushh codex pre-pr` before opening or updating a PR; the workflow runs the local DCO signoff gate before the broader CI mirror.
+2. Run `./bin/hushh codex pre-pr` before opening or updating a PR. Its default
+   focused profile checks the exact destination diff, PR impact description,
+   DCO, protected edits, security and affected local owners; the report keeps
+   hosted checks visible as outstanding.
 3. If unsigned commits already exist on the branch, repair them before push with `git rebase --signoff <base>` or a clean signed squash onto `origin/main` when subtree sync or merge repair made the branch history noisy.
 4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
-5. If the last local edit touched `.agents/`, `docs/`, `config/`, or `scripts/`, rerun `bash scripts/ci/orchestrate.sh governance` even if an earlier `./bin/hushh codex pre-pr` was green.
+5. If a local edit occurs after pre-PR checks, rerun `./bin/hushh codex pre-pr`
+   for the current tree. For `.agents/`, `docs/`, `config/` or `scripts/` edits,
+   run the nearest owner checks. For the full governance sweep, use
+   `CI_VALIDATION_LEVEL=diagnostic bash scripts/ci/orchestrate.sh governance`.
 
 For pull requests into protected `dev` or `uat`, the DCO job also reads the
 canonical GitHub `main` branch response and requires `protected: true` plus its
@@ -1562,14 +1574,22 @@ During implementation, run the nearest owner checks for the changed contract.
 exact changed-file list; `release` adds release-authority checks. Use
 `diagnostic` or the full local mirror for explicit broad diagnosis. GitHub Actions
 remains authoritative for required web and browser validation, and a local pass
-does not prove hosted success. The dedicated pre-PR workflow remains exhaustive;
-`codex pre-pr` already calls it, so do not run both entrypoints.
+does not prove hosted success. `codex pre-pr` defaults to focused local
+preparation: it checks the exact base/head, validates the PR impact description,
+runs protected-edit, base-policy, DCO, security and governance checks, then runs
+the selected local owners. Its report identifies hosted Integration, browser,
+database and native checks still required. It does not run the full local mirror.
+Use `codex pre-pr --diagnostic` when you explicitly want that broader mirror;
+the diagnostic mode runs DCO followed by `./bin/hushh ci` and may add advisory
+checks with `--include-advisory`. Choose one mode for an unchanged candidate.
 
 ```bash
 ./bin/hushh ci
 ```
 
-This script, which also powers `./bin/hushh codex pre-pr`:
+This command runs the full local mirror. `./bin/hushh codex pre-pr` does not call
+it by default; only its explicit `--diagnostic` mode invokes this mirror after
+the DCO check.
 
 1. Validates required files (e.g. `package-lock.json`, `next.config.ts`, `pyproject.toml`, `uv.lock`, generated runtime artifacts, test files).
 2. Checks Node (20+ minimum; use 24 for CI parity) and Python (3.13) and uses `uv` as the canonical backend toolchain.
@@ -1612,8 +1632,8 @@ Secret-scan note:
 | Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
 | Backend | `cd consent-protocol && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check && uv run ruff check . && uv run mypy --config-file pyproject.toml --ignore-missing-imports && uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
 | Integration | `bash scripts/ci/docs-parity-check.sh` |
-| Pre-PR mirror | `./bin/hushh codex pre-pr` |
-| All | `./bin/hushh ci` |
+| Pre-PR focused preparation | `./bin/hushh codex pre-pr --base-ref origin/<target> --body-file <draft>` or `--pr <number>` |
+| Full local CI mirror | `./bin/hushh ci` |
 
 ---
 
