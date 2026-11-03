@@ -272,6 +272,7 @@ def _render_text(payload: dict[str, Any]) -> str:
         f"Diagnostic: {payload.get('diagnostic', False)}",
         f"Checks represented: {', '.join(payload['mirrors_workflows'])}",
         f"Browser: {payload.get('browser_validation', 'diagnostic mode')}",
+        f"Hosted checks still required: {', '.join(payload.get('hosted_required', [])) or 'see selected workflow'}",
         "Commands:",
     ]
     for command in payload["commands"]:
@@ -325,7 +326,11 @@ def main() -> int:
                 workflow_id="pre-pr-readiness", status="passing" if ok else "failing",
                 branch=c["branch"], base_ref=c["base_ref"], base_sha=c["base"], head_sha=c["head"],
                 pr=c["number"], pr_url=c["url"], changed_files=c["files"],
-                mirrors_workflows=["affected PR checks"], diagnostic=False, browser_validation="hosted CI required; not executed locally",
+                mirrors_workflows=["affected local checks"], diagnostic=False,
+                hosted_required=["exact-head PR admission and selected native checks"] +
+                    (["functional browser contracts"] if c["lanes"]["frontend"] else []) +
+                    (["Protocol Database (1/2)", "Protocol Database (2/2)"] if c["lanes"]["backend"] else []),
+                browser_validation="hosted CI required; not executed locally",
                 include_advisory=False, commands=commands, checks=checks,
                 next_actions=["Open or update the pull request after all focused checks pass." if ok
                               else "Resolve failed checks or provide the missing PR body before proceeding."],
