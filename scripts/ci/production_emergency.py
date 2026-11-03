@@ -222,7 +222,7 @@ def admit(authority: dict, observed: dict, scope: str, *, run=command) -> dict:
         refresh = importlib.import_module("production_auth_domain_refresh")
         refresh.validate_source(receipt, run=run)
         control = importlib.import_module("production_backend_successor_control")
-        profile = control.current_auth_domain_acceptance_profile(observed)
+        profile = control.current_auth_domain_acceptance_profile(observed, revalidate_live=False)
         revision = provider("revisions", observed["backend"]["revision"])
         receipt["backend_acceptance_origin"] = refresh.qualify_backend_acceptance_origin(
             receipt, profile, revision
