@@ -485,6 +485,8 @@ jobs:
             --db-name "postgres" \
             --db-unix-socket "${{ env.DEV_DB_UNIX_SOCKET }}" \
             --cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}" \
+            --hosted-custody-profile "dev_control_plane_owner" \
+            --dev-target "${DEV_TARGET:-shared-dev}" \
             --consent-sse-enabled "true" \
             --sync-remote-enabled "false" \
             --developer-api-enabled "true" \
@@ -698,6 +700,18 @@ jobs:
           export DB_NAME="${DEV_DB_NAME}"
           export DB_USER
           export DB_PASSWORD
+
+          if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" ]]; then
+            export ENVIRONMENT="dev"
+            export DEV_TARGET="shared-dev"
+            export GCP_PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
+            export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
+            export CLOUDSQL_INSTANCE_CONNECTION_NAME="${{ env.DEV_CLOUDSQL_INSTANCE }}"
+            export HUSHH_HOSTED_CUSTODY_PROFILE="dev_control_plane_owner"
+          else
+            unset ENVIRONMENT GCP_PROJECT_ID GOOGLE_CLOUD_PROJECT \
+              CLOUDSQL_INSTANCE_CONNECTION_NAME HUSHH_HOSTED_CUSTODY_PROFILE || true
+          fi
 
           if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
             "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \

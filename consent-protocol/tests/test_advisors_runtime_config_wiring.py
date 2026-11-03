@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,8 @@ from hushh_mcp.services import advisor_directory_service as ads
 _SYNC_SCRIPT = (
     Path(__file__).resolve().parents[2] / "scripts" / "ops" / "sync_backend_runtime_secrets.py"
 )
+_DEV_WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-dev.yml"
+_BACKEND_DEPLOY = Path(__file__).resolve().parents[2] / "scripts" / "deploy" / "backend-deploy.sh"
 
 _CONFIG_ARGS = (
     "environment project db_host db_port db_name db_unix_socket "
@@ -89,6 +92,117 @@ def test_generated_runtime_config_carries_the_advisors_base_url():
         _namespace(advisors_api_base_url="https://advisors.example")
     )
     assert config["advisors_api_base_url"] == "https://advisors.example"
+
+
+def test_dev_custody_profile_is_generated_and_hydrated_from_runtime_config():
+    from db.hosted_custody_qualification import hosted_custody_profile_from_environment
+
+    config = _load_sync_module()._build_backend_runtime_config(
+        _namespace(
+            environment="dev",
+            project="hushh-pda-dev",
+            app_frontend_origin="https://dev.one.hussh.ai",
+            db_name="postgres",
+            cloudsql_instance_connection_name="hushh-pda-dev:us-central1:hushh-dev-pg",
+            hosted_custody_profile="dev_control_plane_owner",
+            dev_target="shared-dev",
+        )
+    )
+    expected = {
+        "environment": "dev",
+        "gcp_project_id": "hushh-pda-dev",
+        "google_cloud_project": "hushh-pda-dev",
+        "cloudsql_instance_connection_name": "hushh-pda-dev:us-central1:hushh-dev-pg",
+        "db_name": "postgres",
+        "db_user": "hushh_uat_app",
+        "dev_target": "shared-dev",
+        "hosted_custody_profile": "dev_control_plane_owner",
+    }
+    assert {key: config[key] for key in expected} == expected
+
+    expected_environment = {
+        runtime_settings._BACKEND_RUNTIME_ENV_MAP[key]: value for key, value in expected.items()
+    }
+    touched_environment = {*expected_environment, "BACKEND_RUNTIME_CONFIG_JSON"}
+    original_environment = {name: os.environ.get(name) for name in touched_environment}
+    try:
+        for name in expected_environment:
+            os.environ.pop(name, None)
+        os.environ["BACKEND_RUNTIME_CONFIG_JSON"] = json.dumps(config)
+        runtime_settings.hydrate_runtime_environment()
+
+        assert hosted_custody_profile_from_environment().is_dev_control_plane_owner
+        assert {name: os.environ[name] for name in expected_environment} == expected_environment
+    finally:
+        for name, value in original_environment.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+@pytest.mark.parametrize(
+    "override, expected_error",
+    [
+        ({"environment": "uat"}, "environment"),
+        ({"project": "hushh-pda-uat"}, "project"),
+        ({"dev_target": "scope-commerce-sandbox"}, "dev_target"),
+        ({"db_name": "scope_commerce_sandbox"}, "db_name"),
+        (
+            {"cloudsql_instance_connection_name": "hushh-pda-dev:us-central1:other"},
+            "cloudsql_instance_connection_name",
+        ),
+    ],
+)
+def test_dev_custody_runtime_config_rejects_mismatched_targets(override, expected_error):
+    values = {
+        "environment": "dev",
+        "project": "hushh-pda-dev",
+        "app_frontend_origin": "https://dev.one.hussh.ai",
+        "db_name": "postgres",
+        "cloudsql_instance_connection_name": "hushh-pda-dev:us-central1:hushh-dev-pg",
+        "hosted_custody_profile": "dev_control_plane_owner",
+        "dev_target": "shared-dev",
+    }
+    values.update(override)
+    with pytest.raises(ValueError, match=expected_error):
+        _load_sync_module()._build_backend_runtime_config(_namespace(**values))
+
+
+def test_non_dev_runtime_sync_keeps_the_strict_custody_default():
+    config = _load_sync_module()._build_backend_runtime_config(_namespace())
+    assert config["gcp_project_id"] == "hushh-pda-uat"
+    assert "hosted_custody_profile" not in config
+    assert "dev_target" not in config
+    assert "db_user" not in config
+
+
+def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
+    workflow = _DEV_WORKFLOW.read_text(encoding="utf-8")
+    runtime_sync = workflow.split("- name: Sync canonical hosted runtime secrets", 1)[1].split(
+        "- name:", 1
+    )[0]
+    assert '--hosted-custody-profile "dev_control_plane_owner"' in runtime_sync
+    assert '--dev-target "${DEV_TARGET:-shared-dev}"' in runtime_sync
+    assert '--project "${{ env.GCP_PROJECT_ID }}"' in runtime_sync
+    assert '--db-name "postgres"' in runtime_sync
+    assert '--cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}"' in runtime_sync
+
+    migration = workflow.split("- name: Apply dev DB migrations and predeploy schema gate", 1)[
+        1
+    ].split("- name:", 1)[0]
+    assert 'export HUSHH_HOSTED_CUSTODY_PROFILE="dev_control_plane_owner"' in migration
+    assert 'export GCP_PROJECT_ID="${{ env.GCP_PROJECT_ID }}"' in migration
+    assert 'export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"' in migration
+    assert (
+        'export CLOUDSQL_INSTANCE_CONNECTION_NAME="${{ env.DEV_CLOUDSQL_INSTANCE }}"' in migration
+    )
+    assert 'export DEV_TARGET="shared-dev"' in migration
+    assert "export DB_USER" in migration
+
+    deploy = _BACKEND_DEPLOY.read_text(encoding="utf-8")
+    assert "BACKEND_RUNTIME_CONFIG_JSON=$(commerce_secret_name" in deploy
+    assert "DB_USER=$(commerce_secret_name DB_USER):latest" in deploy
 
 
 def test_a_blank_base_url_is_omitted_so_unconfigured_lanes_stay_inert():
