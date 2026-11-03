@@ -210,7 +210,10 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
         guard = steps[position - 1]
         assert "Recheck manual incident" in guard["name"]
         assert '"${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh"' in guard["run"]
-        assert "python3 scripts/ci/production_emergency.py recheck" in guard["run"]
+        assert (
+            "uv run --frozen --project consent-protocol python scripts/ci/production_emergency.py recheck"
+            in guard["run"]
+        )
     for name, job in workflow["jobs"].items():
         if name == "deployment-security":
             assert job["uses"] == "./.github/workflows/deployment-security.yml"

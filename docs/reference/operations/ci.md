@@ -1248,7 +1248,9 @@ use. Run emergency admission/recheck from `scripts/ci/`, since companion readers
 resolve `deploy/phone` and `deploy/drive` relative to that repository root.
 The exact auth refresh first binds the immutable release and observed serving
 pair. Its mandatory live anchor/schema recheck follows Python/proxy setup and
-precedes mutations; the post-build recheck repeats it. Ordinary admission keeps
+precedes mutations; the post-build recheck repeats it. Both rechecks use the
+initialized project environment through `uv run --frozen --project`, preserving
+the workspace directory and installed database reader. Ordinary admission keeps
 its immediate live validation. A metadata receipt never substitutes for either
 live recheck.
 

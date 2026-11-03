@@ -1185,7 +1185,7 @@ jobs:
         run: |
           set -euo pipefail
           bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
-          python3 scripts/ci/production_emergency.py recheck \
+          uv run --frozen --project consent-protocol python scripts/ci/production_emergency.py recheck \
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync frontend hosted runtime secrets
@@ -1433,7 +1433,7 @@ jobs:
         run: |
           set -euo pipefail
           bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
-          python3 scripts/ci/production_emergency.py recheck \
+          uv run --frozen --project consent-protocol python scripts/ci/production_emergency.py recheck \
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync canonical hosted runtime secrets
