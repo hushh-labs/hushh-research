@@ -2443,8 +2443,18 @@ jobs:
         working-directory: hushh-webapp
         env:
           UAT_ANALYTICS_SMOKE_ORIGIN: ${{ steps.frontend-analytics-candidate.outputs.url }}
+          BACKEND_CANDIDATE_URL: ${{ steps.backend-candidate-state.outputs.backend_candidate_url }}
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
         run: |
           set -euo pipefail
+          if [ "${DEPLOY_BACKEND}" = "true" ]; then
+            # Warm the same tagged backend the zero-traffic frontend will call.
+            # A cold instance can outlast the reviewer's 30-second proxy deadline.
+            test -n "${BACKEND_CANDIDATE_URL}"
+            curl --fail --silent --show-error --max-time 120 \
+              "${BACKEND_CANDIDATE_URL%/}/health/ready" |
+              jq -e '.status == "ready"' >/dev/null
+          fi
           reviewer_uid="$(gcloud secrets versions access latest \
             --secret=REVIEWER_UID \
             --project="${{ env.GCP_PROJECT_ID }}")"

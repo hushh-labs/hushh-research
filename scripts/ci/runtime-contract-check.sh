@@ -58,16 +58,15 @@ fi
 # the Docker step through Cloud Build's ephemeral workspace.
 google_contacts_lookup_step="$(
   awk '
-    /name: "gcr.io\/google.com\/cloudsdktool\/cloud-sdk"/ { current_step = "cloud-sdk" }
-    /name: "gcr.io\/cloud-builders\/docker"/ { current_step = "docker" }
+    /^  - name:/ { current_step = $0 }
     /gcloud secrets versions access latest/ {
       print current_step
       exit
     }
   ' "$frontend_cloudbuild"
 )"
-if [ "$google_contacts_lookup_step" != "cloud-sdk" ]; then
-  echo "❌ Google Contacts Secret Manager lookup must run in a Cloud SDK step, not the Docker builder."
+if ! grep -Eq '^  - name: "gcr[.]io/google[.]com/cloudsdktool/google-cloud-cli:[^"@]+@sha256:[0-9a-f]{64}"$' <<< "$google_contacts_lookup_step"; then
+  echo "❌ Google Contacts Secret Manager lookup must run in a digest-pinned Cloud SDK step."
   exit 1
 fi
 
