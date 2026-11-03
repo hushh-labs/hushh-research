@@ -525,6 +525,8 @@ def _complete_custody_sql(profile, *, require_family=True):
         HOSTED_FILES_QUALIFIED,
         HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
@@ -546,6 +548,13 @@ def _complete_custody_sql(profile, *, require_family=True):
         provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
+            "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
+        ],
+        provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        provider_account_resolution_service_role_signatures=(
+            HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
     )
 
 
@@ -757,9 +766,6 @@ def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_dri
         return asyncio.run(hosted_schema_ready(repo))
 
     assert ready()
-
-    # Dev runtime readiness accepts the complete pre-982 successor family.
-    # The replay below exercises the same pre-982 Dev state through 420/421.
 
     # Execute the immutable 420/421 replay adapters against this same Dev-profile
     # database. The wrong database principal must fail at the migration's
@@ -1015,6 +1021,80 @@ def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_dri
         "zx_hosted_provider_account_transition_registry"
     )
     assert ready(), "Dev runtime readiness rejected the restored 982 trigger"
+
+    # The exact pre983 schema above remains ready; 983 then adds a separate
+    # Dev-gated resolver family whose drift, absence, ACL, and trigger state
+    # must all fail runtime readiness.
+    resolution_migration = ROOT / "db/migrations/parked/983_hosted_provider_account_resolution.sql"
+    resolution_rollback = (
+        ROOT / "db/migrations/rollback/983_hosted_provider_account_resolution.rollback.sql"
+    )
+    owner_execute(
+        "CREATE FUNCTION public.hosted_provider_effective_billing_account(p_row text) "
+        "RETURNS text LANGUAGE sql STABLE SET search_path=public AS $$ SELECT NULL::text $$"
+    )
+    assert not ready(), "Dev runtime readiness accepted an unqualified resolver overload"
+    owner_execute("DROP FUNCTION public.hosted_provider_effective_billing_account(text)")
+    assert ready(), "Dev runtime readiness rejected the clean pre983 family after overload removal"
+    owner_execute("CREATE SCHEMA provider_resolution_probe")
+    owner_execute(
+        "CREATE FUNCTION provider_resolution_probe.hosted_provider_effective_billing_account(p_row text) "
+        "RETURNS text LANGUAGE sql STABLE SET search_path=public AS $$ SELECT NULL::text $$"
+    )
+    assert not ready(), "Dev runtime readiness accepted a resolver outside the public schema"
+    owner_execute(
+        "DROP FUNCTION provider_resolution_probe.hosted_provider_effective_billing_account(text)"
+    )
+    owner_execute("DROP SCHEMA provider_resolution_probe")
+    assert ready(), "Dev runtime readiness rejected the clean pre983 family after schema cleanup"
+    owner_execute(resolution_migration.read_text(encoding="utf-8"))
+    assert ready(), "Dev runtime readiness rejected the complete 983 family"
+
+    resolver_signature = "public.hosted_provider_effective_billing_account(jsonb)"
+    resolver_definition = owner_execute(
+        "SELECT pg_get_functiondef(%s::regprocedure)", (resolver_signature,)
+    )[0][0]
+    owner_execute(
+        "CREATE OR REPLACE FUNCTION public.hosted_provider_effective_billing_account(p_row jsonb) "
+        "RETURNS text LANGUAGE sql STABLE SET search_path=public AS $$ SELECT NULL::text $$"
+    )
+    assert not ready(), "runtime readiness accepted a drifted provider-account resolver"
+    owner_execute(resolver_definition)
+    assert ready(), "runtime readiness rejected the restored provider-account resolver"
+
+    owner_execute(
+        "ALTER FUNCTION public.hosted_provider_effective_billing_account(jsonb) "
+        "RENAME TO hosted_provider_effective_billing_account_missing"
+    )
+    assert not ready(), "runtime readiness accepted a missing provider-account resolver"
+    owner_execute(
+        "ALTER FUNCTION public.hosted_provider_effective_billing_account_missing(jsonb) "
+        "RENAME TO hosted_provider_effective_billing_account"
+    )
+    assert ready(), "runtime readiness rejected the restored provider-account resolver"
+
+    owner_execute(
+        "ALTER TABLE public.personal_agent_registry DISABLE TRIGGER "
+        "zx_hosted_provider_account_transition_registry"
+    )
+    assert not ready(), "runtime readiness accepted a disabled provider-transition trigger"
+    owner_execute(
+        "ALTER TABLE public.personal_agent_registry ENABLE TRIGGER "
+        "zx_hosted_provider_account_transition_registry"
+    )
+    assert ready(), "runtime readiness rejected the restored provider-transition trigger"
+
+    owner_execute(
+        "GRANT EXECUTE ON FUNCTION public.hosted_provider_effective_billing_account(jsonb) TO anon"
+    )
+    assert not ready(), "runtime readiness accepted an ACL-open provider-account resolver"
+    owner_execute(
+        "REVOKE ALL ON FUNCTION public.hosted_provider_effective_billing_account(jsonb) FROM anon"
+    )
+    assert ready(), "runtime readiness rejected the restored owner-only resolver ACL"
+
+    owner_execute(resolution_rollback.read_text(encoding="utf-8"))
+    assert ready(), "Dev runtime readiness rejected the restored 982 pre983 family"
 
     # With no owner transition evidence, the parked rollback restores the
     # accepted pre982 Dev successor and readiness returns to that family.

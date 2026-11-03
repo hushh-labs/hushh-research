@@ -126,6 +126,22 @@ HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER = (
     "a27c02285cd232f778c63b23b31259e148de261b0f5f7814bfd8964bb2b3234c",
 )
 
+HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED = {
+    "valid_hosted_provider_account_transition_intent(jsonb,jsonb)": "db5578781ae2ec3a773110d77719be0de199ba91a5f0434687a18ed4a7606120",
+    "hosted_provider_effective_billing_account(jsonb)": "7aae7c878c71898a7241308012c7c24e6a493e388b007d4de7238944ce8bd3c5",
+    "hosted_pod_cleanup_admitted(text,text,jsonb)": "a240e2346c02137441ec68b5597807df8ef0646cb82c3abde1e1573e5fb881f5",
+    "hosted_preparation_cleanup_admitted(text,text,jsonb)": "9b35795e390939c4c2a3c5aab207e19d057a0fd4855689cd4cf4fa4463018426",
+    "valid_managed_preparation_cleanup(jsonb,text,jsonb)": "9f684aec984b39aa47ce1d52b7d200269a033aa1c4b230c0ccef9b6325284522",
+    "valid_erasure_managed_project_retirement(jsonb,text,jsonb)": "fd94f3bd8a45790f4177fbdfc496a186ed18824c1c75ebadca0ce8862966640e",
+    "hosted_prefix_abort_admitted(text,text,jsonb)": "8ea7a69c33a0b33e5c7ddbd640966a059dbcc9a74723e79af754e3ce5469e65c",
+}
+HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES = frozenset(
+    {
+        "valid_hosted_provider_account_transition_intent(jsonb,jsonb)",
+        "hosted_provider_effective_billing_account(jsonb)",
+    }
+)
+
 PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED = {
     "personal_agent_upgrade_lease_host_binding(jsonb)": "f03be8a6d264fb22c74968c1f758b885ee18a4206895a10f77fdbf7cd583a172",
     "azure_vm_image_publication_proven(personal_agent_registry,personal_agent_registry)": "1748051f173f41e3fdbed624b30a1027658a4448ae8592e6287196bc15bdc4fb",
@@ -188,6 +204,7 @@ def qualified_hosted_custody_family(
             HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256
         )
         family.update(HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED)
+        family.update(HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED)
     return family
 
 
@@ -283,6 +300,13 @@ def hosted_custody_adoption(sql: str) -> str:
         provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
+            "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
+        ],
+        provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        provider_account_resolution_service_role_signatures=(
+            HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
     )
     qualification = full_family + _successor_qualification(profile=profile)
     for name, (predecessors, successor) in REFINED.items():
@@ -293,6 +317,7 @@ def hosted_custody_adoption(sql: str) -> str:
                 HOSTED_FILES_QUALIFIED,
                 PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
                 HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+                HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
             )
             for signature, digest in family.items()
             if signature.partition("(")[0] == name
@@ -379,8 +404,14 @@ def _qualified_transaction(sql: str, qualification: str) -> str:
 
 def _successor_qualification(profile: HostedCustodyProfile | None = None) -> str:
     selected_profile = profile or hosted_custody_profile_from_environment()
+    resolution_successors = (
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED
+        if selected_profile.is_dev_control_plane_owner
+        else {}
+    )
     values = ",".join(
-        f"('{signature}','{digest}',{'true' if signature.partition('(')[0] in REFINED else 'false'})"
+        f"('{signature}','{digest}',{'true' if signature.partition('(')[0] in REFINED else 'false'},"
+        f"'{resolution_successors.get(signature, '')}')"
         for signature, digest in QUALIFIED.items()
     )
     complete_family = complete_family_qualification_sql(
@@ -395,6 +426,13 @@ def _successor_qualification(profile: HostedCustodyProfile | None = None) -> str
         provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
+            "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
+        ],
+        provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        provider_account_resolution_service_role_signatures=(
+            HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
     )
     qualification = f"""DO $hosted_custody_successor$
 DECLARE spec record; definition text; client_role text; footprint boolean := false;
@@ -404,9 +442,9 @@ BEGIN
  -- must not make a partial successor look like the legacy family.
  SELECT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname='public' AND p.proname IN
-   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined)
+   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor)
     WHERE NOT refined)) INTO footprint;
- FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined) LOOP
+ FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
   IF definition IS NOT NULL AND (NOT spec.refined OR encode(sha256(convert_to(definition,'UTF8')),'hex')=spec.digest) THEN
    footprint := true;
@@ -416,14 +454,17 @@ BEGIN
  IF NOT footprint THEN RETURN; END IF;
  IF EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname='public' AND p.proname IN
-   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined))
-  AND NOT EXISTS(SELECT 1 FROM (VALUES {values}) AS expected(signature,digest,refined)
+   (SELECT split_part(signature,'(',1) FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor))
+  AND NOT EXISTS(SELECT 1 FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor)
    WHERE to_regprocedure('public.'||expected.signature)=p.oid)) THEN
   RAISE EXCEPTION 'Unqualified managed custody function overload';
  END IF;
- FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined) LOOP
+ FOR spec IN SELECT * FROM (VALUES {values}) AS expected(signature,digest,refined,dev_successor) LOOP
   SELECT pg_get_functiondef(to_regprocedure('public.'||spec.signature)) INTO definition;
-  IF definition IS NULL OR encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.digest THEN
+  IF definition IS NULL OR (
+     encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.digest
+     AND (spec.dev_successor='' OR
+       encode(sha256(convert_to(definition,'UTF8')),'hex')<>spec.dev_successor)) THEN
    RAISE EXCEPTION 'Unqualified managed custody successor: %',spec.signature;
   END IF;
   EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',to_regprocedure('public.'||spec.signature));

@@ -60,6 +60,8 @@ async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
         HOSTED_FILES_QUALIFIED,
         HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
@@ -83,6 +85,13 @@ async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
         provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
+            "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
+        ],
+        provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        provider_account_resolution_service_role_signatures=(
+            HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
     )
     return await _hosted_schema_readiness.read_hosted_family_ready(
         repo, qualification_sql=qualification_sql, join_on_cancel=join_on_cancel

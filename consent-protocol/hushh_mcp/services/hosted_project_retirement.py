@@ -31,6 +31,9 @@ async def retire_managed_project(
     ]["identity"]
     if actor != contract["operatorPrincipal"] or not token:
         raise ProvisionReconciliationRequired("Project retirement operator changed")
+    effective_billing_account = await journal.effective_provider_billing_account(
+        registry_row=initial["registrySnapshot"]
+    )
     base = {
         "ownerId": user_id,
         "attemptId": initial["attemptId"],
@@ -74,7 +77,7 @@ async def retire_managed_project(
         session, _worker_guard(current, asyncio.get_running_loop(), threading.get_ident())
     )
     identity, billing, deleted = await asyncio.to_thread(
-        _retire, client, token, creation, contract["billingAccount"]
+        _retire, client, token, creation, effective_billing_account
     )
     if deleted:
         await retain("acknowledgement", {**base, "status": "acknowledged"})

@@ -7,6 +7,7 @@ this boundary before binding its short-lived credentials to retained work.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
@@ -16,6 +17,31 @@ from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
 class VerifiedOperator:
     principal: str
     token: str = field(repr=False)
+    subject: str = ""
+    email: str = ""
+    email_verified: bool = False
+    verified_at: str = ""
+
+    def provider_account_transition_verification(self) -> dict[str, Any]:
+        """Return the exact Google userinfo evidence, never an ID-token claim."""
+        if (
+            not self.subject
+            or not self.email
+            or self.email_verified is not True
+            or not self.verified_at
+        ):
+            raise ProvisionReconciliationRequired("Operator identity evidence is incomplete")
+        return {
+            "version": 1,
+            "provider": "google",
+            "verificationMethod": "google_userinfo_access_token_verified",
+            "verificationEndpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+            "subject": self.subject,
+            "principal": self.principal,
+            "email": self.email,
+            "emailVerified": self.email_verified,
+            "verifiedAt": self.verified_at,
+        }
 
 
 def verify_operator(credentials: Any, session: Any, *, expected: str) -> VerifiedOperator:
@@ -33,10 +59,23 @@ def verify_operator(credentials: Any, session: Any, *, expected: str) -> Verifie
     if response.status_code != 200:
         raise ProvisionReconciliationRequired("Operator credential identity cannot be verified")
     value = response.json()
+    token = getattr(credentials, "token", None)
+    email = str(value.get("email", "")).strip().lower() if isinstance(value, dict) else ""
+    subject = str(value.get("sub", "")) if isinstance(value, dict) else ""
     if (
-        value.get("email_verified") is not True
-        or "user:" + str(value.get("email", "")).lower() != expected
-        or not value.get("sub")
+        not isinstance(value, dict)
+        or value.get("email_verified") is not True
+        or "user:" + email != expected
+        or not subject
+        or not isinstance(token, str)
+        or not token
     ):
         raise ProvisionReconciliationRequired("Operator credential differs from retained identity")
-    return VerifiedOperator(expected, credentials.token)
+    return VerifiedOperator(
+        principal=expected,
+        token=token,
+        subject=subject,
+        email=email,
+        email_verified=True,
+        verified_at=datetime.now(timezone.utc).isoformat(),
+    )

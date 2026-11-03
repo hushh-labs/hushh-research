@@ -15,6 +15,7 @@ from urllib.parse import unquote
 from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
 from hushh_mcp.services.hosted_gcp_admission import _worker_guard
 from hushh_mcp.services.hosted_model_grant_cleanup import _reservation
+from hushh_mcp.services.hosted_pod_journal import HostedPodJournal
 from hushh_mcp.services.hosted_prefix_abort_journal import PrefixAbortJournal, retained_entry
 from hushh_mcp.services.hosted_prefix_iam import remove_prefix_binding
 from hushh_mcp.services.hosted_prefix_native_resources import (
@@ -46,7 +47,7 @@ class HostedPrefixAbortOperator:
         self.observe_inventory: InventoryObserver = observe_inventory
 
     async def prefix_abort(self, *, user_id: str, reservation: dict) -> None:
-        journal, assignment = await self._journal(user_id, reservation)
+        journal, assignment, _effective_billing_account = await self._journal(user_id, reservation)
         inventory = await self._inventory(journal, assignment)
         for binding in inventory["bindings"]:
             await self._binding(journal, assignment, inventory, binding)
@@ -56,7 +57,7 @@ class HostedPrefixAbortOperator:
         # The orchestrator's SQL completion check still refuses until separate retirement.
 
     async def retirement(self, *, user_id: str, reservation: dict) -> None:
-        journal, assignment = await self._journal(user_id, reservation)
+        journal, assignment, effective_billing_account = await self._journal(user_id, reservation)
         original = reservation["registrySnapshot"]["backend_metadata"]["provisionAttempt"]
         creation = original["evidence"]["reserved"]["hostedPreparation"]["completed"][0][
             "resourceObservation"
@@ -77,7 +78,7 @@ class HostedPrefixAbortOperator:
             native.session,
             self.token,
             creation,
-            assignment["preparationContract"]["billingAccount"],
+            effective_billing_account,
         )
         await journal.retain(
             "retirement",
@@ -91,7 +92,7 @@ class HostedPrefixAbortOperator:
             },
         )
 
-    async def _journal(self, owner: str, reservation: dict) -> tuple[PrefixAbortJournal, dict]:
+    async def _journal(self, owner: str, reservation: dict) -> tuple[PrefixAbortJournal, dict, str]:
         saved = await _reservation(self.registry, owner)
         if (
             saved["attemptId"] != reservation["attemptId"]
@@ -100,6 +101,9 @@ class HostedPrefixAbortOperator:
             raise ProvisionReconciliationRequired("Managed prefix request changed")
         attempt = saved["registrySnapshot"]["backend_metadata"]["provisionAttempt"]
         assignment = attempt["hostedAdmission"]["assignment"]
+        effective_billing_account = await HostedPodJournal(
+            self.registry._db()
+        ).effective_provider_billing_account(registry_row=saved["registrySnapshot"])
         if self.actor != assignment["preparationContract"]["operatorPrincipal"] or not self.token:
             raise ProvisionReconciliationRequired(
                 "Managed prefix operator differs from retained authority"
@@ -116,7 +120,11 @@ class HostedPrefixAbortOperator:
             raise ProvisionReconciliationRequired(
                 "Managed prefix numeric project authority unavailable"
             )
-        return journal, {**assignment, "projectNumber": coordinates["projectNumber"]}
+        return (
+            journal,
+            {**assignment, "projectNumber": coordinates["projectNumber"]},
+            effective_billing_account,
+        )
 
     def _native(
         self, journal: PrefixAbortJournal, assignment: dict, kind: str, key: str, admitted: dict

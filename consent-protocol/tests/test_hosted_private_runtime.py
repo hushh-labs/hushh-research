@@ -348,6 +348,229 @@ def test_operator_identity_checks_authenticated_subject_not_a_supplied_email():
     verified = verify_operator(credentials, session, expected="user:operator@example.test")
     assert verified.principal == "user:operator@example.test"
     assert "synthetic" not in repr(verified)
+    proof = verified.provider_account_transition_verification()
+    assert proof == {
+        "version": 1,
+        "provider": "google",
+        "verificationMethod": "google_userinfo_access_token_verified",
+        "verificationEndpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+        "subject": "operator",
+        "principal": "user:operator@example.test",
+        "email": "operator@example.test",
+        "emailVerified": True,
+        "verifiedAt": verified.verified_at,
+    }
+    assert "audience" not in proof and "issuer" not in proof
+
+
+@pytest.mark.parametrize("put_mode", ["success", "timeout"])
+async def test_provider_account_transition_persists_before_single_put_and_resumes_get_only(
+    monkeypatch, put_mode
+):
+    import hashlib
+    import json
+    from copy import deepcopy
+    from datetime import datetime, timezone
+
+    from hushh_mcp.services.hosted_operator_identity import VerifiedOperator
+    from hushh_mcp.services.hosted_provider_account_transition import (
+        ACTOR_PRINCIPAL,
+        IMAGE_DIGEST,
+        OLD_BILLING_ACCOUNT,
+        PLACEMENTS,
+        TARGET_BILLING_ACCOUNT,
+        HostedProviderAccountTransition,
+    )
+
+    owner_id = "owner-a"
+    placement = PLACEMENTS["ha1_t6cqxavpt6sumlllpfcjrwkh4fztw5zq"]
+    project = placement["projectId"]
+    identity = {
+        "projectId": project,
+        "projectNumber": placement["projectNumber"],
+        "lifecycleState": "ACTIVE",
+        "parent": {"type": "folder", "id": "1085913534660"},
+        "labels": {"hussh-provision-attempt": placement["attemptId"]},
+    }
+    completed = [
+        {
+            "step": "create_project",
+            "ok": True,
+            "resourceObservation": {"identity": deepcopy(identity)},
+        },
+        {
+            "step": "link_billing",
+            "ok": True,
+            "billingObservation": {
+                "projectId": project,
+                "billingAccountName": OLD_BILLING_ACCOUNT,
+                "billingEnabled": True,
+            },
+        },
+        {"step": "authorize_project", "ok": True},
+        {"step": "inference_vertex", "ok": True},
+        {"step": "inference_quota", "ok": True},
+    ]
+    row = {
+        "user_id": owner_id,
+        "hushh_id": placement["hushhId"],
+        "placement_epoch": 0,
+        "status": "provisioned",
+        "deployment_target": "gcp",
+        "backend_metadata": {
+            "project": project,
+            "serviceUid": placement["serviceUid"],
+            "runtime_service_account": placement["runtimePrincipal"],
+            "tenancy": "hussh-hosted",
+            "provisionAttempt": {
+                "ownerId": owner_id,
+                "attemptId": placement["attemptId"],
+                "phase": "provisioned",
+                "intent": {"user_id": owner_id, "hushh_id": placement["hushhId"]},
+                "hostedAdmission": {
+                    "environment": "dev",
+                    "imageDigest": IMAGE_DIGEST,
+                    "assignment": {
+                        "ownerHash": "sha256:" + hashlib.sha256(owner_id.encode()).hexdigest(),
+                        "hushhId": placement["hushhId"],
+                        "project": project,
+                        "projectNumber": placement["projectNumber"],
+                        "preparationContract": {"billingAccount": OLD_BILLING_ACCOUNT},
+                    },
+                },
+                "evidence": {
+                    "reserved": {
+                        "projectObservation": {
+                            "projectId": project,
+                            "projectNumber": placement["projectNumber"],
+                            "lifecycleState": "ACTIVE",
+                        },
+                        "hostedPreparation": {"completed": completed},
+                    }
+                },
+            },
+        },
+    }
+    monkeypatch.setenv("HUSHH_DEPLOY_SHA", "d" * 40)
+    operator_token = "synthetic-access-token"
+    operator = VerifiedOperator(
+        principal=ACTOR_PRINCIPAL,
+        token=operator_token,
+        subject="google-subject-a",
+        email="kushaltrivedi97@gmail.com",
+        email_verified=True,
+        verified_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    class Registry:
+        async def get(self, requested_owner):
+            assert requested_owner == owner_id
+            return deepcopy(row)
+
+    class Journal:
+        def __init__(self):
+            self.events = []
+
+        async def record_provider_account_transition_intent(self, *, owner_id, attempt_id, intent):
+            assert owner_id == row["user_id"]
+            assert attempt_id == placement["attemptId"]
+            self.events.append("intent")
+            transition_intent = {**intent, "minimumSourceRevision": "d" * 40}
+            row["backend_metadata"]["provisionAttempt"]["providerAccountTransition"] = {
+                "version": 1,
+                "generation": 1,
+                "phase": "intent",
+                "intent": transition_intent,
+                "settlements": [],
+            }
+            return True
+
+        async def settle_provider_account_transition(
+            self, *, owner_id, attempt_id, expected_generation, expected_phase, settlement
+        ):
+            transition = row["backend_metadata"]["provisionAttempt"]["providerAccountTransition"]
+            assert owner_id == row["user_id"] and attempt_id == placement["attemptId"]
+            assert transition["generation"] == expected_generation
+            assert transition["phase"] == expected_phase
+            self.events.append(settlement["outcome"])
+            transition.update(
+                generation=expected_generation + 1,
+                phase=settlement["outcome"],
+                settlements=transition["settlements"] + [settlement],
+            )
+            return True
+
+    class Response:
+        def __init__(self, body, status_code=200):
+            self._body = body
+            self.status_code = status_code
+
+        def json(self):
+            return deepcopy(self._body)
+
+    class Session:
+        def __init__(self):
+            self.billing_account = OLD_BILLING_ACCOUNT
+            self.put_count = 0
+            self.get_urls = []
+
+        def get(self, url, **_kwargs):
+            self.get_urls.append(url)
+            if url.endswith("/billingInfo"):
+                return Response(
+                    {
+                        "projectId": project,
+                        "billingAccountName": self.billing_account,
+                        "billingEnabled": True,
+                    }
+                )
+            if url.endswith("/" + TARGET_BILLING_ACCOUNT):
+                return Response({"name": TARGET_BILLING_ACCOUNT, "open": True})
+            if url.endswith("/projects/" + project):
+                return Response(identity)
+            raise AssertionError("unexpected GET target")
+
+        def put(self, url, **_kwargs):
+            assert journal.events[-1] == "intent"
+            assert url.endswith("/projects/" + project + "/billingInfo")
+            self.put_count += 1
+            if put_mode == "timeout":
+                self.billing_account = TARGET_BILLING_ACCOUNT
+                raise TimeoutError("simulated ambiguous provider timeout")
+            self.billing_account = TARGET_BILLING_ACCOUNT
+            return Response({"projectId": project})
+
+    journal = Journal()
+    session = Session()
+    monkeypatch.setattr(
+        "hushh_mcp.services.hosted_provider_account_transition.verify_operator",
+        lambda *_args, **_kwargs: operator,
+    )
+    service = HostedProviderAccountTransition(
+        Registry(), credentials=object(), session=session, journal=journal
+    )
+    first = await service.start(owner_id=owner_id)
+    assert session.put_count == 1
+    assert journal.events[0] == "intent"
+    assert session.get_urls
+    transition = row["backend_metadata"]["provisionAttempt"]["providerAccountTransition"]
+    assert operator_token not in json.dumps(transition)
+    assert "tokenSha256" not in transition["intent"]["actorVerification"]
+    assert transition["intent"]["operationId"] == placement["operationId"]
+    assert "operationId" not in row["backend_metadata"]["provisionAttempt"]
+    if put_mode == "success":
+        assert first == {"phase": "settled", "generation": 2}
+        assert transition["settlements"][-1]["billingAccountName"] == TARGET_BILLING_ACCOUNT
+        return
+
+    assert first == {"phase": "unknown", "generation": 2}
+    before_resume_put_count = session.put_count
+    second = await service.resume(owner_id=owner_id)
+    assert second == {"phase": "settled", "generation": 3}
+    assert session.put_count == before_resume_put_count == 1
+    assert journal.events[-1] == "settled"
+    assert transition["settlements"][0]["outcome"] == "unknown"
+    assert transition["settlements"][1]["outcome"] == "settled"
 
 
 @pytest.mark.parametrize("failure", [None, "denied", "unreachable", "loop", "malformed", "foreign"])

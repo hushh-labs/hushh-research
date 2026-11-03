@@ -89,6 +89,21 @@ _DEV_ALTERNATE_FAMILY_HASHES = {
     "personal_agent_erasure_archive(jsonb,jsonb)": (
         "aef9e2ea2a5757e2601c3853c062625c56a2df889b29e6aac3d7d192367a466a",
     ),
+    "hosted_pod_cleanup_admitted(text,text,jsonb)": (
+        "a240e2346c02137441ec68b5597807df8ef0646cb82c3abde1e1573e5fb881f5",
+    ),
+    "hosted_preparation_cleanup_admitted(text,text,jsonb)": (
+        "9b35795e390939c4c2a3c5aab207e19d057a0fd4855689cd4cf4fa4463018426",
+    ),
+    "valid_managed_preparation_cleanup(jsonb,text,jsonb)": (
+        "9f684aec984b39aa47ce1d52b7d200269a033aa1c4b230c0ccef9b6325284522",
+    ),
+    "valid_erasure_managed_project_retirement(jsonb,text,jsonb)": (
+        "fd94f3bd8a45790f4177fbdfc496a186ed18824c1c75ebadca0ce8862966640e",
+    ),
+    "hosted_prefix_abort_admitted(text,text,jsonb)": (
+        "8ea7a69c33a0b33e5c7ddbd640966a059dbcc9a74723e79af754e3ce5469e65c",
+    ),
 }
 
 CUSTODY_PROFILE_ENV = "HUSHH_HOSTED_CUSTODY_PROFILE"
@@ -467,6 +482,9 @@ def complete_family_qualification_sql(
     provider_transition_family: Mapping[str, str] | None = None,
     provider_transition_trigger: tuple[str, str] | None = None,
     provider_transition_archive_sha256: str | None = None,
+    provider_transition_intent_successor_sha256: str | None = None,
+    provider_account_resolution_family: Mapping[str, str] | None = None,
+    provider_account_resolution_service_role_signatures: Set[str] = frozenset(),
 ) -> str:
     """Fail closed on partial family footprints and qualify exact installed metadata."""
     qualified_native_contract_family = dict(native_contract_family)
@@ -525,6 +543,7 @@ def complete_family_qualification_sql(
             provider_transition_family is None
             or provider_transition_trigger is None
             or provider_transition_archive_sha256 is None
+            or provider_transition_intent_successor_sha256 is None
         ):
             raise ValueError(
                 "provider transition qualification requires the complete closed family"
@@ -534,8 +553,16 @@ def complete_family_qualification_sql(
             trigger=provider_transition_trigger,
             archive_sha256=provider_transition_archive_sha256,
             dev_profile=profile.is_dev_control_plane_owner,
+            intent_successor_sha256=provider_transition_intent_successor_sha256,
         )
         sql = sql + transition_sql if profile.is_dev_control_plane_owner else transition_sql + sql
+    if provider_account_resolution_family is not None:
+        resolution_sql = _provider_account_resolution_family_qualification_sql(
+            family=provider_account_resolution_family,
+            service_role_signatures=provider_account_resolution_service_role_signatures,
+            dev_profile=profile.is_dev_control_plane_owner,
+        )
+        sql += resolution_sql
     return sql
 
 
@@ -545,6 +572,7 @@ def _provider_transition_family_qualification_sql(
     trigger: tuple[str, str],
     archive_sha256: str,
     dev_profile: bool,
+    intent_successor_sha256: str = "",
 ) -> str:
     """Qualify the complete 982 family only when that family is installed."""
     values = ",".join(f"('{signature}','{digest}')" for signature, digest in sorted(family.items()))
@@ -583,7 +611,11 @@ BEGIN
  IF EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest)
     LEFT JOIN pg_proc p ON p.oid=to_regprocedure('public.'||e.signature)
     WHERE p.oid IS NULL
-      OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
+      OR (encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
+          AND NOT (e.signature='valid_hosted_provider_account_transition_intent(jsonb,jsonb)'
+              AND {allowed_role_condition} IS TRUE
+              AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')
+                   ='{intent_successor_sha256}'))
       OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proleakproof IS TRUE
       OR p.proisstrict IS TRUE OR p.proretset IS TRUE OR p.prokind<>'f'
       OR p.proargmodes IS NOT NULL OR p.provariadic<>0
@@ -618,4 +650,77 @@ BEGIN
  END IF;
 END;
 $hosted_provider_account_transition_family$;
+"""
+
+
+def _provider_account_resolution_family_qualification_sql(
+    *,
+    family: Mapping[str, str],
+    service_role_signatures: Set[str],
+    dev_profile: bool,
+) -> str:
+    """Qualify exact 983 resolver and consumer bodies only when their footprint exists."""
+    values = ",".join(
+        f"('{signature}','{digest}',{'true' if signature in service_role_signatures else 'false'})"
+        for signature, digest in sorted(family.items())
+    )
+    names = sorted({signature.partition("(")[0] for signature in family})
+    names_sql = ",".join(f"'{name}'" for name in names)
+    resolver_signature = "hosted_provider_effective_billing_account(jsonb)"
+    allowed_role_condition = "TRUE" if dev_profile else "FALSE"
+    return f"""
+DO $hosted_provider_account_resolution_family$
+DECLARE spec record; actual_count integer; registry_owner oid; service_role_oid oid;
+        resolution_footprint boolean := false;
+BEGIN
+ SELECT to_regprocedure('public.{resolver_signature}') IS NOT NULL
+  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE p.proname='hosted_provider_effective_billing_account')
+  OR EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest,direct_service)
+   WHERE to_regprocedure('public.'||e.signature) IS NOT NULL
+    AND encode(sha256(convert_to(pg_get_functiondef(
+      to_regprocedure('public.'||e.signature)),'UTF8')),'hex')=e.digest)
+  INTO resolution_footprint;
+ IF resolution_footprint IS NOT TRUE THEN RETURN; END IF;
+ IF {allowed_role_condition} IS NOT TRUE THEN
+  RAISE EXCEPTION 'Unqualified provider account resolution family: explicit Dev profile required';
+ END IF;
+ SELECT c.relowner INTO registry_owner FROM pg_class c
+  WHERE c.oid=to_regclass('public.personal_agent_registry') AND c.relkind='r';
+ SELECT oid INTO service_role_oid FROM pg_roles WHERE rolname='service_role';
+ SELECT count(*) INTO actual_count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND p.proname=ANY(ARRAY[{names_sql}]::text[]);
+ IF actual_count<>{len(family)}
+  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE p.proname=ANY(ARRAY[{names_sql}]::text[])
+      AND (n.nspname<>'public' OR NOT EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest,direct_service)
+       WHERE to_regprocedure('public.'||e.signature)=p.oid))) THEN
+  RAISE EXCEPTION 'Unqualified provider account resolution family: overload or missing function';
+ END IF;
+ IF EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest,direct_service)
+    LEFT JOIN pg_proc p ON p.oid=to_regprocedure('public.'||e.signature)
+    WHERE p.oid IS NULL
+      OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
+      OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proleakproof IS TRUE
+      OR p.proisstrict IS TRUE OR p.proretset IS TRUE OR p.prokind<>'f'
+      OR p.proargmodes IS NOT NULL OR p.provariadic<>0
+      OR p.proconfig IS DISTINCT FROM ARRAY['search_path=public']::text[]
+      OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
+         WHERE a.grantor<>p.proowner OR a.privilege_type<>'EXECUTE' OR a.is_grantable
+          OR (a.grantee<>p.proowner AND (service_role_oid IS NULL
+              OR a.grantee<>service_role_oid OR e.direct_service IS NOT TRUE))
+          OR (a.grantee=p.proowner AND a.grantee=0))
+      OR (SELECT count(*) FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a)
+         <>1+CASE WHEN e.direct_service AND service_role_oid IS NOT NULL THEN 1 ELSE 0 END
+      OR NOT has_function_privilege(p.proowner,p.oid,'EXECUTE')
+      OR (e.direct_service AND service_role_oid IS NOT NULL
+          AND NOT has_function_privilege(service_role_oid,p.oid,'EXECUTE'))
+      OR (EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon')
+          AND has_function_privilege('anon',p.oid,'EXECUTE'))
+      OR (EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated')
+          AND has_function_privilege('authenticated',p.oid,'EXECUTE'))) THEN
+  RAISE EXCEPTION 'Unqualified provider account resolution family: function definition or ACL';
+ END IF;
+END;
+$hosted_provider_account_resolution_family$;
 """

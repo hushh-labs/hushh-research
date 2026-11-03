@@ -6,6 +6,94 @@ import re
 from typing import Any
 
 
+def observe_provider_account_transition_billing(
+    *,
+    project_id: str,
+    old_account: str,
+    target_account: str,
+    token: str,
+    session: Any,
+) -> dict[str, Any]:
+    """Read the open target account and native project billing state for C2."""
+    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+    from hushh_mcp.services.user_gcp_project import validate_project_id
+
+    account_re = r"billingAccounts/[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}"
+    if (
+        not validate_project_id(project_id).valid
+        or not re.fullmatch(account_re, old_account)
+        or not re.fullmatch(account_re, target_account)
+        or old_account == target_account
+        or not isinstance(token, str)
+        or not token
+    ):
+        raise ProvisionReconciliationRequired("Provider account transition authority is invalid")
+    headers = {"Authorization": "Bearer " + token}
+    base = "https://cloudbilling.googleapis.com/v1"
+    account_response = session.get(
+        f"{base}/{target_account}",
+        headers=headers,
+        timeout=20,
+        allow_redirects=False,
+    )
+    if account_response.status_code != 200:
+        raise ProvisionReconciliationRequired("Target billing account status is unverified")
+    account = account_response.json()
+    if (
+        not isinstance(account, dict)
+        or account.get("name") != target_account
+        or account.get("open") is not True
+    ):
+        raise ProvisionReconciliationRequired("Target billing account is not open")
+
+    billing_response = session.get(
+        f"{base}/projects/{project_id}/billingInfo",
+        headers=headers,
+        timeout=20,
+        allow_redirects=False,
+    )
+    if billing_response.status_code != 200:
+        raise ProvisionReconciliationRequired("Project billing readback is unverified")
+    billing = billing_response.json()
+    if (
+        not isinstance(billing, dict)
+        or billing.get("projectId") != project_id
+        or not isinstance(billing.get("billingAccountName", ""), str)
+        or type(billing.get("billingEnabled")) is not bool
+    ):
+        raise ProvisionReconciliationRequired("Project billing readback is malformed")
+    return {
+        "projectId": project_id,
+        "billingAccountName": billing.get("billingAccountName", ""),
+        "billingEnabled": billing["billingEnabled"],
+    }
+
+
+def link_provider_account_transition_once(
+    *, project_id: str, target_account: str, token: str, session: Any
+) -> None:
+    """Issue exactly one C2 billing PUT; callers must journal before calling."""
+    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+    from hushh_mcp.services.user_gcp_project import validate_project_id
+
+    if (
+        not validate_project_id(project_id).valid
+        or not re.fullmatch(r"billingAccounts/[A-Z0-9]{6}-[A-Z0-9]{6}-[A-Z0-9]{6}", target_account)
+        or not isinstance(token, str)
+        or not token
+    ):
+        raise ProvisionReconciliationRequired("Provider account transition authority is invalid")
+    response = session.put(
+        f"https://cloudbilling.googleapis.com/v1/projects/{project_id}/billingInfo",
+        headers={"Authorization": "Bearer " + token},
+        json={"billingAccountName": target_account},
+        timeout=60,
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise ProvisionReconciliationRequired("Provider billing update requires reconciliation")
+
+
 def ensure_explicit_billing(
     *,
     project_id: str,

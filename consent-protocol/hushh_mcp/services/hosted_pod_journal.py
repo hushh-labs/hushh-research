@@ -196,6 +196,23 @@ class HostedPodJournal:
         )
         return bool(result.data and result.data[0].get("current") is True)
 
+    async def effective_provider_billing_account(self, *, registry_row: dict[str, Any]) -> str:
+        """Use SQL's single transition-aware account resolver; unresolved blocks work."""
+        result = await asyncio.to_thread(
+            self._database.execute_raw,
+            "SELECT public.hosted_provider_effective_billing_account(CAST(:row AS jsonb)) "
+            "AS billing_account",
+            {"row": json.dumps(registry_row, default=str)},
+        )
+        account = result.data[0].get("billing_account") if result.data else None
+        if not isinstance(account, str) or not account:
+            from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
+
+            raise ProvisionReconciliationRequired(
+                "Hosted provider account transition requires reconciliation"
+            )
+        return account
+
     async def managed_cleanup_check(
         self, *, owner_id: str, reservation: dict, kind: str, stage: str, receipt: dict
     ) -> bool:

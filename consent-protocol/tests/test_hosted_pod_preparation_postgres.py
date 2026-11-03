@@ -217,6 +217,10 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
     # function returns to its exact 979 source body.
     migration = ROOT / "db/migrations/parked/982_hosted_provider_account_transition.sql"
     rollback = ROOT / "db/migrations/rollback/982_hosted_provider_account_transition.rollback.sql"
+    resolution_migration = ROOT / "db/migrations/parked/983_hosted_provider_account_resolution.sql"
+    resolution_rollback = (
+        ROOT / "db/migrations/rollback/983_hosted_provider_account_resolution.rollback.sql"
+    )
     archive_definition_before = pg.execute(
         "SELECT pg_get_functiondef('public.personal_agent_erasure_archive(jsonb,jsonb)'::regprocedure)"
     )[0][0]
@@ -234,9 +238,192 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
         )
     )
     pg.apply_file(migration)
+    intent_definition_after_982 = pg.execute(
+        "SELECT pg_get_functiondef('public.valid_hosted_provider_account_transition_intent(jsonb,jsonb)'::regprocedure)"
+    )[0][0]
+    rollback_source_definitions = {
+        signature: pg.execute(
+            "SELECT pg_get_functiondef(%s::regprocedure)", ("public." + signature,)
+        )[0][0]
+        for signature in (
+            "hosted_pod_cleanup_admitted(text,text,jsonb)",
+            "hosted_preparation_cleanup_admitted(text,text,jsonb)",
+            "valid_managed_preparation_cleanup(jsonb,text,jsonb)",
+            "valid_erasure_managed_project_retirement(jsonb,text,jsonb)",
+            "hosted_prefix_abort_admitted(text,text,jsonb)",
+        )
+    }
+    pg.apply_file(resolution_migration)
+    pg.apply_file(resolution_rollback)
+    assert (
+        pg.execute(
+            "SELECT to_regprocedure('public.hosted_provider_effective_billing_account(jsonb)')"
+        )[0][0]
+        is None
+    )
+    assert (
+        pg.execute(
+            "SELECT pg_get_functiondef('public.valid_hosted_provider_account_transition_intent(jsonb,jsonb)'::regprocedure)"
+        )[0][0]
+        == intent_definition_after_982
+    )
+    assert {
+        signature: pg.execute(
+            "SELECT pg_get_functiondef(%s::regprocedure)", ("public." + signature,)
+        )[0][0]
+        for signature in rollback_source_definitions
+    } == rollback_source_definitions
     monkeypatch.setenv("HUSHH_DEPLOY_SHA", "d" * 40)
     client = _Client(pg)
     journal = HostedPodJournal(client)
+    legacy_item = project_data[1]
+    legacy_verified_at = datetime.now(timezone.utc).isoformat()
+    legacy_actor_verification = {
+        "version": 1,
+        "provider": "google",
+        "issuer": "https://accounts.google.com",
+        "subject": "synthetic-google-subject",
+        "principal": "user:kushaltrivedi97@gmail.com",
+        "email": "kushaltrivedi97@gmail.com",
+        "emailVerified": True,
+        "audience": "synthetic-982-transition-audience",
+        "verificationMethod": "google_id_token_verified",
+        "tokenSha256": "a" * 64,
+        "verifiedAt": legacy_verified_at,
+    }
+    legacy_intent = {
+        "version": 1,
+        "ownerId": legacy_item["owner"],
+        "attemptId": legacy_item["attemptId"],
+        "placementEpoch": 0,
+        "operationId": legacy_item["operationId"],
+        "projectId": legacy_item["project"],
+        "projectNumber": legacy_item["projectNumber"],
+        "oldBillingAccount": "billingAccounts/014D7F-FD970D-D2459E",
+        "targetBillingAccount": "billingAccounts/013848-8258FA-2D068F",
+        "actorPrincipal": "user:kushaltrivedi97@gmail.com",
+        "actorVerification": legacy_actor_verification,
+        "serviceUid": legacy_item["serviceUid"],
+        "runtimePrincipal": legacy_item["runtimePrincipal"],
+        "imageDigest": image_digest,
+        "intentAt": legacy_verified_at,
+    }
+    assert asyncio.run(
+        journal.record_provider_account_transition_intent(
+            owner_id=legacy_item["owner"],
+            attempt_id=legacy_item["attemptId"],
+            intent=legacy_intent,
+        )
+    )
+    legacy_before_983 = pg.execute(
+        "SELECT backend_metadata->'provisionAttempt'->'providerAccountTransition' "
+        "FROM personal_agent_registry WHERE user_id='owner-b'"
+    )[0][0]
+    assert legacy_before_983["intent"]["actorVerification"] == legacy_actor_verification
+    pg.apply_file(resolution_migration)
+    legacy_row = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-b'"
+    )[0][0]
+    legacy_transition = legacy_row["backend_metadata"]["provisionAttempt"][
+        "providerAccountTransition"
+    ]
+    assert legacy_transition["intent"]["actorVerification"] == legacy_actor_verification
+    assert pg.execute(
+        "SELECT valid_hosted_provider_account_transition_intent(%s::jsonb,%s::jsonb),"
+        "hosted_provider_effective_billing_account(%s::jsonb)",
+        (
+            json.dumps(legacy_row),
+            json.dumps(legacy_transition["intent"]),
+            json.dumps(legacy_row),
+        ),
+    )[0] == (True, None)
+
+    from hushh_mcp.services.hosted_operator_identity import VerifiedOperator
+    from hushh_mcp.services.hosted_provider_account_transition import (
+        ACTOR_PRINCIPAL,
+        HostedProviderAccountTransition,
+    )
+
+    legacy_operator_token = "synthetic-current-userinfo-token"
+    creation_identity = legacy_row["backend_metadata"]["provisionAttempt"]["evidence"]["reserved"][
+        "hostedPreparation"
+    ]["completed"][0]["resourceObservation"]["identity"]
+
+    class LegacyResponse:
+        status_code = 200
+
+        def __init__(self, body):
+            self._body = body
+
+        def json(self):
+            return deepcopy(self._body)
+
+    class LegacySession:
+        def __init__(self):
+            self.get_urls = []
+            self.put_count = 0
+
+        def get(self, url, **_kwargs):
+            self.get_urls.append(url)
+            if url.endswith("/projects/" + legacy_item["project"]):
+                return LegacyResponse(creation_identity)
+            if url.endswith("/billingAccounts/013848-8258FA-2D068F"):
+                return LegacyResponse(
+                    {"name": "billingAccounts/013848-8258FA-2D068F", "open": True}
+                )
+            if url.endswith("/projects/" + legacy_item["project"] + "/billingInfo"):
+                return LegacyResponse(
+                    {
+                        "projectId": legacy_item["project"],
+                        "billingAccountName": "billingAccounts/014D7F-FD970D-D2459E",
+                        "billingEnabled": True,
+                    }
+                )
+            raise AssertionError("unexpected legacy resume GET target")
+
+        def put(self, *_args, **_kwargs):
+            self.put_count += 1
+            raise AssertionError("legacy resume must not issue a billing PUT")
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.hosted_provider_account_transition.verify_operator",
+        lambda *_args, **_kwargs: VerifiedOperator(
+            principal=ACTOR_PRINCIPAL,
+            token=legacy_operator_token,
+            subject="synthetic-google-subject",
+            email="kushaltrivedi97@gmail.com",
+            email_verified=True,
+            verified_at=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+    class LegacyRegistry:
+        async def get(self, owner_id):
+            assert owner_id == legacy_item["owner"]
+            return pg.execute(
+                "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id=%s",
+                (owner_id,),
+            )[0][0]
+
+    legacy_session = LegacySession()
+    legacy_service = HostedProviderAccountTransition(
+        LegacyRegistry(),
+        credentials=object(),
+        session=legacy_session,
+        journal=journal,
+    )
+    assert asyncio.run(legacy_service.resume(owner_id=legacy_item["owner"])) == {
+        "phase": "unknown",
+        "generation": 2,
+    }
+    assert legacy_session.put_count == 0
+    assert legacy_session.get_urls
+    legacy_after_resume = pg.execute(
+        "SELECT backend_metadata->'provisionAttempt'->'providerAccountTransition' "
+        "FROM personal_agent_registry WHERE user_id='owner-b'"
+    )[0][0]
+    assert legacy_after_resume["phase"] == "unknown"
+    assert legacy_after_resume["intent"]["actorVerification"] == legacy_actor_verification
 
     def make_intent(item, *, delta=0):
         now = datetime.now(timezone.utc)
@@ -258,14 +445,12 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
             "actorVerification": {
                 "version": 1,
                 "provider": "google",
-                "issuer": "https://accounts.google.com",
+                "verificationMethod": "google_userinfo_access_token_verified",
+                "verificationEndpoint": "https://openidconnect.googleapis.com/v1/userinfo",
                 "subject": "synthetic-google-subject",
                 "principal": "user:kushaltrivedi97@gmail.com",
                 "email": "kushaltrivedi97@gmail.com",
                 "emailVerified": True,
-                "audience": "hushh-pda-dev",
-                "verificationMethod": "google_id_token_verified",
-                "tokenSha256": "e" * 64,
                 "verifiedAt": now.isoformat(),
             },
             "serviceUid": item["serviceUid"],
@@ -277,9 +462,39 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
     intent = make_intent(project_data[0])
     item_a = project_data[0]
     item_b = project_data[1]
+    legacy_candidate = deepcopy(intent)
+    legacy_candidate_at = datetime.now(timezone.utc).isoformat()
+    legacy_candidate["intentAt"] = legacy_candidate_at
+    legacy_candidate["actorVerification"] = {
+        **legacy_actor_verification,
+        "verifiedAt": legacy_candidate_at,
+    }
+    assert not pg.execute(
+        "SELECT valid_hosted_provider_account_transition_intent(%s::jsonb,%s::jsonb)",
+        (
+            json.dumps(
+                pg.execute(
+                    "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-a'"
+                )[0][0]
+            ),
+            json.dumps(legacy_candidate),
+        ),
+    )[0][0]
+    assert not asyncio.run(
+        journal.record_provider_account_transition_intent(
+            owner_id="owner-a", attempt_id=item_a["attemptId"], intent=legacy_candidate
+        )
+    )
     retained_row = pg.execute(
         "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-a'"
     )[0][0]
+    assert (
+        pg.execute(
+            "SELECT hosted_provider_effective_billing_account(%s::jsonb)",
+            (json.dumps(retained_row),),
+        )[0][0]
+        == "billingAccounts/014D7F-FD970D-D2459E"
+    )
     assert pg.execute(
         "SELECT hosted_pod_retained_admitted('owner-a',%s::jsonb)",
         (json.dumps(retained_row),),
@@ -382,6 +597,16 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
         "FROM personal_agent_registry WHERE user_id='owner-a'"
     )[0][0]
     assert transition["phase"] == "intent" and transition["generation"] == 1
+    intent_row = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-a'"
+    )[0][0]
+    assert (
+        pg.execute(
+            "SELECT hosted_provider_effective_billing_account(%s::jsonb)",
+            (json.dumps(intent_row),),
+        )[0][0]
+        is None
+    )
     with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="provider account transition"):
         pg.execute("SELECT reserve_personal_agent_erasure('owner-a','unresolved-erasure')")
 
@@ -434,6 +659,24 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
             json.dumps(row_after_append),
         ),
     )[0] == (True, True)
+    assert (
+        pg.execute(
+            "SELECT hosted_provider_effective_billing_account(%s::jsonb)",
+            (json.dumps(row_after_append),),
+        )[0][0]
+        is None
+    )
+    malformed_row = deepcopy(row_after_append)
+    malformed_row["backend_metadata"]["provisionAttempt"]["providerAccountTransition"][
+        "unrecognized"
+    ] = True
+    assert (
+        pg.execute(
+            "SELECT hosted_provider_effective_billing_account(%s::jsonb)",
+            (json.dumps(malformed_row),),
+        )[0][0]
+        is None
+    )
     assert asyncio.run(
         journal.settle_provider_account_transition(
             owner_id="owner-a",
@@ -486,6 +729,16 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
         "FROM personal_agent_registry WHERE user_id='owner-a'"
     )[0][0]
     assert transition["phase"] == "settled" and transition["generation"] == 3
+    settled_row = pg.execute(
+        "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='owner-a'"
+    )[0][0]
+    assert (
+        pg.execute(
+            "SELECT hosted_provider_effective_billing_account(%s::jsonb)",
+            (json.dumps(settled_row),),
+        )[0][0]
+        == "billingAccounts/013848-8258FA-2D068F"
+    )
     history_after = pg.execute(
         "SELECT (backend_metadata->'provisionAttempt'->'hostedAdmission'->'assignment'->'preparationContract')::text,"
         "(backend_metadata->'provisionAttempt'->'evidence'->'reserved'->'hostedPreparation'->'completed'->1)::text "
@@ -520,14 +773,141 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
             "'{serviceUid}',to_jsonb('rewritten-service-uid'::text)) WHERE user_id='owner-a'"
         )
 
+    def cleanup_reservation(source_row, *, prefix=False, unresolved=False):
+        snapshot = deepcopy(source_row)
+        snapshot["status"] = "suspended"
+        metadata = snapshot["backend_metadata"]
+        metadata.pop("erasure", None)
+        metadata.pop("serviceUid", None)
+        metadata.pop("runtime_service_account", None)
+        attempt = metadata["provisionAttempt"]
+        attempt["phase"] = "reserved"
+        attempt["evidence"].pop("host_requested", None)
+        attempt["evidence"].pop("host_acknowledged", None)
+        attempt["evidence"].pop("connecting", None)
+        attempt["evidence"].pop("provisioned", None)
+        reserved = attempt["evidence"]["reserved"]
+        attempt.pop("providerAccountTransition", None)
+        if prefix:
+            reserved.pop("hostedCheckpoint", None)
+            reserved["hostedPreparation"]["completed"] = reserved["hostedPreparation"]["completed"][
+                :3
+            ]
+        else:
+            reserved.pop("hostedCheckpoint", None)
+            reserved.pop("projectAuthorization", None)
+            preparation = reserved["hostedPreparation"]
+            preparation["completed"] = preparation["completed"][:1]
+        if unresolved:
+            attempt["providerAccountTransition"] = {"version": 1, "phase": "unknown"}
+        return {
+            "ownerId": "owner-a",
+            "attemptId": item_a["attemptId"],
+            "hushhId": source_row["hushh_id"],
+            "registrySnapshot": snapshot,
+        }
+
+    prefix_clean = cleanup_reservation(settled_row, prefix=True)
+    prep_clean = cleanup_reservation(settled_row)
+    unresolved_prefix = cleanup_reservation(settled_row, prefix=True, unresolved=True)
+    unresolved_prep = cleanup_reservation(settled_row, unresolved=True)
+    retirement_unresolved = deepcopy(prefix_clean)
+    retirement_unresolved["registrySnapshot"]["backend_metadata"]["provisionAttempt"][
+        "providerAccountTransition"
+    ] = {"version": 1, "phase": "unknown"}
+    original_row = pg.execute(
+        "SELECT status,backend_metadata FROM personal_agent_registry WHERE user_id='owner-a'"
+    )[0]
+    pg.execute("ALTER TABLE personal_agent_registry DISABLE TRIGGER USER")
+    try:
+        for candidate in (prefix_clean, prep_clean):
+            pg.execute(
+                "UPDATE personal_agent_registry SET status='suspended',"
+                "backend_metadata=jsonb_set(backend_metadata,'{erasure}',%s::jsonb,true) "
+                "WHERE user_id='owner-a'",
+                (json.dumps(candidate),),
+            )
+            if candidate is prefix_clean:
+                assert pg.execute(
+                    "SELECT hosted_pod_cleanup_admitted('owner-a',%s,%s::jsonb)",
+                    (item_a["attemptId"], json.dumps(candidate)),
+                )[0][0]
+                assert pg.execute(
+                    "SELECT hosted_prefix_abort_admitted('owner-a',%s,%s::jsonb)",
+                    (item_a["attemptId"], json.dumps(candidate)),
+                )[0][0]
+            else:
+                assert pg.execute(
+                    "SELECT hosted_preparation_cleanup_admitted('owner-a',%s,%s::jsonb)",
+                    (item_a["attemptId"], json.dumps(candidate)),
+                )[0][0]
+                coordinates = pg.execute(
+                    "SELECT managed_preparation_cleanup_coordinates(%s::jsonb)",
+                    (json.dumps(candidate),),
+                )[0][0]
+                wanted = {
+                    "ownerId": candidate["ownerId"],
+                    "attemptId": candidate["attemptId"],
+                    "project": coordinates["project"],
+                    "projectNumber": coordinates["projectNumber"],
+                    "operatorPrincipal": coordinates["operatorPrincipal"],
+                    "status": "admitted",
+                }
+                assert pg.execute(
+                    "SELECT valid_managed_preparation_cleanup(%s::jsonb,'admission',%s::jsonb)",
+                    (json.dumps(candidate), json.dumps(wanted)),
+                )[0][0]
+
+        for candidate, admission in (
+            (unresolved_prefix, "hosted_pod_cleanup_admitted"),
+            (unresolved_prefix, "hosted_prefix_abort_admitted"),
+            (unresolved_prep, "hosted_preparation_cleanup_admitted"),
+        ):
+            pg.execute(
+                "UPDATE personal_agent_registry SET status='suspended',"
+                "backend_metadata=jsonb_set(backend_metadata,'{erasure}',%s::jsonb,true) "
+                "WHERE user_id='owner-a'",
+                (json.dumps(candidate),),
+            )
+            assert not pg.execute(
+                f"SELECT public.{admission}('owner-a',%s,%s::jsonb)",
+                (item_a["attemptId"], json.dumps(candidate)),
+            )[0][0]
+        unresolved_coordinates = pg.execute(
+            "SELECT managed_preparation_cleanup_coordinates(%s::jsonb)",
+            (json.dumps(unresolved_prep),),
+        )[0][0]
+        unresolved_prep_receipt = {
+            "ownerId": unresolved_prep["ownerId"],
+            "attemptId": unresolved_prep["attemptId"],
+            "project": unresolved_coordinates["project"],
+            "projectNumber": unresolved_coordinates["projectNumber"],
+            "operatorPrincipal": unresolved_coordinates["operatorPrincipal"],
+            "status": "admitted",
+        }
+        assert not pg.execute(
+            "SELECT valid_managed_preparation_cleanup(%s::jsonb,'admission',%s::jsonb)",
+            (json.dumps(unresolved_prep), json.dumps(unresolved_prep_receipt)),
+        )[0][0]
+        assert pg.execute(
+            "SELECT erasure_private_coordinates(%s::jsonb) IS NOT NULL",
+            (json.dumps(retirement_unresolved),),
+        )[0][0]
+        assert not pg.execute(
+            "SELECT valid_erasure_managed_project_retirement(%s::jsonb,'admission','{}'::jsonb)",
+            (json.dumps(retirement_unresolved),),
+        )[0][0]
+    finally:
+        pg.execute(
+            "UPDATE personal_agent_registry SET status=%s,backend_metadata=%s::jsonb WHERE user_id='owner-a'",
+            (original_row[0], json.dumps(original_row[1])),
+        )
+        pg.execute("ALTER TABLE personal_agent_registry ENABLE TRIGGER USER")
+
     # Existing removal admission owns the same locks. It blocks while the row
     # owner is serialized, then refuses to freeze an unresolved provider state.
-    intent_b = make_intent(item_b)
-    assert asyncio.run(
-        journal.record_provider_account_transition_intent(
-            owner_id="owner-b", attempt_id=item_b["attemptId"], intent=intent_b
-        )
-    )
+    assert legacy_after_resume["phase"] == "unknown"
+    assert legacy_after_resume["generation"] == 2
     lock_owner = psycopg2.connect(host=pg.dir, port=pg.port, user="hushh", dbname="postgres")
     lock_owner.autocommit = False
     lock_cursor = lock_owner.cursor()
@@ -578,13 +958,13 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
     )
     with pytest.raises(psycopg2.errors.RaiseException, match="explicit Dev profile required"):
         pg.execute(_successor_qualification())
-
     # The exact 982 family is accepted only by the explicit Dev owner profile.
     pg.execute("DROP OWNED BY service_role; DROP ROLE service_role")
     pg.execute("CREATE ROLE hushh_uat_app LOGIN SUPERUSER")
     import db.hosted_custody_qualification as custody_qualification
     from db.hosted_custody_adoption import (
         HOSTED_FILES_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
         HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
         _successor_qualification,
         qualified_hosted_custody_family,
@@ -622,6 +1002,8 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
     pg.execute(
         "ALTER TABLE public.hosted_files_executor_976_rollback_source OWNER TO hushh_uat_app"
     )
+    from db.migration_authority import build_manifest_entries
+    from db.private_agent_adoption import execution_sql
     from tests.hosted_pilot_readiness_cases import (
         _copy_custody_family,
         _copy_rollback_marker_and_trigger,
@@ -629,6 +1011,15 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
         _later_owned_trigger_definitions,
         _registry_trigger_catalog,
         _replay_420_421,
+    )
+
+    replay_entries = build_manifest_entries(
+        ROOT / "db/migrations",
+        ["420_private_agent_lifecycle_foundation.sql", "421_cloud_removal_recovery.sql"],
+    )
+    adapted_420 = execution_sql(replay_entries[0])
+    assert all(
+        digest in adapted_420 for digest in HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED.values()
     )
 
     empty_prelude = tmp_path / "empty-postgres-prelude.sql"
@@ -749,7 +1140,7 @@ def test_provider_account_transition_journal_is_cas_fenced_and_archived(pg, monk
         target_server.stop()
 
     with pytest.raises(psycopg2.errors.ObjectNotInPrerequisiteState, match="forward recovery"):
-        pg.apply_file(rollback)
+        pg.apply_file(resolution_rollback)
     client._engine.dispose()
 
 
