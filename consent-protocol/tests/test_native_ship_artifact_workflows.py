@@ -39,7 +39,7 @@ def test_native_jobs_read_environment_configuration_without_hosted_deployment_re
 ) -> None:
     jobs = _workflow(workflow_name)["jobs"]
     environments = [job["environment"] for job in jobs.values() if "environment" in job]
-    assert len(environments) == 3
+    assert len(environments) == (4 if workflow_name == "ship-ios-testflight.yml" else 3)
     assert all(
         environment == {"name": environment_name, "deployment": False}
         for environment in environments

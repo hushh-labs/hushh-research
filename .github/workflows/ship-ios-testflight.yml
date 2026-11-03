@@ -749,7 +749,9 @@ jobs:
     if: inputs.upload_run_id != ''
     needs: deployment-security
     runs-on: ubuntu-latest
-    environment: uat
+    environment:
+      name: uat
+      deployment: false
     timeout-minutes: 35
     env:
       GCP_PROJECT_ID: hushh-pda-uat

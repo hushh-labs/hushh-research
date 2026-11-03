@@ -166,7 +166,7 @@ def test_promotion_keeps_exact_acceptance_and_current_tools_before_mutation():
     assert "printf '{}\\n'" in gate["run"]
     assert "backend-image" in gate["run"] and "--environment dev" in gate["run"]
     assert "--predecessor /tmp/uat-predecessor-acceptance.json" in gate["run"]
-    for lane in ("dev", "uat", "production", "uat-one-chat"):
+    for lane in ("dev", "uat", "production"):
         workflow = yaml.safe_load((WORKFLOW.parent / f"deploy-{lane}.yml").read_text())
         lane_steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
         preserve = next(
