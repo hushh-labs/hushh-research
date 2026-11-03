@@ -1334,6 +1334,9 @@ original chronological order. Only a verified newer publication can exclude a
 completed older run. Active runs and equal-boundary results still require proof.
 All readers inherit the same 90-second lookup deadline and are joined on exit;
 concurrency does not grant cleanup authority or extend the five-minute pass.
+Production's independent phone-lease and checkpoint-publication proofs overlap
+within that same deadline. Both must succeed and all readers must exit before
+checkpoint restoration or any provider mutation; either refusal blocks admission.
 The reviewed workflow source can identify a skipped primary deployment job even
 when GitHub reports its unevaluated name. The job must be uniquely bound to the
 exact attempt, completed, skipped and unstarted; earlier attempts still require

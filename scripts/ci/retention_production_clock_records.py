@@ -34,7 +34,7 @@ CLOCK_BOUND_SOURCE_PROFILES = {
     "publication-aec6-blobless-v2": {
         # Bounded inventory reads preserve the same source authority while
         # reducing the maintenance guard's sequential GitHub API latency.
-        base.OWNER: ("9e68a94bd33110370e57c2e34871f7bd6b8bd7d3", 90389),
+        base.OWNER: ("1a55968b771cf1c393284394034978dbdf9049a6", 91239),
         base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
         PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
     },

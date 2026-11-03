@@ -17,6 +17,47 @@ MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
 class ExistingPublicationCases:
+    def test_production_independent_guards_overlap_with_the_original_deadline(self):
+        rendezvous = threading.Barrier(2)
+        deadlines = []
+
+        def guard(*args, **kwargs):
+            deadlines.append(MAINTENANCE._LOOKUP_DEADLINE.get())
+            rendezvous.wait(timeout=2)
+
+        token = MAINTENANCE._LOOKUP_DEADLINE.set(123.0)
+        try:
+            with (
+                mock.patch.object(MAINTENANCE.production_phone_lease, "assert_reconciled", side_effect=guard),
+                mock.patch.object(publication, "assert_published", side_effect=guard),
+            ):
+                MAINTENANCE.assert_checkpoint_publication(publication.REPOSITORY, "production")
+        finally:
+            MAINTENANCE._LOOKUP_DEADLINE.reset(token)
+        self.assertEqual(deadlines, [123.0, 123.0])
+
+    def test_either_production_guard_refusal_joins_its_sibling_before_restore(self):
+        for failing in ("lease", "publication"):
+            with self.subTest(failing=failing):
+                rendezvous = threading.Barrier(2)
+                sibling_done = threading.Event()
+
+                def guard(name):
+                    rendezvous.wait(timeout=2)
+                    if name == failing:
+                        raise MAINTENANCE.retention.UnsafeState("synthetic authority refusal")
+                    sibling_done.set()
+
+                with (
+                    mock.patch.object(MAINTENANCE.production_phone_lease, "assert_reconciled", side_effect=lambda *a, **kw: guard("lease")),
+                    mock.patch.object(publication, "assert_published", side_effect=lambda *a, **kw: guard("publication")),
+                    mock.patch.object(MAINTENANCE, "restore_state") as restore,
+                    self.assertRaisesRegex(MAINTENANCE.retention.UnsafeState, "synthetic authority refusal"),
+                ):
+                    MAINTENANCE.assert_no_pending_mutations(publication.REPOSITORY, None, "production")
+                self.assertTrue(sibling_done.is_set())
+                restore.assert_not_called()
+
     @staticmethod
     def _publication_run(run_id, updated_at, *, status="completed", attempts=1, conclusion="success"):
         return {
