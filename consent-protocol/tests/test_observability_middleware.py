@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 
 import httpx
 import pytest
@@ -90,6 +92,20 @@ def test_request_id_generated_when_missing():
     request_id = response.headers.get(REQUEST_ID_HEADER)
     assert isinstance(request_id, str)
     assert len(request_id) >= 8
+
+
+def test_sandbox_request_summary_uses_dedicated_telemetry_environment(monkeypatch, caplog):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("HUSHH_TELEMETRY_ENV", "sandbox-ankit")
+    with caplog.at_level(logging.INFO, logger="api.middlewares.observability"):
+        assert TestClient(_build_app()).get("/ok").status_code == 200
+
+    summary = next(
+        json.loads(record.message)
+        for record in caplog.records
+        if record.message.startswith('{"message":"request.summary"')
+    )
+    assert summary["env"] == "sandbox-ankit"
 
 
 def test_request_id_preserved_when_provided():

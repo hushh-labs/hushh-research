@@ -104,6 +104,9 @@ def _query_budget_payload(
 
 
 def _environment() -> str:
+    sandbox = os.getenv("HUSHH_TELEMETRY_ENV", "").strip().lower()
+    if sandbox.startswith("sandbox-") and sandbox.removeprefix("sandbox-"):
+        return sandbox
     return str(os.getenv("ENVIRONMENT", "development")).strip().lower()
 
 
