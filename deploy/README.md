@@ -72,6 +72,11 @@ would be included, obtain explicit approval for the identified PRs or prepare
 an isolated candidate. The landed tree must match the pinned PR head, and the
 PR comparison base must match the qualified serving tree. A concurrent landing
 that changes the approved delta or a serving-base change requires requalification.
+Use the separately protected `uat-isolated` source when the shared branch
+contains changes outside the approved scope. Start it at the observed serving
+SHA, land the reviewed release PR there, and qualify that branch with full CI.
+Set `source_branch=uat-isolated` on inspection and deployment. Both source
+branches deploy to the same shared UAT runtime and use the same release lock.
 New admission requires the literal serving-base-labelled CI job; historical static
 job names remain readable only through retained acceptance. Requalify legacy CI
 before attempting a new deployment.

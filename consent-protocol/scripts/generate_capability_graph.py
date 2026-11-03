@@ -878,7 +878,7 @@ def _uat_pr_payload(
     """Replay the landed PR comparison after validating the exact serving comparison."""
     if (
         os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-        or os.environ.get("GITHUB_REF") != "refs/heads/uat"
+        or os.environ.get("GITHUB_REF") not in {"refs/heads/uat", "refs/heads/uat-isolated"}
         or os.environ.get("CI_VALIDATION_LEVEL") != "release"
         or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
         or _resolve_base_commit(base_ref) != base_ref
