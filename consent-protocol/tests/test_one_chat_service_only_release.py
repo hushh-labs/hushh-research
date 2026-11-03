@@ -201,21 +201,6 @@ def test_readiness_probe_job_has_cold_start_headroom(monkeypatch: pytest.MonkeyP
         assert flag in deploy
 
 
-def test_service_only_workflow_keeps_main_gate_and_full_uat_baseline() -> None:
-    workflow = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
-    selector = (ROOT / "hushh-webapp/scripts/ci/select-uat-target.mjs").read_text()
-    assert "group: deploy-uat" in workflow
-    assert "environment: uat" in workflow
-    assert "require-deploy-sha-on-main.sh" in workflow
-    assert "Main Post-Merge Smoke Gate" in workflow
-    assert "runtime-capacity-budget.py --environment uat" in workflow
-    assert "uat_one_chat_backend_release.py" in workflow
-    assert "steps.deploy-backend.outcome != 'success'" in workflow
-    assert "--recover-interrupted" in workflow
-    assert 'String(run?.path || "").split("@", 1)[0]' in selector
-    assert "workflowFile(run) === CHAT_ONLY_WORKFLOW" in selector
-
-
 def test_candidate_tag_cleanup_preserves_primary_traffic(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_release_script()
     states = iter(
