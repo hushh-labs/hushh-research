@@ -234,7 +234,7 @@ forward, including update/removal, hosted-memory recovery and delete/re-enroll
 cycles. This candidate and the owner chat receipts above do not close those
 items; reuse prior evidence only when its owner, image and lifecycle match.
 
-### Current execution checkpoint — 3 November 2026, 07:17 UTC
+### Prior execution checkpoint — 3 November 2026, 07:17 UTC (superseded)
 
 **Release state: implementation is locally focused-tested; required gates are red, so this candidate is not pushed, deployed or accepted.** The retained GCP/Azure owner-cloud result remains 2/2 from prior receipts; managed-pilot acceptance remains 0/2.
 
@@ -247,6 +247,18 @@ items; reuse prior evidence only when its owner, image and lifecycle match.
 - The SQL proxy used for this read-only inventory was stopped; process and listener checks show no task-owned process remains on port 5546. No browser was opened or focused. Existing owner-cloud receipts are not a fresh post-candidate run.
 - The targeted model-preference service, owner-generation hook and owner-model indicator suites pass 16/16 on this candidate. They verify that hosted One displays the pod effective provider/model, does not borrow the Shared catalog and cannot write a Shared selection. The owner-pod surface is a read-only indicator; Shared has the multi-model picker. Live display against an installed candidate remains pending.
 - Next: preserve the local candidate and the other agent’s CI work; wait for the Dev governance baseline repair, then refresh and integrate only the required base changes, run the required gate on the final assembled candidate, and obtain exact-head PR CI. After green CI and governed Dev deployment, apply/verify the journaled transition and complete the identified owner-cloud and two-owner managed journeys. Retain DELETE_REQUESTED as pending provider deletion until native absence is observed; do not infer absence from a CLI timeout.
+
+
+### Current execution checkpoint — 3 November 2026, 11:12 UTC
+
+**Status: the operator correction is implemented and reviewed; live owner-pod acceptance remains 0/2.** Retained GCP/Azure owner-cloud journeys remain 2/2 from prior receipts only; they were not repeated on this candidate.
+
+- The isolated candidate is `031e0d62972b6df329c1dee1a5400c86d72a3346` on `codex/luna-owner-pilot-20261102`, merged with current `origin/dev` `a467ccbb34f49011ceb63389e697692a02e3a629`. The focused operator successor packet is commit `2cac6c1902`. It reuses the existing hosted template and lifecycle path. Sol's independent review approved the final D→D Files case and confirmed the earlier findings are closed.
+- Focused verification on the operator packet passed: 18 hosted provider account inventory/lifecycle tests, Ruff check, Ruff format check for the changed Python files, and `git diff --check`. No core suite or CI was run on this assembled SHA. The separate CI-agent worktree has uncommitted CI changes; it remains untouched pending that agent's completion. Push, exact-head CI, and Dev deployment remain outstanding.
+- A fresh report-only inventory through the exact Dev Cloud SQL proxy and Dev Secret Manager credentials returned manifest SHA-256 `353be7b9547513c8b63e97abe26fbc4059310a098ed24a006c13f49d380fefd3`, with zero unresolved entries. Both retained synthetic owners map to one active native project and one Ready generation-2 service, on `sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1`. Folder discovery found nine projects and four hosted candidates: the two reviewed placements and two `owner_owned_preserved` projects; no extra active task-owned candidate was unexplained. The existing retained JSON receipt remains at SHA `af476188335a5c4c7ffe36c576f344ec6f4decfb672e5db497bc39a0b1ee4707`; the new summary SHA is a recheck and must be regenerated and retained before a mutation.
+- Both owner projects are still linked to `billingAccounts/014D7F-FD970D-D2459E`; no transition intent or billing mutation was made. The plan's target `013848-8258FA-2D068F` is open under the named `kushal.trivedi97@gmail.com` CLI account. That account's stored gcloud credential cannot mint a fresh access token, so lifecycle UserInfo admission refuses it. A background Apple Events sign-in attempt did not complete. The temporary tab was closed, Chrome's active tab and the `Code - Insiders` foreground app were preserved, and no browser focus was taken.
+- The task-owned Cloud SQL proxy on `127.0.0.1:6544` was stopped and its listener is absent. No IAM grant, billing association, Cloud Run update, app deployment, database migration, owner-session operation, or destructive action occurred. Personal owner pods remain untouched.
+- Next: wait for the CI agent's bounded changes to land, assemble the exact candidate, run only the required final gates once, then deploy the backend only in Dev and verify custody/migrations. Refresh the named operator credential through a completed background sign-in before billing transition. Settle both transitions while the original pod digest is still installed; then prepare one shared image and run the two synthetic-owner journeys. Preserve Browser/Puppy and lifecycle obligations; first light alone is not acceptance.
 
 ## Previous release decision — 27 October 2026
 
