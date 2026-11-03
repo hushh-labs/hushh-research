@@ -61,7 +61,7 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    await screen.findByRole("button", { name: "Sign in to existing account" });
+    await screen.findByRole("button", { name: "Delete my previous account" });
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:phone_conflict:back"));
     fireEvent.click(screen.getByRole("button", { name: "Shell Back" }));
     await screen.findByRole("textbox", { name: "Phone number" });
@@ -74,14 +74,11 @@ describe("register-phone conflict runtime", () => {
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
-  it.each(["recover"] as const)("creates a server-bound %s continuation before leaving the current account", async (action) => {
+  it.each(["delete"] as const)("creates a server-bound %s review continuation before leaving the current account", async (action) => {
     const continuationId = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/phone/recovery/continuations")
       ? Response.json({ continuation_id: continuationId, state: "awaiting_previous_sign_in", expires_at: "2099-01-01T00:00:00Z" })
-      // While in-place deletion is off (production today), Delete keeps the sign-in handoff.
-      : String(url).endsWith("/phone/linked-account/deletions")
-        ? Response.json({ detail: { code: "PHONE_LINKED_DELETION_UNAVAILABLE" } }, { status: 503 })
-        : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
+      : Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 }));
     render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
     const phone = await screen.findByRole("textbox", { name: "Phone number" });
     fireEvent.change(phone, { target: { value: "6505550101" } });
@@ -89,7 +86,7 @@ describe("register-phone conflict runtime", () => {
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } });
     fireEvent.submit(code.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/account/phone/recovery/continuations", expect.objectContaining({
       method: "POST", body: JSON.stringify({ action, phone_number: "+16505550101" }),
     })));
@@ -99,6 +96,7 @@ describe("register-phone conflict runtime", () => {
     expect(destination.searchParams.get("redirect")).toBe(`/register-phone?recovery=${continuationId}`);
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes("/linked-account/deletions") || String(url).includes("/delete-lost-vault"))).toBe(false);
   });
   it("keeps a wrong-owner continuation generic and never dispatches deletion", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";

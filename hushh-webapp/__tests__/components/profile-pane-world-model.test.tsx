@@ -152,9 +152,9 @@ describe("Profile pane: Personal World Model", () => {
     fireEvent.change(input, { target: { value: "6505550101" } }); fireEvent.submit(input.closest("form")!);
     const code = await screen.findByRole("textbox", { name: "One-time code" });
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
-    await screen.findByRole("button", { name: "Sign in to existing account" });
+    await screen.findByRole("button", { name: "Delete my previous account" });
     expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete my previous account" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Recover my previous account" })).toBeNull();
     expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();
