@@ -77,9 +77,9 @@ The canonical state-changing operator procedure is the
 This page defines CI behavior; it does not redefine Admin bypass or deployment
 authority.
 
-**Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
-**Pre-PR preparation:** [`./bin/hushh codex pre-pr`](./cli.md)  
-**Underlying local lane:** [`./bin/hushh ci`](./cli.md)  
+**Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)
+**Pre-PR preparation:** [`./bin/hushh codex pre-pr`](./cli.md)
+**Underlying local lane:** [`./bin/hushh ci`](./cli.md)
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
 
 Canonical pre-PR command:
@@ -1500,7 +1500,7 @@ Blocking backend manifest:
 3. Full local repo checks are available through `./bin/hushh test`.
 4. Kai accuracy/compliance remains manual through `./bin/hushh protocol accuracy`.
 
-**Test env (CI):**  
+**Test env (CI):**
 `TESTING=true`, `APP_SIGNING_KEY`, and `VAULT_DATA_KEY` are set in the workflow (see [ci.yml](../../../.github/workflows/ci.yml)).
 
 **Consent-token rule for automated tests:** Use fixture-issued VAULT_OWNER tokens from `consent-protocol/tests/conftest.py`. `consent-protocol/tests/dev_test_token.py` is debug-only and must not be required by CI.
