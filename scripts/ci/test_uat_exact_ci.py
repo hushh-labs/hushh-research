@@ -433,7 +433,7 @@ class ExactUatAttemptTest(unittest.TestCase):
             with self.assertRaises(subject.Refused):
                 subject.verify_predecessor(prior, current=False)
 
-    def test_static_name_and_historical_alias_are_exact_and_unique(self):
+    def test_static_name_requires_ordered_base_binding_and_dynamic_alias_is_compatible(self):
         candidate, base = "a" * 40, "b" * 40
         run = _attempt_run(candidate)
         runs = [run]
@@ -441,14 +441,51 @@ class ExactUatAttemptTest(unittest.TestCase):
         for exact_name in ("Exact UAT Candidate", f"Exact UAT Candidate ({base})"):
             jobs = _attempt_jobs(candidate, base, exact_name=exact_name)
             api = _AttemptAPI(run, jobs, runs, check)
-            self.assertEqual(
-                subject.verify_attempt(api, candidate, base, 123, 1, current=False)["run_attempt"],
-                1,
+            for current in (True, False):
+                self.assertEqual(
+                    subject.verify_attempt(api, candidate, base, 123, 1, current=current)[
+                        "run_attempt"
+                    ],
+                    1,
+                )
+
+        unbound = _attempt_jobs(
+            candidate, base, exact_name="Exact UAT Candidate", bind_static_base=False
+        )
+        api = _AttemptAPI(run, unbound, runs, check)
+        for current in (True, False):
+            with self.subTest(binding="missing", current=current), self.assertRaises(
+                subject.Refused
+            ):
+                subject.verify_attempt(api, candidate, base, 123, 1, current=current)
+
+        # Retained pre-policy receipts keep their old immutable inventory;
+        # that exception cannot authorize a new current qualification.
+        legacy_job = next(job for job in unbound if job["name"] == "Exact UAT Candidate")
+        self.assertIs(
+            subject._exact_candidate_job([legacy_job], base, allow_legacy_static=True),
+            legacy_job,
+        )
+
+        for mutation in ("wrong_base", "duplicate", "late", "failed"):
+            jobs = _attempt_jobs(candidate, base, exact_name="Exact UAT Candidate")
+            exact = next(job for job in jobs if job["name"] == "Exact UAT Candidate")
+            bound = next(
+                step
+                for step in exact["steps"]
+                if step["name"] == f"Verify exact serving base ({base})"
             )
-            if exact_name == "Exact UAT Candidate":
-                with self.assertRaises(subject.Refused):
-                    subject.verify_attempt(api, candidate, base, 123, 1)
+            if mutation == "wrong_base":
+                bound["name"] = f"Verify exact serving base ({'d' * 40})"
+            elif mutation == "duplicate":
+                exact["steps"].append(dict(bound))
+            elif mutation == "late":
+                exact["steps"].remove(bound)
+                exact["steps"].append(bound)
             else:
+                bound["conclusion"] = "failure"
+            api = _AttemptAPI(run, jobs, runs, check)
+            with self.subTest(binding=mutation), self.assertRaises(subject.Refused):
                 subject.verify_attempt(api, candidate, base, 123, 1)
 
         jobs = _attempt_jobs(candidate, base, exact_name="Exact UAT Candidate")

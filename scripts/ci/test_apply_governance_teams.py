@@ -297,6 +297,7 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
             "required_status_checks": {"contexts": ["CI Status Gate"], "strict": True},
             "required_pull_request_reviews": {
                 "required_approving_review_count": 1, "require_last_push_approval": True,
+                "require_code_owner_reviews": True,
                 "bypass_pull_request_allowances": {
                     "users": [{"login": "invitee"}, {"login": "operator"}],
                     "teams": [{"slug": "maintainers"}],
@@ -428,6 +429,33 @@ def test_prepared_branch_reconciliation_is_scoped_and_fail_closed(module) -> Non
         assert not writes
     finally:
         prepared._write = original
+
+
+def test_protected_approval_requires_current_head_and_current_owner_state(_module_unused) -> None:
+    from unittest.mock import patch
+    import github_security_authority
+
+    path = Path(__file__).with_name("verify-protected-pipeline-edits.py")
+    spec = importlib.util.spec_from_file_location("protected_pipeline_guard", path)
+    assert spec and spec.loader
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    head = "a" * 40
+    owner = "ankitkumarsingh1702"
+    def review(identifier, state, commit=head):
+        return {"id": identifier, "state": state, "commit_id": commit, "user": {"login": owner}}
+    for rows, expected in (
+        ([review(1, "APPROVED")], [owner]),
+        ([review(1, "APPROVED", "b" * 40)], []),
+        ([review(1, "APPROVED"), review(2, "DISMISSED")], []),
+        ([review(1, "APPROVED"), review(2, "CHANGES_REQUESTED")], []),
+        ([review(1, "APPROVED"), review(2, "COMMENTED")], [owner]),
+    ):
+        class FakeGitHub:
+            def __init__(self, *args): pass
+            def read(self, path): return rows
+        with patch.object(github_security_authority, "GitHub", FakeGitHub):
+            assert guard._owner_approvals("hushh-labs/hushh-research", 1, head, [owner], "not-a-token") == expected
 
 
 def main() -> int:
