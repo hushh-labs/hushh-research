@@ -443,6 +443,27 @@ test("a CommonJS helper with a computed require stays diagnostic if runtime also
   assert.equal(plan.fallbackReason, "computed_dynamic_import_dependency");
 });
 
+test("require aliases select whole unit owners but remain diagnostic when runtime-reachable", () => {
+  const helper = "scripts/ci/loader-alias.cjs";
+  const owner = "__tests__/loader-alias.test.ts";
+  const files = {
+    "hushh-webapp/lib/changed.js": "export const changed = true;\n",
+    [`hushh-webapp/${owner}`]: 'import load from "../../scripts/ci/loader-alias.cjs"; void load;\n',
+    [helper]: "const req = require; const req2 = req; const { resolve } = req2; module.exports = (target) => req2(target);\n",
+  };
+  const unitOnly = buildImportGraphFixture(files, ["lib/changed.js"]);
+  assert.equal(unitOnly.effectiveLevel, "focused");
+  assert.equal(unitOnly.fallbackReason, null);
+  assert.deepEqual(unitOnly.directFiles, [owner]);
+
+  const runtimeReachable = buildImportGraphFixture({
+    ...files,
+    "hushh-webapp/components/runtime.ts": 'import load from "../../scripts/ci/loader-alias.cjs"; void load;\n',
+  }, ["lib/changed.js"]);
+  assert.equal(runtimeReachable.effectiveLevel, "diagnostic");
+  assert.equal(runtimeReachable.fallbackReason, "computed_dynamic_import_dependency");
+});
+
 test("a computed-import helper reachable from runtime still selects diagnostics", () => {
   const plan = buildImportGraphFixture({
     "hushh-webapp/lib/changed.ts": "export const changed = true;\n",

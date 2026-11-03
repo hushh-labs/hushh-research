@@ -259,6 +259,7 @@ function createRequireBindings(sourceFile, bindings, ts) {
   const unresolvedAliases = new Set();
   const safeInitializers = new Set();
   let unprovedAlias = false;
+  const aliasCandidates = [];
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
         !["module", "node:module"].includes(statement.moduleSpecifier.text)) continue;
@@ -271,6 +272,20 @@ function createRequireBindings(sourceFile, bindings, ts) {
     }
   }
   const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      if (ts.isIdentifier(node.name) && ts.isIdentifier(node.initializer)) {
+        aliasCandidates.push({ aliases: [node.name.text], source: node.initializer.text });
+      } else if (ts.isIdentifier(node.name) && ts.isPropertyAccessExpression(node.initializer) &&
+          node.initializer.name.text === "resolve" && ts.isIdentifier(node.initializer.expression)) {
+        aliasCandidates.push({ aliases: [node.name.text], source: node.initializer.expression.text });
+      } else if (ts.isObjectBindingPattern(node.name) && ts.isIdentifier(node.initializer)) {
+        aliasCandidates.push({
+          aliases: node.name.elements.flatMap((element) =>
+            ts.isIdentifier(element.name) ? [element.name.text] : []),
+          source: node.initializer.text,
+        });
+      }
+    }
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const alias = node.name.text;
       const initializer = node.initializer;
@@ -299,6 +314,21 @@ function createRequireBindings(sourceFile, bindings, ts) {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
+  const loaderAliases = new Set(["require", ...safeAliases, ...unresolvedAliases]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of aliasCandidates) {
+      if (!loaderAliases.has(candidate.source)) continue;
+      for (const alias of candidate.aliases) {
+        if (loaderAliases.has(alias)) continue;
+        loaderAliases.add(alias);
+        unresolvedAliases.add(alias);
+        unprovedAlias = true;
+        changed = true;
+      }
+    }
+  }
   return { safeAliases, unresolvedAliases, safeInitializers, importedCreateRequire, unprovedAlias };
 }
 
