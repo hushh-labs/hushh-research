@@ -16,6 +16,53 @@ const REPO_ROOT = path.resolve(WEB_ROOT, "..");
 const DELETE_TEST = "__tests__/lib/flows/delete-account.test.ts";
 const DIRECT_TEST = "__tests__/services/agent-chat-client.test.ts";
 
+function buildImportGraphFixture(files, changedPaths) {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), "hushh-import-graph-"));
+  const repo = path.join(tmp, "repo");
+  const bin = path.join(tmp, "bin");
+  const originalPath = process.env.PATH;
+  const fixtureFiles = {
+    "hushh-webapp/tsconfig.json": JSON.stringify({
+      compilerOptions: {
+        allowJs: true,
+        baseUrl: ".",
+        module: "esnext",
+        moduleResolution: "bundler",
+        resolveJsonModule: true,
+        paths: { "@/*": ["./*"] },
+      },
+    }),
+    "hushh-webapp/lib/fixture.ts": "export {};\n",
+    "scripts/ci/account-deletion-check.sh": "vitest run \\\n  __tests__/services/account-deletion.test.ts \\\n  --maxWorkers=2\n",
+    ...files,
+  };
+  try {
+    mkdirSync(bin);
+    for (const [relativePath, contents] of Object.entries(fixtureFiles)) {
+      const fullPath = path.join(repo, relativePath);
+      mkdirSync(path.dirname(fullPath), { recursive: true });
+      writeFileSync(fullPath, contents);
+    }
+    writeFileSync(
+      path.join(bin, "git"),
+      `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(`${Object.keys(fixtureFiles).join("\0")}\0`)});\n`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
+    const plan = buildPlan({
+      env: {
+        CI_VALIDATION_LEVEL: "focused",
+        CI_CHANGED_FILES: changedPaths.map((file) => `hushh-webapp/${file}`).join("\n"),
+      },
+      repoRoot: repo,
+    });
+    return plan;
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
 test("missing or unknown selection metadata keeps the diagnostic suite", () => {
   assert.equal(buildPlan({ env: { CI_VALIDATION_LEVEL: "focused" } }).effectiveLevel, "diagnostic");
   const plan = buildPlan({
@@ -229,7 +276,7 @@ test("document CI modes install and check only their assigned browser", () => {
 test("review receipts do not expand a directly changed unit test into diagnostics", () => {
   const plan = buildPlan({ env: { CI_VALIDATION_LEVEL: "focused", CI_CHANGED_FILES:
     `hushh-webapp/${DIRECT_TEST}\nhushh-webapp/contracts/ui-review/back/review.json` } });
-  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.effectiveLevel, "focused", plan.fallbackReason);
   assert.deepEqual(plan.directFiles, [DIRECT_TEST]);
 });
 
@@ -273,77 +320,182 @@ test("registered generated contracts feed Vitest related selection", () => {
     ["frontend-native-surface-map", ".generated.json"].join(""),
     `lib/navigation/${["app-route-layout", ".contract.json"].join("")}`,
   ];
-  const plan = buildPlan({ env: {
-    CI_VALIDATION_LEVEL: "focused",
-    CI_CHANGED_FILES: contracts.map((file) => `hushh-webapp/${file}`).join("\n"),
-  } });
-  assert.equal(plan.effectiveLevel, "focused");
+  const plan = buildImportGraphFixture(
+    Object.fromEntries(contracts.map((file) => [`hushh-webapp/${file}`, "{}\n"])),
+    contracts,
+  );
+  assert.equal(plan.effectiveLevel, "focused", plan.fallbackReason);
   assert.equal(plan.fallbackReason, null);
   assert.deepEqual(plan.relatedFiles, contracts.sort());
   assert.deepEqual(plan.directFiles, []);
 });
 
-test("computed imports of registered contracts still fail closed", () => {
-  const tmp = mkdtempSync(path.join(os.tmpdir(), "hushh-contract-import-risk-"));
-  const repo = path.join(tmp, "repo");
-  const importer = path.join(repo, "hushh-webapp/lib/contract-loader.ts");
-  const contract = path.join(
-    repo,
-    "hushh-webapp/contracts/kai",
-    ["one-capability-graph", ".v1.json"].join(""),
-  );
-  const bin = path.join(tmp, "bin");
-  const originalPath = process.env.PATH;
-  try {
-    mkdirSync(path.dirname(importer), { recursive: true });
-    mkdirSync(path.dirname(contract), { recursive: true });
-    mkdirSync(path.join(repo, "scripts/ci"), { recursive: true });
-    mkdirSync(bin);
-    writeFileSync(
-      importer,
-      `const name = "${["one-capability-graph", ".v1"].join("")}"; await import(resolveContract(name));\n`,
-    );
-    writeFileSync(contract, "{}\n");
-    writeFileSync(
-      path.join(repo, "scripts/ci/account-deletion-check.sh"),
-      "vitest run \\\n  __tests__/services/account-deletion.test.ts \\\n  --maxWorkers=2\n",
-    );
-    writeFileSync(
-      path.join(bin, "git"),
-      "#!/usr/bin/env node\nprocess.stdout.write('hushh-webapp/lib/contract-loader.ts\\n');\n",
-      { mode: 0o755 },
-    );
-    process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
+test("AST import graph ignores comments and E2E-only dynamic fixtures", () => {
+  const changed = "app/register-phone/page.tsx";
+  const plan = buildImportGraphFixture({
+    "hushh-webapp/app/register-phone/page.tsx": "export const page = true;\n",
+    "hushh-webapp/components/kai/kai-flow.tsx": "// Handle re-import (upload new statement)\nexport {};\n",
+    "hushh-webapp/e2e/layout.spec.ts": "export const load = () => import(path.join(root, 'tailwindcss'));\n",
+  }, [changed]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.relatedFiles, [changed]);
+});
 
-    const plan = buildPlan({
-      env: {
-        CI_VALIDATION_LEVEL: "focused",
-        CI_CHANGED_FILES: `hushh-webapp/contracts/kai/${["one-capability-graph", ".v1.json"].join("")}`,
-      },
-      repoRoot: repo,
-    });
-    assert.equal(plan.effectiveLevel, "diagnostic");
-    assert.equal(plan.fallbackReason, "computed_dynamic_import_dependency");
-  } finally {
-    process.env.PATH = originalPath;
-    rmSync(tmp, { recursive: true, force: true });
+test("computed unit-test imports select the importer when they resolve to changed input", () => {
+  const contract = `contracts/kai/${["one-capability-graph", ".v1.json"].join("")}`;
+  const testFile = "__tests__/contracts/graph-loader.test.ts";
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${contract}`]: "{}\n",
+    [`hushh-webapp/${testFile}`]:
+      `const MODULE_PATH = "@/${contract}"; await import(MODULE_PATH);\n`,
+  }, [contract]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.directFiles, [testFile]);
+});
+
+test("unit-only computed-import helpers select every whole Vitest owner", () => {
+  const cases = [
+    ["hushh-webapp/e2e/unit-helper.ts", "../e2e/unit-helper"],
+    ["scripts/ci/unit-helper.ts", "../../scripts/ci/unit-helper"],
+  ];
+  for (const [helper, specifier] of cases) {
+    const owners = ["__tests__/unit-a.test.ts", "__tests__/unit-b.test.ts"];
+    const plan = buildImportGraphFixture({
+      "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+      ...Object.fromEntries(owners.map((owner) => [
+        `hushh-webapp/${owner}`,
+        `import { load } from "${specifier}"; void load;\n`,
+      ])),
+      [helper]: "export const load = (target: string) => import(target);\n",
+    }, ["lib/changed.ts"]);
+    assert.equal(plan.effectiveLevel, "focused", helper);
+    assert.equal(plan.fallbackReason, null, helper);
+    assert.deepEqual(plan.directFiles, owners, helper);
   }
 });
 
-test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {
-  const known = [
-    "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
-    "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
-    "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
-    `hushh-webapp/contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`,
+test("literal CommonJS require and proven createRequire aliases follow local modules", () => {
+  const owner = "__tests__/require-owners.test.ts";
+  const cases = [
+    ["scripts/ci/require-helper.cjs", `module.exports = require("../../hushh-webapp/lib/changed");\n`, "../../scripts/ci/require-helper.cjs"],
+    [
+      "scripts/ci/create-require-helper.mjs",
+      'import { createRequire } from "node:module"; const requireWeb = createRequire(import.meta.url); export const load = () => requireWeb("../../hushh-webapp/lib/changed");\n',
+      "../../scripts/ci/create-require-helper.mjs",
+    ],
+    [
+      "scripts/ci/aliased-create-require-helper.mjs",
+      'import { createRequire as makeRequire } from "node:module"; const requireWeb = makeRequire(import.meta.url); export const load = () => requireWeb("../../hushh-webapp/lib/changed");\n',
+      "../../scripts/ci/aliased-create-require-helper.mjs",
+    ],
   ];
-  const mixed = buildPlan({ env: {
-    CI_VALIDATION_LEVEL: "focused",
-    CI_CHANGED_FILES: [...known, `hushh-webapp/${DIRECT_TEST}`].join("\n"),
-  } });
+  for (const [helper, contents, specifier] of cases) {
+    const plan = buildImportGraphFixture({
+      "hushh-webapp/lib/changed.js": "export const changed = true;\n",
+      [`hushh-webapp/${owner}`]: `import helper from "${specifier}"; void helper;\n`,
+      [helper]: contents,
+    }, ["lib/changed.js"]);
+    assert.equal(plan.effectiveLevel, "focused", helper);
+    assert.equal(plan.fallbackReason, null, helper);
+    assert.deepEqual(plan.directFiles, [owner], `${helper}: ${JSON.stringify(plan)}`);
+  }
+});
+
+test("unresolved CommonJS and unproved createRequire calls retain their unit owners", () => {
+  const owner = "__tests__/computed-require.test.ts";
+  const cases = [
+    ["scripts/ci/computed-require.cjs", "module.exports = (target) => require(target);\n"],
+    [
+      "scripts/ci/custom-base-require.mjs",
+      'import { createRequire } from "node:module"; const requireWeb = createRequire(new URL("./package.json", import.meta.url)); export const load = () => requireWeb("./changed");\n',
+    ],
+    [
+      "scripts/ci/namespace-create-require.mjs",
+      'import * as nodeModule from "node:module"; const requireWeb = nodeModule.createRequire(import.meta.url); export const load = () => requireWeb("./changed");\n',
+    ],
+    [
+      "scripts/ci/aliased-factory-require.mjs",
+      'import { createRequire } from "node:module"; const makeRequire = createRequire; const requireWeb = makeRequire(import.meta.url); export const load = () => requireWeb("./changed");\n',
+    ],
+  ];
+  for (const [helper, contents] of cases) {
+    const plan = buildImportGraphFixture({
+      "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+      [`hushh-webapp/${owner}`]: `import helper from "../../${helper}"; void helper;\n`,
+      [helper]: contents,
+    }, ["lib/changed.ts"]);
+    assert.equal(plan.effectiveLevel, "focused", helper);
+    assert.equal(plan.fallbackReason, null, helper);
+    assert.deepEqual(plan.directFiles, [owner], helper);
+  }
+});
+
+test("a CommonJS helper with a computed require stays diagnostic if runtime also imports it", () => {
+  const plan = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+    "hushh-webapp/__tests__/unit.test.ts": 'import load from "../../scripts/ci/computed-require.cjs"; void load;\n',
+    "hushh-webapp/components/runtime.ts": 'import load from "../../scripts/ci/computed-require.cjs"; void load;\n',
+    "scripts/ci/computed-require.cjs": "module.exports = (target) => require(target);\n",
+  }, ["lib/changed.ts"]);
+  assert.equal(plan.effectiveLevel, "diagnostic");
+  assert.equal(plan.fallbackReason, "computed_dynamic_import_dependency");
+});
+
+test("a computed-import helper reachable from runtime still selects diagnostics", () => {
+  const plan = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+    "hushh-webapp/__tests__/unit.test.ts": 'import { load } from "../../scripts/ci/unit-helper"; void load;\n',
+    "hushh-webapp/components/runtime.ts": 'import { load } from "../../scripts/ci/unit-helper"; void load;\n',
+    "scripts/ci/unit-helper.ts": "export const load = (target: string) => import(target);\n",
+  }, ["lib/changed.ts"]);
+  assert.equal(plan.effectiveLevel, "diagnostic");
+  assert.equal(plan.fallbackReason, "computed_dynamic_import_dependency");
+});
+
+test("shadowed unit imports select their whole owner and runtime imports remain conservative", () => {
+  const shadowed = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+    "hushh-webapp/lib/other.ts": "export const other = true;\n",
+    "hushh-webapp/__tests__/shadowed.test.ts":
+      'const MODULE_PATH = "@/lib/other"; function load(MODULE_PATH: string) { return import(MODULE_PATH); }\n',
+  }, ["lib/changed.ts"]);
+  assert.equal(shadowed.effectiveLevel, "focused");
+  assert.equal(shadowed.fallbackReason, null);
+  assert.deepEqual(shadowed.directFiles, ["__tests__/shadowed.test.ts"]);
+
+  const runtime = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+    "hushh-webapp/components/runtime-loader.ts":
+      'const MODULE_PATH = "@/lib/changed"; export const load = () => import(MODULE_PATH);\n',
+  }, ["lib/changed.ts"]);
+  assert.equal(runtime.effectiveLevel, "diagnostic");
+  assert.equal(runtime.fallbackReason, "dynamic_import_dependency");
+
+  const cjsRuntime = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.js": "export const changed = true;\n",
+    "hushh-webapp/components/runtime-loader.cjs": "module.exports = (target) => require(target);\n",
+  }, ["lib/changed.js"]);
+  assert.equal(cjsRuntime.effectiveLevel, "diagnostic");
+  assert.equal(cjsRuntime.fallbackReason, "computed_dynamic_import_dependency");
+});
+
+test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {
+  const registered = `contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`;
+  const mixed = buildImportGraphFixture({
+    [`hushh-webapp/${DIRECT_TEST}`]: "import { expect, test } from 'vitest'; test('selected', () => expect(true).toBe(true));\n",
+    [`hushh-webapp/${registered}`]: "{}\n",
+  }, [
+    "ios/App/AppTests/NativeSupportTests.swift",
+    "ios/App/AppTests/AccountFlowTests.swift",
+    "scripts/testing/phone-conflict-flow.mjs",
+    registered,
+    DIRECT_TEST,
+  ]);
   assert.equal(mixed.effectiveLevel, "focused");
   assert.deepEqual(mixed.directFiles, [DIRECT_TEST]);
-  assert.deepEqual(mixed.relatedFiles, [`contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`]);
+  assert.deepEqual(mixed.relatedFiles, [registered]);
 
   for (const path of [
     "hushh-webapp/lib/vault/passkey-domain-aliases.json",
@@ -366,17 +518,19 @@ test("dynamic import scanning retains a finite 64 MiB fail-closed limit", () => 
   const originalPath = process.env.PATH;
   try {
     mkdirSync(path.dirname(source), { recursive: true });
+    mkdirSync(path.dirname(path.join(repo, "hushh-webapp/tsconfig.json")), { recursive: true });
     mkdirSync(bin);
+    writeFileSync(path.join(repo, "hushh-webapp/tsconfig.json"), JSON.stringify({ compilerOptions: { moduleResolution: "bundler" } }));
     writeFileSync(source, "");
     truncateSync(source, 64 * 1024 * 1024 + 1);
     writeFileSync(
       path.join(bin, "git"),
-      "#!/usr/bin/env node\nprocess.stdout.write('hushh-webapp/lib/large-source.ts\\n');\n",
+      "#!/usr/bin/env node\nprocess.stdout.write('hushh-webapp/lib/large-source.ts\\0');\n",
       { mode: 0o755 },
     );
     process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
     assert.equal(
-      dynamicImportRisk(repo, ["lib/large-source.ts"]),
+      dynamicImportRisk(repo, ["lib/large-source.ts"]).reason,
       "import_scan_limit_exceeded",
     );
   } finally {

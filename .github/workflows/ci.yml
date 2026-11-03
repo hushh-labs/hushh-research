@@ -191,6 +191,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - name: Install UI contract parser for governance
+        working-directory: hushh-webapp/scripts/architecture/ui-contract-tools
+        run: npm ci --ignore-scripts --no-audit --progress=false
+
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
