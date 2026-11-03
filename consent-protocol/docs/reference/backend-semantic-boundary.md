@@ -232,6 +232,14 @@ Any new semantic backend feature must declare:
 
 If a feature cannot provide that declaration, it is not agent-only compliant.
 
+### Declared: Agent One portfolio review
+
+- Owner: One, through the tool-free `one_portfolio_review` gene in `hushh_mcp/agents/one/agent.yaml`.
+- Input: the unlocked owner's explicitly approved summary of saved holding weights, allocation, history availability and planning preferences. It excludes balances, account identifiers, documents, and questionnaire responses.
+- Output: `PortfolioReview` in `hushh_mcp/services/one_portfolio_review.py`. One explains a limited snapshot score and suggests a next step or a human review.
+- Validator: require current vault-owner and Shared placement authority before and after processing. Require bounded structured output. Refuse a score on insufficient inputs and require a reason for escalation when a score is unavailable.
+- Before promotion: verify the managed provider with synthetic diversified, concentrated, incomplete and adversarial inputs. Check grounding and refusal behavior. Confirm lock and source changes suppress the old response and that no chat transcript, memory record or advisor request is created.
+
 ### Declared: One public-search final answer
 
 - Owner: One; `hushh_mcp/agents/one/agent.yaml` authors when the existing isolated

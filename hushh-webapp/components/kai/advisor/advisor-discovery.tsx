@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { advisorRequest } from "@/lib/advisor-review/service";
 import type { AdvisorCandidate } from "@/lib/advisor-review/contract";
 import type { FinanceShareContext } from "@/lib/services/finance-sharing-service";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import type { AdvisorSearchResult } from "@/lib/services/advisor-directory-service";
 import styles from "./advisor-review.module.css";
@@ -13,7 +14,16 @@ import styles from "./advisor-review.module.css";
 type Result = {
   items: AdvisorCandidate[];
   directory: AdvisorSearchResult | null;
+  hasMore: boolean;
 };
+type Search =
+  | { scope: "connections" }
+  | { scope: "global"; query: string }
+  | ({ scope: "nearby"; radiusMiles: number } & (
+      { postalCode: string } | { latitude: number; longitude: number }
+    ));
+const connections: Search = { scope: "connections" };
+
 export function AdvisorDiscovery({
   context,
   onChoose,
@@ -21,10 +31,13 @@ export function AdvisorDiscovery({
   context: FinanceShareContext;
   onChoose: (person: AdvisorCandidate) => void;
 }) {
+  const [tab, setTab] = useState<"connections" | "nearby">("connections");
   const [query, setQuery] = useState("");
   const [postalCode, setPostal] = useState("");
   const [radius, setRadius] = useState("5");
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<
+    (Result & { search: Search; page: number }) | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = useRef(true);
@@ -36,59 +49,88 @@ export function AdvisorDiscovery({
       active.current = false;
     };
   }, []);
-  const search = async (nearby: boolean, point?: GeolocationCoordinates) => {
-    const version = ++run.current;
-    setBusy(true);
-    setError(null);
-    try {
-      const value = await advisorRequest<Result>(
-        context,
-        "/candidates",
-        "POST",
-        nearby
-          ? {
-              ...(point
-                ? { latitude: point.latitude, longitude: point.longitude }
-                : { postalCode: postalCode.trim() }),
-              radiusMiles: Number(radius),
-            }
-          : { query: query.trim() },
-      );
-      if (active.current && context.isCurrent() && run.current === version)
-        setResult(value);
-    } catch (e) {
-      if (active.current && context.isCurrent() && run.current === version) {
-        setResult(null);
-        setError(
-          e instanceof Error ? e.message : "Advisor search is unavailable.",
+  const search = useCallback(
+    async (criteria: Search, page = 1) => {
+      const version = ++run.current;
+      setBusy(true);
+      setError(null);
+      if (page === 1) setResult(null);
+      try {
+        const value = await advisorRequest<Result>(
+          context,
+          "/candidates",
+          "POST",
+          { ...criteria, page },
         );
+        if (active.current && context.isCurrent() && run.current === version) {
+          setResult((previous) => ({
+            ...value,
+            items:
+              page === 1
+                ? value.items
+                : [
+                    ...(previous?.items ?? []),
+                    ...value.items.filter(
+                      (person) =>
+                        !previous?.items.some(
+                          (existing) => existing.personRef === person.personRef,
+                        ),
+                    ),
+                  ],
+            search: criteria,
+            page,
+          }));
+        }
+      } catch (e) {
+        if (active.current && context.isCurrent() && run.current === version) {
+          setError(
+            e instanceof Error ? e.message : "Advisor search is unavailable.",
+          );
+        }
+      } finally {
+        if (active.current && run.current === version) setBusy(false);
       }
-    } finally {
-      if (active.current && run.current === version) setBusy(false);
-    }
-  };
+    },
+    [context],
+  );
   useEffect(() => {
-    void search(false); /* One deliberate directory load per unlocked visit. */ // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context]);
+    void search(connections);
+  }, [search]);
+  const browse = (next: "connections" | "nearby") => {
+    run.current++;
+    setTab(next);
+    setQuery("");
+    setResult(null);
+    setError(null);
+    setBusy(false);
+    if (next === "connections") void search(connections);
+  };
   const locate = () => {
     if (!navigator.geolocation) {
       setError(
-        "Location is unavailable. Enter an area or postal code instead.",
+        "Location is unavailable. Enter a postal code instead.",
       );
       return;
     }
+    const version = ++run.current;
     setBusy(true);
     setError(null);
+    setResult(null);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        if (active.current && context.isCurrent())
-          void search(true, position.coords);
+        if (active.current && context.isCurrent() && run.current === version)
+          void search({
+            scope: "nearby",
+            radiusMiles: Number(radius),
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
       },
       () => {
-        if (active.current) {
+        if (active.current && run.current === version) {
           setBusy(false);
           setError(
-            "Location was not available. Enter an area or postal code instead.",
+            "Location was not available. Enter a postal code instead.",
           );
         }
       },
@@ -108,53 +150,87 @@ export function AdvisorDiscovery({
         className={styles.row}
         onSubmit={(e) => {
           e.preventDefault();
-          void search(false);
+          if (query.trim())
+            void search({ scope: "global", query: query.trim() });
         }}
       >
         <Input
           aria-label="Advisor name"
-          placeholder="Search verified advisors"
+          placeholder="Search all verified RIAs"
+          maxLength={100}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <ShellActionSurface type="submit" variant="pill" disabled={busy}>
-          Search
-        </ShellActionSurface>
-      </form>
-      <form
-        className={styles.row}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void search(true);
-        }}
-      >
-        <Input
-          aria-label="Area or postal code"
-          placeholder="Area or postal code"
-          value={postalCode}
-          onChange={(e) => setPostal(e.target.value)}
-        />
-        <select
-          aria-label="Search radius"
-          value={radius}
-          onChange={(e) => setRadius(e.target.value)}
-        >
-          <option value="0.24855">400 m</option>
-          <option value="0.621371">1 km</option>
-          <option value="5">5 miles</option>
-          <option value="25">25 miles</option>
-        </select>
         <ShellActionSurface
           type="submit"
           variant="pill"
-          disabled={busy || !postalCode.trim()}
+          disabled={!query.trim()}
         >
-          Nearby
+          Search
         </ShellActionSurface>
       </form>
-      <ShellActionSurface variant="pill" disabled={busy} onClick={locate}>
-        Use my location
-      </ShellActionSurface>
+      <SegmentedTabs
+        value={tab}
+        options={[
+          { value: "connections", label: "My Connections" },
+          { value: "nearby", label: "Nearby" },
+        ]}
+        onValueChange={(value) =>
+          browse(value === "nearby" ? "nearby" : "connections")
+        }
+      />
+      {result?.search.scope === "global" ? (
+        <div className={styles.row}>
+          <h4 className="ui-text-section-label">Search results · all areas</h4>
+          <ShellActionSurface variant="pill" onClick={() => browse(tab)}>
+            Clear search
+          </ShellActionSurface>
+        </div>
+      ) : tab === "nearby" ? (
+        <>
+          <form
+            className={styles.row}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const postal = postalCode.trim();
+              if (postal.length >= 3)
+                void search({
+                  scope: "nearby",
+                  postalCode: postal,
+                  radiusMiles: Number(radius),
+                });
+            }}
+          >
+            <Input
+              aria-label="Postal code"
+              placeholder="Postal code"
+              maxLength={12}
+              value={postalCode}
+              onChange={(event) => setPostal(event.target.value)}
+            />
+            <select
+              aria-label="Search radius"
+              value={radius}
+              onChange={(event) => setRadius(event.target.value)}
+            >
+              <option value="0.24855">400 m</option>
+              <option value="0.621371">1 km</option>
+              <option value="5">5 miles</option>
+              <option value="25">25 miles</option>
+            </select>
+            <ShellActionSurface
+              type="submit"
+              variant="pill"
+              disabled={busy || postalCode.trim().length < 3}
+            >
+              Search nearby
+            </ShellActionSurface>
+          </form>
+          <ShellActionSurface variant="pill" disabled={busy} onClick={locate}>
+            Use my location
+          </ShellActionSurface>
+        </>
+      ) : null}
       {busy ? <p role="status">Finding advisors…</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {result?.items.map((person) => (
@@ -188,8 +264,19 @@ export function AdvisorDiscovery({
       ))}
       {result && !busy && !result.items.length ? (
         <p>
-          No request-ready advisors found. Try a wider area or search by name.
+          {result.search.scope === "connections"
+            ? "No verified advisors on this page of your connections. Try Nearby or search by name."
+            : "No eligible advisors found on this page."}
         </p>
+      ) : null}
+      {result?.hasMore ? (
+        <ShellActionSurface
+          variant="pill"
+          disabled={busy}
+          onClick={() => void search(result.search, result.page + 1)}
+        >
+          Load more advisors
+        </ShellActionSurface>
       ) : null}
       {result?.directory ? (
         <div className={styles.notice}>
