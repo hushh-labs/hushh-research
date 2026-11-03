@@ -14,6 +14,7 @@ import argparse
 import importlib.util
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -184,6 +185,9 @@ def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
     )[0]
     assert '--hosted-custody-profile "dev_control_plane_owner"' in runtime_sync
     assert '--dev-target "${DEV_TARGET:-shared-dev}"' in runtime_sync
+    assert "custody_profile_args=()" in runtime_sync
+    assert "HOSTED_CUSTODY_FLAG_GATE_BEGIN" in runtime_sync
+    assert "HOSTED_CUSTODY_FLAG_GATE_END" in runtime_sync
     assert '--project "${{ env.GCP_PROJECT_ID }}"' in runtime_sync
     assert '--db-name "postgres"' in runtime_sync
     assert '--cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}"' in runtime_sync
@@ -191,7 +195,10 @@ def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
     migration = workflow.split("- name: Apply dev DB migrations and predeploy schema gate", 1)[
         1
     ].split("- name:", 1)[0]
+    assert 'if [[ "${custody_profile_supported}" == true ]]; then' in migration
     assert 'export HUSHH_HOSTED_CUSTODY_PROFILE="dev_control_plane_owner"' in migration
+    assert "unset HUSHH_HOSTED_CUSTODY_PROFILE || true" in migration
+    assert 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' in migration
     assert 'export GCP_PROJECT_ID="${{ env.GCP_PROJECT_ID }}"' in migration
     assert 'export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"' in migration
     assert (
@@ -203,6 +210,48 @@ def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
     deploy = _BACKEND_DEPLOY.read_text(encoding="utf-8")
     assert "BACKEND_RUNTIME_CONFIG_JSON=$(commerce_secret_name" in deploy
     assert "DB_USER=$(commerce_secret_name DB_USER):latest" in deploy
+
+
+def test_dev_custody_sync_flags_are_omitted_for_old_candidates_and_added_for_current():
+    workflow = _DEV_WORKFLOW.read_text(encoding="utf-8")
+    runtime_sync = workflow.split("- name: Sync canonical hosted runtime secrets", 1)[1].split(
+        "- name:", 1
+    )[0]
+    gate = runtime_sync.split("# HOSTED_CUSTODY_FLAG_GATE_BEGIN", 1)[1].split(
+        "# HOSTED_CUSTODY_FLAG_GATE_END", 1
+    )[0]
+    script = (
+        'set -euo pipefail\nbackend_sync_help="$1"\nDEV_TARGET=shared-dev\n'
+        + gate
+        + "printf '%s\\n' \"${custody_profile_args[@]}\"\n"
+    )
+
+    old_candidate = subprocess.run(  # noqa: S603 - fixed bash gate with synthetic help text
+        ["bash", "-c", script, "test", "usage: sync_backend_runtime_secrets [options]"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    current_candidate = subprocess.run(  # noqa: S603 - fixed bash gate with synthetic help text
+        [
+            "bash",
+            "-c",
+            script,
+            "test",
+            "usage: sync_backend_runtime_secrets --hosted-custody-profile PROFILE --dev-target TARGET",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert old_candidate.stdout.strip() == ""
+    assert current_candidate.stdout.splitlines() == [
+        "--hosted-custody-profile",
+        "dev_control_plane_owner",
+        "--dev-target",
+        "shared-dev",
+    ]
 
 
 def test_a_blank_base_url_is_omitted_so_unconfigured_lanes_stay_inert():
