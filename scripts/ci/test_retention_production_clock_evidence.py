@@ -53,6 +53,10 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
         )
         self.assertEqual(
+            set(records.CLOCK_BOUND_SOURCE_PROFILES),
+            set(records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES),
+        )
+        self.assertEqual(
             clock_evidence._clock_workflow_blob_for_title(
                 "Capacity clock · repository_dispatch · run 531"
             ),
@@ -421,11 +425,13 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         )
         job.update(id=125464392332, run_id=worker["id"])
         clock_run = clock["run"]
+        clock_family = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES[source_profile]
+        current_clock = clock_family == records.CLOCK_FAMILY_CURRENT_STATIC
         clock_run.update(
             id=41489463865,
             display_title=(
                 clock_evidence.CURRENT_CLOCK_TITLE
-                if source_profile == profile_evidence.PROFILE_NAME
+                if current_clock
                 else "Capacity clock · repository_dispatch · run 533"
             ),
             created_at="2026-10-29T20:29:00Z",
@@ -434,7 +440,7 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         )
         workflow_blob = (
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB
-            if source_profile == profile_evidence.PROFILE_NAME
+            if current_clock
             else clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB
         )
         clock["workflow_blob"] = {
@@ -546,6 +552,81 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
             },
         )
 
+    def test_source_tuple_selects_one_profile_within_the_bound_clock_family(self):
+        owner = mock.Mock()
+        owner.retention = mock.Mock(UnsafeState=_UnsafeProfileState)
+        for source_profile, source_blobs in records.CLOCK_BOUND_SOURCE_PROFILES.items():
+            with self.subTest(source_profile=source_profile):
+                family = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES[source_profile]
+                if family == records.CLOCK_FAMILY_CURRENT_STATIC:
+                    title = clock_evidence.CURRENT_CLOCK_TITLE
+                    workflow_blob = clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB
+                else:
+                    title = "Capacity clock · repository_dispatch · run 533"
+                    workflow_blob = clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB
+                metadata = {
+                    path: {"sha": sha, "size": size}
+                    for path, (sha, size) in source_blobs.items()
+                }
+                metadata[clock_evidence.CLOCK_WORKFLOW] = {
+                    "sha": workflow_blob[0],
+                    "size": workflow_blob[1],
+                }
+                self.assertEqual(
+                    profile_evidence._clock_source_profile(owner, title, metadata),
+                    source_profile,
+                )
+
+        static_profile = profile_evidence.PROFILE_NAME
+        static_family = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES[static_profile]
+        self.assertEqual(static_family, records.CLOCK_FAMILY_CURRENT_STATIC)
+        static_sources = records.CLOCK_BOUND_SOURCE_PROFILES[static_profile]
+        static_metadata = {
+            path: {"sha": sha, "size": size}
+            for path, (sha, size) in static_sources.items()
+        }
+        static_metadata[clock_evidence.CLOCK_WORKFLOW] = {
+            "sha": clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB[0],
+            "size": clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB[1],
+        }
+        duplicate_sources = dict(records.CLOCK_BOUND_SOURCE_PROFILES)
+        duplicate_families = dict(records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES)
+        duplicate_sources["duplicate-current"] = static_sources
+        duplicate_families["duplicate-current"] = records.CLOCK_FAMILY_CURRENT_STATIC
+        with (
+            mock.patch.object(records, "CLOCK_BOUND_SOURCE_PROFILES", duplicate_sources),
+            mock.patch.object(
+                records,
+                "CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES",
+                duplicate_families,
+            ),
+            self.assertRaises(_UnsafeProfileState),
+        ):
+            profile_evidence._clock_source_profile(
+                owner, clock_evidence.CURRENT_CLOCK_TITLE, static_metadata
+            )
+
+    def test_dynamic_source_profile_is_resolved_from_exact_clock_head_blobs(self):
+        for source_profile in records.CLOCK_BOUND_SOURCE_PROFILES:
+            with self.subTest(source_profile=source_profile):
+                case = self._case(source_profile=source_profile)
+                owner, _record, worker, job = case[:4]
+                record, proof = profile_evidence.discover_record(
+                    owner, base.REPOSITORY, worker, job
+                )
+                self.assertEqual(record.source_profile, source_profile)
+                expected_family = records.CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES[
+                    source_profile
+                ]
+                title = proof["run"]["display_title"]
+                if expected_family == records.CLOCK_FAMILY_CURRENT_STATIC:
+                    self.assertEqual(title, clock_evidence.CURRENT_CLOCK_TITLE)
+                else:
+                    self.assertRegex(
+                        title,
+                        r"Capacity clock · repository_dispatch · run [1-9][0-9]*",
+                    )
+
     def test_dynamic_profile_refuses_unknown_title_or_unpinned_clock_blob(self):
         unknown_title = self._case()
         unknown_title[6]["run"]["display_title"] = (
@@ -558,6 +639,15 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         changed_blob[6]["workflow_blob"] = {"sha": "f" * 40, "size": 1}
         with self.assertRaises(_UnsafeProfileState):
             self._qualify(changed_blob)
+
+        changed_source = self._case()
+        changed_source[6]["source_blobs"] = {
+            records.PUBLICATION: {"sha": "f" * 40, "size": 1}
+        }
+        with self.assertRaises(_UnsafeProfileState):
+            profile_evidence.discover_record(
+                changed_source[0], base.REPOSITORY, changed_source[2], changed_source[3]
+            )
 
         mismatched_legacy_blob = self._case()
         mismatched_legacy_blob[6]["workflow_blob"] = {
@@ -618,6 +708,35 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         unapproved[0].api.reset_mock()
         self.assertIsNone(self._qualify(unapproved))
         unapproved[0].api.assert_not_called()
+
+    def test_future_clock_summaries_are_validated_before_any_parallel_reads(self):
+        case = self._case()
+        owner, _record, worker, job, _log, _blobs, clock = case
+        future = copy.deepcopy(clock["run"])
+        future.update(
+            id=41489463866,
+            created_at="2026-10-29T20:30:05Z",
+            path=".github/workflows/unregistered-clock.yml",
+        )
+        inventory = {
+            "total_count": 2,
+            "workflow_runs": [clock["run"], future],
+        }
+        calls = []
+
+        def api(repository, endpoint):
+            calls.append(endpoint)
+            if endpoint.startswith("workflows/"):
+                return inventory
+            raise AssertionError("clock pair read started before validating all rows")
+
+        owner.api.side_effect = api
+        with self.assertRaises(_UnsafeProfileState):
+            profile_evidence._clock_candidates(
+                owner, base.REPOSITORY, worker, job
+            )
+        self.assertEqual(len(calls), 1)
+
 
     def test_clock_attempt_timestamp_representation_keeps_identity_exact(self):
         summary = {"id": 41537628196, "run_attempt": 1,
@@ -753,6 +872,130 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         self.assertFalse(
             any("/contents/" in call.args[2] for call in owner.command.call_args_list)
         )
+
+
+class ClockRowsFanoutTest(unittest.TestCase):
+    def _fixture(self, count=5):
+        summaries = []
+        attempts = {}
+        jobs = {}
+        for offset in range(count):
+            run_id = 40000000000 + offset
+            created_at = f"2026-10-29T20:2{offset}:00Z"
+            summary = {
+                "id": run_id,
+                "run_attempt": 1,
+                "event": "repository_dispatch",
+                "path": "capacity-maintenance-clock.yml",
+                "head_branch": "main",
+                "head_sha": "a" * 40,
+                "created_at": created_at,
+                "status": "waiting",
+                "conclusion": None,
+                "display_title": "Capacity clock",
+                "actor": {"login": "github-actions[bot]"},
+                "triggering_actor": {"login": "github-actions[bot]"},
+                "repository": {"full_name": base.REPOSITORY},
+                "head_repository": {"full_name": base.REPOSITORY},
+            }
+            summaries.append(summary)
+            attempts[run_id] = {
+                **summary,
+                "created_at": created_at.replace(":00Z", ":01Z"),
+            }
+            jobs[run_id] = [
+                {
+                    "id": 90000000000 + offset,
+                    "run_id": run_id,
+                    "run_attempt": 1,
+                    "head_sha": summary["head_sha"],
+                    "head_branch": "main",
+                    "name": f"clock-job-{offset}",
+                }
+            ]
+        return summaries, attempts, jobs
+
+    def test_clock_row_reads_are_bounded_ordered_and_inherit_deadline(self):
+        deadline = contextvars.ContextVar("clock_rows_deadline", default=None)
+        deadline.set("active-guard-deadline")
+        summaries, attempts, jobs = self._fixture()
+        lock = threading.Lock()
+        active = 0
+        max_active = 0
+        seen_deadlines = []
+        job_completion_order = []
+        second_jobs_done = threading.Event()
+        first_id, second_id = summaries[0]["id"], summaries[1]["id"]
+        owner = mock.Mock()
+        owner.retention = mock.Mock(UnsafeState=_UnsafeProfileState)
+
+        def api(_repository, endpoint):
+            nonlocal active, max_active
+            run_id = int(endpoint.split("/", 2)[1])
+            is_attempt = endpoint.endswith("/attempts/1")
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                seen_deadlines.append(deadline.get())
+            try:
+                if run_id == first_id and is_attempt:
+                    if not second_jobs_done.wait(timeout=2):
+                        raise AssertionError("parallel clock read did not start")
+                if is_attempt:
+                    return copy.deepcopy(attempts[run_id])
+                if run_id == second_id:
+                    with lock:
+                        job_completion_order.append(run_id)
+                    second_jobs_done.set()
+                else:
+                    with lock:
+                        job_completion_order.append(run_id)
+                return {"total_count": len(jobs[run_id]), "jobs": copy.deepcopy(jobs[run_id])}
+            finally:
+                with lock:
+                    active -= 1
+
+        owner.api.side_effect = api
+        result = profile_evidence._clock_rows_parallel(
+            owner, base.REPOSITORY, summaries
+        )
+
+        self.assertEqual([attempt["id"] for attempt, _ in result],
+                         [summary["id"] for summary in summaries])
+        self.assertEqual([rows[0]["id"] for _, rows in result],
+                         [items[0]["id"] for items in jobs.values()])
+        self.assertLess(
+            job_completion_order.index(second_id),
+            job_completion_order.index(first_id),
+        )
+        self.assertLessEqual(max_active, 3)
+        self.assertGreater(max_active, 1)
+        self.assertEqual(len(seen_deadlines), 2 * len(summaries))
+        self.assertEqual(set(seen_deadlines), {"active-guard-deadline"})
+
+    def test_any_incomplete_clock_job_inventory_refuses_the_batch(self):
+        summaries, attempts, jobs = self._fixture(count=3)
+        rejected_id = summaries[-1]["id"]
+        job_reads = []
+        owner = mock.Mock()
+        owner.retention = mock.Mock(UnsafeState=_UnsafeProfileState)
+
+        def api(_repository, endpoint):
+            run_id = int(endpoint.split("/", 2)[1])
+            if endpoint.endswith("/attempts/1"):
+                return copy.deepcopy(attempts[run_id])
+            job_reads.append(run_id)
+            return {
+                "total_count": len(jobs[run_id]) + int(run_id == rejected_id),
+                "jobs": copy.deepcopy(jobs[run_id]),
+            }
+
+        owner.api.side_effect = api
+        with self.assertRaises(_UnsafeProfileState):
+            profile_evidence._clock_rows_parallel(
+                owner, base.REPOSITORY, summaries
+            )
+        self.assertCountEqual(job_reads, [summary["id"] for summary in summaries])
 
 
 class PublicationSourceReaderTest(unittest.TestCase):

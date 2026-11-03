@@ -98,6 +98,13 @@ CHECKS = (
         groups=("controller",),
     ),
     _check(
+        "uat-deploy-parallelism",
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        groups=("controller",),
+    ),
+    _check(
         "account-deletion-release-workflow",
         "uv", "run", "--frozen", "--project", "consent-protocol",
         "python", "-m", "pytest", "-q",
@@ -229,6 +236,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
         "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
         "consent-protocol/tests/test_production_emergency.py",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        "consent-protocol/tests/helpers/document_delivery_ci.py",
     }:
         return frozenset({"controller"}), None
     if root == ".agents":
