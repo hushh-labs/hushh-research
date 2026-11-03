@@ -149,6 +149,10 @@ def _dispatch_timing_matches(record, worker_run, check, wake):
     wake_started = base._stamp(wake.get("started_at"))
     wake_completed = base._stamp(wake.get("completed_at"))
     worker_created = base._stamp(worker_run.get("created_at"))
+    wake_steps = _named_steps(wake) or {}
+    dispatch = wake_steps.get("Send one capacity-maintenance-tick", {})
+    dispatch_started = base._stamp(dispatch.get("started_at"))
+    dispatch_completed = base._stamp(dispatch.get("completed_at"))
     return bool(
         checked_at
         and wake_started
@@ -159,6 +163,20 @@ def _dispatch_timing_matches(record, worker_run, check, wake):
             wake_completed <= worker_created
             and (worker_created - wake_completed).total_seconds()
             <= MAX_WAKE_TO_WORKER_SECONDS
+            or (
+                # The child run can start before GitHub finishes post-job
+                # cleanup. Bind it to the successful dispatch step itself,
+                # never add grace to the enclosing job's elapsed time.
+                dispatch.get("status") == "completed"
+                and dispatch.get("conclusion") == "success"
+                and dispatch_started is not None
+                and dispatch_completed is not None
+                and wake_started <= dispatch_started <= dispatch_completed
+                <= worker_created < wake_completed
+                and dispatch_completed == base._stamp(clock_record.tick_completed_at)
+                and (worker_created - dispatch_completed).total_seconds()
+                <= MAX_WAKE_TO_WORKER_SECONDS
+            )
             or (
                 # One recorded dispatch completed before its enclosing job.
                 # Exact IDs/timestamps above remain mandatory; no generic grace.

@@ -541,6 +541,19 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         with self.assertRaises(_UnsafeProfileState):
             self._qualify(case)
 
+    def test_dispatch_step_proves_child_creation_before_post_job_cleanup(self):
+        case = self._case()
+        wake = case[6]["wake_job"]
+        wake["completed_at"] = "2026-10-29T20:30:12Z"
+        wake["steps"][0]["started_at"] = "2026-10-29T20:30:01Z"
+        self.assertIsNotNone(self._qualify(case))
+        case = self._case()
+        wake = case[6]["wake_job"]
+        wake["completed_at"] = "2026-10-29T20:30:12Z"
+        wake["steps"][0].update(started_at="2026-10-29T20:30:00Z", completed_at="2026-10-29T20:30:01Z")
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(case)
+
     def test_later_main_worker_accepts_exact_profile_and_historic_clock_blobs(self):
         case = self._case()
         owner, _record, worker, job, _log, _blobs, clock = case
