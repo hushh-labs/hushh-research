@@ -109,6 +109,7 @@ async def _organizer_copy_refs(service, user_id, grant, event, calendar_id, code
 
     The outcome names the stage that stopped, so a missing file can be told apart from an
     unreadable organizer calendar; it carries no identifiers and is never shown as a claim.
+    Each name stays under 24 characters: the log redactor masks longer identifier-shaped values.
     """
     organizer = event.get("organizer") or {}
     email = organizer.get("email")
@@ -148,7 +149,7 @@ async def _organizer_copy_refs(service, user_id, grant, event, calendar_id, code
     found = link_refs(matches[0])
     if found:
         return found, "found"
-    return [], "attachments_not_meeting_files" if attachments else "no_attachments"
+    return [], "other_attachments" if attachments else "no_attachments"
 
 
 async def with_organizer_copy(

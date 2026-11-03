@@ -17,6 +17,7 @@ from hushh_mcp.services import calendar_meeting_references as references
 from hushh_mcp.services.google_calendar_meeting_grant import MEETING_SCOPES
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from mcp_modules.log_redaction import redact_log_value
 from tests.helpers.calendar_meeting_artifact_fixtures import EVENT, GRANT, run, setup
 
 ORGANIZER, ATTENDEE = "jhumma@hushh.ai", "ankit@hushh.ai"
@@ -229,7 +230,7 @@ def test_an_unreadable_organizer_calendar_claims_nothing(monkeypatch, refusal):
         ("ambiguous", {"copies": [organizers_copy(RECORDING), organizers_copy(NOTES)]}),
         ("no_attachments", {"copy": organizers_copy()}),
         (
-            "attachments_not_meeting_files",
+            "other_attachments",
             {"copy": organizers_copy({**RECORDING, "title": "Quarterly budget"})},
         ),
         ("found", {"copy": organizers_copy(RECORDING)}),
@@ -251,6 +252,7 @@ def test_the_stage_that_found_nothing_is_logged_without_identifiers(
     detail(svc)
     (line,) = [m for m in caplog.messages if "channel=organizer_copy" in m]
     assert f"outcome={outcome} " in line
+    assert redact_log_value(outcome) == outcome  # the log redactor masks longer label-shaped values
     for private in (ORGANIZER, ATTENDEE, "recording-file-0001", "notes-file-000002", "Recording"):
         assert private not in line
 
