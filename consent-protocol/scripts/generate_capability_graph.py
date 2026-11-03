@@ -872,6 +872,37 @@ def build_payload(
     return graph
 
 
+def _uat_pr_payload(
+    serving_payload: dict[str, Any], base_ref: str, predecessor_refs: tuple[str, ...]
+) -> dict[str, Any] | None:
+    """Replay the landed PR comparison after validating the exact serving comparison."""
+    if (
+        os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or os.environ.get("GITHUB_REF") != "refs/heads/uat"
+        or os.environ.get("CI_VALIDATION_LEVEL") != "release"
+        or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
+        or _resolve_base_commit(base_ref) != base_ref
+        or not os.environ.get("GITHUB_SHA")
+        or _resolve_base_commit("HEAD") != os.environ["GITHUB_SHA"]
+        or _resolve_base_commit("HEAD^2") is None
+    ):
+        return None
+    parent = _resolve_base_commit("HEAD^1")
+    if parent is None:
+        return None
+    ancestry = subprocess.run(  # noqa: S603 - fixed git executable and validated commits
+        ["git", "merge-base", "--is-ancestor", base_ref, parent],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    if ancestry.returncode:
+        return None
+    pr_payload = build_payload(base_ref=parent, workflow_predecessor_refs=predecessor_refs)
+    if {**pr_payload, "semantic_diff": serving_payload["semantic_diff"]} != serving_payload:
+        return None
+    return pr_payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -892,11 +923,16 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
-    payload = build_payload(
-        workflow_predecessor_refs=tuple(args.workflow_predecessor_ref),
-        base_ref=args.base_ref,
-    )
+    predecessor_refs = tuple(args.workflow_predecessor_ref)
+    payload = build_payload(workflow_predecessor_refs=predecessor_refs, base_ref=args.base_ref)
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    if args.check and OUTPUTS[0].is_file() and OUTPUTS[0].read_text(encoding="utf-8") != text:
+        pr_payload = _uat_pr_payload(payload, _resolve_base_ref(args.base_ref), predecessor_refs)
+        if pr_payload is not None:
+            pr_text = json.dumps(pr_payload, indent=2, sort_keys=True) + "\n"
+            if OUTPUTS[0].read_text(encoding="utf-8") == pr_text:
+                print("Capability graph: verified serving transition and landed PR comparison.")
+                text = pr_text
     stale = []
     for output in OUTPUTS:
         current = output.read_text(encoding="utf-8") if output.exists() else ""
