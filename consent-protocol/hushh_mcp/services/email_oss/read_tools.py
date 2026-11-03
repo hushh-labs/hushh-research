@@ -79,23 +79,23 @@ class GmailReadTools:
             (item for item in inventory if item.get("attachment_id") == attachment_id), None
         )
         if meta is None:
-            self.state.read_receipt["truncated"] = True
+            self.state.mark_truncated("attachment_unresolved")
             return {"status": "unavailable", "code": "attachment_not_in_message"}
         mime = str(meta.get("mime_type") or "")
         if mime not in {"application/pdf", "text/csv", "application/csv"}:
-            self.state.read_receipt["truncated"] = True
+            self.state.mark_truncated("attachment_unresolved")
             return {"status": "unsupported", "attachment": meta}
         runtime = self.state.runtime
         scan_parse = runtime.attachment_scan_parse
         if scan_parse is not None and not getattr(scan_parse, "available", True):
-            self.state.read_receipt["truncated"] = True
+            self.state.mark_truncated("attachment_unresolved")
             return {"status": "unresolved", "code": "attachment_worker_unavailable", "amount": None}
         blob = await self.state.invoke(
             "get_attachment", {"message_id": message_id, "attachment_id": attachment_id}
         )
         content = blob.get("content") if isinstance(blob, dict) else None
         if not isinstance(content, bytes) or not content or len(content) > 4 * 1024 * 1024:
-            self.state.read_receipt["truncated"] = True
+            self.state.mark_truncated("attachment_unresolved")
             return {"status": "unavailable", "code": "attachment_bytes_unavailable"}
         await self.state.context.require_access()
         from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -117,11 +117,11 @@ class GmailReadTools:
                     parsed = await parser.parse(content=content, mime_type=parse_mime, live=True)
         except TimeoutError:
             await self.state.context.require_access()
-            self.state.read_receipt["truncated"] = True
+            self.state.mark_truncated("attachment_unresolved")
             return {"status": "unresolved", "code": "attachment_timeout", "amount": None}
         except DriveReadError:
             await self.state.context.require_access()
-            self.state.read_receipt["truncated"] = True
+            self.state.mark_truncated("attachment_unresolved")
             return {"status": "unresolved", "code": "attachment_unreadable", "amount": None}
         await self.state.context.require_access()
         text = "\n\n".join(parsed.pages)

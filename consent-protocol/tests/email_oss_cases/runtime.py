@@ -216,6 +216,24 @@ async def test_attachment_uses_inventory_scanner_parser_then_final_model_answer(
 
 
 @pytest.mark.asyncio
+async def test_unavailable_attachment_worker_reports_unresolved_coverage_without_fetching_bytes():
+    runtime, _, execution = make_runtime(
+        [
+            AIMessage(
+                content="",
+                tool_calls=[call("get_attachment", {"message_id": "m1", "attachment_id": "a1"})],
+            ),
+            AIMessage(content="The attachment could not be read, so the amount is unknown."),
+        ],
+        attachment_scan_parse=SimpleNamespace(available=False),
+    )
+    result = await runtime.handle_turn(**turn())
+    assert result["status"] == "ok"
+    assert result["structured"]["truncation_reasons"] == ["attachment_unresolved"]
+    assert [name for name, _ in execution.calls] == ["get_message"]
+
+
+@pytest.mark.asyncio
 async def test_model_limit_is_error_not_tool_result_or_fabricated_final_success():
     runtime, _, _ = make_runtime(
         [
