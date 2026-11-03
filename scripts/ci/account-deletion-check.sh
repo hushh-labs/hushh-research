@@ -2,13 +2,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+source "$REPO_ROOT/scripts/ci/validation-results.sh"
 started=$SECONDS
 test_dir="$(mktemp -d "${TMPDIR:-/tmp}/hushh-account-deletion.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 
 echo '== Account deletion: client completion, proxy outcomes and atomic SQL erasure =='
+result=0
 (
-  cd "$REPO_ROOT/hushh-webapp"
+  cd "$REPO_ROOT/hushh-webapp" || exit 126
   ./node_modules/.bin/vitest run \
     __tests__/lib/flows/delete-account.test.ts \
     __tests__/app/api/account-delete-proxy.test.ts \
@@ -18,9 +20,11 @@ echo '== Account deletion: client completion, proxy outcomes and atomic SQL eras
     __tests__/lib/services/account-cloud-cleanup.test.ts \
     __tests__/lib/profile-action-outcomes.test.ts \
     __tests__/one-voice/account-lifecycle-step.test.ts --maxWorkers=2
-)
+) || result=$?
+validation_record "Account deletion client" "$result"
+result=0
 (
-  cd "$REPO_ROOT/consent-protocol"
+  cd "$REPO_ROOT/consent-protocol" || exit 126
   TESTING=true DB_OFFLINE=1 OFFLINE_DB_PATH="$test_dir/protocol.db" \
   GOOGLE_CLOUD_PROJECT=hushh-ci-test REQUIRE_ACCOUNT_DELETION_POSTGRES=1 \
   REQUIRE_CONNECTOR_POSTGRES=1 \
@@ -37,5 +41,12 @@ echo '== Account deletion: client completion, proxy outcomes and atomic SQL eras
     tests/test_account_erasure_lock_timeout_postgres.py \
     tests/one_voice/test_tools_account_lifecycle.py \
     tests/one_voice/test_relay_account_lifecycle.py
-)
+) || result=$?
+if [ "$result" -eq 2 ]; then exit 130; fi
+if [ "$result" -gt 1 ]; then
+  echo "Account deletion pytest could not complete (exit $result)." >&2
+  exit 126
+fi
+validation_record "Account deletion backend" "$result"
+validation_finish
 echo "Account deletion gate passed in $((SECONDS - started))s."

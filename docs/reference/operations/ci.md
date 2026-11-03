@@ -730,6 +730,21 @@ This distinguishes stale private DOM from a new Firebase-authorized read, which
 Schedule supports while the vault is locked; it does not relax the whole-page
 privacy assertion.
 
+Validation result collection:
+
+Independent checks finish and report their failures together. Browser commands,
+backend validators, backend assertion-test partitions, web validators and the
+cross-surface integration checks retain a final nonzero result if any check fails.
+This reduces fix–push–rerun cycles; a failing run may take longer because it
+reveals failures that previously remained hidden. Governance and the outer web
+pack runner already collected independent failures.
+
+Prerequisite installation, invalid selection, cancellation, fixture safety and
+release authority still stop dependent work. Pytest interruption/internal/usage
+failures do not continue to later partitions. Never use `continue-on-error` to
+make a required lane green, or continue traffic promotion after failed candidate
+verification. Deployment mutations retain their ordered safety checks.
+
 Fail-fast contract:
 
 1. Cheap authority checks run before expensive web/protocol/integration lanes:

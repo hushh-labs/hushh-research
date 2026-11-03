@@ -118,11 +118,22 @@ def assert_integration_mode(tmp_path, mode, runner, expected, document="true"):
     binary.parent.mkdir(parents=True)
     binary.write_text("#!/bin/sh\nexit 0\n")
     binary.chmod(0o755)
-    script = (ROOT / "scripts/ci/integration-check.sh").read_text()
-    stubs = (
-        'git() { echo "$FIXTURE_ROOT"; }; npm() { :; }; '
-        'bash() { printf "%s\\n" "$*" >> "$FIXTURE_ROOT/gates"; };\n'
+    scripts = tmp_path / "scripts/ci"
+    scripts.mkdir(parents=True)
+    (scripts / "validation-results.sh").write_text(
+        (ROOT / "scripts/ci/validation-results.sh").read_text()
     )
+    for name in (
+        "no-ria-feature-flags",
+        "runtime-contract-check",
+        "account-deletion-check",
+        "document-delivery-check",
+    ):
+        (scripts / f"{name}.sh").write_text(
+            'printf "%s\\n" "$0${1:+ $1}" >> "$FIXTURE_ROOT/gates"\n'
+        )
+    script = (ROOT / "scripts/ci/integration-check.sh").read_text()
+    stubs = 'git() { echo "$FIXTURE_ROOT"; }; npm() { :; };\n'
     result = subprocess.run(  # noqa: S603 - authored gate, synthetic executables and fixed cases.
         ["bash", "-c", stubs + script, "integration", *mode],
         env={
@@ -140,10 +151,7 @@ def assert_integration_mode(tmp_path, mode, runner, expected, document="true"):
     assert result.returncode == expected, result.stdout + result.stderr
     gates = tmp_path / "gates"
     if expected:
-        if document == "true":
-            assert not gates.exists()
-        else:
-            assert "document-delivery-check" not in gates.read_text()
+        assert not gates.exists()
         return
     selected = mode[0] if mode else "all"
     assert gates.read_text().splitlines() == [

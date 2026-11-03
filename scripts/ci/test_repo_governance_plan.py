@@ -54,6 +54,7 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
         "scripts/ci/integration-check.sh",
+        "scripts/ci/validation-results.sh",
         "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
@@ -292,6 +293,41 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
 
 
+def test_validation_results_collect_independent_failures_and_preserve_stops() -> None:
+    helper = ROOT / "scripts/ci/validation-results.sh"
+    sequence = """
+set -euo pipefail
+source "$1"
+validation_check first bash -c 'echo first; exit 1'
+validation_check second bash -c 'echo second; exit 2'
+validation_check third bash -c 'echo third'
+validation_finish
+"""
+    result = subprocess.run(["bash", "-c", sequence, "_", str(helper)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "third" in result.stdout
+    assert "first (exit 1)" in result.stderr and "second (exit 2)" in result.stderr
+    for code in (124, 126, 127, 130, 143):
+        script = f"""set -euo pipefail
+source "$1"
+validation_check interrupted bash -c 'exit {code}'
+echo must-not-run
+"""
+        result = subprocess.run(["bash", "-c", script, "_", str(helper)], capture_output=True, text=True)
+        assert result.returncode == code
+        assert "must-not-run" not in result.stdout
+    # An external script's prerequisite still stops its dependent command.
+    script = """set -euo pipefail
+source "$1"
+validation_check fixture bash -e -c 'false; echo unsafe-dependent'
+validation_check independent bash -c 'echo independent'
+validation_finish
+"""
+    result = subprocess.run(["bash", "-c", script, "_", str(helper)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "unsafe-dependent" not in result.stdout and "independent" in result.stdout
+
+
 def main() -> int:
     tests = (
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
@@ -307,6 +343,7 @@ def main() -> int:
         test_changed_file_input_is_bounded_and_rejects_traversal,
         test_cli_commands_group_is_machine_readable_and_static,
         test_runner_reports_every_failure_instead_of_stopping_early,
+        test_validation_results_collect_independent_failures_and_preserve_stops,
     )
     for test in tests:
         test()
