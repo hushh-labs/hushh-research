@@ -21,6 +21,24 @@ def parents(*args):
     return {FIRST: f"{BASE} {HEAD1}", SECOND: f"{FIRST} {HEAD2}"}[args[-1]]
 
 
+@pytest.mark.parametrize("branch", ["main", "dev", "uat", "integration/pr-train", "", "feature/other", "refs/tags/uat"])
+def test_merge_group_context_accepts_only_protected_destination_refs(tmp_path, monkeypatch, branch):
+    repository = "hushh-labs/hushh-research"
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"action": "checks_requested", "repository": {"full_name": repository},
+                                "merge_group": {"base_ref": f"refs/heads/{branch}",
+                                                "base_sha": BASE, "head_sha": FIRST}}))
+    for key, value in {"GITHUB_EVENT_PATH": str(event), "GITHUB_EVENT_NAME": "merge_group",
+                       "GITHUB_REPOSITORY": repository, "GITHUB_SHA": FIRST}.items():
+        monkeypatch.setenv(key, value)
+    with patch.object(queue, "git", return_value=FIRST):
+        if branch in queue.DESTINATIONS:
+            assert queue.event_context()[:2] == (repository, branch)
+        else:
+            with pytest.raises(queue.Refused, match="Queue event"):
+                queue.event_context()
+
+
 def test_every_stacked_member_is_bound_to_current_head_and_requester():
     rows = [entry(1, HEAD1), entry(2, HEAD2, "ankitkumarsingh1702")]
     result = queue.members(BASE, SECOND, rows, "main", parents)
