@@ -1,6 +1,7 @@
 // Presentation-only fixture: real page, fields and dialogs; inert identity and
 // network boundaries. Never installed in the application or used for real SMS.
 import React, { type ReactNode } from "react";
+import { ApiError } from "../../lib/services/api-client";
 const noop = () => {};
 const unavailable = async () => { throw new Error("Network disabled in layout fixture"); };
 const user = { uid: "layout-fixture", phoneNumber: null, getIdToken: unavailable };
@@ -9,9 +10,11 @@ const params = new URLSearchParams();
 export const useRouter = () => router;
 export const usePathname = () => "/register-phone";
 export const useSearchParams = () => params;
-export const useAuth = () => ({ user, userId: user.uid, loading: false, phoneNumber: null, startPhoneVerification: async () => ({ autoVerified: false }), confirmPhoneVerification: unavailable, refreshUser: unavailable, signOut: unavailable });
+export const useAuth = () => ({ user, userId: user.uid, loading: false, phoneNumber: null, startPhoneVerification: async () => ({ autoVerified: false }), confirmPhoneVerification: async () => { throw new ApiError("Occupied number", 409, { code: "PHONE_ALREADY_VERIFIED" }); }, refreshUser: unavailable, signOut: unavailable });
+export const AuthService = { getIdToken: unavailable };
 export const NativeRouteMarker = () => null;
 export const VaultLockGuard = ({ children }: { children: ReactNode }) => children;
+export const PhoneRecoveryReview = () => null;
 export const AccountIdentityService = { syncCurrentUser: unavailable, hasVerifiedPhone: () => false };
 export const PostAuthRouteService = { resolveAfterLogin: async () => "/register-phone" };
 export const PreVaultUserStateService = { bootstrapState: unavailable, isSetupResolved: () => false, syncOnboardingJourney: unavailable };
