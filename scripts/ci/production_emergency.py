@@ -219,7 +219,14 @@ def admit(authority: dict, observed: dict, scope: str, *, run=command) -> dict:
     }
 
     if authority.get("frontend_auth_domain_refresh") is True:
-        importlib.import_module("production_auth_domain_refresh").validate_source(receipt, run=run)
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        refresh.validate_source(receipt, run=run)
+        control = importlib.import_module("production_backend_successor_control")
+        profile = control.current_auth_domain_acceptance_profile(observed)
+        revision = provider("revisions", observed["backend"]["revision"])
+        receipt["backend_acceptance_origin"] = refresh.qualify_backend_acceptance_origin(
+            receipt, profile, revision
+        )
     return receipt
 
 
@@ -232,6 +239,17 @@ def recheck(receipt: dict, authority: dict, observed: dict) -> None:
         and receipt.get("ordinary_promotion_evidence") is False,
         "Incident authority or serving baseline changed; no mutation is admitted",
     )
+    if authority.get("frontend_auth_domain_refresh") is True:
+        acceptance = receipt.get("backend_acceptance_origin")
+        require(
+            isinstance(acceptance, dict)
+            and isinstance(acceptance.get("operational_reference"), dict),
+            "Auth repair operational reference is missing",
+        )
+        control = importlib.import_module("production_backend_successor_control")
+        control.revalidate_auth_domain_reference(
+            acceptance["operational_reference"], observed
+        )
 
 
 def main() -> int:

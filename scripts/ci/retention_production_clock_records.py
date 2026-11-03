@@ -24,6 +24,13 @@ CLOCK_BOUND_SOURCE_PROFILES = {
         base.WORKFLOW: ("8f0660ff9a8ec42747dc338e56ad83e3dde98ce5", 20685),
         PUBLICATION: ("98e190df4afcfac18f093abfe77dc3cbe242d831", 18042),
     },
+    "publication-84b-blobless-v1": {
+        # Current Maintenance source keeps every branch/tag and full commit
+        # history, while omitting historical blobs from the initial fetch.
+        base.OWNER: ("9e68a94bd33110370e57c2e34871f7bd6b8bd7d3", 90389),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("84b57d0be377d71efa2c38b08d138924e8750b74", 18398),
+    },
 }
 
 

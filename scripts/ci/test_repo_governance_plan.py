@@ -50,14 +50,39 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
     assert "skill-lint" not in selection.check_ids
 
 
-def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:
-    for path in ("scripts/ci/secret-scan.sh", "scripts/ci/test_secret_scan_ranges.py"):
+def test_explicit_ci_control_scripts_are_controller_owned() -> None:
+    for path in (
+        "scripts/ci/promotion_approval.py",
+        "scripts/ci/secret-scan.sh",
+        "scripts/ci/test_secret_scan_ranges.py",
+        "scripts/ci/tag-last-known-good.sh",
+    ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
         )
         assert selection.error is None
         assert selection.groups == ("controller",)
         assert "ci-path-ownership" in selection.check_ids
+
+
+def test_production_emergency_authority_test_selects_controller_owner() -> None:
+    path = "consent-protocol/tests/test_production_emergency.py"
+    selection = build_selection(
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
+    )
+    assert selection.error is None
+    assert selection.groups == ("controller",)
+    selected = {
+        check.check_id: check
+        for check in CHECKS
+        if check.check_id in selection.check_ids
+    }
+    assert "production-emergency-authority" in selected
+    assert "protocol-check" not in selected
+    assert selected["production-emergency-authority"].argv == (
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q", path,
+    )
 
 
 def test_known_product_path_does_not_expand_critical_groups() -> None:
@@ -218,7 +243,8 @@ def main() -> int:
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
-        test_secret_scan_owner_does_not_become_unknown_during_branch_sync,
+        test_explicit_ci_control_scripts_are_controller_owned,
+        test_production_emergency_authority_test_selects_controller_owner,
         test_known_product_path_does_not_expand_critical_groups,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
