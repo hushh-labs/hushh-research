@@ -7,7 +7,8 @@ if [ "$#" -gt 1 ]; then echo 'Unexpected document gate arguments.' >&2; exit 64;
 case "$mode" in
   all) ;;
   --ci-linux-document)
-    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64 ;;
+    [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64
+    browser_engines=(chromium) ;;
   --ci-macos-webkit)
     [ "${CI:-}:${RUNNER_OS:-}" = 'true:macOS' ] || exit 64
     browser_engines=(webkit) ;;
