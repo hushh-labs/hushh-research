@@ -73,6 +73,7 @@ PRE_MUTATION_STEPS = frozenset({
     'Install UAT browser verification dependencies',
     'Verify One Location read-only rollout prerequisites',
     'Recheck direct UAT authority and serving baseline before mutation',
+    'Recheck approved PR scope and both serving revisions under deployment lock',
 })
 READ_ONLY_JOBS = frozenset({
     "Select UAT target", "Deployment security / Verify repository secret clearance",
