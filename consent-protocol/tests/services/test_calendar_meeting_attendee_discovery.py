@@ -6,15 +6,18 @@ has none, the organizer's copy of the same occurrence is read (Google decides wh
 allowed) and every file is then checked against the selected account's real Drive access.
 """
 
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
 
 from hushh_mcp.services import calendar_meeting_artifacts as artifacts_module
+from hushh_mcp.services import calendar_meeting_organizer_copy as organizer_copy
 from hushh_mcp.services import calendar_meeting_references as references
 from hushh_mcp.services.google_calendar_meeting_grant import MEETING_SCOPES
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from mcp_modules.log_redaction import redact_log_value
 from tests.helpers.calendar_meeting_artifact_fixtures import EVENT, GRANT, run, setup
 
 ORGANIZER, ATTENDEE = "jhumma@hushh.ai", "ankit@hushh.ai"
@@ -200,6 +203,58 @@ def test_an_unreadable_organizer_calendar_claims_nothing(monkeypatch, refusal):
     svc, _, _ = world(monkeypatch, refusal=refusal)
     result = detail(svc)
     assert (result["artifacts"], result["discovery"]) == ([], "attendee_discovery_limited")
+
+
+@pytest.mark.parametrize(
+    "outcome,setup",
+    [
+        # What the real Calendar client raises: 403 is reported as 502/calendar_unreadable.
+        (
+            "unreadable",
+            {
+                "refusal": GoogleConnectionError(
+                    "no", status_code=502, reason_code="calendar_unreadable"
+                )
+            },
+        ),
+        (
+            "not_found",
+            {
+                "refusal": GoogleConnectionError(
+                    "gone", status_code=404, reason_code="calendar_not_found"
+                )
+            },
+        ),
+        ("timeout", {"refusal": TimeoutError()}),
+        ("no_match", {}),
+        ("ambiguous", {"copies": [organizers_copy(RECORDING), organizers_copy(NOTES)]}),
+        ("no_attachments", {"copy": organizers_copy()}),
+        (
+            "other_attachments",
+            {"copy": organizers_copy({**RECORDING, "title": "Quarterly budget"})},
+        ),
+        ("found", {"copy": organizers_copy(RECORDING)}),
+        (
+            "not_attempted",
+            {
+                "copy": organizers_copy(RECORDING),
+                "mine": attendees_copy(organizer={"email": "host@elsewhere.example"}),
+            },
+        ),
+    ],
+)
+def test_the_stage_that_found_nothing_is_logged_without_identifiers(
+    monkeypatch, caplog, outcome, setup
+):
+    """A missing file must be traceable to unreadable calendar, no match or no links."""
+    svc, _, _ = world(monkeypatch, **setup)
+    caplog.set_level(logging.INFO, logger=organizer_copy.logger.name)
+    detail(svc)
+    (line,) = [m for m in caplog.messages if "channel=organizer_copy" in m]
+    assert f"outcome={outcome} " in line
+    assert redact_log_value(outcome) == outcome  # the log redactor masks longer label-shaped values
+    for private in (ORGANIZER, ATTENDEE, "recording-file-0001", "notes-file-000002", "Recording"):
+        assert private not in line
 
 
 def test_an_ordinary_attachment_is_not_presented_as_a_meeting_file(monkeypatch):
