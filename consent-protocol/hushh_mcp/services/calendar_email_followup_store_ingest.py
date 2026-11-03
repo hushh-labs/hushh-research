@@ -153,7 +153,8 @@ class _MessageIngest:
                     elif int(prior["assessment_version"]) < ASSESSMENT_VERSION:
                         row_id = str(prior["id"])
                         event = commit.sealed_event(self._seal, monitor, candidate, row_id)
-                        commit.upgrade_request(conn, row_id, candidate, event)
+                        title = self._seal(candidate.title, monitor, row_id, "title")
+                        commit.upgrade_request(conn, row_id, candidate, event, title)
                 if reassess:
                     commit.suppress_unsupported(conn, monitor, message_hmac)
                 commit.apply_updates(conn, assessment.updates, actual_id)
