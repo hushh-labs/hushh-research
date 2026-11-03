@@ -103,7 +103,7 @@ retained full mirror, optionally with `--include-advisory`.
 | Developer intent | Source | Required proof | Deployment |
 | --- | --- | --- | --- |
 | Feature integration | Feature PR into `dev` | Destination freshness and authoritative changed-surface CI | Explicit Dev dispatch |
-| UAT-focused release | Reviewed protected `uat` candidate | Full exact-commit CI, current attempt, serving-base and protected security checks | Direct UAT; no prior Dev deployment |
+| UAT-focused release | Current protected `uat` tip; preserve branch history | Read-only `operation=inspect` reports ready for exact full-scope CI and the observed serving base; deployment repeats security and baseline checks | Explicit deployment; no Dev deployment required once ready |
 | Historical Dev-backed release | Existing accepted application | Exact Dev receipt and verified image, or source build | Existing UAT path |
 | Production release | UAT-accepted application plus reviewed Main approval | Matching UAT receipt, Main smoke, exact-tree equivalence and rollback | Explicit production dispatch |
 | Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
@@ -135,6 +135,16 @@ an immutable deployment tag and records its readback in the existing release
 artifact; `deployed/production-latest` stays unchanged so the recovery anchor
 cannot be lost. This does not activate the staged backend or clear its source
 restriction. The regular hourly controller remains responsible for retirement.
+
+On 3 November 2026, run [41608303952](https://github.com/hushh-labs/hushh-research/actions/runs/41608303952)
+promoted frontend `hushh-webapp-00162-r4d` to 100%; backend
+`consent-protocol-00309-nir` remained unchanged. Published login scripts use
+`id.hussh.ai`. The final immutable-tag publication refused before creating a tag;
+the original run remains failed and its artifact is preserved. Do not redeploy
+the one-time repair to retry bookkeeping: its original serving baseline no
+longer applies. Independent read-only verification
+[41612439877](https://github.com/hushh-labs/hushh-research/actions/runs/41612439877)
+passed. This proves current health, not retrospective tag/publication clearance.
 
 Historical restoration evidence retains its reviewed producer exclusions even
 when later dispatch modes add stricter conditions. The maintenance guard accepts
