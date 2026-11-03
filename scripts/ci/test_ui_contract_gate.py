@@ -19,7 +19,7 @@ def job_block(workflow, name):
 
 def validate(workflow):
     ui = job_block(workflow, "ui-contracts")
-    depth = "fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
+    depth = "fetch-depth: ${{ github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}"
     if (depth not in ui or "base=\"$(python3 scripts/ci/resolve-ui-contract-base.py)\"" not in ui
             or "UI_CONTRACT_BASE_SHA: ${{ steps.ui-base.outputs.sha }}" not in ui):
         raise ValueError("UI review inheritance requires the verified tested merge base and its history")

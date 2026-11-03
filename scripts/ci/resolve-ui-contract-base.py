@@ -28,7 +28,7 @@ def resolve():
         base = event.get("merge_group", {}).get("base_sha", "")
         if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch" and not base:
             inputs = event.get("inputs") or {}
-            if os.environ.get("GITHUB_REF") == "refs/heads/uat" and inputs.get("scope") == "all":
+            if os.environ.get("GITHUB_REF") in {"refs/heads/uat", "refs/heads/uat-isolated"} and inputs.get("scope") == "all":
                 base = inputs.get("uat_base_sha", "")
                 if base and git("rev-parse", "HEAD") != os.environ.get("GITHUB_SHA"):
                     raise ValueError("UAT review base requires the exact checked-out source")
