@@ -256,6 +256,7 @@ docker buildx imagetools inspect --raw "$image_reference" > /workspace/.uat-fron
         {
             "id": "await-frontend-image",
             "name": frontend["steps"][0]["name"],
+            "env": frontend["steps"][0].get("env", []),
             "entrypoint": "python3",
             "args": [module, "wait", *arguments],
             "waitFor": ["build-backend-image", "verify-runtime-iam"],
@@ -270,6 +271,7 @@ docker buildx imagetools inspect --raw "$image_reference" > /workspace/.uat-fron
         {
             "id": "pin-frontend-image",
             "name": frontend["steps"][0]["name"],
+            "env": frontend["steps"][0].get("env", []),
             "entrypoint": "python3",
             "args": [module, "pin", *arguments],
             "waitFor": ["inspect-frontend-image-manifest"],
