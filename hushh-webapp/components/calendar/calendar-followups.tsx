@@ -13,7 +13,6 @@ import {
 } from "@/lib/calendar/calendar-followup-presentation";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import { MeetingReview, meetingStatus } from "@/components/calendar/calendar-followup-meeting-review";
-import { clearMailChoice, hasMailChoice } from "@/lib/calendar/calendar-mail-choice";
 import { rebindFollowupMonitor, scanWhilePending } from "@/lib/calendar/calendar-followup-sync";
 import { CalendarFollowupsService, type FollowupDetail, type FollowupList, type FollowupRequest, type FollowupSource, type FollowupStatus } from "@/lib/services/calendar-followups-service";
 
@@ -76,7 +75,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const rebound = useRef(false);
   const progressChecks = useRef(0);
   const vaultAvailable = Boolean(getVaultOwnerToken());
-  const chosenAtConnect = hasMailChoice(userId, accountId);
   const remind = notify ?? Boolean(status?.background_available);
 
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
@@ -284,7 +282,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         time_zone: existing?.time_zone || zone,
         reminder_lead_days: existing?.reminder_lead_days ?? 1, reminder_hour: existing?.reminder_hour ?? 9,
       }, await getIdToken(), ownerToken);
-      clearMailChoice();
       const first = await CalendarFollowupsService.scan(userId, accountId, await getIdToken(), ownerToken);
       lastCatchUp.set(`${userId}:${accountId}`, Date.now());
       progressChecks.current = 0;
@@ -426,7 +423,6 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
             {status?.mail_connected
               ? `Your private agent already has read access to ${accountEmail}. Choose how far back to look.`
               : `This asks Google for one extra permission to read ${accountEmail}. Your private agent uses it only to find requests and proposed times. Calendar works the same without it.`}
-            {chosenAtConnect ? " You chose this when connecting Calendar." : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
