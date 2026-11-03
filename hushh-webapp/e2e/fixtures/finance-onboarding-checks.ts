@@ -158,6 +158,7 @@ export function registerFinanceOnboardingChecks(
           await page
             .getByRole("button", { name: "Continue", exact: true })
             .click();
+          await page.getByRole("button", { name: "Skip for now" }).click();
           await expect(
             page.getByRole("button", { name: /Connect an account/ }),
           ).toBeVisible();
@@ -247,6 +248,7 @@ export function registerFinanceOnboardingChecks(
         await page
           .getByRole("button", { name: "Continue", exact: true })
           .click();
+        await page.getByRole("button", { name: "Skip for now" }).click();
         const bank = page.getByRole("button", { name: /Connect an account/ });
         const statement = page.getByRole("button", {
           name: /Upload a statement/,
@@ -340,6 +342,7 @@ export function registerFinanceOnboardingChecks(
     });
     expect(clearance).toBeGreaterThanOrEqual(4);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("button", { name: "Skip for now" }).click();
     await page
       .getByRole("button", { name: "Skip for now", exact: true })
       .click();
@@ -348,11 +351,83 @@ export function registerFinanceOnboardingChecks(
     ).toBeVisible();
   });
 
+  for (const width of [390, 960]) {
+    test(`Finance persona questions and reveal at ${width}px`, async ({
+      page,
+    }, testInfo) => {
+      await page.emulateMedia({
+        reducedMotion: width === 390 ? "reduce" : "no-preference",
+      });
+      await mount(page, width);
+      await page.getByRole("button", { name: "Skip", exact: true }).click();
+      await expect(
+        page.getByRole("heading", {
+          name: "Let’s build your financial persona",
+        }),
+      ).toBeVisible();
+      const groups = page
+        .getByRole("group")
+        .filter({ has: page.getByRole("radio") });
+      await expect(groups).toHaveCount(4);
+      await expect
+        .poll(() =>
+          groups
+            .first()
+            .evaluate(
+              (field) =>
+                field.closest("[data-direction]")?.querySelector("[inert]")
+                  ?.childElementCount,
+            ),
+        )
+        .toBe(0);
+      const first = (await groups.nth(0).boundingBox())!;
+      const second = (await groups.nth(1).boundingBox())!;
+      if (width === 390) {
+        expect(second.y).toBeGreaterThan(first.y + first.height);
+      } else {
+        expect(second.x).toBeGreaterThan(first.x + first.width);
+        expect(second.y).toBe(first.y);
+      }
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(width);
+      await page.screenshot({
+        path: testInfo.outputPath("persona-questions.png"),
+        fullPage: true,
+      });
+      await page.getByRole("radio", { name: "Less than 3 years" }).check();
+      await page
+        .getByRole("radio", {
+          name: "Consider investing more if my plan still fits",
+        })
+        .check();
+      await page.getByRole("radio", { name: "Lose 30% or gain 35%" }).check();
+      await page
+        .getByRole("radio", {
+          name: "I’d probably need to sell to cover bills",
+        })
+        .check();
+      await page.getByRole("button", { name: "Save persona" }).click();
+      const badge = page.getByText("Growth-oriented", { exact: true });
+      await expect(badge).toBeVisible();
+      expect(
+        await badge.evaluate(
+          (el) => getComputedStyle(el).animationName === "none",
+        ),
+      ).toBe(width === 390);
+      await page.getByRole("button", { name: "Continue to import" }).click();
+      await expect(
+        page.getByRole("button", { name: /Connect an account/ }),
+      ).toBeVisible();
+    });
+  }
+
   test("Finance approved onboarding dispatches the selected source once and blocks busy navigation", async ({
     page,
   }) => {
     await mount(page, 393);
     await page.getByRole("button", { name: "Skip", exact: true }).click();
+    await page.getByRole("button", { name: "Skip for now" }).click();
     await page.getByRole("button", { name: /Try a sample/ }).click();
     await page
       .getByRole("button", { name: "Load sample", exact: true })
