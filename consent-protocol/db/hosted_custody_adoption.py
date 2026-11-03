@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from db.hosted_custody_acl import preserve_native_family_acl
 from db.hosted_custody_qualification import (
     QUALIFIED_FAMILY_SETTING,
+    STRICT_PROFILE,
     HostedCustodyProfile,
     complete_family_qualification_sql,
     hosted_custody_profile_from_environment,
@@ -108,6 +109,23 @@ HOSTED_FILES_QUALIFIED = {
     "valid_hosted_files_previous_terminal(jsonb,jsonb)": "dbded18e5649dd7eaa288c4a3fe6c405789530f1c329374bec5a3e372f64cebf",
 }
 
+HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256 = (
+    "aef9e2ea2a5757e2601c3853c062625c56a2df889b29e6aac3d7d192367a466a"
+)
+HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED = {
+    "valid_hosted_provider_account_transition_intent(jsonb,jsonb)": "708e351313dbde84754defc79da032ff83d49913275769c536326ee9eac5c44b",
+    "valid_hosted_provider_account_transition_settlement(jsonb,jsonb)": "25fcb8157ce19366a6b512bd306ff952d60a62e66f547f9928d1a575bc45765d",
+    "valid_hosted_provider_account_transition(jsonb,jsonb)": "062ecac864383699fc67a6c101e24658490097bbd52bb333dc6c44ea9085f0ef",
+    "valid_hosted_provider_account_transition_append(jsonb,jsonb)": "7b11f758c401e0ed5037d5e04241163d250d36794a09e7d4fe4581c1747a43f0",
+    "guard_hosted_provider_account_transition_registry()": "2bc5f289c812ffeb368fc211946eec79d860b0a0d2d913ae66ba1144e42cac5f",
+    "record_hosted_provider_account_transition_intent(text,text,jsonb)": "5cd441fcfec76afebb4377a50fc0cf6ae3ea20666336ea5e7fed3025fcd65b43",
+    "settle_hosted_provider_account_transition(text,text,bigint,text,jsonb)": "46f543a03f7a3a52d28991a5bf2da5ed419deda9ec446781d19e0be8e57787fd",
+}
+HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER = (
+    "zx_hosted_provider_account_transition_registry",
+    "a27c02285cd232f778c63b23b31259e148de261b0f5f7814bfd8964bb2b3234c",
+)
+
 PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED = {
     "personal_agent_upgrade_lease_host_binding(jsonb)": "f03be8a6d264fb22c74968c1f758b885ee18a4206895a10f77fdbf7cd583a172",
     "azure_vm_image_publication_proven(personal_agent_registry,personal_agent_registry)": "1748051f173f41e3fdbed624b30a1027658a4448ae8592e6287196bc15bdc4fb",
@@ -154,14 +172,23 @@ HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED = {
 }
 
 
-def qualified_hosted_custody_family() -> dict[str, str]:
-    """Return the exact 979/980/981 custody family required for hosted Files."""
-    return {
+def qualified_hosted_custody_family(
+    profile: HostedCustodyProfile | None = None,
+) -> dict[str, str]:
+    """Return the custody family; 982 is included only for explicit shared Dev."""
+    selected_profile = profile or STRICT_PROFILE
+    family = {
         **QUALIFIED,
         **HOSTED_FILES_QUALIFIED,
         **PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
         **HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
     }
+    if selected_profile.is_dev_control_plane_owner:
+        family["personal_agent_erasure_archive(jsonb,jsonb)"] = (
+            HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256
+        )
+        family.update(HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED)
+    return family
 
 
 REFINED = {
@@ -253,6 +280,9 @@ def hosted_custody_adoption(sql: str) -> str:
         hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
         native_contract_new_signatures=frozenset(),
         profile=profile,
+        provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+        provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
     )
     qualification = full_family + _successor_qualification(profile=profile)
     for name, (predecessors, successor) in REFINED.items():
@@ -267,6 +297,8 @@ def hosted_custody_adoption(sql: str) -> str:
             for signature, digest in family.items()
             if signature.partition("(")[0] == name
         )
+        if name == "personal_agent_erasure_archive":
+            successor_digests.append(HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256)
         anchor = (
             f"NOT IN ({predecessors}) THEN\n  RAISE EXCEPTION 'Unqualified schema drift: {name}'"
         )
@@ -360,6 +392,9 @@ def _successor_qualification(profile: HostedCustodyProfile | None = None) -> str
         hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
         native_contract_new_signatures=frozenset(),
         profile=selected_profile,
+        provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+        provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
     )
     qualification = f"""DO $hosted_custody_successor$
 DECLARE spec record; definition text; client_role text; footprint boolean := false;

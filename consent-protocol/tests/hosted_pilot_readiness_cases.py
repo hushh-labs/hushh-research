@@ -75,6 +75,47 @@ def _custody_family_catalog(connection, family):
     return observed
 
 
+def _registry_trigger_catalog(connection):
+    """Capture the complete non-internal trigger set checked by migration 420."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT c.relname,t.tgname FROM pg_trigger t "
+            "JOIN pg_class c ON c.oid=t.tgrelid "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND NOT t.tgisinternal AND c.relname IN "
+            "('account_deletion_tombstones','agent_prompt_versions','byoc_setup_jobs',"
+            "'consent_audit','consent_audit_receipts','one_action_directive_ledger',"
+            "'personal_agent_cloud_removals','personal_agent_deletion_tombstones',"
+            "'personal_agent_registry','personal_agent_standby_placements','pod_lifecycle_events',"
+            "'pod_migration_jobs','pod_request_nonces','shared_files_storage',"
+            "'webauthn_challenges','webauthn_credentials') "
+            "ORDER BY c.relname,t.tgname"
+        )
+        return cursor.fetchall()
+
+
+def _later_owned_trigger_definitions(connection):
+    """Capture exact definitions for guards owned after migration 420."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT c.relname,t.tgname,t.tgenabled,t.tgtype,t.tgnargs,"
+            "t.tgattr::text,t.tgqual::text,pg_get_triggerdef(t.oid,true),"
+            "p.proowner::regrole::text,pg_get_functiondef(p.oid),p.prosecdef,"
+            "p.proconfig,p.proacl::text FROM pg_trigger t "
+            "JOIN pg_class c ON c.oid=t.tgrelid "
+            "JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "JOIN pg_proc p ON p.oid=t.tgfoid "
+            "WHERE n.nspname='public' AND NOT t.tgisinternal AND ("
+            "(c.relname='consent_audit' AND t.tgname IN "
+            "('zz_consumer_memory_consent','zz_preserve_consumer_memory_consent')) OR "
+            "(c.relname='personal_agent_registry' AND t.tgname IN "
+            "('zz_personal_agent_upgrade_lease_host_binding',"
+            "'zx_hosted_provider_account_transition_registry'))) "
+            "ORDER BY c.relname,t.tgname"
+        )
+        return cursor.fetchall()
+
+
 def _install_function(target, signature, definition, owner):
     pg_sql = _pg_sql()
     name, _, arguments = signature.partition("(")
@@ -158,9 +199,15 @@ def _copy_rollback_marker_and_trigger(source, target, target_execute):
         "AND t.tgname IN ('zx_project_grant_registry','zz_personal_agent_erasure_registry') "
         "ORDER BY t.tgname"
     )
+    provider_transition_trigger_rows = source.execute(
+        "SELECT pg_get_triggerdef(t.oid,true) FROM pg_trigger t "
+        "WHERE t.tgrelid='public.personal_agent_registry'::regclass "
+        "AND t.tgname='zx_hosted_provider_account_transition_registry'"
+    )
     assert len(marker_rows) == 5
     assert len(trigger_rows) == 1
     assert len(registry_trigger_rows) == 2
+    assert len(provider_transition_trigger_rows) <= 1
     target_execute(
         "CREATE TABLE public.hosted_files_executor_976_rollback_source ("
         "signature text PRIMARY KEY, definition text NOT NULL)"
@@ -178,6 +225,8 @@ def _copy_rollback_marker_and_trigger(source, target, target_execute):
         for (definition,) in registry_trigger_rows:
             cursor.execute(definition)
         cursor.execute(trigger_rows[0][0])
+        for (definition,) in provider_transition_trigger_rows:
+            cursor.execute(definition)
 
 
 def _target_execute(target, statement, params=None):
@@ -214,7 +263,15 @@ def _target_execute_wrapper(target):
     return lambda statement, params=None: _target_execute(target, statement, params)
 
 
-def _replay_420_421(pg, target, database, family):
+def _replay_420_421(
+    pg,
+    target,
+    database,
+    family,
+    *,
+    database_user="hushh",
+    replay_server=None,
+):
     psycopg2 = pytest.importorskip("psycopg2")
     before = _custody_family_catalog(target, family)
     entries = build_manifest_entries(
@@ -251,6 +308,9 @@ def _replay_420_421(pg, target, database, family):
         _target_execute(target, "SELECT set_config(%s,'true',false)", (QUALIFIED_FAMILY_SETTING,))
         _target_execute(target, worker_event_guard)
 
+    original_definition = pg.execute(
+        "SELECT pg_get_functiondef(%s::regprocedure)", ("public." + worker_signature,)
+    )[0][0]
     # Exercise the gated successor branch with a deterministic test body. The
     # production 460ee pin remains exact in the immutable adapter; substituting
     # this measured body here tests that only the complete-family GUC admits it.
@@ -274,16 +334,18 @@ def _replay_420_421(pg, target, database, family):
     _target_execute(target, "SELECT set_config(%s,'true',false)", (QUALIFIED_FAMILY_SETTING,))
     _target_execute(target, gated_test_guard)
 
-    original_definition = pg.execute(
-        "SELECT pg_get_functiondef(%s::regprocedure)", ("public." + worker_signature,)
-    )[0][0]
     _target_execute(target, original_definition)
-    assert asyncio.run(execute_mode(pg, database, entries[0], MigrationMode.REPLAY)) == (
-        entries[0].filename,
-    )
-    assert asyncio.run(execute_mode(pg, database, entries[1], MigrationMode.REPLAY)) == (
-        entries[1].filename,
-    )
+    replay_server = replay_server or pg
+    assert asyncio.run(
+        execute_mode(
+            replay_server, database, entries[0], MigrationMode.REPLAY, database_user=database_user
+        )
+    ) == (entries[0].filename,)
+    assert asyncio.run(
+        execute_mode(
+            replay_server, database, entries[1], MigrationMode.REPLAY, database_user=database_user
+        )
+    ) == (entries[1].filename,)
     _target_execute(target, _successor_qualification())
     assert _custody_family_catalog(target, family) == before
 

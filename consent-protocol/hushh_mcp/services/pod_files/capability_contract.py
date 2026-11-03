@@ -60,6 +60,9 @@ async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
         HOSTED_FILES_QUALIFIED,
         HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
         QUALIFIED,
     )
@@ -77,6 +80,9 @@ async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
         native_contract_new_signatures=frozenset(),
         require_family=True,
         profile=profile,
+        provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+        provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
     )
     return await _hosted_schema_readiness.read_hosted_family_ready(
         repo, qualification_sql=qualification_sql, join_on_cancel=join_on_cancel

@@ -342,9 +342,9 @@ def install_legacy_guards(connection, *, triggers=True):
             cursor.execute(LEGACY_TRIGGERS)
 
 
-async def execute_mode(server, database, entry, mode, *, following=()):
+async def execute_mode(server, database, entry, mode, *, following=(), database_user="hushh"):
     connection = await asyncpg.connect(
-        host=server.dir, port=server.port, user="hushh", database=database
+        host=server.dir, port=server.port, user=database_user, database=database
     )
     try:
         return await apply_manifest_entries(

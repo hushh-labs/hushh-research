@@ -525,6 +525,9 @@ def _complete_custody_sql(profile, *, require_family=True):
         HOSTED_FILES_QUALIFIED,
         HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
         QUALIFIED,
     )
@@ -540,6 +543,9 @@ def _complete_custody_sql(profile, *, require_family=True):
         native_contract_new_signatures=frozenset(),
         require_family=require_family,
         profile=profile,
+        provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+        provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
     )
 
 
@@ -638,6 +644,36 @@ def test_dev_profile_keeps_complete_979_family_checks_and_420_421_binding(monkey
         execution_sql(entries[0])
 
 
+def test_provider_transition_footprint_probe_accepts_prearchive_schema(monkeypatch, tmp_path):
+    from db.hosted_custody_adoption import (
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+    )
+    from db.hosted_custody_qualification import _provider_transition_family_qualification_sql
+
+    empty_prelude = tmp_path / "empty-postgres-prelude.sql"
+    empty_prelude.write_text("SELECT 1;\n", encoding="utf-8")
+    monkeypatch.setattr(postgres_harness, "PRELUDE", empty_prelude)
+    monkeypatch.setattr(postgres_harness, "MIGRATIONS", [])
+    pg = TempPostgres()
+    pg.start()
+    try:
+        assert pg.execute(
+            "SELECT to_regprocedure('public.personal_agent_erasure_archive(jsonb,jsonb)') IS NULL"
+        )[0][0]
+        pg.execute(
+            _provider_transition_family_qualification_sql(
+                family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+                trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+                archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+                dev_profile=False,
+            )
+        )
+    finally:
+        pg.stop()
+
+
 def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_drift(
     pg, monkeypatch, request, tmp_path
 ):
@@ -721,6 +757,9 @@ def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_dri
         return asyncio.run(hosted_schema_ready(repo))
 
     assert ready()
+
+    # Dev runtime readiness accepts the complete pre-982 successor family.
+    # The replay below exercises the same pre-982 Dev state through 420/421.
 
     # Execute the immutable 420/421 replay adapters against this same Dev-profile
     # database. The wrong database principal must fail at the migration's
@@ -924,3 +963,66 @@ def test_dev_owner_only_readiness_rejects_wrong_cluster_service_role_and_acl_dri
     owner_execute("DROP ROLE hosted_custody_grantor")
     owner_execute("DROP ROLE hosted_custody_unexpected")
     assert ready()
+
+    # Install 982 as the retained Dev owner, then require runtime readiness to
+    # qualify the complete provider-transition family as well as the base family.
+    pg.execute("SET ROLE hushh_uat_app")
+    try:
+        pg.apply_file(ROOT / "db/migrations/parked/982_hosted_provider_account_transition.sql")
+    finally:
+        pg.execute("RESET ROLE")
+    assert ready(), "Dev runtime readiness rejected a complete 982 family"
+
+    from db.hosted_custody_qualification import CUSTODY_PROFILE_ENV
+
+    monkeypatch.setenv(CUSTODY_PROFILE_ENV, "strict")
+    assert not ready(), "strict runtime readiness accepted the Dev-only 982 family"
+    for key, value in _dev_custody_environment().items():
+        monkeypatch.setenv(key, value)
+    assert ready(), "Dev runtime readiness rejected the restored 982 family"
+
+    transition_signature = "public.valid_hosted_provider_account_transition_settlement(jsonb,jsonb)"
+    transition_definition = owner_execute(
+        "SELECT pg_get_functiondef(%s::regprocedure)", (transition_signature,)
+    )[0][0]
+    owner_execute(
+        "CREATE OR REPLACE FUNCTION public.valid_hosted_provider_account_transition_settlement("
+        "p_intent jsonb,p_settlement jsonb) RETURNS boolean LANGUAGE plpgsql STABLE "
+        "SET search_path=public AS $$ BEGIN RETURN true; END; $$"
+    )
+    assert not ready(), "Dev runtime readiness accepted a drifted 982 routine"
+    owner_execute(transition_definition)
+    assert ready(), "Dev runtime readiness rejected the restored 982 routine"
+
+    owner_execute(
+        "ALTER FUNCTION public.valid_hosted_provider_account_transition_settlement(jsonb,jsonb) "
+        "RENAME TO valid_hosted_provider_account_transition_settlement_missing"
+    )
+    assert not ready(), "Dev runtime readiness accepted a missing 982 routine"
+    owner_execute(
+        "ALTER FUNCTION public.valid_hosted_provider_account_transition_settlement_missing(jsonb,jsonb) "
+        "RENAME TO valid_hosted_provider_account_transition_settlement"
+    )
+    assert ready(), "Dev runtime readiness rejected the restored 982 routine"
+
+    owner_execute(
+        "ALTER TABLE public.personal_agent_registry DISABLE TRIGGER "
+        "zx_hosted_provider_account_transition_registry"
+    )
+    assert not ready(), "Dev runtime readiness accepted a disabled 982 trigger"
+    owner_execute(
+        "ALTER TABLE public.personal_agent_registry ENABLE TRIGGER "
+        "zx_hosted_provider_account_transition_registry"
+    )
+    assert ready(), "Dev runtime readiness rejected the restored 982 trigger"
+
+    # With no owner transition evidence, the parked rollback restores the
+    # accepted pre982 Dev successor and readiness returns to that family.
+    pg.execute("SET ROLE hushh_uat_app")
+    try:
+        pg.apply_file(
+            ROOT / "db/migrations/rollback/982_hosted_provider_account_transition.rollback.sql"
+        )
+    finally:
+        pg.execute("RESET ROLE")
+    assert ready(), "Dev runtime readiness rejected the restored pre982 family"
