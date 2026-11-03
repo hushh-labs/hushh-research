@@ -302,9 +302,16 @@ Never rename required job/check contexts for cosmetic consistency.
 | Device qualification | `ios-voice-device.yml` | Internal reusable physical-device evidence, selected by the native release; no standalone dispatch |
 | Capacity | `capacity-maintenance-clock.yml`, `capacity-maintenance.yml` | Due-work controller, authenticated bounded cleanup; timer wait occurs before runner assignment |
 | Operational recovery | `rollback.yml`, `prod-cloudsql-backup-posture.yml` | Governed rollback and daily live backup-posture verification |
-| Security | `deployment-security.yml`, `verify-protected-lists.yml`, `supply-chain.yml` | Protected alert clearance inside explicit releases; manual diagnostics; protected-list fallback during cloud-timer qualification; changed-dependency SBOM/provenance |
+| Security | `deployment-security.yml`, `verify-protected-lists.yml`, `supply-chain.yml` | Protected alert clearance inside explicit releases; protected-list fallback during cloud-timer qualification; changed-dependency SBOM/provenance |
+
 | Dependency cache | `ios-swift-package-cache.yml` | Daily Main-owned Swift package cold-fetch verification and lockfile-keyed Linux browser cache warm |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
+Managed Vertex diagnosis uses `./bin/hushh diagnose uat-vertex --build-id <UUID>`
+with authorized UAT log-reading credentials. It reads only that build and its
+probe job (24 hours, bounded records and timeout), sanitizes the output and
+removes temporary handles on failure. It grants no deployment acceptance and
+replaces the standalone diagnostic workflow.
+
 
 The separate weekly offline pod drill and weekday completion-judge workflow
 files are removed from main. Both core test suites remain in Protocol CI's manifest;
