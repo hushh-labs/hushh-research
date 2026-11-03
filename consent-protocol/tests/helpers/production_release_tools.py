@@ -30,6 +30,7 @@ CI_PRODUCTION_TOOLS = (
     "retention_production_clock_evidence.py",
     "retention_production_clock_records.py",
     "retention_production_profile_evidence.py",
+    "retention_uat_guard_evidence.py",
     "production_phone_receipt.py",
     "production_phone_lease.py",
     "production_phone_lease_receipts.py",
