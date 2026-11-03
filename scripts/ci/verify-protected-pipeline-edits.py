@@ -69,8 +69,13 @@ def _fetch_pr_files(repo: str, pr_number: int, token: str) -> list[str]:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        with urllib.request.urlopen(request) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read(2 * 1024 * 1024 + 1)
+            if len(raw) > 2 * 1024 * 1024:
+                raise GuardResolutionError("Changed-file response exceeded its bound")
+            payload = json.loads(raw.decode("utf-8"))
+        if not isinstance(payload, list):
+            raise GuardResolutionError("Malformed changed-file inventory")
         if not payload:
             break
         for item in payload:
@@ -207,14 +212,14 @@ def evaluate(
     )
 
 
-def _owner_approvals(repo: str, number: int, head: str, allowed: list[str], token: str) -> list[str]:
+def _owner_approvals(repo: str, number: int, head: str, allowed: list[str], token: str = "", *, read=None) -> list[str]:
     """Only a current-head, non-dismissed approval from a protected owner counts."""
     from github_security_authority import GitHub
 
-    github = GitHub(repo, token)
+    read_page = read if read is not None else GitHub(repo, token).read
     latest: dict[str, dict] = {}
     for page in range(1, 21):
-        rows = github.read(f"repos/{repo}/pulls/{number}/reviews?per_page=100&page={page}")
+        rows = read_page(f"repos/{repo}/pulls/{number}/reviews?per_page=100&page={page}")
         if not isinstance(rows, list):
             raise GuardResolutionError("Malformed protected-review inventory")
         for row in rows:

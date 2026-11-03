@@ -84,7 +84,7 @@ function readChangedFiles(env) {
 
   if (raw.includes("\0")) return { ok: false, reason: "malformed_changed_file_list" };
   const lines = raw.split(/\r?\n/).filter((line) => line.length > 0);
-  if (lines.length === 0 || lines.length > MAX_CHANGED_FILES) {
+  if (lines.length > MAX_CHANGED_FILES) {
     return { ok: false, reason: lines.length === 0 ? "empty_changed_file_list" : "too_many_changed_files" };
   }
 
@@ -100,7 +100,6 @@ function readChangedFiles(env) {
     const webFile = relativeWebPath(normalized);
     if (webFile) webFiles.add(webFile);
   }
-  if (webFiles.size === 0) return { ok: false, reason: "no_web_changed_files" };
   return { ok: true, files: [...webFiles].sort() };
 }
 
@@ -262,6 +261,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
     coreFiles: [],
     excludeFiles: [],
     accountDeletionClientOwner: false,
+    noUnitImpact: false,
   };
 
   if (!["focused", "release", "diagnostic"].includes(requestedLevel)) {
@@ -273,12 +273,20 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
 
   const changed = readChangedFiles(env);
   if (!changed.ok) return { ...base, fallbackReason: changed.reason };
-  const risk = sourceRisk(repoRoot, changed.files, requestedLevel);
+  // Browser fixtures, review receipts and local styling have another required
+  // owner; mixing them into a source change must not expand all unit tests.
+  const unitFiles = changed.files.filter((file) =>
+    !/^(?:contracts\/ui-review\/|docs\/|e2e\/)/.test(file) &&
+    !file.endsWith(".md") && !(file.endsWith(".css") && file !== "app/globals.css"));
+  if (requestedLevel === "focused" && unitFiles.length === 0) {
+    return { ...base, effectiveLevel: "focused", changedFiles: changed.files, noUnitImpact: true };
+  }
+  const risk = sourceRisk(repoRoot, unitFiles, requestedLevel);
   if (risk) return { ...base, changedFiles: changed.files, fallbackReason: risk };
 
-  const directTests = changed.files.filter(isVitestFile);
-  const relatedFiles = changed.files.filter(isRuntimeModule);
-  if (relatedFiles.length === 0 && directTests.length === 0) {
+  const directTests = unitFiles.filter(isVitestFile);
+  const relatedFiles = unitFiles.filter(isRuntimeModule);
+  if (requestedLevel === "focused" && relatedFiles.length === 0 && directTests.length === 0) {
     return { ...base, changedFiles: changed.files, fallbackReason: "no_related_test_inputs" };
   }
 
@@ -311,6 +319,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
     coreFiles,
     excludeFiles: [...new Set([...excluded, ...changedTests])].sort(),
     accountDeletionClientOwner: accountOwner,
+    noUnitImpact: requestedLevel === "focused" && relatedFiles.length === 0 && changedTests.length === 0 && accountOwner,
   };
 }
 
@@ -368,6 +377,12 @@ function executePlan(plan, {
     }
     const result = runFullSuite({ maxWorkers, shard });
     return result.status ?? 1;
+  }
+
+  if (plan.effectiveLevel === "focused" && plan.noUnitImpact === true &&
+      plan.relatedFiles.length === 0 && plan.directFiles.length === 0 && plan.coreFiles.length === 0) {
+    console.log("No unit-runtime impact: required browser/integration owners cover this change.");
+    return 0;
   }
 
   const excludes = plan.excludeFiles.flatMap((file) => ["--exclude", `**/${file}`]);

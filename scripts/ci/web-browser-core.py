@@ -22,14 +22,7 @@ PRESENTATION = (
     r"pointerdown grows a clipped ripple|wallet workspace.*(?:geometry|typography)|"
     r"the agent mark stays visible in the header"
 )
-RELEASE_CORE = (
-    "e2e/account-session-recovery.spec.ts",
-    "e2e/setup-v10-vault.layout.spec.ts",
-    "e2e/lost-vault-delete.layout.spec.ts",
-    "e2e/requester-consent-card.layout.spec.ts",
-    "e2e/document-share-review.layout.spec.ts",
-    "e2e/direct-chat.layout.spec.ts",
-)
+
 
 
 def commands(body: str) -> list[list[str]]:

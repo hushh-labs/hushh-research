@@ -104,8 +104,11 @@ push does not require the full local core mirror. CI uses three levels:
 Missing, unbounded or unrecognized changed-file input must select conservative
 coverage or fail; it must not silently select an empty set. Run the nearest
 owner checks locally. Use the full core mirror for a dependency graph that
-crosses its stages or when diagnosing a broader failure. `codex pre-pr` invokes
-`./bin/hushh ci`; do not run both separately. Safari-specific web layout and
+crosses its stages or when diagnosing a broader failure. `codex pre-pr --base-ref origin/<destination> --body-file <draft>` or
+`codex pre-pr --pr <number>` runs affected local owners and checks the actual
+PR impact description. Browser execution remains hosted and is not certified
+by local preflight. Use `codex pre-pr --diagnostic` for the retained full mirror;
+do not run both modes for the same unchanged candidate. Safari-specific web layout and
 performance checks are developer-local diagnostics. Run native checks when
 native code or a native contract changes. No validation profile relaxes live
 security, source-authority or protected-pipeline checks.

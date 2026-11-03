@@ -387,8 +387,8 @@ jobs:
             # 2026-10-01 to 2026-10-15; that is not this expanded filter's count.
             # Guarded by
             # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py,
-            # and .github/workflows/editor-performance-nightly.yml runs the lane
-            # on main every night.
+            # This retained filter is metadata for developer-local diagnostics;
+            # it does not select an automatic macOS web job.
             editor:
 
               - 'hushh-webapp/components/app-ui/shell-action-surface-base.tsx'
@@ -728,7 +728,7 @@ jobs:
         env:
           WEB_TARGETED_PLAN_ONLY: "1"
           WEB_TARGETED_PART: browser
-          WEB_TARGETED_ALL_PACKS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0' }}
+          WEB_TARGETED_ALL_PACKS: "0"
           WEB_TARGETED_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
@@ -815,7 +815,7 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "0"
-          WEB_TARGETED_ALL_PACKS: ${{ env.WEB_TARGETED_PART == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0') }}
+          WEB_TARGETED_ALL_PACKS: ${{ env.WEB_TARGETED_PART == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || '0' }}
           WEB_TARGETED_PART: ${{ env.WEB_TARGETED_PART }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.

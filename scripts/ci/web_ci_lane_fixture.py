@@ -240,6 +240,15 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         assert calls == []
 
 def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
+    # A known no-browser diff still qualifies the named release core, without
+    # changing the selection into the complete historical browser archive.
+    code, values, calls, output = _browser_plan(
+        "docs/README.md", CI_VALIDATION_LEVEL="release", WEB_TARGETED_ALL_PACKS="0"
+    )
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, values
+    assert calls == []
+
     code, values, calls, output = _browser_plan("hushh-webapp/unregistered/selector-input.ts")
     assert code == 0, output[-2000:]
     assert values == {"selection_known": "false", "browser_required": "true"}, values

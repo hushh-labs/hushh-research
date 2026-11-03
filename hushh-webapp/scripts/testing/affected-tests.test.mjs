@@ -143,6 +143,7 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
         NPM_TEST_LOG: npmLog,
         CI_VALIDATION_LEVEL: level,
         CI_CHANGED_FILES: `hushh-webapp/${DIRECT_TEST}`,
+        CI_CHANGED_FILES_FILE: "",
         WEB_FULL_SUITE_SHARD: "2/3",
       },
       timeout: 15_000,
@@ -224,3 +225,27 @@ test("document CI modes install and check only their assigned browser", () => {
   }
 });
 
+
+test("review receipts do not expand a directly changed unit test into diagnostics", () => {
+  const plan = buildPlan({ env: { CI_VALIDATION_LEVEL: "focused", CI_CHANGED_FILES:
+    `hushh-webapp/${DIRECT_TEST}\nhushh-webapp/contracts/ui-review/back/review.json` } });
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.deepEqual(plan.directFiles, [DIRECT_TEST]);
+});
+
+test("backend-only release still runs its named frontend core", () => {
+  const plan = buildPlan({ env: { CI_VALIDATION_LEVEL: "release", CI_CHANGED_FILES:
+    "consent-protocol/api/routes/health.py" } });
+  assert.equal(plan.effectiveLevel, "release");
+  assert.ok(plan.coreFiles.length > 0);
+  assert.equal(plan.noUnitImpact, false);
+});
+
+test("presentation-only changes retain their browser owner without a full unit sweep", () => {
+  const plan = buildPlan({ env: { CI_VALIDATION_LEVEL: "focused", CI_CHANGED_FILES:
+    "hushh-webapp/components/agent/chat.module.css" } });
+  assert.equal(plan.effectiveLevel, "focused");
+  let full = 0;
+  assert.equal(executePlan(plan, { runFullSuite() { full += 1; return { status: 1 }; } }), 0);
+  assert.equal(full, 0);
+});
