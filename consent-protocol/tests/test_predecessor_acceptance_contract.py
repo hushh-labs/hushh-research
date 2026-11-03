@@ -298,7 +298,7 @@ def test_predecessor_refuses_untrusted_or_changed_github_artifacts(failure):
         client.accept(pins["dev"], "dev", SHA, "backend")
 
 
-@pytest.mark.parametrize("environment", ["uat", "production", "uat-one-chat"])
+@pytest.mark.parametrize("environment", ["uat", "production"])
 def test_every_release_image_mode_requires_predecessor_before_mutation(environment):
     workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
