@@ -9927,7 +9927,7 @@
       "voice_action_contract_ids": [
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
-        "phone_mandate.review_previous_deletion",
+        "phone_mandate.recover",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",
         "phone_mandate.submit_number"
@@ -11052,5 +11052,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f84bacca1ce9c7e61171b8577d7cee5c9a78d88de376f5e568779b9dae5553fe"
+  "content_sha256": "33e6fb58cb2b38df465f50efb6de1fce8e0576c550f260cd3ac2e9dd67319094"
 }

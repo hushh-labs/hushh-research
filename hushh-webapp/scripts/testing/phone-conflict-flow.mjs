@@ -102,19 +102,18 @@ async function conflict(page) {
   await code.fill("123456");
   stage = "phone_code_confirm_valid";
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
-  await page.getByRole("heading", { name: "Number already linked", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "This number is linked to another account", exact: true }).waitFor();
   stage = "phone_conflict";
 }
 async function handoff(page, action, origin) {
   const created = page.waitForResponse(response => response.request().method() === "POST" &&
     new URL(response.url()).pathname === "/api/account/phone/recovery/continuations")
-    .then(async response => ({ status: response.status(), body: await response.json(), action: response.request().postDataJSON().action }));
-  await page.getByRole("button", { name: "Delete my previous account", exact: true }).click();
+    .then(async response => ({ status: response.status(), body: await response.json() }));
+  await page.getByRole("button", { name: "Sign in to existing account", exact: true }).click();
   await page.waitForURL(url => url.pathname === "/login");
   const id = requireHandoff(page.url(), origin);
   const receipt = await created;
   assert.equal(receipt.status, 200);
-  assert.equal(receipt.action, action);
   assert.equal(receipt.body.continuation_id, id);
   await page.getByRole("button", { name: "Use unrelated account", exact: true }).click();
   await page.getByRole("heading", { name: "Sign in to your previous account", exact: true }).waitFor();
@@ -205,18 +204,16 @@ try {
       await page.goto(`${origin}${scenario === "devices" ? "/fixture/devices" : "/register-phone"}`);
       if (scenario !== "devices") await conflict(page);
       if (scenario === "recover") {
-        await handoff(page, "delete", origin);
-        stage = "owner_verified_deletion_review";
-        await page.getByRole("button", { name: "Review deletion", exact: true }).click();
-        await page.getByRole("button", { name: /^Continue with (Google|Apple)$/ }).first().waitFor();
-        assert.equal(await page.getByRole("button", { name: "Permanently delete account", exact: true }).count(), 0);
+        await handoff(page, "recover", origin);
+        stage = "recover_continue";
+        await page.getByRole("button", { name: "Continue to your account", exact: true }).click();
+        await page.getByTestId("phone-fixture-destination").filter({ hasText: /^\/$/ }).waitFor();
         assert.equal(erasures, 0); assert.equal(transfers, 0);
-        record("previous_owner_deletion_review_requires_fresh_confirmation");
+        record("recover_existing_email_account_without_transfer");
       } else if (scenario === "occupied") {
         stage = "occupied_account_boundaries";
-        await page.getByRole("button", { name: "Delete my previous account", exact: true }).waitFor();
-        assert.equal(await page.locator("[data-phone-conflict]").getByRole("button").count(), 2);
-        for (const name of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Sign in to existing account", "Review previous device access", "Account options"]) {
+        await page.getByRole("button", { name: "Sign in to existing account", exact: true }).waitFor();
+        for (const name of ["Use this number on this account", "Send a real SMS code", "Delete my previous account", "Review previous device access"]) {
           assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0);
         }
         assert.equal(erasures, 0); assert.equal(transfers, 0);

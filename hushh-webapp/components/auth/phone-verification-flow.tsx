@@ -130,7 +130,7 @@ export function usePhoneVerificationFlow({
   currentPhoneNumber,
   startVerification,
   confirmVerification,
-  deletePreviousAccount,
+  recoverPreviousAccount,
   onCompleted,
   onContinueExisting,
   codePresentation = "default",
@@ -827,11 +827,10 @@ export function usePhoneVerificationFlow({
     await submitVerificationCode(verificationCode, { notify: true });
   }, [submitVerificationCode, verificationCode]);
 
-  const reviewPreviousDeletion = useCallback(async () => {
-    if (!current() || allowedOperation.current?.() === false || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
-    await performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError,
-      "Couldn’t open deletion review. Try again.");
-  }, [current, busy, deletePreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
+  const recoverPrevious = useCallback(async () => {
+    if (!current() || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
+    await performPhoneRecovery(recoverPreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError);
+  }, [current, busy, recoverPreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
 
   useLocalOnboardingActionHandler(
     "phone_mandate.submit_code",
@@ -900,7 +899,7 @@ export function usePhoneVerificationFlow({
   );
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
-    conflict, reviewPreviousDeletion, canReviewPreviousDeletion: Boolean(deletePreviousAccount),
+    conflict, recoverPrevious,
     countries: PHONE_COUNTRY_OPTIONS,
     selectedCountry, selectedCountryOption, selectedCountryDisplayLabel, countryQuery, countryInputValue, countryComboboxOpen,
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,

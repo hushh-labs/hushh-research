@@ -47,11 +47,6 @@ export function PhoneVerificationScene({ step }: { step: "phone" | "code" }) {
           className={`${styles.mascot} ${code ? styles.codeMascot : ""}`}
           draggable={false}
         />
-        <svg data-phone-conflict-art="true" className={styles.conflictMessage} viewBox="0 0 120 106" fill="none" aria-hidden="true">
-          <path d="M14 7h91a9 9 0 0 1 9 9v32a9 9 0 0 1-9 9H42L25 70V57H14a9 9 0 0 1-9-9V16a9 9 0 0 1 9-9Z" fill="var(--phone-bg)" stroke="currentColor" strokeOpacity=".4" strokeWidth="1.5" />
-          {[20, 42, 64, 86].map(x => <rect key={x} x={x} y="21" width="15" height="23" rx="4" fill="currentColor" fillOpacity=".3" />)}
-          <path d="M58 85c12-7 23-7 33 0M62 96c14-3 25 0 32 8" stroke="var(--phone-text)" strokeWidth="2.5" strokeLinecap="round" />
-        </svg>
         {code ? (
           <>
             <div className={`${styles.sticker} ${styles.topSticker}`}><span className={`${styles.icon} ${styles.blue}`}><MessageIcon /></span>One-time code</div>

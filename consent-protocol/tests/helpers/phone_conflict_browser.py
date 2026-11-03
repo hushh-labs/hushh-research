@@ -169,7 +169,7 @@ async def _assert_linked_deleted(conn, recorded, baseline):
     assert recorded.unlink_count == 0
 
 
-async def _assert_preserved(conn, recorded, baseline, scenario, *, recovery_action="recover"):
+async def _assert_preserved(conn, recorded, baseline, scenario):
     assert await conn.fetchval("SELECT count(*) FROM actor_profiles") == 3
     for table, before in baseline.items():
         assert (
@@ -193,7 +193,7 @@ async def _assert_preserved(conn, recorded, baseline, scenario, *, recovery_acti
             {
                 "requester_user_id": OWNERS["receiving-a"],
                 "target_user_id": OWNERS["previous"],
-                "action": recovery_action,
+                "action": "recover",
             }
         ]
     if scenario == "transfer":

@@ -239,17 +239,16 @@
       }
     },
     {
-      "action_id": "phone_mandate.review_previous_deletion",
-      "label": "Delete my previous account",
-      "meaning": "Starts a server-bound deletion review requiring independent sign-in to the previous account and a separate confirmation. This action never deletes an account.",
+      "action_id": "phone_mandate.recover",
+      "label": "Sign in to existing account",
+      "meaning": "Signs out and requires independent sign-in to the existing email account linked to this number; phone proof never transfers its ownership.",
       "aliases": [
-        "delete my previous account",
-        "review previous account deletion"
+        "sign in to existing account",
+        "recover my previous account"
       ],
       "search_keywords": [
         "phone",
-        "previous account",
-        "deletion review"
+        "recovery"
       ],
       "reachability": {
         "routes": [
@@ -264,14 +263,14 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The occupied-number conflict must be visible; previous-account sign-in and confirmation are required before deletion."
+          "The matching phone conflict choice or review must be visible."
         ]
       },
       "guard_ids": [
         "auth_signed_in",
         "manual_user_execution"
       ],
-      "risk_level": "high",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "execution_target": {
         "status": "unwired",
@@ -279,10 +278,10 @@
         "intended_handler": "PhoneVerificationFlow"
       },
       "control_ids": [
-        "phone-flow-delete-review"
+        "phone-flow-recover"
       ],
       "state_exposure": [
-        "deletion review step only"
+        "phone recovery step only"
       ],
       "speaker_persona": "one",
       "docs_references": [
