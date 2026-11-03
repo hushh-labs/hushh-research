@@ -5,11 +5,14 @@ import {
   FinanceOnboardingComplete,
   FinanceOnboardingDemo,
 } from "../../components/kai/onboarding/finance-onboarding";
+import { FinancePersonaForm } from "../../components/kai/onboarding/finance-persona-form";
 import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
 
 /** Production UI with synthetic import transport; never opens a bank or saves owner data. */
 export function FinanceOnboardingFixture() {
-  const [phase, setPhase] = useState<"demo" | "source" | "complete">("demo");
+  const [phase, setPhase] = useState<
+    "demo" | "persona" | "source" | "complete"
+  >("demo");
   const [busy, setBusy] = useState(false);
   const record = (action: string) => {
     document.body.dataset.sourceAction = action;
@@ -22,14 +25,21 @@ export function FinanceOnboardingFixture() {
         className="relative px-[var(--page-inline-gutter-standard)] pb-6"
       >
         <FinanceOnboardingPages
-          stage={phase === "demo" ? 0 : phase === "source" ? 1 : 2}
+          stage={["demo", "persona", "source", "complete"].indexOf(phase)}
         >
           {phase === "demo" ? (
-            <FinanceOnboardingDemo onContinue={() => setPhase("source")} />
+            <FinanceOnboardingDemo onContinue={() => setPhase("persona")} />
+          ) : phase === "persona" ? (
+            <FinancePersonaForm
+              onboarding
+              onSave={async () => {}}
+              onSkip={() => setPhase("source")}
+              onDone={() => setPhase("source")}
+            />
           ) : phase === "source" ? (
             <PortfolioImportView
               presentation="onboarding"
-              onIntroductionBack={() => setPhase("demo")}
+              onIntroductionBack={() => setPhase("persona")}
               onSkip={() => setPhase("complete")}
               onFileSelect={() => record("statement")}
               onConnectPlaid={() => record("plaid")}

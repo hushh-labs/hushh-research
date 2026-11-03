@@ -11,6 +11,7 @@ import { AdvisorReviewService } from "@/lib/advisor-review/service";
 import { AdvisorWorkspace } from "./advisor-workspace";
 import { AdvisorRequestFlow } from "./advisor-request-flow";
 import { PortfolioAgentReview } from "./portfolio-agent-review";
+import { PortfolioPersona } from "./portfolio-persona";
 import styles from "./advisor-review.module.css";
 
 export function AdvisorReviewHub({
@@ -92,6 +93,9 @@ export function AdvisorReviewHub({
       className={styles.stack}
       aria-label={advisor ? "Advisor review requests" : "Human advisor review"}
     >
+      {!advisor && context ? (
+        <PortfolioPersona key={workspaceKey} context={context} />
+      ) : null}
       {context && source ? (
         <PortfolioAgentReview
           key={workspaceKey}

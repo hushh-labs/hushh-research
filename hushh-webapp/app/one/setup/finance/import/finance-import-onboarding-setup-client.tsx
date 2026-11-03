@@ -4,6 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { FinanceOnboardingPages } from "@/components/kai/onboarding/finance-onboarding-pages";
+import { FinancePersonaForm } from "@/components/kai/onboarding/finance-persona-form";
+import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
+import { requireFinanceSession } from "@/lib/services/finance-sharing-service";
+import { KaiProfileService } from "@/lib/services/kai-profile-service";
+import type { PersonaPreferences } from "@/lib/kai/investing-persona";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiFlow } from "@/components/kai/kai-flow";
@@ -51,6 +56,11 @@ function OwnedFinanceImportSetup({
   const pathname = usePathname();
   const [introductionComplete, setIntroductionComplete] =
     useState(!showIntroduction);
+  const [personaComplete, setPersonaComplete] = useState(!showIntroduction);
+  const [personaSaving, setPersonaSaving] = useState(false);
+  const [savedPreferences, setSavedPreferences] =
+    useState<PersonaPreferences>();
+  const { capture } = useFinanceShareContext();
   const [sourceSettled, setSourceSettled] = useState<
     "plaid" | "statement" | "later" | "resumed" | null
   >(null);
@@ -97,11 +107,17 @@ function OwnedFinanceImportSetup({
     ) {
       setSourceSettled("resumed");
       setIntroductionComplete(true);
+      setPersonaComplete(true);
     }
   }, [coordinator.operationallyReady, sourceSettled, isCurrent]);
 
   useBackLayer(pathname, 1, () => {
-    return coordinator.isSettling;
+    if (coordinator.isSettling || personaSaving) return true;
+    if (showIntroduction && introductionComplete && !personaComplete) {
+      setIntroductionComplete(false);
+      return true;
+    }
+    return false;
   });
 
   if (loading || !user || !userId || !coordinator.isReady) {
@@ -127,11 +143,47 @@ function OwnedFinanceImportSetup({
         dataState="loaded"
       />
       <FinanceOnboardingPages
-        stage={!introductionComplete ? 0 : sourceSettled ? 2 : 1}
+        stage={
+          !introductionComplete
+            ? 0
+            : !personaComplete
+              ? 1
+              : sourceSettled
+                ? 3
+                : 2
+        }
       >
         {!introductionComplete ? (
           <FinanceOnboardingDemo
             onContinue={() => setIntroductionComplete(true)}
+          />
+        ) : !personaComplete ? (
+          <FinancePersonaForm
+            onboarding
+            initial={savedPreferences}
+            onSavingChange={setPersonaSaving}
+            onSkip={() => setPersonaComplete(true)}
+            onDone={() => setPersonaComplete(true)}
+            onSave={async (updates) => {
+              const context = capture();
+              if (!context || !isCurrent())
+                throw new Error("Unlock your vault to save your persona.");
+              const requireCurrentSetup = async () => {
+                if (!isCurrent())
+                  throw new Error(
+                    "Finance setup has changed. Open it again to save your persona.",
+                  );
+                requireFinanceSession(context);
+              };
+              const profile = await KaiProfileService.savePreferences({
+                ...context,
+                mode: "onboarding",
+                updates,
+                beforeEffect: requireCurrentSetup,
+              });
+              await requireCurrentSetup();
+              setSavedPreferences(profile.preferences);
+            }}
           />
         ) : sourceSettled ? (
           <FinanceOnboardingComplete
@@ -148,9 +200,7 @@ function OwnedFinanceImportSetup({
             mode="import"
             setupSourcePicker
             onSetupIntroductionBack={
-              showIntroduction
-                ? () => setIntroductionComplete(false)
-                : undefined
+              showIntroduction ? () => setPersonaComplete(false) : undefined
             }
             vaultOwnerToken={vaultOwnerToken ?? ""}
             onSetupSourceSettled={async (source, callbackAttemptId) => {
