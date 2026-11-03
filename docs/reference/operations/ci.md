@@ -78,17 +78,23 @@ This page defines CI behavior; it does not redefine Admin bypass or deployment
 authority.
 
 **Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
-**Pre-PR mirror:** [`./bin/hushh codex pre-pr`](./cli.md)  
+**Pre-PR preparation:** [`./bin/hushh codex pre-pr`](./cli.md)  
 **Underlying local lane:** [`./bin/hushh ci`](./cli.md)  
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
 
 Canonical pre-PR command:
 
 ```bash
-./bin/hushh codex pre-pr
+./bin/hushh codex pre-pr --base-ref origin/dev --body-file /path/to/pr-body.md
+# Or inspect an existing, exact-head PR:
+./bin/hushh codex pre-pr --pr <number>
 ```
 
-This command runs the same blocking local CI surface that feeds GitHub `PR Validation` and `CI Status Gate`. Use `./bin/hushh codex pre-pr --include-advisory` only when you intentionally want the wider non-blocking readiness lane too.
+Use the actual destination (`origin/main`, `origin/dev` or `origin/uat`). This
+runs affected local owners, validates the PR body and protects core edits. Its
+report lists hosted browser, database and native checks still required; a local
+pass cannot satisfy exact-head hosted admission. Use `--diagnostic` for the
+retained full mirror, optionally with `--include-advisory`.
 
 ## Manual deployment paths
 
@@ -685,17 +691,22 @@ The local parity script mirrors the blocking pre-merge validation stages. On Git
 
 ### Protected pipeline surfaces
 
-Core CI and deploy surfaces are sealed separately from blanket owner-review policy.
+CI and fundamental development policy require **Kushal or Ankit** approval,
+as declared in `config/ci-governance.json`. General application maintainership
+does not grant protected-edit approval.
 
-- PRs that change protected pipeline paths are allowed only for the sanctioned bypass cohort defined in [config/ci-governance.json](../../../config/ci-governance.json).
-- This guard currently covers:
-  - `.github/workflows/**`
-  - `.github/actions/**`
-  - `scripts/ci/**`
-  - `deploy/**`
-  - `config/ci-governance.json`
-- Enforcement happens inside the blocking governance lane through [scripts/ci/verify-protected-pipeline-edits.py](../../../scripts/ci/verify-protected-pipeline-edits.py).
-- This does not waive the required independent approval of the latest push on `main`; the separately governed review-bypass cohort remains explicit. It seals core pipeline and CI authority to the sanctioned maintainer cohort.
+- The protected set covers workflows/actions, CI/release scripts, deployment
+  configuration, CODEOWNERS, the agent kernel and fundamental skills/workflows.
+  The policy file owns the complete list.
+- An authorized owner's explicit bounded change, or a current-head approval
+  from an owner, admits the protected edit. Stale, dismissed or superseded
+  reviews do not authorize the new head.
+- `verify-protected-pipeline-edits.py` reads policy from the trusted PR base;
+  candidate policy cannot authorize itself. CODEOWNERS supplies the matching
+  review routing. CLI access and generic autonomous permission are not human
+  approval of an unrelated policy change.
+- General review and merge-bypass permissions remain separate. Admin SOP still
+  requires exact-head checks and records an explicit queue bypass.
 
 ### PKM rollout blocker
 
