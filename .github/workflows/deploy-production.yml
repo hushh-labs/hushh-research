@@ -732,13 +732,20 @@ jobs:
       - name: Enforce production database connection budget before deployment
         shell: bash
         env:
+          AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           STAGED_WORKER_LOADED: ${{ steps.staged-worker.outputs.loaded }}
         run: |
           set -euo pipefail
           extra=()
-          if [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
+          if [[ "$AUTH_DOMAIN_REPAIR" == true ]]; then
+            # The exact admitted repair changes no database service. Retain
+            # every live/retained workload and reserve, without fictional slots.
+            [[ "$REQUESTED_SCOPE" == frontend && "$PHONE_DEPLOY_PHASE" == standard && "$STAGED_WORKER_LOADED" == false && -z "$RESTORATION_RUN$PHONE_ROLLBACK_SHA" ]] || exit 1
+            extra=(--no-candidates)
+          elif [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
             extra=(--candidate-service consent-protocol)
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
