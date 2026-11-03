@@ -270,8 +270,8 @@ def _clock_run_fixture(record):
         "check_job": check,
         "wake_job": wake,
         "workflow_blob": {
-            "sha": clock_evidence.CLOCK_WORKFLOW_BLOB[0],
-            "size": clock_evidence.CLOCK_WORKFLOW_BLOB[1],
+            "sha": clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB[0],
+            "size": clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB[1],
         },
     }
     return proof
@@ -420,28 +420,72 @@ class PublicationRoutingTest(unittest.TestCase):
         with mock.patch.object(publication, "_log", return_value=log):
             proof = publication.qualify(owner, base.REPOSITORY, "production", run, job)
         self.assertEqual(proof["qualification"], "no_provider_mutation")
-        self.assertEqual(
+        self.assertCountEqual(
             reads,
             [*((path, SHA) for path in evidence.SOURCE_PATHS), (base.WORKFLOW, SHA)],
         )
         self.assertIsNone(publication.qualify(owner, base.REPOSITORY, "dev", run, job))
 
-    def test_unlisted_repository_dispatch_stops_before_log_or_source_reads(self):
+    def test_unlisted_repository_dispatch_without_exact_clock_stops_before_reads(
+        self,
+    ):
         run, job, _, _ = fixture()
+        profile = importlib.import_module("retention_production_profile_evidence")
         run.update(
-            id=999, event="repository_dispatch", display_title="Capacity Maintenance"
+            id=999,
+            run_attempt=1,
+            event="repository_dispatch",
+            display_title="Capacity Maintenance",
+            head_sha=profile.APPROVED_SOURCE_SHA,
+            created_at=at("20:30:03"),
+            actor={"login": "github-actions[bot]"},
+            triggering_actor={"login": "github-actions[bot]"},
+        )
+        job.update(
+            id=9990,
+            run_id=run["id"],
+            run_attempt=1,
+            head_sha=run["head_sha"],
+            name=evidence.JOB,
+            started_at=at("20:30:26"),
+            completed_at=at("20:35:46"),
         )
         owner = mock.Mock()
-        owner.api.return_value = run
-        with mock.patch.object(
-            importlib.import_module("retention_publication"), "_log"
-        ) as log:
-            self.assertIsNone(
-                importlib.import_module("retention_publication").qualify(
-                    owner, base.REPOSITORY, "production", run, job
-                )
+        owner.Path = Path
+        owner.__file__ = str(
+            Path(__file__).resolve().parent / "uat-retention-maintenance.py"
+        )
+        maintenance = importlib.import_module("uat-retention-maintenance")
+        publication = importlib.import_module("retention_publication")
+        owner.retention = maintenance.retention
+        owner.SCOPED_TICK_TITLES = maintenance.SCOPED_TICK_TITLES
+        owner.UNSCOPED_TICK_TITLE = publication.UNSCOPED_TICK_TITLE
+        calls = []
+
+        def api(_repository, endpoint):
+            calls.append(endpoint)
+            if endpoint == "runs/999/attempts/1":
+                return run
+            if endpoint.startswith("workflows/capacity-maintenance-clock.yml/runs?"):
+                return {"workflow_runs": [], "total_count": 0}
+            self.fail(f"unexpected repository dispatch authority read: {endpoint}")
+
+        owner.api.side_effect = api
+        with (
+            mock.patch.object(publication, "_log") as log,
+            mock.patch.object(publication, "_source") as source,
+            self.assertRaises(maintenance.retention.UnsafeState),
+        ):
+            publication.qualify(owner, base.REPOSITORY, "production", run, job)
+
+        self.assertTrue(
+            any(
+                endpoint.startswith("workflows/capacity-maintenance-clock.yml/runs?")
+                for endpoint in calls
             )
+        )
         log.assert_not_called()
+        source.assert_not_called()
         owner.command.assert_not_called()
 
 

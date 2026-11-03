@@ -1,6 +1,7 @@
 """Exercise operational-reference admission through immutable proof and Git ports."""
 
 import copy
+import importlib
 import json
 import subprocess
 import tempfile
@@ -12,12 +13,67 @@ from unittest import mock
 import production_backend_successor as reference
 import production_backend_successor_control as control
 import production_backend_successor_proof as proof
+import production_activation_continuation as continuation
 import production_phone_receipt as phone
+import release_artifact_receipts as receipts
 from production_phone_receipt_fixtures import (
     archive,
     cold_revision,
     activated_receipt as _activated_receipt,
 )
+
+
+def _auth_operational_reference(refresh, *, anchored=True):
+    healthy = (
+        "Last known good — production\n"
+        f"sha: {refresh.SOURCE}\n"
+        "backend_revision: consent-protocol-00309-nir\n"
+        "backend_url: https://api.example.test\n"
+        "frontend_revision: hushh-webapp-restored\n"
+        "frontend_url: https://app.example.test\n"
+        "run: https://github.com/hushh-labs/hushh-research/actions/runs/40475676949\n"
+        "actor: governed-maintainer\n"
+        "tagged_at: 20261102T100000Z\n"
+    )
+    tagger = "Release owner <release@example.test> 1793613600 +0000"
+    header = (
+        f"object {refresh.SOURCE}\ntype commit\ntag "
+        f"{reference.REF.removeprefix('refs/tags/')}\ntagger {tagger}\n\n"
+    )
+    original = reference.tag_identity(header + healthy)
+    anchor = None
+    message = healthy
+    if anchored:
+        anchor = {
+            "origin": {
+                "run_id": "40884680280",
+                "run_attempt": 1,
+                "workflow_sha": "a" * 40,
+                "artifact_id": 411,
+                "artifact_digest": "sha256:" + "b" * 64,
+            },
+            "revision": "consent-protocol-00312-anchor",
+            "source": refresh.ACTIVE_ANCHOR_SOURCE,
+            "image": refresh.IMAGES["backend"],
+            "uid": "anchor-revision-uid",
+            "original_healthy": original,
+            "sealed_boundary": {
+                "checkpoint": {
+                    "plan": {"primary_sha": refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE}
+                }
+            },
+        }
+        message = reference.annotate(healthy, refresh.SOURCE, original["tag_oid"], anchor)
+    tag = reference.tag_identity(header + message)
+    _, record = reference.split(tag["message"], tag["commit"])
+    return {
+        "ref": reference.REF,
+        "tag_oid": tag["tag_oid"],
+        "commit": tag["commit"],
+        "healthy_message": healthy,
+        "anchor_record": record,
+        "tag_object": tag["tag_object"],
+    }, tag, anchor
 
 
 class _ControlPorts:
@@ -484,7 +540,12 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
             with mock.patch.object(control, "_continuation_source", return_value=None):
                 self.assertIsNone(control.admit("0" * 40, "frontend"))
             control.apply()
-            for sha, scope in (("0" * 40, "backend"), (primary, "frontend")):
+            refresh = importlib.import_module("production_auth_domain_refresh")
+            for sha, scope in (
+                ("0" * 40, "backend"),
+                (primary, "frontend"),
+                (refresh.CANDIDATE, "frontend"),
+            ):
                 with (
                     self.subTest(sha=sha, scope=scope),
                     self.assertRaisesRegex(
@@ -496,3 +557,742 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
             self.assertIsNone(control.admit(primary, "all"))
             case.cas.assert_called_once()
             self.assertEqual(case.remote, case.intent["new_oid"])
+
+    def test_control_admits_only_trusted_exact_auth_domain_frontend_continuation(
+        self,
+    ):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        repository = "hushh-labs/hushh-research"
+        policy_path = (
+            Path(control.__file__).resolve().parents[2] / "config/ci-governance.json"
+        )
+        policy = json.loads(policy_path.read_text())
+        actor = policy["production"]["manual_dispatch_users"][0]
+        inputs = {
+            "sha": refresh.CANDIDATE,
+            "scope": "frontend",
+            "frontend_auth_domain_refresh": True,
+            "emergency_source_ref": "fix/auth-domain-refresh",
+            "emergency_reason": "Restore the reviewed production sign-in domain",
+        }
+        environment = {
+            "GITHUB_REPOSITORY": repository,
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_WORKFLOW_REF": (
+                f"{repository}/.github/workflows/deploy-production.yml@refs/heads/main"
+            ),
+            "GITHUB_SHA": "1" * 40,
+            "GITHUB_ACTOR": actor,
+            "GITHUB_TRIGGERING_ACTOR": actor,
+            "GITHUB_RUN_ID": "701",
+            "GITHUB_RUN_ATTEMPT": "2",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            event_path = Path(directory) / "event.json"
+
+            def attempt(
+                *,
+                selected_inputs=None,
+                sha=refresh.CANDIDATE,
+                scope="frontend",
+                source=refresh.SOURCE,
+                anchor=None,
+                environment_changes=None,
+            ):
+                event_path.write_text(
+                    json.dumps(
+                        {"inputs": inputs if selected_inputs is None else selected_inputs}
+                    )
+                )
+                current_environment = {
+                    **environment,
+                    "GITHUB_EVENT_PATH": str(event_path),
+                    **(environment_changes or {}),
+                }
+                with (
+                    mock.patch.object(proof, "read_original", return_value={}),
+                    mock.patch.object(control, "record_anchor", return_value=anchor),
+                    mock.patch.object(
+                        control, "_continuation_source", return_value=source
+                    ),
+                    mock.patch.dict("os.environ", current_environment, clear=False),
+                ):
+                    control.admit(sha, scope)
+
+            attempt()
+            anchor = {
+                "source": refresh.ACTIVE_ANCHOR_SOURCE,
+                "original_healthy": {"commit": refresh.SOURCE},
+                "sealed_boundary": {
+                    "checkpoint": {
+                        "plan": {"primary_sha": refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE}
+                    }
+                }
+            }
+            with (
+                mock.patch.object(
+                    control,
+                    "_auth_domain_frontend_exception",
+                    wraps=control._auth_domain_frontend_exception,
+                ) as repair_exception,
+            ):
+                attempt(anchor=anchor)
+            repair_exception.assert_called_once_with(
+                refresh.CANDIDATE, "frontend", refresh.SOURCE
+            )
+            wrong_anchor = {
+                **anchor,
+                "source": "e" * 40,
+            }
+            with self.assertRaisesRegex(ValueError, "transition_requires_original_source"):
+                attempt(anchor=wrong_anchor)
+            for wrong_field, wrong_value in (
+                ("primary_sha", refresh.SOURCE),
+                ("healthy_commit", refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE),
+            ):
+                broken_anchor = copy.deepcopy(anchor)
+                if wrong_field == "primary_sha":
+                    broken_anchor["sealed_boundary"]["checkpoint"]["plan"][
+                        "primary_sha"
+                    ] = wrong_value
+                else:
+                    broken_anchor["original_healthy"]["commit"] = wrong_value
+                with (
+                    self.subTest(wrong_field=wrong_field),
+                    self.assertRaisesRegex(
+                        ValueError, "transition_requires_original_source"
+                    ),
+                ):
+                    attempt(anchor=broken_anchor)
+            invalid = (
+                {"sha": "e" * 40},
+                {"scope": "all"},
+                {"frontend_auth_domain_refresh": False},
+                {"restoration_activation_run_id": "700"},
+            )
+            for changes in invalid:
+                with (
+                    self.subTest(changes=changes),
+                    self.assertRaisesRegex(
+                        ValueError, "transition_requires_original_source"
+                    ),
+                ):
+                    attempt(selected_inputs={**inputs, **changes})
+            with self.assertRaisesRegex(
+                ValueError, "transition_requires_original_source"
+            ):
+                attempt(
+                    selected_inputs={**inputs, "sha": "e" * 40},
+                    sha="e" * 40,
+                )
+            with self.assertRaisesRegex(
+                ValueError, "transition_requires_original_source"
+            ):
+                attempt(source="e" * 40, anchor=None)
+            for bad_environment in (
+                {"GITHUB_ACTOR": "unapproved-actor"},
+                {"GITHUB_REF": "refs/heads/fix/incident"},
+            ):
+                with (
+                    self.subTest(environment=bad_environment),
+                    self.assertRaisesRegex(
+                        ValueError, "transition_requires_original_source"
+                    ),
+                ):
+                    attempt(
+                        environment_changes=bad_environment,
+                    )
+
+    def test_auth_repair_acceptance_binds_current_restore_to_physical_backend(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        pointer = {
+            "run_id": "40430296874",
+            "source": refresh.SOURCE,
+            "revision": "consent-protocol-00309-nir",
+            "uid": "2cdde8d7-00e6-477f-860b-9e0eb26e97e5",
+            "service_uid": "35918680-6774-4fa5-8d01-d1f32895cc26",
+        }
+        receipt = {
+            "kind": "manual-production-predecessor-exception",
+            "scope": "frontend",
+            "authority": {
+                "frontend_auth_domain_refresh": True,
+                "application_sha": refresh.CANDIDATE,
+            },
+            "baseline": {
+                "backend": {
+                    "source": refresh.SOURCE,
+                    "image": refresh.IMAGES["backend"],
+                    "revision": pointer["revision"],
+                    "revision_uid": pointer["uid"],
+                    "service_uid": pointer["service_uid"],
+                },
+            },
+        }
+        profile = {
+            "run_id": 40475676949,
+            "run_attempt": 2,
+            "workflow_sha": "a" * 40,
+            "source": refresh.SOURCE,
+            "backend": {
+                **pointer,
+                "run_id": int(pointer["run_id"]),
+                "sha": refresh.SOURCE,
+                "image": refresh.IMAGES["backend"],
+            },
+            "operational_reference": _auth_operational_reference(refresh)[0],
+        }
+        revision = {
+            "metadata": {
+                "name": pointer["revision"],
+                "uid": pointer["uid"],
+                "labels": {
+                    "serving.knative.dev/service": "consent-protocol",
+                    "deploy-env": "production",
+                    "deploy-source": "deploy-production",
+                    "deploy-sha": refresh.SOURCE,
+                    "github-run-id": pointer["run_id"],
+                },
+            },
+            "status": {"imageDigest": refresh.IMAGES["backend"]},
+        }
+        result = refresh.qualify_backend_acceptance_origin(receipt, profile, revision)
+        self.assertEqual(result["backend"], pointer)
+        self.assertEqual(result["run_id"], profile["run_id"])
+        self.assertEqual(result["backend_image"], refresh.IMAGES["backend"])
+        for defect in ("github-run-id", "deploy-sha", "uid"):
+            broken = copy.deepcopy(revision)
+            broken["metadata"]["labels"][defect] = "0" * 40
+            if defect == "uid":
+                broken["metadata"]["uid"] = "0" * 40
+            with self.subTest(defect=defect), self.assertRaises(ValueError):
+                refresh.qualify_backend_acceptance_origin(receipt, profile, broken)
+        with self.assertRaises(ValueError):
+            refresh.qualify_backend_acceptance_origin(
+                receipt, {**profile, "run_id": int(pointer["run_id"])}, revision
+            )
+        for defect in ("tag_oid", "tag_object", "anchor_source"):
+            broken = copy.deepcopy(profile)
+            if defect == "tag_oid":
+                broken["operational_reference"]["tag_oid"] = "0" * 40
+            elif defect == "tag_object":
+                broken["operational_reference"]["tag_object"] = "untrusted"
+            else:
+                broken["operational_reference"]["anchor_record"]["source"] = "0" * 40
+            with self.subTest(defect=defect), self.assertRaises(ValueError):
+                refresh.qualify_backend_acceptance_origin(receipt, broken, revision)
+
+    def test_auth_profile_revalidates_active_anchor_and_matches_serving_restore(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        operational, current, anchor = _auth_operational_reference(refresh, anchored=True)
+        self.assertEqual(anchor["source"], refresh.ACTIVE_ANCHOR_SOURCE)
+        self.assertNotEqual(anchor["source"], refresh.SOURCE)
+        self.assertEqual(
+            anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"],
+            refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE,
+        )
+        self.assertEqual(anchor["source"], refresh.ACTIVE_ANCHOR_SOURCE)
+        self.assertEqual(anchor["original_healthy"]["commit"], refresh.SOURCE)
+        self.assertEqual(
+            len({
+                anchor["source"],
+                anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"],
+                anchor["original_healthy"]["commit"],
+            }),
+            3,
+        )
+        run = {
+            "id": 40475676949,
+            "run_attempt": 2,
+            "head_sha": "a" * 40,
+            "status": "completed",
+            "conclusion": "success",
+            "path": ".github/workflows/deploy-production.yml",
+            "head_branch": "main",
+            "event": "workflow_dispatch",
+        }
+        identity = {
+            "run_id": 40430296874,
+            "source": refresh.SOURCE,
+            "sha": refresh.SOURCE,
+            "revision": "consent-protocol-00309-nir",
+            "uid": "2cdde8d7-00e6-477f-860b-9e0eb26e97e5",
+            "service_uid": "35918680-6774-4fa5-8d01-d1f32895cc26",
+            "image": refresh.IMAGES["backend"],
+        }
+        release = {
+            "status": "healthy",
+            "scope": "all",
+            "sha": refresh.SOURCE,
+            "production_restoration": {"status": "validated"},
+            "restoration_activation": {"status": "activated"},
+            "final": {
+                "backend_revision": identity["revision"],
+                "frontend_revision": "hushh-webapp-restored",
+            },
+            "_maintenance_backend_identity": identity,
+            "_maintenance_restoration_runtime": {
+                "backend": identity,
+                "frontend": {"revision": "hushh-webapp-restored"},
+            },
+        }
+        fields = {
+            "run": "https://github.com/hushh-labs/hushh-research/actions/runs/40475676949",
+            "backend_revision": identity["revision"],
+            "frontend_revision": "hushh-webapp-restored",
+        }
+        observed = {
+            "backend": {
+                "revision": identity["revision"],
+                "revision_uid": identity["uid"],
+                "service_uid": identity["service_uid"],
+                "source": refresh.SOURCE,
+                "image": refresh.IMAGES["backend"],
+            }
+        }
+        owner = control.authority()
+        with (
+            mock.patch.object(proof, "read_original", return_value=current),
+            mock.patch.object(control, "record_anchor", return_value=anchor),
+            mock.patch.object(control, "live") as live,
+            mock.patch.object(control, "authority", return_value=owner),
+            mock.patch.object(reference, "split", return_value=(operational["healthy_message"], operational["anchor_record"])),
+            mock.patch.object(reference, "healthy_fields", return_value=fields),
+            mock.patch.object(owner, "api", return_value=run),
+            mock.patch.object(owner, "uncached_api", return_value=run),
+            mock.patch.object(owner, "governed_dispatch", return_value=True),
+            mock.patch.object(owner, "find_release", return_value=(run["id"], release)),
+        ):
+            profile = control.current_auth_domain_acceptance_profile(observed)
+            self.assertEqual(profile["operational_reference"], operational)
+            live.assert_called_once_with(anchor, initial=True)
+            with self.assertRaisesRegex(ValueError, "serving backend differs"):
+                control.current_auth_domain_acceptance_profile(
+                    {"backend": {**observed["backend"], "source": "0" * 40}}
+                )
+
+    def test_auth_tag_publication_is_immutable_and_preserves_operational_reference(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        opref, current, anchor = _auth_operational_reference(refresh, anchored=True)
+        authority = {
+            "frontend_auth_domain_refresh": True,
+            "application_sha": refresh.CANDIDATE,
+            "run_id": "701",
+            "run_attempt": "2",
+            "workflow_sha": "1" * 40,
+        }
+        status = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "final": {
+                "backend_revision": "consent-protocol-00309-nir",
+                "frontend_revision": "hushh-webapp-auth-domain",
+            },
+            "predecessor_exception": {
+                "scope": "frontend",
+                "ordinary_promotion_evidence": False,
+                "authority": authority,
+                "backend_acceptance_origin": {"operational_reference": opref},
+            },
+        }
+        expected_latest = current["tag_oid"]
+        published_oid = "f" * 40
+        published_ref = ""
+        calls = []
+
+        def git(args, *, content=None):
+            nonlocal published_ref
+            calls.append((args, content))
+            if args[:3] == ["ls-remote", "--refs", "origin"]:
+                ref = args[3]
+                if ref == reference.REF:
+                    return f"{expected_latest}\t{ref}\n"
+                return f"{published_oid}\t{ref}\n" if ref == published_ref else ""
+            if args[:2] == ["config", "user.email"] or args[:2] == ["config", "user.name"]:
+                return "release@example.test\n"
+            if args[:2] == ["rev-parse", "refs/tags"]:
+                return published_oid
+            if args[0] == "rev-parse":
+                return published_oid
+            if args[0] == "push":
+                self.assertEqual(args[1], "origin")
+                published_ref = args[2]
+                return ""
+            return ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prod-release-status.json"
+            path.write_text(json.dumps(status))
+            with (
+                mock.patch.object(proof, "read_original", return_value=current),
+                mock.patch.object(control, "record_anchor", return_value=anchor),
+                mock.patch.object(control, "_auth_domain_frontend_exception", return_value=True),
+                mock.patch.dict(
+                    "os.environ",
+                    {
+                        "GITHUB_RUN_ID": "701",
+                        "GITHUB_RUN_ATTEMPT": "2",
+                        "GITHUB_SHA": "1" * 40,
+                        "RUN_URL": "https://github.com/hushh-labs/hushh-research/actions/runs/701",
+                        "ACTOR": "operator",
+                    },
+                    clear=False,
+                ),
+            ):
+                result = control.publish_auth_domain_tag(path, refresh.CANDIDATE, run=git)
+            written = json.loads(path.read_text())
+        self.assertEqual(result["status"], "published")
+        self.assertEqual(result["preserved_operational_tag_oid"], expected_latest)
+        self.assertEqual(result["operational_ref_readback_oid"], expected_latest)
+        self.assertEqual(written["auth_domain_tag_publication"], result)
+        pushes = [args for args, _ in calls if args[0] == "push"]
+        self.assertEqual(len(pushes), 1)
+        self.assertEqual(pushes[0][1], "origin")
+        self.assertTrue(pushes[0][2].startswith("refs/tags/deployed/production/"))
+
+    def test_auth_tag_publication_refuses_a_moved_operational_reference(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        opref, current, anchor = _auth_operational_reference(refresh, anchored=True)
+        status = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "predecessor_exception": {
+                "scope": "frontend",
+                "ordinary_promotion_evidence": False,
+                "authority": {
+                    "frontend_auth_domain_refresh": True,
+                    "application_sha": refresh.CANDIDATE,
+                    "run_id": "701",
+                    "run_attempt": "2",
+                    "workflow_sha": "1" * 40,
+                },
+                "backend_acceptance_origin": {"operational_reference": opref},
+            },
+        }
+        changed_oid = "e" * 40
+        calls = []
+
+        def git(args, *, content=None):
+            calls.append(args)
+            if args[:3] == ["ls-remote", "--refs", "origin"]:
+                return f"{changed_oid}\t{args[3]}\n"
+            return ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prod-release-status.json"
+            path.write_text(json.dumps(status))
+            with (
+                mock.patch.object(proof, "read_original", return_value=current),
+                mock.patch.object(control, "record_anchor", return_value=anchor),
+                mock.patch.object(control, "_auth_domain_frontend_exception", return_value=True),
+                mock.patch.dict(
+                    "os.environ",
+                    {"GITHUB_RUN_ID": "701", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_SHA": "1" * 40},
+                    clear=False,
+                ),
+                self.assertRaisesRegex(ValueError, "moved before publication"),
+            ):
+                control.publish_auth_domain_tag(path, refresh.CANDIDATE, run=git)
+            written = json.loads(path.read_text())
+        self.assertEqual(written["auth_domain_tag_publication"]["status"], "refused")
+        self.assertEqual(written["auth_domain_tag_publication"]["operational_ref_readback_oid"], changed_oid)
+        self.assertFalse(any(args[0] == "push" for args in calls))
+
+    def test_auth_tag_publication_records_reference_race_after_immutable_write(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        opref, current, anchor = _auth_operational_reference(refresh, anchored=True)
+        authority = {
+            "frontend_auth_domain_refresh": True,
+            "application_sha": refresh.CANDIDATE,
+            "run_id": "701",
+            "run_attempt": "2",
+            "workflow_sha": "1" * 40,
+        }
+        status = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "predecessor_exception": {
+                "scope": "frontend",
+                "ordinary_promotion_evidence": False,
+                "authority": authority,
+                "backend_acceptance_origin": {"operational_reference": opref},
+            },
+        }
+        changed_oid, published_oid = "e" * 40, "f" * 40
+        latest_reads = 0
+        published_ref = ""
+        calls = []
+
+        def git(args, *, content=None):
+            nonlocal latest_reads, published_ref
+            calls.append(args)
+            if args[:3] == ["ls-remote", "--refs", "origin"]:
+                if args[3] == reference.REF:
+                    latest_reads += 1
+                    return f"{opref['tag_oid'] if latest_reads == 1 else changed_oid}\t{args[3]}\n"
+                return f"{published_oid}\t{args[3]}\n" if args[3] == published_ref else ""
+            if args[:2] in (["config", "user.email"], ["config", "user.name"]):
+                return "release@example.test\n"
+            if args[0] == "rev-parse":
+                return published_oid
+            if args[0] == "push":
+                published_ref = args[2]
+                return ""
+            return ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prod-release-status.json"
+            path.write_text(json.dumps(status))
+            with (
+                mock.patch.object(proof, "read_original", return_value=current),
+                mock.patch.object(control, "record_anchor", return_value=anchor),
+                mock.patch.object(control, "_auth_domain_frontend_exception", return_value=True),
+                mock.patch.dict(
+                    "os.environ",
+                    {"GITHUB_RUN_ID": "701", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_SHA": "1" * 40},
+                    clear=False,
+                ),
+                self.assertRaisesRegex(ValueError, "unconfirmed"),
+            ):
+                control.publish_auth_domain_tag(path, refresh.CANDIDATE, run=git)
+            result = json.loads(path.read_text())["auth_domain_tag_publication"]
+        self.assertEqual(result["status"], "refused")
+        self.assertTrue(result["immutable_tag_readback_matches"])
+        self.assertEqual(result["operational_ref_readback_oid"], changed_oid)
+        pushes = [args for args in calls if args[0] == "push"]
+        self.assertEqual(len(pushes), 1)
+        self.assertNotEqual(pushes[0][2], reference.REF)
+
+    def test_auth_lost_push_never_adopts_a_foreign_immutable_tag(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        opref, current, anchor = _auth_operational_reference(refresh, anchored=True)
+        authority = {
+            "frontend_auth_domain_refresh": True,
+            "application_sha": refresh.CANDIDATE,
+            "run_id": "701",
+            "run_attempt": "2",
+            "workflow_sha": "1" * 40,
+        }
+        status = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "predecessor_exception": {
+                "scope": "frontend",
+                "ordinary_promotion_evidence": False,
+                "authority": authority,
+                "backend_acceptance_origin": {"operational_reference": opref},
+            },
+        }
+        local_oid, foreign_oid = "f" * 40, "e" * 40
+        published_ref = ""
+        calls = []
+
+        def git(args, *, content=None):
+            nonlocal published_ref
+            calls.append(args)
+            if args[:3] == ["ls-remote", "--refs", "origin"]:
+                ref = args[3]
+                if ref == reference.REF:
+                    return f"{opref['tag_oid']}\t{ref}\n"
+                return f"{foreign_oid}\t{ref}\n" if ref == published_ref else ""
+            if args[:2] in (["config", "user.email"], ["config", "user.name"]):
+                return "release@example.test\n"
+            if args[0] == "rev-parse":
+                return local_oid
+            if args[0] == "push":
+                published_ref = args[2]
+                raise subprocess.CalledProcessError(1, args, stderr="push response lost")
+            return ""
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prod-release-status.json"
+            path.write_text(json.dumps(status))
+            with (
+                mock.patch.object(proof, "read_original", return_value=current),
+                mock.patch.object(control, "record_anchor", return_value=anchor),
+                mock.patch.object(control, "_auth_domain_frontend_exception", return_value=True),
+                mock.patch.dict(
+                    "os.environ",
+                    {"GITHUB_RUN_ID": "701", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_SHA": "1" * 40},
+                    clear=False,
+                ),
+                self.assertRaisesRegex(ValueError, "unconfirmed"),
+            ):
+                control.publish_auth_domain_tag(path, refresh.CANDIDATE, run=git)
+            publication = json.loads(path.read_text())["auth_domain_tag_publication"]
+        self.assertEqual(publication["status"], "refused")
+        self.assertEqual(publication["immutable_tag_oid"], local_oid)
+        self.assertFalse(publication["immutable_tag_readback_matches"])
+        self.assertEqual(publication["operational_ref_readback_oid"], opref["tag_oid"])
+        self.assertEqual(len([args for args in calls if args[0] == "push"]), 1)
+
+    def test_auth_publication_gate_requires_exact_readbacks(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        sha = refresh.CANDIDATE
+        publication = {
+            "status": "published",
+            "immutable_ref": f"refs/tags/deployed/production/{sha[:8]}-20261102T123456Z",
+            "immutable_tag_oid": "c" * 40,
+            "immutable_tag_readback_oid": "c" * 40,
+            "preserved_operational_ref": reference.REF,
+            "preserved_operational_tag_oid": "d" * 40,
+            "operational_ref_readback_oid": "d" * 40,
+            "immutable_tag_readback_matches": True,
+        }
+        payload = {
+            "status": "healthy",
+            "sha": sha,
+            "auth_domain_tag_publication": publication,
+            "predecessor_exception": {
+                "backend_acceptance_origin": {
+                    "operational_reference": {
+                        "ref": reference.REF,
+                        "tag_oid": publication["preserved_operational_tag_oid"],
+                    }
+                }
+            },
+        }
+        self.assertEqual(control.verify_auth_domain_tag_publication(payload, sha), publication)
+        invalid = [
+            {"status": "healthy", "sha": sha},
+            {**payload, "auth_domain_tag_publication": {**publication, "status": "refused"}},
+            {**payload, "auth_domain_tag_publication": {**publication, "status": "uncertain"}},
+            {**payload, "auth_domain_tag_publication": {**publication, "immutable_tag_readback_matches": False}},
+            {**payload, "auth_domain_tag_publication": {**publication, "operational_ref_readback_oid": "e" * 40}},
+            {**payload, "auth_domain_tag_publication": {**publication, "immutable_tag_oid": "e" * 40}},
+            {**payload, "auth_domain_tag_publication": {**publication, "immutable_tag_readback_oid": None}},
+            {**payload, "auth_domain_tag_publication": {**publication, "immutable_ref": f"refs/tags/deployed/production/{'e' * 8}-20261102T123456Z"}},
+        ]
+        for broken in invalid:
+            with self.subTest(publication=broken.get("auth_domain_tag_publication")), self.assertRaises(ValueError):
+                control.verify_auth_domain_tag_publication(broken, sha)
+
+    def test_auth_frontend_tag_retains_original_backend_transition_source(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        owner = control.authority()
+        pointer = {
+            "run_id": "40430296874",
+            "source": refresh.SOURCE,
+            "revision": "consent-protocol-00309-nir",
+            "uid": "2cdde8d7-00e6-477f-860b-9e0eb26e97e5",
+            "service_uid": "35918680-6774-4fa5-8d01-d1f32895cc26",
+        }
+        run = {
+            "id": 40500000000,
+            "run_attempt": 2,
+            "head_sha": "b" * 40,
+            "path": ".github/workflows/deploy-production.yml",
+            "head_branch": "main",
+            "event": "workflow_dispatch",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        acceptance = {
+            "schema_version": 1,
+            "kind": "production-auth-domain-backend-acceptance",
+            "run_id": 40475676949,
+            "run_attempt": 2,
+            "workflow_sha": "a" * 40,
+            "source": refresh.SOURCE,
+            "backend": pointer,
+            "backend_image": refresh.IMAGES["backend"],
+        }
+        exception = {
+            "schema_version": 1,
+            "kind": "manual-production-predecessor-exception",
+            "scope": "frontend",
+            "ordinary_promotion_evidence": False,
+            "authority": {
+                "mode": "manual-emergency",
+                "frontend_auth_domain_refresh": True,
+                "application_sha": refresh.CANDIDATE,
+                "run_id": str(run["id"]),
+                "run_attempt": str(run["run_attempt"]),
+                "workflow_sha": run["head_sha"],
+            },
+            "backend_acceptance_origin": acceptance,
+        }
+        run_url = f"https://github.com/{proof.REPOSITORY}/actions/runs/{run['id']}"
+        current = {"commit": refresh.CANDIDATE, "tag_oid": "c" * 40, "message": "tag"}
+        release = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "backend_origin": pointer,
+            "predecessor_exception": exception,
+            "final": {
+                "backend_revision": pointer["revision"],
+                "frontend_revision": "hushh-webapp-auth-domain",
+            },
+        }
+        identity = {
+            **pointer,
+            "run_id": int(pointer["run_id"]),
+            "sha": refresh.SOURCE,
+            "image": refresh.IMAGES["backend"],
+        }
+        canonical = {
+            **release,
+            "_maintenance_backend_identity": identity,
+            "_maintenance_restoration_runtime": {"backend": identity},
+        }
+
+        fields = {
+            "run": run_url,
+            "backend_revision": pointer["revision"],
+            "frontend_revision": "hushh-webapp-auth-domain",
+        }
+
+        def source(canonical_release=canonical, fresh_run=run, current_run=run, requested_sha=None):
+            with (
+                mock.patch.object(
+                    proof, "read_original", return_value=copy.deepcopy(current)
+                ),
+                mock.patch.object(control, "authority", return_value=owner),
+                mock.patch.object(reference, "split", return_value=("tag", None)),
+                mock.patch.object(reference, "healthy_fields", return_value=fields),
+                mock.patch.object(owner, "api", return_value=current_run),
+                mock.patch.object(owner, "governed_dispatch", return_value=True),
+                mock.patch.object(
+                    owner, "find_release", return_value=(run["id"], canonical_release)
+                ),
+                mock.patch.object(owner, "uncached_api", return_value=fresh_run),
+                mock.patch.object(
+                    receipts, "current_attempt_artifact", return_value=(object(), object())
+                ),
+                mock.patch.object(receipts, "immutable_archive", return_value=b"archive"),
+                mock.patch.object(phone, "_document", return_value=release),
+                mock.patch.object(continuation, "archive_context", return_value=None),
+            ):
+                if requested_sha is None:
+                    return control._continuation_source(current)
+                return control.admit(requested_sha, "backend")
+
+        self.assertEqual(source(), refresh.SOURCE)
+        self.assertIsNone(source(requested_sha=refresh.SOURCE))
+        with self.assertRaisesRegex(ValueError, "transition_requires_original_source"):
+            source(requested_sha="e" * 40)
+        failed_run = {**run, "conclusion": "failure"}
+        with mock.patch.object(owner, "verify_post_release_failure") as verified_failure:
+            self.assertEqual(source(canonical, failed_run, failed_run), refresh.SOURCE)
+            verified_failure.assert_called_once()
+        with mock.patch.object(
+            owner,
+            "verify_post_release_failure",
+            side_effect=ValueError("unverified post-release failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "unverified post-release failure"):
+                source(canonical, failed_run, failed_run)
+        changed_identity = copy.deepcopy(canonical)
+        changed_identity["_maintenance_backend_identity"]["service_uid"] = "wrong"
+        with self.assertRaisesRegex(ValueError, "qualified physical backend"):
+            source(changed_identity)
+        changed_attempt = {**run, "run_attempt": run["run_attempt"] + 1}
+        with self.assertRaisesRegex(ValueError, "qualified physical backend"):
+            source(canonical, changed_attempt)

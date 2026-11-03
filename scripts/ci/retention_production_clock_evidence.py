@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 
 import retention_preflight_evidence as base
 import retention_production_evidence as production
 from retention_production_clock_records import (
     CLOCK_BOUND_RECORDS,
     CLOCK_BOUND_SOURCE_PROFILES,
+    ClockBoundRecord,
 )
 
 ENVIRONMENT = production.ENVIRONMENT
@@ -23,8 +25,36 @@ PUBLICATION = production.PUBLICATION
 SOURCE_PATHS = production.SOURCE_PATHS
 
 CLOCK_WORKFLOW = ".github/workflows/capacity-maintenance-clock.yml"
-CLOCK_WORKFLOW_BLOB = ("8f81156d0b980c19da5bbaf3187eb071e58b8af1", 9365)
+HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB = (
+    "8f81156d0b980c19da5bbaf3187eb071e58b8af1",
+    9365,
+)
+CURRENT_CLOCK_TITLE = "Capacity clock"
+CURRENT_CLOCK_WORKFLOW_BLOB = ("0e905f3da506f5573a0c4282b8e60232be13336d", 9305)
+# Existing immutable receipts remain pinned to the run-numbered title/blob
+# pair; new dynamic qualification uses the exact current title/blob pair above.
+_HISTORICAL_NUMBERED_CLOCK_TITLE = re.compile(
+    r"Capacity clock · (?:repository_dispatch|schedule) · run [1-9][0-9]*\Z"
+)
 MAX_WAKE_TO_WORKER_SECONDS = 2
+
+
+def _clock_workflow_blob_for_title(title):
+    if title == CURRENT_CLOCK_TITLE:
+        return CURRENT_CLOCK_WORKFLOW_BLOB
+    if isinstance(title, str) and _HISTORICAL_NUMBERED_CLOCK_TITLE.fullmatch(title):
+        return HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB
+    return None
+
+
+def settled_production_failure(run, job):
+    """An independent queued UAT job cannot reopen a settled production job."""
+    workflow_state = (
+        (run.get("status") == "completed" and run.get("conclusion") == "failure")
+        or (run.get("status") in {"pending", "queued", "waiting", "in_progress"}
+            and run.get("conclusion") is None)
+    )
+    return workflow_state and job.get("status") == "completed" and job.get("conclusion") == "failure"
 
 
 def _strict_int_equals(value, expected):
@@ -87,6 +117,9 @@ def _clock_proof_matches(record, worker_run, clock_proof):
     clock_record = record.clock
     if not isinstance(clock, dict) or check_steps is None or wake_steps is None:
         return False
+    expected_clock_blob = _clock_workflow_blob_for_title(clock_record.title)
+    if expected_clock_blob is None:
+        return False
     if not (
         _strict_int_equals(clock.get("id"), clock_record.run_id)
         and _strict_int_equals(clock.get("run_attempt"), 1)
@@ -108,7 +141,7 @@ def _clock_proof_matches(record, worker_run, clock_proof):
             and clock.get("conclusion") == "success"
         )
         and clock_proof.get("workflow_blob")
-        == {"sha": CLOCK_WORKFLOW_BLOB[0], "size": CLOCK_WORKFLOW_BLOB[1]}
+        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]}
         and _clock_job_matches(
             check,
             record,
@@ -138,6 +171,10 @@ def _dispatch_timing_matches(record, worker_run, check, wake):
     wake_started = base._stamp(wake.get("started_at"))
     wake_completed = base._stamp(wake.get("completed_at"))
     worker_created = base._stamp(worker_run.get("created_at"))
+    wake_steps = _named_steps(wake) or {}
+    dispatch = wake_steps.get("Send one capacity-maintenance-tick", {})
+    dispatch_started = base._stamp(dispatch.get("started_at"))
+    dispatch_completed = base._stamp(dispatch.get("completed_at"))
     return bool(
         checked_at
         and wake_started
@@ -148,6 +185,20 @@ def _dispatch_timing_matches(record, worker_run, check, wake):
             wake_completed <= worker_created
             and (worker_created - wake_completed).total_seconds()
             <= MAX_WAKE_TO_WORKER_SECONDS
+            or (
+                # The child run can start before GitHub finishes post-job
+                # cleanup. Bind it to the successful dispatch step itself,
+                # never add grace to the enclosing job's elapsed time.
+                dispatch.get("status") == "completed"
+                and dispatch.get("conclusion") == "success"
+                and dispatch_started is not None
+                and dispatch_completed is not None
+                and wake_started <= dispatch_started <= dispatch_completed
+                <= worker_created < wake_completed
+                and dispatch_completed == base._stamp(clock_record.tick_completed_at)
+                and (worker_created - dispatch_completed).total_seconds()
+                <= MAX_WAKE_TO_WORKER_SECONDS
+            )
             or (
                 # One recorded dispatch completed before its enclosing job.
                 # Exact IDs/timestamps above remain mandatory; no generic grace.
@@ -169,20 +220,19 @@ def _dispatch_timing_matches(record, worker_run, check, wake):
 
 
 def _clock_bound_run_matches(
-    repository, run, job, source_blobs, workflow_blob, clock_proof
+    repository, run, job, source_blobs, workflow_blob, clock_proof, *, record=None
 ):
     if not isinstance(run, dict) or not isinstance(job, dict):
         return False
     if type(run.get("id")) is not int:
         return False
-    record = CLOCK_BOUND_RECORDS.get(run.get("id"))
+    record = record or CLOCK_BOUND_RECORDS.get(run.get("id"))
     if record is None:
         return False
     return bool(
         repository == base.REPOSITORY
         and _strict_int_equals(run.get("run_attempt"), 1)
-        and run.get("status") == "completed"
-        and run.get("conclusion") == "failure"
+        and settled_production_failure(run, job)
         and run.get("path") == base.WORKFLOW
         and run.get("head_branch") == "main"
         and run.get("event") == "repository_dispatch"
@@ -219,16 +269,23 @@ def qualify_guard_run(
     workflow_blob,
     *,
     clock_proof,
+    _record=None,
 ):
     """Qualify only an exact recorded clock-bound pre-mutation refusal."""
     if not isinstance(run, dict) or not isinstance(job, dict):
         return None
-    record = CLOCK_BOUND_RECORDS.get(run.get("id"))
+    record = _record or CLOCK_BOUND_RECORDS.get(run.get("id"))
     if (
-        record is None
+        not isinstance(record, ClockBoundRecord)
         or environment != ENVIRONMENT
         or not _clock_bound_run_matches(
-            repository, run, job, source_blobs, workflow_blob, clock_proof
+            repository,
+            run,
+            job,
+            source_blobs,
+            workflow_blob,
+            clock_proof,
+            record=record,
         )
     ):
         return None
@@ -312,12 +369,25 @@ def qualify_publication(
 ):
     """Qualify a listed clock tick before publication source reads or cleanup."""
     record = CLOCK_BOUND_RECORDS.get(attempt.get("id"))
+    proof = None
     if record is None:
-        return None
-    actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
+        import retention_production_profile_evidence as profile
+
+        # A job for another source cannot match this immutable worker profile.
+        if job.get("head_sha") != attempt.get("head_sha"):
+            return None
+        actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
+        record, proof = profile.discover_record(owner, repository, attempt, job)
+    else:
+        actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
     log = log_reader(owner, job)
     checkout = production.actual_checkout(log, job, clock_bound=True)
-    _require(owner, checkout is not None, "maintenance runner or checkout is unproved")
+    expected_checkout = record.worker_checkout_sha or record.worker_head_sha
+    _require(
+        owner,
+        checkout is not None and checkout == expected_checkout,
+        "maintenance runner or checkout is unproved",
+    )
     blobs = source_reader(owner, repository, checkout, SOURCE_PATHS)
     workflow_blob = json.loads(
         owner.command(
@@ -330,7 +400,8 @@ def qualify_publication(
     )
     if not _record_source_matches(record, blobs, workflow_blob):
         return None
-    proof = clock_witness(owner, repository, record)
+    if proof is None:
+        proof = clock_witness(owner, repository, record)
     return qualify_guard_run(
         repository,
         ENVIRONMENT,
@@ -340,4 +411,5 @@ def qualify_publication(
         blobs,
         workflow_blob,
         clock_proof=proof,
+        _record=record,
     )

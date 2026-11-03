@@ -12,9 +12,9 @@ describe("occupied phone verification", () => {
     const flow = renderPhoneVerificationFlow({ startVerification: start, confirmTransfer: transfer, prepareLinkedDeletion: remove });
     const input = screen.getByRole("textbox", { name: "Phone number" });
     fireEvent.change(input, { target: { value: "6505550101" } }); fireEvent.submit(input.closest("form")!);
-    await screen.findByRole("button", { name: "Sign in to existing account" });
+    await screen.findByRole("button", { name: "Delete my previous account" });
     expect(screen.queryByRole("button", { name: "Send a real SMS code" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete my previous account" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete my previous account" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Use a different number" }));
     await screen.findByRole("textbox", { name: "Phone number" });
     expect(start).toHaveBeenCalledOnce(); expect(transfer).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled();
