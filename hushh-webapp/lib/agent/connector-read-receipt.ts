@@ -14,6 +14,16 @@ const STATUSES = [
   "permission_denied", "source_changed", "response_too_large", "invalid_argument", "unavailable",
 ] as const;
 
+const MAIL_TRUNCATION_REASONS = [
+  "more_pages", "failed_reads", "shortened_body", "incomplete_attachment_inventory",
+  "source_limit", "attachment_unresolved",
+] as const;
+type MailTruncationReason = (typeof MAIL_TRUNCATION_REASONS)[number];
+
+function isMailTruncationReason(value: unknown): value is MailTruncationReason {
+  return MAIL_TRUNCATION_REASONS.some(reason => reason === value);
+}
+
 export type ConnectorReadExperience = {
   type: typeof CONNECTOR_READ_EXPERIENCE_TYPE;
   connector: "mail" | "drive";
@@ -21,6 +31,7 @@ export type ConnectorReadExperience = {
   sourceRefs: string[];
   truncated: boolean;
   metadataOnly: boolean;
+  truncationReasons?: MailTruncationReason[];
   sourcePages?: (number | null)[];
   backgroundSearchAvailable?: boolean;
   backgroundSearchQuery?: string;
@@ -180,6 +191,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   const input = record(value);
   if (!input || Object.keys(input).some((key) => ![
     "schema_version", "connector", "status", "sources", "truncated", "metadata_only",
+    "truncation_reasons",
     "owner_compile_available", "owner_compile_query", "owner_compile_window",
     "background_search_available", "background_search_query",
   ].includes(key))) return null;
@@ -214,6 +226,12 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     ((ownerCompileQuery == null) !== (ownerCompileWindow == null)) ||
     (input.owner_compile_available === true &&
       (input.connector !== "drive" || input.status !== "ok" || input.metadata_only !== true))) return null;
+  const reasons = input.truncation_reasons;
+  if (reasons != null && (!Array.isArray(reasons) ||
+      reasons.length > MAIL_TRUNCATION_REASONS.length ||
+      !reasons.every(isMailTruncationReason) ||
+      new Set(reasons).size !== reasons.length ||
+      (reasons.length > 0 && (input.connector !== "mail" || !input.truncated)))) return null;
   const refs: string[] = [];
   const pages: (number | null)[] = [];
   for (const value of input.sources) {
@@ -221,11 +239,10 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     if (!source || Object.keys(source).some((key) => !["source_ref", "kind", "label", "page"].includes(key)) ||
       typeof source.source_ref !== "string") return null;
     if (input.connector === "mail") {
-      // Message and thread reads carry readable text, so the backend labels
-      // their sources "message"; listings and searches stay "metadata". The
-      // kind must agree with metadata_only so a receipt cannot mislabel scope.
-      if (source.kind !== (input.metadata_only ? "metadata" : "message") || source.label !== "Mail" ||
-        !/^mail:(?:[1-9]|1[0-9]|2[0-5])$/.test(source.source_ref) || source.page != null) return null;
+      // A text read may include metadata matches and attachment-only evidence.
+      const validKind = source.kind === "metadata" || (!input.metadata_only && source.kind === "message");
+      if (!validKind || source.label !== "Mail" ||
+        !/^mail:(?:[1-9]|[1-5][0-9]|60)$/.test(source.source_ref) || source.page != null) return null;
     } else {
       if (source.kind !== (input.metadata_only ? "metadata" : "document") || source.label !== "Document" ||
         !/^document:[a-f0-9]{32}$/.test(source.source_ref) ||
@@ -239,6 +256,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
     type: CONNECTOR_READ_EXPERIENCE_TYPE, connector: input.connector as "mail" | "drive",
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
     truncated: input.truncated, metadataOnly: input.metadata_only,
+    ...(reasons?.length ? { truncationReasons: reasons } : {}),
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),
     ...(validBackgroundSearch ? { backgroundSearchAvailable: true,
       backgroundSearchQuery: backgroundQuery as string } : {}),

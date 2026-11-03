@@ -132,6 +132,12 @@ async def test_single_page_sdk_batch_keeps_cursor_inventory_and_performs_no_body
     monkeypatch,
 ):
     resource = Resource()
+    resource.messages["m1"]["internalDate"] = "1762081380000"
+    resource.messages["m1"]["payload"]["headers"].extend(
+        [
+            {"name": "In-Reply-To", "value": "<parent@example.test>"},
+        ]
+    )
 
     def unexpected(_):
         raise AssertionError("metadata listing must not decode message content")
@@ -153,7 +159,12 @@ async def test_single_page_sdk_batch_keeps_cursor_inventory_and_performs_no_body
             "size": 18,
         }
     ]
-    assert "body" not in result["messages"][0]
+    first = result["messages"][0]
+    assert first["internal_date_ms"] == 1762081380000
+    assert first["message_id_header"] == "<original@example.test>"
+    assert first["in_reply_to"] == "<parent@example.test>"
+    assert first["references"] == "<earlier@example.test>"
+    assert "body" not in first
     assert resource.batches == 1
     listing = [c for c in resource.calls if c[1] == "list"]
     assert len(listing) == 1 and listing[0][2]["q"] == "newer_than:7d"
@@ -405,3 +416,65 @@ def test_pinned_original_source_and_license_hashes_are_preserved():
             assert (
                 hashlib.sha256((vendor / file["path"]).read_bytes()).hexdigest() == file["sha256"]
             )
+
+
+@pytest.mark.asyncio
+async def test_oversized_gmail_search_can_shrink_once_without_advancing_cursor():
+    import json
+
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    from tests.helpers.email_oss import Execution, call, make_runtime, turn
+
+    class OversizedExecution(Execution):
+        async def search_threads(self, **kwargs):
+            self.calls.append(kwargs)
+            if kwargs["max_results"] == 25:
+                return {"messages": [{"id": "large", "body": "x" * (256 * 1024)}]}
+            return {"messages": [{"id": "m1"}], "next_page_token": "new-cursor"}
+
+    execution = OversizedExecution()
+    initial = {"q": "invoice newer_than:7d", "include_clean_body": True}
+    runtime, model, _ = make_runtime(
+        [
+            AIMessage(content="", tool_calls=[call("search_threads", initial, "initial")]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    call(
+                        "search_threads",
+                        {**initial, "max_results": 5, "page_token": "other"},
+                        "wrong",
+                    ),
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    call("search_threads", {**initial, "max_results": 5}, "repair"),
+                ],
+            ),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    call("search_threads", {**initial, "page_token": "new-cursor"}, "next"),
+                ],
+            ),
+            AIMessage(content="Here is one result. There are more on the next page."),
+        ],
+        execution=execution,
+    )
+    result = await runtime.handle_turn(**turn())
+    assert result["status"] == "ok"
+    assert result["structured"]["status"] == "ok"
+    assert result["structured"]["truncation_reasons"] == ["more_pages"]
+    assert execution.calls == [
+        {**initial, "max_results": 25, "page_token": None},
+        {**initial, "max_results": 5, "page_token": None},
+    ]
+    results = {
+        m.tool_call_id: json.loads(m.content) for m in model.seen[-1] if isinstance(m, ToolMessage)
+    }
+    assert results["initial"]["code"] == "response_too_large"
+    assert results["wrong"]["code"] == "search_correction_required"
+    assert results["next"]["code"] == "page_requires_next_user_turn"

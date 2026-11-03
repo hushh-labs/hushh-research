@@ -167,6 +167,17 @@ def _project_message(value: Any, *, include_body: bool, decode_part=extract_mess
         "attachments": attachments,
         "attachment_inventory_complete": complete,
     }
+    internal_date = str(message.get("internalDate", ""))
+    if internal_date.isascii() and internal_date.isdecimal() and len(internal_date) <= 15:
+        result["internal_date_ms"] = int(internal_date)
+    for header, key, limit in (
+        ("message-id", "message_id_header", 1024),
+        ("in-reply-to", "in_reply_to", 1024),
+        ("references", "references", 4096),
+    ):
+        value = headers.get(header)
+        if value and len(value) <= limit:
+            result[key] = value
     if include_body:
         result["body"], result["body_truncated"] = cap_utf8(body, _MAX_BODY_BYTES)
     return result

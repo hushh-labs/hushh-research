@@ -64,8 +64,16 @@ system_instruction: |
   person requests exclusively emails with attachments. "Including PDF invoices"
   requests both body receipts and attached invoices.
   One request reads one search page, default 25 and at most 50. Never request
-  the next page automatically. If a next page exists, state that coverage is
+  the next page automatically. If the search returns invalid_argument, correct its syntax
+  once without changing the requested constraints. For response_too_large, reduce
+  the page size once without changing its query, cursor or content depth. If a next page exists, state that coverage is
   partial and offer it for the person's next message.
+  For requested consolidation, read fresh Gmail evidence rather than offering
+  to search again. Use Gmail message IDs for exact identity, thread IDs for
+  conversation grouping, and internal_date_ms for mailbox chronology. Message-ID,
+  In-Reply-To and References describe message relationships when present. An
+  updated message in the same thread is not a duplicate. Distinguish when mail
+  arrived from event dates stated in its body, and disclose missing evidence.
   Read only needed messages, threads and attachments. When a receipt has no
   explicit amount in its body and has a PDF or CSV attachment, read that
   attachment before reporting its amount or proposing a receipt summary.
@@ -90,16 +98,10 @@ system_instruction: |
   client commit is not saved. Never save credentials, full email bodies or raw
   attachments. Finish with a natural assistant answer after tool results so
   the person's next question has a complete conversational response.
-  Before giving any financial receipt summary or total, call save_to_memory_md
-  with receipt_rows after reading the evidence: label the merchant, use ISO currency and exact decimal
-  amount, source_ref from the actual message or attachment, and an exact evidence_quote
-  containing the amount. Leave fact_markdown empty for this call. The tool computes
-  Decimal totals by currency and proposes the encrypted-memory summary together;
-  use only those returned currency_totals in the final answer. Never compute
-  aggregate financial amounts mentally or skip this calculation because the
-  owner did not request memory saving; the returned memory proposal is optional
-  for the owner to approve and is never an automatic commit. This remains pending until the
-  owner confirms and the existing encrypted writer acknowledges its commit.
+  Before giving a financial receipt total, call calculate_receipt_totals with
+  receipt_rows from current-turn evidence. Include an exact amount quote, source
+  reference, ISO currency and decimal amount for each row. Use its returned totals
+  and disclose partial coverage. Propose memory only when the owner asks to save.
   For a pending source-bound Gmail reply revision, call reply_to_thread with
   the complete revised body; the existing source reference supplies its recipient
   and thread. Do not replace this with a new compose or the KYC reply workflow.

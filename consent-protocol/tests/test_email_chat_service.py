@@ -1,10 +1,4 @@
-"""Tests for the Gmail inbox agent chat runner.
-
-Inject a fake model_call (the Gemini seam), real google.genai types, a fake chat
-store, and a fake Gmail service — no live LLM, Gmail, or DB. Verifies the
-function-calling loop dispatches the read-only inbox tools with the right args
-and returns the model's final text.
-"""
+"""Gmail chat regressions using synthetic model, session, and provider ports."""
 
 from __future__ import annotations
 
@@ -94,6 +88,9 @@ from tests.email_oss_cases.gmail_execution import (
 )
 from tests.email_oss_cases.gmail_execution import (
     test_modify_trash_and_invalid_header_never_add_unrequested_effects as test_modify_trash_and_invalid_header_never_add_unrequested_effects,
+)
+from tests.email_oss_cases.gmail_execution import (
+    test_oversized_gmail_search_can_shrink_once_without_advancing_cursor as test_oversized_gmail_search_can_shrink_once_without_advancing_cursor,
 )
 from tests.email_oss_cases.gmail_execution import (
     test_partial_batch_failure_keeps_order_and_discloses_failed_count as test_partial_batch_failure_keeps_order_and_discloses_failed_count,

@@ -189,3 +189,38 @@ def test_a_receipts_handback_admits_only_the_receipt_functions():
     after_external_read_tool(mail, {}, context, {"status": "ok"})
     assert next_model_step() == set()
     assert before_external_read_tool(receipts, {}, context)["reason"] == "connector_read_complete"
+
+
+@pytest.mark.parametrize(
+    ("surface", "focus", "expected"),
+    [
+        ("typed_chat", "email", {"ask_email_agent"}),
+        ("typed_chat", "", {"ask_email_agent", "calendar_events"}),
+        ("voice", "email", {"ask_email_agent", "calendar_events"}),
+    ],
+)
+def test_mail_workspace_limits_tool_schemas_without_adding_authority(surface, focus, expected):
+    from google.genai import types
+
+    from hushh_mcp.one_adk.specialist_focus import (
+        STATE_SPECIALIST_FOCUS,
+        scope_email_workspace_tools,
+    )
+
+    state = {STATE_EXECUTION_SURFACE: surface, STATE_SPECIALIST_FOCUS: focus}
+    names = ("ask_email_agent", "calendar_events")
+    request = SimpleNamespace(
+        tools_dict=dict.fromkeys(names, object()),
+        config=types.GenerateContentConfig(
+            tools=[
+                types.Tool(
+                    function_declarations=[types.FunctionDeclaration(name=name) for name in names]
+                )
+            ],
+        ),
+    )
+    scope_email_workspace_tools(SimpleNamespace(state=state), request)
+    assert set(request.tools_dict) == expected
+    assert {
+        item.name for tool in request.config.tools for item in tool.function_declarations
+    } == expected

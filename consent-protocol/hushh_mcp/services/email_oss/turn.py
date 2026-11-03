@@ -168,13 +168,25 @@ def _finish_turn(runtime, turn):
             "metadata_only": True,
             "status": turn.status,
         }
+    from api.middlewares.observability import get_request_id
+
+    provider = getattr(turn.execution, "telemetry", {})
     logger.info(
-        "email_oss.turn_completed trace=%s status=%s model_calls=%d tool_calls=%d elapsed_ms=%.2f",
+        "email_oss.turn_completed trace=%s status=%s model_calls=%d tool_calls=%d elapsed_ms=%.2f "
+        "request_id=%s first_text_ms=%s gmail_http_requests=%d gmail_api_methods=%d "
+        "gmail_http_elapsed_ms=%.2f read_status=%s failure_code=%s",
         turn.trace_id,
         turn.status,
         turn.counts["model_calls"],
         turn.counts["tool_calls"],
         elapsed_ms,
+        get_request_id() or "-",
+        turn.first_model_text_ms,
+        provider.get("gmail_http_requests", 0),
+        provider.get("gmail_api_methods", 0),
+        provider.get("gmail_http_elapsed_ms", 0),
+        turn.read_receipt["status"],
+        turn.code or "-",
     )
     result = {
         "conversationId": turn.context.conversation_id,
@@ -246,10 +258,9 @@ async def run_turn(
             "unavailable",
             "email_effect_outcome_unknown" if turn.uncertain_effects else "email_deadline_exceeded",
         )
-    except Exception as error:
+    except Exception:
         turn.status, turn.code = (
             "unavailable",
             "email_effect_outcome_unknown" if turn.uncertain_effects else "email_runtime_failed",
         )
-        logger.warning("email_oss.turn_failed reason=%s", type(error).__name__)
     yield {"type": "result", "result": _finish_turn(runtime, turn)}

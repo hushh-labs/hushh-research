@@ -109,6 +109,7 @@ async def test_low_confidence_uses_only_email_tools_not_other_domains(indexed_ro
         "trash_message",
         "read_memory_md",
         "save_to_memory_md",
+        "calculate_receipt_totals",
         "get_connection_status",
     }
 

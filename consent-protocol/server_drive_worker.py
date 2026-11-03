@@ -30,6 +30,7 @@ hydrate_runtime_environment()
 from fastapi import FastAPI, HTTPException  # noqa: E402
 
 from api.routes.drive_work_drain import router  # noqa: E402
+from api.routes.email_attachment_worker import router as email_attachment_router  # noqa: E402
 from hushh_mcp.services.connector_feature_admission import (  # noqa: E402
     connector_feature_enabled,
     connector_feature_owner_cohort,
@@ -174,6 +175,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(router)
+app.include_router(email_attachment_router)
 
 
 @app.get("/ready", include_in_schema=False)
