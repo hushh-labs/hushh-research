@@ -13,7 +13,9 @@ from unittest import mock
 import production_backend_successor as reference
 import production_backend_successor_control as control
 import production_backend_successor_proof as proof
+import production_activation_continuation as continuation
 import production_phone_receipt as phone
+import release_artifact_receipts as receipts
 from production_phone_receipt_fixtures import (
     archive,
     cold_revision,
@@ -620,3 +622,195 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
                         source=bad_source,
                         environment_changes=bad_environment,
                     )
+
+    def test_auth_repair_acceptance_binds_current_restore_to_physical_backend(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        pointer = {
+            "run_id": "40430296874",
+            "source": refresh.SOURCE,
+            "revision": "consent-protocol-00309-nir",
+            "uid": "2cdde8d7-00e6-477f-860b-9e0eb26e97e5",
+            "service_uid": "35918680-6774-4fa5-8d01-d1f32895cc26",
+        }
+        receipt = {
+            "kind": "manual-production-predecessor-exception",
+            "scope": "frontend",
+            "authority": {
+                "frontend_auth_domain_refresh": True,
+                "application_sha": refresh.CANDIDATE,
+            },
+            "baseline": {
+                "backend": {
+                    "source": refresh.SOURCE,
+                    "image": refresh.IMAGES["backend"],
+                    "revision": pointer["revision"],
+                    "revision_uid": pointer["uid"],
+                    "service_uid": pointer["service_uid"],
+                },
+            },
+        }
+        profile = {
+            "run_id": 40475676949,
+            "run_attempt": 2,
+            "workflow_sha": "a" * 40,
+            "source": refresh.SOURCE,
+            "backend": {
+                **pointer,
+                "run_id": int(pointer["run_id"]),
+                "sha": refresh.SOURCE,
+                "image": refresh.IMAGES["backend"],
+            },
+        }
+        revision = {
+            "metadata": {
+                "name": pointer["revision"],
+                "uid": pointer["uid"],
+                "labels": {
+                    "serving.knative.dev/service": "consent-protocol",
+                    "deploy-env": "production",
+                    "deploy-source": "deploy-production",
+                    "deploy-sha": refresh.SOURCE,
+                    "github-run-id": pointer["run_id"],
+                },
+            },
+            "status": {"imageDigest": refresh.IMAGES["backend"]},
+        }
+        result = refresh.qualify_backend_acceptance_origin(receipt, profile, revision)
+        self.assertEqual(result["backend"], pointer)
+        self.assertEqual(result["run_id"], profile["run_id"])
+        self.assertEqual(result["backend_image"], refresh.IMAGES["backend"])
+        for defect in ("github-run-id", "deploy-sha", "uid"):
+            broken = copy.deepcopy(revision)
+            broken["metadata"]["labels"][defect] = "0" * 40
+            if defect == "uid":
+                broken["metadata"]["uid"] = "0" * 40
+            with self.subTest(defect=defect), self.assertRaises(ValueError):
+                refresh.qualify_backend_acceptance_origin(receipt, profile, broken)
+        with self.assertRaises(ValueError):
+            refresh.qualify_backend_acceptance_origin(
+                receipt, {**profile, "run_id": int(pointer["run_id"])}, revision
+            )
+
+    def test_auth_frontend_tag_retains_original_backend_transition_source(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        owner = control.authority()
+        pointer = {
+            "run_id": "40430296874",
+            "source": refresh.SOURCE,
+            "revision": "consent-protocol-00309-nir",
+            "uid": "2cdde8d7-00e6-477f-860b-9e0eb26e97e5",
+            "service_uid": "35918680-6774-4fa5-8d01-d1f32895cc26",
+        }
+        run = {
+            "id": 40500000000,
+            "run_attempt": 2,
+            "head_sha": "b" * 40,
+            "path": ".github/workflows/deploy-production.yml",
+            "head_branch": "main",
+            "event": "workflow_dispatch",
+            "status": "completed",
+            "conclusion": "success",
+        }
+        acceptance = {
+            "schema_version": 1,
+            "kind": "production-auth-domain-backend-acceptance",
+            "run_id": 40475676949,
+            "run_attempt": 2,
+            "workflow_sha": "a" * 40,
+            "source": refresh.SOURCE,
+            "backend": pointer,
+            "backend_image": refresh.IMAGES["backend"],
+        }
+        exception = {
+            "schema_version": 1,
+            "kind": "manual-production-predecessor-exception",
+            "scope": "frontend",
+            "ordinary_promotion_evidence": False,
+            "authority": {
+                "mode": "manual-emergency",
+                "frontend_auth_domain_refresh": True,
+                "application_sha": refresh.CANDIDATE,
+                "run_id": str(run["id"]),
+                "run_attempt": str(run["run_attempt"]),
+                "workflow_sha": run["head_sha"],
+            },
+            "backend_acceptance_origin": acceptance,
+        }
+        run_url = f"https://github.com/{proof.REPOSITORY}/actions/runs/{run['id']}"
+        current = {"commit": refresh.CANDIDATE, "tag_oid": "c" * 40, "message": "tag"}
+        release = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "backend_origin": pointer,
+            "predecessor_exception": exception,
+            "final": {
+                "backend_revision": pointer["revision"],
+                "frontend_revision": "hushh-webapp-auth-domain",
+            },
+        }
+        identity = {
+            **pointer,
+            "run_id": int(pointer["run_id"]),
+            "sha": refresh.SOURCE,
+            "image": refresh.IMAGES["backend"],
+        }
+        canonical = {
+            **release,
+            "_maintenance_backend_identity": identity,
+            "_maintenance_restoration_runtime": {"backend": identity},
+        }
+
+        fields = {
+            "run": run_url,
+            "backend_revision": pointer["revision"],
+            "frontend_revision": "hushh-webapp-auth-domain",
+        }
+
+        def source(canonical_release=canonical, fresh_run=run, current_run=run, requested_sha=None):
+            with (
+                mock.patch.object(
+                    proof, "read_original", return_value=copy.deepcopy(current)
+                ),
+                mock.patch.object(control, "authority", return_value=owner),
+                mock.patch.object(reference, "split", return_value=("tag", None)),
+                mock.patch.object(reference, "healthy_fields", return_value=fields),
+                mock.patch.object(owner, "api", return_value=current_run),
+                mock.patch.object(owner, "governed_dispatch", return_value=True),
+                mock.patch.object(
+                    owner, "find_release", return_value=(run["id"], canonical_release)
+                ),
+                mock.patch.object(owner, "uncached_api", return_value=fresh_run),
+                mock.patch.object(
+                    receipts, "current_attempt_artifact", return_value=(object(), object())
+                ),
+                mock.patch.object(receipts, "immutable_archive", return_value=b"archive"),
+                mock.patch.object(phone, "_document", return_value=release),
+                mock.patch.object(continuation, "archive_context", return_value=None),
+            ):
+                if requested_sha is None:
+                    return control._continuation_source(current)
+                return control.admit(requested_sha, "backend")
+
+        self.assertEqual(source(), refresh.SOURCE)
+        self.assertIsNone(source(requested_sha=refresh.SOURCE))
+        with self.assertRaisesRegex(ValueError, "transition_requires_original_source"):
+            source(requested_sha="e" * 40)
+        failed_run = {**run, "conclusion": "failure"}
+        with mock.patch.object(owner, "verify_post_release_failure") as verified_failure:
+            self.assertEqual(source(canonical, failed_run, failed_run), refresh.SOURCE)
+            verified_failure.assert_called_once()
+        with mock.patch.object(
+            owner,
+            "verify_post_release_failure",
+            side_effect=ValueError("unverified post-release failure"),
+        ):
+            with self.assertRaisesRegex(ValueError, "unverified post-release failure"):
+                source(canonical, failed_run, failed_run)
+        changed_identity = copy.deepcopy(canonical)
+        changed_identity["_maintenance_backend_identity"]["service_uid"] = "wrong"
+        with self.assertRaisesRegex(ValueError, "qualified physical backend"):
+            source(changed_identity)
+        changed_attempt = {**run, "run_attempt": run["run_attempt"] + 1}
+        with self.assertRaisesRegex(ValueError, "qualified physical backend"):
+            source(canonical, changed_attempt)

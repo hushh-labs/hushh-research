@@ -219,7 +219,14 @@ def admit(authority: dict, observed: dict, scope: str, *, run=command) -> dict:
     }
 
     if authority.get("frontend_auth_domain_refresh") is True:
-        importlib.import_module("production_auth_domain_refresh").validate_source(receipt, run=run)
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        refresh.validate_source(receipt, run=run)
+        control = importlib.import_module("production_backend_successor_control")
+        profile = control.current_auth_domain_acceptance_profile()
+        revision = provider("revisions", observed["backend"]["revision"])
+        receipt["backend_acceptance_origin"] = refresh.qualify_backend_acceptance_origin(
+            receipt, profile, revision
+        )
     return receipt
 
 

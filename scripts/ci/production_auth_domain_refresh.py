@@ -90,6 +90,69 @@ def validate_source(receipt: dict, *, run=command) -> None:
     require(changed and changed <= ALLOWED_DIFF, "Repair changes application content")
 
 
+def qualify_backend_acceptance_origin(
+    receipt: dict, profile: dict, revision: dict
+) -> dict:
+    """Bind the one accepted restoration run to the physical serving backend."""
+    authority = receipt.get("authority", {})
+    baseline = receipt.get("baseline", {}).get("backend", {})
+    identity = profile.get("backend", {})
+    backend = {
+        "run_id": str(identity.get("run_id", "")),
+        "source": identity.get("source"),
+        "revision": identity.get("revision"),
+        "uid": identity.get("uid"),
+        "service_uid": identity.get("service_uid"),
+    }
+    metadata = revision.get("metadata", {})
+    labels = metadata.get("labels", {})
+    require(
+        receipt.get("kind") == "manual-production-predecessor-exception"
+        and receipt.get("scope") == "frontend"
+        and authority.get("frontend_auth_domain_refresh") is True
+        and authority.get("application_sha") == CANDIDATE
+        and baseline.get("source") == SOURCE
+        and baseline.get("image") == IMAGES["backend"]
+        and type(profile.get("run_id")) is int
+        and profile["run_id"] > 0
+        and profile["run_id"] != int(backend["run_id"])
+        and type(profile.get("run_attempt")) is int
+        and profile["run_attempt"] > 0
+        and bool(re.fullmatch(r"[0-9a-f]{40}", str(profile.get("workflow_sha", ""))))
+        and profile.get("source") == SOURCE
+        and identity.get("sha") == SOURCE
+        and identity.get("source") == SOURCE
+        and identity.get("image") == baseline.get("image")
+        and bool(re.fullmatch(r"[1-9][0-9]*", backend["run_id"]))
+        and backend["source"] == SOURCE
+        and bool(re.fullmatch(r"consent-protocol-[a-z0-9-]+", str(backend["revision"])))
+        and all(isinstance(backend[key], str) and 0 < len(backend[key]) <= 256
+                for key in ("uid", "service_uid"))
+        and baseline.get("revision") == backend["revision"]
+        and baseline.get("revision_uid") == backend["uid"]
+        and baseline.get("service_uid") == backend["service_uid"]
+        and metadata.get("name") == backend["revision"]
+        and metadata.get("uid") == backend["uid"]
+        and revision.get("status", {}).get("imageDigest") == baseline.get("image")
+        and labels.get("serving.knative.dev/service") == "consent-protocol"
+        and labels.get("deploy-env") == "production"
+        and labels.get("deploy-source") == "deploy-production"
+        and labels.get("deploy-sha") == SOURCE
+        and labels.get("github-run-id") == backend["run_id"],
+        "Current restoration acceptance does not identify the serving backend",
+    )
+    return {
+        "schema_version": 1,
+        "kind": "production-auth-domain-backend-acceptance",
+        "run_id": profile["run_id"],
+        "run_attempt": profile["run_attempt"],
+        "workflow_sha": profile["workflow_sha"],
+        "source": profile["source"],
+        "backend": backend,
+        "backend_image": identity["image"],
+    }
+
+
 def pin_config(text: str) -> str:
     names = set(re.findall(r"projects/\$PROJECT_ID/secrets/([A-Z0-9_]+)/versions/latest", text))
     require(names == set(VERSIONS) - {"NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID"},

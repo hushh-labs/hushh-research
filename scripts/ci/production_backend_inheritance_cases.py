@@ -130,6 +130,82 @@ def _find(ports, callback=None):
         )
 
 
+def _auth_restoration_acceptance(ports):
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    current, pointer, run = ports.fe_release, ports.fe_release["backend_origin"], ports.fe_run
+    current["sha"] = refresh.CANDIDATE
+    pointer["source"] = refresh.SOURCE
+    acceptance_id, acceptance_attempt, workflow_sha = 550, 3, "a" * 40
+    current["predecessor_exception"] = {
+        "schema_version": 1,
+        "kind": "manual-production-predecessor-exception",
+        "scope": "frontend",
+        "authority": {
+            "mode": "manual-emergency",
+            "frontend_auth_domain_refresh": True,
+            "application_sha": refresh.CANDIDATE,
+            "run_id": str(run["id"]),
+            "run_attempt": str(run["run_attempt"]),
+            "workflow_sha": run["head_sha"],
+        },
+        "baseline": {
+            "backend": {
+                "source": refresh.SOURCE,
+                "image": refresh.IMAGES["backend"],
+                "revision": pointer["revision"],
+                "revision_uid": pointer["uid"],
+                "service_uid": pointer["service_uid"],
+            },
+            "frontend": {"source": refresh.SOURCE, "image": refresh.IMAGES["frontend"]},
+        },
+        "ordinary_promotion_evidence": False,
+        "backend_acceptance_origin": {
+            "schema_version": 1,
+            "kind": "production-auth-domain-backend-acceptance",
+            "run_id": acceptance_id,
+            "run_attempt": acceptance_attempt,
+            "workflow_sha": workflow_sha,
+            "source": refresh.SOURCE,
+            "backend": copy.deepcopy(pointer),
+            "backend_image": refresh.IMAGES["backend"],
+        },
+    }
+    identity = {
+        "revision": pointer["revision"],
+        "uid": pointer["uid"],
+        "service_uid": pointer["service_uid"],
+        "source": refresh.SOURCE,
+        "sha": refresh.SOURCE,
+        "run_id": int(pointer["run_id"]),
+        "image": refresh.IMAGES["backend"],
+    }
+    accepted_run = {
+        "id": acceptance_id,
+        "run_attempt": acceptance_attempt,
+        "head_sha": workflow_sha,
+        "path": ".github/workflows/deploy-production.yml",
+        "head_branch": "main",
+        "event": "workflow_dispatch",
+        "status": "completed",
+        "conclusion": "success",
+    }
+    accepted_release = {
+        "status": "healthy",
+        "scope": "all",
+        "sha": refresh.SOURCE,
+        "final": {"backend_revision": pointer["revision"]},
+        "production_restoration": {"status": "validated"},
+        "restoration_activation": {"original_run_id": 400, "original_attempt": 1},
+        "_maintenance_backend_identity": identity,
+        "_maintenance_restoration_runtime": {
+            "backend": identity,
+            "frontend": {"revision": "hushh-webapp-restored"},
+        },
+    }
+    ports.pack()
+    return accepted_run, accepted_release, identity
+
+
 class BackendInheritanceCases:
     def test_frontend_retention_protects_original_phone_rollback_and_rejects_tamper(
         self,
@@ -202,6 +278,119 @@ class BackendInheritanceCases:
             self.assertTrue(
                 ports.owner.live_release_matches(release, environment="production")
             )
+
+    def test_auth_repair_inherits_one_qualified_restoration_without_phone_authority(self):
+        with _inheritance_case(self) as ports:
+            accepted_run, accepted_release, identity = _auth_restoration_acceptance(ports)
+            original_api = ports.owner.api
+
+            def api(repository, endpoint):
+                if endpoint in {"runs/550", "runs/550?exclude_pull_requests=true"}:
+                    return copy.deepcopy(accepted_run)
+                return original_api(repository, endpoint)
+
+            def find(repository, requested, directory, **kwargs):
+                self.assertEqual(requested, "550")
+                self.assertIs(kwargs["require_live"], False)
+                self.assertEqual(kwargs["environment"], "production")
+                return 550, copy.deepcopy(accepted_release)
+
+            with (
+                mock.patch.object(ports.owner, "api", side_effect=api),
+                mock.patch.object(ports.owner, "find_release", side_effect=find),
+            ):
+                inherited = inheritance.inherit(
+                    "hushh-labs/hushh-research",
+                    ports.fe_run,
+                    ports.fe_release,
+                    ports.owner.LANES["production"],
+                    api=ports.owner.api,
+                    governed=lambda *_args, **_kwargs: True,
+                    timestamp=ports.owner._github_timestamp,
+                    run_command=ports.owner.retention.run_command,
+                    timeout=30,
+                )
+            self.assertEqual(inherited["backend"], identity)
+            self.assertEqual(inherited["restoration_runtime"], identity)
+            self.assertNotIn("phone_anchor", inherited)
+            self.assertNotIn("backend_origin", accepted_release)
+
+            current = copy.deepcopy(ports.fe_release)
+            callback = mock.Mock()
+            with mock.patch.object(inheritance, "inherit", return_value=inherited):
+                inheritance.apply(
+                    ports.owner,
+                    "hushh-labs/hushh-research",
+                    ports.fe_run,
+                    current,
+                    ports.owner.LANES["production"],
+                    callback,
+                )
+            self.assertEqual(
+                current["_maintenance_restoration_runtime"], {"backend": identity}
+            )
+            self.assertNotIn("_maintenance_backend_inheritance", current)
+            callback.assert_not_called()
+
+    def test_auth_repair_rejects_wrong_restoration_identity_and_nested_owner(self):
+        for defect in (
+            "uid", "source", "frontend", "attempt", "anchor",
+            "baseline_revision", "baseline_uid", "baseline_service", "current_attempt", "actor",
+        ):
+            with self.subTest(defect=defect), _inheritance_case(self) as ports:
+                accepted_run, accepted_release, _identity = _auth_restoration_acceptance(ports)
+                origin = ports.fe_release["predecessor_exception"]["backend_acceptance_origin"]
+                if defect == "uid":
+                    origin["backend"]["uid"] = "wrong"
+                elif defect == "source":
+                    origin["backend"]["source"] = "0" * 40
+                elif defect == "frontend":
+                    accepted_release["scope"] = "frontend"
+                elif defect == "attempt":
+                    accepted_run["run_attempt"] += 1
+                else:
+                    if defect == "anchor":
+                        accepted_release["backend_origin"] = {"run_id": "999"}
+                    elif defect.startswith("baseline_"):
+                        key = {
+                            "baseline_revision": "revision",
+                            "baseline_uid": "revision_uid",
+                            "baseline_service": "service_uid",
+                        }[defect]
+                        ports.fe_release["predecessor_exception"]["baseline"]["backend"][key] = "wrong"
+                original_api = ports.owner.api
+
+                def api(repository, endpoint):
+                    if endpoint in {"runs/550", "runs/550?exclude_pull_requests=true"}:
+                        return copy.deepcopy(accepted_run)
+                    if defect == "current_attempt" and endpoint == "runs/600":
+                        changed = copy.deepcopy(ports.fe_run)
+                        changed["run_attempt"] += 1
+                        return changed
+                    return original_api(repository, endpoint)
+
+                def find(_repository, _requested, _directory, **_kwargs):
+                    return 550, copy.deepcopy(accepted_release)
+
+                def governed(envelope, *_args, **_kwargs):
+                    return defect != "actor" or envelope.get("id") != ports.fe_run["id"]
+
+                with (
+                    mock.patch.object(ports.owner, "api", side_effect=api),
+                    mock.patch.object(ports.owner, "find_release", side_effect=find),
+                    self.assertRaises(ports.owner.retention.UnsafeState),
+                ):
+                    inheritance.inherit(
+                        "hushh-labs/hushh-research",
+                        ports.fe_run,
+                        ports.fe_release,
+                        ports.owner.LANES["production"],
+                        api=ports.owner.api,
+                        governed=governed,
+                        timestamp=ports.owner._github_timestamp,
+                        run_command=ports.owner.retention.run_command,
+                        timeout=30,
+                    )
 
     def test_frontend_selector_cannot_forge_or_chain_backend_authority(self):
         for defect in (

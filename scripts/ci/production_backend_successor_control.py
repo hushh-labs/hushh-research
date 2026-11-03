@@ -11,6 +11,7 @@ import importlib
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 from runpy import run_path
 
@@ -23,10 +24,15 @@ import release_artifact_receipts as receipts
 
 MAINTENANCE_WORKFLOW = ".github/workflows/capacity-maintenance.yml"
 INTENT_UPLOAD = "Publish operational reference intent"
+_RUN_FIELDS = ("id", "run_attempt", "head_sha", "status", "conclusion", "path", "event", "head_branch")
 
 
 def authority():
     return importlib.import_module("uat-retention-maintenance")
+
+
+def _same_run(fresh, expected):
+    return all(fresh.get(key) == expected.get(key) for key in _RUN_FIELDS)
 
 
 def load_anchor(run_id: str, attempt: int) -> dict:
@@ -137,6 +143,85 @@ def record_anchor(current: dict) -> dict | None:
     return anchor
 
 
+def _auth_frontend_continuation_source(current, fields, run, release, owner):
+    exception = release.get("predecessor_exception")
+    if not isinstance(exception, dict):
+        return None
+    authority = exception.get("authority")
+    if not isinstance(authority, dict) or authority.get("frontend_auth_domain_refresh") is not True:
+        reference.require(
+            "backend_acceptance_origin" not in exception,
+            "frontend acceptance is missing its exact auth authority",
+        )
+        return None
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    pointer = release.get("backend_origin")
+    reference.require(
+        release.get("status") == "healthy"
+        and release.get("scope") == "frontend"
+        and release.get("sha") == current["commit"] == refresh.CANDIDATE
+        and isinstance(pointer, dict)
+        and exception.get("backend_acceptance_origin") is not None
+        and authority.get("mode") == "manual-emergency"
+        and authority.get("application_sha") == refresh.CANDIDATE
+        and authority.get("run_id") == str(run["id"])
+        and type(run.get("run_attempt")) is int
+        and run["run_attempt"] > 0
+        and authority.get("run_attempt") == str(run["run_attempt"])
+        and authority.get("workflow_sha") == run.get("head_sha")
+        and run.get("path") == ".github/workflows/deploy-production.yml"
+        and run.get("head_branch") == "main"
+        and run.get("event") == "workflow_dispatch"
+        and pointer.get("source") == refresh.SOURCE
+        and fields.get("backend_revision") == pointer.get("revision"),
+        "auth frontend continuation is not bound to its backend acceptance",
+    )
+    token = owner._API_CACHE.set(None)
+    try:
+        anchors = []
+        with tempfile.TemporaryDirectory(prefix="auth-frontend-source-") as directory:
+            found = owner.find_release(
+                proof.REPOSITORY,
+                str(run["id"]),
+                Path(directory),
+                require_live=False,
+                environment="production",
+                on_phone_rollback=anchors.append,
+            )
+        fresh = owner.uncached_api(proof.REPOSITORY, f"runs/{run['id']}")
+    finally:
+        owner._API_CACHE.reset(token)
+    canonical = found[1] if found is not None else {}
+    identity = canonical.get("_maintenance_backend_identity", {})
+    runtime = canonical.get("_maintenance_restoration_runtime", {})
+    physical = {
+        "run_id": str(identity.get("run_id", "")),
+        "source": identity.get("source"),
+        "revision": identity.get("revision"),
+        "uid": identity.get("uid"),
+        "service_uid": identity.get("service_uid"),
+    }
+    reference.require(
+        found is not None
+        and found[0] == run["id"]
+        and not anchors
+        and canonical.get("status") == "healthy"
+        and canonical.get("scope") == "frontend"
+        and canonical.get("sha") == refresh.CANDIDATE
+        and canonical.get("predecessor_exception") == exception
+        and canonical.get("backend_origin") == pointer
+        and physical == pointer
+        and identity.get("source") == identity.get("sha") == refresh.SOURCE
+        and identity.get("image") == refresh.IMAGES["backend"]
+        and canonical.get("final", {}).get("backend_revision") == pointer["revision"]
+        and runtime == {"backend": identity}
+        and _same_run(fresh, run)
+        and proof.read_original() == current,
+        "auth frontend continuation lost its qualified physical backend",
+    )
+    return identity["source"]
+
+
 def resolve() -> str:
     current = proof.read_original()
     anchor = record_anchor(current)
@@ -186,17 +271,20 @@ def _continuation_source(current: dict) -> str | None:
         ),
         "activation_basis_healthy_reference_changed",
     )
+    reference.require(proof.read_original() == current, "activation_basis_tag_changed")
+    if run.get("conclusion") == "failure":
+        owner.verify_post_release_failure(proof.REPOSITORY, run, release)
+    else:
+        reference.require(
+            run.get("conclusion") == "success", "activation_basis_release_failed"
+        )
+    source = _auth_frontend_continuation_source(current, fields, run, release, owner)
+    if source is not None:
+        return source
     context = continuation.archive_context(
         proof.REPOSITORY, run, release, lane, **arguments
     )
-    reference.require(proof.read_original() == current, "activation_basis_tag_changed")
     if context is None:
-        if run.get("conclusion") == "failure":
-            owner.verify_post_release_failure(proof.REPOSITORY, run, release)
-        else:
-            reference.require(
-                run.get("conclusion") == "success", "activation_basis_release_failed"
-            )
         return None
     plan = phone._document(archive, "phone-rollback/plan.json")
     reference.require(
@@ -205,6 +293,78 @@ def _continuation_source(current: dict) -> str | None:
         "activation_basis_producer_state_invalid",
     )
     return context["backend"]["source"]
+
+
+def current_auth_domain_acceptance_profile() -> dict:
+    """Resolve only the current healthy restoration continuation through the release owner."""
+    current = proof.read_original()
+    reference.require(record_anchor(current) is None, "auth repair cannot use an operational anchor")
+    healthy, _ = reference.split(current["message"], current["commit"])
+    fields = reference.healthy_fields(healthy, current["commit"])
+    match = re.fullmatch(
+        rf"https://github\.com/{re.escape(proof.REPOSITORY)}/actions/runs/([1-9][0-9]*)",
+        fields["run"],
+    )
+    reference.require(match is not None, "auth repair healthy origin is invalid")
+    owner = authority()
+    token = owner._API_CACHE.set(None)
+    try:
+        run = owner.api(proof.REPOSITORY, f"runs/{match[1]}?exclude_pull_requests=true")
+        anchors = []
+        with tempfile.TemporaryDirectory(prefix="auth-domain-acceptance-") as directory:
+            found = owner.find_release(
+                proof.REPOSITORY,
+                match[1],
+                Path(directory),
+                require_live=False,
+                environment="production",
+                on_phone_rollback=anchors.append,
+            )
+        fresh = owner.uncached_api(proof.REPOSITORY, f"runs/{match[1]}")
+    finally:
+        owner._API_CACHE.reset(token)
+    release = found[1] if found is not None else {}
+    identity = release.get("_maintenance_backend_identity", {})
+    runtime = release.get("_maintenance_restoration_runtime", {})
+    reference.require(
+        found is not None
+        and found[0] == int(match[1])
+        and not anchors
+        and run.get("id") == int(match[1])
+        and type(run.get("run_attempt")) is int
+        and run["run_attempt"] > 0
+        and run.get("status") == "completed"
+        and run.get("conclusion") == "success"
+        and run.get("path") == ".github/workflows/deploy-production.yml"
+        and run.get("head_branch") == "main"
+        and run.get("event") == "workflow_dispatch"
+        and owner.governed_dispatch(run, proof.REPOSITORY, "production")
+        and release.get("status") == "healthy"
+        and release.get("scope") == "all"
+        and release.get("sha") == current["commit"]
+        and isinstance(release.get("production_restoration"), dict)
+        and isinstance(release.get("restoration_activation"), dict)
+        and "backend_origin" not in release
+        and "predecessor_exception" not in release
+        and isinstance(identity, dict)
+        and isinstance(runtime, dict)
+        and set(runtime) == {"backend", "frontend"}
+        and runtime.get("backend") == identity
+        and identity.get("source") == current["commit"]
+        and identity.get("sha") == current["commit"]
+        and fields["backend_revision"] == identity.get("revision")
+        and fields["frontend_revision"] == release.get("final", {}).get("frontend_revision")
+        and _same_run(fresh, run)
+        and proof.read_original() == current,
+        "auth repair current restoration acceptance changed",
+    )
+    return {
+        "run_id": run["id"],
+        "run_attempt": run["run_attempt"],
+        "workflow_sha": run["head_sha"],
+        "source": release["sha"],
+        "backend": dict(identity),
+    }
 
 
 def _auth_domain_frontend_exception(sha: str, scope: str, source: str) -> bool:
