@@ -323,8 +323,14 @@ def _operational_reference(current: dict, anchor: dict | None) -> dict:
     }
 
 
-def current_auth_domain_acceptance_profile(observed: dict | None = None) -> dict:
-    """Resolve the current serving backend and bind any held operational anchor."""
+def current_auth_domain_acceptance_profile(
+    observed: dict | None = None, *, revalidate_live: bool = True
+) -> dict:
+    """Bind restored acceptance; mutation recheck owns the initialized live readers."""
+    reference.require(
+        type(revalidate_live) is bool and (revalidate_live or observed is not None),
+        "auth repair deferred validation requires the captured serving baseline",
+    )
     current = proof.read_original()
     anchor = record_anchor(current)
     refresh = importlib.import_module("production_auth_domain_refresh")
@@ -336,10 +342,11 @@ def current_auth_domain_acceptance_profile(observed: dict | None = None) -> dict
             and anchor["original_healthy"]["commit"] == refresh.SOURCE,
             "auth repair operational anchor source tuple is outside the reviewed proof",
         )
-        # This runs only after emergency.admit has authenticated and captured
-        # the paired provider baseline. It confirms the held anchor and its
-        # original traffic/schema boundary without changing either.
-        live(anchor, initial=True)
+        # Admission precedes Python/proxy initialization. It may bind immutable
+        # evidence plus the paired provider baseline only. The existing mutation
+        # recheck must confirm live traffic/schema after those readers are ready.
+        if revalidate_live:
+            live(anchor, initial=True)
     healthy, _ = reference.split(current["message"], current["commit"])
     fields = reference.healthy_fields(healthy, current["commit"])
     match = re.fullmatch(
