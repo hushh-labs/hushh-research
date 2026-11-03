@@ -228,7 +228,11 @@ def sealed_event(
 
 
 def upgrade_request(
-    conn: Any, row_id: str, candidate: ValidatedCandidate, linked_event: str | None
+    conn: Any,
+    row_id: str,
+    candidate: ValidatedCandidate,
+    linked_event: str | None,
+    title: str,
 ) -> None:
     """A row from the earlier contract that the new assessment still supports."""
     conn.execute(
@@ -236,7 +240,7 @@ def upgrade_request(
         relevance='actionable', category=:category, urgency=:urgency,
         meeting_state=:meeting_state, assessment_version=:version,
         suppressed_at=NULL, suppression_reason=NULL,
-        linked_event_ciphertext=:linked_event, updated_at=NOW()
+        title_ciphertext=:title, linked_event_ciphertext=:linked_event, updated_at=NOW()
         WHERE id=CAST(:id AS UUID)"""),
         {
             "id": row_id,
@@ -245,6 +249,7 @@ def upgrade_request(
             "meeting_state": candidate.meeting_state,
             "version": ASSESSMENT_VERSION,
             "linked_event": linked_event,
+            "title": title,
         },
     )
 

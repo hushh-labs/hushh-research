@@ -151,7 +151,7 @@ describe("three-account Calendar board", () => {
     const attendees = [
       { email: "organizer-host@example.com", response_status: "accepted" },
       { email: "ann@example.com", response_status: "declined", display_name: "Ann", comment: "On leave that week" },
-      { email: "bob@example.com", response_status: "declined", comment: null },
+      { email: "bob@example.com", response_status: "declined", comment: "  " },
       { email: "cy@example.com", response_status: "accepted" },
     ];
     const hostCopy = { ...event("default", "group", "Planning", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"), can_decline: false, organizer, attendees };
