@@ -29,7 +29,11 @@ from hushh_mcp.services import oauth_redirect_policy
 from hushh_mcp.services.google_calendar_account_status import (
     calendar_accounts_status as project_calendar_accounts_status,
 )
-from hushh_mcp.services.google_calendar_additional_store import upsert_additional_calendar_account
+from hushh_mcp.services.google_calendar_additional_store import (
+    enable_additional_mail_read,
+    upsert_additional_calendar_account,
+)
+from hushh_mcp.services.google_calendar_authorization import mail_grant
 from hushh_mcp.services.google_calendar_connection_view import CalendarAccountConnectionView
 from hushh_mcp.services.google_calendar_guest_photo_broker import exchange_guest_photo_token
 from hushh_mcp.services.google_calendar_meeting_grant import (
@@ -282,6 +286,7 @@ class GoogleConnectionService:
         transport: Literal["web", "native"],
         include_calendar_list: bool = False,
         include_meeting_files: bool = False,
+        include_mail_access: bool = False,
         calendar_additional: bool = False,
         calendar_account_id: str | None = None,
     ) -> dict[str, Any]:
@@ -294,6 +299,7 @@ class GoogleConnectionService:
             transport=transport,
             include_calendar_list=include_calendar_list,
             include_meeting_files=include_meeting_files,
+            include_mail_access=include_mail_access,
             calendar_additional=calendar_additional,
             calendar_account_id=calendar_account_id,
         )
@@ -309,7 +315,10 @@ class GoogleConnectionService:
         calendar_additional: bool = False,
         calendar_account_id: str | None = None,
         include_meeting_files: bool = False,
+        include_mail_access: bool = False,
     ) -> dict[str, Any]:
+        if include_mail_access and service != "calendar":
+            raise GoogleConnectionError("Unsupported Mail access request", status_code=422)
         if calendar_additional and service not in {"calendar", "gmail"}:
             raise GoogleConnectionError("Unsupported additional account service", status_code=422)
         if calendar_account_id and (not calendar_additional or calendar_account_id == "default"):
@@ -336,6 +345,7 @@ class GoogleConnectionService:
             calendar_additional=calendar_additional,
             calendar_account_id=calendar_account_id,
             include_meeting_files=include_meeting_files,
+            include_mail_access=include_mail_access,
         )
         query = {
             "client_id": self._client_id(),
@@ -732,7 +742,53 @@ class GoogleConnectionService:
             grant_params=grant_params,
             photo_scope_preserved=CALENDAR_GUEST_PHOTO_SCOPE in granted_scopes,
         )
-        return await self._primary_completion_status(user_id, service, calendar_additional)
+        status = await self._primary_completion_status(user_id, service, calendar_additional)
+        if service != "calendar":
+            return status
+        return {
+            **status,
+            "mail_access": await self._adopt_calendar_mail(
+                user_id=user_id,
+                token=token,
+                subject=subject,
+                email=_clean(profile.get("email")),
+                requested_scopes=requested_scopes,
+                oauth_started_at=oauth_started_at,
+            ),
+        }
+
+    async def _adopt_calendar_mail(
+        self,
+        *,
+        user_id: str,
+        token: dict[str, Any],
+        subject: str,
+        email: str,
+        requested_scopes: tuple[str, ...],
+        oauth_started_at: datetime,
+    ) -> str:
+        """Record Mail for the primary account once Calendar is already connected."""
+        from hushh_mcp.services.calendar_mail_adoption import (  # noqa: PLC0415
+            adopt_primary_mail_grant,
+        )
+        from hushh_mcp.services.gmail_receipts_service import (  # noqa: PLC0415
+            get_gmail_receipts_service,
+        )
+
+        mail = mail_grant(requested_scopes, _clean(token.get("scope")))
+        if not mail.read:
+            return mail.outcome
+        gmail = get_gmail_receipts_service()
+        return await adopt_primary_mail_grant(
+            gmail,
+            user_id=user_id,
+            subject=subject,
+            email=email,
+            token=token,
+            mail=mail,
+            same_client=bool(self._client_id()) and self._client_id() == gmail._oauth_client_id(),
+            oauth_started_at=oauth_started_at,
+        )
 
     async def _store_additional_calendar_account(
         self,
@@ -763,6 +819,7 @@ class GoogleConnectionService:
             CALENDAR_GUEST_PHOTO_SCOPE in requested_scopes
             and CALENDAR_GUEST_PHOTO_SCOPE in set(scopes.split())
         )
+        mail = mail_grant(requested_scopes, scopes)
         required = set(self.scopes("calendar", requested_calendar_level(requested_scopes)))
         if not scopes or not _scopes_cover(set(scopes.split()), required):
             raise GoogleConnectionError(
@@ -898,6 +955,10 @@ class GoogleConnectionService:
                         "expires_at": expires,
                     },
                 )
+                # Only this attempt's own request plus Google's reply enable
+                # Mail; a scope carried by an older credential never does.
+                if mail.read:
+                    enable_additional_mail_read(connection, user_id, account_id)
                 expire_oauth_attempt(connection, attempt_id)
 
         try:
@@ -908,7 +969,10 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Calendar connection could not be saved. Reconnect.", status_code=503
             ) from None
-        return await self._calendar_completion_status(user_id, account_id)
+        return {
+            **(await self._calendar_completion_status(user_id, account_id)),
+            "mail_access": mail.outcome,
+        }
 
     async def _store_additional_gmail_grant(
         self,

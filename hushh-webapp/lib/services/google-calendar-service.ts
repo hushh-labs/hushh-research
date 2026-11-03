@@ -130,6 +130,8 @@ export class GoogleCalendarService {
     accountId?: string;
     loginHint?: string;
     includeMeetingFiles?: boolean;
+    /** Ask for Gmail in the same Google consent. Follow-up monitoring stays off until the owner turns it on for the account. */
+    includeMailAccess?: boolean;
   }): Promise<OAuthStart> {
     await requireSharedGoogleExchange();
     const response = await ApiService.apiFetch(
@@ -147,6 +149,7 @@ export class GoogleCalendarService {
           ...(params.accountId ? { account_id: params.accountId } : {}),
           ...(params.loginHint ? { login_hint: params.loginHint } : {}),
           ...(params.includeMeetingFiles ? { include_meeting_files: true } : {}),
+          ...(params.includeMailAccess ? { include_mail_access: true } : {}),
           redirect_uri: typeof window === "undefined" ? undefined
             : `${window.location.origin}/one/profile/google/oauth/return`,
         }),
