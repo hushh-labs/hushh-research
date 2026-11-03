@@ -332,9 +332,9 @@ def current_auth_domain_acceptance_profile(observed: dict | None = None) -> dict
         reference.require(
             anchor["source"] == refresh.ACTIVE_ANCHOR_SOURCE
             and anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"]
-            == refresh.SOURCE
+            == refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE
             and anchor["original_healthy"]["commit"] == refresh.SOURCE,
-            "auth repair operational anchor is outside the reviewed source",
+            "auth repair operational anchor source tuple is outside the reviewed proof",
         )
         # This runs only after emergency.admit has authenticated and captured
         # the paired provider baseline. It confirms the held anchor and its
@@ -702,11 +702,13 @@ def admit(sha: str, scope: str) -> None:
             anchor["source"] == refresh.ACTIVE_ANCHOR_SOURCE
             and anchor["original_healthy"]["commit"] == refresh.SOURCE
             and anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"]
-            == refresh.SOURCE
+            == refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE
+        )
+        auth_source = (
+            anchor["original_healthy"]["commit"] if anchor is not None else source
         )
         reference.require(
-            auth_anchor_is_exact
-            and _auth_domain_frontend_exception(sha, scope, source),
+            auth_anchor_is_exact and _auth_domain_frontend_exception(sha, scope, auth_source),
             "operational_backend_transition_requires_original_source",
         )
 

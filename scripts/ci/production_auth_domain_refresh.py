@@ -23,9 +23,10 @@ from urllib.request import HTTPRedirectHandler, build_opener
 
 SOURCE = "d8a5fa4858741e611d39fd4f1f28b1ab930d057c"
 # The held production operational tag points at this staged backend revision.
-# Its healthy baseline and sealed primary remain SOURCE; these are distinct
-# source roles and must not be collapsed during auth-domain repair admission.
 ACTIVE_ANCHOR_SOURCE = "4452c7121c80ef73e8e6d43cd7af19b20f679a83"
+# The sealed cold-proof primary is distinct from both the staged anchor source
+# and the restored healthy application source.
+ACTIVE_ANCHOR_PRIMARY_SOURCE = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
 CANDIDATE = "00507b68ea293524f73ad42b1839984bcaa46c98"
 IMAGES = {
     "frontend": "gcr.io/hushh-pda/hushh-webapp@sha256:88ac5b5b659f6c851e80f3926d553d4443fd4408f283df09a3974650eebecf98",
@@ -140,7 +141,7 @@ def qualify_backend_acceptance_origin(
         require(
             anchor_record.get("source") == ACTIVE_ANCHOR_SOURCE
             and anchor_record.get("healthy_commit") == SOURCE,
-            "Operational anchor does not match the reviewed staged/healthy source pair",
+            "Operational anchor does not match the reviewed staged/healthy sources",
         )
     else:
         tag_reference.healthy_fields(operational["healthy_message"], SOURCE)

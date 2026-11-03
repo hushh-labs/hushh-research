@@ -57,7 +57,11 @@ def _auth_operational_reference(refresh, *, anchored=True):
             "image": refresh.IMAGES["backend"],
             "uid": "anchor-revision-uid",
             "original_healthy": original,
-            "sealed_boundary": {"checkpoint": {"plan": {"primary_sha": refresh.SOURCE}}},
+            "sealed_boundary": {
+                "checkpoint": {
+                    "plan": {"primary_sha": refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE}
+                }
+            },
         }
         message = reference.annotate(healthy, refresh.SOURCE, original["tag_oid"], anchor)
     tag = reference.tag_identity(header + message)
@@ -622,7 +626,9 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
                 "source": refresh.ACTIVE_ANCHOR_SOURCE,
                 "original_healthy": {"commit": refresh.SOURCE},
                 "sealed_boundary": {
-                    "checkpoint": {"plan": {"primary_sha": refresh.SOURCE}}
+                    "checkpoint": {
+                        "plan": {"primary_sha": refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE}
+                    }
                 }
             }
             with (
@@ -633,13 +639,33 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
                 ) as repair_exception,
             ):
                 attempt(anchor=anchor)
-            repair_exception.assert_called_once()
+            repair_exception.assert_called_once_with(
+                refresh.CANDIDATE, "frontend", refresh.SOURCE
+            )
             wrong_anchor = {
                 **anchor,
                 "source": "e" * 40,
             }
             with self.assertRaisesRegex(ValueError, "transition_requires_original_source"):
                 attempt(anchor=wrong_anchor)
+            for wrong_field, wrong_value in (
+                ("primary_sha", refresh.SOURCE),
+                ("healthy_commit", refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE),
+            ):
+                broken_anchor = copy.deepcopy(anchor)
+                if wrong_field == "primary_sha":
+                    broken_anchor["sealed_boundary"]["checkpoint"]["plan"][
+                        "primary_sha"
+                    ] = wrong_value
+                else:
+                    broken_anchor["original_healthy"]["commit"] = wrong_value
+                with (
+                    self.subTest(wrong_field=wrong_field),
+                    self.assertRaisesRegex(
+                        ValueError, "transition_requires_original_source"
+                    ),
+                ):
+                    attempt(anchor=broken_anchor)
             invalid = (
                 {"sha": "e" * 40},
                 {"scope": "all"},
@@ -661,19 +687,21 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
                     selected_inputs={**inputs, "sha": "e" * 40},
                     sha="e" * 40,
                 )
-            for bad_source, bad_environment in (
-                ("e" * 40, None),
-                (refresh.SOURCE, {"GITHUB_ACTOR": "unapproved-actor"}),
-                (refresh.SOURCE, {"GITHUB_REF": "refs/heads/fix/incident"}),
+            with self.assertRaisesRegex(
+                ValueError, "transition_requires_original_source"
+            ):
+                attempt(source="e" * 40, anchor=None)
+            for bad_environment in (
+                {"GITHUB_ACTOR": "unapproved-actor"},
+                {"GITHUB_REF": "refs/heads/fix/incident"},
             ):
                 with (
-                    self.subTest(source=bad_source, environment=bad_environment),
+                    self.subTest(environment=bad_environment),
                     self.assertRaisesRegex(
                         ValueError, "transition_requires_original_source"
                     ),
                 ):
                     attempt(
-                        source=bad_source,
                         environment_changes=bad_environment,
                     )
 
@@ -763,7 +791,17 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
         self.assertNotEqual(anchor["source"], refresh.SOURCE)
         self.assertEqual(
             anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"],
-            refresh.SOURCE,
+            refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE,
+        )
+        self.assertEqual(anchor["source"], refresh.ACTIVE_ANCHOR_SOURCE)
+        self.assertEqual(anchor["original_healthy"]["commit"], refresh.SOURCE)
+        self.assertEqual(
+            len({
+                anchor["source"],
+                anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"],
+                anchor["original_healthy"]["commit"],
+            }),
+            3,
         )
         run = {
             "id": 40475676949,
