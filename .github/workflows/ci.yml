@@ -213,7 +213,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run exact auth-health contracts
-        if: github.event_name == 'pull_request' && needs.paths.outputs.auth_health_only == 'true'
+        if: needs.paths.outputs.auth_health == 'true'
         working-directory: consent-protocol
         run: >-
           .venv/bin/python -m pytest -q
@@ -239,6 +239,7 @@ jobs:
       android: ${{ steps.resolve.outputs.android }}
       editor: ${{ steps.resolve.outputs.editor }}
       auth_health_only: ${{ steps.resolve.outputs.auth_health_only }}
+      auth_health: ${{ steps.filter.outputs.auth_health }}
     steps:
       - uses: actions/checkout@v6
 
@@ -323,6 +324,9 @@ jobs:
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
+              # The required Governance auth-health step owns this full suite,
+              # including mixed CI changes; keep real backend contracts below.
+              - '!consent-protocol/tests/test_auth_health_inventory.py'
               - '!consent-protocol/tests/test_direct_uat_acceptance.py'
               - '!consent-protocol/tests/test_uat_application_selection.py'
               - '!consent-protocol/tests/test_uat_paused_drive_maintenance.py'
@@ -345,6 +349,7 @@ jobs:
               - 'hushh-webapp/package-lock.json'
             auth_health:
               - 'deploy/observability/auth_health_job.py'
+              - 'deploy/observability/auth_health_inventory.py'
               - 'deploy/observability/setup_auth_health.py'
               - 'deploy/observability/auth_health_uat_common.py'
               - 'deploy/observability/auth_health_uat_job_install.py'
@@ -362,6 +367,7 @@ jobs:
             non_auth_health:
               - '**'
               - '!deploy/observability/auth_health_job.py'
+              - '!deploy/observability/auth_health_inventory.py'
               - '!deploy/observability/setup_auth_health.py'
               - '!deploy/observability/auth_health_uat_common.py'
               - '!deploy/observability/auth_health_uat_job_install.py'
