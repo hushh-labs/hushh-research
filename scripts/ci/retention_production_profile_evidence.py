@@ -15,7 +15,8 @@ import retention_production_evidence as production
 import retention_publication_source as publication_source
 
 APPROVED_SOURCE_SHA = "8053f691444593c83aa7e01cab2d88727820287b"
-PROFILE_NAME = "publication-84b"
+PROFILE_TEMPLATE_SOURCE = "publication-84b"
+PROFILE_NAME = "publication-84b-blobless-v1"
 PROFILE_TEMPLATE_RUN_ID = 41489711406
 MAX_CLOCK_RUNS = 100
 MAX_COMPARE_COMMITS = 250
@@ -230,7 +231,7 @@ def _profile_template(owner):
         owner,
         template is not None
         and template.worker_head_sha == APPROVED_SOURCE_SHA
-        and template.source_profile == PROFILE_NAME
+        and template.source_profile == PROFILE_TEMPLATE_SOURCE
         and template.wake_overlap_seconds == 0,
         "approved production source profile is unavailable",
     )
@@ -240,6 +241,7 @@ def _profile_template(owner):
 def _dynamic_record(owner, template, worker, job, clock_run, check, wake):
     from retention_production_clock_records import ClockEvidence
 
+    source_profile = _clock_source_profile(owner, clock_run.get("display_title"))
     tick = _named_step(wake, "Send one capacity-maintenance-tick")
     _require(
         owner,
@@ -273,6 +275,7 @@ def _dynamic_record(owner, template, worker, job, clock_run, check, wake):
     )
     return replace(
         template,
+        source_profile=source_profile,
         worker_head_sha=worker["head_sha"],
         worker_created_at=worker["created_at"],
         worker_job_id=job["id"],
@@ -291,6 +294,19 @@ def _named_step(job, name):
         return {}
     matches = [row for row in rows if isinstance(row, dict) and row.get("name") == name]
     return matches[0] if len(matches) == 1 else {}
+
+
+def _clock_source_profile(owner, title):
+    """Select one exact known source family from the clock title version."""
+    import retention_production_clock_evidence as clock_evidence
+
+    workflow_blob = clock_evidence._clock_workflow_blob_for_title(title)
+    if workflow_blob == clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB:
+        return PROFILE_NAME
+    if workflow_blob == clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB:
+        return PROFILE_TEMPLATE_SOURCE
+    _require(owner, False, "capacity clock title or source version is unapproved")
+    raise AssertionError("unreachable")
 
 
 def _job_names(owner, jobs):
@@ -352,22 +368,23 @@ def _clock_proof(owner, repository, worker_run, candidate):
         _job_names(owner, jobs) == EXPECTED_CLOCK_JOBS,
         "capacity clock job inventory changed",
     )
+    clock_title = attempt.get("display_title")
+    expected_clock_blob = clock_evidence._clock_workflow_blob_for_title(clock_title)
+    source_profile = _clock_source_profile(owner, clock_title)
     _require(
         owner,
         attempt.get("run_attempt") == 1
         and _valid_sha(attempt.get("head_sha"))
         and _login(attempt, "actor") == "github-actions[bot]"
         and _login(attempt, "triggering_actor") == "github-actions[bot]"
-        and re.fullmatch(
-            r"Capacity clock · repository_dispatch · run [1-9][0-9]*",
-            str(attempt.get("display_title", "")),
-        ) is not None,
+        and expected_clock_blob is not None
+        and record.source_profile == source_profile,
         "capacity clock source or identity is unapproved",
     )
     clock_head = attempt["head_sha"]
     _is_ancestor(owner, repository, clock_head, worker_run["head_sha"])
-    template = _profile_template(owner)
-    expected_sources = records.CLOCK_BOUND_SOURCE_PROFILES[template.source_profile]
+    _profile_template(owner)
+    expected_sources = records.CLOCK_BOUND_SOURCE_PROFILES[source_profile]
     source_paths = (*expected_sources, clock_evidence.CLOCK_WORKFLOW)
     source_metadata = publication_source.read_source(
         owner, repository, clock_head, source_paths
@@ -388,7 +405,7 @@ def _clock_proof(owner, repository, worker_run, candidate):
             for path, (sha, size) in expected_sources.items()
         }
         and workflow_blob
-        == {"sha": clock_evidence.CLOCK_WORKFLOW_BLOB[0], "size": clock_evidence.CLOCK_WORKFLOW_BLOB[1]}
+        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]}
         and clock_evidence._clock_proof_matches(record, worker_run, proof),
         "capacity clock proof is incomplete or unapproved",
     )

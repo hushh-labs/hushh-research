@@ -383,7 +383,8 @@ def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None
         Path(__file__).resolve().parents[2]
         / ".github/workflows/capacity-maintenance-clock.yml"
     ).read_text()
-    assert 'run-name: "Capacity clock · ${{ github.event_name }} · run ${{ github.run_number }}"' in source
+    assert 'run-name: "Capacity clock"' in source
+    assert "github.run_number" not in source
     uat_only = _run_clock_summary(
         {
             "CLOCK_AUTHORITY": "true",

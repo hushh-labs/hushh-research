@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import retention_preflight_evidence as base
 import retention_production_evidence as production
@@ -24,8 +25,26 @@ PUBLICATION = production.PUBLICATION
 SOURCE_PATHS = production.SOURCE_PATHS
 
 CLOCK_WORKFLOW = ".github/workflows/capacity-maintenance-clock.yml"
-CLOCK_WORKFLOW_BLOB = ("8f81156d0b980c19da5bbaf3187eb071e58b8af1", 9365)
+HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB = (
+    "8f81156d0b980c19da5bbaf3187eb071e58b8af1",
+    9365,
+)
+CURRENT_CLOCK_TITLE = "Capacity clock"
+CURRENT_CLOCK_WORKFLOW_BLOB = ("0e905f3da506f5573a0c4282b8e60232be13336d", 9305)
+# Existing immutable receipts remain pinned to the run-numbered title/blob
+# pair; new dynamic qualification uses the exact current title/blob pair above.
+_HISTORICAL_NUMBERED_CLOCK_TITLE = re.compile(
+    r"Capacity clock · (?:repository_dispatch|schedule) · run [1-9][0-9]*\Z"
+)
 MAX_WAKE_TO_WORKER_SECONDS = 2
+
+
+def _clock_workflow_blob_for_title(title):
+    if title == CURRENT_CLOCK_TITLE:
+        return CURRENT_CLOCK_WORKFLOW_BLOB
+    if isinstance(title, str) and _HISTORICAL_NUMBERED_CLOCK_TITLE.fullmatch(title):
+        return HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB
+    return None
 
 
 def settled_production_failure(run, job):
@@ -98,6 +117,9 @@ def _clock_proof_matches(record, worker_run, clock_proof):
     clock_record = record.clock
     if not isinstance(clock, dict) or check_steps is None or wake_steps is None:
         return False
+    expected_clock_blob = _clock_workflow_blob_for_title(clock_record.title)
+    if expected_clock_blob is None:
+        return False
     if not (
         _strict_int_equals(clock.get("id"), clock_record.run_id)
         and _strict_int_equals(clock.get("run_attempt"), 1)
@@ -119,7 +141,7 @@ def _clock_proof_matches(record, worker_run, clock_proof):
             and clock.get("conclusion") == "success"
         )
         and clock_proof.get("workflow_blob")
-        == {"sha": CLOCK_WORKFLOW_BLOB[0], "size": CLOCK_WORKFLOW_BLOB[1]}
+        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]}
         and _clock_job_matches(
             check,
             record,
