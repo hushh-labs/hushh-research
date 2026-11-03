@@ -394,6 +394,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--github-output", action="store_true")
     parser.add_argument("--allow-no-op", action="store_true")
+    parser.add_argument("--no-op-only", action="store_true")
     args = parser.parse_args()
     try:
         subprocess.run(
@@ -413,6 +414,8 @@ def main() -> int:
         )
         result = choose(target, current, args.allow_no_op, ancestor=ancestor)
         require_unchanged_uat_tip(target)
+        if args.no_op_only and result["decision"] != "NO_OP":
+            raise Refused("An explicit application SHA and approved PR scope are required to deploy")
         if args.github_output:
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
                 for key in ("sha", "decision", "uat_actual_sha", "reason"):

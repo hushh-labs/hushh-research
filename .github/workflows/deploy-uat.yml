@@ -246,6 +246,12 @@ jobs:
           REQUESTED_SHA: ${{ github.event.inputs.sha }}
         run: |
           set -euo pipefail
+          if [[ -z "$REQUESTED_SHA" && "$UAT_SOURCE_BRANCH" == uat ]]; then
+            # A blank request may verify already-serving shared UAT only.
+            python3 scripts/ci/uat_application_selection.py \
+              --scope "${{ inputs.scope }}" --github-output --allow-no-op --no-op-only
+            exit 0
+          fi
           if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "UAT deployment requires an explicit full application SHA."
             exit 1
