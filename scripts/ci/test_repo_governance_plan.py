@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import contextlib
 import io
 import os
@@ -168,8 +169,41 @@ def test_runner_reports_every_failure_instead_of_stopping_early() -> None:
     assert "second-failure (exit 9)" in output
 
 
+def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() -> None:
+    from unittest.mock import patch
+    source = ROOT / ".agents/skills/repo-operations/scripts/pre_pr_readiness.py"
+    spec = importlib.util.spec_from_file_location("local_readiness", source)
+    assert spec and spec.loader
+    local = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(local)
+    assert local._lanes([".github/workflows/ci.yml"], None) == (
+        {"frontend": False, "backend": False}, None
+    )
+    assert local._lanes(["hushh-webapp/app/page.tsx"], None) == (
+        {"frontend": True, "backend": False}, None
+    )
+    with patch.object(local, "_workflow_filters", side_effect=ValueError("unknown syntax")):
+        lanes, warning = local._lanes(["new/runtime"], None)
+        assert all(lanes.values()) and warning
+    observed = []
+    def run(argv, **kwargs):
+        observed.append((argv, kwargs.get("env", {})))
+        return {"ok": True}
+    with tempfile.TemporaryDirectory() as raw, patch.object(local, "_run", side_effect=run), \
+         patch.object(local, "_protected", return_value=(True, "approved")), \
+         patch.object(local, "_validate_body"):
+        context = {"number": 1, "body": "reviewed", "author": "owner", "base_ref": "main",
+                   "base": "a" * 40, "head_ref": "fix/change", "head": "b" * 40,
+                   "repository": "owner/repo", "files_path": Path(raw) / "files",
+                   "files": ["hushh-webapp/app/page.tsx"], "lanes": {"frontend": True, "backend": False}}
+        local._focused(None, context, Path(raw), stream=False)
+    targeted = [env for argv, env in observed if argv[-1] == "web-targeted"]
+    assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
+
+
 def main() -> int:
     tests = (
+        test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
         test_known_product_path_does_not_expand_critical_groups,

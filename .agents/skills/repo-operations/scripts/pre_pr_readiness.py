@@ -170,7 +170,7 @@ def _workflow_filters() -> dict[str, list[str]]:
             if not re.fullmatch(r"'[A-Za-z0-9_./!*+-]+'", raw): raise ValueError("unsupported path-filter syntax")
             pattern = raw[1:-1]
             plain = pattern.removeprefix("!")
-            if any(char in plain.removesuffix("/**") for char in "*?[]{}"):
+            if current in {"frontend", "backend"} and any(char in plain.removesuffix("/**") for char in "*?[]{}"):
                 raise ValueError("unsupported path-filter glob; selecting both app lanes")
             filters[current].append(pattern)
         else: raise ValueError("unsupported path-filter syntax")
@@ -271,6 +271,7 @@ def _render_text(payload: dict[str, Any]) -> str:
         f"Branch: {payload['branch']}",
         f"Diagnostic: {payload.get('diagnostic', False)}",
         f"Checks represented: {', '.join(payload['mirrors_workflows'])}",
+        f"Browser: {payload.get('browser_validation', 'diagnostic mode')}",
         "Commands:",
     ]
     for command in payload["commands"]:
