@@ -143,6 +143,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Signoff checks require complete commit history, not historical
+          # file contents. Keep all commits without downloading every old blob.
+          filter: blob:none
 
       - name: Validate DCO signoff
         env:
