@@ -202,16 +202,41 @@ def _started(run: dict) -> tuple[datetime, int]:
         raise Refused("CI chronology is unavailable") from None
 
 
-def _exact_candidate_job(jobs, base, *, current=True):
+def _static_candidate_base_is_bound(job, base):
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return False
+    bound = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict)
+        and step.get("name") == f"Verify exact serving base ({base})"
+        and step.get("conclusion") == "success"
+    ]
+    source = [
+        index
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and step.get("name") == "Verify the exact UAT checkout"
+    ]
+    return len(bound) == 1 and len(source) == 1 and bound[0] < source[0]
+
+
+def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
     base_name = f"Exact UAT Candidate ({base})"
     matches = [
         job for job in jobs if job.get("name") in {"Exact UAT Candidate", base_name}
     ]
     require(
-        len(matches) == 1 and (not current or matches[0].get("name") == base_name),
+        len(matches) == 1,
         "UAT CI requires a unique successful qualification labelled with its exact serving base",
     )
-    return matches[0]
+    exact_job = matches[0]
+    if exact_job.get("name") == "Exact UAT Candidate" and not allow_legacy_static:
+        require(
+            _static_candidate_base_is_bound(exact_job, base),
+            "Static UAT CI qualification did not verify its exact serving base before source validation",
+        )
+    return exact_job
 
 
 
@@ -225,10 +250,10 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
         and inventory["total_count"] == len(jobs) <= 100,
         "UAT CI job inventory is incomplete",
     )
-    exact_job = _exact_candidate_job(jobs, base, current=current)
     # Only historical serving receipts may use the prior immutable workflow's
     # inventory. Current qualification requires the new release-core policy.
     legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
+    exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
     required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
     for name in required_jobs:
         matches = [job for job in jobs if job.get("name") == name]

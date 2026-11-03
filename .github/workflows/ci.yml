@@ -1673,7 +1673,7 @@ jobs:
   # checking the immutable workflow authority, full run and security receipt.
   # This job alone never authorizes a release or replaces the aggregate gate.
   uat-exact-source:
-    name: "Exact UAT Candidate (${{ inputs.uat_base_sha }})"
+    name: "Exact UAT Candidate"
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1687,6 +1687,14 @@ jobs:
           persist-credentials: false
       - name: Verify release-level core selection
         run: test "$CI_VALIDATION_LEVEL:$CI_VALIDATION_POLICY" = 'release:core-focused-v1'
+
+      - name: Verify exact serving base (${{ inputs.uat_base_sha }})
+        env:
+          EXPECTED_BASE: ${{ inputs.uat_base_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse "${EXPECTED_BASE}^{commit}")" = "$EXPECTED_BASE"
 
       - name: Verify the exact UAT checkout
         env:
