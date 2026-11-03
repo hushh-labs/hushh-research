@@ -207,6 +207,43 @@ def _continuation_source(current: dict) -> str | None:
     return context["backend"]["source"]
 
 
+def _auth_domain_frontend_exception(sha: str, scope: str, source: str) -> bool:
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    if (sha, scope, source) != (refresh.CANDIDATE, "frontend", refresh.SOURCE):
+        return False
+    event_path = os.environ.get("GITHUB_EVENT_PATH", "")
+    if not event_path:
+        return False
+    try:
+        event = json.loads(Path(event_path).read_text())
+        if not isinstance(event, dict):
+            return False
+        inputs = event.get("inputs")
+        selected = inputs.get("frontend_auth_domain_refresh") if isinstance(inputs, dict) else None
+        if (
+            not isinstance(inputs, dict)
+            or inputs.get("sha") != sha
+            or inputs.get("scope") != scope
+            or not (selected is True or selected == "true")
+        ):
+            return False
+        root = Path(__file__).resolve().parents[2]
+        policy = json.loads((root / "config/ci-governance.json").read_text())
+        authority = importlib.import_module("production_emergency").dispatch(
+            event, dict(os.environ), policy
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return isinstance(authority, dict) and (
+        authority.get("mode") == "manual-emergency"
+        and authority.get("frontend_auth_domain_refresh") is True
+        and authority.get("application_sha") == sha
+        and authority.get("run_id") == os.environ.get("GITHUB_RUN_ID")
+        and authority.get("run_attempt") == os.environ.get("GITHUB_RUN_ATTEMPT")
+        and authority.get("workflow_sha") == os.environ.get("GITHUB_SHA")
+    )
+
+
 def admit(sha: str, scope: str) -> None:
     current = proof.read_original()
     anchor = record_anchor(current)
@@ -216,8 +253,10 @@ def admit(sha: str, scope: str) -> None:
         else _continuation_source(current)
     )
     if source is not None:
+        if scope in {"backend", "all"} and sha == source:
+            return
         reference.require(
-            scope in {"backend", "all"} and sha == source,
+            anchor is None and _auth_domain_frontend_exception(sha, scope, source),
             "operational_backend_transition_requires_original_source",
         )
 
