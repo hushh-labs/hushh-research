@@ -3,13 +3,13 @@
 
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildPlan, executePlan } from "./affected-tests.mjs";
+import { buildPlan, dynamicImportRisk, executePlan } from "./affected-tests.mjs";
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const REPO_ROOT = path.resolve(WEB_ROOT, "..");
@@ -248,4 +248,139 @@ test("presentation-only changes retain their browser owner without a full unit s
   let full = 0;
   assert.equal(executePlan(plan, { runFullSuite() { full += 1; return { status: 1 }; } }), 0);
   assert.equal(full, 0);
+});
+
+test("known native and browser harness inputs stay with their other owner", () => {
+  const plan = buildPlan({ env: {
+    CI_VALIDATION_LEVEL: "focused",
+    CI_CHANGED_FILES: [
+      "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
+      "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
+      "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
+    ].join("\n"),
+  } });
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.noUnitImpact, true);
+  assert.deepEqual(plan.relatedFiles, []);
+  assert.deepEqual(plan.directFiles, []);
+});
+
+test("registered generated contracts feed Vitest related selection", () => {
+  const contracts = [
+    `app/register-phone/${["page.voice", "-action-contract.json"].join("")}`,
+    `contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`,
+    `contracts/kai/${["one-capability-graph", ".v1.json"].join("")}`,
+    ["frontend-native-surface-map", ".generated.json"].join(""),
+    `lib/navigation/${["app-route-layout", ".contract.json"].join("")}`,
+  ];
+  const plan = buildPlan({ env: {
+    CI_VALIDATION_LEVEL: "focused",
+    CI_CHANGED_FILES: contracts.map((file) => `hushh-webapp/${file}`).join("\n"),
+  } });
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.relatedFiles, contracts.sort());
+  assert.deepEqual(plan.directFiles, []);
+});
+
+test("computed imports of registered contracts still fail closed", () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), "hushh-contract-import-risk-"));
+  const repo = path.join(tmp, "repo");
+  const importer = path.join(repo, "hushh-webapp/lib/contract-loader.ts");
+  const contract = path.join(
+    repo,
+    "hushh-webapp/contracts/kai",
+    ["one-capability-graph", ".v1.json"].join(""),
+  );
+  const bin = path.join(tmp, "bin");
+  const originalPath = process.env.PATH;
+  try {
+    mkdirSync(path.dirname(importer), { recursive: true });
+    mkdirSync(path.dirname(contract), { recursive: true });
+    mkdirSync(path.join(repo, "scripts/ci"), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(
+      importer,
+      `const name = "${["one-capability-graph", ".v1"].join("")}"; await import(resolveContract(name));\n`,
+    );
+    writeFileSync(contract, "{}\n");
+    writeFileSync(
+      path.join(repo, "scripts/ci/account-deletion-check.sh"),
+      "vitest run \\\n  __tests__/services/account-deletion.test.ts \\\n  --maxWorkers=2\n",
+    );
+    writeFileSync(
+      path.join(bin, "git"),
+      "#!/usr/bin/env node\nprocess.stdout.write('hushh-webapp/lib/contract-loader.ts\\n');\n",
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
+
+    const plan = buildPlan({
+      env: {
+        CI_VALIDATION_LEVEL: "focused",
+        CI_CHANGED_FILES: `hushh-webapp/contracts/kai/${["one-capability-graph", ".v1.json"].join("")}`,
+      },
+      repoRoot: repo,
+    });
+    assert.equal(plan.effectiveLevel, "diagnostic");
+    assert.equal(plan.fallbackReason, "computed_dynamic_import_dependency");
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {
+  const known = [
+    "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
+    "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
+    "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
+    `hushh-webapp/contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`,
+  ];
+  const mixed = buildPlan({ env: {
+    CI_VALIDATION_LEVEL: "focused",
+    CI_CHANGED_FILES: [...known, `hushh-webapp/${DIRECT_TEST}`].join("\n"),
+  } });
+  assert.equal(mixed.effectiveLevel, "focused");
+  assert.deepEqual(mixed.directFiles, [DIRECT_TEST]);
+  assert.deepEqual(mixed.relatedFiles, [`contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`]);
+
+  for (const path of [
+    "hushh-webapp/lib/vault/passkey-domain-aliases.json",
+    "hushh-webapp/lib/unregistered-runtime.json",
+  ]) {
+    const unknown = buildPlan({ env: {
+      CI_VALIDATION_LEVEL: "focused",
+      CI_CHANGED_FILES: path,
+    } });
+    assert.equal(unknown.effectiveLevel, "diagnostic", path);
+    assert.equal(unknown.fallbackReason, "unknown_changed_file_type", path);
+  }
+});
+
+test("dynamic import scanning retains a finite 64 MiB fail-closed limit", () => {
+  const tmp = mkdtempSync(path.join(os.tmpdir(), "hushh-dynamic-import-limit-"));
+  const repo = path.join(tmp, "repo");
+  const source = path.join(repo, "hushh-webapp/lib/large-source.ts");
+  const bin = path.join(tmp, "bin");
+  const originalPath = process.env.PATH;
+  try {
+    mkdirSync(path.dirname(source), { recursive: true });
+    mkdirSync(bin);
+    writeFileSync(source, "");
+    truncateSync(source, 64 * 1024 * 1024 + 1);
+    writeFileSync(
+      path.join(bin, "git"),
+      "#!/usr/bin/env node\nprocess.stdout.write('hushh-webapp/lib/large-source.ts\\n');\n",
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
+    assert.equal(
+      dynamicImportRisk(repo, ["lib/large-source.ts"]),
+      "import_scan_limit_exceeded",
+    );
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

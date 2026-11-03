@@ -27,7 +27,18 @@ const CORE_SCRIPT_NAMES = [
 const WEB_CODE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".ts", ".tsx"]);
 const MAX_CHANGED_FILE_BYTES = 256 * 1024;
 const MAX_CHANGED_FILES = 500;
-const MAX_SOURCE_SCAN_BYTES = 32 * 1024 * 1024;
+const MAX_SOURCE_SCAN_BYTES = 64 * 1024 * 1024;
+const OTHER_OWNER_FILES = new Set([
+  // This browser-flow harness is covered by the hosted browser contract lane.
+  "scripts/testing/phone-conflict-flow.mjs",
+]);
+const REGISTERED_CONTRACT_INPUTS = new Set([
+  "app/register-phone/page.voice-action-contract.json",
+  "contracts/kai/kai-action-gateway.vnext.json",
+  "contracts/kai/one-capability-graph.v1.json",
+  "frontend-native-surface-map.generated.json",
+  "lib/navigation/app-route-layout.contract.json",
+]);
 
 function relativeWebPath(repoPath) {
   if (!repoPath.startsWith("hushh-webapp/")) return null;
@@ -55,6 +66,15 @@ function isSharedDependency(file) {
     file === "app/providers.tsx" ||
     /^(?:components\/(?:app-ui|ui)|lib\/capacitor)\//.test(file) ||
     /^lib\/services\/(?:api-service|auth-service|account-service)\.ts$/.test(file);
+}
+
+function isRegisteredContractInput(file) {
+  return REGISTERED_CONTRACT_INPUTS.has(file);
+}
+
+function isOtherOwnerFile(file) {
+  // The native job owns all iOS Swift sources; Vitest cannot exercise them.
+  return OTHER_OWNER_FILES.has(file) || (file.startsWith("ios/") && file.endsWith(".swift"));
 }
 
 function readChangedFiles(env) {
@@ -236,11 +256,17 @@ function sourceRisk(repoRoot, files, level) {
       if (!existsSync(fullPath) || !statSync(fullPath).isFile()) return "missing_changed_test";
       continue;
     }
+    if (isRegisteredContractInput(file)) {
+      const fullPath = path.join(repoRoot, "hushh-webapp", file);
+      if (!existsSync(fullPath) || !statSync(fullPath).isFile()) return "missing_changed_source";
+      continue;
+    }
     if (!isRuntimeModule(file)) return "unknown_changed_file_type";
     const fullPath = path.join(repoRoot, "hushh-webapp", file);
     if (!existsSync(fullPath) || !statSync(fullPath).isFile()) return "missing_changed_source";
   }
-  const sourceFiles = files.filter(isRuntimeModule);
+  const sourceFiles = files.filter((file) =>
+    isRuntimeModule(file) || isRegisteredContractInput(file));
   if (sourceFiles.length === 0) return null;
   if (level === "focused" || level === "release") {
     return dynamicImportRisk(repoRoot, sourceFiles);
@@ -277,6 +303,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
   // owner; mixing them into a source change must not expand all unit tests.
   const unitFiles = changed.files.filter((file) =>
     !/^(?:contracts\/ui-review\/|docs\/|e2e\/)/.test(file) &&
+    !isOtherOwnerFile(file) &&
     !file.endsWith(".md") && !(file.endsWith(".css") && file !== "app/globals.css"));
   if (requestedLevel === "focused" && unitFiles.length === 0) {
     return { ...base, effectiveLevel: "focused", changedFiles: changed.files, noUnitImpact: true };
@@ -285,7 +312,9 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
   if (risk) return { ...base, changedFiles: changed.files, fallbackReason: risk };
 
   const directTests = unitFiles.filter(isVitestFile);
-  const relatedFiles = unitFiles.filter(isRuntimeModule);
+  const relatedFiles = unitFiles.filter(
+    (file) => isRuntimeModule(file) || isRegisteredContractInput(file),
+  );
   if (requestedLevel === "focused" && relatedFiles.length === 0 && directTests.length === 0) {
     return { ...base, changedFiles: changed.files, fallbackReason: "no_related_test_inputs" };
   }
