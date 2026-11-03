@@ -78,6 +78,48 @@ def specialist_focus_instruction(state_getter: Callable[..., Any] | None) -> str
     )
 
 
+def scope_email_workspace_tools(callback_context: Any, llm_request: Any) -> None:
+    """Restrict the explicit Email tab without classifying text or granting access."""
+    from google.genai import types
+
+    from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+    from hushh_mcp.one_adk.receipt_client_tools import RECEIPT_TOOL_NAMES
+
+    state = getattr(callback_context, "state", {})
+    if (
+        state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
+        or state.get(STATE_SPECIALIST_FOCUS) != "email"
+    ):
+        return
+    allowed = {
+        "ask_email_agent",
+        "get_current_time",
+        "open_gmail_email_draft",
+        "open_gmail_information_request_reply",
+        "propose_gmail_mailbox_change",
+        "propose_gmail_todo",
+        "list_my_connections",
+        "suggest_follow_ups",
+        "open_screen",
+        "run_app_action",
+        "list_app_actions",
+        "propose_app_action",
+        *RECEIPT_TOOL_NAMES,
+    }
+    admitted = {name: tool for name, tool in llm_request.tools_dict.items() if name in allowed}
+    declarations = [
+        declaration
+        for group in (llm_request.config.tools or [])
+        for declaration in (group.function_declarations or [])
+        if declaration.name in admitted
+    ]
+    llm_request.tools_dict.clear()
+    llm_request.tools_dict.update(admitted)
+    llm_request.config.tools = (
+        [types.Tool(function_declarations=declarations)] if declarations else []
+    )
+
+
 __all__ = [
     "FORWARDED_SPECIALIST_FOCUS",
     "SPECIALIST_FOCI",

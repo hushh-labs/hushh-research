@@ -188,8 +188,13 @@ async def test_log_line_carries_no_identifying_records(monkeypatch, caplog):
     assert MESSAGE_TEXT not in line
 
 
-def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(monkeypatch, caplog):
+@pytest.mark.parametrize("environment", ["uat", "production", ""])
+def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(
+    monkeypatch, caplog, environment
+):
     monkeypatch.setenv("HUSHH_ONE_CHAT_TIMING_DETAIL", "1")
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", environment)
+    monkeypatch.setenv("ENVIRONMENT", environment)
     caplog.set_level(logging.INFO, logger=LOGGER_NAME)
     timing = agui_turn_timing.TurnTiming(
         head=HEAD_ONE, run="timing01", started_at=time.perf_counter()
@@ -220,9 +225,14 @@ def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(monkeyp
     assert len(barrier_calls) == 1
     assert timing.model_calls == 1
     assert timing.model_call_total_ms >= 5
-    assert timing.prompt_chars_peak == len("private system instructionprivate request text")
-    assert timing.tool_schema_chars_peak == len(repr(request.config.tools))
-    assert timing.history_items_peak == 1
+    if environment == "uat":
+        assert timing.prompt_chars_peak == len("private system instructionprivate request text")
+        assert timing.tool_schema_chars_peak == len(repr(request.config.tools))
+        assert timing.history_items_peak == 1
+    else:
+        assert timing.prompt_chars_peak is None
+        assert timing.tool_schema_chars_peak is None
+        assert timing.history_items_peak is None
 
     timing.log()
     line = _timing_lines(caplog)[-1]

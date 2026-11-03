@@ -33,6 +33,7 @@ class EmailAgentRuntime:
         router=None,
         attachment_parser=None,
         attachment_scanner=None,
+        attachment_scan_parse=None,
         connection_status_port=None,
         supports_email_reviews: bool = True,
         max_model_calls: int = 8,
@@ -50,6 +51,7 @@ class EmailAgentRuntime:
         self.model_factory, self.execution_factory = (model_factory, execution_factory)
         self.memory_port, self.review_port, self.router = (memory_port, review_port, router)
         self.attachment_parser, self.attachment_scanner = (attachment_parser, attachment_scanner)
+        self.attachment_scan_parse = attachment_scan_parse
         self.connection_status_port = connection_status_port
         self.supports_email_reviews = supports_email_reviews
         self.max_model_calls, self.max_tool_calls = (max_model_calls, max_tool_calls)

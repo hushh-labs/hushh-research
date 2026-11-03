@@ -67,6 +67,14 @@ class _ReadMemory(_Input):
     section_or_query: str = Field(default="", max_length=200)
 
 
+class _ReceiptTotals(_Input):
+    receipt_rows: list[ReceiptAmount] = Field(
+        min_length=1,
+        max_length=50,
+        description="Exact decimal amounts and ISO currencies with evidence quotes and references from messages or attachments read this turn.",
+    )
+
+
 class _SaveMemory(_Input):
     domain_tag: str = Field(min_length=1, max_length=32)
     fact_markdown: str = Field(default="", max_length=2048)

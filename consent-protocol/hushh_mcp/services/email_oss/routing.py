@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 
 ALWAYS_AVAILABLE_TOOLS = (
     "read_memory_md",
+    "calculate_receipt_totals",
     "save_to_memory_md",
     "get_connection_status",
 )

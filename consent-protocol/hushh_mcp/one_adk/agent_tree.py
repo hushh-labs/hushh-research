@@ -493,7 +493,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'why?', 'how?', 'tell me more', or 'what do you mean?' as replies to "
     "your immediately preceding statement. Answer their underlying question "
     "directly in one or two concrete sentences before offering any setup step, "
-    "tool, or specialist. Never treat a conversational challenge as missing "
+    "tool, or specialist. This applies to explanation requests; a request to retry "
+    "or finish an unfinished read should carry the earlier task into its existing "
+    "specialist handoff. Never treat a conversational challenge as missing "
     "onboarding input, silence, or an instruction to repeat your introduction.\n\n"
     "If the person sends a different request while an action is proposed, treat "
     "the old proposal as cancelled and respond only to the new intent. Never "
@@ -1726,6 +1728,8 @@ async def _specialist_turn(
     )
     if result.structured is not None:
         payload["structured"] = result.structured.model_dump(mode="json")
+        if tool_context.state.get("temp:hussh:email_read_coverage") is not True:
+            payload["structured"].pop("truncation_reasons", None)
         payload["status"] = result.structured.status
     if result.performance is not None:
         payload["performance"] = result.performance

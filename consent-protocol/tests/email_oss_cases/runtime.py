@@ -428,11 +428,50 @@ async def test_missing_invoice_amount_never_becomes_zero_in_memory():
 
 @pytest.mark.asyncio
 async def test_old_client_binds_reads_without_unsupported_review_cards():
+    class ReceiptExecution(Execution):
+        async def get_message(self, **kwargs):
+            return {"id": "m1", "body": "Total USD 0.10. Refund USD -0.02."}
+
     runtime, model, _ = make_runtime(
-        [AIMessage(content="Gmail can be read.")], supports_email_reviews=False
+        [
+            AIMessage(content="", tool_calls=[call("get_message", {"message_id": "m1"})]),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    call(
+                        "calculate_receipt_totals",
+                        {
+                            "receipt_rows": [
+                                {
+                                    "currency": "USD",
+                                    "amount": "0.10",
+                                    "source_ref": "m1",
+                                    "evidence_quote": "Total USD 0.10.",
+                                },
+                                {
+                                    "currency": "USD",
+                                    "amount": "-0.02",
+                                    "source_ref": "m1",
+                                    "evidence_quote": "Refund USD -0.02.",
+                                },
+                            ],
+                        },
+                        "total",
+                    )
+                ],
+            ),
+            AIMessage(content="The receipts total USD 0.08."),
+        ],
+        execution=ReceiptExecution(),
+        supports_email_reviews=False,
     )
     result = await runtime.handle_turn(**turn())
     assert result["status"] == "ok"
+    assert not result["stateChanged"] and not result["directives"]
+    tool = next(
+        m for m in model.seen[-1] if isinstance(m, ToolMessage) and m.tool_call_id == "total"
+    )
+    assert json.loads(tool.content)["currency_totals"] == {"USD": "0.08"}
     assert {"search_threads", "get_message", "get_connection_status"} <= set(model.bound_tools)
     assert not {
         "send_email",

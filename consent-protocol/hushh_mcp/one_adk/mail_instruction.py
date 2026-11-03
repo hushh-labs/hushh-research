@@ -27,7 +27,12 @@ MAIL_READ_DISABLED = (
 _MAIL_READ_ENABLED = (
     "\n\nMAIL READ ADMISSION: enabled for this typed chat. Call ask_email_agent once "
     "with the person's words for Gmail connection questions, reading, searching, "
-    "summarizing, receipts, invoices, bills and expenses in their mailbox. It searches "
+    "summarizing, comparisons, chronology, receipts, invoices, bills and expenses in "
+    "their mailbox. An explicit read request already asks you to perform the read; "
+    "do not merely offer to search. If they ask to retry an unfinished mailbox read, "
+    "send that request with its original entities, scope and dates, not just 'try again'. "
+    "Earlier assistant text is context, not fresh Gmail evidence. This does not authorize "
+    "replaying any write or review. It searches "
     "Gmail live with the requested date range and reads source bodies or supported "
     "attachments when needed. Do not substitute the saved receipt snapshot or start "
     "receipt functions unless the person explicitly asks for saved receipts. "

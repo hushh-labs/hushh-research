@@ -159,6 +159,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         ],
         # As on the hub: only a draft-contract-2 app fills the card from the envelope.
         "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
+        "temp:hussh:email_read_coverage": forwarded.get("emailReadReceiptContract") == 2,
         "temp:one_execution_surface": "typed_chat",
         "temp:hussh:workspace_chat_admission": False,
         "hussh:user_id": owner.owner,

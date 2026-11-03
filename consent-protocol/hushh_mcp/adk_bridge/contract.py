@@ -214,6 +214,16 @@ class SpecialistReadResult(BaseModel):
     # the bridge bound aligned so a successful 30-file search reaches One.
     sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=60)
     truncated: bool = False
+    truncation_reasons: list[
+        Literal[
+            "more_pages",
+            "failed_reads",
+            "shortened_body",
+            "incomplete_attachment_inventory",
+            "source_limit",
+            "attachment_unresolved",
+        ]
+    ] = Field(default_factory=list, max_length=6, exclude_if=lambda value: not value)
     metadata_only: bool = False
     # Owner-only UI affordance. It never grants a read or a share; the separate
     # compilation route rechecks the owner and discovers the files again.

@@ -31,6 +31,30 @@ class EmailMemoryTools:
     async def read_memory_md(self, section_or_query: str = ""):
         return await self.memory_call("read_memory_md", section_or_query=section_or_query)
 
+    def _receipt_totals(self, rows):
+        if not rows:
+            return None
+        if not all(
+            validate_receipt_amount_evidence(row, self.state.read_sources.get(row.source_ref, ""))
+            for row in rows
+        ):
+            return None
+        try:
+            return sum_receipt_amounts(rows)
+        except ValueError:
+            return None
+
+    async def calculate_receipt_totals(self, receipt_rows: list[ReceiptAmount]):
+        await self.state.context.require_access()
+        totals = self._receipt_totals([ReceiptAmount.model_validate(row) for row in receipt_rows])
+        if totals is None:
+            return {
+                "status": "input_required",
+                "code": "receipt_sources_or_summary_invalid",
+                "message": "Use consistent receipt rows with exact amount quotes from sources read this turn.",
+            }
+        return {"status": "ok", **totals}
+
     async def save_to_memory_md(
         self,
         domain_tag: str,
@@ -40,21 +64,15 @@ class EmailMemoryTools:
         totals = None
         if receipt_rows:
             receipt_rows = [ReceiptAmount.model_validate(row) for row in receipt_rows]
-            if fact_markdown or any(
-                (
-                    not validate_receipt_amount_evidence(
-                        row, self.state.read_sources.get(row.source_ref, "")
-                    )
-                    for row in receipt_rows
-                )
-            ):
+            await self.state.context.require_access()
+            totals = None if fact_markdown else self._receipt_totals(receipt_rows)
+            if totals is None:
                 return {
                     "status": "input_required",
                     "saved": False,
                     "code": "receipt_sources_or_summary_invalid",
                     "message": "Use sources read this turn with an exact evidence_quote containing the amount, and leave fact_markdown empty for the computed receipt summary. Read a PDF/CSV when its amount is absent from the body.",
                 }
-            totals = sum_receipt_amounts(receipt_rows)
             lines = ["Receipt amounts from retrieved readable evidence; coverage may be partial:"]
             lines.extend((f"- {row.label}: {row.currency} {row.amount}" for row in receipt_rows))
             lines.extend(

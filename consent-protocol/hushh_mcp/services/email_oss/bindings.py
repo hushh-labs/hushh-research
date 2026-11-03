@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 from functools import partial
@@ -10,6 +11,7 @@ from typing import Any
 
 import httpx
 
+from .attachment_worker import WorkerAttachmentParser
 from .binding_helpers import (
     approved_azure_binding,
     build_email_model,
@@ -145,7 +147,15 @@ class OwnerGmailExecution:
             if isinstance(row, dict) and isinstance(row.get("id"), str):
                 if len(self.observed_messages) < 100 or row["id"] in self.observed_messages:
                     self.observed_messages[row["id"]] = {
-                        key: row.get(key) for key in ("id", "thread_id", "subject", "from", "date")
+                        key: row.get(key)
+                        for key in (
+                            "id",
+                            "thread_id",
+                            "subject",
+                            "from",
+                            "date",
+                            "internal_date_ms",
+                        )
                     }
 
     async def _invoke(self, operation, **arguments):
@@ -207,6 +217,11 @@ async def owner_email_runtime(
                         review_port=review_port
                         or ExistingReviewPort(execution, pending_email_draft),
                         connection_status_port=status,
+                        attachment_scan_parse=(
+                            WorkerAttachmentParser()
+                            if os.getenv("HUSHH_DEPLOY_ENV") == "uat"
+                            else None
+                        ),
                         router=select_email_tools,
                         supports_email_reviews=supports_email_reviews,
                     ),

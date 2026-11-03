@@ -13,6 +13,7 @@ from .tool_inputs import (
     _Message,
     _Modify,
     _ReadMemory,
+    _ReceiptTotals,
     _Reply,
     _SaveMemory,
     _Search,
@@ -72,9 +73,14 @@ _DEFINITIONS = [
         "Read the owner's authorized current memory.md projection, optionally one exact section. This does not fetch Gmail.",
     ),
     (
+        "calculate_receipt_totals",
+        _ReceiptTotals,
+        "Compute exact totals by currency from current-turn receipt evidence. This read-only tool never proposes or saves memory.",
+    ),
+    (
         "save_to_memory_md",
         _SaveMemory,
-        "Calculate receipt totals exactly by currency AND propose their memory summary: for any receipt/expense/invoice total, call this tool with receipt_rows before answering, even if memory saving was not requested. It computes Decimal arithmetic; never add financial amounts mentally. This tool does not commit memory: its proposal requires owner confirmation through the encrypted writer. Also proposes contact/project/preference facts. Pending client commit is not saved.",
+        "Propose contact, project, preference or receipt facts when the owner asks to save them. A proposal requires owner confirmation through the encrypted writer. Pending client commit is not saved.",
     ),
 ]
 
@@ -105,7 +111,12 @@ def build_tools(state):
     )
     owners = {name: reads for name in READ_NAMES}
     owners.update({name: effects for name in EFFECT_NAMES})
-    owners.update({name: memory for name in ("read_memory_md", "save_to_memory_md")})
+    owners.update(
+        {
+            name: memory
+            for name in ("read_memory_md", "save_to_memory_md", "calculate_receipt_totals")
+        }
+    )
     return [
         StructuredTool.from_function(
             coroutine=getattr(owners[name], name),

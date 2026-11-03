@@ -16,7 +16,15 @@ class ToolState:
         self.effect_attempts = set()
         self.review_lock = asyncio.Lock()
         self.read_sources, self.message_inventory, self.source_refs = ({}, {}, {})
-        self.search_started = False
+        self.search_in_progress = False
+        self.search_attempts = 0
+        self.search_failure = None
+
+    def mark_truncated(self, reason):
+        self.read_receipt["truncated"] = True
+        reasons = self.read_receipt.setdefault("truncation_reasons", [])
+        if reason not in reasons:
+            reasons.append(reason)
 
     async def review(self, name, arguments):
         if self.runtime.review_port is None:
@@ -103,16 +111,21 @@ class ToolState:
     def record_read(self, name, result):
         if name in {"search_threads", "get_thread", "get_message"} and isinstance(result, dict):
             if len(json.dumps(result, ensure_ascii=False).encode()) > 256 * 1024:
-                self.read_receipt.update(status="response_too_large", truncated=True)
+                self.read_receipt["status"] = "response_too_large"
+                if name != "search_threads":
+                    self.mark_truncated("source_limit")
                 return {
                     "status": "response_too_large",
                     "code": "response_too_large",
                     "message": "Request a smaller page or one exact message.",
                 }
             rows = [result] if name == "get_message" else result.get("messages", [])
-            self.read_receipt["truncated"] |= bool(
-                result.get("truncated") or result.get("failed_count")
-            )
+            if result.get("next_page_token"):
+                self.mark_truncated("more_pages")
+            elif result.get("truncated"):
+                self.mark_truncated("source_limit")
+            if result.get("failed_count"):
+                self.mark_truncated("failed_reads")
             for row in rows:
                 if isinstance(row, dict) and isinstance(row.get("id"), str):
                     self.message_inventory[row["id"]] = row
@@ -125,15 +138,15 @@ class ToolState:
                         self.source_refs[row["id"]] = source
                         self.read_receipt["sources"].append(source)
                     elif row["id"] not in self.source_refs:
-                        self.read_receipt["truncated"] = True
+                        self.mark_truncated("source_limit")
                     elif "body" in row:
                         self.source_refs[row["id"]]["kind"] = "message"
                     if "body" in row:
                         self.read_receipt["metadata_only"] = False
-                    self.read_receipt["truncated"] |= bool(
-                        row.get("body_truncated")
-                        or row.get("attachment_inventory_complete") is False
-                    )
+                    if row.get("body_truncated"):
+                        self.mark_truncated("shortened_body")
+                    if row.get("attachment_inventory_complete") is False:
+                        self.mark_truncated("incomplete_attachment_inventory")
                 if (
                     isinstance(row, dict)
                     and isinstance(row.get("body"), str)

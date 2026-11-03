@@ -77,6 +77,8 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     # Source labels are authored constants today. Do not start retaining file
     # names if a future source adds them; keep only opaque refs and kind here.
     safe = structured.model_dump(mode="json")
+    # Persist the legacy summary for installed clients that validate exact keys.
+    safe.pop("truncation_reasons", None)
     # Search text is private tool input. The UI restores active jobs through
     # their owner-authenticated API, not by replaying a stored tool receipt.
     safe["background_search_available"] = False

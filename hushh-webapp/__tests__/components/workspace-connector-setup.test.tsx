@@ -21,6 +21,21 @@ const driveOverview = vi.hoisted(() => vi.fn(async () => ({ connectors: [] as Ar
 vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: { overview: driveOverview } }));
 
 describe("Workspace connector setup card", () => {
+  it("explains Mail coverage from its reported reasons and tolerates older receipts", () => {
+    const experience = {
+      type: "one.connector_read.v1", connector: "mail", status: "ok",
+      sourceRefs: ["mail:1"], metadataOnly: false, truncated: true,
+    } as const;
+    const { rerender } = render(<ConnectorReadReceipt experience={{
+      ...experience, sourceRefs: [...experience.sourceRefs],
+      truncationReasons: ["more_pages", "attachment_unresolved"],
+    }} />);
+    expect(screen.getByText("More matching messages are available. Some attachments could not be read."))
+      .toBeInTheDocument();
+    rerender(<ConnectorReadReceipt experience={{ ...experience, sourceRefs: [...experience.sourceRefs] }} />);
+    expect(screen.getByText("Mail coverage was incomplete.")).toBeInTheDocument();
+  });
+
   it("keeps the provider mark on a read's connection-required prompt", () => {
     const onOpenConnections = vi.fn();
     const { container } = render(<ConnectorReadReceipt experience={{
