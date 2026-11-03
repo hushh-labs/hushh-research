@@ -470,6 +470,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/calendar"
           cp deploy/calendar/setup_followup_scheduler.sh deploy/calendar/verify_followup_release.py \
             "${RUNNER_TEMP}/release-tools/calendar/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/answers"
+          cp deploy/answers/setup_answer_work_drain_scheduler.sh \
+            "${RUNNER_TEMP}/release-tools/answers/"
           cp scripts/ci/account-deletion-fence-decision.py \
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
@@ -3407,6 +3410,55 @@ jobs:
       # deploy/uat-surface-gates.txt in the deployed commit is the single source of truth: the same
       # file set the backend flags and key binding, and here it sets the job and proves the serving
       # revisions match. It runs only with a backend deploy so flags and job always change together.
+      - name: Reconcile paid-answer settlement schedulers
+        id: activate-answer-work-drain
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ENVIRONMENT: uat
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: answer-work-drain-sched
+          ANSWER_WORK_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          for stage in timeouts refunds payouts; do
+            STAGE="$stage" JOB_NAME="answer-work-${stage}-uat" \
+              bash "${RUNNER_TEMP}/release-tools/answers/setup_answer_work_drain_scheduler.sh"
+          done
+          if [ "$ANSWER_WORK_DRAIN_ENABLED" != true ]; then
+            echo "mode=reconciled-disabled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          logs="$(mktemp)"
+          trap 'rm -f "$logs"' EXIT
+          for stage in timeouts refunds payouts; do
+            job="answer-work-${stage}-uat"
+            uri="${BACKEND_URL%/}/api/internal/answer-work/drain?stage=${stage}"
+            triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            gcloud scheduler jobs run "$job" --project="$PROJECT_ID" --location="$SCHEDULER_LOCATION"
+            verified=false
+            for attempt in $(seq 1 48); do
+              gcloud logging read \
+                "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${job}\" AND timestamp>=\"${triggered_at}\"" \
+                --project="$PROJECT_ID" --freshness=10m --order=desc --limit=20 --format=json > "$logs"
+              if python3 "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" \
+                --logs-json "$logs" --triggered-at "$triggered_at" \
+                --expected-job "projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${job}" \
+                --expected-uri "$uri" --evidence-path "/tmp/uat-answer-work-${stage}.json"; then
+                verified=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$verified" != true ]; then
+              echo "answer_scheduler_no_fresh_http_completion stage=${stage}" >&2
+              exit 1
+            fi
+          done
+          echo "mode=authenticated-execution" >> "$GITHUB_OUTPUT"
+
       - name: Activate Calendar follow-ups drain
         id: activate-calendar-followups
         if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -3833,6 +3885,7 @@ jobs:
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-answer-work-drain.outcome }}" != "success" ] \
                  || [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; }; then
               STATUS="blocked"
             else
@@ -3924,6 +3977,8 @@ jobs:
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
+                  "answer_work_drain_mode": "${{ steps.activate-answer-work-drain.outputs.mode }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "text_processor_recovery": "${{ steps.recover-uat-text-requests.outcome }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
@@ -4047,6 +4102,7 @@ jobs:
             /tmp/uat-account-deletion-scheduler-config.json
             /tmp/uat-account-deletion-scheduler-finished-logs.json
             /tmp/uat-account-deletion-activation.json
+            /tmp/uat-answer-work-*.json
             /tmp/uat-account-deletion-scheduler-evidence.json
             /tmp/uat-account-deletion-cleanup-health.json
             /tmp/uat-account-deletion-revision-retirement.json

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
-import time
 from unittest.mock import Mock
 
 import pytest
@@ -20,6 +17,15 @@ from hushh_mcp.services.pkm_answer_payment_service import (
     PkmAnswerPaymentService,
 )
 from hushh_mcp.services.pkm_answer_request_service import AnswerRequestError
+from tests.helpers.answer_signed_settlement import (
+    SECRET,
+    assert_active_stage_survives_empty_retry,
+    assert_key_recovery_refund,
+    dispatch_signed_purchase,
+    revoke_staged_key_and_check_checkout,
+    signed,
+    status,
+)
 from tests.services.test_pkm_answer_races_postgres import _approved, payments_enabled  # noqa: F401
 from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     ENVELOPE,
@@ -33,34 +39,17 @@ from tests.services.test_pkm_answer_requests_postgres import (  # noqa: F401
     connector_postgres_url,
 )
 
-SECRET = b"whsec_payment_test_secret_value"
-
-
-def signed(body):
-    timestamp = int(time.time())
-    signature = hmac.new(SECRET, f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
-    return {"Stripe-Signature": f"t={timestamp},v1={signature}"}
-
-
-def status(engine, request):
-    with engine.connect() as c:
-        return (
-            c.execute(
-                text("""SELECT r.status, o.status AS payment_status,
-            (SELECT count(*) FROM feed_events WHERE source_row_id='answer_request:'||r.request_id::text
-              AND event_type='answer_delivered') AS milestones,
-            (SELECT count(*) FROM pkm_answer_payment_webhook_events WHERE request_id=r.request_id) AS events
-            FROM pkm_answer_requests r JOIN pkm_answer_payment_orders o USING(request_id)
-            WHERE r.request_id=:r"""),
-                {"r": request},
-            )
-            .mappings()
-            .one()
-        )
-
 
 @pytest.mark.parametrize(
-    "stripe_mode,switch_live", [("test", False), ("test", True), ("live", False)]
+    "stripe_mode,switch_live,key_recovery",
+    [
+        ("test", False, None),
+        ("test", True, None),
+        ("live", False, None),
+        ("test", False, "restage"),
+        ("test", False, "empty"),
+        ("test", False, "timeout"),
+    ],
 )
 @pytest.mark.parametrize(
     "event_type", ["checkout.session.completed", "checkout.session.async_payment_succeeded"]
@@ -72,6 +61,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     event_type,
     stripe_mode,
     switch_live,
+    key_recovery,
     legacy_without_receipt,
 ):
     if stripe_mode == "live":
@@ -89,6 +79,8 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     await _deliver_composed(
         requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
     )
+    if key_recovery == "empty":
+        await assert_active_stage_survives_empty_retry(requests, request, ENVELOPE, OWNER)
     # Duplicate staging hits migration179's real unique index, without rollback.
     await _deliver_composed(
         requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
@@ -104,6 +96,8 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     await payments.checkout(requester_user_id=REQUESTER, request_id=request)
     args = api.checkout.Session.create.call_args.kwargs
     assert args["api_key"].startswith(f"sk_{stripe_mode}_")
+    if key_recovery:
+        await revoke_staged_key_and_check_checkout(answer_engine, payments, request, REQUESTER)
     if legacy_without_receipt:
         with answer_engine.begin() as c:
             c.execute(
@@ -154,41 +148,31 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
             }
         },
     }
-    monkeypatch.setattr(routes, "PkmAnswerPaymentService", lambda: payments)
-    drive = Mock()
-    monkeypatch.setattr(routes, "_service", lambda: drive)
-    app = FastAPI()
-    app.include_router(routes.webhook_router)
-    client = TestClient(app)
-    body = json.dumps(event).encode()
-    tampered = body.replace(b'"amount_total": 1000', b'"amount_total": 100')
-    assert (
-        client.post(
-            "/api/payments/stripe/webhook", content=tampered, headers=signed(body)
-        ).status_code
-        == 400
-    )
-    assert status(answer_engine, request)["payment_status"] == "checkout_open"
-    for current in [event, event, {**event, "id": "evt_distinct_same_purchase"}]:
-        body = json.dumps(current).encode()
-        assert (
-            client.post(
-                "/api/payments/stripe/webhook", content=body, headers=signed(body)
-            ).status_code
-            == 200
-        )
+    client, drive = dispatch_signed_purchase(monkeypatch, payments, event, answer_engine, request)
     row = status(answer_engine, request)
-    if legacy_without_receipt:
+    if legacy_without_receipt or key_recovery:
         assert (row["status"], row["payment_status"], row["milestones"]) == ("answering", "paid", 0)
         with pytest.raises(AnswerRequestError, match="answer_unavailable"):
             await requests.fetch_answer(requester_user_id=REQUESTER, request_id=request)
         assert len(await requests.claim_answerable(owner_user_id=OWNER)) == 1
+        if key_recovery in {"empty", "timeout"}:
+            await assert_key_recovery_refund(
+                requests, answer_engine, request, key_recovery, ENVELOPE, OWNER, REQUESTER
+            )
+            assert api.checkout.Session.create.call_count == 1
+            return
         # The old paid order can be repaired under exactly the old terms. A
         # successful Gemini receipt is still mandatory; no new checkout occurs.
         if switch_live:
             monkeypatch.setenv("PKM_ANSWER_LIVE_PROVIDER_REVIEWED", "true")
         await _deliver_composed(
-            requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
+            requests,
+            answer_engine,
+            owner_user_id=OWNER,
+            request_id=request,
+            envelope={**ENVELOPE, "recipientKeyId": "replacement-key"}
+            if key_recovery
+            else ENVELOPE,
         )
         assert api.checkout.Session.create.call_count == 1
         body = json.dumps(event).encode()
@@ -207,6 +191,9 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
     )
     fetched = await requests.fetch_answer(requester_user_id=REQUESTER, request_id=request)
     assert fetched["ciphertext"] == ENVELOPE["ciphertext"]
+    assert fetched["recipientKeyId"] == (
+        "replacement-key" if key_recovery else ENVELOPE["recipientKeyId"]
+    )
     with pytest.raises(AnswerRequestError, match="answer_unavailable"):
         await requests.fetch_answer(requester_user_id="unrelated-requester", request_id=request)
     drive.process_webhook.assert_not_called()

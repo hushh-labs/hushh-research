@@ -125,6 +125,40 @@ def test_cloud_build_provider_review_gate_runs_before_deployment(monkeypatch, mo
 
 
 @pytest.mark.parametrize(
+    "payments,drain,expected",
+    [("true", "false", 1), ("true", "true", 0), ("false", "true", 0), ("false", "false", 0)],
+)
+def test_uat_paid_admission_requires_independent_settlement_drain(payments, drain, expected):
+    import os
+    import subprocess
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    steps = yaml.safe_load((root / "deploy/backend.cloudbuild.yaml").read_text())["steps"]
+    body = next(
+        step["args"][1]
+        for step in steps
+        if "independently enabled settlement drain" in str(step.get("args"))
+    )
+    start = body.index('if [[ "${_DEPLOY_ENV}" == "uat" && "${_PKM_ANSWER_PAYMENTS_ENABLED}"')
+    gate = body[start : body.index("\nfi", start) + len("\nfi")]
+    result = subprocess.run(  # noqa: S603 -- actual bounded release admission gate
+        ["bash", "-c", gate],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "_DEPLOY_ENV": "uat",
+            "_PKM_ANSWER_PAYMENTS_ENABLED": payments,
+            "_ANSWER_WORK_DRAIN_ENABLED": drain,
+        },
+    )
+    assert result.returncode == expected
+
+
+@pytest.mark.parametrize(
     "environment,mode,origin,allowed",
     [
         ("development", "test", "http://localhost:3000", True),

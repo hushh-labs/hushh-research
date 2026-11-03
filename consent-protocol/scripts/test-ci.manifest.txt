@@ -1425,6 +1425,7 @@ tests/test_answer_composer.py
 tests/test_pkm_answer_payment.py
 tests/test_answer_work_drain.py
 tests/services/test_pkm_answer_requests_postgres.py
+tests/services/test_pkm_answer_receiving_postgres.py
 tests/services/test_pkm_answer_races_postgres.py
 tests/test_one_career_routes.py
 

@@ -22,7 +22,7 @@ set -euo pipefail
 #   STAGE=payouts   transfer delivered answers' earnings to the owner
 #
 # Usage (one invocation per stage):
-#   BACKEND_URL=https://api.uat.hushh.ai STAGE=refunds \
+#   ANSWER_WORK_DRAIN_ENABLED=true BACKEND_URL=https://api.uat.hushh.ai STAGE=refunds \
 #     JOB_NAME=answer-work-refunds-uat bash deploy/answers/setup_answer_work_drain_scheduler.sh
 
 readonly UAT_PROJECT_ID="hushh-pda-uat"
@@ -50,6 +50,11 @@ STAGE="${STAGE:-timeouts}"
 JOB_NAME="${JOB_NAME:-answer-work-${STAGE}-${ENVIRONMENT}}"
 CRON="${CRON:-${UAT_CRON}}"
 TIMEZONE="${TIMEZONE:-${UAT_TIMEZONE}}"
+ANSWER_WORK_DRAIN_ENABLED="${ANSWER_WORK_DRAIN_ENABLED:-false}"
+case "${ANSWER_WORK_DRAIN_ENABLED}" in
+  true|false) ;;
+  *) echo "ANSWER_WORK_DRAIN_ENABLED must be true or false" >&2; exit 1 ;;
+esac
 SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-${UAT_SCHEDULER_SERVICE_ACCOUNT_NAME}}"
 OIDC_AUDIENCE="${EXPECTED_ORIGIN}"
 
@@ -69,6 +74,10 @@ if [[ "${BACKEND_URL%/}" != "${EXPECTED_ORIGIN}" ]]; then
   echo "BACKEND_URL must be ${EXPECTED_ORIGIN}" >&2
   exit 1
 fi
+if [[ "${SCHEDULER_SERVICE_ACCOUNT_NAME}" != "${UAT_SCHEDULER_SERVICE_ACCOUNT_NAME}" || "${JOB_NAME}" != "answer-work-${STAGE}-${ENVIRONMENT}" ]]; then
+  echo "Answer settlement requires its own pinned job and service-account identity" >&2
+  exit 1
+fi
 
 SCHEDULER_SERVICE_ACCOUNT_EMAIL="${SCHEDULER_SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
@@ -77,11 +86,51 @@ if ! command -v gcloud >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
-  --project="${PROJECT_ID}" >/dev/null 2>&1; then
+describe_resource() {
+  local output
+  if output="$(gcloud "$@" 2>&1)"; then
+    printf '%s' "$output"
+  elif [[ "$output" == *NOT_FOUND* || "$output" == *"not found"* ]]; then
+    return 1
+  else
+    echo "Cannot verify the existing answer scheduler resource" >&2
+    return 2
+  fi
+}
+
+JOB_EXISTS=false
+if JOB_STATE="$(describe_resource scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format='value(state)')"; then
+  JOB_EXISTS=true
+else
+  result=$?
+  if [[ "$result" != 1 ]]; then exit "$result"; fi
+fi
+
+if [[ "${ANSWER_WORK_DRAIN_ENABLED}" != true ]]; then
+  if [[ "${JOB_EXISTS}" == true ]]; then
+    if [[ "${JOB_STATE}" != PAUSED ]]; then
+      gcloud scheduler jobs pause "${JOB_NAME}" --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" >/dev/null
+    fi
+    JOB_STATE="$(describe_resource scheduler jobs describe "${JOB_NAME}" \
+      --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format='value(state)')"
+    if [[ "$JOB_STATE" != PAUSED ]]; then echo "Answer scheduler pause was not verified" >&2; exit 1; fi
+  fi
+  echo "Answer settlement scheduling disabled; ${JOB_NAME} is absent or paused."
+  exit 0
+fi
+
+created_identity=false
+if describe_resource iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
+  --project="${PROJECT_ID}" >/dev/null; then
+  :
+else
+  result=$?
+  if [[ "$result" != 1 ]]; then exit "$result"; fi
   gcloud iam service-accounts create "${SCHEDULER_SERVICE_ACCOUNT_NAME}" \
     --project="${PROJECT_ID}" \
     --display-name="Paid answer work drain scheduler" >/dev/null
+  created_identity=true
 fi
 
 # The stage travels in the query string because the route reads it there and
@@ -104,12 +153,26 @@ COMMON_ARGS=(
   --max-doublings=3
 )
 
-if gcloud scheduler jobs describe "${JOB_NAME}" \
-  --project="${PROJECT_ID}" \
-  --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
+if [[ "${JOB_EXISTS}" == true ]]; then
   gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
 else
-  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+  for attempt in 0 1 2 3 4 5 6 7; do
+    if create_error="$(gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" 2>&1 >/dev/null)"; then
+      break
+    else
+      create_status=$?
+    fi
+    if [[ "${created_identity}" != true || "${attempt}" == 7 \
+      || "${create_error}" != "ERROR: (gcloud.scheduler.jobs.create.http) NOT_FOUND:"* ]]; then
+      printf '%s\n' "${create_error}" >&2
+      exit "${create_status}"
+    fi
+    sleep "$((1 << attempt))"
+  done
+fi
+
+if [[ "${JOB_STATE}" == PAUSED ]]; then
+  gcloud scheduler jobs resume "${JOB_NAME}" --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" >/dev/null
 fi
 
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \

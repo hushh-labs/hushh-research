@@ -45,7 +45,7 @@ export async function buildPersonProfileBrowserFixture({ includePresentation = t
     const script = includePresentation
       ? await buildFixture("person-profile.tsx", "fixture.js", { alias: [{ find: "@", replacement: root }] }) : "";
     const ports = path.join(root, "e2e/fixtures/person-profile-request-ports.tsx");
-    const boundaries = ["hooks/use-auth", "lib/vault/vault-context", "lib/services/auth-service", "lib/services/api-service", "lib/cache/cache-sync-service", "lib/one-location/key-bootstrap", "components/vault/vault-flow"];
+    const boundaries = ["hooks/use-auth", "lib/vault/vault-context", "lib/services/auth-service", "lib/services/api-service", "lib/cache/cache-sync-service", "lib/one-location/key-bootstrap", "lib/one-marketplace/key-bootstrap", "components/vault/vault-flow"];
     const requestScript = includeRequests ? await buildFixture("person-profile-requests.tsx", "request-fixture.js", { alias: [
       ...boundaries.map(name => ({ find: `@/${name}`, replacement: ports })),
       { find: "next/navigation", replacement: ports },

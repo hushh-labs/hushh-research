@@ -15,14 +15,26 @@ function registerQuestionCases({ script: getScript, fixtureHtml }: PresentationF
         if (message.type() === "error") errors.push(message.text());
       });
       const submissions: Record<string, unknown>[] = [];
+      let receivingReady = false;
       await page.route("http://localhost/request-scope-fixture", (route) =>
         route.fulfill({ contentType: "text/html", body: fixtureHtml() }),
       );
       await page.route("**/api/one/answer-requests", (route) => {
+        expect(receivingReady).toBe(true);
         expect(route.request().headers().authorization).toBe("Bearer synthetic-firebase-proof");
         submissions.push(route.request().postDataJSON());
         return route.fulfill({ contentType: "application/json",
           body: '{"requestId":"55555555-5555-4555-8555-555555555555"}' });
+      });
+      // Real browser WebCrypto/IndexedDB, with only public registration mocked.
+      await page.route("**/api/one/marketplace/recipient-keys", (route) => {
+        expect(route.request().headers().authorization).toBe("Bearer synthetic-vault-owner");
+        const key = route.request().postDataJSON() as { keyId: string; algorithm: string; publicKeyJwk: JsonWebKey };
+        expect(key.publicKeyJwk.d).toBeUndefined();
+        expect(key.publicKeyJwk.kty).toBe("EC");
+        receivingReady = true;
+        return route.fulfill({ contentType: "application/json",
+          body: JSON.stringify({ recipientKey: { ...key, userId: "synthetic-owner" } }) });
       });
       await page.goto("http://localhost/request-scope-fixture");
       await page.addScriptTag({ content: getScript() });

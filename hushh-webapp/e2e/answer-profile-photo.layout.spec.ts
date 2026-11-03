@@ -29,7 +29,8 @@ test.beforeAll(async () => {
     resolve: { alias: [
       ...["@/hooks/use-auth", "@/lib/vault/vault-context", "@/lib/services/api-service", "@/lib/services/auth-service",
         "@/lib/cache/cache-sync-service", "@/components/consent/answer-request-review",
-        "@/components/vault/vault-unlock-dialog", "@/lib/answers/answer-delivery-sweep"].map(find => ({
+        "@/components/vault/vault-unlock-dialog", "@/lib/answers/answer-delivery-sweep",
+        "@/lib/one-marketplace/service"].map(find => ({
         find, replacement: path.join(root, "e2e/fixtures/answer-profile-photo-boundaries.tsx"),
       })),
       { find: "@", replacement: root },
@@ -68,6 +69,8 @@ async function mount(page: Page, paid: boolean, prepared = true) {
     else if (pathname === "/api/one/answer-requests/inbox") body = { requests: [] };
     else if (pathname === `/api/one/answer-requests/${REQUEST_ID}/state`) body = {
       role: "requester", requestStatus: paid ? "answered" : "approved", question: "What is your profile photo?",
+      requesterKeyReady: true,
+      deliveryRecipientKeyId: isPrepared ? (await page.evaluate(async () => await (window as unknown as { answerPhotoEnvelope: Promise<{ recipientKeyId: string }> }).answerPhotoEnvelope)).recipientKeyId : null,
       coverage: { included: [
         { scope: "attr.identity.identity_profile.full_name", label: "Full name" },
         { scope: "attr.identity.identity_profile.profile_photo_url", label: "Profile photo" },
@@ -151,6 +154,8 @@ test("unpaid prepared answer never fetches or renders the approved photo", async
   const evidence = await mount(page, false);
   const card = page.getByRole("region", { name: "Paid answer" });
   await expect(card.getByText("Included in this answer: Full name, Profile photo.")).toBeVisible();
+  await card.getByRole("button", { name: "Unlock to pay", exact: true }).click();
+  await page.getByRole("button", { name: "Unlock fixture vault", exact: true }).click();
   await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toBeVisible();
   await expect(card.getByRole("button", { name: "Open answer", exact: true })).toHaveCount(0);
   await expect(card.locator("img")).toHaveCount(0);
@@ -169,6 +174,8 @@ test("staging becomes payable through bounded card polling without an event stre
   await expect(card.getByText(/Their answer is being prepared/)).toBeVisible();
   evidence.stage();
   await page.clock.runFor(3100);
+  await card.getByRole("button", { name: "Unlock to pay", exact: true }).click();
+  await page.getByRole("button", { name: "Unlock fixture vault", exact: true }).click();
   await expect(card.getByRole("button", { name: "Pay $10", exact: true })).toBeVisible();
   expect(evidence.answerReads()).toBe(0);
   expect(evidence.errors).toEqual([]);
