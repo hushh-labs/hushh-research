@@ -526,6 +526,19 @@ def _write_release_status(path: Path, payload: dict) -> None:
     os.replace(temporary, path)
 
 
+def _git_config_value(run, key: str) -> str:
+    try:
+        return run(["config", key]).strip()
+    except subprocess.CalledProcessError as error:
+        if (
+            error.returncode == 1
+            and not (error.stdout or "").strip()
+            and not (error.stderr or "").strip()
+        ):
+            return ""
+        raise
+
+
 def publish_auth_domain_tag(status_path: Path, sha: str, *, run=reference.git) -> dict:
     """Publish only the immutable repair tag and prove the operational ref stayed put."""
     payload = json.loads(status_path.read_text(encoding="utf-8"))
@@ -597,9 +610,9 @@ def publish_auth_domain_tag(status_path: Path, sha: str, *, run=reference.git) -
     try:
         reference.require(not run(["ls-remote", "--refs", "origin", tag_ref]).strip(),
                           "auth repair immutable tag already exists")
-        if not run(["config", "user.email"]).strip():
+        if not _git_config_value(run, "user.email"):
             run(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
-        if not run(["config", "user.name"]).strip():
+        if not _git_config_value(run, "user.name"):
             run(["config", "user.name", "github-actions[bot]"])
         message = "\n".join(
             (
