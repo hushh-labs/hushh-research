@@ -127,6 +127,15 @@ failure uses the existing rollback. No database migration or backend deployment
 belongs to this frontend-only repair. Successful deployment invalidates its old
 baseline, so another fresh invocation cannot reuse the exception.
 
+If the restored baseline retains an operational-backend recovery anchor, the
+repair binds its exact annotated tag object and accepted serving-backend origin.
+Provider identity, IAM, initial traffic and the sealed schema boundary are checked
+after cloud authentication and rechecked before mutation. The repair publishes
+an immutable deployment tag and records its readback in the existing release
+artifact; `deployed/production-latest` stays unchanged so the recovery anchor
+cannot be lost. This does not activate the staged backend or clear its source
+restriction. The regular hourly controller remains responsible for retirement.
+
 Historical restoration evidence retains its reviewed producer exclusions even
 when later dispatch modes add stricter conditions. The maintenance guard accepts
 those exact exclusions only with the pinned historical restoration job; changed
@@ -639,6 +648,9 @@ jobs.
    work, while unknown selection or planner failure keeps all browser packs
    enabled. The `CI Status Gate` requires both jobs when frontend paths select
    them. `scripts/ci/test_web_ci_lane_partition.py` protects the split.
+   Functional planning retains every authored Chromium or mobile-Chrome project,
+   including commands that also name WebKit. Repeated `--project` flags do not
+   replace an earlier selection; unknown projects and unresolved specs refuse.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. Explicit diagnostic
@@ -653,6 +665,12 @@ Android-scope verifier and Node failure tests remain in the targeted Node job.
 `verify:voice-gateway` and the other explicit contract verifiers run once in
 their owning job. Standalone focused npm commands retain their complete
 behavior; the lane-partition contract protects these boundaries.
+
+The integration document gate installs Chromium on Linux and runs the document
+and Google-phone journeys there. The required macOS `document-webkit-check` job
+runs the document and Apple-phone WebKit journeys. Their exact test identities
+form a complete, non-overlapping partition; local `all` mode retains both engines.
+Installing one engine must never leave another engine's case selected.
 
 Flake budget: in CI each Playwright test gets one retry (`retries` in
 `hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
@@ -1218,6 +1236,40 @@ specification and ordered audit history in the existing observer inventory. The
 database-capacity gate refuses unreviewed job generations even when that job is
 healthy. Preserve older profiles and never exempt a workload by its name alone.
 
+The pinned frontend-only auth-domain repair reserves no hypothetical backend or
+Drive-worker candidate connections: it uses the existing full-inventory
+`--no-candidates` admission. Actual retained workloads, qualified observers,
+administrative reserve and database limits still apply. This mode refuses a
+non-frontend scope, staged worker, restoration, phone rollback or cold phase;
+ordinary deployments retain their candidate reservations.
+
+Preserved release tools are overlaid into their authored workspace paths before
+use. Run emergency admission/recheck from `scripts/ci/`, since companion readers
+resolve `deploy/phone` and `deploy/drive` relative to that repository root.
+The exact auth refresh binds the immutable restored-release evidence and observed
+serving pair. Before mutation and after image builds, it rechecks the annotated
+recovery reference, canonical restoration receipt, actual serving backend identity,
+IAM, service controls and original 100% traffic. Both rechecks use the initialized
+project environment through `uv run --frozen --project`, preserving the workspace.
+These checks read no database and do not activate or qualify a staged backend or
+worker. Their independent schema/producer/WorkOS qualification remains mandatory
+for the existing backend/activation paths. A metadata receipt never substitutes
+for the auth repair's live serving checks.
+
+Phone-lease history discovery and ancestry remain ordered. Independent per-run
+attempt/artifact proofs use at most three readers with the same inherited
+deadline; results are consumed in history order. All required records must pass
+before the pre-policy boundary admits release. Failure cancels queued reads and
+joins active ones; the optimization changes neither the 90-second authority
+budget nor checkpoint/source requirements.
+
+The exact reviewed parallel maintenance profile may flush canonical records of
+older qualified attempts around its final refusal diagnostic. The reader accepts
+only bounded, typed progress metadata there; those records grant no authority.
+The actual checkout, source tuple, clock witness, diagnostic hash and absence of
+checkpoint/provider mutation remain mandatory. Other profiles keep their strict
+transcript contracts; arbitrary output still refuses reconciliation.
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
@@ -1272,6 +1324,14 @@ can explicitly inspect or apply cleanup; manual requests are not coalesced with 
 Scheduled work keeps one active and one pending request without cancelling active
 mutations. Each environment still shares its deployment/rollback lock.
 
+GitHub therefore shows two legitimate entries: **Capacity clock** schedules due
+work; **Capacity Maintenance** executes it. A clock waiting on its protected
+60-minute timer uses no runner and is not a second cleanup. Custom titles omit
+run counters; GitHub's own workflow numbers remain. Maintenance fetches complete
+Git history with `filter: blob:none` to avoid downloading old file bodies.
+Current source qualification binds the static clock title and exact workflow
+blobs; historical numbered receipts retain their separately pinned source.
+
 Source-only checks before authentication and again under that lock skip settled and
 not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,
 with teardown/checkpoint time reserved. No runner waits for request drainage: existing
@@ -1308,6 +1368,15 @@ call added before the guard there needs the same review.
 Unknown source, incomplete logs, cancellation and failed
 checkpoint uploads remain blocked. Every attempt is inspected, including earlier
 attempts of a currently running retry; never delete failed runs to clear admission.
+The complete bounded inventory is read before qualification. Independent run
+proofs use at most three workers; results and proof lines are consumed in the
+original chronological order. Only a verified newer publication can exclude a
+completed older run. Active runs and equal-boundary results still require proof.
+All readers inherit the same 90-second lookup deadline and are joined on exit;
+concurrency does not grant cleanup authority or extend the five-minute pass.
+Production's independent phone-lease and checkpoint-publication proofs overlap
+within that same deadline. Both must succeed and all readers must exit before
+checkpoint restoration or any provider mutation; either refusal blocks admission.
 The reviewed workflow source can identify a skipped primary deployment job even
 when GitHub reports its unevaluated name. The job must be uniquely bound to the
 exact attempt, completed, skipped and unstarted; earlier attempts still require

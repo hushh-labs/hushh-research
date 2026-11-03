@@ -102,22 +102,35 @@ def _guard_failure(rows, job) -> bool:
     )
 
 
-def _proof_record(body) -> bool:
+def _proof_record(body, *, allow_clock_records=False) -> bool:
     """Recognize the walk's own record of an older qualified attempt; it grants nothing."""
+    if type(allow_clock_records) is not bool:
+        return False
     if not isinstance(body, str) or not body.startswith(PROOF_PREFIX):
         return False
     try:
         value = json.loads(body[len(PROOF_PREFIX) :])
     except (TypeError, ValueError):
         return False
+    has_clock = isinstance(value, dict) and "clock_run_id" in value
+    expected_keys = (
+        _PROOF_KEYS | {"clock_run_id"}
+        if allow_clock_records and has_clock
+        else _PROOF_KEYS
+    )
     return (
         isinstance(value, dict)
-        and set(value) == _PROOF_KEYS
+        and set(value) == expected_keys
         and body == PROOF_PREFIX + json.dumps(value, sort_keys=True)
         and all(
             type(value[key]) is int and 0 < value[key] < 2**63
-            for key in ("run_id", "attempt", "job_id")
+            for key in (
+                ("run_id", "attempt", "job_id", "clock_run_id")
+                if has_clock
+                else ("run_id", "attempt", "job_id")
+            )
         )
+        and (not allow_clock_records or value["attempt"] <= 10)
         and isinstance(value["checkout_sha"], str)
         and re.fullmatch(r"[0-9a-f]{40}", value["checkout_sha"]) is not None
         and value["qualification"] == "no_provider_mutation"
