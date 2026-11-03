@@ -14,6 +14,7 @@ CI_DIR = str(Path(__file__).resolve().parents[2] / "scripts/ci")
 sys.path.insert(0, CI_DIR)
 try:
     import deployment_security as gate
+    import github_security_receipt as receipt_transport
 finally:
     sys.path.remove(CI_DIR)
 
@@ -247,7 +248,12 @@ class DeploymentSecurityTest(unittest.TestCase):
             self.assertEqual(jobs["permissions"].get("actions"), "read", name)
         for name in ("deployment-security.yml", "ios-voice-device.yml"):
             internal = yaml.safe_load((root / ".github/workflows" / name).read_text())
-            self.assertEqual(set(internal.get("on", internal.get(True))), {"workflow_call"})
+            self.assertEqual(
+                set(internal.get("on", internal.get(True))),
+                {"workflow_call", "workflow_dispatch"}
+                if name == "deployment-security.yml"
+                else {"workflow_call"},
+            )
             self.assertNotIn(name, gate.CALLERS)
         hardware = yaml.safe_load((root / ".github/workflows/ios-voice-device.yml").read_text())
         self.assertEqual(set(hardware["jobs"]), {"hardware-capture"})
@@ -287,6 +293,245 @@ class DeploymentSecurityTest(unittest.TestCase):
                 "REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}",
                 source,
             )
+
+
+class DeploymentBrokerTest(unittest.TestCase):
+    def fixture(self):
+        import json
+
+        request = {
+            "run_id": 20,
+            "attempt": 2,
+            "caller_sha": "c" * 40,
+            "application_sha": APP,
+            "environment": "dev",
+            "requested_scope": "all",
+            "tooling_sha": SHA,
+        }
+        repo = {"id": 9, "full_name": gate.REPOSITORY}
+        source = {
+            "id": 20,
+            "run_attempt": 2,
+            "head_sha": "c" * 40,
+            "head_branch": "dev",
+            "event": "workflow_dispatch",
+            "status": "in_progress",
+            "workflow_id": 30,
+            "path": ".github/workflows/deploy-dev.yml",
+            "repository": repo,
+            "head_repository": repo,
+            "actor": {"login": "operator"},
+            "triggering_actor": {"login": "operator"},
+            "referenced_workflows": [
+                {
+                    "path": f"{gate.REPOSITORY}/{gate.IMPLEMENTATIONS['dev']}@{SHA}",
+                    "ref": "refs/heads/main",
+                    "sha": SHA,
+                }
+            ],
+        }
+        broker = {
+            "id": 40,
+            "run_attempt": 1,
+            "head_sha": SHA,
+            "head_branch": "main",
+            "event": "workflow_dispatch",
+            "status": "in_progress",
+            "workflow_id": 50,
+            "path": gate.BROKER_PATH,
+            "repository": repo,
+            "head_repository": repo,
+            "run_started_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2027-01-01T00:00:00Z",
+        }
+        prefix = f"repos/{gate.REPOSITORY}"
+        responses = {
+            prefix: repo,
+            f"{prefix}/actions/runs/20": source,
+            f"{prefix}/actions/runs/40": broker,
+            f"{prefix}/actions/workflows/deploy-dev.yml": {"id": 30, "path": source["path"]},
+            f"{prefix}/actions/workflows/deployment-security.yml": {
+                "id": 50,
+                "path": gate.BROKER_PATH,
+            },
+            f"{prefix}/compare/{SHA}...main?per_page=1&page=2": {
+                "status": "ahead",
+                "merge_base_commit": {"sha": SHA},
+            },
+            f"{prefix}/compare/{APP}...dev?per_page=1&page=2": {
+                "status": "ahead",
+                "merge_base_commit": {"sha": APP},
+            },
+        }
+        env = {
+            "GITHUB_REPOSITORY": gate.REPOSITORY,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_EVENT_NAME": "workflow_dispatch",
+            "GITHUB_SHA": SHA,
+            "GITHUB_WORKFLOW_REF": f"{gate.REPOSITORY}/{gate.BROKER_PATH}@refs/heads/main",
+            "GITHUB_RUN_ID": "40",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "DEPLOY_SECURITY_REQUEST": json.dumps(request),
+        }
+        policy = {"dev": {"manual_dispatch_users": ["operator"]}}
+        return env, request, source, broker, responses, policy
+
+    def test_main_broker_binds_matching_branch_source_and_rechecks_attempts(self):
+        env, request, source, broker, responses, policy = self.fixture()
+        result = gate.produce_broker(env, responses.__getitem__, lambda _: ([], ""), policy=policy)
+        self.assertEqual(result["source"]["attempt"], 2)
+        self.assertEqual(result["producer"]["attempt"], 1)
+        self.assertEqual(result["source"]["application_sha"], APP)
+        self.assertEqual(result["source"]["tooling_sha"], SHA)
+        for target in (source, broker):
+            with self.subTest(target=target["id"]):
+                old_attempt = target["run_attempt"]
+
+                def alerts(_, target=target):
+                    target["run_attempt"] += 1
+                    return [], ""
+
+                with self.assertRaises(gate.Refused):
+                    gate.produce_broker(env, responses.__getitem__, alerts, policy=policy)
+                target["run_attempt"] = old_attempt
+
+    def test_wrong_branch_operator_source_and_implementation_refuse_before_alert_access(self):
+        for key, value in [
+            ("head_branch", "main"),
+            ("event", "pull_request"),
+            ("run_attempt", 1),
+            ("status", "completed"),
+            ("workflow_id", 31),
+            ("head_sha", "d" * 40),
+            ("actor", {"login": "unapproved"}),
+            ("triggering_actor", {"login": "unapproved"}),
+            ("head_repository", {"id": 10, "full_name": "fork/repo"}),
+            ("referenced_workflows", []),
+            ("referenced_workflows", [{"path": "untrusted", "sha": SHA}]),
+        ]:
+            env, _, source, _, responses, policy = self.fixture()
+            source[key] = value
+            with self.subTest(key=key), self.assertRaises(gate.Refused):
+                gate.produce_broker(
+                    env,
+                    responses.__getitem__,
+                    lambda _: self.fail("alerts accessed before source admission"),
+                    policy=policy,
+                )
+        _, request, _, _, responses, policy = self.fixture()
+        for key, value in [
+            ("environment", "production"),
+            ("application_sha", "dev"),
+            ("requested_scope", "native"),
+            ("run_id", True),
+            ("unknown", "extra"),
+        ]:
+            with self.subTest(key=key), self.assertRaises(gate.Refused):
+                gate.verify_deployment(responses.__getitem__, {**request, key: value}, policy)
+
+    def test_lost_dispatch_response_is_not_retried(self):
+        import tempfile
+        from unittest.mock import patch
+
+        _, request, _, _, _, policy = self.fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            env = {
+                "GITHUB_REPOSITORY": gate.REPOSITORY,
+                "GITHUB_REF": "refs/heads/dev",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_RUN_ID": "20",
+                "GITHUB_RUN_ATTEMPT": "2",
+                "GITHUB_SHA": request["caller_sha"],
+                "RELEASE_TOOLING_SHA": SHA,
+                "DEPLOY_SECURITY_REF": APP,
+                "DEPLOY_SECURITY_ENVIRONMENT": "dev",
+                "DEPLOY_SECURITY_SCOPE": "all",
+                "RUNNER_TEMP": directory,
+            }
+            calls = []
+
+            def api(path, data=None):
+                calls.append((path, data))
+                raise gate.Refused("dispatch outcome unknown")
+
+            with (
+                patch.object(gate, "verify_deployment", return_value={}),
+                self.assertRaises(gate.Refused),
+            ):
+                gate.request_broker(env, api=api)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(set(calls[0][1]), {"ref", "inputs"})
+            self.assertEqual(calls[0][1]["ref"], "main")
+            self.assertTrue((Path(directory) / "deployment-security-request.json").exists())
+            with (
+                patch.object(gate, "verify_deployment", return_value={}),
+                self.assertRaises(FileExistsError),
+            ):
+                gate.request_broker(env, api=api)
+            self.assertEqual(len(calls), 1)
+
+    def test_consumption_requires_exact_artifact_step_and_current_broker_attempt(self):
+        import hashlib
+        import io
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from zipfile import ZipFile
+
+        env, request, _, broker, responses, policy = self.fixture()
+        receipt = gate.produce_broker(env, responses.__getitem__, lambda _: ([], ""), policy=policy)
+        broker.update(status="completed", conclusion="success")
+        stream = io.BytesIO()
+        with ZipFile(stream, "w") as archive:
+            archive.writestr("deployment-security.json", json.dumps(receipt))
+        raw = stream.getvalue()
+        prefix = f"repos/{gate.REPOSITORY}/actions/runs/40"
+        job = {
+            "run_id": 40,
+            "run_attempt": 1,
+            "name": "Verify repository secret clearance",
+            "conclusion": "success",
+            "steps": [{"name": "Read protected repository inventory", "conclusion": "success"}],
+        }
+        artifact = {
+            "id": 70,
+            "name": "deployment-security-40-1",
+            "expired": False,
+            "workflow_run": {"id": 40},
+            "size_in_bytes": len(raw),
+            "digest": "sha256:" + hashlib.sha256(raw).hexdigest(),
+            "created_at": receipt["recorded_at"],
+        }
+        responses[f"{prefix}/attempts/1/jobs?per_page=100"] = {"total_count": 1, "jobs": [job]}
+        responses[f"{prefix}/artifacts?per_page=100"] = {"total_count": 1, "artifacts": [artifact]}
+        api = SimpleNamespace(read=lambda path: deepcopy(responses[path]))
+        with patch.object(receipt_transport, "archive_read", return_value=raw):
+            self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
+            for row, key, value in [
+                (artifact, "digest", "sha256:" + "0" * 64),
+                (artifact, "expired", True),
+                (job["steps"][0], "conclusion", "skipped"),
+                (broker, "conclusion", "failure"),
+            ]:
+                original = row[key]
+                row[key] = value
+                with self.subTest(key=key), self.assertRaises(gate.Refused):
+                    gate.consume_broker(api, request, 40, policy)
+                row[key] = original
+            calls = 0
+
+            def read(path):
+                nonlocal calls
+                result = deepcopy(responses[path])
+                if path == prefix:
+                    calls += 1
+                    if calls > 1:
+                        result["run_attempt"] = 2
+                        result["conclusion"] = "failure"
+                return result
+
+            with self.assertRaises(gate.Refused):
+                gate.consume_broker(SimpleNamespace(read=read), request, 40, policy)
 
 
 if __name__ == "__main__":

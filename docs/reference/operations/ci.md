@@ -1141,7 +1141,10 @@ Manual `PR Validation` with scope `auto` or `all` provides full branch diagnosti
 repository-wide alerts within an explicit release run, in a separate job using
 the Main-only `ci-security` environment. Its fine-grained token has only Secret
 scanning alerts: read and Dependabot alerts: read. Candidate code never executes
-in that job. Its Main-only manual diagnostic grants no deployment acceptance.
+in that job. Main-owned releases retain their inline job. The approved matching-branch
+Dev/UAT route uses one explicit Main broker request per deployment attempt; it is
+not a recurring scan or PR worker. Its receipt grants secret clearance only, never
+deployment acceptance by itself.
 Mutation jobs verify the current security attempt; a failed-only rerun cannot
 reuse an earlier clearance. Rerun the complete release workflow through its
 existing recovery contract. Any unresolved secret alert blocks release; dependency alerts remain
@@ -1149,6 +1152,17 @@ advisory. Inaccessible or incomplete inventories fail closed. The receipt binds
 the release run/attempt, Main workflow, environment, requested scope and resolved
 application reference. Existing release admission still verifies selected services,
 source CI, schema and rollback compatibility.
+
+The broker foundation verifies the active Dev/UAT caller, governed operator and
+rerun actor, protected application history and referenced Main implementation.
+Caller SHA, application SHA, implementation SHA and broker SHA remain separate.
+The consumer checks artifact digest, the actual inventory step and both current
+attempts. A dispatch intent is recorded before the request; a lost response stops
+without automatically dispatching again. Keep that intent with the release
+artifacts for read-only reconciliation. Caller activation remains dependent on
+trusted reusable release wiring and matching-branch cloud identity qualification;
+the broker's presence alone does not enable the route. Keep `ci-security`
+Main-only and never pass its token into Dev/UAT caller jobs.
 
 The standalone CI Security Alerts workflow and its PR receipt polling are retired.
 Rerunning PR validation does not create another workflow. Historical receipt readers
