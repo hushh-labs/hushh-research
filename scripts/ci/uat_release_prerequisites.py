@@ -110,8 +110,15 @@ def qualify_inspection(api, result: dict) -> None:
                 and published[0] != f"Exact UAT Candidate ({result['base_sha']})"):
             result["reason_code"] = "qualification_base_changed"
             return
-        job = exact._exact_candidate_job(jobs, result["base_sha"], current=False)
-        if job.get("name") != f"Exact UAT Candidate ({result['base_sha']})":
+        static = [job for job in jobs if job.get("name") == "Exact UAT Candidate"]
+        if static and not exact._static_candidate_base_is_bound(static[0], result["base_sha"]):
+            result["reason_code"] = "qualification_base_unpublished"
+            return
+        job = exact._exact_candidate_job(jobs, result["base_sha"])
+        if job.get("name") not in {
+            "Exact UAT Candidate",
+            f"Exact UAT Candidate ({result['base_sha']})",
+        }:
             result["reason_code"] = "qualification_base_unpublished"
             return
         exact.verify_attempt(api, result["candidate_sha"], result["base_sha"],
