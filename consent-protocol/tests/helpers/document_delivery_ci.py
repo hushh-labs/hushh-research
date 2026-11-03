@@ -9,8 +9,11 @@ from tests.helpers.deployment_cli import document_installer_environment
 
 ROOT = Path(__file__).resolve().parents[3]
 DOCUMENT = "tests/services/test_document_delivery_browser.py"
-WEBKIT = DOCUMENT + "::test_protected_document_browser_payment_preview_download_revoke[webkit]"
+DOCUMENT_WEBKIT = (
+    DOCUMENT + "::test_protected_document_browser_payment_preview_download_revoke[webkit]"
+)
 PHONE = "tests/test_account_phone_browser.py"
+PHONE_WEBKIT = PHONE + "::test_recorded_phone_browser_journeys[webkit-apple.com]"
 
 
 # Valid and rejected invocation cases share the gate assertion owner.
@@ -66,19 +69,27 @@ def assert_document_platform(tmp_path, ci, mode, runner, expected):
     assert "http://archive.ubuntu.com/ubuntu/" in mirrors.read_text()
     assert "http://security.ubuntu.com/ubuntu/" in mirrors.read_text()
     actual = package_calls.read_text().splitlines() if package_calls.exists() else []
-    assert actual == (["playwright install --with-deps chromium webkit"] if linux_install else [])
-    selection = f"{DOCUMENT} {PHONE}"
+    expected_engines = {
+        (): "chromium webkit",
+        ("--ci-linux-document",): "chromium",
+        ("--ci-macos-webkit",): "webkit",
+    }[mode]
+    assert actual == (
+        [f"playwright install --with-deps {expected_engines}"] if linux_install else []
+    )
+    selection = [DOCUMENT, PHONE]
     if mode == ("--ci-linux-document",):
-        selection += f" --deselect {WEBKIT}"
+        selection.extend(("--deselect", DOCUMENT_WEBKIT, "--deselect", PHONE_WEBKIT))
     elif mode == ("--ci-macos-webkit",):
-        selection = WEBKIT
-    assert test_calls.read_text().splitlines() == [f"-m pytest -q {selection}"]
+        selection = [DOCUMENT_WEBKIT, PHONE_WEBKIT]
+    assert test_calls.read_text().splitlines() == [f"-m pytest -q {' '.join(selection)}"]
 
 
 def assert_document_platform_wiring():
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
-    mac = jobs["web-editor-performance-check"]
+    mac = jobs["document-webkit-check"]
     integration = jobs["integration-check"]
+    assert mac["name"] == "Protected Document WebKit (macOS)"
     assert mac["runs-on"] == "macos-15" and mac["timeout-minutes"] == 20
     selected = "needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'"
     assert selected in " ".join(mac["if"].split())
@@ -94,10 +105,6 @@ def assert_document_platform_wiring():
     )
     assert steps["document-python"]["uses"] == "./consent-protocol/.github/actions/setup-python-uv"
     assert 'echo "$pg_bin" >> "$GITHUB_PATH"' in steps["document-postgres"]["run"]
-    editor = next(
-        step for step in mac["steps"] if step.get("run") == "npm run test:layout-editor-performance"
-    )
-    assert editor["if"] == "needs['preflight-gate'].outputs.editor == 'true'"
     execution = next(
         step
         for step in integration["steps"]
