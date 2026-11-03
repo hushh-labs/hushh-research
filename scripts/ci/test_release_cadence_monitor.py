@@ -321,24 +321,29 @@ class TestFlightCompletionTest(unittest.TestCase):
             for completed in (True, False):
                 with self.subTest(workflow=workflow, completed=completed):
                     original, upload, recovery, value, jobs = self.fixture()
+                    repository = testflight.RETIRED_RECOVERY[0]
+                    for item in (original, recovery):
+                        item["repository"] = item["head_repository"] = {"full_name": repository}
                     original["conclusion"] = "failure"
                     recovery["path"] = ".github/workflows/" + workflow
                     if not completed:
                         jobs["jobs"][0]["conclusion"] = "skipped"
                     def transport(path):
                         if "/workflows/" in path:
-                            selected = f"/workflows/{workflow}/" in path
+                            identity = testflight.RETIRED_RECOVERY[1] if workflow == testflight.RESUME else workflow
+                            assert testflight.RESUME not in path
+                            selected = f"/workflows/{identity}/" in path
                             return {"total_count": int(selected), "workflow_runs": [recovery] if selected else []}
                         return jobs
                     with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
                             patch.object(github, "api", side_effect=transport), \
                             patch.object(github, "artifact_json", side_effect=lambda repo, identity, *args, **kwargs: upload if identity == 201 else value):
                         if completed:
-                            self.assertEqual(testflight.completion(REPOSITORY, original, upload["source_sha"]),
+                            self.assertEqual(testflight.completion(repository, original, upload["source_sha"]),
                                              {"recovery_run_id": 301, "recovery_run_attempt": 1})
                         else:
                             with self.assertRaises(core.UnsafeRelease):
-                                testflight.completion(REPOSITORY, original, upload["source_sha"])
+                                testflight.completion(repository, original, upload["source_sha"])
 
     def test_frequent_normal_builds_do_not_hide_positive_recovery(self):
         original, upload, recovery, value, jobs = self.fixture()

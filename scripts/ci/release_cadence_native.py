@@ -11,6 +11,8 @@ from release_cadence import UnsafeRelease, require, trusted_run
 UPLOAD_FIELDS = ("source_sha", "build_number", "marketing_version", "bundle_id")
 RESUME = "resume-ios-testflight.yml"  # Historical receipts remain readable.
 RECOVERY_WORKFLOWS = ("ship-ios-testflight.yml", RESUME)
+# Repository-local ID observed before retiring the standalone entrypoint.
+RETIRED_RECOVERY = ("hushh-labs/hushh-research", "355112139")
 
 
 def bind_recovery(upload_run: dict, upload: dict, run_id: int, attempt: int, distribution: dict) -> dict:
@@ -56,7 +58,8 @@ def completion(repository: str, run: dict, sha: str) -> dict:
     query = urlencode({"branch": "main", "event": "workflow_dispatch", "created": ">=" + run["created_at"], "per_page": 20})
     recoveries = []
     for workflow in RECOVERY_WORKFLOWS:
-        inventory = api(f"repos/{repository}/actions/workflows/{workflow}/runs?{query}")
+        identity = RETIRED_RECOVERY[1] if repository == RETIRED_RECOVERY[0] and workflow == RESUME else workflow
+        inventory = api(f"repos/{repository}/actions/workflows/{identity}/runs?{query}")
         require(isinstance(inventory, dict) and type(inventory.get("total_count")) is int
                 and isinstance(inventory.get("workflow_runs"), list) and inventory["total_count"] >= 0
                 and min(inventory["total_count"], 20) == len(inventory["workflow_runs"]), "TestFlight recovery inventory is malformed")
