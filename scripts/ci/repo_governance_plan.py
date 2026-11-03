@@ -237,7 +237,11 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset(), None
         if path in {"scripts/ci/resolve-ci-changed-files.sh", "scripts/ci/document-delivery-check.sh"}:
             return frozenset({"controller"}), None
-        if path == "scripts/ci/promotion_approval.py":
+        if path in {
+            "scripts/ci/promotion_approval.py",
+            "scripts/ci/secret-scan.sh",
+            "scripts/ci/test_secret_scan_ranges.py",
+        }:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/repo-governance-check.sh",
