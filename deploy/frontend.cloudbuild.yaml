@@ -14,8 +14,10 @@ steps:
   # it does not contain gcloud. Resolve the optional Secret Manager value in a
   # Cloud SDK step, then hand the public client id to the Docker step through
   # Cloud Build's ephemeral /workspace volume.
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  - name: "gcr.io/google.com/cloudsdktool/google-cloud-cli:590.0.1-stable@sha256:3420fac28ac21d59623b5efbb57bd60c0a5c4223ad6cb604840080a8778679ee"
     entrypoint: "bash"
+    env:
+      - "PATH=/usr/lib/google-cloud-sdk/bin:/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     args:
       - "-c"
       - |
@@ -364,8 +366,10 @@ steps:
     id: "build-frontend-image"
 
   # Step 3: Deploy to Cloud Run
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  - name: "gcr.io/google.com/cloudsdktool/google-cloud-cli:590.0.1-stable@sha256:3420fac28ac21d59623b5efbb57bd60c0a5c4223ad6cb604840080a8778679ee"
     entrypoint: "bash"
+    env:
+      - "PATH=/usr/lib/google-cloud-sdk/bin:/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     args:
       - "-c"
       - |
