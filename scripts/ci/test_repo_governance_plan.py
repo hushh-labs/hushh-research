@@ -199,6 +199,8 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
         local._focused(None, context, Path(raw), stream=False)
     targeted = [env for argv, env in observed if argv[-1] == "web-targeted"]
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
+    assert not any(argv[-1] == "integration" for argv, _ in observed)
+    assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
 
 
 def main() -> int:

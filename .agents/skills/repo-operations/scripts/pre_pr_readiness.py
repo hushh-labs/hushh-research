@@ -256,10 +256,9 @@ def _focused(args: argparse.Namespace, c: dict[str, Any], temp: Path, *, stream:
               "CI_CHANGED_FILES": None, "CI_IMPACT_BASE_SHA": c["base"], "CI_IMPACT_HEAD_SHA": c["head"],
               "GITHUB_EVENT_NAME": "local", "GITHUB_EVENT_PATH": None, "GITHUB_TOKEN": None, "GH_TOKEN": None}
     run("governance", ["bash", "scripts/ci/repo-governance-check.sh"], common)
-    web = {**common, "WEB_TARGETED_CHANGED_FILES": "\n".join(c["files"]), "CI_ACCOUNT_DELETION_CLIENT_OWNED": "1", "WEB_TARGETED_PART": "node"}
+    web = {**common, "WEB_TARGETED_CHANGED_FILES": "\n".join(c["files"]), "CI_ACCOUNT_DELETION_CLIENT_OWNED": "0", "WEB_TARGETED_PART": "node"}
     stages = (["web-core", "web-targeted", "web-full-suite"] if c["lanes"]["frontend"] else [])
     if c["lanes"]["backend"]: stages += ["protocol", "mcp-package"]
-    if any(c["lanes"].values()): stages.append("integration")
     for stage in stages: run(stage.replace("-", "_"), ["bash", "scripts/ci/orchestrate.sh", stage], web)
     return checks, commands
 
@@ -328,6 +327,7 @@ def main() -> int:
                 pr=c["number"], pr_url=c["url"], changed_files=c["files"],
                 mirrors_workflows=["affected local checks"], diagnostic=False,
                 hosted_required=["exact-head PR admission and selected native checks"] +
+                    (["cross-surface Integration"] if any(c["lanes"].values()) else []) +
                     (["functional browser contracts"] if c["lanes"]["frontend"] else []) +
                     (["Protocol Database (1/2)", "Protocol Database (2/2)"] if c["lanes"]["backend"] else []),
                 browser_validation="hosted CI required; not executed locally",
