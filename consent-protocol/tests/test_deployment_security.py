@@ -21,6 +21,46 @@ SHA = "a" * 40
 APP = "b" * 40
 
 
+def assert_read_only_uat_inspection(case, job):
+    case.assertEqual(job.get("if"), "inputs.operation == 'inspect'")
+    case.assertEqual(job.get("environment"), {"name": "uat", "deployment": False})
+    case.assertEqual(
+        job.get("permissions"),
+        {"contents": "read", "actions": "read", "checks": "read", "id-token": "write"},
+    )
+    case.assertNotIn("secrets", job)
+    commands = {
+        'test "$GITHUB_REF_NAME" = main',
+        'python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"',
+        "python3 scripts/ci/uat_release_prerequisites.py validate-inspection",
+        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"',
+    }
+    actions = {
+        "actions/checkout@v6",
+        "google-github-actions/auth@v3",
+        "google-github-actions/setup-gcloud@v3",
+    }
+    checkout = next(step for step in job["steps"] if step.get("uses") == "actions/checkout@v6")
+    case.assertEqual(checkout.get("with"), {"ref": "${{ github.sha }}", "fetch-depth": 0})
+    authentication = next(
+        step for step in job["steps"] if step.get("uses") == "google-github-actions/auth@v3"
+    )
+    case.assertEqual(
+        authentication.get("with"),
+        {
+            "workload_identity_provider": "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}",
+            "service_account": "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}",
+            "project_id": "${{ env.GCP_PROJECT_ID }}",
+            "create_credentials_file": True,
+            "export_environment_variables": True,
+        },
+    )
+    steps = job["steps"]
+    case.assertEqual(len(steps), len(commands) + len(actions))
+    case.assertEqual({step["run"] for step in steps if "run" in step}, commands)
+    case.assertEqual({step["uses"] for step in steps if "uses" in step}, actions)
+
+
 class DeploymentSecurityTest(unittest.TestCase):
     def fixture(self):
         env = {
@@ -104,6 +144,41 @@ class DeploymentSecurityTest(unittest.TestCase):
             with self.subTest(rows=rows, links=links), self.assertRaises(gate.Refused):
                 gate.produce(env, read, lambda _, rows=rows, links=links: (rows, links))
 
+    def test_read_only_inspection_exception_rejects_mutation_or_release_credentials(self):
+        import yaml
+
+        root = Path(__file__).resolve().parents[2]
+        job = yaml.safe_load((root / ".github/workflows/deploy-uat.yml").read_text())["jobs"][
+            "inspect-prerequisites"
+        ]
+        assert_read_only_uat_inspection(self, job)
+        for field, value in [
+            ("environment", "uat"),
+            ("permissions", {"contents": "write", "id-token": "write"}),
+            ("secrets", {"GH_SECURITY_ALERTS_TOKEN": "forbidden"}),
+            ("steps", job["steps"] + [{"run": "gcloud run deploy forbidden"}]),
+        ]:
+            with self.subTest(field=field), self.assertRaises(AssertionError):
+                assert_read_only_uat_inspection(self, {**job, field: value})
+
+    def test_inspector_cannot_checkout_candidate_or_change_credential_authority(self):
+        import yaml
+
+        root = Path(__file__).resolve().parents[2]
+        original = yaml.safe_load((root / ".github/workflows/deploy-uat.yml").read_text())["jobs"][
+            "inspect-prerequisites"
+        ]
+        for action, key, value in [
+            ("actions/checkout@v6", "ref", "${{ inputs.sha }}"),
+            ("actions/checkout@v6", "repository", "other/repository"),
+            ("google-github-actions/auth@v3", "credentials_json", "forbidden"),
+            ("google-github-actions/auth@v3", "service_account", "other@example.invalid"),
+        ]:
+            job = deepcopy(original)
+            next(step for step in job["steps"] if step.get("uses") == action)["with"][key] = value
+            with self.subTest(action=action, key=key), self.assertRaises(AssertionError):
+                assert_read_only_uat_inspection(self, job)
+
     def test_every_caller_requires_isolated_clearance_before_mutation(self):
         import yaml
 
@@ -121,6 +196,26 @@ class DeploymentSecurityTest(unittest.TestCase):
                     {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
                 )
                 for key, job in jobs.items():
+                    if name == "deploy-production.yml" and key == "validate-dispatch":
+                        self.assertNotIn("needs", job)
+                        self.assertEqual(job.get("permissions"), {"contents": "read"})
+                        self.assertNotIn("environment", job)
+                        self.assertNotIn("secrets", job)
+                        continue
+                    if name == "deploy-production.yml" and key == "verify-current-production":
+                        self.assertEqual(job.get("needs"), "validate-dispatch")
+                        self.assertEqual(
+                            job.get("environment"), {"name": "production", "deployment": False}
+                        )
+                        self.assertEqual(
+                            job.get("permissions"), {"contents": "read", "id-token": "write"}
+                        )
+                        self.assertNotIn("secrets", job)
+                        self.assertNotIn("uses", job)
+                        continue
+                    if name == "deploy-uat.yml" and key == "inspect-prerequisites":
+                        assert_read_only_uat_inspection(self, job)
+                        continue
                     if key == "deployment-security" or (
                         name == "deploy-uat.yml" and key == "select-target"
                     ):

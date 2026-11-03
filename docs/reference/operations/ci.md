@@ -1002,7 +1002,14 @@ alerts remain independently reported.
 
 ### GitHub Alert Parity
 
-PR and queue source scans retain Gitleaks with read-only credentials. Draft PRs
+Local Core, PR and queue source scans retain Gitleaks history and PR-body scans
+without privileged alert access. Local Core does not call the GitHub alert reader
+by default. Explicit `REQUIRE_GITHUB_ALERTS_CLEAN=1`,
+`REQUIRE_GITHUB_SECRET_ALERTS_CLEAN=1` or
+`REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN=1` retains the fail-closed diagnostic:
+a missing reader, denied access or incomplete inventory fails the requested audit.
+Routine contributors need no repository-wide alert token on their laptops.
+Draft PRs
 run safety, governance and UI contract checks; selected expensive lanes run when
 the PR is ready. The non-required Merge Fidelity advisory also starts only when
 the PR is ready; `CI Status Gate` does not depend on it. `Draft Safety Gate` cannot

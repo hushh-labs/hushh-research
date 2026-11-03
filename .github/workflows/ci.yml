@@ -1691,7 +1691,7 @@ jobs:
   # checking the immutable workflow authority, full run and security receipt.
   # This job alone never authorizes a release or replaces the aggregate gate.
   uat-exact-source:
-    name: "Exact UAT Candidate"
+    name: "Exact UAT Candidate (${{ inputs.uat_base_sha }})"
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -194,20 +194,20 @@ def _started(run: dict) -> tuple[datetime, int]:
         raise Refused("CI chronology is unavailable") from None
 
 
-def _exact_candidate_job(jobs, base):
-    legacy_name = f"Exact UAT Candidate ({base})"
+def _exact_candidate_job(jobs, base, *, current=True):
+    base_name = f"Exact UAT Candidate ({base})"
     matches = [
-        job for job in jobs if job.get("name") in {"Exact UAT Candidate", legacy_name}
+        job for job in jobs if job.get("name") in {"Exact UAT Candidate", base_name}
     ]
     require(
-        len(matches) == 1,
-        "UAT CI did not complete its exact-source and aggregate gates",
+        len(matches) == 1 and (not current or matches[0].get("name") == base_name),
+        "UAT CI requires a unique successful qualification labelled with its exact serving base",
     )
     return matches[0]
 
 
 
-def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
+def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory = api.read(f"{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     jobs = inventory.get("jobs")
@@ -217,7 +217,7 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
         and inventory["total_count"] == len(jobs) <= 100,
         "UAT CI job inventory is incomplete",
     )
-    exact_job = _exact_candidate_job(jobs, base)
+    exact_job = _exact_candidate_job(jobs, base, current=current)
     for name in REQUIRED_JOBS:
         matches = [job for job in jobs if job.get("name") == name]
         require(
@@ -281,7 +281,7 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt):
 
 
 
-def _latest_attempt_inventory(api, candidate, run_id):
+def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory_path = f"{prefix}/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch&head_sha={candidate}&per_page=100"
     rows = api.read(inventory_path)
@@ -297,6 +297,22 @@ def _latest_attempt_inventory(api, candidate, run_id):
         for item in runs
         if item.get("head_sha") == candidate and item.get("head_branch") == "uat"
     ]
+    if not current:
+        # Historical serving acceptance binds one immutable successful run. A
+        # different CI run cannot revoke it, but a rerun of this very run must
+        # still corroborate the pinned attempt even if /runs/{id} is stale.
+        pinned = [item for item in relevant if item.get("id") == run_id]
+        require(
+            len(pinned) == 1
+            and type(pinned[0].get("id")) is int
+            and type(pinned[0].get("run_attempt")) is int
+            and pinned[0]["run_attempt"] == attempt,
+            "Historical UAT CI pinned attempt is missing or superseded",
+        )
+        return inventory_path, {
+            key: pinned[0].get(key)
+            for key in ("id", "run_attempt", "head_sha", "head_branch")
+        }
     attempts = []
     for item in relevant:
         identifier, current_attempt = item.get("id"), item.get("run_attempt")
@@ -312,15 +328,18 @@ def _latest_attempt_inventory(api, candidate, run_id):
             "UAT CI attempt chronology belongs to another source",
         )
         attempts.append(observed)
+    # A complete inventory with one current run needs no timestamp ordering.
+    # Competing runs still require trustworthy chronology, including older-ID reruns.
+    latest = attempts[0] if len(attempts) == 1 else max(attempts, key=_started, default={})
     require(
-        attempts and max(attempts, key=_started).get("id") == run_id,
+        latest.get("id") == run_id and latest.get("run_attempt") == attempt,
         "A newer UAT CI attempt superseded this evidence",
     )
     return inventory_path, rows
 
 
 def verify_attempt(
-    api: GitHub, candidate: str, base: str, run_id: int, attempt: int
+    api: GitHub, candidate: str, base: str, run_id: int, attempt: int, *, current=True
 ) -> dict:
     require(SHA.fullmatch(candidate), "Full application SHA is required")
     require(SHA.fullmatch(base), "Full UAT serving-base SHA is required")
@@ -344,17 +363,25 @@ def verify_attempt(
         and run.get("conclusion") == "success",
         "UAT CI is not a successful exact-branch dispatch",
     )
-    _verify_run_jobs(api, run, candidate, base, run_id, attempt)
-    inventory_path, rows = _latest_attempt_inventory(api, candidate, run_id)
-    current = verify_source(
+    _verify_run_jobs(api, run, candidate, base, run_id, attempt, current=current)
+    inventory_path, rows = _latest_attempt_inventory(
+        api, candidate, run_id, attempt, current=current
+    )
+    rechecked_source = verify_source(
         api.read,
         REPOSITORY,
         {"run_id": run_id, "attempt": attempt, "head_sha": candidate},
     )
     require(
-        current == source
+        rechecked_source == source
         and api.read(f"{prefix}/runs/{run_id}") == run
-        and api.read(inventory_path) == rows,
+        and (
+            api.read(inventory_path) == rows
+            if current
+            else _latest_attempt_inventory(
+                api, candidate, run_id, attempt, current=False
+            )[1] == rows
+        ),
         "UAT CI changed during verification",
     )
     return {"run_id": run_id, "run_attempt": attempt}
@@ -368,7 +395,10 @@ def verify_predecessor(prior: dict, *, current: bool) -> None:
     api = GitHub(REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     if current:
         require_protected_tip(api, candidate)
-    verify_attempt(api, candidate, prior["base_sha"], prior["run_id"], prior["run_attempt"])
+    verify_attempt(
+        api, candidate, prior["base_sha"], prior["run_id"], prior["run_attempt"],
+        current=current,
+    )
     if current:
         require_protected_tip(api, candidate)
 

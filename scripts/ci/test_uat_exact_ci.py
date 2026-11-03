@@ -2,73 +2,27 @@
 """Fail closed when direct-UAT evidence changes or belongs to another source."""
 
 import json
+import os
+import subprocess
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import promotion_approval as promotion
 import uat_exact_ci as subject
+from uat_exact_ci_fixture import (
+    AttemptAPI as _AttemptAPI,
+    attempt_jobs as _attempt_jobs,
+    attempt_check as _attempt_check,
+    attempt_run as _attempt_run,
+)
 
 
 
 
 
-
-def _attempt_run(candidate):
-    run = {
-        "id": 123,
-        "head_sha": candidate,
-        "head_branch": "uat",
-        "event": "workflow_dispatch",
-        "run_attempt": 1,
-        "workflow_id": 9,
-        "path": ".github/workflows/ci.yml",
-        "repository": {"id": 7, "full_name": subject.REPOSITORY},
-        "head_repository": {"id": 7, "full_name": subject.REPOSITORY},
-        "status": "completed",
-        "conclusion": "success",
-        "run_started_at": "2026-10-28T00:00:00Z",
-        "updated_at": "2026-10-28T00:00:30Z",
-        "check_suite_id": 77,
-    }
-    return run
-
-def _attempt_jobs(candidate, base, exact_name=None):
-    exact_name = exact_name or f"Exact UAT Candidate ({base})"
-    jobs = [
-        {
-            "name": name,
-            "run_id": 123,
-            "head_sha": candidate,
-            "status": "completed",
-            "conclusion": "success",
-            "steps": [],
-        }
-        for name in sorted(
-            subject.REQUIRED_JOBS | {exact_name}
-        )
-    ]
-    for job in jobs:
-        name = job["name"]
-        step = (
-            "Verify the exact UAT checkout"
-            if name in {"Exact UAT Candidate", f"Exact UAT Candidate ({base})"}
-            else "Run targeted web contract checks"
-            if name.startswith("Web Targeted Contracts (")
-            else "Run serial database contracts"
-            if name.startswith("Protocol Database (")
-            else "Resolve change-aware verification plan"
-            if name == "Integration"
-            else None
-        )
-        if step:
-            job["steps"] = [{"name": step, "conclusion": "success"}]
-        if name == "Branch Validation Gate":
-            job["check_run_url"] = (
-                f"https://api.github.com/repos/{subject.REPOSITORY}/check-runs/10"
-            )
-    return jobs
 
 class ExactUatCiTest(unittest.TestCase):
     def test_reviewed_product_tests_and_dependencies_do_not_change_execution_authority(self):
@@ -203,25 +157,130 @@ class ExactUatCiTest(unittest.TestCase):
 
 
 
-class _AttemptAPI:
-    def __init__(self, run, jobs, runs, check):
-        self.run, self.jobs, self.runs, self.check = run, jobs, runs, check
+class ApplicationSourceAdmissionTest(unittest.TestCase):
+    def test_new_uat_selection_requires_protected_uat_membership(self):
+        application = "a" * 40
 
-    def read(self, path):
-        if path == f"repos/{subject.REPOSITORY}":
-            return {"id": 7, "full_name": subject.REPOSITORY}
-        if path.endswith("/actions/workflows/ci.yml"):
-            return {"id": 9, "path": ".github/workflows/ci.yml"}
-        if path.endswith("/check-runs/10"):
-            return self.check
-        if "/attempts/1/jobs?" in path:
-            return {"jobs": self.jobs, "total_count": len(self.jobs)}
-        if "/workflows/ci.yml/runs?" in path:
-            return {"workflow_runs": self.runs, "total_count": len(self.runs)}
-        for item in self.runs:
-            if path.endswith(f"/runs/{item['id']}") or f"/runs/{item['id']}/attempts/" in path:
-                return item
-        return self.run
+        def protected_uat_member(*args):
+            if args == ("merge-base", application, "origin/uat"):
+                return application
+            raise AssertionError("UAT selection must use protected UAT history")
+
+        self.assertEqual(
+            promotion.uat_source(application, resolve=protected_uat_member),
+            ("uat", "CI Status Gate,Queue Validation,Branch Validation Gate"),
+        )
+
+    def test_main_alias_passes_only_when_the_sha_is_also_in_uat(self):
+        application = "b" * 40
+
+        def shared_main_uat_member(*args):
+            if args in {
+                ("merge-base", application, "origin/main"),
+                ("merge-base", application, "origin/uat"),
+            }:
+                return application
+            raise AssertionError("Selection must bind to protected UAT membership")
+
+        self.assertEqual(
+            promotion.uat_source(application, resolve=shared_main_uat_member)[0],
+            "uat",
+        )
+
+    def test_main_only_or_arbitrary_sha_is_not_a_new_uat_source(self):
+        application = "c" * 40
+
+        def main_only(*args):
+            if args == ("merge-base", application, "origin/main"):
+                return application
+            if args == ("merge-base", application, "origin/uat"):
+                return "0" * 40
+            raise AssertionError("Main membership cannot authorize a UAT dispatch")
+
+        with self.assertRaisesRegex(ValueError, "not in protected UAT history"):
+            promotion.uat_source(application, resolve=main_only)
+
+    def test_dev_normal_dispatch_checks_dev_membership_and_preserves_pod_source(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/deploy-dev.yml").read_text()
+        normal_gate = workflow.split(
+            "- name: Validate deployment SHA in protected Dev history", 1
+        )[1].split("\n      - name:", 1)[0]
+        pod_gate_section = workflow.split(
+            "- name: Verify exact pod source CI and ref", 1
+        )[1]
+        pod_gate = pod_gate_section.split("\n      - name:", 1)[0]
+
+        self.assertIn("REQUIRED_BRANCH: dev", normal_gate)
+        self.assertNotIn("steps.resolve-sha.outputs.ref", normal_gate)
+        self.assertIn("REQUIRED_BRANCH: ${{ inputs.ref }}", pod_gate)
+        self.assertIn("Application lookup ref", workflow)
+        self.assertIn(
+            "run-name: Dev · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
+            workflow,
+        )
+        self.assertIn("Source authority: protected \\`dev\\` history", workflow)
+
+    def test_dev_membership_accepts_a_main_alias_only_for_a_dev_member_sha(self):
+        root = Path(__file__).resolve().parents[2]
+        helper = root / "scripts/ci/require-deploy-sha-on-main.sh"
+        application = "a" * 40
+        with tempfile.TemporaryDirectory() as directory:
+            fake_bin = Path(directory)
+            fake_git = fake_bin / "git"
+            fake_git.write_text(
+                "#!/bin/sh\n"
+                'case "$1" in\n'
+                "  fetch|cat-file) exit 0 ;;\n"
+                '  merge-base) exit "${DEV_MEMBERSHIP_EXIT:-0}" ;;\n'
+                "esac\n"
+                "exit 0\n"
+            )
+            fake_git.chmod(0o755)
+            environment = {
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "REQUIRED_BRANCH": "dev",
+                "REQUIRE_CI_SUCCESS": "0",
+            }
+            member = subprocess.run(
+                ["bash", str(helper), application],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(member.returncode, 0, member.stderr)
+            environment["DEV_MEMBERSHIP_EXIT"] = "1"
+            outside = subprocess.run(
+                ["bash", str(helper), "b" * 40],
+                env=environment,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(outside.returncode, 0)
+
+    def test_explicit_uat_sha_is_checked_before_selection_completes(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
+        selection = workflow.split('if [ -n "$REQUESTED_SHA" ]; then', 1)[1]
+        selection = selection.split('echo "sha=$REQUESTED_SHA"', 1)[0]
+
+        checkout = workflow.split("- name: Checkout code", 1)[1].split(
+            "\n      - name:", 1
+        )[0]
+        self.assertIn("fetch-depth: 0", checkout)
+        self.assertIn("promotion_approval.py uat", selection)
+        self.assertIn(
+            "run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }}",
+            workflow,
+        )
+        self.assertIn('--application-sha "$REQUESTED_SHA"', selection)
+        self.assertIn(
+            "Source authority: \\`${{ steps.application-authority.outputs.branch }}\\`",
+            workflow,
+        )
 
 
 class ExactUatAttemptTest(unittest.TestCase):
@@ -236,19 +295,15 @@ class ExactUatAttemptTest(unittest.TestCase):
         )
         database = next(job for job in jobs if job["name"] == "Protocol Database (1/2)")
         runs = [run]
-        check = {
-            "name": "Branch Validation Gate",
-            "head_sha": candidate,
-            "status": "completed",
-            "conclusion": "success",
-            "app": {"id": 15368, "slug": "github-actions"},
-            "check_suite": {"id": 77},
-        }
+        check = _attempt_check(candidate)
 
         api = _AttemptAPI(run, jobs, runs, check)
         self.assertEqual(
             subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1
         )
+        self._assert_clock_anomaly_requires_single_run(api, candidate, base, run, runs)
+        with self.assertRaises(subject.Refused):
+            subject.verify_attempt(api, candidate, "d" * 40, 123, 1)
         exact["conclusion"] = "cancelled"
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
@@ -277,20 +332,66 @@ class ExactUatAttemptTest(unittest.TestCase):
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, base, 123, 1)
         run["run_attempt"] = 1
-        runs.append(
-            {
-                **run,
-                "id": 124,
-                "conclusion": "failure",
-                "run_started_at": "2026-10-28T00:01:00Z",
-                "updated_at": "2026-10-28T00:01:10Z",
-            }
-        )
-        with self.assertRaises(subject.Refused):
+        self._assert_inventory_attempt_advancement_refuses(api, candidate, base, run, runs)
+        self._assert_later_failed_runs_refuse(api, candidate, base, run, runs)
+
+    def _assert_inventory_attempt_advancement_refuses(self, api, candidate, base, run, runs):
+        runs[:] = [{**run, "run_attempt": 2}]
+        read = api.read
+
+        def stale_run_endpoint(path):
+            if path.endswith("/actions/runs/123"):
+                return dict(run)
+            return read(path)
+
+        with patch.object(api, "read", side_effect=stale_run_endpoint):
+            for current in (True, False):
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1, current=current)
+        runs[:] = [run]
+
+    def _assert_clock_anomaly_requires_single_run(self, api, candidate, base, run, runs):
+        started, updated = run["run_started_at"], run["updated_at"]
+        run.update(run_started_at="2026-11-01T09:36:17Z", updated_at="2026-11-01T09:10:39Z")
+        self.assertEqual(subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1)
+        read = api.read
+
+        def incomplete_inventory(path):
+            result = read(path)
+            if "/workflows/ci.yml/runs?" in path:
+                return {**result, "total_count": 2}
+            return result
+
+        with patch.object(api, "read", side_effect=incomplete_inventory):
+            with self.assertRaisesRegex(subject.Refused, "run inventory is incomplete"):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+        for inventory in ([], [{**run, "id": 124}]):
+            runs[:] = inventory
+            with self.assertRaises(subject.Refused):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+        runs[:] = [run]
+        runs.append({**run, "id": 122, "run_started_at": started, "updated_at": updated})
+        with self.assertRaisesRegex(subject.Refused, "CI chronology is invalid"):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
-        # A later rerun of an older run has a smaller run ID, but is still
-        # the most recent attempt and must invalidate the old green result.
+        run.update(run_started_at=started, updated_at=updated)
+
+    def _assert_later_failed_runs_refuse(self, api, candidate, base, run, runs):
+        for status, conclusion in (("completed", "failure"), ("queued", None)):
+            runs.append(
+                {
+                    **run,
+                    "id": 124,
+                    "status": status,
+                    "conclusion": conclusion,
+                    "run_started_at": "2026-10-28T00:01:00Z",
+                    "updated_at": "2026-10-28T00:01:10Z",
+                }
+            )
+            with self.subTest(status=status), self.assertRaises(subject.Refused):
+                subject.verify_attempt(api, candidate, base, 123, 1)
+            runs.pop()
+        # A rerun with a smaller ID is still the most recent attempt.
         runs.append(
             {
                 **run,
@@ -305,25 +406,50 @@ class ExactUatAttemptTest(unittest.TestCase):
             subject.verify_attempt(api, candidate, base, 123, 1)
         runs.pop()
 
+    def test_historical_predecessor_keeps_pinned_integrity_without_electing_other_runs(self):
+        candidate, base, tree = "a" * 40, "b" * 40, "e" * 40
+        run = _attempt_run(candidate)
+        runs = [run]
+        api = _AttemptAPI(run, _attempt_jobs(candidate, base), runs, _attempt_check(candidate))
+        prior = {"sha": candidate, "base_sha": base, "authority_sha": "c" * 40,
+                 "tree": tree, "run_id": 123, "run_attempt": 1}
+        with patch.object(subject, "GitHub", return_value=api), \
+             patch.object(subject, "verify_git_authority", return_value=tree):
+            for status in ("queued", "failure", "success"):
+                runs[:] = [run, {**run, "id": 124, "status": "queued" if status == "queued" else "completed",
+                                 "conclusion": None if status == "queued" else status,
+                                 "run_started_at": "2026-10-28T00:01:00Z", "updated_at": "2026-10-28T00:01:10Z"}]
+                subject.verify_predecessor(prior, current=False)
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1)
+            runs[:] = [{**run, "run_attempt": 2}]
+            with self.assertRaises(subject.Refused):
+                subject.verify_predecessor(prior, current=False)
+            runs.clear()
+            with self.assertRaises(subject.Refused):
+                subject.verify_predecessor(prior, current=False)
+            runs[:] = [run]
+            run["conclusion"] = "failure"
+            with self.assertRaises(subject.Refused):
+                subject.verify_predecessor(prior, current=False)
+
     def test_static_name_and_historical_alias_are_exact_and_unique(self):
         candidate, base = "a" * 40, "b" * 40
         run = _attempt_run(candidate)
         runs = [run]
-        check = {
-            "name": "Branch Validation Gate",
-            "head_sha": candidate,
-            "status": "completed",
-            "conclusion": "success",
-            "app": {"id": 15368, "slug": "github-actions"},
-            "check_suite": {"id": 77},
-        }
+        check = _attempt_check(candidate)
         for exact_name in ("Exact UAT Candidate", f"Exact UAT Candidate ({base})"):
             jobs = _attempt_jobs(candidate, base, exact_name=exact_name)
             api = _AttemptAPI(run, jobs, runs, check)
             self.assertEqual(
-                subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"],
+                subject.verify_attempt(api, candidate, base, 123, 1, current=False)["run_attempt"],
                 1,
             )
+            if exact_name == "Exact UAT Candidate":
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1)
+            else:
+                subject.verify_attempt(api, candidate, base, 123, 1)
 
         jobs = _attempt_jobs(candidate, base, exact_name="Exact UAT Candidate")
         historical = next(
