@@ -1236,6 +1236,20 @@ specification and ordered audit history in the existing observer inventory. The
 database-capacity gate refuses unreviewed job generations even when that job is
 healthy. Preserve older profiles and never exempt a workload by its name alone.
 
+The pinned frontend-only auth-domain repair reserves no hypothetical backend or
+Drive-worker candidate connections: it uses the existing full-inventory
+`--no-candidates` admission. Actual retained workloads, qualified observers,
+administrative reserve and database limits still apply. This mode refuses a
+non-frontend scope, staged worker, restoration, phone rollback or cold phase;
+ordinary deployments retain their candidate reservations.
+
+The exact reviewed parallel maintenance profile may flush canonical records of
+older qualified attempts around its final refusal diagnostic. The reader accepts
+only bounded, typed progress metadata there; those records grant no authority.
+The actual checkout, source tuple, clock witness, diagnostic hash and absence of
+checkpoint/provider mutation remain mandatory. Other profiles keep their strict
+transcript contracts; arbitrary output still refuses reconciliation.
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
