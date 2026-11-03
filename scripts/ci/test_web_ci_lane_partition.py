@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import shlex
 import stat
 import subprocess
@@ -40,6 +41,7 @@ WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / "scripts/ci/web-targeted-check.sh"
 FULL_SUITE = ROOT / "scripts/ci/web-full-suite-check.sh"
 PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
+BROWSER_CORE = runpy.run_path(str(ROOT / "scripts/ci/web-browser-core.py"))
 
 
 def _one_matching_file_per_pack() -> str:
@@ -163,6 +165,69 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         })
         assert code == 0, output[-2000:]
         assert calls == expected, (part, calls)
+
+
+def test_functional_browser_plans_keep_chromium_from_multi_project_packs() -> None:
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    plan = BROWSER_CORE["plan"]
+    expected_specs = {
+        "test:account-session:browser": "e2e/account-session-recovery.spec.ts",
+        "test:drive-sharing-layout": "e2e/document-share-review.layout.spec.ts",
+        "test:connections-layout": "e2e/connections-drawer.layout.spec.ts",
+        "test:connections-layout:without-covered": "e2e/connections-drawer.layout.spec.ts",
+        "test:one-voice-panel-layout": "e2e/one-voice-panel.layout.spec.ts",
+        "test:one-voice-mail-open-layout": "e2e/one-voice-mail-open.layout.spec.ts",
+        "test:calendar-workspace-layout": "e2e/calendar-connected-workspace.layout.spec.ts",
+        "test:agent-surface-layout": "e2e/agent-surface-model-authority.layout.spec.ts",
+    }
+    for script, expected_spec in expected_specs.items():
+        rows = plan(script, scripts, [])
+        chromium = [row for row in rows if "--project=chromium" in row]
+        assert chromium, f"{script} lost its functional Chromium pack"
+        assert any(expected_spec in row for row in chromium), (script, expected_spec)
+        assert not any("--project=webkit" in row for row in rows), script
+        if script == "test:account-session:browser":
+            assert any("--project=mobile-chrome" in row for row in rows)
+
+
+def test_functional_browser_plan_accumulates_project_syntax_and_fails_closed() -> None:
+    plan = BROWSER_CORE["plan"]
+    spec = "e2e/agent-markdown.layout.spec.ts"
+    scripts = {
+        "synthetic": (
+            f"CI=1 playwright test {spec} {spec} --project=chromium --project webkit "
+            "--project=mobile-chrome --project chromium --workers=1 "
+            "--grep-invert 'One profile artwork and animated presence'"
+        )
+    }
+    rows = plan("synthetic", scripts, [])
+    projects = [next(token for token in row if token.startswith("--project=")) for row in rows]
+    assert projects == ["--project=chromium", "--project=mobile-chrome"]
+    for row in rows:
+        assert row.count(spec) == 1 and "--workers=1" in row
+        assert "--grep-invert" in row
+        assert "One profile artwork and animated presence" in row[-1]
+        assert "100 KB paste" in row[-1]
+
+    invalid = (
+        (
+            "unknown",
+            f"playwright test {spec} --project=chromium --project=unknown",
+            "Unrecognized browser project",
+        ),
+        (
+            "missing",
+            "playwright test e2e/missing-contract.spec.ts --project=chromium",
+            "Unresolved browser contract",
+        ),
+    )
+    for script, body, expected_error in invalid:
+        try:
+            plan(script, {script: body}, [])
+        except ValueError as error:
+            assert expected_error in str(error), (expected_error, error)
+        else:
+            raise AssertionError(f"invalid browser plan {script!r} was accepted")
 
 
 def test_agent_surface_layout_runs_once_without_losing_the_focused_gate() -> None:
@@ -517,6 +582,8 @@ def main() -> int:
     tests = (
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
+        test_functional_browser_plans_keep_chromium_from_multi_project_packs,
+        test_functional_browser_plan_accumulates_project_syntax_and_fails_closed,
         test_browser_plan_skips_only_known_no_browser_selection,
         test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
         test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
