@@ -86,6 +86,13 @@ async def revoke_staged_key_and_check_checkout(answer_engine, payments, request,
     ] != "ready"
 
 
+async def assert_active_stage_survives_empty_retry(requests, request, envelope, owner):
+    # An empty retry cannot replace an answer sealed to a still-active key.
+    assert await requests.deliver(
+        owner_user_id=owner, request_id=request, envelope=envelope, has_content=False
+    ) == {"delivered": True, "hasContent": True}
+
+
 async def assert_key_recovery_refund(
     requests, engine, request, recovery, envelope, owner, requester
 ):

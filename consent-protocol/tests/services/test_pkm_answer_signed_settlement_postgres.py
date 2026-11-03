@@ -19,6 +19,7 @@ from hushh_mcp.services.pkm_answer_payment_service import (
 from hushh_mcp.services.pkm_answer_request_service import AnswerRequestError
 from tests.helpers.answer_signed_settlement import (
     SECRET,
+    assert_active_stage_survives_empty_retry,
     assert_key_recovery_refund,
     dispatch_signed_purchase,
     revoke_staged_key_and_check_checkout,
@@ -79,10 +80,7 @@ async def test_signed_dispatch_releases_exact_staged_answer_once(
         requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
     )
     if key_recovery == "empty":
-        # An empty retry cannot replace an answer sealed to a still-active key.
-        assert await requests.deliver(
-            owner_user_id=OWNER, request_id=request, envelope=ENVELOPE, has_content=False
-        ) == {"delivered": True, "hasContent": True}
+        await assert_active_stage_survives_empty_retry(requests, request, ENVELOPE, OWNER)
     # Duplicate staging hits migration179's real unique index, without rollback.
     await _deliver_composed(
         requests, answer_engine, owner_user_id=OWNER, request_id=request, envelope=ENVELOPE
