@@ -54678,7 +54678,7 @@
     "deprecated": [
       "actions:phone_mandate.recover"
     ],
-    "from_revision": "22cf4ef00a31d756",
+    "from_revision": "3adc9c7720dda6e7",
     "migrated": [],
     "removed": [
       "actions:phone_mandate.recover"
