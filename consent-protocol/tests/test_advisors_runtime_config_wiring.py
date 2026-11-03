@@ -198,7 +198,11 @@ def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
     assert 'if [[ "${custody_profile_supported}" == true ]]; then' in migration
     assert 'export HUSHH_HOSTED_CUSTODY_PROFILE="dev_control_plane_owner"' in migration
     assert "unset HUSHH_HOSTED_CUSTODY_PROFILE || true" in migration
-    assert 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' in migration
+    assert (
+        'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' in migration
+        and "consent-protocol/db/hosted_custody_profiles.py" in migration
+        and "consent-protocol/db/hosted_custody_qualification.py" in migration
+    )
     assert 'export GCP_PROJECT_ID="${{ env.GCP_PROJECT_ID }}"' in migration
     assert 'export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"' in migration
     assert (

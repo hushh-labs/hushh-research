@@ -721,10 +721,14 @@ jobs:
             export CLOUDSQL_INSTANCE_CONNECTION_NAME="${{ env.DEV_CLOUDSQL_INSTANCE }}"
             backend_sync_help="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py --help 2>/dev/null || true)"
             custody_profile_supported=false
+            # Current candidates define this in hosted_custody_profiles.py;
+            # retain the prior path for older candidate checkouts.
             if grep -q -- '--hosted-custody-profile' <<<"${backend_sync_help}" \
               && grep -q -- '--dev-target' <<<"${backend_sync_help}" \
-              && grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
-                consent-protocol/db/hosted_custody_qualification.py; then
+              && { grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                consent-protocol/db/hosted_custody_profiles.py 2>/dev/null \
+                || grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                  consent-protocol/db/hosted_custody_qualification.py 2>/dev/null; }; then
               custody_profile_supported=true
             fi
             if [[ "${custody_profile_supported}" == true ]]; then
