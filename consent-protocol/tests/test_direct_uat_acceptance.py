@@ -13,7 +13,10 @@ from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("job", ["protocol-check", "web-full-suite-check"])
+@pytest.mark.parametrize(
+    "job",
+    ["protocol-check", "web-full-suite-check", "web-targeted-check", "web-targeted-browser"],
+)
 def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
     job: str,
 ) -> None:
