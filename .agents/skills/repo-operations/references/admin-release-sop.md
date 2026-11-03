@@ -11,8 +11,9 @@ deployment, rollback, or environment-promotion decision must route here through
    approval, merge, deploy, credentials, rollback, and final release decisions
    stay in the parent session.
 2. The ordinary path is PR validation followed by the GitHub merge queue.
-3. An Admin PR landing is a queue bypass, not a validation bypass. Use it only
-   when the user explicitly authorizes the Admin SOP for that PR.
+3. Admin SOP coordinates an authorized landing. It cannot bypass required CI or
+   review. A queue bypass additionally needs mechanically verified current
+   combined-result evidence; no such exception is enabled by the new policy.
 4. A direct `git push` to `main` is a separate emergency path governed by the
    Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
    that push preflight for the Admin PR landing gate below.
@@ -32,8 +33,9 @@ deployment, rollback, or environment-promotion decision must route here through
 1. Record `git branch --show-current` and `git status --short --branch`.
 2. Fetch `origin/main` and the active remote branch. Continue on the preserved
    branch; do not create a convenience release branch.
-3. If the shared branch is behind, use the normal freshness contract in
-   `maintainer-branch-freshness.md`. Re-run checks after any history change.
+3. Inspect destination changes using `maintainer-branch-freshness.md`. Reconcile
+   relevant fixes and conflicts, then verify affected contracts. Age alone does
+   not reject a PR; the queue qualifies the resulting combined code.
 
 ### 2. Prove the exact PR head
 
@@ -48,7 +50,8 @@ Required pre-merge proof:
 3. every required check on the exact current PR head is terminal and successful;
    intentionally skipped path lanes are recorded as evidence, while unexpected
    auxiliary failures still block;
-4. unresolved conversations, merge conflicts, and freshness drift are cleared;
+4. unresolved conversations and merge conflicts are cleared; destination drift
+   is recorded and the queue validates the current combined result;
 5. the head SHA is re-read immediately before the state-changing command.
 
 ### 3A. Ordinary merge-queue path
@@ -62,45 +65,32 @@ Required pre-merge proof:
 4. If independent approval or approval-of-latest-push blocks queue entry, report
    that blocker and obtain the required review. Do not claim the PR is queued.
 
-### 3B. Explicit Admin PR landing
+### 3B. Admin landing and queue authority
 
-Use this only after the user explicitly requests the Admin SOP and queue entry is
-blocked or the user explicitly chooses the governed bypass.
+Main merging is restricted to `main.merge_users`, independently of deployment
+permission. CI/release/fundamental `.agents` changes require a current-head
+approval from Kushal or Ankit. Verify the actual merger/queue requester, not just
+the author. Generic administrator status does not substitute for these controls.
 
-Admin PR landing preflight:
+The normal command in 3A remains the landing path. Before requesting it:
 
-1. prove the active GitHub actor is the intended governed maintainer;
-2. prove that actor is present in both `main.review_bypass_users` and
-   `main.merge_queue_bypass_users`;
-3. verify live branch protection with
-   `./scripts/ci/verify-main-branch-protection.sh`;
-4. require every required PR check on the exact head SHA to be terminal and
-   successful; record intentional path-lane skips and block on unexpected
-   auxiliary failures;
-5. require clean mergeability, no unresolved conversations, DCO, secret hygiene,
-   and changed-surface verification; classify unrelated local changes and stop
-   only when they overlap or make exact-head proof unsafe;
-6. run the existing CI command in strict admission mode:
-   `./bin/hushh codex ci-status --pr <pr> --require-success --expected-sha <head-sha>`.
-   Require exit zero. This checks the canonical source, exact run attempt and
-   aggregate job inventory, then re-reads the run and head. Ordinary monitoring
-   may exit zero while work is pending and cannot replace this admission;
-7. re-read the PR head SHA and abort if it differs from the reviewed SHA.
+1. Verify live protection and ruleset parity with the authored policy.
+2. Run `./bin/hushh codex ci-status --pr <pr> --require-success
+   --expected-sha <head-sha>` and require exit zero.
+3. Recheck head, unresolved conversations and required approvals immediately
+   before the merge request. Missing or failed proof stops the operation.
+4. Monitor the queue's actual combined-result gate, then the landed Main smoke.
 
-Then land only that reviewed head:
+The combined-result rollout removes queue-bypass actors before relaxing strict
+branch-age checks. Keeping a team bypass would allow a direct UI/API merge using
+old PR-head evidence. Until a mechanically enforced alternative proves the same
+combined result, do not use `gh pr merge --admin` under this policy. Explicit
+incident deployment authorization is separate and cannot clear a failed merge
+check. Do not weaken protection temporarily to make a landing succeed.
 
-```bash
-gh pr merge <pr> --admin --merge --match-head-commit <head-sha>
-```
-
-Execute preflight and merge as separately checked operations. In a shell driver,
-use `set -euo pipefail` and propagate every failed assertion; a later successful
-command must never mask a failed preflight. Do not dispatch the merge after a
-nonzero, missing or unparsed admission result.
-
-Report this truthfully as an Admin queue bypass. Never describe it as merge-queue
-execution or claim `Queue Validation` ran when it did not. Monitor the resulting
-`Main Post-Merge Smoke` for the exact landed `main` SHA.
+Historical Admin landings remain recorded as bypasses, not queue runs. They do
+not establish authority for new operations. The root checkout and unrelated
+work remain untouched throughout the landing.
 
 ### 4. Establish deploy authority
 

@@ -47,7 +47,6 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = "hushh-labs/hushh-research"
@@ -80,6 +79,7 @@ MANAGED_TEAMS: tuple[dict, ...] = (
         ),
         "is_maintainer_set": True,
     },
+
     {
         "slug": "pipeline-editors",
         "purpose": "may edit protected pipeline paths",
@@ -331,13 +331,79 @@ def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
+def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
+    """Narrow Main merger authority without bypassing review or CI.
+
+    This is an explicit rollout operation, after combined-result validation is
+    qualified. Keep unrelated branch checks and ruleset rules verbatim.
+    """
+    main = policy["main"]
+    users = sorted(main.get("merge_users", []))
+    if not users or main["review_bypass_users"] or main.get("review_bypass_team_slug"):
+        raise SystemExit("Main merge policy must preserve required independent review")
+    if users != sorted(policy["production"]["manual_dispatch_users"]):
+        raise SystemExit("Main merge users must match the approved production cohort")
+    endpoint = f"repos/{REPO}/branches/main/protection"
+    protection = gh_json(["api", endpoint])
+    reviews = protection.get("required_pull_request_reviews") or {}
+    review_bypass = reviews.get("bypass_pull_request_allowances") or {}
+    if (any(review_bypass.get(key) for key in ("users", "teams", "apps"))
+            or not reviews.get("require_code_owner_reviews")
+            or not reviews.get("require_last_push_approval")
+            or reviews.get("required_approving_review_count", 0) < 1
+            or not protection.get("enforce_admins", {}).get("enabled")):
+        raise SystemExit("Reconcile required Main review and admin enforcement before queue rollout")
+    checks = protection.get("required_status_checks") or {}
+    if not any(row.get("context") == main["required_status_check"] for row in checks.get("checks", [])):
+        raise SystemExit("Main's required combined-result check is missing")
+    rulesets = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
+    if not isinstance(rulesets, list) or len(rulesets) >= 100:
+        raise SystemExit("Main ruleset inventory is incomplete")
+    matches = [row for row in rulesets if row.get("name") == main["merge_queue_ruleset_name"]]
+    if len(matches) != 1:
+        raise SystemExit("Main merge queue ruleset is ambiguous")
+    queue_endpoint = f"repos/{REPO}/rulesets/{matches[0]['id']}"
+    queue = gh_json(["api", queue_endpoint])
+    if (queue.get("enforcement") != "active"
+            or queue.get("conditions", {}).get("ref_name") != {"include": ["refs/heads/main"], "exclude": []}
+            or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))):
+        raise SystemExit("Main queue configuration is not the reviewed active boundary")
+    desired = {"users": users, "teams": [], "apps": []}
+    current = protection.get("restrictions") or {}
+    restricted = {key: sorted(row[field] for row in current.get(key, []))
+                  for key, field in (("users", "login"), ("teams", "slug"), ("apps", "slug"))}
+    print(f"  Main: merger restrictions={restricted} -> {desired}; strict={checks.get('strict')} -> false")
+    if main.get("merge_queue_bypass_users") or main.get("merge_queue_bypass_team_slug"):
+        raise SystemExit("Combined-result enforcement requires queue bypass to be disabled")
+    bypass = []
+    changed = restricted != desired or checks.get("strict") is not False or queue.get("bypass_actors") != bypass
+    if not apply:
+        print("  Main merges require the verified queue result; no direct queue bypass is enabled.")
+        return changed
+    from prepared_branch_governance import _write
+
+    if restricted != desired:
+        for key in ("users", "teams", "apps"):
+            if restricted[key] != desired[key]:
+                _write(f"{endpoint}/restrictions/{key}", {key: desired[key]}, "PUT")
+    if queue.get("bypass_actors") != bypass:
+        body = {key: queue[key] for key in ("name", "target", "enforcement", "conditions", "rules")}
+        body["bypass_actors"] = bypass
+        _write(queue_endpoint, body, "PUT")
+    if checks.get("strict") is not False:
+        _write(f"{endpoint}/required_status_checks", {"strict": False, "checks": checks["checks"]}, "PATCH")
+    return changed
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true",
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
-    ap.add_argument("--branch", action="append", choices=("dev", "uat"),
+    ap.add_argument("--branch", action="append", choices=("dev", "uat", "integration/pr-train"),
                     help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
+    ap.add_argument("--main-merge-policy", action="store_true",
+                    help="Reconcile Main merger/queue restrictions after combined-result qualification.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
@@ -346,6 +412,12 @@ def main() -> int:
 
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
+
+    if args.main_merge_policy:
+        if args.branch:
+            raise SystemExit("Main merge policy and prepared-branch reconciliation are separate operations")
+        reconcile_main_merge_policy(policy, apply=args.apply)
+        return 0
 
     if args.branch:
         from prepared_branch_governance import reconcile

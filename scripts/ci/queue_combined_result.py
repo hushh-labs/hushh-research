@@ -191,6 +191,9 @@ def current_validations(state, read=api):
         require(record.get("run_attempt") == run.attempt
                 and record.get("status") == "completed" and record.get("conclusion") == "success",
                 "Validation attempt changed during queue inspection")
+        owner.require_unchanged_authority(run, owner.validation_runs(read(
+            f"{prefix}/runs?head_sha={member['head']}&event=pull_request&per_page=100"
+        )), member["head"])
         result.append({"number": member["number"], "head": member["head"],
                        "run": run.run_id, "attempt": run.attempt})
     return result

@@ -96,3 +96,29 @@ def test_two_individually_green_prs_require_combined_execution():
 def test_missing_legacy_receipt_requests_checks_instead_of_branch_sync():
     state, validation, _ = receipt_fixture()
     assert not queue.reusable(state, [validation], read=lambda _: {"total_count": 0, "artifacts": []})
+
+
+@pytest.mark.parametrize("later_state", ["failure", "in_progress"])
+def test_new_attempt_during_inspection_invalidates_old_green(later_state):
+    state = {"repository": "hushh-labs/hushh-research", "members": [{"number": 1, "head": HEAD1}]}
+    run = {"id": 5, "path": ".github/workflows/ci.yml", "name": "PR Validation",
+           "event": "pull_request", "head_sha": HEAD1, "status": "completed",
+           "conclusion": "success", "created_at": "2026-11-03T01:00:00Z",
+           "run_started_at": "2026-11-03T01:00:00Z", "updated_at": "2026-11-03T01:01:00Z",
+           "run_attempt": 1, "pull_requests": [{"number": 1, "head": {"sha": HEAD1}}]}
+    later = {**run, "id": 6, "run_started_at": "2026-11-03T02:00:00Z",
+             "updated_at": "2026-11-03T02:01:00Z", "status": "completed" if later_state == "failure" else later_state,
+             "conclusion": "failure" if later_state == "failure" else None}
+    reads = 0
+    def read(path):
+        nonlocal reads
+        if "/runs?" in path:
+            reads += 1
+            return {"total_count": reads, "workflow_runs": [run] if reads == 1 else [run, later]}
+        if "/jobs?" in path:
+            return {"total_count": 1, "jobs": [{"name": "CI Status Gate", "conclusion": "success"}]}
+        return run
+    owner = queue._module("verify-queue-entry-reuses-pr-validation.py", "queue_attempt_test_owner")
+    with pytest.raises(owner.QueueEntryRejected, match="Competing validation"):
+        with patch.object(queue, "_module", return_value=owner):
+            queue.current_validations(state, read=read)

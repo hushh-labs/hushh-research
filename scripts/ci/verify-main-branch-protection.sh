@@ -181,6 +181,8 @@ for ruleset in ruleset_list:
         ):
             continue
         prepared_queue_matches += 1
+    if not expected_queue_bypass and detail.get("bypass_actors"):
+        raise SystemExit("Merge queue policy forbids every bypass actor, including unresolved roles and apps")
     for actor in detail.get("bypass_actors") or []:
         actor_name = ""
         actor_type = str(actor.get("actor_type") or "").strip()
@@ -291,10 +293,17 @@ if branch_policy.get("require_code_owner_reviews") and not data.get("required_pu
     errors.append("required code-owner approval is not enabled")
 if require_last_push_approval and not last_push_approval:
     errors.append("latest-push approval requirement is not enabled")
-if require_strict and not strict_checks:
-    errors.append("required status checks are not strict/up-to-date")
+if strict_checks != require_strict:
+    errors.append(f"strict branch-age policy drifted: expected {require_strict}, got {strict_checks}")
 if require_conversation_resolution and not conversation_resolution:
     errors.append("required conversation resolution is not enabled")
+if not admins_enforced:
+    errors.append("administrators can bypass required branch checks/review")
+if branch_policy.get("merge_users"):
+    restrictions = data.get("restrictions") or {}
+    actual_users = sorted(row["login"] for row in restrictions.get("users", []))
+    if actual_users != sorted(branch_policy["merge_users"]) or restrictions.get("teams") or restrictions.get("apps"):
+        errors.append("Main actual-merger restrictions differ from the approved operators")
 if force_pushes:
     errors.append("force pushes are allowed")
 if deletions:
@@ -303,7 +312,7 @@ if require_merge_queue and not merge_queue_enabled:
     errors.append("merge queue rule is not enabled on the branch")
 if bypass_users != expected_bypass:
     errors.append(f"review bypass users drifted: expected {expected_bypass}, got {bypass_users}")
-if expected_bypass_team_slug and bypass_team_slugs != [expected_bypass_team_slug]:
+if bypass_team_slugs != ([expected_bypass_team_slug] if expected_bypass_team_slug else []):
     errors.append(
         f"review bypass team drifted: expected {[expected_bypass_team_slug]}, got {bypass_team_slugs}"
     )
@@ -311,6 +320,8 @@ if sorted(set(merge_queue_bypass) | set(pending_queue_bypass)) != expected_queue
     errors.append(
         f"merge queue bypass actors drifted: expected {expected_queue_bypass}, got {merge_queue_bypass}"
     )
+if not expected_queue_bypass_team_slug and merge_queue_bypass_team_slugs:
+    errors.append("Unexpected queue bypass team survives the required combined-result boundary")
 if expected_queue_bypass_team_slug and merge_queue_bypass_team_slugs != [expected_queue_bypass_team_slug]:
     errors.append(
         f"merge queue bypass team drifted: expected {[expected_queue_bypass_team_slug]}, got {merge_queue_bypass_team_slugs}"
