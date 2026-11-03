@@ -9,6 +9,7 @@ import retention_production_evidence as production
 from retention_production_clock_records import (
     CLOCK_BOUND_RECORDS,
     CLOCK_BOUND_SOURCE_PROFILES,
+    ClockBoundRecord,
 )
 
 ENVIRONMENT = production.ENVIRONMENT
@@ -169,13 +170,13 @@ def _dispatch_timing_matches(record, worker_run, check, wake):
 
 
 def _clock_bound_run_matches(
-    repository, run, job, source_blobs, workflow_blob, clock_proof
+    repository, run, job, source_blobs, workflow_blob, clock_proof, *, record=None
 ):
     if not isinstance(run, dict) or not isinstance(job, dict):
         return False
     if type(run.get("id")) is not int:
         return False
-    record = CLOCK_BOUND_RECORDS.get(run.get("id"))
+    record = record or CLOCK_BOUND_RECORDS.get(run.get("id"))
     if record is None:
         return False
     return bool(
@@ -219,16 +220,23 @@ def qualify_guard_run(
     workflow_blob,
     *,
     clock_proof,
+    _record=None,
 ):
     """Qualify only an exact recorded clock-bound pre-mutation refusal."""
     if not isinstance(run, dict) or not isinstance(job, dict):
         return None
-    record = CLOCK_BOUND_RECORDS.get(run.get("id"))
+    record = _record or CLOCK_BOUND_RECORDS.get(run.get("id"))
     if (
-        record is None
+        not isinstance(record, ClockBoundRecord)
         or environment != ENVIRONMENT
         or not _clock_bound_run_matches(
-            repository, run, job, source_blobs, workflow_blob, clock_proof
+            repository,
+            run,
+            job,
+            source_blobs,
+            workflow_blob,
+            clock_proof,
+            record=record,
         )
     ):
         return None
@@ -312,12 +320,25 @@ def qualify_publication(
 ):
     """Qualify a listed clock tick before publication source reads or cleanup."""
     record = CLOCK_BOUND_RECORDS.get(attempt.get("id"))
+    proof = None
     if record is None:
-        return None
-    actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
+        import retention_production_profile_evidence as profile
+
+        # A job for another source cannot match this immutable worker profile.
+        if job.get("head_sha") != attempt.get("head_sha"):
+            return None
+        actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
+        record, proof = profile.discover_record(owner, repository, attempt, job)
+    else:
+        actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
     log = log_reader(owner, job)
     checkout = production.actual_checkout(log, job, clock_bound=True)
-    _require(owner, checkout is not None, "maintenance runner or checkout is unproved")
+    expected_checkout = record.worker_checkout_sha or record.worker_head_sha
+    _require(
+        owner,
+        checkout is not None and checkout == expected_checkout,
+        "maintenance runner or checkout is unproved",
+    )
     blobs = source_reader(owner, repository, checkout, SOURCE_PATHS)
     workflow_blob = json.loads(
         owner.command(
@@ -330,7 +351,8 @@ def qualify_publication(
     )
     if not _record_source_matches(record, blobs, workflow_blob):
         return None
-    proof = clock_witness(owner, repository, record)
+    if proof is None:
+        proof = clock_witness(owner, repository, record)
     return qualify_guard_run(
         repository,
         ENVIRONMENT,
@@ -340,4 +362,5 @@ def qualify_publication(
         blobs,
         workflow_blob,
         clock_proof=proof,
+        _record=record,
     )
