@@ -625,6 +625,11 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_managed_vertex_readiness_script.py",
         "consent-protocol/tests/test_one_chat_service_only_release.py",
         "consent-protocol/tests/test_deployment_security.py",
+        "consent-protocol/tests/test_native_ship_artifact_workflows.py",
+        "consent-protocol/tests/test_uat_backend_image_promotion.py",
+        "consent-protocol/tests/test_predecessor_acceptance_contract.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_measurement.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_premerge.py",
     )
     backend = _filters()["backend"]
     assert all(not backend.match_file(path) for path in paths)

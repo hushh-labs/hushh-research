@@ -24,6 +24,11 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_managed_vertex_readiness_script.py",
     "consent-protocol/tests/test_one_chat_service_only_release.py",
     "consent-protocol/tests/test_deployment_security.py",
+    "consent-protocol/tests/test_native_ship_artifact_workflows.py",
+    "consent-protocol/tests/test_uat_backend_image_promotion.py",
+    "consent-protocol/tests/test_predecessor_acceptance_contract.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_measurement.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_premerge.py",
 )
 RESTORATION_FIXTURE_INPUTS = frozenset(
     {
