@@ -80,6 +80,7 @@ def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = F
                 "NPM_STUB_LOG": str(log),
                 "NPM_STUB_FAIL": "",
                 "WEB_CI_DEPS_INSTALLED": "1",
+                "CI_VALIDATION_LEVEL": "diagnostic",
                 "HUSHH_WEB_TEST_MAX_WORKERS": "2",
             }
         )
@@ -224,6 +225,19 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         assert values == {"selection_known": "true", "browser_required": "true"}, values
         assert calls == [], "the unsharded plan must not execute browser commands"
 
+
+
+    # Regression: review receipts and backend test files have separate owners;
+    # they must not turn an otherwise bounded mixed PR into every browser pack.
+    for changed, required in (
+        ("hushh-webapp/lib/voice/voice-session.ts\nconsent-protocol/tests/test_phone.py\nhushh-webapp/contracts/ui-review/back/review.json", "false"),
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/tests/test_phone.py", "true"),
+        ("consent-protocol/tests/test_phone.py", "false"),
+    ):
+        code, values, calls, output = _browser_plan(changed)
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": required}, values
+        assert calls == []
 
 def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
     code, values, calls, output = _browser_plan("hushh-webapp/unregistered/selector-input.ts")

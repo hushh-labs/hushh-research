@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Focused contracts for governance validation-level selection."""
+
+from __future__ import annotations
+
+import json
+import contextlib
+import io
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+from repo_governance_plan import (
+    CHECKS,
+    MAX_CHANGED_BYTES,
+    Check,
+    REGRESSION_GROUPS,
+    _run_checks,
+    build_selection,
+)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_unconfigured_local_run_preserves_diagnostic_plan() -> None:
+    selection = build_selection({})
+    ids = set(selection.check_ids)
+    assert selection.level == "diagnostic"
+    assert selection.error is None
+    assert {"skill-lint", "architecture-fitness-baseline", "docs-verify", "agent-fleet-audit"} <= ids
+    assert len(selection.check_ids) == len(CHECKS)
+
+
+def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
+    selection = build_selection(
+        {
+            "CI_VALIDATION_LEVEL": "focused",
+            "CI_CHANGED_FILES": "scripts/ci/test_cloudrun_retention.py\n.agents/routing/route.py\n",
+        }
+    )
+    assert selection.error is None
+    assert selection.groups == ("retention", "agent")
+    assert "cloudrun-retention" in selection.check_ids
+    assert "route-request-tests" in selection.check_ids
+    assert "production-verification" not in selection.check_ids
+    assert "skill-lint" not in selection.check_ids
+
+
+def test_known_product_path_does_not_expand_critical_groups() -> None:
+    selection = build_selection(
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "hushh-webapp/app/page.tsx"}
+    )
+    assert selection.error is None
+    assert selection.groups == ()
+    assert "cloudrun-retention" not in selection.check_ids
+    assert "agent-orchestration" not in selection.check_ids
+
+
+def test_affected_unit_selector_test_is_a_controller_owner() -> None:
+    path = "hushh-webapp/scripts/testing/affected-tests.test.mjs"
+    selection = build_selection(
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": f"{path}\n"}
+    )
+    assert selection.error is None
+    assert selection.groups == ("controller",)
+    selected = next(
+        check for check in CHECKS if check.check_id == "affected-tests-selector-contract"
+    )
+    assert selected.argv == (
+        "node",
+        "--test",
+        "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+    )
+    assert selected.check_id in selection.check_ids
+
+
+def test_release_always_adds_core_authority_checks_and_only_affected_regressions() -> None:
+    selection = build_selection(
+        {
+            "CI_VALIDATION_LEVEL": "release",
+            "CI_CHANGED_FILES": ".github/workflows/deploy-uat.yml\n",
+        }
+    )
+    ids = set(selection.check_ids)
+    assert selection.error is None
+    assert selection.groups == ("controller", "release")
+    assert {"deployment-environment-governance", "release-cadence", "uat-exact-ci"} <= ids
+    assert "cloudrun-retention" not in ids
+    assert "agent-orchestration" not in ids
+    assert "production-verification" in ids
+
+
+def test_bad_or_missing_change_list_fails_conservatively() -> None:
+    for env in (
+        {"CI_VALIDATION_LEVEL": "focused"},
+        {"CI_VALIDATION_LEVEL": "release", "CI_CHANGED_FILES": "unknown-root/file.py"},
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "scripts/ci/new-owner-contract.py"},
+        {
+            "CI_VALIDATION_LEVEL": "focused",
+            "CI_CHANGED_FILES": "docs/readme.md",
+            "CI_CHANGED_FILES_FILE": "/tmp/also-set",
+        },
+    ):
+        selection = build_selection(env)
+        assert selection.error
+        assert all(group in selection.groups for group in REGRESSION_GROUPS)
+        assert set(REGRESSION_GROUPS) <= {
+            group for check in CHECKS for group in check.groups if check.check_id in selection.check_ids
+        }
+
+
+def test_changed_file_input_is_bounded_and_rejects_traversal() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        path = Path(raw) / "files.txt"
+        path.write_text("scripts/ci/../../outside.py\n", encoding="utf-8")
+        selection = build_selection(
+            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES_FILE": str(path)}
+        )
+        assert selection.error and "non-canonical" in selection.error
+        assert all(group in selection.groups for group in REGRESSION_GROUPS)
+        path.write_bytes(b"x" * (MAX_CHANGED_BYTES + 1))
+        oversized = build_selection(
+            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES_FILE": str(path)}
+        )
+    assert oversized.error and "exceeds" in oversized.error
+    assert all(group in oversized.groups for group in REGRESSION_GROUPS)
+
+
+def test_cli_commands_group_is_machine_readable_and_static() -> None:
+    old = os.environ.copy()
+    try:
+        os.environ.pop("CI_CHANGED_FILES", None)
+        os.environ.pop("CI_CHANGED_FILES_FILE", None)
+        output: list[str] = []
+        # Invoke the CLI in a subprocess to exercise its public JSON contract.
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--commands-group", "operations"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        output.extend(json.loads(result.stdout))
+        assert output
+        assert {"protected-pipeline-edits", "deploy-secret-coverage"} <= {
+            item["id"] for item in output
+        }
+        assert all(isinstance(item["argv"], list) for item in output)
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+
+
+def test_runner_reports_every_failure_instead_of_stopping_early() -> None:
+    checks = (
+        Check("first-failure", (sys.executable, "-c", "raise SystemExit(7)")),
+        Check("second-failure", (sys.executable, "-c", "raise SystemExit(9)")),
+    )
+    output_stream = io.StringIO()
+    with contextlib.redirect_stderr(output_stream):
+        status = _run_checks(checks)
+    output = output_stream.getvalue()
+    assert status == 1
+    assert "first-failure (exit 7)" in output
+    assert "second-failure (exit 9)" in output
+
+
+def main() -> int:
+    tests = (
+        test_unconfigured_local_run_preserves_diagnostic_plan,
+        test_focused_selection_runs_only_known_affected_regression_groups,
+        test_known_product_path_does_not_expand_critical_groups,
+        test_affected_unit_selector_test_is_a_controller_owner,
+        test_release_always_adds_core_authority_checks_and_only_affected_regressions,
+        test_bad_or_missing_change_list_fails_conservatively,
+        test_changed_file_input_is_bounded_and_rejects_traversal,
+        test_cli_commands_group_is_machine_readable_and_static,
+        test_runner_reports_every_failure_instead_of_stopping_early,
+    )
+    for test in tests:
+        test()
+        print(f"ok {test.__name__}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+

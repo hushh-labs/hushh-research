@@ -92,16 +92,40 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 
 ## Required Checks
 
-Choose the checks for the resolved workflow. Before an ordinary push, run the
-local core mirror once on the completed candidate; GitHub owns the full web and
-browser suites. The dedicated `pre-pr-readiness` workflow retains its full local
-gate. `codex pre-pr` already invokes `./bin/hushh ci`; do not run both separately
-or require either for every incremental commit.
-For local core, set `CI_IMPACT_BASE_SHA` only to the verified PR merge base; unknown bases stay conservative.
+Choose checks from the changed contract and validation purpose; an ordinary
+push does not require the full local core mirror. CI uses three levels:
+
+- `focused` keeps authority, security and protected-pipeline gates blocking,
+  then selects regression owners affected by the exact changed-file list.
+- `release` adds core release-authority checks and affected owners.
+- `diagnostic` runs the historical full governance set, including optional
+  skill, documentation, architecture-size and agent-hygiene checks.
+
+Missing, unbounded or unrecognized changed-file input must select conservative
+coverage or fail; it must not silently select an empty set. Run the nearest
+owner checks locally. Use the full core mirror for a dependency graph that
+crosses its stages or when diagnosing a broader failure. `codex pre-pr` invokes
+`./bin/hushh ci`; do not run both separately. Safari-specific web layout and
+performance checks are developer-local diagnostics. Run native checks when
+native code or a native contract changes. No validation profile relaxes live
+security, source-authority or protected-pipeline checks.
+
+Batch fixes before pushing: a newer PR push cancels the active validation and
+starts another hosted run. Use `./bin/hushh codex ci-rerun` for an eligible
+same-head retry with the exact run, attempt and SHA. Do not launch a standalone
+security worker; release alert clearance belongs to the protected Deployment
+Security job in the explicit release workflow.
+
+For local focused selection, provide `CI_CHANGED_FILES` or
+`CI_CHANGED_FILES_FILE` and set `CI_VALIDATION_LEVEL` to `focused` or `release`.
+Use `diagnostic` to run the retained full governance set. When a local core run
+uses `CI_IMPACT_BASE_SHA`, it must be the verified PR merge base; an unknown
+base stays conservative.
 
 ```bash
 ./bin/hushh codex ci-status
-./scripts/ci/orchestrate.sh core
+CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh
+CI_VALIDATION_LEVEL=diagnostic scripts/ci/repo-governance-check.sh
 ./bin/hushh codex rca --surface uat --text
 ./bin/hushh docs verify
 ./scripts/ci/verify-main-branch-protection.sh

@@ -7,6 +7,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -26,6 +28,16 @@ DEFAULT_PROTECTED_PATHS = [
 
 
 def _load_policy() -> dict:
+    if os.environ.get("GITHUB_EVENT_NAME") in {"pull_request", "pull_request_target"}:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        base = str(event["pull_request"]["base"]["sha"])
+        if not re.fullmatch(r"[0-9a-f]{40}", base):
+            raise PolicyError("Unproven protected-policy base")
+        # A proposed policy change must not authorize itself.
+        raw = subprocess.check_output(
+            ["git", "show", f"{base}:config/ci-governance.json"], cwd=REPO_ROOT, text=True
+        )
+        return json.loads(raw)
     return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
 
 
@@ -61,11 +73,12 @@ def _fetch_pr_files(repo: str, pr_number: int, token: str) -> list[str]:
             payload = json.loads(response.read().decode("utf-8"))
         if not payload:
             break
-        files.extend(
-            item["filename"].strip()
-            for item in payload
-            if isinstance(item, dict) and item.get("filename")
-        )
+        for item in payload:
+            if not isinstance(item, dict):
+                raise GuardResolutionError("Malformed changed-file inventory")
+            files.extend(str(item[key]).strip() for key in ("filename", "previous_filename") if item.get(key))
+        if page >= 30:
+            raise GuardResolutionError("Changed-file inventory exceeded its bound")
         page += 1
     return files
 
@@ -163,6 +176,7 @@ def evaluate(
     actor: str,
     allowed_users: list[str],
     protected_paths: list[str],
+    owner_approvals: list[str] | None = None,
 ) -> tuple[int, str]:
     """Pure decision core for protected-surface enforcement.
 
@@ -178,10 +192,11 @@ def evaluate(
         return 0, "Protected pipeline edit guard: no protected pipeline surfaces changed."
 
     actor = actor.strip()
-    if actor in allowed_users:
+    approved_by = sorted(set(owner_approvals or []) & set(allowed_users))
+    if actor in allowed_users or approved_by:
         return 0, (
             "Protected pipeline edit guard: allowed "
-            f"(actor={actor}, files={protected_changes}, allowed_users={allowed_users})."
+            f"(author={actor}, approved_by={approved_by}, files={protected_changes})."
         )
 
     return 1, (
@@ -192,8 +207,29 @@ def evaluate(
     )
 
 
+def _owner_approvals(repo: str, number: int, head: str, allowed: list[str], token: str) -> list[str]:
+    """Only a current-head, non-dismissed approval from a protected owner counts."""
+    from github_security_authority import GitHub
+
+    github = GitHub(repo, token)
+    latest: dict[str, dict] = {}
+    for page in range(1, 21):
+        rows = github.read(f"repos/{repo}/pulls/{number}/reviews?per_page=100&page={page}")
+        if not isinstance(rows, list):
+            raise GuardResolutionError("Malformed protected-review inventory")
+        for row in rows:
+            login = str((row.get("user") or {}).get("login", ""))
+            if login in allowed and row.get("state") != "COMMENTED":
+                if int(row.get("id", 0)) > int(latest.get(login, {}).get("id", 0)):
+                    latest[login] = row
+        if len(rows) < 100:
+            return sorted(login for login, row in latest.items()
+                          if row.get("state") == "APPROVED" and row.get("commit_id") == head)
+    raise GuardResolutionError("Protected-review inventory exceeded its bound")
+
+
 def _self_test() -> int:
-    allowed = ["kushaltrivedi5", "ankitkumarsingh1702", "RGlodAkshat", "azfx"]
+    allowed = ["kushaltrivedi5", "ankitkumarsingh1702"]
     paths = list(DEFAULT_PROTECTED_PATHS)
     cases: list[tuple[str, list[str], str, int]] = [
         # name, changed_files, actor, expected_exit
@@ -212,6 +248,14 @@ def _self_test() -> int:
         ("cohort empty", {"protected_pipeline_edit_users": [], "review_bypass_users": wide}, PolicyError),
         ("cohort blank entries", {"protected_pipeline_edit_users": ["  "], "review_bypass_users": wide}, PolicyError),
     ]
+    for actor, approvals, expected in (
+        ("RGlodAkshat", [], 1), ("contributor", ["msainani"], 1),
+        ("contributor", ["ankitkumarsingh1702"], 0),
+    ):
+        code, _ = evaluate(changed_files=[".agents/instructions.md"], actor=actor,
+                           allowed_users=allowed, protected_paths=[".agents/"],
+                           owner_approvals=approvals)
+        assert code == expected
     failures: list[str] = []
     for name, main_policy, expectation in resolver_cases:
         try:
@@ -282,11 +326,22 @@ def main() -> int:
         print("Protected pipeline edit guard: no changed files resolved; nothing to enforce.")
         return 0
 
+    actor = args.actor or os.environ.get("GITHUB_ACTOR", "")
+    approvals: list[str] = []
+    if event_name in {"pull_request", "pull_request_target"} and not args.files:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        pr = event["pull_request"]
+        actor = str(pr["user"]["login"])
+        if actor not in allowed_users and any(_matches(path, owned) for path in changed_files for owned in protected_paths):
+            approvals = _owner_approvals(
+                args.repo or os.environ["GITHUB_REPOSITORY"], args.pr_number or pr["number"],
+                pr["head"]["sha"], allowed_users,
+                os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""),
+            )
     code, message = evaluate(
-        changed_files=changed_files,
-        actor=args.actor or os.environ.get("GITHUB_ACTOR", ""),
-        allowed_users=allowed_users,
-        protected_paths=protected_paths,
+        changed_files=changed_files, actor=actor,
+        allowed_users=allowed_users, protected_paths=protected_paths,
+        owner_approvals=approvals,
     )
     print(message)
     return code

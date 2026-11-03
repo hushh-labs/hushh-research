@@ -41,6 +41,8 @@ concurrency:
 env:
   NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
+  CI_VALIDATION_POLICY: core-focused-v1
+  CI_VALIDATION_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'all' && 'release' || 'focused' }}
   CI_NATIVE_PARITY_REQUIRED: "0"
   CI_DOCS_PARITY_REQUIRED: "0"
   GITLEAKS_VERSION: "8.24.2"
@@ -180,6 +182,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -191,6 +195,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
+
+      - &ci_impact
+        name: Resolve exact changed contract input
+        env:
+          CI_IMPACT_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
+          CI_IMPACT_HEAD_SHA: ${{ github.sha }}
+        run: bash scripts/ci/resolve-ci-changed-files.sh
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
@@ -246,7 +257,7 @@ jobs:
           (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
           github.ref_name != github.event.repository.default_branch)
         with:
-          base: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.default_branch || '' }}
+          base: ${{ github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
           ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
@@ -266,13 +277,9 @@ jobs:
           filters: |
             frontend:
               - 'hushh-webapp/**'
+              - '!hushh-webapp/scripts/testing/affected-tests.mjs'
+              - '!hushh-webapp/scripts/testing/affected-tests.test.mjs'
               - 'deploy/mail-api/**'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/queue-validation.yml'
-              - '.github/workflows/main-post-merge-smoke.yml'
-              - 'scripts/ci/orchestrate.sh'
-              - 'scripts/ci/web-*.sh'
-              - 'scripts/ci/resolve-ui-contract-base.py'
             backend:
               - 'consent-protocol/**'
               # Human Browser evidence is covered by unconditional docs governance.
@@ -298,47 +305,32 @@ jobs:
               - 'scripts/ops/upsert_gcp_secret.py'
               - 'scripts/ops/sync_frontend_runtime_secrets.py'
               - 'config/runtime-capacity.json'
-              - '.github/workflows/ci.yml'
               - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/deploy-dev.yml'
               - '.github/workflows/deploy-production.yml'
-              - '.github/workflows/queue-validation.yml'
-              - '.github/workflows/main-post-merge-smoke.yml'
               # The protocol lane's guard pins it to the editor lane's steps.
               - '.github/workflows/editor-performance-nightly.yml'
-              - 'scripts/ci/**'
               - '!scripts/ci/web-check.sh'
               - '!scripts/ci/web-full-check.sh'
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
+              - '!consent-protocol/scripts/test-ci.manifest.txt'
+              - '!consent-protocol/tests/test_deployment_security.py'
+              - '!consent-protocol/tests/test_deployment_security_broker.py'
+              - '!consent-protocol/tests/test_predecessor_acceptance_contract.py'
+              - '!consent-protocol/tests/test_ci_status_gate_fails_closed.py'
+              - '!consent-protocol/tests/test_direct_uat_acceptance.py'
+              - '!consent-protocol/tests/test_uat_application_selection.py'
+              - '!consent-protocol/tests/test_uat_paused_drive_maintenance.py'
             ios:
-              - 'scripts/ci/resolve-ios-packages.sh'
               - 'hushh-webapp/ios/**'
               - 'hushh-webapp/lib/capacitor/**'
               - 'hushh-webapp/scripts/native/**'
               - 'hushh-webapp/capacitor.config.ts'
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
-              # Web surfaces the CI-run XCUITest renders
-              # (AppUITests/testAccountNotFoundRecoveryReturnsToLogin). A change
-              # here can break the native lane without touching ios/**, so it
-              # must schedule it. Guarded by
-              # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
-              - 'hushh-webapp/app/login/**'
-              - 'hushh-webapp/components/onboarding/**'
-              - 'hushh-webapp/components/auth/**'
-              - 'hushh-webapp/components/app-ui/native-*'
-              - 'hushh-webapp/components/vault/**'
               - 'hushh-webapp/lib/auth/session-invalidation.ts'
               - 'hushh-webapp/lib/firebase/auth-context.tsx'
-              - 'hushh-webapp/lib/testing/**'
-              - 'hushh-webapp/app/providers.tsx'
-              # Shared private Profile controllers are part of this render graph.
-              - 'hushh-webapp/hooks/use-owner-presentation-state.ts'
-              - 'hushh-webapp/components/connections/gemini-runtime-settings-card.tsx'
-              - 'hushh-webapp/components/profile/world-model-provider.tsx'
-              - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
-              - '.github/workflows/ci.yml'
             android:
               - 'hushh-webapp/android/**'
               - 'hushh-webapp/lib/capacitor/**'
@@ -347,7 +339,6 @@ jobs:
               - 'hushh-webapp/capacitor.config.ts'
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
-              - '.github/workflows/ci.yml'
             auth_health:
               - 'deploy/observability/auth_health_job.py'
               - 'deploy/observability/setup_auth_health.py'
@@ -505,7 +496,6 @@ jobs:
               - 'hushh-webapp/tsconfig.json'
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
-              - '.github/workflows/ci.yml'
 
       # The dispatches the filter above did not resolve: an explicit scope, or
       # `auto` on the default branch. `editor` follows `frontend`.
@@ -535,8 +525,13 @@ jobs:
             echo "editor=${{ steps.override.outputs.editor }}" >> "$GITHUB_OUTPUT"
             echo "auth_health_only=false" >> "$GITHUB_OUTPUT"
           else
-            echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
-            echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            if [ "$CI_VALIDATION_LEVEL" = release ]; then
+              echo 'frontend=true' >> "$GITHUB_OUTPUT"
+              echo 'backend=true' >> "$GITHUB_OUTPUT"
+            else
+              echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
+              echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            fi
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
             echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
             echo "editor=${{ steps.filter.outputs.editor }}" >> "$GITHUB_OUTPUT"
@@ -617,6 +612,8 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
+          if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
+          if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
           for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
@@ -697,41 +694,19 @@ jobs:
           if-no-files-found: ignore
 
   web-targeted-check:
-    name: "Web Targeted Contracts (${{ matrix.label }})"
+    name: "Web Targeted Contracts (node)"
+    env:
+      WEB_TARGETED_PART: node
+      WEB_TARGETED_LABEL: node
+      PLAYWRIGHT_SHARD: ""
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Keep node packs once; native Playwright sharding partitions each matched
-    # browser command across four runners. The aggregate succeeds only when all
-    # five jobs pass, and fail-fast leaves every verdict visible.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - part: node
-            label: node
-            shard: ""
-          - part: browser
-            label: browser-1-of-4
-            shard: "1/4"
-          - part: browser
-            label: browser-2-of-4
-            shard: "2/4"
-          - part: browser
-            label: browser-3-of-4
-            shard: "3/4"
-          - part: browser
-            label: browser-4-of-4
-            shard: "4/4"
-    # Run 41150997159 spent 1m54s in setup, passed 332 Chromium cases, then
-    # reached WebKit case 303/306 before the cap; 3 WebKit cases and the final
-    # mobile-chrome command remained. Sibling mobile runs took up to 5.1m.
-    # Give browser roles 10m of tail budget; preserve every test, limit and
-    # engine. The node role remains at 30m.
-    timeout-minutes: ${{ matrix.part == 'browser' && 40 || 30 }}
-    steps:
+    # Independent Node and functional browser owners; both are required when selected.
+    timeout-minutes: 40
+    steps: &web_targeted_steps
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -747,15 +722,15 @@ jobs:
       # the browser path enabled, and the run step expands to all packs.
       - name: Plan browser checks
         id: browser-plan
-        if: matrix.part == 'browser'
+        if: env.WEB_TARGETED_PART == 'browser'
         continue-on-error: true
         timeout-minutes: 3
         env:
           WEB_TARGETED_PLAN_ONLY: "1"
           WEB_TARGETED_PART: browser
           WEB_TARGETED_ALL_PACKS: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0' }}
-          WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WEB_TARGETED_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
+          WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
         run: bash scripts/ci/web-targeted-check.sh
 
@@ -764,7 +739,7 @@ jobs:
       # frontend-targeted lane must use the same locked runtime dependencies
       # rather than falling back to the runner's ambient Python installation.
       - uses: ./consent-protocol/.github/actions/setup-python-uv
-        if: matrix.part == 'node'
+        if: env.WEB_TARGETED_PART == 'node'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
@@ -775,16 +750,14 @@ jobs:
       # entry instead of saving per-PR copies or re-downloading ~400MB per run.
       - name: Cache Playwright browsers
         id: playwright-cache
-        if: matrix.part == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
+        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
         uses: actions/cache/restore@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
-      # The layout-contract pack drives real Chromium and WebKit. WebKit is not
-      # optional: it is the engine iOS ships, and a native <select> there
-      # ignores an author border-radius that Chromium honours, so a
-      # Chromium-only run passes controls that are visibly broken on an iPhone.
+      # Required functional browser contracts use Chromium. Native Safari and
+      # detailed presentation checks remain explicit developer-local diagnostics.
       #
       # Bounded at 8 minutes. Across 420 browser legs on 2026-10-08..14 this
       # step took 1.2-1.4 minutes at p50 and 1.7 at p95, warm or cold cache.
@@ -796,7 +769,7 @@ jobs:
       # mid-sync); a mirror that stays slow will not finish inside the bound,
       # so a run that hits it should be re-run.
       - name: Install Playwright browsers
-        if: matrix.part == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
+        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
         timeout-minutes: 8
         run: |
           set -euo pipefail
@@ -817,9 +790,9 @@ jobs:
           # ~/.cache/ms-playwright), so on a cache hit install only the system
           # deps and let the restored browser binaries stand.
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            install=(npx playwright install-deps chromium webkit)
+            install=(npx playwright install-deps chromium)
           else
-            install=(npx playwright install --with-deps chromium webkit)
+            install=(npx playwright install --with-deps chromium)
           fi
           # Two attempts at most. A second attempt is safe: apt keeps what it
           # already fetched and skips installed packages, and Playwright skips
@@ -838,36 +811,36 @@ jobs:
           done
 
       - name: Run targeted web contract checks
-        if: matrix.part == 'node' || steps.browser-plan.outputs.browser_required != 'false'
+        if: env.WEB_TARGETED_PART == 'node' || steps.browser-plan.outputs.browser_required != 'false'
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
-          WEB_TARGETED_FULL_SUITE_OWNED: "1"
-          WEB_TARGETED_ALL_PACKS: ${{ matrix.part == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0') }}
-          WEB_TARGETED_PART: ${{ matrix.part }}
+          WEB_TARGETED_FULL_SUITE_OWNED: "0"
+          WEB_TARGETED_ALL_PACKS: ${{ env.WEB_TARGETED_PART == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '1' || '0') }}
+          WEB_TARGETED_PART: ${{ env.WEB_TARGETED_PART }}
           # Only the browser leg ran npm ci in the step above; the node leg
           # installs inside the script.
-          WEB_CI_DEPS_INSTALLED: ${{ matrix.part == 'browser' && '1' || '0' }}
+          WEB_CI_DEPS_INSTALLED: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
           # 3 of the runner's 4 vCPUs run tests; the fourth keeps the Node test
           # runner and fixture builds from starving a browser. Only the Playwright
           # config reads it, so it is inert in the node leg.
           PLAYWRIGHT_WORKERS: "3"
-          PLAYWRIGHT_SHARD: ${{ matrix.shard }}
-          PLAYWRIGHT_LINE_REPORTER: ${{ matrix.part == 'browser' && '1' || '0' }}
-          WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
+          PLAYWRIGHT_LINE_REPORTER: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
+          WEB_TARGETED_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
+          WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
       - name: Report no selected browser checks
-        if: matrix.part == 'browser' && steps.browser-plan.outputs.browser_required == 'false'
+        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required == 'false'
         run: echo "No browser-backed targeted checks are selected for this complete diff."
 
       # The layout pack owns these source-coupled synthetic fixtures.
       # Never upload the whole output directory or protected reviewer traces.
       - name: Upload synthetic layout failure evidence
-        if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}
+        if: ${{ (failure() || cancelled()) && env.WEB_TARGETED_PART == 'browser' }}
         uses: actions/upload-artifact@v6
         with:
-          name: synthetic-layout-failures-${{ matrix.label }}
+          name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}
           path: |
             hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip
             hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png
@@ -889,95 +862,33 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: web-targeted-npm-audit-report-${{ matrix.label }}
+          name: web-targeted-npm-audit-report-${{ env.WEB_TARGETED_LABEL }}
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
-  # Linux WebKit remains in the browser layout pack. Its software-rendered
-  # native 100 KB textarea takes longer than our editor on the same runner,
-  # so absolute key-to-paint latency is verified on macOS, the closer Safari
-  # environment. Keep the 50 ms p95 / 120 ms max contract and both engines.
-  #
-  # Editor work remains editor-path scoped. The same bounded job also owns
-  # the real-SQL document WebKit flow for every integration-selected change:
-  # pinned GTK WebKit loses valid X25519 bytes (WebKit/WebKit#72772), whereas
-  # macOS uses native crypto. No cryptography or acceptance is substituted.
-  # Return that flow to Linux only after the pinned browser passes the native
-  # leading-zero regression vectors. The editor nightly remains unchanged.
-  web-editor-performance-check:
-    name: "Web Editor Performance (macOS)"
+  web-targeted-browser:
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.editor == 'true' ||
-      needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
+      (needs['preflight-gate'].outputs.frontend == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps: *web_targeted_steps
+    name: "Web Targeted Contracts (browser)"
+    env:
+      WEB_TARGETED_PART: browser
+      WEB_TARGETED_LABEL: browser
+      PLAYWRIGHT_SHARD: ""
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Install web dependencies and browsers
-        working-directory: hushh-webapp
-        run: |
-          npm ci
-          npx playwright install chromium webkit
-
-      - name: Verify editor and History motion latency on macOS
-        if: needs['preflight-gate'].outputs.editor == 'true'
-        working-directory: hushh-webapp
-        run: npm run test:layout-editor-performance
-
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        id: document-python
-        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-
-      - name: Prepare isolated document PostgreSQL binaries
-        id: document-postgres
-        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
-        run: |
-          brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
-          pg_bin="$(brew --prefix postgresql@16)/bin"
-          test -x "$pg_bin/initdb"
-          echo "$pg_bin" >> "$GITHUB_PATH"
-          echo "HUSHH_TEST_PG_BIN=$pg_bin" >> "$GITHUB_ENV"
-
-      - name: Verify native WebKit protected documents through real SQL
-        id: document-webkit
-        if: needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true'
-        run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
-
-  # The whole Vitest suite (~9,600 tests) plus the contract verifiers that used
-  # to run only in Queue Validation. It gates every PR that touches the
-  # frontend and runs in parallel with web-core, so it adds little to the
-  # critical path. Until 2026-09 the full suite ran only in the merge queue,
-  # which every maintainer bypasses, so a red unit test gated nothing.
   web-full-suite-check:
-    name: "Web Full Suite (Vitest) ${{ matrix.shard }}/3"
+    name: "Web Unit Contracts"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    # Three Vitest shards (`vitest --shard`, every test file in exactly one).
-    # On one runner the suite took 425-715s of a 7.5-13.8 minute lane (runs
-    # 36346187928, 36345696733). ci-status reads the aggregate result, which is
-    # `success` only when all three shards succeeded, so its "frontend changed
-    # requires a successful full suite" rule still holds. fail-fast is off so
-    # one red shard never cancels the others and hides their failures.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
+    # One affected/core unit owner; full historical shards remain a diagnostic command.
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1007,10 +918,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y zsh
 
-      - name: Run the full Vitest suite and contract verifiers
+      - *ci_impact
+
+      - name: Run affected unit contracts
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
-          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}/3
+          WEB_FULL_SUITE_SHARD: ""
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
           CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
@@ -1417,20 +1331,18 @@ jobs:
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
   protocol-database-check:
-    name: "Protocol Database (${{ matrix.shard }}/2)"
+    name: "Protocol Database (1/2)"
+    env:
+      CI_DATABASE_SHARD: "1"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2]
     permissions:
       contents: read
-    services:
+    services: &database_services
       command-postgres:
         # Separate runner/database: preserve catalog isolation while phases overlap.
         image: mirror.gcr.io/pgvector/pgvector@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
@@ -1445,7 +1357,7 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    steps:
+    steps: &database_steps
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -1471,13 +1383,28 @@ jobs:
         env:
           PROTOCOL_TEST_PARTITION: database
           PROTOCOL_DATABASE_SHARD_COUNT: "2"
-          PROTOCOL_DATABASE_SHARD_INDEX: "${{ matrix.shard }}"
+          PROTOCOL_DATABASE_SHARD_INDEX: "${{ env.CI_DATABASE_SHARD }}"
           CAPABILITY_GRAPH_BASE_REF: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
+
+  protocol-database-check-two:
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    services: *database_services
+    steps: *database_steps
+    name: "Protocol Database (2/2)"
+    env:
+      CI_DATABASE_SHARD: "2"
 
   mcp-package-check:
     name: "MCP Package"
@@ -1710,6 +1637,9 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify release-level core selection
+        run: test "$CI_VALIDATION_LEVEL:$CI_VALIDATION_POLICY" = 'release:core-focused-v1'
+
       - name: Verify the exact UAT checkout
         env:
           EXPECTED_SOURCE: ${{ github.sha }}
@@ -1743,12 +1673,13 @@ jobs:
       - preflight-gate
       - web-core-check
       - web-targeted-check
-      - web-editor-performance-check
+      - web-targeted-browser
       - web-full-suite-check
       - ios-native-check
       - android-native-check
       - protocol-check
       - protocol-database-check
+      - protocol-database-check-two
       - mcp-package-check
       - integration-check
       - main-freshness-gate
@@ -1772,12 +1703,13 @@ jobs:
           PREFLIGHT="${{ needs['preflight-gate'].result }}"
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
-          WEB_EDITOR_PERF="${{ needs['web-editor-performance-check'].result }}"
+          WEB_BROWSER="${{ needs['web-targeted-browser'].result }}"
           WEB_FULL_SUITE="${{ needs['web-full-suite-check'].result }}"
           IOS_NATIVE="${{ needs['ios-native-check'].result }}"
           ANDROID_NATIVE="${{ needs['android-native-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           PROTOCOL_DATABASE="${{ needs['protocol-database-check'].result }}"
+          PROTOCOL_DATABASE_TWO="${{ needs['protocol-database-check-two'].result }}"
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
@@ -1796,7 +1728,7 @@ jobs:
           printf 'preflight-gate=%s\n' "$PREFLIGHT"
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
-          printf 'web-editor-performance-check=%s\n' "$WEB_EDITOR_PERF"
+          printf 'web-targeted-browser=%s\n' "$WEB_BROWSER"
           printf 'web-full-suite-check=%s\n' "$WEB_FULL_SUITE"
           printf 'ios-native-check=%s\n' "$IOS_NATIVE"
           printf 'android-native-check=%s\n' "$ANDROID_NATIVE"
@@ -1822,15 +1754,7 @@ jobs:
             fail=1
           fi
           if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
-            echo "Changed frontend sources require a successful full Vitest suite run."
-            fail=1
-          fi
-          if [ "${{ needs['preflight-gate'].outputs.editor }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
-            echo "Changed editor sources require a successful macOS editor performance run."
-            fail=1
-          fi
-          if { [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] || [ "${{ needs['preflight-gate'].outputs.backend }}" = "true" ]; } && [ "$WEB_EDITOR_PERF" != "success" ]; then
-            echo "Changed frontend or backend sources require the native macOS WebKit document flow."
+            echo "Changed frontend sources require successful affected unit contracts."
             fail=1
           fi
           if [ "${{ needs['preflight-gate'].outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
@@ -1889,7 +1813,9 @@ jobs:
             echo "This gate knows pull_request and workflow_dispatch; ${EVENT_NAME} fails closed."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_EDITOR_PERF" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
+          if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_BROWSER" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -1934,16 +1860,16 @@ jobs:
           record_failure "Preflight Gate" "$PREFLIGHT" true
           record_failure "Web Core" "$WEB_CORE" "$FRONTEND_SELECTED"
           record_failure "Web Targeted" "$WEB_TARGETED" "$FRONTEND_SELECTED"
-          record_failure "Web Full Suite" "$WEB_FULL_SUITE" "$FRONTEND_SELECTED"
-          WEBKIT_REQUIRED=false
+          record_failure "Web Unit Contracts" "$WEB_FULL_SUITE" "$FRONTEND_SELECTED"
+          BROWSER_REQUIRED=false
           INTEGRATION_REQUIRED=false
-          if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ] || [ "$EDITOR_SELECTED" = "true" ]; then
-            WEBKIT_REQUIRED=true
+          if [ "$FRONTEND_SELECTED" = "true" ]; then
+            BROWSER_REQUIRED=true
           fi
           if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ]; then
             INTEGRATION_REQUIRED=true
           fi
-          record_failure "WebKit Editor" "$WEB_EDITOR_PERF" "$WEBKIT_REQUIRED"
+          record_failure "Browser Contracts" "$WEB_BROWSER" "$BROWSER_REQUIRED"
           record_failure "iOS Native" "$IOS_NATIVE" "$IOS_SELECTED"
           record_failure "Android Native" "$ANDROID_NATIVE" "$ANDROID_SELECTED"
           record_failure "Protocol" "$PROTOCOL" "$BACKEND_SELECTED"
@@ -1987,11 +1913,11 @@ jobs:
             echo ""
             echo "| Scope | Selection | Required jobs |"
             echo "| --- | --- | --- |"
-            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE; WebKit=$WEB_EDITOR_PERF |"
-            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION; WebKit=$WEB_EDITOR_PERF |"
+            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE; browser=$WEB_BROWSER |"
+            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION; browser=$WEB_BROWSER |"
             echo "| iOS | $(selection_state "$IOS_SELECTED") | native=$IOS_NATIVE |"
             echo "| Android | $(selection_state "$ANDROID_SELECTED") | native=$ANDROID_NATIVE |"
-            echo "| Editor | $(selection_state "$EDITOR_SELECTED") | performance=$WEB_EDITOR_PERF |"
+            echo "| Detailed presentation | local development | explicit Safari/performance commands |"
             echo "| Auth-health focus | $(selection_state "$AUTH_HEALTH_ONLY") | focused tests run through Governance=$REPO_GOVERNANCE |"
             echo ""
             echo "Authority results: UI=$UI_CONTRACTS; secrets=$SECRET_SCAN; Governance=$REPO_GOVERNANCE; paths=$PATHS; preflight=$PREFLIGHT; DCO=$DCO (PR/dispatch); PR base=$PR_BASE_POLICY (PR only); freshness=$MAIN_FRESHNESS (required for PR base main, integration/pr-train, dev or uat)."

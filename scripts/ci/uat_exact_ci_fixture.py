@@ -63,6 +63,8 @@ def attempt_jobs(candidate: str, base: str, exact_name: str | None = None) -> li
         )
         if step:
             job["steps"] = [{"name": step, "conclusion": "success"}]
+        if name == exact_name:
+            job["steps"].append({"name": "Verify release-level core selection", "conclusion": "success"})
         if name == "Branch Validation Gate":
             job["check_run_url"] = (
                 f"https://api.github.com/repos/{subject.REPOSITORY}/check-runs/10"

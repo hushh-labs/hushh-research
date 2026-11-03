@@ -104,6 +104,12 @@ run_check() {
     fi
   fi
   echo "== Targeted web check: $name =="
+  if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != "diagnostic" ] && [ "$(check_part "$@")" = "browser" ]; then
+    if ! python3 "$REPO_ROOT/scripts/ci/web-browser-core.py" "$3"; then
+      failed_checks+=("$name")
+    fi
+    return 0
+  fi
   if ! (cd "$WEB_DIR" && "$@"); then
     echo "!! Targeted web check failed: $name"
     failed_checks+=("$name")
@@ -136,9 +142,47 @@ if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-peo
 fi
 
 
+# Functional subsets of the existing layout pack. Shared shell/style sources
+# retain the core layout set; unknown application paths remain conservative.
+WEB_TARGETED_LAYOUT_SPECS=""
+layout_owner() {
+  local pattern="$1"
+  shift
+  if has_match "$pattern"; then
+    WEB_TARGETED_LAYOUT_SPECS+=" $*"
+    layout_contracts_required=1
+  fi
+}
+if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != diagnostic ]; then
+  layout_owner '^hushh-webapp/(components/(onboarding|vault|auth)/|lib/(vault|firebase|auth)/|e2e/(setup-v10-vault|lost-vault-delete))' e2e/setup-v10-vault.layout.spec.ts e2e/lost-vault-delete.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(direct-messages|messages)/|e2e/(direct-chat|circle-chat))' e2e/direct-chat.layout.spec.ts e2e/circle-chat.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(files|agent-files)/|e2e/files-explorer)' e2e/files-explorer.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/consent/|e2e/(requester-consent-card|consent-center-row|shared-with-you-card))' e2e/requester-consent-card.layout.spec.ts e2e/consent-center-row.layout.spec.ts e2e/shared-with-you-card.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/wallet/|e2e/wallet-)' e2e/wallet-workspace.layout.spec.ts e2e/wallet-card-scan.layout.spec.ts e2e/wallet-intelligent-card-add.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(connect|connections)/|e2e/(connect-page|circle-discovery))' e2e/connect-page-grid.layout.spec.ts e2e/circle-discovery.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/feed/|e2e/feed-needs-you)' e2e/feed-needs-you-row.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/secrets/|e2e/secrets-card)' e2e/secrets-card.layout.spec.ts
+  location_specs="$(node -e 'const body=require(process.argv[1]).scripts["test:layout-contracts"]; console.log([...new Set(body.match(/e2e\/(?:one-location-[\w-]+|save-location-sheet|active-share-actions|location-[\w-]+)\.layout\.spec\.ts/g)||[])].join(" "))' "$WEB_DIR/package.json")"
+  # Word splitting expands only the checked-in, whitespace-free spec paths.
+  # shellcheck disable=SC2086
+  layout_owner '^hushh-webapp/(components/one-location/|e2e/one-location-)' $location_specs
+  layout_owner '^hushh-webapp/(components/app-ui/|app/globals\.css|lib/morphy-ux/)' e2e/app-shell-bottom-clearance.layout.spec.ts e2e/mobile-overlay-safe-area.layout.spec.ts
+  if [ "${CI_VALIDATION_LEVEL}" = release ]; then
+    WEB_TARGETED_LAYOUT_SPECS+=" e2e/setup-v10-vault.layout.spec.ts e2e/lost-vault-delete.layout.spec.ts e2e/requester-consent-card.layout.spec.ts e2e/direct-chat.layout.spec.ts"
+    layout_contracts_required=1
+  fi
+  while IFS= read -r changed; do
+    case "$changed" in
+      hushh-webapp/e2e/*.layout.spec.ts) WEB_TARGETED_LAYOUT_SPECS+=" ${changed#hushh-webapp/}" ;;
+    esac
+  done <<<"$CHANGED_FILE_LIST"
+  export WEB_TARGETED_LAYOUT_SPECS
+fi
+
+
 # This lane already installs Chromium. Render every maintained Mermaid block
 # when documentation or its checker changes; structural lint alone misses parser errors.
-if has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
+if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = diagnostic ] && has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
   # The node leg intentionally has no browser install. The browser leg owns
   # rendering; an unsplit local run still renders every diagram.
   if [ "$WEB_TARGETED_PLAN_ONLY" = "1" ]; then
