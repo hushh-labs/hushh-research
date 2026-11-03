@@ -360,7 +360,7 @@ def _clock_candidates(owner, repository, worker_run, worker_job):
         )
         check, wake = check_rows[0], wake_rows[0]
         record = _dynamic_record(
-            owner, _profile_template(owner), worker_run, worker_job, summary, check, wake
+            owner, _profile_template(owner), worker_run, worker_job, attempt, check, wake
         )
         adjacent = clock_evidence._dispatch_timing_matches(record, worker_run, check, wake)
         if adjacent:

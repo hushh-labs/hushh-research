@@ -515,6 +515,18 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         self.assertFalse(profile_evidence._run_matches(summary, {**attempt, "head_sha": "b" * 40}))
         self.assertFalse(profile_evidence._run_matches(summary, {**attempt, "created_at": "2026-11-02T22:29:00Z"}))
 
+    def test_actual_attempt_timestamp_binds_the_dynamic_clock_record(self):
+        case = self._case()
+        owner = case[0]
+        original = owner.api.side_effect
+        def api(repository, endpoint):
+            value = original(repository, endpoint)
+            if endpoint.endswith("/attempts/1"):
+                value["created_at"] = "2026-10-29T20:29:01Z"
+            return value
+        owner.api.side_effect = api
+        self.assertIsNotNone(self._qualify(case))
+
     def test_later_main_worker_accepts_exact_profile_and_historic_clock_blobs(self):
         case = self._case()
         owner, _record, worker, job, _log, _blobs, clock = case
