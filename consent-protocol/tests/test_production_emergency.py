@@ -193,6 +193,9 @@ def test_incident_admission_precedes_runtime_mutation_and_keeps_ordinary_uat_gat
     assert steps.index(incident) < steps.index(source)
     assert source["env"]["REQUIRED_BRANCH"] == "${{ steps.dispatch-authority.outputs.branch }}"
     predecessor = next(step for step in steps if step.get("id") == "predecessor-acceptance")
+    for name in ("Preserve current release tooling", "Checkout deployment SHA"):
+        owner = next(step for step in steps if step.get("name") == name)
+        assert "retention_uat_guard_evidence.py" in owner["run"]
     assert 'if [ "$RELEASE_MODE" = manual-emergency ]; then' in predecessor["run"]
     assert "python3 scripts/ci/production_emergency.py admit" in predecessor["run"]
     assert (
