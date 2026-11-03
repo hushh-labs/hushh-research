@@ -8,6 +8,9 @@ from psycopg2.errors import InsufficientPrivilege
 
 from hushh_mcp.services.hosted_pod_journal import HostedPodJournal
 from tests.fixtures.hosted_prefix_abort import project_wide_memory_absence
+from tests.helpers.hosted_provider_account_resolution import (
+    install_hosted_provider_account_resolver,
+)
 from tests.hosted_pod_support import prepared_project_journal
 from tests.test_hosted_pilot_admission_postgres import ROOT, _claim, _Client, _policy
 from tests.test_hosted_pod_bootstrap_postgres import _approved_bootstrap
@@ -20,6 +23,7 @@ async def verify_failed_preparation_cleanup(
         pg.apply_file(next((ROOT / "db/migrations/parked").glob(f"{number}_*.sql")))
     pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
     _policy(pg, bootstrap=_approved_bootstrap, preparation=True)
+    install_hosted_provider_account_resolver(pg)
     client = _Client(pg)
     try:
         journal = HostedPodJournal(client)
