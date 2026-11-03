@@ -876,12 +876,204 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
             live.assert_not_called()
             with self.assertRaisesRegex(ValueError, "captured serving baseline"):
                 control.current_auth_domain_acceptance_profile(revalidate_live=False)
-            control.revalidate_auth_domain_reference(operational, observed)
-            live.assert_called_once_with(anchor, initial=True)
             with self.assertRaisesRegex(ValueError, "serving backend differs"):
                 control.current_auth_domain_acceptance_profile(
                     {"backend": {**observed["backend"], "source": "0" * 40}}
                 )
+
+    def _auth_reference_revalidation_fixture(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        operational, _current, anchor = _auth_operational_reference(
+            refresh, anchored=True
+        )
+        revision_name = "consent-protocol-00309-nir"
+        revision_uid = "2cdde8d7-00e6-477f-860b-9e0eb26e97e5"
+        service_uid = "35918680-6774-4fa5-8d01-d1f32895cc26"
+        principal = "consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com"
+        traffic = [{"revisionName": revision_name, "percent": 100}]
+        service = {
+            "metadata": {
+                "name": "consent-protocol",
+                "uid": service_uid,
+                "generation": 7,
+            },
+            "spec": {"traffic": copy.deepcopy(traffic)},
+            "status": {
+                "observedGeneration": 7,
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "traffic": copy.deepcopy(traffic),
+            },
+        }
+        revision = {
+            "metadata": {
+                "name": revision_name,
+                "uid": revision_uid,
+                "labels": {
+                    "serving.knative.dev/service": "consent-protocol",
+                    "deploy-env": "production",
+                    "deploy-source": "deploy-production",
+                    "deploy-sha": refresh.SOURCE,
+                    "github-run-id": "40430296874",
+                },
+            },
+            "spec": {
+                "serviceAccountName": principal,
+                "containers": [{"image": refresh.IMAGES["backend"]}],
+            },
+            "status": {
+                "imageDigest": refresh.IMAGES["backend"],
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+        }
+        observed = {
+            "backend": {
+                "service": "consent-protocol",
+                "service_uid": service_uid,
+                "generation": "7",
+                "revision": revision_name,
+                "revision_uid": revision_uid,
+                "source": refresh.SOURCE,
+                "image": refresh.IMAGES["backend"],
+                "workload_principal": principal,
+            }
+        }
+        accepted = {
+            "run_id": "40430296874",
+            "source": refresh.SOURCE,
+            "revision": revision_name,
+            "uid": revision_uid,
+            "service_uid": service_uid,
+            "image": refresh.IMAGES["backend"],
+        }
+        anchor["serving_reference"] = {"revision": revision_name}
+        anchor["runtime"] = {
+            "service_uid": service_uid,
+            "controls": "controls-fingerprint",
+            "iam": "iam-fingerprint",
+            "initial_traffic": proof.digest([traffic, traffic]),
+        }
+        iam = {"version": 1, "bindings": []}
+        controls = {"value": "controls-fingerprint"}
+        iam_fingerprint = {"value": "iam-fingerprint"}
+        ports = SimpleNamespace(
+            service=lambda: service,
+            revision=lambda _name: revision,
+            iam=lambda: iam,
+        )
+        owner = SimpleNamespace(
+            Runtime=lambda: ports,
+            controls=lambda _service: controls["value"],
+            iam_fingerprint=lambda _policy: iam_fingerprint["value"],
+            _positive=lambda _service: [[revision_name, 100]],
+        )
+        profile = {"operational_reference": operational, "backend": accepted}
+        return (
+            refresh,
+            operational,
+            anchor,
+            observed,
+            service,
+            profile,
+            owner,
+            controls,
+            iam_fingerprint,
+        )
+
+    def test_auth_reference_revalidation_checks_actual_serving_pair_and_anchor(self):
+        fixture = self._auth_reference_revalidation_fixture()
+        refresh, operational, anchor, observed = fixture[:4]
+        profile, owner = fixture[5:7]
+        with (
+            mock.patch.object(
+                control,
+                "current_auth_domain_acceptance_profile",
+                return_value=profile,
+            ) as resolve_profile,
+            mock.patch.object(control, "load_anchor", return_value=anchor) as load_anchor,
+            mock.patch.object(proof, "bootstrap_owner", return_value=owner),
+            mock.patch.object(control, "live") as live,
+            mock.patch.object(control, "revalidate_initial") as initial,
+        ):
+            control.revalidate_auth_domain_reference(operational, observed)
+            resolve_profile.assert_called_once_with(observed, revalidate_live=False)
+            load_anchor.assert_called_once_with(anchor["origin"]["run_id"], 1)
+            live.assert_not_called()
+            initial.assert_not_called()
+
+        for defect in (
+            "reference",
+            "anchor_source",
+            "anchor_primary",
+            "anchor_healthy_source",
+            "anchor_origin",
+            "backend_revision",
+            "backend_revision_uid",
+            "service_uid",
+            "backend_source",
+            "backend_image",
+            "service_controls",
+            "iam",
+            "traffic_digest",
+            "mixed_traffic",
+        ):
+            with self.subTest(defect=defect):
+                (
+                    _refresh,
+                    operational,
+                    anchor,
+                    observed,
+                    service,
+                    profile,
+                    owner,
+                    controls,
+                    iam_fingerprint,
+                ) = self._auth_reference_revalidation_fixture()
+                if defect == "reference":
+                    profile["operational_reference"] = {
+                        **operational,
+                        "tag_oid": "0" * 40,
+                    }
+                elif defect == "anchor_source":
+                    anchor["source"] = "0" * 40
+                elif defect == "anchor_primary":
+                    anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"] = "0" * 40
+                elif defect == "anchor_healthy_source":
+                    anchor["original_healthy"]["commit"] = "0" * 40
+                elif defect == "anchor_origin":
+                    anchor["origin"]["run_id"] = "1"
+                elif defect == "backend_revision":
+                    observed["backend"]["revision"] = "consent-protocol-00312-anchor"
+                elif defect == "backend_revision_uid":
+                    observed["backend"]["revision_uid"] = "changed-revision-uid"
+                elif defect == "service_uid":
+                    observed["backend"]["service_uid"] = "changed-service-uid"
+                elif defect == "backend_source":
+                    observed["backend"]["source"] = "0" * 40
+                elif defect == "backend_image":
+                    observed["backend"]["image"] = "gcr.io/hushh-pda/consent-protocol@sha256:" + "0" * 64
+                elif defect == "service_controls":
+                    controls["value"] = "changed-controls"
+                elif defect == "iam":
+                    iam_fingerprint["value"] = "changed-iam"
+                elif defect == "traffic_digest":
+                    service["spec"]["traffic"].append(
+                        {"revisionName": "consent-protocol-tagged", "percent": 0}
+                    )
+                elif defect == "mixed_traffic":
+                    service["status"]["traffic"].append(
+                        {"revisionName": "consent-protocol-other", "percent": 10}
+                    )
+                with (
+                    mock.patch.object(
+                        control,
+                        "current_auth_domain_acceptance_profile",
+                        return_value=profile,
+                    ),
+                    mock.patch.object(control, "load_anchor", return_value=anchor),
+                    mock.patch.object(proof, "bootstrap_owner", return_value=owner),
+                    self.assertRaises(ValueError),
+                ):
+                    control.revalidate_auth_domain_reference(operational, observed)
 
     def test_auth_tag_publication_is_immutable_and_preserves_operational_reference(self):
         refresh = importlib.import_module("production_auth_domain_refresh")
