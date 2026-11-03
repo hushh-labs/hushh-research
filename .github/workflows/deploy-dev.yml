@@ -472,35 +472,52 @@ jobs:
               --phase resources --report-path /tmp/dev-runtime-secret-sync.json
             exit 0
           fi
-          drive_group_args=()
+          backend_sync_help="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py --help 2>/dev/null || true)"
+          backend_sync_args=(
+            --project "${{ env.GCP_PROJECT_ID }}"
+            --environment dev
+            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}"
+            --db-host "cloudsql-socket"
+            --db-port "5432"
+            --db-name "postgres"
+            --db-unix-socket "${{ env.DEV_DB_UNIX_SOCKET }}"
+            --cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}"
+            --consent-sse-enabled "true"
+            --sync-remote-enabled "false"
+            --developer-api-enabled "true"
+            --remote-mcp-enabled "true"
+            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}"
+            --obs-data-stale-ratio-threshold "0.25"
+            --plaid-env "production"
+            --plaid-client-name "Hushh Kai"
+            --plaid-country-codes "US"
+            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook"
+            --plaid-redirect-path "/kai/plaid/oauth/return"
+            --plaid-tx-history-days "730"
+            --one-location-read-only-state-enabled "false"
+            --hushh-trusted-device-enabled "false"
+          )
           if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
-            drive_group_args=(--drive-four-group-index "false")
+            backend_sync_args+=(--drive-four-group-index "false")
           fi
+          # This workflow runs from main while the checked-out candidate may
+          # predate the owner-profile CLI. Keep older candidates on their
+          # existing strict defaults; only the matching source receives both
+          # explicit Dev-selection flags.
+          # HOSTED_CUSTODY_FLAG_GATE_BEGIN
+          if [[ "${DEV_TARGET:-}" == "shared-dev" ]] \
+            && grep -q -- '--hosted-custody-profile' <<<"${backend_sync_help}" \
+            && grep -q -- '--dev-target' <<<"${backend_sync_help}" \
+            && { grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+              consent-protocol/db/hosted_custody_profiles.py 2>/dev/null \
+              || grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                consent-protocol/db/hosted_custody_qualification.py 2>/dev/null; }; then
+            backend_sync_args+=(--hosted-custody-profile "dev_control_plane_owner" \
+              --dev-target "${DEV_TARGET}")
+          fi
+          # HOSTED_CUSTODY_FLAG_GATE_END
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment dev \
-            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --db-host "cloudsql-socket" \
-            --db-port "5432" \
-            --db-name "postgres" \
-            --db-unix-socket "${{ env.DEV_DB_UNIX_SOCKET }}" \
-            --cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}" \
-            --consent-sse-enabled "true" \
-            --sync-remote-enabled "false" \
-            --developer-api-enabled "true" \
-            --remote-mcp-enabled "true" \
-            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --obs-data-stale-ratio-threshold "0.25" \
-            --plaid-env "production" \
-            --plaid-client-name "Hushh Kai" \
-            --plaid-country-codes "US" \
-            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
-            --plaid-redirect-path "/kai/plaid/oauth/return" \
-            --plaid-tx-history-days "730" \
-            --one-location-read-only-state-enabled "false" \
-            --hushh-trusted-device-enabled "false" \
-            "${drive_group_args[@]}" \
-            > /tmp/dev-runtime-secret-sync.json
+            "${backend_sync_args[@]}" > /tmp/dev-runtime-secret-sync.json
 
           # Same main-workflow vs train-tree skew guard as the backend sync:
           # newer trees accept --environment dev; older train SHAs only know
@@ -698,6 +715,36 @@ jobs:
           export DB_NAME="${DEV_DB_NAME}"
           export DB_USER
           export DB_PASSWORD
+
+          # HOSTED_CUSTODY_PROFILE_ENV_GATE_BEGIN
+          if [[ "${DEV_TARGET:-}" == "shared-dev" ]]; then
+            export ENVIRONMENT="dev"
+            export DEV_TARGET="shared-dev"
+            export GCP_PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
+            export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
+            export CLOUDSQL_INSTANCE_CONNECTION_NAME="${{ env.DEV_CLOUDSQL_INSTANCE }}"
+            backend_sync_help="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py --help 2>/dev/null || true)"
+            custody_profile_supported=false
+            # Current candidates define this in hosted_custody_profiles.py;
+            # retain the prior path for older candidate checkouts.
+            if grep -q -- '--hosted-custody-profile' <<<"${backend_sync_help}" \
+              && grep -q -- '--dev-target' <<<"${backend_sync_help}" \
+              && { grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                consent-protocol/db/hosted_custody_profiles.py 2>/dev/null \
+                || grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                  consent-protocol/db/hosted_custody_qualification.py 2>/dev/null; }; then
+              custody_profile_supported=true
+            fi
+            if [[ "${custody_profile_supported}" == true ]]; then
+              export HUSHH_HOSTED_CUSTODY_PROFILE="dev_control_plane_owner"
+            else
+              unset HUSHH_HOSTED_CUSTODY_PROFILE || true
+            fi
+          else
+            unset ENVIRONMENT GCP_PROJECT_ID GOOGLE_CLOUD_PROJECT \
+              CLOUDSQL_INSTANCE_CONNECTION_NAME HUSHH_HOSTED_CUSTODY_PROFILE || true
+          fi
+          # HOSTED_CUSTODY_PROFILE_ENV_GATE_END
 
           if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
             "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
