@@ -93,6 +93,43 @@ def test_emergency_receipt_binds_both_baselines_and_never_supplies_uat_acceptanc
         module.recheck(receipt, {**authority, "run_attempt": "2"}, baselines)
 
 
+def test_auth_emergency_recheck_revalidates_the_pinned_operational_reference(monkeypatch):
+    module, *_ = _emergency_fixture(monkeypatch)
+    control = importlib.import_module("production_backend_successor_control")
+    authority = {
+        "mode": "manual-emergency",
+        "frontend_auth_domain_refresh": True,
+        "application_sha": "c" * 40,
+        "run_id": "100",
+        "run_attempt": "1",
+        "workflow_sha": "b" * 40,
+    }
+    observed = {
+        "backend": {"source": "d" * 40, "revision": "consent-protocol-00309-nir"},
+        "frontend": {"source": "d" * 40, "revision": "hushh-webapp-restored"},
+    }
+    operational = {"ref": "refs/tags/deployed/production-latest", "tag_oid": "e" * 40}
+    receipt = {
+        "schema_version": 1,
+        "kind": "manual-production-predecessor-exception",
+        "authority": authority,
+        "baseline": observed,
+        "ordinary_promotion_evidence": False,
+        "backend_acceptance_origin": {"operational_reference": operational},
+    }
+    verified = []
+    monkeypatch.setattr(
+        control,
+        "revalidate_auth_domain_reference",
+        lambda expected, current: verified.append((expected, current)),
+    )
+    module.recheck(receipt, authority, observed)
+    assert verified == [(operational, observed)]
+    receipt["backend_acceptance_origin"].pop("operational_reference")
+    with pytest.raises(ValueError, match="operational reference is missing"):
+        module.recheck(receipt, authority, observed)
+
+
 def test_emergency_baseline_refuses_split_traffic_and_unqualified_identity(monkeypatch):
     module, *_ = _emergency_fixture(monkeypatch)
     service = {
@@ -240,6 +277,7 @@ def test_auth_domain_refresh_pins_all_original_build_inputs(monkeypatch):
 
 
 def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch):
+    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
     source = (ROOT / ".github/workflows/deploy-production.yml").read_text()
     assert 'production_auth_domain_refresh.py" verify --receipt' in source
     assert (
@@ -249,6 +287,58 @@ def test_auth_domain_workflow_keeps_normal_security_and_rollback(monkeypatch):
     assert "Require current-attempt deployment security" in source
     assert "REQUIRED_CHECK_NAME:" in source
     assert "Pin the reviewed auth-domain-only frontend inputs" in source
+    steps = workflow["jobs"]["deploy"]["steps"]
+    tag_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Tag this release as last known good"
+    )
+    upload_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("name") == "Upload production deploy artifacts"
+    )
+    final_gate = next(
+        step
+        for step in steps
+        if step.get("name") == "Fail workflow when production release did not end healthy"
+    )
+    worker = next(
+        step
+        for step in steps
+        if step.get("name") == "Load qualified staged production Drive worker"
+    )
+    cleanup = next(
+        step
+        for step in steps
+        if step.get("name") == "Retire unused production tags after a healthy release"
+    )
+    assert tag_index < upload_index
+    assert steps[tag_index]["continue-on-error"] is True
+    assert (
+        steps[tag_index]["env"]["AUTH_DOMAIN_REPAIR"]
+        == "${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}"
+    )
+    assert final_gate["env"]["AUTH_DOMAIN_REPAIR"] == steps[tag_index]["env"]["AUTH_DOMAIN_REPAIR"]
+    assert (
+        "always()" in final_gate["if"] and "inputs.frontend_auth_domain_refresh" in final_gate["if"]
+    )
+    assert "auth-publish-verify" in final_gate["run"]
+    assert 'if [ "$AUTH_DOMAIN_REPAIR" = true ]; then' in final_gate["run"]
+    assert worker["env"]["AUTH_DOMAIN_REPAIR"] == final_gate["env"]["AUTH_DOMAIN_REPAIR"]
+    assert worker["env"]["RELEASE_MODE"] == "${{ steps.dispatch-authority.outputs.mode }}"
+    assert 'if os.environ["AUTH_DOMAIN_REPAIR"] == "true":' in worker["run"]
+    assert 'os.environ["RELEASE_MODE"] != "manual-emergency"' in worker["run"]
+    assert 'or os.environ["PHONE_DEPLOY_PHASE"] != "standard" or run_id' in worker["run"]
+    assert 'output.write("loaded=false\\n")' in worker["run"]
+    assert (
+        'if anchor is not None and os.environ["PHONE_DEPLOY_PHASE"] != "cold" and not run_id:'
+        in worker["run"]
+    )
+    assert "!inputs.frontend_auth_domain_refresh" in cleanup["if"]
+    tagger = (ROOT / "scripts/ci/tag-last-known-good.sh").read_text()
+    assert "production_backend_successor_control.py auth-publish" in tagger
+    assert 'git push origin "refs/tags/${TAG}"' in tagger
 
 
 def test_auth_domain_refresh_refuses_runtime_configuration_drift(monkeypatch):

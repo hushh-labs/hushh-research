@@ -127,6 +127,15 @@ failure uses the existing rollback. No database migration or backend deployment
 belongs to this frontend-only repair. Successful deployment invalidates its old
 baseline, so another fresh invocation cannot reuse the exception.
 
+If the restored baseline retains an operational-backend recovery anchor, the
+repair binds its exact annotated tag object and accepted serving-backend origin.
+Provider identity, IAM, initial traffic and the sealed schema boundary are checked
+after cloud authentication and rechecked before mutation. The repair publishes
+an immutable deployment tag and records its readback in the existing release
+artifact; `deployed/production-latest` stays unchanged so the recovery anchor
+cannot be lost. This does not activate the staged backend or clear its source
+restriction. The regular hourly controller remains responsible for retirement.
+
 Historical restoration evidence retains its reviewed producer exclusions even
 when later dispatch modes add stricter conditions. The maintenance guard accepts
 those exact exclusions only with the pinned historical restoration job; changed
@@ -1265,6 +1274,14 @@ by check name, so the clock's checks on an idle `main` head never crowd it out. 
 can explicitly inspect or apply cleanup; manual requests are not coalesced with cron.
 Scheduled work keeps one active and one pending request without cancelling active
 mutations. Each environment still shares its deployment/rollback lock.
+
+GitHub therefore shows two legitimate entries: **Capacity clock** schedules due
+work; **Capacity Maintenance** executes it. A clock waiting on its protected
+60-minute timer uses no runner and is not a second cleanup. Custom titles omit
+run counters; GitHub's own workflow numbers remain. Maintenance fetches complete
+Git history with `filter: blob:none` to avoid downloading old file bodies.
+Current source qualification binds the static clock title and exact workflow
+blobs; historical numbered receipts retain their separately pinned source.
 
 Source-only checks before authentication and again under that lock skip settled and
 not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,

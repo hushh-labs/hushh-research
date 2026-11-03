@@ -2120,6 +2120,51 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
         with self.assertRaises(AssertionError):
             assert_full_history(shallow_checkout)
 
+    def test_maintenance_checkouts_keep_full_history_without_historical_blobs(self):
+        workflow = (
+            pathlib.Path(__file__).resolve().parents[2]
+            / ".github/workflows/capacity-maintenance.yml"
+        ).read_text()
+        expected_checkouts = (
+            ("select-release", "Checkout authority tooling", "true"),
+            ("uat-maintenance", "Checkout mutation tooling and rollback history", "false"),
+            ("cleanup", "Checkout mutation tooling and rollback history", "true"),
+        )
+
+        def assert_checkout_policy(text):
+            jobs = {
+                "select-release": text.split("\njobs:\n", 1)[1].split(
+                    "\n  uat-maintenance:\n", 1
+                )[0],
+                "uat-maintenance": text.split("\n  uat-maintenance:\n", 1)[
+                    1
+                ].split("\n  cleanup:\n", 1)[0],
+                "cleanup": text.split("\n  cleanup:\n", 1)[1],
+            }
+            for job_name, step_name, persist_credentials in expected_checkouts:
+                checkout = jobs[job_name].split(
+                    f"      - name: {step_name}\n", 1
+                )[1].split("\n      - name:", 1)[0]
+                self.assertIn("uses: actions/checkout@v6", checkout)
+                self.assertRegex(checkout, r"(?m)^          fetch-depth: 0$")
+                self.assertRegex(checkout, r"(?m)^          filter: blob:none$")
+                self.assertIn(
+                    f"          persist-credentials: {persist_credentials}",
+                    checkout,
+                )
+            self.assertEqual(
+                text.count("          filter: blob:none\n"), 3,
+                "all three Maintenance checkouts must omit historical blobs",
+            )
+
+        assert_checkout_policy(workflow)
+        for broken in (
+            workflow.replace("          filter: blob:none\n", "", 1),
+            workflow.replace("          fetch-depth: 0\n", "          fetch-depth: 1\n", 1),
+        ):
+            with self.assertRaises(AssertionError):
+                assert_checkout_policy(broken)
+
     def test_only_the_capacity_workflows_emit_its_dispatch_events(self):
         # A deploy workflow sending a tick would re-couple maintenance to releases.
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"

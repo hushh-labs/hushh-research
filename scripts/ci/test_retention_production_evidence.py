@@ -270,8 +270,8 @@ def _clock_run_fixture(record):
         "check_job": check,
         "wake_job": wake,
         "workflow_blob": {
-            "sha": clock_evidence.CLOCK_WORKFLOW_BLOB[0],
-            "size": clock_evidence.CLOCK_WORKFLOW_BLOB[1],
+            "sha": clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB[0],
+            "size": clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB[1],
         },
     }
     return proof

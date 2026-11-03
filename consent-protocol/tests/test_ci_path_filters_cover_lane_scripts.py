@@ -427,6 +427,34 @@ def test_deploy_workflow_edits_select_controller_contract_without_backend_lane()
     assert "account-deletion-release-workflow" in {row["id"] for row in promotion_plan["commands"]}
 
 
+def test_production_emergency_authority_test_is_controller_owned_not_backend() -> None:
+    path = "consent-protocol/tests/test_production_emergency.py"
+    backend = _filters()["backend"]
+    assert not backend.match_file(path)
+    assert backend.match_file("consent-protocol/tests/test_server_startup_guards.py")
+
+    manifest = (ROOT / "consent-protocol/scripts/test-ci.manifest.txt").read_text()
+    assert "tests/test_production_emergency.py" in manifest.splitlines()
+
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["controller"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["production-emergency-authority"] == [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        "consent-protocol",
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        path,
+    ]
+    assert "protocol-check" not in commands
+
+
 def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() -> None:
     excluded = {
         "deploy/account-deletion/activate_release.py",

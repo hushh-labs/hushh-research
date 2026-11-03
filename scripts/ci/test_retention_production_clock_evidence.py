@@ -3,6 +3,7 @@
 
 import contextvars
 import copy
+import hashlib
 import json
 import sys
 import threading
@@ -28,6 +29,41 @@ class _UnsafeProfileState(Exception):
 
 
 class ClockBoundProductionEvidenceTest(unittest.TestCase):
+    def test_clock_workflow_versions_pin_current_source_and_historical_receipts(self):
+        workflows = Path(__file__).resolve().parents[2] / ".github/workflows"
+
+        def git_blob(path):
+            content = path.read_bytes()
+            header = f"blob {len(content)}\0".encode()
+            return hashlib.sha1(header + content).hexdigest(), len(content)
+
+        self.assertEqual(
+            git_blob(workflows / "capacity-maintenance-clock.yml"),
+            clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
+        )
+        source_profile = records.CLOCK_BOUND_SOURCE_PROFILES[
+            profile_evidence.PROFILE_NAME
+        ]
+        self.assertEqual(
+            git_blob(workflows / "capacity-maintenance.yml"),
+            source_profile[base.WORKFLOW],
+        )
+        self.assertEqual(
+            clock_evidence._clock_workflow_blob_for_title("Capacity clock"),
+            clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
+        )
+        self.assertEqual(
+            clock_evidence._clock_workflow_blob_for_title(
+                "Capacity clock · repository_dispatch · run 531"
+            ),
+            clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB,
+        )
+        self.assertIsNone(
+            clock_evidence._clock_workflow_blob_for_title(
+                "Capacity clock · repository_dispatch"
+            )
+        )
+
     def test_only_the_recorded_clock_bound_history_rows_qualify(self):
         expected_ids = {
             41479685863,
@@ -359,8 +395,21 @@ class ClockBoundNumericProofTest(unittest.TestCase):
 
 
 class DynamicProductionProfileEvidenceTest(unittest.TestCase):
-    def _case(self, *, ambiguous=False, truncated=False):
+    def _case(
+        self,
+        *,
+        ambiguous=False,
+        truncated=False,
+        source_profile=profile_evidence.PROFILE_NAME,
+    ):
         record, worker, job, log, blobs, clock = clock_bound_fixture(41489711406)
+        current_sources = records.CLOCK_BOUND_SOURCE_PROFILES[
+            source_profile
+        ]
+        blobs = {
+            path: {"sha": sha, "size": size}
+            for path, (sha, size) in current_sources.items()
+        }
         log = log.replace(
             sorted(evidence.DIAGNOSTICS)[0],
             "Hosted maintenance stopped: stage=publication_guard kind=safety_refusal",
@@ -374,11 +423,24 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         clock_run = clock["run"]
         clock_run.update(
             id=41489463865,
-            display_title="Capacity clock · repository_dispatch · run 533",
+            display_title=(
+                clock_evidence.CURRENT_CLOCK_TITLE
+                if source_profile == profile_evidence.PROFILE_NAME
+                else "Capacity clock · repository_dispatch · run 533"
+            ),
             created_at="2026-10-29T20:29:00Z",
             status="waiting",
             conclusion=None,
         )
+        workflow_blob = (
+            clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB
+            if source_profile == profile_evidence.PROFILE_NAME
+            else clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB
+        )
+        clock["workflow_blob"] = {
+            "sha": workflow_blob[0],
+            "size": workflow_blob[1],
+        }
         check, wake = clock["check_job"], clock["wake_job"]
         check.update(id=125461775388, run_id=clock_run["id"])
         wake.update(id=125462697923, run_id=clock_run["id"])
@@ -397,7 +459,7 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         clock_jobs = {clock_run["id"]: [check, wake, rearm]}
         if ambiguous:
             other = copy.deepcopy(clock_run)
-            other.update(id=41499139072, display_title="Capacity clock · repository_dispatch · run 534")
+            other.update(id=41499139072)
             extra_jobs = copy.deepcopy(clock_jobs[clock_run["id"]])
             for offset, item in enumerate(extra_jobs, start=1):
                 item["id"] += offset * 100
@@ -442,7 +504,7 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
             if "capacity-maintenance-clock.yml" in path:
                 value = clock["workflow_blob"]
             elif ref == clock_run["head_sha"]:
-                profile = records.CLOCK_BOUND_SOURCE_PROFILES[profile_evidence.PROFILE_NAME]
+                profile = records.CLOCK_BOUND_SOURCE_PROFILES[source_profile]
                 sha, size = profile[path]
                 value = {"sha": sha, "size": size}
                 value = clock.get("source_blobs", {}).get(path, value)
@@ -472,6 +534,52 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         keys = set(clock_evidence.CLOCK_BOUND_RECORDS)
         proof = self._qualify(case)
         self.assertEqual(set(clock_evidence.CLOCK_BOUND_RECORDS), keys)
+        self.assertEqual(
+            proof,
+            {
+                "run_id": 41499429997,
+                "attempt": 1,
+                "job_id": 125464392332,
+                "checkout_sha": profile_evidence.APPROVED_SOURCE_SHA,
+                "qualification": "no_provider_mutation",
+                "clock_run_id": 41489463865,
+            },
+        )
+
+    def test_dynamic_profile_refuses_unknown_title_or_unpinned_clock_blob(self):
+        unknown_title = self._case()
+        unknown_title[6]["run"]["display_title"] = (
+            "Capacity clock · repository_dispatch"
+        )
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(unknown_title)
+
+        changed_blob = self._case()
+        changed_blob[6]["workflow_blob"] = {"sha": "f" * 40, "size": 1}
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(changed_blob)
+
+        mismatched_legacy_blob = self._case()
+        mismatched_legacy_blob[6]["workflow_blob"] = {
+            "sha": clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB[0],
+            "size": clock_evidence.HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB[1],
+        }
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(mismatched_legacy_blob)
+
+        mismatched_current_blob = self._case(
+            source_profile=profile_evidence.PROFILE_TEMPLATE_SOURCE
+        )
+        mismatched_current_blob[6]["workflow_blob"] = {
+            "sha": clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB[0],
+            "size": clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB[1],
+        }
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(mismatched_current_blob)
+
+    def test_uncatalogued_numbered_clock_uses_exact_historical_profile(self):
+        case = self._case(source_profile=profile_evidence.PROFILE_TEMPLATE_SOURCE)
+        proof = self._qualify(case)
         self.assertEqual(
             proof,
             {
