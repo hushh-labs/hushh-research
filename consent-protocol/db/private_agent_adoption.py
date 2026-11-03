@@ -13,10 +13,8 @@ from typing import TYPE_CHECKING, Callable
 
 from db.area_discovery_adoption import area_discovery_qualification_sql
 from db.hosted_custody_adoption import hosted_custody_adoption, hosted_custody_recovery_replay
-from db.hosted_custody_qualification import (
-    UPGRADE_HOST_TRIGGER,
-    hosted_custody_profile_from_environment,
-)
+from db.hosted_custody_qualification import UPGRADE_HOST_TRIGGER
+from db.private_agent_adoption_custody import provider_transition_registry_trigger_addition
 from db.private_agent_adoption_successors import qualify_private_agent_successors
 
 if TYPE_CHECKING:
@@ -460,13 +458,11 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     ]
     if len(inventory) != 1 or inventory[0].count(_ANCHOR) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory source shape changed")
-    profile = hosted_custody_profile_from_environment()
     additions = "".join(f"('consent_audit','{spec[0]}')," for spec in GUARDS)
     additions += "('account_deletion_tombstones','account_shared_provider_authority'),"
     additions += "('account_deletion_tombstones','one_area_discovery_erasure'),"
     additions += f"('personal_agent_registry','{UPGRADE_HOST_TRIGGER}'),"
-    if profile.is_dev_control_plane_owner:
-        additions += "('personal_agent_registry','zx_hosted_provider_account_transition_registry'),"
+    additions += provider_transition_registry_trigger_addition()
     block = f"DO $pod_414$\nBEGIN\n{inventory[0]}\nEND\n$pod_414$;"
     if entry.sql.count(block) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory block changed")

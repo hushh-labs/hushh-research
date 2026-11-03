@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping, Set
-from dataclasses import dataclass
 
 from db.hosted_custody_acl import (
     NATIVE_ACL_PROFILE_SETTING,
@@ -13,6 +11,43 @@ from db.hosted_custody_acl import (
     QUALIFIED_FAMILY_SETTING,
     family_acl_profile_sql,
 )
+from db.hosted_custody_family_sql import _FAMILY_SQL
+from db.hosted_custody_profiles import (
+    _DEV_ALTERNATE_FAMILY_HASHES,
+    CUSTODY_PROFILE_ENV,
+    DEV_CONTROL_PLANE_OWNER_PROFILE,
+    DEV_CUSTODY_DATABASE,
+    DEV_CUSTODY_INSTANCE,
+    DEV_CUSTODY_PRINCIPAL,
+    DEV_CUSTODY_PROJECT_ID,
+    DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256,
+    STRICT_CUSTODY_PROFILE,
+    STRICT_PROFILE,
+    HostedCustodyProfile,
+)
+from db.hosted_custody_profiles import (
+    hosted_custody_profile_from_environment as _profile_from_environment,
+)
+from db.hosted_provider_account_custody import (
+    _provider_transition_family_qualification_sql,
+    append_provider_account_qualification_sql,
+)
+
+__all__ = [
+    "DEV_CONTROL_PLANE_OWNER_PROFILE",
+    "DEV_CUSTODY_DATABASE",
+    "DEV_CUSTODY_INSTANCE",
+    "DEV_CUSTODY_PRINCIPAL",
+    "DEV_CUSTODY_PROJECT_ID",
+    "DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256",
+    "CUSTODY_PROFILE_ENV",
+    "STRICT_CUSTODY_PROFILE",
+    "STRICT_PROFILE",
+    "HostedCustodyProfile",
+    "UPGRADE_HOST_TRIGGER",
+    "hosted_custody_profile_from_environment",
+    "_provider_transition_family_qualification_sql",
+]
 
 ROLLBACK_SOURCE_TABLE = "hosted_files_executor_976_rollback_source"
 UPGRADE_HOST_TRIGGER = "zz_personal_agent_upgrade_lease_host_binding"
@@ -84,85 +119,15 @@ _ALTERNATE_FAMILY_HASHES = {
     ),
 }
 
-# The archive successor is accepted only under the explicit shared-Dev profile.
-_DEV_ALTERNATE_FAMILY_HASHES = {
-    "personal_agent_erasure_archive(jsonb,jsonb)": (
-        "aef9e2ea2a5757e2601c3853c062625c56a2df889b29e6aac3d7d192367a466a",
-    ),
-    "hosted_pod_cleanup_admitted(text,text,jsonb)": (
-        "a240e2346c02137441ec68b5597807df8ef0646cb82c3abde1e1573e5fb881f5",
-    ),
-    "hosted_preparation_cleanup_admitted(text,text,jsonb)": (
-        "9b35795e390939c4c2a3c5aab207e19d057a0fd4855689cd4cf4fa4463018426",
-    ),
-    "valid_managed_preparation_cleanup(jsonb,text,jsonb)": (
-        "9f684aec984b39aa47ce1d52b7d200269a033aa1c4b230c0ccef9b6325284522",
-    ),
-    "valid_erasure_managed_project_retirement(jsonb,text,jsonb)": (
-        "fd94f3bd8a45790f4177fbdfc496a186ed18824c1c75ebadca0ce8862966640e",
-    ),
-    "hosted_prefix_abort_admitted(text,text,jsonb)": (
-        "8ea7a69c33a0b33e5c7ddbd640966a059dbcc9a74723e79af754e3ce5469e65c",
-    ),
-}
-
-CUSTODY_PROFILE_ENV = "HUSHH_HOSTED_CUSTODY_PROFILE"
-STRICT_CUSTODY_PROFILE = "strict"
-DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"
-DEV_CUSTODY_PROJECT_ID = "hushh-pda-dev"
-DEV_CUSTODY_INSTANCE = "hushh-pda-dev:us-central1:hushh-dev-pg"
-DEV_CUSTODY_DATABASE = "postgres"
-DEV_CUSTODY_PRINCIPAL = "hushh_uat_app"
-DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256 = (
-    "320fe60c039c7a44aa11e7b670de5e3576d9c4ab7e95de76657719b6c56810b0"
-)
-
-
-@dataclass(frozen=True)
-class HostedCustodyProfile:
-    """One explicit profile used by runtime readiness and migration replay."""
-
-    name: str
-    system_identifier_sha256: str | None = None
-
-    @property
-    def is_dev_control_plane_owner(self) -> bool:
-        return self.name == DEV_CONTROL_PLANE_OWNER_PROFILE
-
-
-STRICT_PROFILE = HostedCustodyProfile(STRICT_CUSTODY_PROFILE)
-
 
 def hosted_custody_profile_from_environment(
     environment: Mapping[str, str] | None = None,
 ) -> HostedCustodyProfile:
-    """Resolve the explicit Dev profile from the same DB connection settings as runtime."""
-    values = os.environ if environment is None else environment
-    requested = str(values.get(CUSTODY_PROFILE_ENV) or "")
-    if requested in ("", STRICT_CUSTODY_PROFILE):
-        return STRICT_PROFILE
-    if requested != DEV_CONTROL_PLANE_OWNER_PROFILE:
-        raise ValueError("Unsupported hosted custody profile selection")
-
-    expected = {
-        "ENVIRONMENT": "dev",
-        "DEV_TARGET": "shared-dev",
-        "GCP_PROJECT_ID": DEV_CUSTODY_PROJECT_ID,
-        "GOOGLE_CLOUD_PROJECT": DEV_CUSTODY_PROJECT_ID,
-        "CLOUDSQL_INSTANCE_CONNECTION_NAME": DEV_CUSTODY_INSTANCE,
-        "DB_NAME": DEV_CUSTODY_DATABASE,
-        "DB_USER": DEV_CUSTODY_PRINCIPAL,
-    }
-    mismatches = [name for name, value in expected.items() if str(values.get(name) or "") != value]
-    if mismatches:
-        raise ValueError(
-            "Dev hosted custody profile requires exact shared-Dev configuration: "
-            + ", ".join(mismatches)
-        )
-    return HostedCustodyProfile(
-        DEV_CONTROL_PLANE_OWNER_PROFILE,
-        DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256,
-    )
+    """Resolve the profile through this module's reviewed identity constants."""
+    profile = _profile_from_environment(environment)
+    if profile.is_dev_control_plane_owner:
+        return HostedCustodyProfile(profile.name, DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256)
+    return profile
 
 
 def _profile_identity_sql(profile: HostedCustodyProfile) -> str:
@@ -186,239 +151,7 @@ def _profile_identity_sql(profile: HostedCustodyProfile) -> str:
 """
 
 
-_FAMILY_SQL = r"""DO $hosted_custody_full_family$
-DECLARE family jsonb := convert_from(decode('@FAMILY_JSON_HEX@','hex'),'UTF8')::jsonb;
- preimages jsonb := convert_from(decode('@PREIMAGES_JSON_HEX@','hex'),'UTF8')::jsonb;
- alternate_hashes jsonb := convert_from(decode('@ALTERNATE_HASHES_JSON_HEX@','hex'),'UTF8')::jsonb;
- family_names text[]; family_footprint boolean; marker_oid oid; registry_owner oid;
- service_role_oid oid; marker record; marker_signature_attnum smallint; function_failure text;
- canonical_acl_profile boolean; native_acl_profile boolean;
- owner_canonical_acl_profile boolean; owner_native_acl_profile boolean;
- expected_count integer := @FAMILY_COUNT@; actual_count integer;
-BEGIN
- PERFORM set_config('@SETTING@','false',true);
- PERFORM set_config('@NATIVE_SETTING@','',true);
- @PROFILE_IDENTITY_SQL@
- SELECT array_agg(DISTINCT f.proname ORDER BY f.proname)
-  INTO family_names FROM jsonb_to_recordset(family) AS f(
-   signature text,proname text,expected_hash text,base_hash text,files_hash text,
-   upgrade_hash text,native_contract_hash text,direct_service boolean,service_required boolean,
-   public_required boolean,introduced boolean,function_path text);
- marker_oid:=to_regclass('public.@MARKER@')::oid;
- SELECT marker_oid IS NOT NULL
-  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-   WHERE n.nspname='public' AND p.proname=ANY(ARRAY(
-    SELECT f.proname FROM jsonb_to_recordset(family) AS f(
-     signature text,proname text,expected_hash text,base_hash text,files_hash text,
-     upgrade_hash text,native_contract_hash text,direct_service boolean,service_required boolean,
-     public_required boolean,introduced boolean,function_path text) WHERE f.introduced)))
-  OR EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-   JOIN pg_namespace n ON n.oid=c.relnamespace
-   WHERE n.nspname='public' AND t.tgname='@TRIGGER@')
-  OR EXISTS(SELECT 1 FROM jsonb_to_recordset(family) AS f(
-   signature text,proname text,expected_hash text,base_hash text,files_hash text,
-   upgrade_hash text,native_contract_hash text,direct_service boolean,service_required boolean,
-   public_required boolean,introduced boolean,function_path text)
-   JOIN pg_proc p ON p.oid=to_regprocedure('public.'||f.signature)
-   WHERE (f.files_hash<>'' AND f.files_hash<>f.base_hash
-      AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')=f.files_hash)
-    OR (f.upgrade_hash<>'' AND f.upgrade_hash<>f.base_hash
-      AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')=f.upgrade_hash)
-    OR (f.native_contract_hash<>'' AND f.native_contract_hash<>f.base_hash
-      AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')=f.native_contract_hash))
- INTO family_footprint;
- IF family_footprint IS NOT TRUE THEN
-  IF @REQUIRE_FAMILY@ THEN
-   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: required family absent';
-  END IF;
-  RETURN;
- END IF;
- IF marker_oid IS NULL THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: missing rollback marker';
- END IF;
-
- SELECT c.* INTO marker FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-  WHERE n.nspname='public' AND c.oid=marker_oid;
- IF NOT FOUND OR marker.relkind<>'r' OR marker.relpersistence<>'p' THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: rollback marker relation';
- END IF;
- SELECT c.relowner INTO registry_owner FROM pg_class c
-  WHERE c.oid=to_regclass('public.personal_agent_registry') AND c.relkind='r';
- SELECT r.oid INTO service_role_oid FROM pg_roles r WHERE r.rolname='service_role';
- IF registry_owner IS NULL THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: owner roles';
- END IF;
- IF '@PROFILE@'='dev_control_plane_owner' THEN
-  IF service_role_oid IS NOT NULL THEN
-   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: Dev service role';
-  END IF;
- ELSIF service_role_oid IS NULL OR service_role_oid=registry_owner THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: owner roles';
- END IF;
- IF marker.relowner<>registry_owner THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: rollback marker owner';
- END IF;
-
- SELECT a.attnum INTO marker_signature_attnum FROM pg_attribute a
-  WHERE a.attrelid=marker_oid AND a.attname='signature' AND a.attnum>0 AND NOT a.attisdropped;
- IF (SELECT count(*) FROM pg_attribute a WHERE a.attrelid=marker_oid
-     AND a.attnum>0 AND NOT a.attisdropped)<>2
-  OR marker_signature_attnum IS NULL
-  OR NOT EXISTS(SELECT 1 FROM pg_attribute a LEFT JOIN pg_attrdef d
-    ON d.adrelid=a.attrelid AND d.adnum=a.attnum
-    WHERE a.attrelid=marker_oid AND a.attname='signature' AND a.attnum>0
-     AND NOT a.attisdropped AND a.atttypid='pg_catalog.text'::regtype
-     AND a.atttypmod=-1 AND a.attndims=0 AND a.attnotnull AND a.attidentity=''
-     AND a.attgenerated='' AND d.oid IS NULL)
-  OR NOT EXISTS(SELECT 1 FROM pg_attribute a LEFT JOIN pg_attrdef d
-    ON d.adrelid=a.attrelid AND d.adnum=a.attnum
-    WHERE a.attrelid=marker_oid AND a.attname='definition' AND a.attnum>0
-     AND NOT a.attisdropped AND a.atttypid='pg_catalog.text'::regtype
-     AND a.atttypmod=-1 AND a.attndims=0 AND a.attnotnull AND a.attidentity=''
-     AND a.attgenerated='' AND d.oid IS NULL)
-  OR (SELECT count(*) FROM pg_constraint k WHERE k.conrelid=marker_oid)<>1
-  OR NOT EXISTS(SELECT 1 FROM pg_constraint k WHERE k.conrelid=marker_oid
-    AND k.contype='p' AND k.conkey=ARRAY[marker_signature_attnum]::smallint[]
-    AND k.convalidated AND NOT k.condeferrable AND NOT k.condeferred
-    AND k.connoinherit AND k.conislocal AND k.coninhcount=0 AND k.conparentid=0)
-  OR (SELECT count(*) FROM pg_index i WHERE i.indrelid=marker_oid)<>1
-  OR NOT EXISTS(SELECT 1 FROM pg_index i JOIN pg_constraint k ON k.conindid=i.indexrelid
-    WHERE i.indrelid=marker_oid AND k.conrelid=marker_oid AND k.contype='p'
-     AND i.indisunique AND i.indisvalid AND i.indisready AND i.indislive AND i.indisprimary
-     AND NOT i.indisexclusion AND i.indnatts=1 AND i.indnkeyatts=1
-     AND i.indexprs IS NULL AND i.indpred IS NULL
-     AND i.indkey::text=marker_signature_attnum::text)
-  OR EXISTS(SELECT 1 FROM pg_trigger t WHERE t.tgrelid=marker_oid AND NOT t.tgisinternal)
-  OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(marker.relacl,
-      acldefault('r',marker.relowner))) a
-    WHERE a.grantee<>marker.relowner OR a.grantor<>marker.relowner OR a.is_grantable)
-  OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(marker.relacl,
-      acldefault('r',marker.relowner))) a WHERE NOT EXISTS(
-    SELECT 1 FROM aclexplode(acldefault('r',marker.relowner)) d
-    WHERE (d.grantee,d.grantor,d.privilege_type,d.is_grantable)=
-      (a.grantee,a.grantor,a.privilege_type,a.is_grantable)))
-  OR EXISTS(SELECT 1 FROM aclexplode(acldefault('r',marker.relowner)) d
-    WHERE NOT EXISTS(SELECT 1 FROM aclexplode(COALESCE(marker.relacl,
-      acldefault('r',marker.relowner))) a
-      WHERE (a.grantee,a.grantor,a.privilege_type,a.is_grantable)=
-       (d.grantee,d.grantor,d.privilege_type,d.is_grantable))) THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: rollback marker shape or ACL';
- END IF;
- IF (SELECT count(*) FROM public.@MARKER@)<>5
-  OR EXISTS(SELECT 1 FROM jsonb_to_recordset(preimages) AS e(
-   signature text,definition_hash text)
-   LEFT JOIN public.@MARKER@ s ON s.signature=e.signature
-   WHERE s.signature IS NULL OR encode(sha256(convert_to(s.definition,'UTF8')),'hex')
-      IS DISTINCT FROM e.definition_hash)
-  OR EXISTS(SELECT 1 FROM public.@MARKER@ s WHERE NOT EXISTS(
-   SELECT 1 FROM jsonb_to_recordset(preimages) AS e(signature text,definition_hash text)
-   WHERE e.signature=s.signature)) THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: rollback preimages';
- END IF;
-
- SELECT count(*) INTO actual_count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-  WHERE n.nspname='public' AND p.proname=ANY(family_names);
- IF actual_count<>expected_count OR EXISTS(SELECT 1 FROM pg_proc p
-   JOIN pg_namespace n ON n.oid=p.pronamespace
-   WHERE n.nspname='public' AND p.proname=ANY(family_names)
-    AND NOT EXISTS(SELECT 1 FROM jsonb_to_recordset(family) AS f(
-     signature text,proname text,expected_hash text,base_hash text,files_hash text,
-     upgrade_hash text,native_contract_hash text,direct_service boolean,service_required boolean,
-     public_required boolean,introduced boolean,function_path text)
-     WHERE to_regprocedure('public.'||f.signature)=p.oid)) THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: overload or missing function';
- END IF;
- SELECT f.signature INTO function_failure
-  FROM jsonb_to_recordset(family) AS f(
-   signature text,proname text,expected_hash text,base_hash text,files_hash text,
-   upgrade_hash text,native_contract_hash text,direct_service boolean,service_required boolean,
-   public_required boolean,introduced boolean,function_path text)
-   LEFT JOIN pg_proc p ON p.oid=to_regprocedure('public.'||f.signature)
-   WHERE p.oid IS NULL
-    OR (
-      encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>f.expected_hash
-      AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(
-       COALESCE(alternate_hashes->f.signature,'[]'::jsonb)) allowed(hash)
-       WHERE allowed.hash=encode(
-        sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex'))
-    )
-    OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proparallel<>'u'
-    OR p.proleakproof IS TRUE OR p.proisstrict IS TRUE OR p.proretset IS TRUE
-    OR p.prokind<>'f' OR p.proargmodes IS NOT NULL OR p.provariadic<>0
-    OR p.procost<>100 OR p.prorows<>0
-    OR p.proconfig IS DISTINCT FROM ARRAY['search_path='||f.function_path]::text[]
-  LIMIT 1;
- IF function_failure IS NOT NULL THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: function vector or metadata (%)',
-   function_failure;
- END IF;
-
- @ACL_PROFILE_SQL@
- IF '@PROFILE@'='dev_control_plane_owner' THEN
-  IF owner_canonical_acl_profile IS NOT TRUE AND owner_native_acl_profile IS NOT TRUE THEN
-   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: owner-only function ACL';
-  END IF;
- ELSIF canonical_acl_profile IS NOT TRUE AND native_acl_profile IS NOT TRUE THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: function ACL';
- END IF;
-
- IF (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-   JOIN pg_namespace n ON n.oid=c.relnamespace
-   WHERE n.nspname='public' AND t.tgname='@TRIGGER@')<>1
-  OR NOT EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-   JOIN pg_namespace n ON n.oid=c.relnamespace
-   WHERE n.nspname='public' AND c.oid=to_regclass('public.personal_agent_registry')
-    AND t.tgname='@TRIGGER@' AND t.tgenabled IN ('O','A') AND t.tgtype=23
-    AND t.tgfoid=to_regprocedure('public.guard_personal_agent_upgrade_lease_host_binding()')
-    AND NOT t.tgisinternal AND t.tgnargs=0 AND encode(t.tgargs,'hex')=''
-    AND t.tgattr::text='' AND t.tgconstraint=0 AND NOT t.tgdeferrable
-    AND NOT t.tginitdeferred AND t.tgqual IS NULL AND t.tgoldtable IS NULL
-    AND t.tgnewtable IS NULL AND t.tgparentid=0
-    AND encode(sha256(convert_to(pg_get_triggerdef(t.oid,true),'UTF8')),'hex')
-      ='@TRIGGER_SHA@') THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: upgrade host trigger';
- END IF;
- IF (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-     WHERE n.nspname='public' AND t.tgname='@PROJECT_GRANT_TRIGGER@')<>1
-  OR NOT EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-     WHERE n.nspname='public' AND c.oid=to_regclass('public.personal_agent_registry')
-      AND t.tgname='@PROJECT_GRANT_TRIGGER@' AND t.tgenabled IN ('O','A') AND t.tgtype=23
-      AND t.tgfoid=to_regprocedure('public.guard_project_grant_registry_admission()')
-      AND NOT t.tgisinternal AND t.tgnargs=0 AND encode(t.tgargs,'hex')=''
-      AND t.tgattr::text='' AND t.tgconstraint=0 AND NOT t.tgdeferrable
-      AND NOT t.tginitdeferred AND t.tgqual IS NULL AND t.tgoldtable IS NULL
-      AND t.tgnewtable IS NULL AND t.tgparentid=0
-      AND encode(sha256(convert_to(pg_get_triggerdef(t.oid,true),'UTF8')),'hex')
-       ='@PROJECT_GRANT_TRIGGER_SHA@') THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: project grant trigger';
- END IF;
- IF (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-     WHERE n.nspname='public' AND t.tgname='@ERASURE_REGISTRY_TRIGGER@')<>1
-  OR NOT EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
-      JOIN pg_namespace n ON n.oid=c.relnamespace
-     WHERE n.nspname='public' AND c.oid=to_regclass('public.personal_agent_registry')
-      AND t.tgname='@ERASURE_REGISTRY_TRIGGER@' AND t.tgenabled IN ('O','A') AND t.tgtype=27
-      AND t.tgfoid=to_regprocedure('public.guard_personal_agent_erasure_registry()')
-      AND NOT t.tgisinternal AND t.tgnargs=0 AND encode(t.tgargs,'hex')=''
-      AND t.tgattr::text='' AND t.tgconstraint=0 AND NOT t.tgdeferrable
-      AND NOT t.tginitdeferred AND t.tgqual IS NULL AND t.tgoldtable IS NULL
-      AND t.tgnewtable IS NULL AND t.tgparentid=0
-      AND encode(sha256(convert_to(pg_get_triggerdef(t.oid,true),'UTF8')),'hex')
-       ='@ERASURE_REGISTRY_TRIGGER_SHA@') THEN
-  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: erasure registry trigger';
- END IF;
- IF native_acl_profile IS TRUE
-  OR ('@PROFILE@'='dev_control_plane_owner'
-      AND (owner_canonical_acl_profile IS TRUE OR owner_native_acl_profile IS TRUE)) THEN
-  PERFORM set_config('@NATIVE_SETTING@','true',true);
- END IF;
- PERFORM set_config('@SETTING@','true',true);
-END
-$hosted_custody_full_family$;
-"""
+# The archive successor is accepted only under the explicit shared-Dev profile.
 
 
 def _family_rows(
@@ -538,189 +271,13 @@ def complete_family_qualification_sql(
     sql = _FAMILY_SQL
     for token, value in replacements.items():
         sql = sql.replace(token, value)
-    if provider_transition_family is not None or provider_transition_trigger is not None:
-        if (
-            provider_transition_family is None
-            or provider_transition_trigger is None
-            or provider_transition_archive_sha256 is None
-            or provider_transition_intent_successor_sha256 is None
-        ):
-            raise ValueError(
-                "provider transition qualification requires the complete closed family"
-            )
-        transition_sql = _provider_transition_family_qualification_sql(
-            family=provider_transition_family,
-            trigger=provider_transition_trigger,
-            archive_sha256=provider_transition_archive_sha256,
-            dev_profile=profile.is_dev_control_plane_owner,
-            intent_successor_sha256=provider_transition_intent_successor_sha256,
-        )
-        sql = sql + transition_sql if profile.is_dev_control_plane_owner else transition_sql + sql
-    if provider_account_resolution_family is not None:
-        resolution_sql = _provider_account_resolution_family_qualification_sql(
-            family=provider_account_resolution_family,
-            service_role_signatures=provider_account_resolution_service_role_signatures,
-            dev_profile=profile.is_dev_control_plane_owner,
-        )
-        sql += resolution_sql
-    return sql
-
-
-def _provider_transition_family_qualification_sql(
-    *,
-    family: Mapping[str, str],
-    trigger: tuple[str, str],
-    archive_sha256: str,
-    dev_profile: bool,
-    intent_successor_sha256: str = "",
-) -> str:
-    """Qualify the complete 982 family only when that family is installed."""
-    values = ",".join(f"('{signature}','{digest}')" for signature, digest in sorted(family.items()))
-    names = sorted({signature.partition("(")[0] for signature in family})
-    names_sql = ",".join(f"'{name}'" for name in names)
-    trigger_name, trigger_sha256 = trigger
-    allowed_role_condition = "TRUE" if dev_profile else "FALSE"
-    return f"""
-DO $hosted_provider_account_transition_family$
-DECLARE spec record; actual_count integer; registry_owner oid; service_role_oid oid;
-        transition_footprint boolean := false;
-BEGIN
- SELECT EXISTS(SELECT 1 FROM pg_proc p WHERE p.proname=ANY(ARRAY[{names_sql}]::text[]))
-  OR EXISTS(SELECT 1 FROM pg_trigger t WHERE t.tgname='{trigger_name}')
-  OR (to_regprocedure('public.personal_agent_erasure_archive(jsonb,jsonb)') IS NOT NULL
-      AND encode(sha256(convert_to(pg_get_functiondef(
-        to_regprocedure('public.personal_agent_erasure_archive(jsonb,jsonb)')),'UTF8')),'hex')
-        ='{archive_sha256}')
-  INTO transition_footprint;
- IF transition_footprint IS NOT TRUE THEN RETURN; END IF;
- IF {allowed_role_condition} IS NOT TRUE THEN
-  RAISE EXCEPTION 'Unqualified provider account transition family: explicit Dev profile required';
- END IF;
- SELECT c.relowner INTO registry_owner FROM pg_class c
-  WHERE c.oid=to_regclass('public.personal_agent_registry') AND c.relkind='r';
- SELECT oid INTO service_role_oid FROM pg_roles WHERE rolname='service_role';
- SELECT count(*) INTO actual_count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-  WHERE n.nspname='public' AND p.proname=ANY(ARRAY[{names_sql}]::text[]);
- IF actual_count<>{len(family)}
-  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE p.proname=ANY(ARRAY[{names_sql}]::text[])
-      AND (n.nspname<>'public' OR NOT EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest)
-       WHERE to_regprocedure('public.'||e.signature)=p.oid))) THEN
-  RAISE EXCEPTION 'Unqualified provider account transition family: overload or missing function';
- END IF;
- IF EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest)
-    LEFT JOIN pg_proc p ON p.oid=to_regprocedure('public.'||e.signature)
-    WHERE p.oid IS NULL
-      OR (encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
-          AND NOT (e.signature='valid_hosted_provider_account_transition_intent(jsonb,jsonb)'
-              AND {allowed_role_condition} IS TRUE
-              AND encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')
-                   ='{intent_successor_sha256}'))
-      OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proleakproof IS TRUE
-      OR p.proisstrict IS TRUE OR p.proretset IS TRUE OR p.prokind<>'f'
-      OR p.proargmodes IS NOT NULL OR p.provariadic<>0
-      OR p.proconfig IS DISTINCT FROM ARRAY['search_path=public']::text[]
-      OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
-         acldefault('f',p.proowner))) a
-        WHERE (a.grantee<>p.proowner AND (service_role_oid IS NULL
-                OR a.grantee<>service_role_oid)) OR a.is_grantable)
-      OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
-         acldefault('f',p.proowner))) a
-        WHERE a.grantee=0 AND a.privilege_type='EXECUTE')
-      OR (EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon')
-          AND has_function_privilege('anon',p.oid,'EXECUTE'))
-      OR (EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated')
-          AND has_function_privilege('authenticated',p.oid,'EXECUTE'))
-      OR (service_role_oid IS NOT NULL
-          AND NOT has_function_privilege(service_role_oid,p.oid,'EXECUTE'))) THEN
-  RAISE EXCEPTION 'Unqualified provider account transition family: function definition or ACL';
- END IF;
- IF (SELECT count(*) FROM pg_trigger t WHERE t.tgname='{trigger_name}')<>1
-  OR NOT EXISTS(SELECT 1 FROM pg_trigger t
-    WHERE t.tgrelid=to_regclass('public.personal_agent_registry')
-      AND t.tgname='{trigger_name}' AND t.tgenabled IN ('O','A') AND t.tgtype=31
-      AND t.tgfoid=to_regprocedure('public.guard_hosted_provider_account_transition_registry()')
-      AND NOT t.tgisinternal AND t.tgnargs=0 AND encode(t.tgargs,'hex')=''
-      AND t.tgattr::text='' AND t.tgconstraint=0 AND NOT t.tgdeferrable
-      AND NOT t.tginitdeferred AND t.tgqual IS NULL AND t.tgoldtable IS NULL
-      AND t.tgnewtable IS NULL AND t.tgparentid=0
-      AND encode(sha256(convert_to(pg_get_triggerdef(t.oid,true),'UTF8')),'hex')
-        ='{trigger_sha256}') THEN
-  RAISE EXCEPTION 'Unqualified provider account transition family: trigger definition';
- END IF;
-END;
-$hosted_provider_account_transition_family$;
-"""
-
-
-def _provider_account_resolution_family_qualification_sql(
-    *,
-    family: Mapping[str, str],
-    service_role_signatures: Set[str],
-    dev_profile: bool,
-) -> str:
-    """Qualify exact 983 resolver and consumer bodies only when their footprint exists."""
-    values = ",".join(
-        f"('{signature}','{digest}',{'true' if signature in service_role_signatures else 'false'})"
-        for signature, digest in sorted(family.items())
+    return append_provider_account_qualification_sql(
+        sql,
+        profile=profile,
+        provider_transition_family=provider_transition_family,
+        provider_transition_trigger=provider_transition_trigger,
+        provider_transition_archive_sha256=provider_transition_archive_sha256,
+        provider_transition_intent_successor_sha256=provider_transition_intent_successor_sha256,
+        provider_account_resolution_family=provider_account_resolution_family,
+        provider_account_resolution_service_role_signatures=provider_account_resolution_service_role_signatures,
     )
-    names = sorted({signature.partition("(")[0] for signature in family})
-    names_sql = ",".join(f"'{name}'" for name in names)
-    resolver_signature = "hosted_provider_effective_billing_account(jsonb)"
-    allowed_role_condition = "TRUE" if dev_profile else "FALSE"
-    return f"""
-DO $hosted_provider_account_resolution_family$
-DECLARE spec record; actual_count integer; registry_owner oid; service_role_oid oid;
-        resolution_footprint boolean := false;
-BEGIN
- SELECT to_regprocedure('public.{resolver_signature}') IS NOT NULL
-  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE p.proname='hosted_provider_effective_billing_account')
-  OR EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest,direct_service)
-   WHERE to_regprocedure('public.'||e.signature) IS NOT NULL
-    AND encode(sha256(convert_to(pg_get_functiondef(
-      to_regprocedure('public.'||e.signature)),'UTF8')),'hex')=e.digest)
-  INTO resolution_footprint;
- IF resolution_footprint IS NOT TRUE THEN RETURN; END IF;
- IF {allowed_role_condition} IS NOT TRUE THEN
-  RAISE EXCEPTION 'Unqualified provider account resolution family: explicit Dev profile required';
- END IF;
- SELECT c.relowner INTO registry_owner FROM pg_class c
-  WHERE c.oid=to_regclass('public.personal_agent_registry') AND c.relkind='r';
- SELECT oid INTO service_role_oid FROM pg_roles WHERE rolname='service_role';
- SELECT count(*) INTO actual_count FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-  WHERE n.nspname='public' AND p.proname=ANY(ARRAY[{names_sql}]::text[]);
- IF actual_count<>{len(family)}
-  OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE p.proname=ANY(ARRAY[{names_sql}]::text[])
-      AND (n.nspname<>'public' OR NOT EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest,direct_service)
-       WHERE to_regprocedure('public.'||e.signature)=p.oid))) THEN
-  RAISE EXCEPTION 'Unqualified provider account resolution family: overload or missing function';
- END IF;
- IF EXISTS(SELECT 1 FROM (VALUES {values}) e(signature,digest,direct_service)
-    LEFT JOIN pg_proc p ON p.oid=to_regprocedure('public.'||e.signature)
-    WHERE p.oid IS NULL
-      OR encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex')<>e.digest
-      OR p.proowner<>registry_owner OR p.prosecdef IS TRUE OR p.proleakproof IS TRUE
-      OR p.proisstrict IS TRUE OR p.proretset IS TRUE OR p.prokind<>'f'
-      OR p.proargmodes IS NOT NULL OR p.provariadic<>0
-      OR p.proconfig IS DISTINCT FROM ARRAY['search_path=public']::text[]
-      OR EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
-         WHERE a.grantor<>p.proowner OR a.privilege_type<>'EXECUTE' OR a.is_grantable
-          OR (a.grantee<>p.proowner AND (service_role_oid IS NULL
-              OR a.grantee<>service_role_oid OR e.direct_service IS NOT TRUE))
-          OR (a.grantee=p.proowner AND a.grantee=0))
-      OR (SELECT count(*) FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a)
-         <>1+CASE WHEN e.direct_service AND service_role_oid IS NOT NULL THEN 1 ELSE 0 END
-      OR NOT has_function_privilege(p.proowner,p.oid,'EXECUTE')
-      OR (e.direct_service AND service_role_oid IS NOT NULL
-          AND NOT has_function_privilege(service_role_oid,p.oid,'EXECUTE'))
-      OR (EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon')
-          AND has_function_privilege('anon',p.oid,'EXECUTE'))
-      OR (EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated')
-          AND has_function_privilege('authenticated',p.oid,'EXECUTE'))) THEN
-  RAISE EXCEPTION 'Unqualified provider account resolution family: function definition or ACL';
- END IF;
-END;
-$hosted_provider_account_resolution_family$;
-"""
