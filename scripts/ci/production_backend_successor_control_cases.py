@@ -868,6 +868,16 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
             profile = control.current_auth_domain_acceptance_profile(observed)
             self.assertEqual(profile["operational_reference"], operational)
             live.assert_called_once_with(anchor, initial=True)
+            live.reset_mock()
+            deferred = control.current_auth_domain_acceptance_profile(
+                observed, revalidate_live=False
+            )
+            self.assertEqual(deferred, profile)
+            live.assert_not_called()
+            with self.assertRaisesRegex(ValueError, "captured serving baseline"):
+                control.current_auth_domain_acceptance_profile(revalidate_live=False)
+            control.revalidate_auth_domain_reference(operational, observed)
+            live.assert_called_once_with(anchor, initial=True)
             with self.assertRaisesRegex(ValueError, "serving backend differs"):
                 control.current_auth_domain_acceptance_profile(
                     {"backend": {**observed["backend"], "source": "0" * 40}}

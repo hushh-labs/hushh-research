@@ -508,7 +508,7 @@ jobs:
           done
           cp scripts/ops/verify-env-secrets-parity.py \
             "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py"
-          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py \
+          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py retention_uat_guard_evidence.py \
             production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
@@ -591,7 +591,7 @@ jobs:
           done
           cp "${RUNNER_TEMP}/release-tools/verify-env-secrets-parity.py" \
             scripts/ops/verify-env-secrets-parity.py
-          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py \
+          for tool in cloudrun-retention.py process_group.py uat-retention-maintenance.py retention_publication.py retention_publication_source.py retention_preflight_evidence.py retention_production_evidence.py retention_pass_diagnostics.py retention_production_clock_evidence.py retention_production_clock_records.py retention_production_profile_evidence.py retention_uat_guard_evidence.py \
             production_emergency.py production_auth_domain_refresh.py production_phone_receipt.py production_phone_lease.py production_phone_lease_receipts.py production_phone_nonproducer.py production_backend_successor.py production_backend_successor_proof.py production_backend_successor_control.py production_pending_activation.py production_activation_continuation.py production_staged_worker.py production_worker_basis.py production_backend_inheritance.py production_retention_context.py production_restoration_receipt.py production_restoration_continuation.py retention_admission.py tag-last-known-good.sh resolve-rollback-target.sh production-capacity-bridge.py production_capacity_bridge_contract.py \
             release_artifact_receipts.py release_cadence.py release_cadence_github.py \
             release_cadence_native.py release_cadence_maintenance.py; do
@@ -732,13 +732,20 @@ jobs:
       - name: Enforce production database connection budget before deployment
         shell: bash
         env:
+          AUTH_DOMAIN_REPAIR: ${{ inputs.frontend_auth_domain_refresh && 'true' || 'false' }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
           PHONE_ROLLBACK_SHA: ${{ inputs.phone_rollback_sha }}
           RESTORATION_RUN: ${{ inputs.restoration_validation_run }}
           STAGED_WORKER_LOADED: ${{ steps.staged-worker.outputs.loaded }}
         run: |
           set -euo pipefail
           extra=()
-          if [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
+          if [[ "$AUTH_DOMAIN_REPAIR" == true ]]; then
+            # The exact admitted repair changes no database service. Retain
+            # every live/retained workload and reserve, without fictional slots.
+            [[ "$REQUESTED_SCOPE" == frontend && "$PHONE_DEPLOY_PHASE" == standard && "$STAGED_WORKER_LOADED" == false && -z "$RESTORATION_RUN$PHONE_ROLLBACK_SHA" ]] || exit 1
+            extra=(--no-candidates)
+          elif [[ -n "$RESTORATION_RUN" || "$PHONE_DEPLOY_PHASE" == cold || "$STAGED_WORKER_LOADED" == true ]]; then
             extra=(--candidate-service consent-protocol)
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
@@ -830,7 +837,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RELEASE_MODE" = manual-emergency ]; then
-            python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" admit \
+            python3 scripts/ci/production_emergency.py admit \
               --scope "$RESOLVED_SCOPE" --output /tmp/prod-emergency-admission.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1078,7 +1085,7 @@ jobs:
           protocol-dir: ./consent-protocol
 
       - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
+        if: inputs.frontend_auth_domain_refresh || steps.scope.outputs.deploy_backend == 'true' || steps.document-mode.outputs.configured == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1178,7 +1185,7 @@ jobs:
         run: |
           set -euo pipefail
           bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
-          python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" recheck \
+          uv run --frozen --project consent-protocol python scripts/ci/production_emergency.py recheck \
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync frontend hosted runtime secrets
@@ -1426,7 +1433,7 @@ jobs:
         run: |
           set -euo pipefail
           bash "${RUNNER_TEMP}/release-tools/require-deploy-sha-on-main.sh" "$APPLICATION_SHA"
-          python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" recheck \
+          uv run --frozen --project consent-protocol python scripts/ci/production_emergency.py recheck \
             --output /tmp/prod-emergency-admission.json
 
       - name: Sync canonical hosted runtime secrets

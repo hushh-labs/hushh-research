@@ -1236,6 +1236,38 @@ specification and ordered audit history in the existing observer inventory. The
 database-capacity gate refuses unreviewed job generations even when that job is
 healthy. Preserve older profiles and never exempt a workload by its name alone.
 
+The pinned frontend-only auth-domain repair reserves no hypothetical backend or
+Drive-worker candidate connections: it uses the existing full-inventory
+`--no-candidates` admission. Actual retained workloads, qualified observers,
+administrative reserve and database limits still apply. This mode refuses a
+non-frontend scope, staged worker, restoration, phone rollback or cold phase;
+ordinary deployments retain their candidate reservations.
+
+Preserved release tools are overlaid into their authored workspace paths before
+use. Run emergency admission/recheck from `scripts/ci/`, since companion readers
+resolve `deploy/phone` and `deploy/drive` relative to that repository root.
+The exact auth refresh first binds the immutable release and observed serving
+pair. Its mandatory live anchor/schema recheck follows Python/proxy setup and
+precedes mutations; the post-build recheck repeats it. Both rechecks use the
+initialized project environment through `uv run --frozen --project`, preserving
+the workspace directory and installed database reader. Ordinary admission keeps
+its immediate live validation. A metadata receipt never substitutes for either
+live recheck.
+
+Phone-lease history discovery and ancestry remain ordered. Independent per-run
+attempt/artifact proofs use at most three readers with the same inherited
+deadline; results are consumed in history order. All required records must pass
+before the pre-policy boundary admits release. Failure cancels queued reads and
+joins active ones; the optimization changes neither the 90-second authority
+budget nor checkpoint/source requirements.
+
+The exact reviewed parallel maintenance profile may flush canonical records of
+older qualified attempts around its final refusal diagnostic. The reader accepts
+only bounded, typed progress metadata there; those records grant no authority.
+The actual checkout, source tuple, clock witness, diagnostic hash and absence of
+checkpoint/provider mutation remain mandatory. Other profiles keep their strict
+transcript contracts; arbitrary output still refuses reconciliation.
+
 ### Script Lifecycle Policy
 
 1. Add a new CI/helper script only when it replaces or consolidates an existing one in the same PR.
