@@ -377,6 +377,9 @@ def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> 
         except OSError as exc:
             status = 127
             print(f"unable to start check: {type(exc).__name__}: {exc}", file=sys.stderr)
+        if status < 0 or status >= 124:
+            print(f"Governance interrupted: {check.check_id} (exit {status}); no further checks started", file=sys.stderr)
+            return 128 - status if status < 0 else status
         if status:
             groups = ",".join(sorted(check.groups)) or "baseline"
             failures.append((groups, f"{check.check_id} (exit {status})"))
