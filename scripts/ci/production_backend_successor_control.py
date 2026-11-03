@@ -426,23 +426,94 @@ def current_auth_domain_acceptance_profile(
     }
 
 
-def revalidate_auth_domain_reference(expected: dict, observed: dict) -> None:
-    current = proof.read_original()
-    anchor = record_anchor(current)
-    reference.require(
-        _operational_reference(current, anchor) == expected,
-        "auth repair operational reference changed",
-    )
-    if anchor is not None:
-        live(anchor, initial=True)
+def _revalidate_auth_serving_anchor(anchor: dict, observed: dict) -> None:
+    """Recheck the accepted serving revision, not the staged cold candidate."""
     backend = observed.get("backend", {})
+    revision_name = backend.get("revision") if isinstance(backend, dict) else None
     reference.require(
-        backend.get("source") == importlib.import_module("production_auth_domain_refresh").SOURCE
-        and bool(backend.get("revision"))
-        and bool(backend.get("revision_uid"))
-        and bool(backend.get("service_uid")),
+        isinstance(revision_name, str) and bool(revision_name),
         "auth repair serving backend identity is incomplete",
     )
+    owner = proof.bootstrap_owner()
+    ports = owner.Runtime()
+    service = ports.service()
+    revision = ports.revision(revision_name)
+    actual = importlib.import_module("production_emergency").baseline(
+        service, revision, "consent-protocol"
+    )
+    runtime = anchor.get("runtime", {})
+    serving = anchor.get("serving_reference", {})
+    traffic = [
+        service.get("spec", {}).get("traffic"),
+        service.get("status", {}).get("traffic"),
+    ]
+    reference.require(
+        actual == backend,
+        "auth repair serving backend differs from its captured baseline",
+    )
+    reference.require(
+        isinstance(runtime, dict)
+        and isinstance(serving, dict)
+        and service.get("metadata", {}).get("uid") == runtime.get("service_uid")
+        and owner.controls(service) == runtime.get("controls")
+        and owner.iam_fingerprint(ports.iam()) == runtime.get("iam")
+        and owner._positive(service) == [[serving.get("revision"), 100]]
+        and proof.digest(traffic) == runtime.get("initial_traffic"),
+        "auth repair operational serving controls or traffic changed",
+    )
+
+
+def revalidate_auth_domain_reference(expected: dict, observed: dict) -> None:
+    profile = current_auth_domain_acceptance_profile(
+        observed, revalidate_live=False
+    )
+    reference.require(
+        isinstance(profile, dict)
+        and profile.get("operational_reference") == expected,
+        "auth repair operational reference changed",
+    )
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    backend = observed.get("backend", {})
+    accepted = profile.get("backend", {})
+    reference.require(
+        isinstance(backend, dict)
+        and isinstance(accepted, dict)
+        and backend.get("revision") == accepted.get("revision")
+        and backend.get("revision_uid") == accepted.get("uid")
+        and backend.get("service_uid") == accepted.get("service_uid")
+        and backend.get("source") == accepted.get("source") == refresh.SOURCE
+        and backend.get("image") == accepted.get("image"),
+        "auth repair serving backend differs from the accepted restoration",
+    )
+    record = expected.get("anchor_record")
+    if record is None:
+        return
+    origin = record.get("origin") if isinstance(record, dict) else None
+    reference.require(
+        isinstance(origin, dict)
+        and isinstance(origin.get("run_id"), str)
+        and type(origin.get("run_attempt")) is int
+        and origin["run_attempt"] > 0,
+        "auth repair operational anchor origin is invalid",
+    )
+    anchor = load_anchor(origin["run_id"], origin["run_attempt"])
+    reference.require(
+        anchor.get("origin") == origin
+        and all(
+            record.get(key) == anchor.get(key)
+            for key in ("revision", "source", "image", "uid")
+        )
+        and record.get("previous_tag_oid")
+        == anchor.get("original_healthy", {}).get("tag_oid")
+        and anchor.get("source") == refresh.ACTIVE_ANCHOR_SOURCE
+        and anchor.get("sealed_boundary", {}).get("checkpoint", {}).get("plan", {}).get(
+            "primary_sha"
+        )
+        == refresh.ACTIVE_ANCHOR_PRIMARY_SOURCE
+        and anchor.get("original_healthy", {}).get("commit") == refresh.SOURCE,
+        "auth repair operational anchor is outside the reviewed proof",
+    )
+    _revalidate_auth_serving_anchor(anchor, observed)
 
 
 def _write_release_status(path: Path, payload: dict) -> None:
@@ -453,6 +524,19 @@ def _write_release_status(path: Path, payload: dict) -> None:
         json.dump(payload, stream, indent=2)
         stream.write("\n")
     os.replace(temporary, path)
+
+
+def _git_config_value(run, key: str) -> str:
+    try:
+        return run(["config", key]).strip()
+    except subprocess.CalledProcessError as error:
+        if (
+            error.returncode == 1
+            and not (error.stdout or "").strip()
+            and not (error.stderr or "").strip()
+        ):
+            return ""
+        raise
 
 
 def publish_auth_domain_tag(status_path: Path, sha: str, *, run=reference.git) -> dict:
@@ -526,9 +610,9 @@ def publish_auth_domain_tag(status_path: Path, sha: str, *, run=reference.git) -
     try:
         reference.require(not run(["ls-remote", "--refs", "origin", tag_ref]).strip(),
                           "auth repair immutable tag already exists")
-        if not run(["config", "user.email"]).strip():
+        if not _git_config_value(run, "user.email"):
             run(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
-        if not run(["config", "user.name"]).strip():
+        if not _git_config_value(run, "user.name"):
             run(["config", "user.name", "github-actions[bot]"])
         message = "\n".join(
             (
