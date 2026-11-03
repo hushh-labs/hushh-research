@@ -3,6 +3,98 @@ import { expect, test, type Page } from "@playwright/test";
 export function registerAdvisorReviewChecks(
   mount: (page: Page, width: number) => Promise<void>,
 ) {
+  test("Finance advisor discovery separates connections, nearby and global search", async ({
+    page,
+  }) => {
+    await mount(page, 393);
+    await page
+      .getByRole("button", { name: "Start sample advisor request" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByText("Sample advisor", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-advisor-candidate-scope",
+      "connections",
+    );
+    await dialog.getByRole("tab", { name: "Nearby" }).click();
+    await dialog.getByRole("textbox", { name: "Postal code" }).fill("10001");
+    await dialog.getByRole("button", { name: "Search nearby" }).click();
+    await expect(
+      dialog.getByText("Local advisor", { exact: true }),
+    ).toBeVisible();
+    await dialog.getByRole("textbox", { name: "Advisor name" }).fill("Distant");
+    await dialog.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(
+      dialog.getByText("Distant advisor", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-advisor-candidate-scope",
+      "global",
+    );
+    await expect(
+      dialog.getByRole("textbox", { name: "Postal code" }),
+    ).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Choose", exact: true }).click();
+    await expect(
+      dialog.getByRole("button", { name: "Send request" }),
+    ).toBeDisabled();
+  });
+
+  for (const width of [393, 960]) {
+    test(`Finance portfolio review caches and refreshes with advisor fallback at ${width}px`, async ({
+      page,
+    }, info) => {
+      await mount(page, width);
+      const toggle = page.getByRole("button", {
+        name: "Toggle sample analysis",
+      });
+      await toggle.click();
+      const review = page.getByRole("region", {
+        name: "Agent One portfolio review",
+      });
+      await expect(page.locator("body")).not.toHaveAttribute(
+        "data-portfolio-review-calls",
+      );
+      await review.getByRole("button", { name: "Enable auto-review" }).click();
+      await expect(review.getByText("72", { exact: false })).toBeVisible();
+      await expect(
+        page
+          .getByRole("region", { name: "Portfolio charts" })
+          .getByRole("heading", { name: "Largest holdings" }),
+      ).toBeVisible();
+      await review.screenshot({
+        path: info.outputPath("portfolio-review.png"),
+      });
+      await toggle.click();
+      await toggle.click();
+      await expect(review.getByText("72", { exact: false })).toBeVisible();
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-portfolio-review-calls",
+        "1",
+      );
+      await page.evaluate(() => {
+        document.body.dataset.portfolioReviewFailed = "true";
+      });
+      await page
+        .getByRole("button", { name: "Update sample portfolio" })
+        .click();
+      await expect(
+        review.getByText("Agent One couldn’t finish this review."),
+      ).toBeVisible();
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-portfolio-review-calls",
+        "2",
+      );
+      await expect(review.getByText("72", { exact: false })).toHaveCount(0);
+      await review.getByRole("button", { name: "Talk to an advisor" }).click();
+      await expect(
+        page.getByRole("dialog").getByText("Sample advisor", { exact: true }),
+      ).toBeVisible();
+    });
+  }
+
   for (const width of [393, 1440])
     for (const theme of ["light", "dark"]) {
       test(`Finance advisor request locks snapshot until acceptance at ${width}px ${theme}`, async ({

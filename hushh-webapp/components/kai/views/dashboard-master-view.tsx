@@ -2073,7 +2073,14 @@ export function DashboardMasterView({
           </SurfaceCard>
         ) : null}
 
-        {section === "analysis" ? <><AdvisorReviewHub source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} /><PortfolioAnalysis model={model} source={sourceDisplayLabel} /></> : null}
+        {section === "analysis" ? (
+          <AdvisorReviewHub
+            model={model}
+            source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }}
+          >
+            <PortfolioAnalysis model={model} source={sourceDisplayLabel} />
+          </AdvisorReviewHub>
+        ) : null}
 
         {section === "performance" ? (
           <section className="space-y-4">

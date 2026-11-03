@@ -1,13 +1,15 @@
 """Combined advisor introductions. Financial contents remain recipient ciphertext."""
 
 import asyncio
+from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
 
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.finance_sharing import PrivateFinanceRoute, identity
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.services.advisor_review_billing import AdvisorBillingService
 from hushh_mcp.services.advisor_review_contract import (
     AdvisorPlan,
@@ -22,7 +24,8 @@ from hushh_mcp.services.advisor_review_service import AdvisorReviewService
 from hushh_mcp.services.advisor_review_store import AdvisorReviewError
 from hushh_mcp.services.finance_sharing_contract import StrictObject
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
-from hushh_mcp.services.owner_placement_guard import hub_content_owner
+from hushh_mcp.services.one_portfolio_review import ReviewInput, run_portfolio_review
+from hushh_mcp.services.owner_placement_guard import hub_content_owner, require_hub_content_current
 
 router = APIRouter(
     prefix="/api/one/finance/advisor-reviews",
@@ -32,6 +35,8 @@ router = APIRouter(
 
 
 class Discovery(StrictObject):
+    scope: Literal["connections", "global", "nearby"] | None = None
+    page: int = Field(default=1, ge=1, le=1000)
     query: str = Field(default="", max_length=100)
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
@@ -46,14 +51,16 @@ async def discover(request: Request, body: Discovery, viewer: str = Depends(iden
     from hushh_mcp.services.advisor_review_directory import candidates
 
     nearby = body.latitude is not None or body.longitude is not None or body.postalCode is not None
-    if nearby:
+    if body.scope == "nearby" and not nearby:
+        raise AdvisorReviewError("ADVISOR_LOCATION_REQUIRED", 422)
+    if nearby and body.scope in (None, "nearby"):
         directory = await AdvisorDirectoryService().search(
             lat=body.latitude,
             lng=body.longitude,
             postal_code=body.postalCode,
             radius_mi=body.radiusMiles,
             limit=30,
-            offset=0,
+            offset=(body.page - 1) * 30,
             advisor_type="ia",
         )
         crds = [
@@ -62,11 +69,33 @@ async def discover(request: Request, body: Discovery, viewer: str = Depends(iden
             if item.get("kind") == "advisor" and item.get("crd")
         ]
         people = await asyncio.to_thread(candidates, viewer, crds=crds)
-        return {"items": people, "directory": directory}
-    return {
-        "items": await asyncio.to_thread(candidates, viewer, query=body.query),
-        "directory": None,
-    }
+        return {**people, "hasMore": directory["meta"]["hasMore"], "directory": directory}
+    people = await asyncio.to_thread(
+        candidates, viewer, query=body.query, connected=body.scope == "connections", page=body.page
+    )
+    return {**people, "directory": None}
+
+
+@router.post("/portfolio-analysis")
+@limiter.limit("6/minute")
+async def portfolio_analysis(
+    request: Request,
+    body: ReviewInput,
+    viewer: str = Depends(identity),
+    owner: dict = Depends(hub_content_owner),
+):
+    if owner["user_id"] != viewer or not body.allow_model_processing:
+        raise HTTPException(403, {"code": "FINANCE_REVIEW_APPROVAL_REQUIRED"})
+    token = owner.get("token", "")
+
+    async def check_owner() -> None:
+        if await validate_first_party_owner_token(viewer, token) is None:
+            raise HTTPException(403, {"code": "FINANCE_REVIEW_OWNER_REQUIRED"})
+
+    await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
+    result = await run_portfolio_review(body, user_id=viewer, consent_token=token)
+    await require_hub_content_current(viewer, "one_portfolio_review", check_owner)
+    return result
 
 
 @router.get("")
