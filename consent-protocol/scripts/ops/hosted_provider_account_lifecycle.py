@@ -53,6 +53,11 @@ async def perform_action(
             "pending deletion tombstone only permits retained erasure continuation"
         )
     _require_active_native_service(current, action)
+    if action in {"associate-account", "resume"} and not any(
+        _service_matches(service, row=authority_row, expected=PLACEMENTS[selected])
+        for service in (record or {}).get("services", [])
+    ):
+        raise OperatorRefused("provider transition requires the original hosted image")
     phase = current.get("transitionPhase")
     if phase in {"intent", "unknown"}:
         if action != "resume":

@@ -167,6 +167,9 @@ async def _owner_generation(
             raise ValueError("owner identity mapping missing")
         generation = await asyncio.to_thread(state.runtime._owner_generation, owner)
         entry["ownerGeneration"] = generation
+        if generation != 0:
+            state.unresolved.append(f"{hushh_id}:owner_generation_not_qualified_for_pilot")
+            return _owner_hash(identity), generation, "owner_generation_not_qualified_for_pilot"
         return _owner_hash(identity), generation, None
     except Exception as exc:  # noqa: BLE001 - owner map is a required join
         reason = type(exc).__name__
@@ -258,7 +261,13 @@ async def _read_services(
         matching = [
             candidate
             for candidate in candidates
-            if _service_matches(candidate.get("service"), row=authority, expected=expected)
+            if _service_matches(
+                candidate.get("service"),
+                row=authority,
+                expected=expected,
+                allow_completed_successor=True,
+                owner_generation=0,
+            )
         ]
         _set_service_entry(state, hushh_id, row, candidates, matching, entry)
         return services, candidates
@@ -358,7 +367,9 @@ def _finalize_entry(
     entry["projectParent"] = json_value((project or {}).get("parent"))
     entry["projectLabels"] = json_value((project or {}).get("labels"))
     entry["creationIdentitySha256"] = _digest(_creation_identity(authority))
-    entry["registryEvidenceSha256"] = _digest(_registry_evidence(row))
+    registry_evidence = _registry_evidence(row)
+    entry["registryEvidenceSha256"] = _digest(registry_evidence)
+    entry["upgradeReceiptsSha256"] = registry_evidence.get("upgradeReceiptsSha256")
     entry["removalEvidenceSha256"] = _digest(auxiliary.get("removals", []))
     entry["tombstoneEvidenceSha256"] = _digest(
         {

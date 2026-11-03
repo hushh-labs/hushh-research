@@ -9,12 +9,14 @@ from scripts.ops.hosted_provider_account_identity import (
     REVIEWED_FOLDER_ID,
     OperatorRefused,
     _owner_hash,
+    _service_matches,
     canonical_manifest_sha256,
     execute_action,
     require_reviewed_placement,
 )
 from tests.helpers.hosted_provider_account_ops import (
     _additional_hosted_row,
+    _completed_image_successor,
     _listed_project,
     _pilot_row,
     _project_identity,
@@ -67,6 +69,117 @@ async def test_real_inventory_adapter_joins_registry_generation_native_services_
         f"{target_hushh_id}:native_service_identity_mismatch" in reason
         for reason in wrong_path_snapshot.unresolved
     )
+
+    malformed = _pilot_row(target_hushh_id)
+    malformed["backend_metadata"]["provisionAttempt"]["evidence"]["host_requested"][
+        "creationAcknowledgement"
+    ]["initialImage"] = None
+    missing_image = _service(malformed)
+    missing_image["spec"]["template"]["spec"]["containers"][0]["image"] = None
+    assert not _service_matches(missing_image, row=malformed, expected=PLACEMENTS[target_hushh_id])
+
+
+def test_original_service_remains_reconcilable_after_creation_acknowledgement_loss():
+    hushh_id = next(iter(PLACEMENTS))
+    row = _pilot_row(hushh_id)
+    row["status"] = "provisioning"
+    attempt = row["backend_metadata"]["provisionAttempt"]
+    attempt["phase"] = "host_requested"
+    attempt["evidence"]["host_requested"].pop("creationAcknowledgement")
+    assert _service_matches(_service(row), row=row, expected=PLACEMENTS[hushh_id])
+
+
+@pytest.mark.asyncio
+async def test_completed_successor_inventory_requires_terminal_receipt_and_hashes_it(monkeypatch):
+    hushh_id = next(iter(PLACEMENTS))
+    project_id = PLACEMENTS[hushh_id]["projectId"]
+    runtime = _ready_runtime(monkeypatch)
+    original_rows = runtime.registry.rows
+    original = next(row for row in original_rows if row["hushh_id"] == hushh_id)
+    successor, service = _completed_image_successor(original)
+    runtime.registry.rows = [
+        successor if row["hushh_id"] == hushh_id else row for row in original_rows
+    ]
+    services = {
+        placement["projectId"]: [_service(_pilot_row(owner))]
+        for owner, placement in PLACEMENTS.items()
+    }
+    services[project_id] = [service]
+    runtime.run_client_factory = lambda project, region: _RunClient(services[project])
+
+    verified = await runtime.inventory()
+
+    assert verified.unresolved == ()
+    assert verified.placements[hushh_id]["identityState"] == "verified"
+    assert verified.placements[hushh_id]["upgradeReceiptsSha256"]
+    assert not _service_matches(
+        service,
+        row=successor,
+        expected=PLACEMENTS[hushh_id],
+        allow_completed_successor=True,
+        owner_generation=1,
+    )
+
+    files_successor, files_service = _completed_image_successor(original, with_files_plan=True)
+    assert _service_matches(
+        files_service,
+        row=files_successor,
+        expected=PLACEMENTS[hushh_id],
+        allow_completed_successor=True,
+        owner_generation=0,
+    )
+    same_image_files_row, same_image_files_service = _completed_image_successor(
+        original, with_files_plan=True, same_image_files=True
+    )
+    assert _service_matches(
+        same_image_files_service,
+        row=same_image_files_row,
+        expected=PLACEMENTS[hushh_id],
+        allow_completed_successor=True,
+        owner_generation=0,
+    )
+    missing_executor = deepcopy(files_successor)
+    missing_executor["backend_metadata"].pop("hostedFilesExecutor")
+    assert not _service_matches(
+        files_service,
+        row=missing_executor,
+        expected=PLACEMENTS[hushh_id],
+        allow_completed_successor=True,
+        owner_generation=0,
+    )
+    changed_files_env = deepcopy(files_service)
+    files_env = changed_files_env["spec"]["template"]["spec"]["containers"][0]["env"]
+    next(item for item in files_env if item["name"] == "POD_FILES_ENABLED")["value"] = "false"
+    assert not _service_matches(
+        changed_files_env,
+        row=files_successor,
+        expected=PLACEMENTS[hushh_id],
+        allow_completed_successor=True,
+        owner_generation=0,
+    )
+
+    runtime.registry.rows = [
+        files_successor if row["hushh_id"] == hushh_id else row for row in runtime.registry.rows
+    ]
+    services[project_id] = [files_service]
+    verified_files = await runtime.inventory()
+    assert verified_files.unresolved == ()
+    assert verified_files.placements[hushh_id]["identityState"] == "verified"
+    first_manifest_hash = verified_files.sha256
+
+    files_successor["backend_metadata"]["upgradeApproval"]["verifiedAt"] = (
+        "2026-11-03T00:00:00+00:00"
+    )
+    changed = await runtime.inventory()
+    assert changed.unresolved == ()
+    assert changed.sha256 != first_manifest_hash
+
+    files_successor["backend_metadata"]["upgradeAcknowledgement"]["attemptId"] = "f" * 64
+    incomplete = await runtime.inventory()
+    assert any(
+        f"{hushh_id}:native_service_identity_mismatch" in item for item in incomplete.unresolved
+    )
+    assert incomplete.placements[hushh_id]["identityState"] == "unresolved"
 
 
 @pytest.mark.asyncio

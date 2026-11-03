@@ -18,6 +18,7 @@ from scripts.ops.hosted_provider_account_identity import (
 from scripts.ops.hosted_provider_account_lifecycle import NamedGcloudOperatorCredentials
 from scripts.ops.hosted_provider_account_ops import HostedProviderAccountRuntime
 from tests.helpers.hosted_provider_account_ops import (
+    _completed_image_successor,
     _FakeTransition,
     _pilot_row,
     _runtime_snapshot_for_action,
@@ -121,6 +122,88 @@ async def test_billing_start_and_resume_delegate_only_after_reviewed_actor_gate(
     )
     assert resumed == {"phase": "unknown", "generation": 3}
     assert transition.calls[-1] == ("resume", "synthetic-owner")
+
+
+@pytest.mark.asyncio
+async def test_completed_successor_remains_removable_but_cannot_start_billing_transition():
+    from copy import deepcopy
+
+    from scripts.ops.hosted_provider_account_lifecycle import perform_action
+
+    hushh_id = next(iter(PLACEMENTS))
+    active, service = _completed_image_successor(_pilot_row(hushh_id))
+    transition = _FakeTransition()
+    removal_calls = []
+
+    class _Runtime:
+        async def _require_named_operator(self, _principal):
+            raise AssertionError("successor must be refused before operator credentials are read")
+
+        def transition_factory(self):
+            return transition
+
+        async def _remove_through_retained_erasure(self, *, owner_id, row):
+            removal_calls.append((owner_id, row["status"]))
+            return {"status": "synthetic-removal-continued"}
+
+    runtime = _Runtime()
+    billing_snapshot = _runtime_snapshot_for_action(hushh_id)
+    billing_snapshot = replace(
+        billing_snapshot,
+        records={
+            hushh_id: {
+                "registryRow": active,
+                "authorityRow": active,
+                "ownerId": active["user_id"],
+                "services": [service],
+            }
+        },
+    )
+    with pytest.raises(OperatorRefused, match="original hosted image"):
+        await perform_action(
+            runtime,
+            "associate-account",
+            billing_snapshot.placements[hushh_id],
+            reviewed_sha256=billing_snapshot.sha256,
+            inventory_snapshot=billing_snapshot,
+        )
+    assert transition.calls == []
+
+    erasure_attempt = "5c177d95-4a4f-4cda-b168-69468fd7e6f0"
+    retained_authority = deepcopy(active)
+    suspended = deepcopy(active)
+    suspended["status"] = "suspended"
+    suspended["backend_metadata"] = {
+        **suspended["backend_metadata"],
+        "erasure": {
+            "ownerId": active["user_id"],
+            "attemptId": erasure_attempt,
+            "phase": "reserved",
+            "registrySnapshot": retained_authority,
+        },
+    }
+    removal_snapshot = _runtime_snapshot_for_action(hushh_id, status="suspended")
+    removal_snapshot.placements[hushh_id]["tombstoneState"] = {"state": "current_erasure"}
+    removal_snapshot = replace(
+        removal_snapshot,
+        records={
+            hushh_id: {
+                "registryRow": suspended,
+                "authorityRow": retained_authority,
+                "ownerId": active["user_id"],
+                "services": [service],
+            }
+        },
+    )
+    result = await perform_action(
+        runtime,
+        "remove",
+        removal_snapshot.placements[hushh_id],
+        reviewed_sha256=removal_snapshot.sha256,
+        inventory_snapshot=removal_snapshot,
+    )
+    assert result == {"status": "synthetic-removal-continued"}
+    assert removal_calls == [(active["user_id"], "suspended")]
 
 
 @pytest.mark.parametrize(

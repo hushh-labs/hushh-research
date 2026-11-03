@@ -254,7 +254,13 @@ def _native_service_matches(
         matches = [
             item
             for item in candidates
-            if _service_matches(item.get("service"), row=authority, expected=expected)
+            if _service_matches(
+                item.get("service"),
+                row=authority,
+                expected=expected,
+                allow_completed_successor=True,
+                owner_generation=0,
+            )
         ]
         return len(matches) == 1 and len(candidates) == 1
     return bool(

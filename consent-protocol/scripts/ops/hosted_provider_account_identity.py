@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from hushh_mcp.services.hosted_provider_account_transition import PLACEMENTS
+from hushh_mcp.services.hosted_provider_account_transition import IMAGE_DIGEST, PLACEMENTS
 
 CENTRAL_PROJECT = "hushh-pda-dev"
 
@@ -288,7 +288,14 @@ def _service_parts(
     return metadata, labels, template_spec, container if isinstance(container, dict) else {}
 
 
-def _service_matches(service: Any, *, row: dict[str, Any] | None, expected: dict[str, Any]) -> bool:
+def _service_matches(
+    service: Any,
+    *,
+    row: dict[str, Any] | None,
+    expected: dict[str, Any],
+    allow_completed_successor: bool = False,
+    owner_generation: int | None = None,
+) -> bool:
     if not isinstance(service, dict) or not isinstance(row, dict):
         return False
     metadata, labels, template_spec, container = _service_parts(service)
@@ -298,7 +305,7 @@ def _service_matches(service: Any, *, row: dict[str, Any] | None, expected: dict
     expected_name = _retained_service_name(row, expected)
     image = container.get("image")
     runtime = template_spec.get("serviceAccountName")
-    return bool(
+    retained_identity = bool(
         metadata.get("name") == expected_name
         and metadata.get("namespace") == expected["projectNumber"]
         and metadata.get("uid") == expected["serviceUid"]
@@ -306,17 +313,287 @@ def _service_matches(service: Any, *, row: dict[str, Any] | None, expected: dict
         and labels.get("hussh-tenancy") == "hussh-hosted"
         and labels.get("hussh-provision-attempt") == expected["attemptId"]
         and runtime == expected["runtimePrincipal"]
-        and image
-        == (
-            f"{REGION}-docker.pkg.dev/{expected['projectId']}/one-pod/"
-            "consent-protocol-pod@sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1"
-        )
         and attempt.get("attemptId") == expected["attemptId"]
+        and attempt.get("ownerId") == row.get("user_id")
+        and row.get("hushh_id") == expected["hushhId"]
+        and row.get("placement_epoch") == expected["placementEpoch"]
+        and row.get("deployment_target") == "gcp"
+        and row.get("backend") == "gcp"
         and identity.get("projectId") == expected["projectId"]
         and identity.get("projectNumber") == expected["projectNumber"]
         and metadata_row.get("project") == expected["projectId"]
         and metadata_row.get("runtime_service_account") == expected["runtimePrincipal"]
         and metadata_row.get("serviceUid", expected["serviceUid"]) == expected["serviceUid"]
+    )
+    if not retained_identity:
+        return False
+    if image == _original_image(expected):
+        return True
+    return bool(
+        allow_completed_successor
+        and owner_generation == 0
+        and _completed_successor_matches(service, row, expected)
+    )
+
+
+def _original_image(expected: dict[str, Any]) -> str:
+    return (
+        f"{REGION}-docker.pkg.dev/{expected['projectId']}/one-pod/"
+        f"consent-protocol-pod@{IMAGE_DIGEST}"
+    )
+
+
+def _initial_image(row: dict[str, Any], expected: dict[str, Any]) -> str | None:
+    attempt = _attempt(row)
+    acknowledgement = (
+        attempt.get("evidence", {}).get("host_requested", {}).get("creationAcknowledgement")
+    )
+    admission = attempt.get("hostedAdmission") or {}
+    image = acknowledgement.get("initialImage") if isinstance(acknowledgement, dict) else None
+    from hushh_mcp.services.pod_release import image_digest
+
+    if (
+        not isinstance(image, str)
+        or image != _original_image(expected)
+        or image_digest(image) != image_digest(admission.get("imageDigest"))
+    ):
+        return None
+    return image
+
+
+def _completed_successor_matches(
+    service: dict[str, Any],
+    row: dict[str, Any],
+    expected: dict[str, Any],
+) -> bool:
+    """Require the complete owner-approved and provider-observed update receipt."""
+    if _initial_image(row, expected) is None:
+        return False
+    try:
+        return _validate_completed_successor(service, row, expected)
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError):
+        return False
+
+
+def _validate_completed_successor(
+    service: dict[str, Any], row: dict[str, Any], expected: dict[str, Any]
+) -> bool:
+    from hushh_mcp.services.hosted_gcp_placement import hosted_deployment_observation
+    from hushh_mcp.services.personal_agent_upgrade_policy import upgrade_approval_matches
+    from hushh_mcp.services.pod_release import image_digest, validate_release
+
+    metadata = row.get("backend_metadata") or {}
+    approval = metadata.get("upgradeApproval")
+    acknowledgement = metadata.get("upgradeAcknowledgement")
+    if not isinstance(approval, dict) or not isinstance(acknowledgement, dict):
+        return False
+    if approval.get("browserPlan") is not None or approval.get("browserPlanDigest") is not None:
+        return False
+    target = approval.get("targetImage")
+    deployed = acknowledgement.get("deployedImage")
+    source = acknowledgement.get("sourceImage")
+    target_digest = image_digest(target)
+    service_name = _retained_service_name(row, expected)
+    if (
+        approval.get("status") != "succeeded"
+        or approval.get("operationState") != "succeeded"
+        or approval.get("presentationPhase") != "verified"
+        or not approval.get("providerAcknowledgedAt")
+        or not isinstance(target, str)
+        or not isinstance(source, str)
+        or not isinstance(deployed, str)
+        or target_digest is None
+        or image_digest(source) != target_digest
+        or image_digest(deployed) != target_digest
+        or image_digest(metadata.get("image")) != target_digest
+        or image_digest(metadata.get("source_image")) != target_digest
+        or metadata.get("image_digest") != target_digest
+        or acknowledgement.get("version") != 1
+        or acknowledgement.get("outcome") != "ready"
+        or acknowledgement.get("operationId") != approval.get("operationId")
+        or acknowledgement.get("releaseId") != approval.get("releaseId")
+        or acknowledgement.get("podIncarnation") != expected["serviceUid"]
+        or acknowledgement.get("service") != service_name
+        or acknowledgement.get("serviceUid") != expected["serviceUid"]
+        or acknowledgement.get("attemptId") is None
+        or not isinstance(acknowledgement.get("attemptId"), str)
+        or re.fullmatch(r"[a-f0-9]{64}", acknowledgement.get("attemptId")) is None
+        or acknowledgement.get("targetImage") != target
+        or acknowledgement.get("sourceImage") != source
+        or acknowledgement.get("deployedImage") != deployed
+        or acknowledgement.get("image") != deployed
+        or acknowledgement.get("targetDigest") != target_digest
+        or acknowledgement.get("sourceDigest") != target_digest
+        or metadata.get("upgradeLease") is not None
+        or deployed
+        != (
+            f"{REGION}-docker.pkg.dev/{expected['projectId']}/one-pod/"
+            f"consent-protocol-pod@{target_digest}"
+        )
+    ):
+        return False
+
+    release = approval.get("releaseMetadata")
+    try:
+        validated_release = validate_release(release, target_image=target, environment="dev")
+    except (TypeError, ValueError):
+        return False
+    if metadata.get("installedRelease") != validated_release:
+        return False
+    approved = {**approval, "status": "approved"}
+    if not upgrade_approval_matches(
+        {**row, "backend_metadata": {**metadata, "upgradeApproval": approved}}, target
+    ):
+        return False
+
+    generation = acknowledgement.get("generation")
+    attempt_nonce = acknowledgement.get("attemptId")
+    native_metadata = service.get("metadata") or {}
+    native_status = service.get("status") or {}
+    template = (service.get("spec") or {}).get("template") or {}
+    template_metadata = template.get("metadata") or {}
+    annotations = template_metadata.get("annotations") or {}
+    conditions = native_status.get("conditions") or []
+    ready = [item for item in conditions if isinstance(item, dict) and item.get("type") == "Ready"]
+    revision = native_status.get("latestReadyRevisionName")
+    if (
+        type(generation) is not int
+        or generation < 1
+        or type(native_metadata.get("generation")) is not int
+        or native_metadata.get("generation") != generation
+        or native_status.get("observedGeneration") != generation
+        or annotations.get("hussh/restart-nonce") != attempt_nonce
+        or not isinstance(revision, str)
+        or not revision
+        or native_status.get("latestCreatedRevisionName") != revision
+        or len(ready) != 1
+        or ready[0].get("status") != "True"
+    ):
+        return False
+
+    try:
+        hosted_deployment_observation(row, service)
+    except (KeyError, TypeError, ValueError):
+        return False
+    plan_raw = approval.get("capabilityPlan")
+    plan_digest = approval.get("capabilityPlanDigest")
+    if plan_raw is None and plan_digest is None:
+        return True
+    from hushh_mcp.services.pod_files.capability_checkpoint import FilesUpgradeCheckpoint
+    from hushh_mcp.services.pod_files.capability_contract import decode_plan
+
+    try:
+        plan = decode_plan(plan_raw)
+        plan.require_owner(row, target)
+        plan.require_installed(service, hosted=True)
+        checkpoint = metadata.get("filesUpgradeCheckpoint")
+        if not isinstance(checkpoint, dict) or plan.digest != plan_digest:
+            return False
+        checkpoint_validator = FilesUpgradeCheckpoint(
+            plan=plan,
+            operation_id=approval["operationId"],
+            attempt_id=acknowledgement["attemptId"],
+            original_inventory=metadata.get("substrateReceipt") or {},
+            previous=checkpoint,
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+    witness = metadata.get("hostedFilesExecutor")
+    intent = witness.get("replacementIntent") if isinstance(witness, dict) else None
+    settlement = witness.get("providerSettlement") if isinstance(witness, dict) else None
+    if (
+        not checkpoint_validator.complete
+        or checkpoint.get("planDigest") != plan_digest
+        or checkpoint.get("operationId") != approval.get("operationId")
+        or checkpoint.get("attemptId") != acknowledgement.get("attemptId")
+        or metadata.get("filesCapability") != {"planDigest": plan.digest, "status": "enabled"}
+        or not isinstance(witness, dict)
+        or witness.get("version") != 1
+        or witness.get("ownerId") != row.get("user_id")
+        or witness.get("hushhId") != row.get("hushh_id")
+        or not isinstance(witness.get("executionId"), str)
+        or not witness.get("executionId")
+        or not isinstance(witness.get("lease"), str)
+        or not witness.get("lease")
+        or witness.get("operationId") != approval.get("operationId")
+        or witness.get("releaseId") != approval.get("releaseId")
+        or witness.get("planDigest") != plan.digest
+        or witness.get("plan") != plan.model_dump()
+        or witness.get("incarnation") != expected["serviceUid"]
+        or witness.get("targetImage") != target
+        or witness.get("sourceImage") != target
+        or witness.get("sourceDigest") != target_digest
+        or witness.get("deployedImage") != deployed
+        or witness.get("phase") != "exited"
+        or type(witness.get("backendPid")) is not int
+        or witness.get("backendPid") <= 0
+        or not isinstance(witness.get("backendStart"), str)
+        or not witness.get("backendStart")
+        or not isinstance(witness.get("startedAt"), str)
+        or not isinstance(witness.get("exitedAt"), str)
+        or not isinstance(intent, dict)
+        or not isinstance(settlement, dict)
+    ):
+        return False
+    attempt_id = acknowledgement.get("attemptId")
+    lease = witness.get("lease")
+    if not isinstance(lease, str) or hashlib.sha256(lease.encode()).hexdigest() != attempt_id:
+        return False
+    intent_identity = {
+        "executionId": witness.get("executionId"),
+        "lease": witness.get("lease"),
+        "operationId": approval.get("operationId"),
+        "attemptId": attempt_id,
+        "targetImage": target,
+        "sourceImage": target,
+        "sourceDigest": target_digest,
+        "deployedImage": deployed,
+        "incarnation": expected["serviceUid"],
+    }
+    settlement_identity = {
+        **intent_identity,
+        "releaseId": approval.get("releaseId"),
+        "planDigest": plan.digest,
+        "targetDigest": target_digest,
+        "image": deployed,
+        "service": plan.service,
+        "serviceUid": expected["serviceUid"],
+    }
+    predecessor = intent.get("predecessor")
+    predecessor_image = predecessor.get("image") if isinstance(predecessor, dict) else None
+    predecessor_digest = image_digest(predecessor_image)
+    approved_predecessor_digests = validated_release["descriptor"]["supportedUpgradeDigests"]
+    predecessor_valid = bool(
+        isinstance(predecessor, dict)
+        and predecessor.get("version") == 1
+        and predecessor.get("service") == service_name
+        and predecessor.get("serviceUid") == expected["serviceUid"]
+        and type(predecessor.get("generation")) is int
+        and predecessor.get("generation") >= 1
+        and predecessor.get("generation") < generation
+        and isinstance(predecessor.get("resourceVersion"), str)
+        and predecessor.get("resourceVersion")
+        and isinstance(predecessor.get("revision"), str)
+        and predecessor.get("revision").startswith(service_name + "-")
+        and (predecessor_image == target or predecessor_digest in approved_predecessor_digests)
+        and predecessor_image
+        == (
+            f"{REGION}-docker.pkg.dev/{expected['projectId']}/one-pod/"
+            f"consent-protocol-pod@{predecessor_digest}"
+        )
+    )
+    return bool(
+        predecessor_valid
+        and all(intent.get(key) == value for key, value in intent_identity.items())
+        and all(settlement.get(key) == value for key, value in settlement_identity.items())
+        and settlement.get("outcome") == "ready"
+        and settlement.get("ready") is True
+        and type(settlement.get("generation")) is int
+        and settlement.get("observedGeneration") == settlement.get("generation")
+        and settlement.get("revision") == revision
+        and settlement.get("predecessor") == intent.get("predecessor")
+        and acknowledgement.get("generation") == settlement.get("generation")
+        and acknowledgement.get("predecessor") == intent.get("predecessor")
     )
 
 
@@ -341,6 +618,20 @@ def _service_summary(candidate: dict[str, Any]) -> dict[str, Any]:
         },
         "runtimePrincipal": template_spec.get("serviceAccountName"),
         "image": container.get("image"),
+        "generation": (service.get("metadata") or {}).get("generation"),
+        "resourceVersion": (service.get("metadata") or {}).get("resourceVersion"),
+        "restartNonce": (
+            ((service.get("spec") or {}).get("template") or {})
+            .get("metadata", {})
+            .get("annotations", {})
+            .get("hussh/restart-nonce")
+        ),
+        "observedGeneration": (service.get("status") or {}).get("observedGeneration"),
+        "readyRevision": (service.get("status") or {}).get("latestReadyRevisionName"),
+        "ready": any(
+            isinstance(item, dict) and item.get("type") == "Ready" and item.get("status") == "True"
+            for item in ((service.get("status") or {}).get("conditions") or [])
+        ),
     }
 
 
@@ -371,6 +662,19 @@ def _registry_evidence(row: dict[str, Any] | None) -> dict[str, Any]:
     admission = attempt.get("hostedAdmission") or {}
     assignment = admission.get("assignment") or {}
     erasure = (row.get("backend_metadata") or {}).get("erasure") or {}
+    metadata = authority.get("backend_metadata") or {}
+    upgrade_receipts = {
+        key: metadata.get(key)
+        for key in (
+            "upgradeApproval",
+            "upgradeAcknowledgement",
+            "installedRelease",
+            "filesUpgradeCheckpoint",
+            "hostedFilesExecutor",
+            "filesCapability",
+        )
+        if key in metadata
+    }
     return {
         "ownerHash": _owner_hash(str(row.get("user_id") or "")),
         "hushhId": row.get("hushh_id"),
@@ -387,6 +691,7 @@ def _registry_evidence(row: dict[str, Any] | None) -> dict[str, Any]:
         ),
         "attemptId": attempt.get("attemptId"),
         "attemptPhase": attempt.get("phase"),
+        "upgradeReceiptsSha256": _digest(upgrade_receipts) if upgrade_receipts else None,
         "admission": {
             "environment": admission.get("environment"),
             "sourceRevision": admission.get("sourceRevision"),
