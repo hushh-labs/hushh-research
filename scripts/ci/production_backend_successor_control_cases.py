@@ -1104,6 +1104,7 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
         published_oid = "f" * 40
         published_ref = ""
         calls = []
+        config_writes = []
 
         def git(args, *, content=None):
             nonlocal published_ref
@@ -1115,6 +1116,9 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
                 return f"{published_oid}\t{ref}\n" if ref == published_ref else ""
             if args[:2] == ["config", "user.email"] or args[:2] == ["config", "user.name"]:
                 return "release@example.test\n"
+            if args[0] == "config":
+                config_writes.append(args)
+                return ""
             if args[:2] == ["rev-parse", "refs/tags"]:
                 return published_oid
             if args[0] == "rev-parse":
@@ -1150,10 +1154,125 @@ class OperationalBackendControlCases(OperationalBackendActivationCases):
         self.assertEqual(result["preserved_operational_tag_oid"], expected_latest)
         self.assertEqual(result["operational_ref_readback_oid"], expected_latest)
         self.assertEqual(written["auth_domain_tag_publication"], result)
+        self.assertEqual(config_writes, [])
         pushes = [args for args, _ in calls if args[0] == "push"]
         self.assertEqual(len(pushes), 1)
         self.assertEqual(pushes[0][1], "origin")
         self.assertTrue(pushes[0][2].startswith("refs/tags/deployed/production/"))
+
+    def test_auth_tag_publication_defaults_only_missing_git_identity(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        opref, current, anchor = _auth_operational_reference(refresh, anchored=True)
+        authority = {
+            "frontend_auth_domain_refresh": True,
+            "application_sha": refresh.CANDIDATE,
+            "run_id": "701",
+            "run_attempt": "2",
+            "workflow_sha": "1" * 40,
+        }
+        status = {
+            "status": "healthy",
+            "scope": "frontend",
+            "sha": refresh.CANDIDATE,
+            "predecessor_exception": {
+                "scope": "frontend",
+                "ordinary_promotion_evidence": False,
+                "authority": authority,
+                "backend_acceptance_origin": {"operational_reference": opref},
+            },
+        }
+        expected_latest = current["tag_oid"]
+        published_oid = "f" * 40
+
+        for mode in ("missing", "error"):
+            with self.subTest(mode=mode):
+                published_ref = ""
+                calls = []
+                config_writes = []
+
+                def git(args, *, content=None):
+                    nonlocal published_ref
+                    calls.append(args)
+                    if args[:3] == ["ls-remote", "--refs", "origin"]:
+                        ref = args[3]
+                        if ref == reference.REF:
+                            return f"{expected_latest}\t{ref}\n"
+                        return f"{published_oid}\t{ref}\n" if ref == published_ref else ""
+                    if len(args) == 2 and args[:2] in (
+                        ["config", "user.email"],
+                        ["config", "user.name"],
+                    ):
+                        if mode == "missing":
+                            raise subprocess.CalledProcessError(
+                                1, args, output="", stderr=""
+                            )
+                        raise subprocess.CalledProcessError(
+                            1, args, output="", stderr="fatal: invalid Git config"
+                        )
+                    if args[0] == "config":
+                        config_writes.append(args)
+                        return ""
+                    if args[0] == "rev-parse":
+                        return published_oid
+                    if args[0] == "push":
+                        published_ref = args[2]
+                        return ""
+                    return ""
+
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "prod-release-status.json"
+                    path.write_text(json.dumps(status))
+                    with (
+                        mock.patch.object(proof, "read_original", return_value=current),
+                        mock.patch.object(control, "record_anchor", return_value=anchor),
+                        mock.patch.object(
+                            control, "_auth_domain_frontend_exception", return_value=True
+                        ),
+                        mock.patch.dict(
+                            "os.environ",
+                            {
+                                "GITHUB_RUN_ID": "701",
+                                "GITHUB_RUN_ATTEMPT": "2",
+                                "GITHUB_SHA": "1" * 40,
+                                "RUN_URL": "https://github.com/hushh-labs/hushh-research/actions/runs/701",
+                                "ACTOR": "operator",
+                            },
+                            clear=False,
+                        ),
+                    ):
+                        if mode == "missing":
+                            result = control.publish_auth_domain_tag(
+                                path, refresh.CANDIDATE, run=git
+                            )
+                            self.assertEqual(result["status"], "published")
+                            self.assertEqual(
+                                config_writes,
+                                [
+                                    [
+                                        "config",
+                                        "user.email",
+                                        "41898282+github-actions[bot]@users.noreply.github.com",
+                                    ],
+                                    ["config", "user.name", "github-actions[bot]"],
+                                ],
+                            )
+                            self.assertEqual(
+                                len([args for args in calls if args[0] == "push"]), 1
+                            )
+                        else:
+                            with self.assertRaisesRegex(ValueError, "unconfirmed"):
+                                control.publish_auth_domain_tag(
+                                    path, refresh.CANDIDATE, run=git
+                                )
+                            written = json.loads(path.read_text())
+                            self.assertEqual(
+                                written["auth_domain_tag_publication"]["status"],
+                                "refused",
+                            )
+                            self.assertEqual(config_writes, [])
+                            self.assertFalse(
+                                any(args[0] in {"tag", "push"} for args in calls)
+                            )
 
     def test_auth_tag_publication_refuses_a_moved_operational_reference(self):
         refresh = importlib.import_module("production_auth_domain_refresh")
