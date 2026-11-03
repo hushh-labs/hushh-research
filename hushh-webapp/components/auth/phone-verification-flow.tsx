@@ -193,7 +193,7 @@ export function usePhoneVerificationFlow({
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
-  const deletionGuard = useMemo(() => ({ pending: false }), [visit]);
+  const deletionGuard = useMemo(() => ({ pending: false, visit }), [visit]);
   const deletionCurrent = useCallback(
     () => current() && allowedOperation.current?.() !== false && visit.entryRevision === entryRevision,
     [current, visit, entryRevision],
@@ -274,11 +274,12 @@ export function usePhoneVerificationFlow({
     onStepChange?.(step);
   }, [onStepChange, step]);
 
+  const { leave: leaveDeletionReview } = deletion;
   const returnToPhoneNumber = useCallback(() => {
     if (!current()) return true;
     if (phoneFlowInFlightRef.current) return true;
     if (conflict === "delete") {
-      if (deletion.leave()) { setConflict("choices"); setOperationError(null); }
+      if (leaveDeletionReview()) { setConflict("choices"); setOperationError(null); }
       return true;
     }
     advanceEntryRevision();
@@ -288,7 +289,7 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, deletion.leave]);
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, leaveDeletionReview]);
 
   useEffect(() => {
     onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
