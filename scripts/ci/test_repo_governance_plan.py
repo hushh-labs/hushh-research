@@ -54,6 +54,8 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
         "scripts/ci/integration-check.sh",
+        "scripts/ci/account-deletion-check.sh",
+        "scripts/ci/backend-check.sh",
         "scripts/ci/validation-results.sh",
         "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
