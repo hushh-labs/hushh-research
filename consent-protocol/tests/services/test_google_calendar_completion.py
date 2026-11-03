@@ -187,3 +187,59 @@ async def test_add_attempt_selecting_primary_identifies_the_reauthorized_default
     assert result["accounts"][0]["access_level"] == "manage"
     assert any("INSERT INTO google_provider_connections" in sql for sql, _ in db.calls)
     assert not any("INSERT INTO google_calendar_additional_accounts" in sql for sql, _ in db.calls)
+
+
+_MAIL_READ = "https://www.googleapis.com/auth/gmail.readonly"
+_MAIL_SEND = "https://www.googleapis.com/auth/gmail.send"
+
+
+async def _store_additional(monkeypatch, *, requested_mail: bool, returned: tuple[str, ...]):
+    db = _CompletionDb({"status": "connected", "provider_subject": "google-a"})
+    service = _service(monkeypatch, db, "google-b")
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_connection_service.secrets.token_urlsafe",
+        lambda _: "server-selected-account",
+    )
+    service.calendar_accounts_status = AsyncMock(
+        return_value=_calendar_status("server-selected-account", default_level="read")
+    )
+    calendar = service.scopes("calendar", "manage")
+    result = await service._store_additional_calendar_account(
+        user_id="owner",
+        token={
+            "access_token": "synthetic-access",
+            "refresh_token": "synthetic-refresh",
+            "scope": " ".join((*calendar, *returned)),
+        },
+        profile={"email": "second@example.com"},
+        subject="google-b",
+        requested_scopes=(*calendar, *((_MAIL_READ, _MAIL_SEND) if requested_mail else ())),
+        oauth_started_at=datetime(2026, 10, 21, tzinfo=UTC),
+        attempt_id="synthetic-attempt",
+    )
+    enabled = any("SET gmail_read_enabled = TRUE" in sql for sql, _ in db.calls)
+    return result, enabled
+
+
+@pytest.mark.asyncio
+async def test_additional_account_records_mail_read_when_google_returned_it(monkeypatch):
+    result, enabled = await _store_additional(
+        monkeypatch, requested_mail=True, returned=(_MAIL_READ, _MAIL_SEND)
+    )
+    assert enabled and result["mail_access"] == "granted"
+
+
+@pytest.mark.asyncio
+async def test_declined_mail_still_connects_the_account_without_enabling_mail(monkeypatch):
+    result, enabled = await _store_additional(monkeypatch, requested_mail=True, returned=())
+    assert result["completed_account_id"] == "server-selected-account"
+    assert not enabled and result["mail_access"] == "declined"
+
+
+@pytest.mark.asyncio
+async def test_mail_scope_alone_never_enables_mail_when_the_attempt_did_not_ask(monkeypatch):
+    # An older credential can carry Gmail scope; only this attempt's own request enables it.
+    result, enabled = await _store_additional(
+        monkeypatch, requested_mail=False, returned=(_MAIL_READ,)
+    )
+    assert not enabled and result["mail_access"] == "not_requested"
