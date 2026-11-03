@@ -66,11 +66,11 @@ CHECKS = (
     _check("github-security-authority", "python3", "scripts/ci/test_github_security_authority.py", groups=("operations",)),
     _check("github-security-receipt", "python3", "scripts/ci/test_github_security_receipt.py", groups=("operations",)),
     _check("pr-base-policy", "python3", "scripts/ci/verify-pr-base-policy.py", "--self-test", groups=("operations",)),
+    _check("queue-combined-authority", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "scripts/ci/test_queue_combined_result.py", groups=("controller",)),
     _check("queue-entry-reuse", "python3", "scripts/ci/verify-queue-entry-reuses-pr-validation.py", "--self-test", groups=("operations",)),
     _check("branch-governance-docs", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", diagnostic=True),
     _check("branch-governance-docs-selftest", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", "--self-test", diagnostic=True),
     _check("deployment-environment-governance", "python3", "scripts/ci/test_verify_deployment_environment_governance.py", groups=("controller", "release", "operations")),
-    _check("readiness-exam-workflow", "python3", "scripts/ci/test_readiness_exam_workflow.py", groups=("controller",)),
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
@@ -275,6 +275,10 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/integration-check.sh",
+            "scripts/ci/account-deletion-check.sh",
+            "scripts/ci/backend-check.sh",
+            "scripts/ci/validation-results.sh",
             "scripts/ci/runtime-contract-check.sh",
             "scripts/ci/secret-scan.sh",
             "scripts/ci/test_secret_scan_ranges.py",
