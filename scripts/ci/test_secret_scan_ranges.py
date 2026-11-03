@@ -281,7 +281,7 @@ def verify_source_aware_allowlists_keep_detection():
 
 
 def verify_alert_reader_is_required() -> None:
-    """A packaging/mode regression must not omit the required security authority."""
+    """Source scans need no alert credentials; explicit operator audits fail closed."""
     with tempfile.TemporaryDirectory(prefix="required-alert-reader-") as temporary:
         root = Path(temporary)
         git(root, "init", "-q", "-b", "main")
@@ -292,52 +292,56 @@ def verify_alert_reader_is_required() -> None:
         (root / ".gitleaks.toml").write_bytes((ROOT / ".gitleaks.toml").read_bytes())
         ci = root / "scripts/ci"
         ci.mkdir(parents=True)
-        (ci / "secret-scan.sh").write_bytes(
-            (ROOT / "scripts/ci/secret-scan.sh").read_bytes()
-        )
-        # Other scanner contracts have their own real regression cases above.
-        (ci / "test_secret_scan_ranges.py").write_text(
-            "# range checks are outside this packaging fixture\n"
-        )
+        (ci / "secret-scan.sh").write_bytes((ROOT / "scripts/ci/secret-scan.sh").read_bytes())
+        (ci / "test_secret_scan_ranges.py").write_text("# Other range cases run outside this fixture.\n")
         commands = root / "fixture-bin"
         commands.mkdir()
-        stub = commands / "gitleaks"
-        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8", newline="\n")
-        stub.chmod(0o700)
+        activity, calls = root / "activity", root / "scanner-calls"
+        for name, body in {
+            "gitleaks": 'echo "$1" >> "$SCANNER_CALL_LOG"; case "$1" in git) exit "${GIT_EXIT:-0}" ;; dir) exit "${BODY_EXIT:-0}" ;; esac',
+            "gh": 'echo unexpected-gh >> "$ACTIVITY_LOG"; exit 97',
+        }.items():
+            executable = commands / name
+            executable.write_text("#!/bin/sh\n" + body + "\n", newline="\n")
+            executable.chmod(0o700)
+        event = root / "event.json"
+        event.write_text(json.dumps({"pull_request": {"body": "Synthetic public body"}}))
+        flags = ("REQUIRE_GITHUB_ALERTS_CLEAN", "REQUIRE_GITHUB_SECRET_ALERTS_CLEAN",
+                 "REQUIRE_GITHUB_DEPENDABOT_ALERTS_CLEAN")
+        cases = [("false", "", state, 97, 0, 0, 0) for state in ("present", "missing", "not_executable")]
+        cases += [("true", "", "missing", 0, 0, 0, 0),
+                  ("false", "", "missing", 0, 1, 0, 1),
+                  ("false", "", "missing", 0, 0, 1, 1)]
+        cases += [("false", flag, state, 0, 0, 0, 0 if state == "present" else 1)
+                  for flag in flags for state in ("present", "missing", "not_executable")]
+        cases += [("false", flag, "present", 1, 0, 0, 1) for flag in flags]
         reader = ci / "github-security-alerts.sh"
-        for hosted in ("false", "true"):
-            for state in ("present", "missing", "not_executable"):
-                if state != "missing":
-                    # Git Bash infers executable scripts from a shebang even when
-                    # Windows ignores chmod's POSIX execute bits. Use a plain file
-                    # for this case so both filesystems exercise a real refusal.
-                    content = ("#!/bin/sh\n" if state == "present" else "") + "exit 0\n"
-                    reader.write_text(content, encoding="utf-8", newline="\n")
-                    reader.chmod(0o700 if state == "present" else 0o600)
-                elif reader.exists():
-                    reader.unlink()
-                environment = {
-                    **os.environ,
-                    "PATH": str(commands) + os.pathsep + os.environ["PATH"],
-                    "SKIP_SECRET_SCAN": "0",
-                    "GITLEAKS_LOG_OPTS": "HEAD",
-                    "GITLEAKS_DEFAULT_BRANCH": "main",
-                    "GITHUB_EVENT_NAME": "local",
-                    "GITHUB_ACTIONS": hosted,
-                    "SECRET_SCAN_PR_NUMBER": "",
-                }
-                result = subprocess.run(
-                    ["/bin/bash", str(ci / "secret-scan.sh")],
-                    cwd=root,
-                    env=environment,
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                if (result.returncode == 0) != (state == "present" or hosted == "true"):
-                    raise AssertionError(
-                        f"required alert reader {state}, hosted={hosted}: unexpected scanner clearance"
-                    )
+        for hosted, flag, state, reader_exit, git_exit, body_exit, expected in cases:
+            if reader.exists():
+                reader.unlink()
+            for log in (activity, calls):
+                log.unlink(missing_ok=True)
+            if state != "missing":
+                prefix = "#!/bin/sh\n" if state == "present" else ""
+                reader.write_text(prefix + f'echo reader >> "$ACTIVITY_LOG"; exit {reader_exit}\n', newline="\n")
+                reader.chmod(0o700 if state == "present" else 0o600)
+            environment = {**os.environ, **{name: "0" for name in flags},
+                "PATH": str(commands) + os.pathsep + os.environ["PATH"],
+                "SKIP_SECRET_SCAN": "0", "GITLEAKS_LOG_OPTS": "HEAD",
+                "GITLEAKS_DEFAULT_BRANCH": "main", "GITHUB_ACTIONS": hosted,
+                "GITHUB_EVENT_NAME": "pull_request" if body_exit else "local",
+                "GITHUB_EVENT_PATH": str(event), "SECRET_SCAN_PR_NUMBER": "",
+                "SCANNER_CALL_LOG": str(calls), "ACTIVITY_LOG": str(activity),
+                "GIT_EXIT": str(git_exit), "BODY_EXIT": str(body_exit)}
+            if flag:
+                environment[flag] = "1"
+            result = subprocess.run(["/bin/bash", str(ci / "secret-scan.sh")], cwd=root,
+                env=environment, capture_output=True, text=True, timeout=10)
+            assert (result.returncode == 0) == (expected == 0), (hosted, flag, state, git_exit, body_exit)
+            assert calls.read_text().splitlines() == (["git", "dir"] if body_exit else ["git"])
+            activity_rows = activity.read_text().splitlines() if activity.exists() else []
+            assert "unexpected-gh" not in activity_rows
+            assert bool(activity_rows) == bool(flag and hosted == "false" and state == "present")
 
 
 def verify_local_alert_policy() -> None:

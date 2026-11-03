@@ -21,12 +21,7 @@
 .dateBlock > small { font-size: var(--profile-type-description-size, 11px); line-height: var(--profile-type-description-line, 17px); color: var(--app-secondary-label); }
 .organizer, .person { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); }
 .organizer .muted { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); }
-.avatar { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; color: var(--app-accent); background: var(--app-accent-surface); font-size: 15px; font-weight: 500; }
-.avatar[data-tone="0"] { color: #fff; background: #7564ed; }
-.avatar[data-tone="1"] { color: var(--app-accent); background: var(--app-accent-surface); }
-.avatar[data-tone="2"] { color: var(--app-success-deep); background: color-mix(in oklab, var(--app-success) 12%, var(--app-card-surface-default-solid)); }
-.avatar[data-tone="3"] { color: var(--app-secondary-label); background: var(--app-neutral-fill); }
-.avatarFallback { background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
+.avatar { flex-shrink: 0; }
 .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); margin-top: 6px; }
 .chevron { align-self: center; width: 16px; color: var(--app-secondary-label); }
 .response { align-self: flex-start; margin-top: 4px; font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-secondary-label); }
@@ -48,7 +43,6 @@
 .detailSection p { margin: 0; font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); }
 .detailSection p.muted { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; }
 .person { margin: 0; }
-.person .avatar { width: 38px; height: 38px; }
 .descriptionLabel { margin-top: 22px; }
 .description, .message { white-space: pre-wrap; overflow-wrap: anywhere; }
 .description { color: var(--app-secondary-label); }
@@ -56,6 +50,8 @@
 .attendees { display: flex; flex-wrap: wrap; align-items: start; gap: 16px; margin: 0; padding: 0; list-style: none; }
 .attendees > li { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 48px; max-width: 100px; text-align: center; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); overflow-wrap: anywhere; }
 .attendees small { color: var(--app-secondary-label); font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); }
+.attendees > li[data-declined="true"] { min-width: 9rem; max-width: 12rem; }
+.attendees .declineReason, .guestList .declineReason { display: block; max-width: 100%; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; }
 .guestList { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .detailSection .attendeeSummary { margin: -6px 0 16px; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); }
 .guestList > li { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); }
@@ -107,7 +103,6 @@
 .mailRecovery { display: grid; gap: 8px; font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, normal); }
 .actions .acceptAction { color: var(--app-success-deep) !important; border-color: var(--app-success-border) !important; }
 .actions .declineAction { color: var(--app-destructive) !important; border-color: var(--app-destructive) !important; }
-.organizer .avatar { width: 40px; height: 40px; }
 @media (max-width: 330px) { .timeFields { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 480px) { .review { min-width: 0; padding: 14px; } .review > div:last-child { min-width: 0; } }
 

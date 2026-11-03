@@ -287,6 +287,8 @@ for required_check in required_checks:
         errors.append(f"required status check missing: {required_check}")
 if approvals != expected_approvals:
     errors.append(f"required approvals drifted: expected {expected_approvals}, got {approvals}")
+if branch_policy.get("require_code_owner_reviews") and not data.get("required_pull_request_reviews", {}).get("require_code_owner_reviews"):
+    errors.append("required code-owner approval is not enabled")
 if require_last_push_approval and not last_push_approval:
     errors.append("latest-push approval requirement is not enabled")
 if require_strict and not strict_checks:

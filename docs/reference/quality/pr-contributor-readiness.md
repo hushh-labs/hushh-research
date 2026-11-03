@@ -27,6 +27,9 @@ Do this first:
    package export, generated contract, documented devex entrypoint, or
    canonical production-code test surface.
 5. Run the smallest production-code proof and paste the exact command.
+   State whether verification was focused, release or diagnostic, and identify
+   any deliberately local-only browser or native check that applies to the
+   changed contract. Do not describe a check that was not run as passed.
 6. For UI-visible behavior, provide the browser route, Playwright spec/command,
    screenshot, or video proof.
 7. For sensitive surfaces, state the trust boundary, error path, rollback or
@@ -64,8 +67,7 @@ consent-protocol virtual environment when present, otherwise set
 
 `scripts/ci/orchestrate.sh governance` runs every governance check even after
 one fails, then prints a summary of all failures and exits non-zero. Fix them
-together instead of pushing once per failure. A missing tool still stops the
-run at once.
+together instead of pushing once per failure.
 
 ## Review-Ready Standard
 

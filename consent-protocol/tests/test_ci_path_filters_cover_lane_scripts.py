@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from functools import cache
 from pathlib import Path
 
@@ -15,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 ORCHESTRATOR = "scripts/ci/orchestrate.sh"
 SCRIPTS_CI = "scripts/ci/"
-THIS_FILE = Path(__file__).resolve().relative_to(ROOT).as_posix()
 AUTH_HEALTH_SOURCE = "deploy/observability/auth_health_job.py"
 AUTH_HEALTH_TESTS = (
     "consent-protocol/tests/test_auth_health_deployment.py",
@@ -29,6 +29,7 @@ AUTH_HEALTH_TESTS = (
 AUTH_HEALTH_PATHS = frozenset(
     (
         AUTH_HEALTH_SOURCE,
+        "deploy/observability/auth_health_inventory.py",
         "deploy/observability/setup_auth_health.py",
         "deploy/observability/auth_health_uat_common.py",
         "deploy/observability/auth_health_uat_job_install.py",
@@ -41,19 +42,6 @@ AUTH_HEALTH_PATHS = frozenset(
 )
 WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
-# Code each side's lanes execute, beyond the scripts/ci closure. The native
-# shells are excluded from the web side: the web lanes read them as data, and
-# a release-lane script named in a plist comment is not a web-lane dependency.
-LANE_CODE_ROOTS = {
-    "frontend": ("hushh-webapp/", "deploy/mail-api/"),
-    "backend": ("consent-protocol/", "packages/hushh-mcp/"),
-}
-LANE_CODE_EXCLUDED = (
-    "hushh-webapp/ios/",
-    "hushh-webapp/android/",
-    "consent-protocol/.github/",
-    "consent-protocol/docs/",
-)
 LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend)\s*==\s*'true'")
 STAGE_ARM_RE = re.compile(r"^    ([\w|-]+)\)\n(.*?)^      ;;", re.MULTILINE | re.DOTALL)
 ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
@@ -62,19 +50,25 @@ ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 EXPECTED_JOBS = {
     "web-core-check": {"frontend"},
     "web-targeted-check": {"frontend"},
+    "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
+    "document-webkit-check": {"frontend", "backend"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
+    "protocol-database-check-two": {"backend"},
     "mcp-package-check": {"backend"},
     "integration-check": {"frontend", "backend"},
 }
 
 # Actual shared runtime/image inputs used by the governed environment releases.
 # Application flags, policy and SQL already fall under consent-protocol/**.
-DELETION_RELEASE_INPUTS = (
+# Workflow-only changes use the focused controller owner below.
+DELETION_RELEASE_WORKFLOWS = (
     ".github/workflows/deploy-dev.yml",
     ".github/workflows/deploy-uat.yml",
     ".github/workflows/deploy-production.yml",
+)
+DELETION_RELEASE_INPUTS = (
     "deploy/drive/rollback_after_worker_failure.sh",
     "deploy/backend.cloudbuild.yaml",
     "deploy/backend-image.cloudbuild.yaml",
@@ -170,6 +164,25 @@ def _resolve_path_outputs(
     return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
 
+def _governance_plan(paths: tuple[str, ...]) -> dict:
+    env = {
+        **os.environ,
+        "CI_VALIDATION_LEVEL": "focused",
+        "CI_CHANGED_FILES": "\n".join(paths),
+    }
+    env.pop("CI_CHANGED_FILES_FILE", None)
+    result = subprocess.run(  # noqa: S603 - invokes the repository's fixed governance selector
+        [sys.executable, str(ROOT / "scripts/ci/repo_governance_plan.py"), "--plan"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode in (0, 2), result.stderr
+    return yaml.safe_load(result.stdout)
+
+
 @cache
 def _tracked_files() -> tuple[str, ...]:
     listing = subprocess.run(  # noqa: S603 - fixed argv, read-only
@@ -251,32 +264,6 @@ def _job_scripts(job: str) -> set[str]:
     return _closure(entry)
 
 
-def _uncovered_lane_scripts(filters: dict[str, _Filter]) -> list[str]:
-    problems: list[str] = []
-    for job, lanes in sorted(_lane_jobs().items()):
-        for script in sorted(_job_scripts(job)):
-            if not any(filters[lane].match_file(script) for lane in lanes):
-                problems.append(f"{job} runs {script}, which schedules none of {sorted(lanes)}")
-    return problems
-
-
-def _lane_code_references(lane: str) -> dict[str, set[str]]:
-    # git grep narrows thousands of tracked files to the few naming a script;
-    # the boundary-aware regex then decides what each of those actually names.
-    argv = ["git", "grep", "-l", "-z", "-I", "-F"]
-    for path in _scripts_ci_files():
-        argv += ["-e", Path(path).name]
-    argv += ["--", *LANE_CODE_ROOTS[lane], ":!*.md", f":!{THIS_FILE}"]
-    argv += [f":!{excluded}" for excluded in LANE_CODE_EXCLUDED]
-    completed = subprocess.run(argv, cwd=ROOT, check=False, capture_output=True)  # noqa: S603
-    assert completed.returncode in (0, 1), completed.stderr.decode("utf-8", "replace")
-    found: dict[str, set[str]] = {}
-    for path in filter(None, completed.stdout.decode("utf-8").split("\0")):
-        for script in _referenced_scripts(_read(path)):
-            found.setdefault(script, set()).add(path)
-    return found
-
-
 def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
     # Under the default 'some', a '!' pattern MATCHES every file it does not
     # name, which would schedule that lane for almost any change.
@@ -311,7 +298,10 @@ def test_auth_health_paths_are_exact_and_schedule_registered_tests(
         assert outputs["auth_health"] == "true", changed_paths
         assert outputs["non_auth_health"] == "false", changed_paths
         assert resolved["auth_health_only"] == "true", changed_paths
-        if changed_paths[0] in AUTH_HEALTH_TESTS:
+        if (
+            changed_paths[0] in AUTH_HEALTH_TESTS
+            and changed_paths[0] != "consent-protocol/tests/test_auth_health_inventory.py"
+        ):
             assert outputs["backend"] == "true", changed_paths
 
 
@@ -340,8 +330,11 @@ def test_auth_health_selection_falls_back_for_mixed_unknown_and_non_pr_paths(
     outputs, resolved = _auth_health_decision(unknown_code, tmp_path)
     assert outputs["auth_health"] == "false"
     assert outputs["non_auth_health"] == "true"
-    assert outputs["backend"] == "true"
+    assert outputs["backend"] == "false"
     assert resolved["auth_health_only"] == "false"
+    plan = _governance_plan(unknown_code)
+    assert "unrecognized scripts owner path" in plan["selection_error"]
+    assert set(plan["selected_groups"]) >= {"controller", "retention", "agent"}
 
     for event in ("push", "workflow_dispatch", "merge_group"):
         _, resolved = _auth_health_decision((AUTH_HEALTH_SOURCE,), tmp_path, event)
@@ -367,13 +360,35 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     )
     focused = next(step for step in steps if step.get("name") == "Run exact auth-health contracts")
     assert setup < steps.index(focused)
-    assert (
-        focused["if"]
-        == "github.event_name == 'pull_request' && needs.paths.outputs.auth_health_only == 'true'"
-    )
+    assert focused["if"] == "needs.paths.outputs.auth_health == 'true'"
     assert set(focused["run"].split()[4:]) == {
         path.removeprefix("consent-protocol/") for path in AUTH_HEALTH_TESTS
     }
+    assert jobs["paths"]["outputs"]["auth_health"] == "${{ steps.filter.outputs.auth_health }}"
+
+    # A CI edit must not hide the observer owner or select unrelated DB suites.
+    mixed_outputs, mixed = _auth_health_decision(
+        (
+            "deploy/observability/auth_health_inventory.py",
+            "consent-protocol/tests/test_auth_health_inventory.py",
+            ".github/workflows/ci.yml",
+        ),
+        tmp_path,
+    )
+    assert mixed["auth_health_only"] == "false"
+    assert mixed_outputs["auth_health"] == "true"
+    assert mixed_outputs["backend"] == "false"
+    auto_outputs, auto = _auth_health_decision(
+        ("deploy/observability/auth_health_inventory.py",), tmp_path, "workflow_dispatch"
+    )
+    assert auto_outputs["auth_health"] == "true"
+    assert auto["auth_health_only"] == "false"
+    schema_outputs, schema = _auth_health_decision(
+        ("consent-protocol/tests/test_auth_health_inventory.py", "consent-protocol/db/schema.sql"),
+        tmp_path,
+    )
+    assert schema_outputs["backend"] == "true"
+    assert schema["auth_health_only"] == "false"
 
     backend_output = jobs["preflight-gate"]["outputs"]["backend"]
     assert "needs.paths.outputs.auth_health_only == 'true'" in backend_output
@@ -399,11 +414,11 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
         "consent-protocol/docs/example.py",
         "consent-protocol/docs/schema.json",
         runtime,
-        "scripts/ci/protocol-check.sh",
-        ".github/workflows/ci.yml",
     ):
         assert backend.match_file(path), path
     assert any(backend.match_file(path) for path in (reference, runtime))
+    assert not backend.match_file("scripts/ci/protocol-check.sh")
+    assert not backend.match_file(".github/workflows/ci.yml")
 
 
 def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
@@ -422,10 +437,87 @@ def test_environment_only_deletion_inputs_schedule_the_required_backend_lane() -
     )
 
 
+def test_deploy_workflow_edits_select_controller_contract_without_backend_lane() -> None:
+    backend = _filters()["backend"]
+    for path in DELETION_RELEASE_WORKFLOWS:
+        assert not backend.match_file(path), path
+        plan = _governance_plan((path,))
+        assert plan["selection_error"] is None
+        assert plan["selected_groups"] == ["controller"]
+        selected = {row["id"] for row in plan["commands"]}
+        assert "account-deletion-release-workflow" in selected
+
+    promotion_plan = _governance_plan(("scripts/ci/promotion_approval.py",))
+    assert promotion_plan["selection_error"] is None
+    assert promotion_plan["selected_groups"] == ["controller"]
+    assert "account-deletion-release-workflow" in {row["id"] for row in promotion_plan["commands"]}
+
+
+def test_production_emergency_authority_test_is_controller_owned_not_backend() -> None:
+    path = "consent-protocol/tests/test_production_emergency.py"
+    backend = _filters()["backend"]
+    assert not backend.match_file(path)
+    assert backend.match_file("consent-protocol/tests/test_server_startup_guards.py")
+
+    manifest = (ROOT / "consent-protocol/scripts/test-ci.manifest.txt").read_text()
+    assert "tests/test_production_emergency.py" in manifest.splitlines()
+
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["controller"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["production-emergency-authority"] == [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        "consent-protocol",
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        path,
+    ]
+    assert "protocol-check" not in commands
+
+
+def test_document_delivery_ci_contract_paths_select_controller_owner_not_backend() -> None:
+    paths = (
+        "consent-protocol/tests/helpers/document_delivery_ci.py",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+    )
+    backend = _filters()["backend"]
+    manifest = (ROOT / "consent-protocol/scripts/test-ci.manifest.txt").read_text()
+    assert "tests/test_uat_deploy_parallelism.py" in manifest.splitlines()
+
+    for path in paths:
+        assert not backend.match_file(path), path
+        plan = _governance_plan((path,))
+        assert plan["selection_error"] is None
+        assert plan["selected_groups"] == ["controller"]
+        commands = {row["id"]: row["argv"] for row in plan["commands"]}
+        assert commands["uat-deploy-parallelism"] == [
+            "uv",
+            "run",
+            "--frozen",
+            "--project",
+            "consent-protocol",
+            "python",
+            "-m",
+            "pytest",
+            "-q",
+            "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        ]
+        assert "protocol-check" not in commands
+
+    # The actual browser behavior owner stays in the application backend lane.
+    assert backend.match_file("consent-protocol/tests/services/test_document_delivery_browser.py")
+
+
 def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() -> None:
     excluded = {
         "deploy/account-deletion/activate_release.py",
-        ".github/workflows/deploy-dev.yml",
+        "deploy/backend.cloudbuild.yaml",
         "scripts/ops/sync_backend_runtime_secrets.py",
     }
     patterns = _filter_patterns()
@@ -458,43 +550,27 @@ def test_lane_discovery_finds_every_path_filtered_lane() -> None:
     }
 
 
-def test_every_script_a_lane_runs_schedules_that_lane() -> None:
-    problems = _uncovered_lane_scripts(_filters())
-    assert not problems, "Grow the path filter, do not shrink this check:\n" + "\n".join(problems)
-    assert all(_filters()[lane].match_file(ORCHESTRATOR) for lane in ("frontend", "backend"))
-
-
-def test_every_script_the_lanes_own_code_names_schedules_that_lane() -> None:
+def test_ci_helpers_use_source_aware_governance_instead_of_broad_app_lanes() -> None:
     filters = _filters()
-    problems: list[str] = []
-    for lane in LANE_CODE_ROOTS:
-        for script, users in sorted(_lane_code_references(lane).items()):
-            if not filters[lane].match_file(script):
-                problems.append(f"{script} (named by {sorted(users)[:3]}) is not in {lane}")
-    assert not problems, "Grow the path filter, do not shrink this check:\n" + "\n".join(problems)
+    scripts = _scripts_ci_files()
+    assert scripts
+    assert not any(
+        filters[lane].match_file(path) for path in scripts for lane in ("frontend", "backend")
+    ), "CI-only helpers must not fan out into application lanes"
+
+    plan = _governance_plan(scripts)
+    if plan["selection_error"]:
+        # Any unclassified helper forces the full regression set; it cannot
+        # disappear just because it is no longer a frontend/backend trigger.
+        assert set(plan["selected_groups"]) >= {"controller", "retention", "agent"}
+    else:
+        assert set(plan["selected_groups"]) <= {"controller", "retention", "agent"}
 
 
-def test_no_scripts_ci_file_falls_through_every_filter() -> None:
-    filters = _filters()
-    unscheduled = [
-        path
-        for path in _scripts_ci_files()
-        if not (filters["frontend"].match_file(path) or filters["backend"].match_file(path))
-    ]
-    assert not unscheduled, f"scripts/ci files that schedule no lane: {unscheduled}"
-
-
-def test_the_checker_catches_a_filter_that_drops_a_lane_script() -> None:
-    # Negative control: remove the orchestrator from the web side and the
-    # integration lane's PKM gate from the backend side; both must be named.
-    patterns = _filter_patterns()
-    patterns["frontend"] = [p for p in patterns["frontend"] if p != ORCHESTRATOR]
-    patterns["backend"] = [*patterns["backend"], "!scripts/ci/pkm-upgrade-gate.sh"]
-    problems = "\n".join(_uncovered_lane_scripts(_filters(patterns)))
-    assert f"web-core-check runs {ORCHESTRATOR}" in problems
-    assert f"web-targeted-check runs {ORCHESTRATOR}" in problems
-    # integration runs on either side; excluding the gate from backend leaves
-    # frontend, which never had it, so it must be reported.
-    assert "integration-check runs scripts/ci/pkm-upgrade-gate.sh" in problems
-    # And the unmutated filters report nothing, so the above is the mutation.
-    assert not _uncovered_lane_scripts(_filters())
+def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
+    plan = _governance_plan(("scripts/ci/new-unowned-check.py",))
+    assert (
+        plan["selection_error"]
+        == "unrecognized scripts owner path: scripts/ci/new-unowned-check.py"
+    )
+    assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}

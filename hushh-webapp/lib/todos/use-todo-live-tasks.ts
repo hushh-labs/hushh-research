@@ -93,6 +93,7 @@ function projectTodoTasks(
   extra: TaskEvidence[],
 ): TodoItem[] {
     const saved = new Map(tasks.map((task) => [task.id, task]));
+    const reviewedSources = new Set(tasks.filter(task => task.type === "manual" && task.sourceId).map(task => task.sourceId));
     const live = new Map<string, TodoItem>();
     for (const item of actionables) {
       if (!item.todo) continue;
@@ -103,7 +104,7 @@ function projectTodoTasks(
       if (status !== "done" && status !== "deleted") live.set(task.id, task);
     }
     for (const item of extra) {
-      if (!item.pendingTitle) continue;
+      if (!item.pendingTitle || reviewedSources.has(item.key)) continue;
       const input = agentTodoInput(item.key, { source: item.capability === "finance" ? "kai" : item.capability, title: item.pendingTitle, href: item.href });
       if (!input) continue;
       const task = buildTodo(input);
@@ -154,6 +155,9 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
   const agentLoading = agentFeed.loading || agentFeed.progressLoading || kycLoading;
   const calendarReadLoading = enabled && (!calendar.loaded || calendar.loading || (calendar.connected && (!upcoming.loaded || upcoming.loading)));
   const calendarReadError = Boolean(calendar.error || upcoming.error);
+  const emailReadLoading = enabled && (gmail.loadingStatus || extra.loading);
+  const emailReadError = enabled && !emailReadLoading && Boolean(gmail.statusError || extra.error ||
+    extra.reads.some(read => read.coverage.capability === "gmail" && read.coverage.status === "unavailable"));
   const pending = useMemo(
     () => projectTodoTasks(tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence),
     [tasks, upcoming.events, agentFeed.actionables, pendingKyc, evidence],
@@ -174,8 +178,8 @@ export function useTodoLiveTasks({ userId, vaultOwnerToken, idTokenProvider, ena
   }
   return {
     pending: enabled ? pending : [], agentFeed, retryKyc, calendar, upcoming,
-    agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError,
+    agentLoadError, agentLoading: enabled && agentLoading, calendarReadLoading, calendarReadError, emailReadError, emailReadLoading,
     evidence: suggestionEvidence, coverage: allCoverage, sourceLoading: extra.loading || agentLoading || calendarReadLoading,
-    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable" || source.status === "incomplete"), refreshSources: extra.refresh,
+    sourceError: extra.error || allCoverage.some(source => source.status === "unavailable"), refreshSources: extra.refresh,
   };
 }

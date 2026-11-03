@@ -2482,6 +2482,30 @@
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.recover",
+      "from_revision": "0e067db9029f2723",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.recover",
+      "from_revision": "e29b1163bbf8a333",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.recover",
+      "from_revision": "22cf4ef00a31d756",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
     }
   ]
 }

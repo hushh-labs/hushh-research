@@ -1,24 +1,15 @@
 #!/usr/bin/env python3
-"""The split web lanes must still run everything the unsplit lanes ran.
+"""Check focused CI roles and preserve explicit local diagnostic commands.
 
-PR Validation runs two web lanes as matrices to shorten the critical path:
+Hosted CI has separate unsharded ``node`` and ``browser`` targeted jobs, one
+affected unit-contract job, and two database jobs for backend changes. The
+node/browser selector remains a disjoint partition of selected packs; unknown
+browser selection stays conservative. Safari layout and web performance remain
+developer-local diagnostics, while native lanes run for native surfaces.
 
-* ``Web Targeted Contracts`` as a ``node`` leg and four native Playwright
-  browser shards (``WEB_TARGETED_PART`` and ``PLAYWRIGHT_SHARD``), and
-* ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
-* 100 KB editor latency and History motion as a macOS browser job, outside Linux's
-  software-rendered WebKit layout pack, scheduled and required whenever the
-  ``editor`` path filter matches.
-
-A split is only safe while it is a partition: every matched pack runs in exactly
-one leg, the legs together run what a single ``all`` run does, every shard of
-the matrix is scheduled, and the contract verifiers run exactly once. This
-drives the real scripts with a stub ``npm`` that records what would have run,
-so the assertion is about the scripts' behaviour, not about their text.
-
-With web dependencies installed, ``--collect-browser-shards`` also uses native
-Playwright ``--list`` to prove that all four shards partition every browser command
-selected for this diff. It never starts a browser or runs test hooks.
+Historical Playwright shard collection and full-suite shard verification remain
+available only as explicit local diagnostics. ``--collect-browser-shards`` uses
+Playwright ``--list`` and never starts a browser or runs test hooks.
 """
 
 from __future__ import annotations
@@ -26,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import runpy
 import shlex
 import stat
 import subprocess
@@ -49,6 +41,7 @@ WORKFLOW = ROOT / ".github/workflows/ci.yml"
 TARGETED = ROOT / "scripts/ci/web-targeted-check.sh"
 FULL_SUITE = ROOT / "scripts/ci/web-full-suite-check.sh"
 PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
+BROWSER_CORE = runpy.run_path(str(ROOT / "scripts/ci/web-browser-core.py"))
 
 
 def _one_matching_file_per_pack() -> str:
@@ -172,6 +165,69 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         })
         assert code == 0, output[-2000:]
         assert calls == expected, (part, calls)
+
+
+def test_functional_browser_plans_keep_chromium_from_multi_project_packs() -> None:
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    plan = BROWSER_CORE["plan"]
+    expected_specs = {
+        "test:account-session:browser": "e2e/account-session-recovery.spec.ts",
+        "test:drive-sharing-layout": "e2e/document-share-review.layout.spec.ts",
+        "test:connections-layout": "e2e/connections-drawer.layout.spec.ts",
+        "test:connections-layout:without-covered": "e2e/connections-drawer.layout.spec.ts",
+        "test:one-voice-panel-layout": "e2e/one-voice-panel.layout.spec.ts",
+        "test:one-voice-mail-open-layout": "e2e/one-voice-mail-open.layout.spec.ts",
+        "test:calendar-workspace-layout": "e2e/calendar-connected-workspace.layout.spec.ts",
+        "test:agent-surface-layout": "e2e/agent-surface-model-authority.layout.spec.ts",
+    }
+    for script, expected_spec in expected_specs.items():
+        rows = plan(script, scripts, [])
+        chromium = [row for row in rows if "--project=chromium" in row]
+        assert chromium, f"{script} lost its functional Chromium pack"
+        assert any(expected_spec in row for row in chromium), (script, expected_spec)
+        assert not any("--project=webkit" in row for row in rows), script
+        if script == "test:account-session:browser":
+            assert any("--project=mobile-chrome" in row for row in rows)
+
+
+def test_functional_browser_plan_accumulates_project_syntax_and_fails_closed() -> None:
+    plan = BROWSER_CORE["plan"]
+    spec = "e2e/agent-markdown.layout.spec.ts"
+    scripts = {
+        "synthetic": (
+            f"CI=1 playwright test {spec} {spec} --project=chromium --project webkit "
+            "--project=mobile-chrome --project chromium --workers=1 "
+            "--grep-invert 'One profile artwork and animated presence'"
+        )
+    }
+    rows = plan("synthetic", scripts, [])
+    projects = [next(token for token in row if token.startswith("--project=")) for row in rows]
+    assert projects == ["--project=chromium", "--project=mobile-chrome"]
+    for row in rows:
+        assert row.count(spec) == 1 and "--workers=1" in row
+        assert "--grep-invert" in row
+        assert "One profile artwork and animated presence" in row[-1]
+        assert "100 KB paste" in row[-1]
+
+    invalid = (
+        (
+            "unknown",
+            f"playwright test {spec} --project=chromium --project=unknown",
+            "Unrecognized browser project",
+        ),
+        (
+            "missing",
+            "playwright test e2e/missing-contract.spec.ts --project=chromium",
+            "Unresolved browser contract",
+        ),
+    )
+    for script, body, expected_error in invalid:
+        try:
+            plan(script, {script: body}, [])
+        except ValueError as error:
+            assert expected_error in str(error), (expected_error, error)
+        else:
+            raise AssertionError(f"invalid browser plan {script!r} was accepted")
 
 
 def test_agent_surface_layout_runs_once_without_losing_the_focused_gate() -> None:
@@ -331,7 +387,7 @@ def test_full_suite_shards_run_verifiers_once() -> None:
         assert code == 2 and not calls, f"shard spec {bad!r} was accepted"
 
 
-def test_workflow_schedules_every_leg_and_shard() -> None:
+def test_workflow_schedules_focused_jobs_and_database_pair() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
@@ -342,8 +398,13 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         workflow, re.S,
     )
     assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert "if: ${{ (failure() || cancelled()) && matrix.part == 'browser' }}" in evidence[1]
-    assert "name: synthetic-layout-failures-${{ matrix.label }}" in evidence[1]
+    assert (
+        "if: ${{ (failure() || cancelled()) && env.WEB_TARGETED_PART == 'browser' }}"
+        in evidence[1]
+    )
+    assert (
+        "name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}" in evidence[1]
+    )
     paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
     assert paths
     assert [line.strip() for line in paths[1].splitlines()] == [
@@ -361,7 +422,7 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
         "hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png",
         "hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md",
     ], "do not broaden synthetic evidence into protected browser artifacts"
-    shard = "          PLAYWRIGHT_SHARD: ${{ matrix.shard }}\n"
+    shard = "          PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}\n"
     broken = workflow.replace(shard, shard + shard, 1)
     assert broken != workflow
     try:
@@ -521,6 +582,8 @@ def main() -> int:
     tests = (
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
+        test_functional_browser_plans_keep_chromium_from_multi_project_packs,
+        test_functional_browser_plan_accumulates_project_syntax_and_fails_closed,
         test_browser_plan_skips_only_known_no_browser_selection,
         test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
         test_agent_surface_layout_runs_once_without_losing_the_focused_gate,
@@ -530,7 +593,7 @@ def main() -> int:
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_layout_overlap_retains_selected_coverage_and_failure_propagation,
         test_full_suite_shards_run_verifiers_once,
-        test_workflow_schedules_every_leg_and_shard,
+        test_workflow_schedules_focused_jobs_and_database_pair,
         test_browser_shard_setting_is_validated_before_any_pack,
     )
     for test in tests:

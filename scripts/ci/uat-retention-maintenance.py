@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterator
-from contextvars import ContextVar
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar, copy_context
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -1701,11 +1702,33 @@ def preflight_release(args: argparse.Namespace, repository: str) -> tuple[int, d
 
 
 def assert_checkpoint_publication(repository: str, environment: str) -> None:
-    if environment == "production":
-        production_phone_lease.assert_reconciled(repository, api=api, governed=governed_dispatch, timestamp=_github_timestamp, deadline=_LOOKUP_DEADLINE.get())
     publication = importlib.import_module("retention_publication")
     try:
-        publication.assert_published(sys.modules[__name__], repository, environment)
+        if environment != "production":
+            publication.assert_published(sys.modules[__name__], repository, environment)
+            return
+        # These independent GitHub-only proofs must both finish before state
+        # restoration or any provider mutation. Share the original deadline,
+        # and join both readers even when either authority refuses clearance.
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            lease = executor.submit(
+                copy_context().run,
+                production_phone_lease.assert_reconciled,
+                repository,
+                api=api,
+                governed=governed_dispatch,
+                timestamp=_github_timestamp,
+                deadline=_LOOKUP_DEADLINE.get(),
+            )
+            published = executor.submit(
+                copy_context().run,
+                publication.assert_published,
+                sys.modules[__name__],
+                repository,
+                environment,
+            )
+            lease.result()
+            published.result()
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         raise retention.UnsafeState("Maintenance publication proof is unavailable or invalid") from error
 

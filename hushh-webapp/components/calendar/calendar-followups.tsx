@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, Mail, MoreHorizontal } from "@/components/icons";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
+import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -37,6 +38,7 @@ const PROGRESS_CHECKS_MS = [15_000, 30_000, 60_000, 120_000];
 // the card keeps asking, so the first results arrive in seconds, not scheduler
 // ticks. Capped, and it stops the moment the card goes away.
 const CATCH_UP_MAX_CALLS = 20;
+const FOLLOWUP_PAGE_SIZE = 15;
 
 export function CalendarFollowups({ userId, accountId, accountEmail, zone, expanded, getIdToken, getVaultOwnerToken, onViewAll, onConnectMail, onReviewMeeting, refreshRevision = 0, deepLinkRequestId, onDeepLinkHandled }: Props) {
   const [status, setStatus] = useState<FollowupStatus | null>(null);
@@ -47,7 +49,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [pageOffset, setPageOffset] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -61,6 +64,10 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   selectedIdRef.current = selectedId;
   const lifetime = useRef<AbortController | null>(null);
   const requestSeq = useRef(0);
+  const pageOffsetRef = useRef(0);
+  const firstPageRef = useRef<FollowupList | null>(null);
+  const expandedRef = useRef(expanded);
+  expandedRef.current = expanded;
   const tokenGetter = useRef(getIdToken); tokenGetter.current = getIdToken;
   const ownerTokenGetter = useRef(getVaultOwnerToken); ownerTokenGetter.current = getVaultOwnerToken;
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -75,6 +82,8 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   /** `quiet` refreshes in place: nothing flashes while the owner is reading. */
   const refresh = useCallback(async (signal?: AbortSignal, quiet = false) => {
     const seq = ++requestSeq.current;
+    // A refresh supersedes a pending page request, including its loading state.
+    setLoadingPage(false);
     const alive = () => !signal?.aborted && requestSeq.current === seq;
     if (!quiet) { setLoading(true); setError(""); }
     try {
@@ -88,13 +97,33 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       }
       const ownerToken = ownerTokenGetter.current();
       if (!ownerToken) { if (!quiet) setError("Unlock One to view follow-ups."); setLoading(false); return; }
-      const nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal);
-      if (alive()) { setList(nextList); setLoading(false); setError(""); }
+      let offset = pageOffsetRef.current;
+      let nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset);
+      if (!alive()) return;
+      if (offset > 0 && offset >= nextList.total_conversations) {
+        offset = Math.max(0, Math.ceil(nextList.total_conversations / FOLLOWUP_PAGE_SIZE) - 1) * FOLLOWUP_PAGE_SIZE;
+        nextList = await CalendarFollowupsService.list(userId, accountId, idToken, ownerToken, signal, offset);
+      }
+      if (alive()) {
+        if (offset === 0) firstPageRef.current = nextList;
+        pageOffsetRef.current = offset; setPageOffset(offset); setList(nextList); setLoading(false); setError("");
+      }
     } catch (failure) {
       // A background refresh never replaces verified items with an error.
       if (alive() && !quiet) { setError(followupErrorText(failure)); setLoading(false); }
     }
   }, [userId, accountId]);
+
+  useEffect(() => {
+    if (expanded) return;
+    // Collapse also cancels a first Next request that has not applied its offset.
+    if (loadingPage) { requestSeq.current += 1; setLoadingPage(false); }
+    if (pageOffsetRef.current === 0) return;
+    pageOffsetRef.current = 0;
+    setPageOffset(0);
+    setList(firstPageRef.current);
+    void refresh(lifetime.current?.signal, true);
+  }, [expanded, loadingPage, refresh]);
 
   useEffect(() => {
     const controller = new AbortController(); lifetime.current = controller;
@@ -299,28 +328,23 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
     finally { setBusy(false); }
   };
 
-  const loadMore = async () => {
-    const offset = list?.next_offset;
-    if (offset == null || loadingMore) return;
-    const seq = requestSeq.current;
-    setLoadingMore(true); setError("");
+  const changePage = async (offset: number) => {
+    if (!expanded || loadingPage || offset < 0 || offset === pageOffset) return;
+    const seq = ++requestSeq.current;
+    setLoadingPage(true); setError("");
     try {
       const ownerToken = getVaultOwnerToken();
       if (!ownerToken) throw new Error("Unlock One to view follow-ups.");
       const page = await CalendarFollowupsService.list(
         userId, accountId, await getIdToken(), ownerToken, lifetime.current?.signal, offset,
       );
-      if (requestSeq.current !== seq || lifetime.current?.signal.aborted) return;
-      setList(current => {
-        if (!current || current.next_offset !== offset) return current;
-        const ids = new Set(current.conversations.map(entry => entry.id));
-        return { ...page, conversations: [
-          ...current.conversations,
-          ...page.conversations.filter(entry => !ids.has(entry.id)),
-        ] };
-      });
+      if (requestSeq.current !== seq || lifetime.current?.signal.aborted || !expandedRef.current) return;
+      if (offset === 0) firstPageRef.current = page;
+      pageOffsetRef.current = offset;
+      setPageOffset(offset);
+      setList(page);
     } catch (failure) { if (requestSeq.current === seq) setError(followupErrorText(failure)); }
-    finally { setLoadingMore(false); }
+    finally { if (requestSeq.current === seq) setLoadingPage(false); }
   };
 
   const disable = async () => {
@@ -383,12 +407,12 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepLinkRequestId, status?.monitoring_enabled, list]);
 
-  const rows = expanded ? list?.conversations || [] : (list?.conversations || []).slice(0, 2);
+  const rows = expanded ? list?.conversations || [] : pageOffset === 0 ? (list?.conversations || []).slice(0, 2) : [];
   const notice = status?.monitoring_enabled ? coverageNotice(status.coverage ?? list?.coverage, vaultAvailable) : null;
   const needsMailChoice = Boolean(status && (!status.mail_connected || !status.monitoring_enabled));
   // Monitored before, access since removed: ask only to renew, never to choose again.
   const renewing = Boolean(status?.monitoring_enabled && !status.mail_connected);
-  const card = <SectionCard title="Follow-ups" description="From your email">
+  const card = <SectionCard title="Follow-ups" description="Meeting requests, documents, and deadlines from email">
     <div className="space-y-2" aria-busy={loading}>
       {!status && loading ? <p className="text-sm text-muted-foreground" role="status">Checking this account…</p> : null}
       {needsMailChoice && renewing ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -436,7 +460,16 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
         {status?.monitoring_enabled ? <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-touch" aria-label="Follow-up settings"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
           <DropdownMenuContent align="end"><DropdownMenuItem disabled={busy} onSelect={() => void checkAgain()}>Check email again</DropdownMenuItem><DropdownMenuItem onSelect={() => void disable()}>Turn off monitoring for this account</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : null}
       </div>
-      {expanded && list?.next_offset != null ? <Button size="compact" variant="outline" disabled={loadingMore || loading} onClick={() => void loadMore()}>{loadingMore ? "Loading…" : "Load more"}</Button> : null}
+      {expanded && list ? <PaginatedListFooter
+        page={Math.floor(pageOffset / FOLLOWUP_PAGE_SIZE) + 1}
+        limit={FOLLOWUP_PAGE_SIZE}
+        total={list.total_conversations}
+        hasMore={list.next_offset != null}
+        pending={loadingPage || loading}
+        onPrevious={() => void changePage(Math.max(0, pageOffset - FOLLOWUP_PAGE_SIZE))}
+        onNext={() => { if (list.next_offset != null) void changePage(list.next_offset); }}
+        className="px-0"
+      /> : null}
     </div>
   </SectionCard>;
 

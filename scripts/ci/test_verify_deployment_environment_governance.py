@@ -213,7 +213,7 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     assert match is not None, f"{workflow} authority gate is missing"
     inputs = event.get("inputs") or {}
     # Only the context this call describes: the runner's own re-run attempt and
-    # triggering actor must not decide the outcome (see test_capacity_gate_rerun_context.py).
+    # triggering actor must not decide the outcome (see test_deployment_environment_governance_rerun.py).
     inherited = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
     return subprocess.run(
         ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
@@ -387,7 +387,8 @@ def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None
         Path(__file__).resolve().parents[2]
         / ".github/workflows/capacity-maintenance-clock.yml"
     ).read_text()
-    assert 'run-name: "Capacity clock · ${{ github.event_name }} · run ${{ github.run_number }}"' in source
+    assert 'run-name: "Capacity clock"' in source
+    assert "github.run_number" not in source
     uat_only = _run_clock_summary(
         {
             "CLOCK_AUTHORITY": "true",

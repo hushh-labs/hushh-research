@@ -103,6 +103,8 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         # not admit that principal to any other machine or owner route.
         "/api/one/pod/gmail/push",
         "/api/one/pod/actions/gmail/proposals",
+        "/api/one/pod/calendar/events",
+        "/api/one/pod/gmail/todos",
         "/api/one/pod/browser/capability",
         "/api/one/pod/browser/tasks",
         "/api/one/pod/browser/worker",

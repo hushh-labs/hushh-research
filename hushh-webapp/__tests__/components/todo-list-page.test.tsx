@@ -20,6 +20,7 @@ import {
 import { useTodoLiveTasks } from "@/lib/todos/use-todo-live-tasks";
 import * as todoService from "@/lib/services/todo-list-pkm-service";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import type { CapabilityRead } from "@/lib/services/todo-capability-sources";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "todo-owner", getIdToken: vi.fn() },
@@ -28,6 +29,9 @@ const mocks = vi.hoisted(() => ({
   feedError: null as string | null,
   feedLoading: false,
   retryFeed: vi.fn(),
+  reads: [] as CapabilityRead[],
+  mailError: null as string | null,
+  retrySources: vi.fn(),
   pendingKyc: null as { count: number; workflowId: string } | null,
   events: [
     {
@@ -38,7 +42,8 @@ const mocks = vi.hoisted(() => ({
   ],
 }));
 
-vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: [], loading: false, error: false, refresh: vi.fn() }) }));
+vi.mock("@/lib/todos/use-todo-capability-sources", () => ({ useTodoCapabilitySources: () => ({ reads: mocks.reads, loading: false, error: false, refresh: mocks.retrySources }) }));
+vi.mock("@/lib/profile/gmail-connector-store", () => ({ useGmailConnectorStatus: () => ({ status: { connected: true }, loadingStatus: false, statusError: mocks.mailError }) }));
 vi.mock("@/lib/feed/use-feed-actionables", () => ({
   useFeedActionables: ({ enabled }: { enabled: boolean }) => ({
     actionables: enabled ? mocks.actionables : [],
@@ -107,6 +112,9 @@ describe("TodoListPage row actions", () => {
     mocks.actionables = [];
     mocks.feedError = null;
     mocks.feedLoading = false;
+    mocks.reads = [];
+    mocks.mailError = null;
+    mocks.retrySources.mockReset().mockResolvedValue(undefined);
     mocks.pendingKyc = null;
     mocks.retryFeed.mockReset().mockResolvedValue(undefined);
     mocks.events = [
@@ -138,6 +146,27 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("heading", { name: "No pending tasks" })).toBeVisible();
     expect(screen.getByText("New tasks will appear here.")).toBeVisible();
   });
+  it("shows Calendar and email tasks in the list without source controls or false partial-read errors", async () => {
+    mocks.reads = [{ coverage: { capability: "gmail", count: 1, status: "incomplete" }, evidence: [{
+      capability: "gmail", key: "mail:opaque", summary: "Meeting details", pendingTitle: "Reply to Saru: Meeting details", href: "/one/gmail",
+    }] }];
+    render(<TodoListPage />);
+    expect(await screen.findByText("Reply to Saru: Meeting details")).toBeVisible();
+    expect(screen.getByText("Review the plan")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Reply to Saru: Meeting details" })).toHaveAttribute("href", "/one/gmail");
+    for (const text of ["Task sources", "Suggest tasks", "Refresh sources", "Email tasks couldn’t load."]) {
+      expect(screen.queryByText(text)).not.toBeInTheDocument();
+    }
+  });
+  it("keeps existing tasks visible when email fails and exposes a bounded retry", async () => {
+    mocks.mailError = "private provider diagnostic";
+    render(<TodoListPage />);
+    expect(await screen.findByText("Email tasks couldn’t load.")).toBeVisible();
+    expect(screen.getByText("Review the plan")).toBeVisible();
+    expect(screen.queryByText("private provider diagnostic")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry", exact: true }));
+    expect(mocks.retrySources).toHaveBeenCalledOnce();
+  });
 
   it("never presents an empty success when saved items fail to load", async () => {
     mocks.events = [];
@@ -151,10 +180,14 @@ describe("TodoListPage row actions", () => {
     expect(await screen.findByRole("heading", { name: "No tasks yet" })).toBeVisible();
   });
 
-  it("keeps a saved suggestion tied to its offered source and marks it already pending", () => {
-    const saved = buildTodo({ id: "suggested_mail:opaque", title: "Review the meeting reply", type: "manual", source: "gmail", sourceId: "mail:opaque", link: "/one/gmail" });
+  it.each(["pending", "done"] as const)("keeps a %s reviewed email task tied to its source without duplicating it", status => {
+    const saved = { ...buildTodo({ id: "suggested_mail:opaque", title: "Review the meeting reply", type: "manual", source: "gmail", sourceId: "mail:opaque", link: "/one/gmail" }), status };
+    mocks.reads = [{ coverage: { capability: "gmail", count: 1, status: "incomplete" }, evidence: [{
+      capability: "gmail", key: "mail:opaque", summary: "Meeting reply", pendingTitle: "Reply: Meeting reply", href: "/one/gmail",
+    }] }];
     const { result } = renderHook(() => useTodoLiveTasks({ userId: "todo-owner", vaultOwnerToken: "fixture", idTokenProvider: async () => "fixture-id", enabled: true, tasks: [saved] }));
-    expect(result.current.evidence.find(item => item.key === "mail:opaque")).toMatchObject({ capability: "gmail", pendingTitle: saved.title });
+    expect(result.current.pending.filter(task => task.sourceAgent === "gmail")).toHaveLength(status === "pending" ? 1 : 0);
+    if (status === "pending") expect(result.current.evidence.find(item => item.key === "mail:opaque")).toMatchObject({ capability: "gmail", pendingTitle: saved.title });
   });
 
   it("never inserts a late create into another owner's list or suggestions", async () => {

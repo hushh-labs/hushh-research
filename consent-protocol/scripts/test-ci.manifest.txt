@@ -1349,6 +1349,7 @@ tests/test_pod_gmail_local.py
 tests/test_pod_gmail_push_config.py
 tests/test_pod_local_consent.py
 tests/test_pod_owner_feed.py
+tests/test_pod_todo_sources.py
 
 tests/test_personal_agent_notification_checkpoint.py
 tests/test_pod_browser_azure_probe.py
@@ -1674,3 +1675,4 @@ tests/services/test_calendar_email_followup_store_postgres.py
 tests/services/test_calendar_email_followup_reassess_postgres.py
 tests/services/test_calendar_email_followup_reminder_timing_postgres.py
 tests/services/test_calendar_email_followup_boundaries.py
+tests/test_uat_paused_drive_maintenance.py

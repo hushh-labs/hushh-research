@@ -34,6 +34,62 @@ READ_ONLY_WORKFLOWS = {
     ".github/workflows/ship-android-playstore-v1.yml",
 }
 LIVE_STATES = {"requested", "pending", "waiting", "queued", "in_progress"}
+MUTATION_BOUNDARY = "Begin UAT runtime mutation"
+PRE_MUTATION_STEPS = frozenset({
+    'Set up job',
+    'Require current-attempt deployment security',
+    'Assert manual dispatch originates from main',
+    'Checkout code',
+    'Require reconciled maintenance mutations under deployment lock',
+    'Assert manual UAT dispatch actor policy',
+    'Capture deployment timing start',
+    'Resolve deployment SHA',
+    'Select UAT application source authority',
+    'Validate deployment SHA in selected protected history',
+    'Preserve current release tooling',
+    'Checkout deployment SHA',
+    'Decide account generation admission before the deletion fence',
+    'Validate Google Cloud workload identity configuration',
+    'Authenticate to Google Cloud',
+    'Set up Cloud SDK',
+    'Set GCP project context',
+    'Assert GCP project scope',
+    'Set up Python + uv runtime',
+    'Capture predeploy Cloud Run state',
+    'Refuse the HushhTech client beside a serving revision that admits generations',
+    'Resolve deployment scope',
+    'Require exact-SHA predecessor acceptance',
+    'Resolve the exact accepted Dev backend image',
+    'Resolve retained protected document maintenance',
+    'Enforce UAT database connection budget before deployment',
+    'Verify prompt UAT Drive worker wake grant',
+    'Capture paused Drive maintenance baseline',
+    'Resolve rollback targets from predeploy traffic',
+    'Prove UAT comparison bases',
+    'Resolve UAT verification plan',
+    'Upload verification-plan artifact',
+    'Set up Node runtime for UAT browser verification',
+    'Cache UAT Chromium binaries',
+    'Install UAT browser verification dependencies',
+    'Verify One Location read-only rollout prerequisites',
+    'Recheck direct UAT authority and serving baseline before mutation',
+})
+READ_ONLY_JOBS = frozenset({
+    "Select UAT target", "Deployment security / Verify repository secret clearance",
+    "Wait for UAT capacity outside the mutation lock",
+    "Inspect UAT prerequisites (no deployment)",
+})
+PRE_MUTATION_REPORTING = frozenset({
+    "Capture managed provider readiness receipt", "Record candidate PKM evaluator warning",
+    "Classify UAT release outcome", "Resolve final Cloud Run state",
+    "Write UAT release status artifact", "Upload UAT deploy artifacts",
+    "Upload Calendar follow-ups release evidence", "Upload PWM scheduler verification",
+    "Upload sealed PWM acceptance evidence",
+    "Deployment summary", "Fail workflow when UAT release did not end healthy",
+    "Post Authenticate to Google Cloud", "Post Checkout code", "Complete job",
+    "Post Cache UAT Chromium binaries", "Post Set up Node runtime for UAT browser verification",
+    "Post Set up Python + uv runtime",
+})
 
 
 def require(condition: object, message: str) -> None:
@@ -72,11 +128,12 @@ class ObservedRepository:
         )
 
 
-def observation(reason: str, *, noop=False, waiting=False, services=None) -> dict:
+def observation(reason: str, *, code="selection_unverified", noop=False, waiting=False, services=None) -> dict:
     return {
         "noop": noop,
         "waiting": waiting,
         "reason": reason,
+        "reason_code": code,
         "services": services or {},
     }
 
@@ -100,6 +157,67 @@ def attempt_unchanged(acceptance, observed: dict) -> bool:
     return True
 
 
+def untouched_mutation_steps(steps) -> bool:
+    if not (isinstance(steps, list) and steps and all(
+        isinstance(step, dict) and step.get("status") == "completed"
+        and step.get("conclusion") in {"success", "failure", "skipped", "cancelled"}
+        and isinstance(step.get("name"), str) for step in steps
+    )):
+        return False
+    numbers = [step.get("number") for step in steps]
+    if not (steps[0]["name"] == "Set up job" and steps[-1]["name"] == "Complete job"
+            and all(type(number) is int and number > 0 for number in numbers)
+            and numbers == sorted(set(numbers))):
+        return False
+    markers = [i for i, step in enumerate(steps) if step["name"] == MUTATION_BOUNDARY]
+    if len(markers) != 1:
+        return False
+    index = markers[0]
+    if not (steps[index]["conclusion"] == "skipped" and index + 1 < len(steps)
+            and steps[index + 1]["name"] == "Sync canonical hosted runtime secrets"):
+        return False
+    return all(
+        step["conclusion"] == "skipped" or step["name"] in allowed
+        for group, allowed in ((steps[:index], PRE_MUTATION_STEPS),
+                               (steps[index + 1:], PRE_MUTATION_REPORTING))
+        for step in group
+    )
+
+
+def proven_pre_mutation_failure(acceptance, run: dict, observed: dict) -> bool:
+    """Prove an untouched boundary; never infer safety from a failed legacy run."""
+    if not (
+        run.get("status") == "completed" and run.get("conclusion") == "failure"
+        and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
+        and run.get("repository", {}).get("full_name") == REPOSITORY
+        and run.get("head_repository", {}).get("full_name") == REPOSITORY
+        and type(run.get("id")) is int and run["id"] > 0
+        and type(run.get("run_attempt")) is int and run["run_attempt"] == 1
+        and re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha") or "")
+    ):
+        return False
+    path = f"runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"
+    try:
+        inventory = acceptance.read(path)
+    except (ValueError, OSError):
+        return False
+    observed[path] = inventory
+    jobs = inventory.get("jobs")
+    if not (isinstance(jobs, list) and type(inventory.get("total_count")) is int
+            and inventory["total_count"] == len(jobs) <= 100 and all(
+                isinstance(job, dict) and job.get("run_id") == run["id"]
+                and job.get("head_sha") == run["head_sha"]
+                and job.get("status") == "completed" for job in jobs)):
+        return False
+    matches = [job for job in jobs if job.get("name") == "Deploy UAT Scope"]
+    if len(matches) != 1 or matches[0].get("conclusion") != "failure":
+        return False
+    if any(job.get("name") not in READ_ONLY_JOBS | {"Deploy UAT Scope"}
+           and job.get("conclusion") != "skipped" for job in jobs):
+        return False
+    return untouched_mutation_steps(matches[0].get("steps"))
+
+
 def inspect_deployment(repository, acceptance, deployment, needed, observed):
     require(isinstance(deployment, dict), "Deployment inventory is malformed")
     identifier = deployment.get("id")
@@ -121,7 +239,7 @@ def inspect_deployment(repository, acceptance, deployment, needed, observed):
     if workflow == CHAT_WORKFLOW and "backend" not in needed:
         return None  # This existing narrow workflow cannot mutate the frontend.
     if run.get("status") in LIVE_STATES:
-        return observation("A relevant UAT deployment is still running", waiting=True)
+        return observation("A relevant UAT deployment is still running", code="deployment_in_flight", waiting=True)
     if workflow != UAT_WORKFLOW:
         return observation(
             "A later mutation prevents reuse of an older full-release receipt"
@@ -131,7 +249,10 @@ def inspect_deployment(repository, acceptance, deployment, needed, observed):
         or run.get("status") != "completed"
         or run.get("conclusion") != "success"
     ):
-        return observation("Current deployment or rerun is not healthy")
+        if proven_pre_mutation_failure(acceptance, run, observed):
+            return None
+        return observation("Current deployment or rerun is not healthy; mutation safety is unproven",
+                           code="mutation_phase_unknown")
     pins = [
         pin
         for pin in acceptance.attempt_pins("uat", run["id"])
@@ -139,12 +260,12 @@ def inspect_deployment(repository, acceptance, deployment, needed, observed):
     ]
     if len(pins) != 1:
         return observation(
-            "Current deployment has no unique retained acceptance receipt"
+            "Current deployment has no unique retained acceptance receipt", code="acceptance_receipt_missing"
         )
     try:
         application = acceptance.accepted_application(pins[0], "uat")
     except ValueError:
-        return observation("Current service acceptance could not be qualified")
+        return observation("Current service acceptance could not be qualified", code="acceptance_receipt_invalid")
     touched = needed & application["services"].keys()
     if not touched:
         return None
@@ -192,7 +313,7 @@ def current_application(
                     acceptance, observed
                 ):
                     return observation(
-                        "Deployment identity or attempt changed during selection"
+                        "Deployment identity or attempt changed during selection", code="selection_evidence_changed"
                     )
                 return {
                     **observation(
@@ -205,7 +326,7 @@ def current_application(
         if len(rows) < 100:
             break
     return observation(
-        "No complete current service coverage was found within the observation bound"
+        "No complete current service coverage was found within the observation bound", code="service_coverage_incomplete"
     )
 
 
@@ -220,10 +341,17 @@ def choose(target: str, current: dict, allow_noop: bool, *, ancestor) -> dict:
             "reason": current["reason"],
         }
     sources = current.get("sources", {})
-    if not sources or not all(ancestor(sha, target) for sha in sources.values()):
+    if not sources:
+        return {"decision": "BLOCKED", "sha": "", "candidate_sha": target,
+                "reason_code": current.get("reason_code", "service_coverage_incomplete"),
+                "reason": current["reason"]}
+    if not all(ancestor(sha, target) for sha in sources.values()):
         return {
             "decision": "BLOCKED",
             "sha": "",
+            "candidate_sha": target,
+            "sources": sources,
+            "reason_code": "target_not_descendant",
             "reason": "Automatic selection requires a verified forward path from each current service; review an explicit candidate",
         }
     return {

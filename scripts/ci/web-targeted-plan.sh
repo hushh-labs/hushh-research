@@ -85,22 +85,36 @@ web_targeted_plan_check() {
   return 0
 }
 
+# These paths have explicit non-browser owners. Runtime application paths are
+# deliberately absent: a new component, API implementation or shared dependency
+# must not become a silent no-browser selection. Existing pack matches still win.
+web_targeted_non_browser_owner() {
+  case "$1" in
+    .agents/*|.github/*|docs/*|scripts/*|deploy/*|config/*|AGENTS.md|README.md|LICENSE*|NOTICE*) return 0 ;;
+    consent-protocol/tests/*|consent-protocol/contracts/*|contracts/*|packages/*) return 0 ;;
+    hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
+    *.md) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 web_targeted_plan_finish() {
   if [ "$PLAN_ERROR" -ne 0 ]; then
     exit 2
   fi
-  if [ "$ran" -eq 0 ]; then
-    PLAN_SELECTION_KNOWN=0
-    PLAN_BROWSER_REQUIRED=1
-  else
-    while IFS= read -r changed_path; do
-      [ -z "$changed_path" ] && continue
-      if ! grep -Fxq -- "$changed_path" <<<"$MATCHED_CHANGED_FILES"; then
-        PLAN_SELECTION_KNOWN=0
-        PLAN_BROWSER_REQUIRED=1
-      fi
-    done <<<"$CHANGED_FILE_LIST"
-  fi
+  while IFS= read -r changed_path; do
+    [ -z "$changed_path" ] && continue
+    if grep -Fxq -- "$changed_path" <<<"$MATCHED_CHANGED_FILES"; then
+      continue
+    fi
+    if web_targeted_non_browser_owner "$changed_path"; then
+      printf 'Non-browser owner: %s\n' "$changed_path" >&2
+    else
+      printf 'Unclassified application impact: %s; retaining conservative browser coverage.\n' "$changed_path" >&2
+      PLAN_SELECTION_KNOWN=0
+      PLAN_BROWSER_REQUIRED=1
+    fi
+  done <<<"$CHANGED_FILE_LIST"
   web_targeted_plan_write
   exit 0
 }
