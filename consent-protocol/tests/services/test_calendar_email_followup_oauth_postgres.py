@@ -516,3 +516,21 @@ async def test_existing_same_account_mail_keeps_its_sync_settings_when_send_is_a
     # The owner's existing Mail choices survive an added permission.
     assert row["auto_sync_enabled"] is True and row["bootstrap_state"] == "completed"
     assert row["history_id"] == "h-42" and row["receipt_total"] == 7
+
+
+@pytest.mark.asyncio
+async def test_mail_consent_is_per_account_across_a_b_and_c(one_consent_pg):
+    service, engine = one_consent_pg
+    await _consent(service, subject="synthetic-a", granted=_FULL, additional=False)
+    _, b = await _consent(service, subject="synthetic-b", granted=_NO_MAIL, additional=True)
+    _, c = await _consent(service, subject="synthetic-c", granted=_FULL, additional=True)
+    # One account's Gmail choice never decides another's.
+    assert await account.selected_mail_status(user_id=OWNER, account_id="default")
+    assert not await account.selected_mail_status(
+        user_id=OWNER, account_id=b["completed_account_id"]
+    )
+    assert await account.selected_mail_status(user_id=OWNER, account_id=c["completed_account_id"])
+    assert _row(engine, "SELECT count(*) AS n FROM calendar_email_followup_monitors")["n"] == 0
+    # Three accounts is the limit; a fourth consent is refused before any grant is written.
+    with pytest.raises(Exception, match="up to three"):
+        await _consent(service, subject="synthetic-d", granted=_FULL, additional=True)
