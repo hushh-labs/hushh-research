@@ -1573,7 +1573,7 @@ jobs:
 
   main-freshness-gate:
     name: "Base Freshness Gate"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat' || github.base_ref == 'uat-isolated')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -1672,7 +1672,7 @@ jobs:
   # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat' || github.base_ref == 'uat-isolated')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
