@@ -22,6 +22,8 @@ PRESENTATION = (
     r"pointerdown grows a clipped ripple|wallet workspace.*(?:geometry|typography)|"
     r"the agent mark stays visible in the header"
 )
+SUPPORTED_PROJECTS = {"chromium", "mobile-chrome"}
+KNOWN_PROJECTS = {*SUPPORTED_PROJECTS, "webkit", "firefox"}
 
 
 
@@ -55,7 +57,7 @@ def plan(script: str, scripts: dict[str, str], layout_specs: list[str]) -> list[
             raise ValueError("Only Playwright test execution is admitted")
         args = row[index + 2:]
         specs, options = [], []
-        project = "chromium"
+        projects: list[str] = []
         invert = [PRESENTATION]
         i = 0
         while i < len(args):
@@ -64,9 +66,17 @@ def plan(script: str, scripts: dict[str, str], layout_specs: list[str]) -> list[
                 specs.append(token)
             elif token.startswith("--project="):
                 project = token.split("=", 1)[1]
+                if project not in KNOWN_PROJECTS:
+                    raise ValueError(f"Unrecognized browser project: {project}")
+                if project not in projects:
+                    projects.append(project)
             elif token == "--project":
                 i += 1
                 project = args[i]
+                if project not in KNOWN_PROJECTS:
+                    raise ValueError(f"Unrecognized browser project: {project}")
+                if project not in projects:
+                    projects.append(project)
             elif token == "--grep-invert":
                 i += 1
                 if args[i] != "100 KB paste":
@@ -74,8 +84,8 @@ def plan(script: str, scripts: dict[str, str], layout_specs: list[str]) -> list[
             else:
                 options.append(token)
             i += 1
-        if project not in {"chromium", "mobile-chrome"}:
-            continue
+        if not projects:
+            projects = ["chromium"]
         if script == "test:layout-contracts" and layout_specs:
             specs = [name for name in layout_specs if name in specs]
         if not specs:
@@ -83,16 +93,19 @@ def plan(script: str, scripts: dict[str, str], layout_specs: list[str]) -> list[
         for name in specs:
             if not name.startswith("e2e/") or not (WEB / name).is_file():
                 raise ValueError(f"Unresolved browser contract: {name}")
-        unique = []
-        filters = (project, *options, *invert)
-        for name in specs:
-            identity = (name, *filters)
-            if identity not in seen:
-                seen.add(identity)
-                unique.append(name)
-        if unique:
-            result.append([*unique, f"--project={project}", *options,
-                           "--grep-invert", "|".join(f"(?:{part})" for part in invert)])
+        for project in projects:
+            if project not in SUPPORTED_PROJECTS:
+                continue
+            unique = []
+            filters = (project, *options, *invert)
+            for name in specs:
+                identity = (name, *filters)
+                if identity not in seen:
+                    seen.add(identity)
+                    unique.append(name)
+            if unique:
+                result.append([*unique, f"--project={project}", *options,
+                               "--grep-invert", "|".join(f"(?:{part})" for part in invert)])
     if not result:
         raise ValueError(f"No functional browser commands resolved for {script}")
     return result
