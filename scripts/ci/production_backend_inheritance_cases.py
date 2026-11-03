@@ -15,6 +15,7 @@ from unittest import mock
 import production_backend_inheritance as inheritance
 
 from production_phone_receipt_fixtures import archive, cold_revision
+from production_backend_successor_control_cases import _auth_operational_reference
 from production_worker_basis_cases import _basis_case, _ordinary, _runtime, _tag
 
 MAINTENANCE = importlib.import_module("uat-retention-maintenance")
@@ -136,6 +137,9 @@ def _auth_restoration_acceptance(ports):
     current["sha"] = refresh.CANDIDATE
     pointer["source"] = refresh.SOURCE
     acceptance_id, acceptance_attempt, workflow_sha = 550, 3, "a" * 40
+    operational_reference, _operational_tag, _anchor = _auth_operational_reference(
+        refresh, anchored=True
+    )
     current["predecessor_exception"] = {
         "schema_version": 1,
         "kind": "manual-production-predecessor-exception",
@@ -168,6 +172,7 @@ def _auth_restoration_acceptance(ports):
             "source": refresh.SOURCE,
             "backend": copy.deepcopy(pointer),
             "backend_image": refresh.IMAGES["backend"],
+            "operational_reference": operational_reference,
         },
     }
     identity = {
@@ -336,6 +341,7 @@ class BackendInheritanceCases:
         for defect in (
             "uid", "source", "frontend", "attempt", "anchor",
             "baseline_revision", "baseline_uid", "baseline_service", "current_attempt", "actor",
+            "operational_tag",
         ):
             with self.subTest(defect=defect), _inheritance_case(self) as ports:
                 accepted_run, accepted_release, _identity = _auth_restoration_acceptance(ports)
@@ -348,6 +354,8 @@ class BackendInheritanceCases:
                     accepted_release["scope"] = "frontend"
                 elif defect == "attempt":
                     accepted_run["run_attempt"] += 1
+                elif defect == "operational_tag":
+                    origin["operational_reference"]["tag_oid"] = "0" * 40
                 else:
                     if defect == "anchor":
                         accepted_release["backend_origin"] = {"run_id": "999"}

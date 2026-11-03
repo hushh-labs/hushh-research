@@ -13,6 +13,7 @@ from typing import NotRequired, TypedDict
 from zipfile import ZipFile
 
 import production_activation_continuation as activation
+import production_backend_successor as tag_reference
 import production_phone_receipt as phone
 import release_artifact_receipts as receipts
 import retention_admission
@@ -162,7 +163,8 @@ def _auth_acceptance(current, pointer, run):
     }
     _require(
         isinstance(acceptance, dict)
-        and set(acceptance) == expected
+        and frozenset(acceptance)
+        in {frozenset(expected), frozenset(expected | {"operational_reference"})}
         and type(acceptance.get("schema_version")) is int
         and acceptance["schema_version"] == 1
         and acceptance.get("kind") == "production-auth-domain-backend-acceptance"
@@ -176,6 +178,34 @@ def _auth_acceptance(current, pointer, run):
         and acceptance.get("backend") == pointer,
         "auth repair acceptance origin is malformed or differs from backend_origin",
     )
+    if "operational_reference" in acceptance:
+        operational = acceptance["operational_reference"]
+        _require(
+            isinstance(operational, dict)
+            and set(operational)
+            == {"ref", "tag_oid", "commit", "healthy_message", "anchor_record", "tag_object"}
+            and operational.get("ref") == tag_reference.REF
+            and operational.get("commit") == refresh.SOURCE
+            and isinstance(operational.get("tag_object"), str)
+            and len(operational["tag_object"].encode()) <= 131072,
+            "auth repair operational reference is malformed",
+        )
+        tag = tag_reference.tag_identity(operational["tag_object"])
+        healthy, anchor_record = tag_reference.split(tag["message"], tag["commit"])
+        _require(
+            tag["tag_oid"] == operational.get("tag_oid")
+            and tag["commit"] == operational.get("commit")
+            and healthy == operational.get("healthy_message")
+            and anchor_record == operational.get("anchor_record")
+            and (
+                anchor_record is None
+                or (
+                    anchor_record.get("source") == refresh.ACTIVE_ANCHOR_SOURCE
+                    and anchor_record.get("healthy_commit") == refresh.SOURCE
+                )
+            ),
+            "auth repair operational reference tag binding is invalid",
+        )
     _require(
         acceptance["backend_image"] == refresh.IMAGES["backend"]
         and backend.get("image") == acceptance["backend_image"],

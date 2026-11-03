@@ -7,10 +7,12 @@ exact intent uploaded by this maintenance attempt's completed selection job.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import importlib
 import json
 import os
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 from runpy import run_path
@@ -295,10 +297,49 @@ def _continuation_source(current: dict) -> str | None:
     return context["backend"]["source"]
 
 
-def current_auth_domain_acceptance_profile() -> dict:
-    """Resolve only the current healthy restoration continuation through the release owner."""
+def _operational_reference(current: dict, anchor: dict | None) -> dict:
+    healthy, record = reference.split(current["message"], current["commit"])
+    reference.require(
+        (anchor is None and record is None)
+        or (
+            anchor is not None
+            and record is not None
+            and record["origin"] == anchor["origin"]
+            and record["revision"] == anchor["revision"]
+            and record["source"] == anchor["source"]
+            and record["image"] == anchor["image"]
+            and record["uid"] == anchor["uid"]
+            and record["previous_tag_oid"] == anchor["original_healthy"]["tag_oid"]
+        ),
+        "auth repair operational reference does not match its anchor",
+    )
+    return {
+        "ref": reference.REF,
+        "tag_oid": current["tag_oid"],
+        "commit": current["commit"],
+        "healthy_message": healthy,
+        "anchor_record": record,
+        "tag_object": current["tag_object"],
+    }
+
+
+def current_auth_domain_acceptance_profile(observed: dict | None = None) -> dict:
+    """Resolve the current serving backend and bind any held operational anchor."""
     current = proof.read_original()
-    reference.require(record_anchor(current) is None, "auth repair cannot use an operational anchor")
+    anchor = record_anchor(current)
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    if anchor is not None:
+        reference.require(
+            anchor["source"] == refresh.ACTIVE_ANCHOR_SOURCE
+            and anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"]
+            == refresh.SOURCE
+            and anchor["original_healthy"]["commit"] == refresh.SOURCE,
+            "auth repair operational anchor is outside the reviewed source",
+        )
+        # This runs only after emergency.admit has authenticated and captured
+        # the paired provider baseline. It confirms the held anchor and its
+        # original traffic/schema boundary without changing either.
+        live(anchor, initial=True)
     healthy, _ = reference.split(current["message"], current["commit"])
     fields = reference.healthy_fields(healthy, current["commit"])
     match = re.fullmatch(
@@ -358,13 +399,254 @@ def current_auth_domain_acceptance_profile() -> dict:
         and proof.read_original() == current,
         "auth repair current restoration acceptance changed",
     )
+    if observed is not None:
+        backend = observed.get("backend", {})
+        reference.require(
+            backend.get("revision") == identity.get("revision")
+            and backend.get("revision_uid") == identity.get("uid")
+            and backend.get("service_uid") == identity.get("service_uid")
+            and backend.get("source") == identity.get("source") == refresh.SOURCE
+            and backend.get("image") == identity.get("image"),
+            "auth repair serving backend differs from the accepted restoration",
+        )
     return {
         "run_id": run["id"],
         "run_attempt": run["run_attempt"],
         "workflow_sha": run["head_sha"],
         "source": release["sha"],
         "backend": dict(identity),
+        "operational_reference": _operational_reference(current, anchor),
     }
+
+
+def revalidate_auth_domain_reference(expected: dict, observed: dict) -> None:
+    current = proof.read_original()
+    anchor = record_anchor(current)
+    reference.require(
+        _operational_reference(current, anchor) == expected,
+        "auth repair operational reference changed",
+    )
+    if anchor is not None:
+        live(anchor, initial=True)
+    backend = observed.get("backend", {})
+    reference.require(
+        backend.get("source") == importlib.import_module("production_auth_domain_refresh").SOURCE
+        and bool(backend.get("revision"))
+        and bool(backend.get("revision_uid"))
+        and bool(backend.get("service_uid")),
+        "auth repair serving backend identity is incomplete",
+    )
+
+
+def _write_release_status(path: Path, payload: dict) -> None:
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+    ) as stream:
+        temporary = Path(stream.name)
+        json.dump(payload, stream, indent=2)
+        stream.write("\n")
+    os.replace(temporary, path)
+
+
+def publish_auth_domain_tag(status_path: Path, sha: str, *, run=reference.git) -> dict:
+    """Publish only the immutable repair tag and prove the operational ref stayed put."""
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    release = payload.get("predecessor_exception")
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    reference.require(
+        payload.get("status") == "healthy"
+        and payload.get("scope") == "frontend"
+        and payload.get("sha") == sha == refresh.CANDIDATE
+        and isinstance(release, dict)
+        and release.get("scope") == "frontend"
+        and release.get("ordinary_promotion_evidence") is False
+        and release.get("authority", {}).get("frontend_auth_domain_refresh") is True
+        and release.get("authority", {}).get("application_sha") == sha
+        and release.get("authority", {}).get("run_id") == os.environ.get("GITHUB_RUN_ID")
+        and release.get("authority", {}).get("run_attempt") == os.environ.get("GITHUB_RUN_ATTEMPT")
+        and release.get("authority", {}).get("workflow_sha") == os.environ.get("GITHUB_SHA"),
+        "auth repair immutable tag lacks its exact healthy admission receipt",
+    )
+    acceptance = release.get("backend_acceptance_origin")
+    reference.require(
+        isinstance(acceptance, dict)
+        and isinstance(acceptance.get("operational_reference"), dict)
+        and _auth_domain_frontend_exception(sha, "frontend", refresh.SOURCE),
+        "auth repair immutable tag is not authorized by the current incident event",
+    )
+    expected = acceptance["operational_reference"]
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    latest_before = reference.remote_oid(run=run)
+    if latest_before != expected["tag_oid"]:
+        result = {
+            "status": "refused",
+            "immutable_ref": None,
+            "immutable_tag_oid": None,
+            "immutable_tag_readback_oid": None,
+            "preserved_operational_ref": expected["ref"],
+            "preserved_operational_tag_oid": expected["tag_oid"],
+            "operational_ref_readback_oid": latest_before,
+            "immutable_tag_readback_matches": False,
+            "recorded_at": timestamp,
+        }
+        payload["auth_domain_tag_publication"] = result
+        _write_release_status(status_path, payload)
+        reference.require(False, "auth repair operational reference moved before publication")
+    current = proof.read_original()
+    anchor = record_anchor(current)
+    actual = _operational_reference(current, anchor)
+    if actual != expected or actual["ref"] != reference.REF:
+        latest_before = reference.remote_oid(run=run)
+        result = {
+            "status": "refused",
+            "immutable_ref": None,
+            "immutable_tag_oid": None,
+            "immutable_tag_readback_oid": None,
+            "preserved_operational_ref": expected["ref"],
+            "preserved_operational_tag_oid": expected["tag_oid"],
+            "operational_ref_readback_oid": latest_before,
+            "immutable_tag_readback_matches": False,
+            "recorded_at": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+        }
+        payload["auth_domain_tag_publication"] = result
+        _write_release_status(status_path, payload)
+        reference.require(False, "auth repair operational reference changed before publication")
+    tag_name = f"deployed/production/{sha[:8]}-{timestamp}"
+    tag_ref = f"refs/tags/{tag_name}"
+    local_published_oid = ""
+    outcome = "refused"
+    push_attempted = False
+    try:
+        reference.require(not run(["ls-remote", "--refs", "origin", tag_ref]).strip(),
+                          "auth repair immutable tag already exists")
+        if not run(["config", "user.email"]).strip():
+            run(["config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
+        if not run(["config", "user.name"]).strip():
+            run(["config", "user.name", "github-actions[bot]"])
+        message = "\n".join(
+            (
+                "Last known good — production auth-domain repair",
+                f"sha: {sha}",
+                f"backend_revision: {payload.get('final', {}).get('backend_revision', '')}",
+                f"frontend_revision: {payload.get('final', {}).get('frontend_revision', '')}",
+                f"run: {os.environ.get('RUN_URL', '')}",
+                f"actor: {os.environ.get('ACTOR', 'unknown')}",
+                f"tagged_at: {timestamp}",
+                f"preserved_operational_reference: {expected['ref']}",
+                f"preserved_operational_tag_oid: {expected['tag_oid']}",
+                "",
+            )
+        )
+        run(["tag", "-a", tag_name, sha, "-m", message])
+        local_published_oid = run(["rev-parse", f"{tag_ref}^{{tag}}"]).strip()
+        reference.require(bool(reference.HEX40.fullmatch(local_published_oid)),
+                          "auth repair immutable tag object is invalid")
+        push_attempted = True
+        run(["push", "origin", tag_ref])
+        outcome = "published"
+    except (ValueError, OSError, subprocess.SubprocessError):
+        # A push may have reached GitHub before its client observed an error.
+        # Reconcile once; never retry a publication write.
+        try:
+            rows = run(["ls-remote", "--refs", "origin", tag_ref]).splitlines()
+            if len(rows) == 1:
+                oid, found_ref = rows[0].split("\t")
+                if found_ref == tag_ref and bool(reference.HEX40.fullmatch(oid)):
+                    outcome = (
+                        "published"
+                        if push_attempted and oid == local_published_oid
+                        else "refused"
+                    )
+            elif push_attempted:
+                outcome = "uncertain"
+        except (OSError, subprocess.SubprocessError, ValueError):
+            outcome = "uncertain"
+    try:
+        latest_after = reference.remote_oid(run=run)
+        tag_rows = run(["ls-remote", "--refs", "origin", tag_ref]).splitlines()
+        immutable_tag_readback_oid = None
+        if len(tag_rows) == 1:
+            row = tag_rows[0].split("\t")
+            if len(row) == 2 and row[1] == tag_ref and reference.HEX40.fullmatch(row[0]):
+                immutable_tag_readback_oid = row[0]
+        exact_tag = (
+            bool(local_published_oid)
+            and immutable_tag_readback_oid == local_published_oid
+        )
+        preserved = latest_after == expected["tag_oid"]
+        if outcome == "published" and not (exact_tag and preserved):
+            outcome = "refused"
+        result = {
+            "status": outcome,
+            "immutable_ref": tag_ref,
+            "immutable_tag_oid": local_published_oid or None,
+            "immutable_tag_readback_oid": immutable_tag_readback_oid,
+            "preserved_operational_ref": expected["ref"],
+            "preserved_operational_tag_oid": expected["tag_oid"],
+            "operational_ref_readback_oid": latest_after,
+            "immutable_tag_readback_matches": exact_tag,
+            "recorded_at": timestamp,
+        }
+    except (OSError, subprocess.SubprocessError, ValueError):
+        result = {
+            "status": "uncertain",
+            "immutable_ref": tag_ref,
+            "immutable_tag_oid": local_published_oid or None,
+            "immutable_tag_readback_oid": None,
+            "preserved_operational_ref": expected["ref"],
+            "preserved_operational_tag_oid": expected["tag_oid"],
+            "operational_ref_readback_oid": None,
+            "immutable_tag_readback_matches": False,
+            "recorded_at": timestamp,
+        }
+    payload["auth_domain_tag_publication"] = result
+    _write_release_status(status_path, payload)
+    reference.require(
+        result["status"] == "published"
+        and result["immutable_tag_readback_matches"] is True
+        and result["operational_ref_readback_oid"] == expected["tag_oid"],
+        "auth repair immutable publication or preserved reference is unconfirmed",
+    )
+    return result
+
+
+def verify_auth_domain_tag_publication(payload: dict, sha: str) -> dict:
+    """Fail closed unless the repair tag and preserved ref readbacks match."""
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    publication = payload.get("auth_domain_tag_publication")
+    exception = payload.get("predecessor_exception")
+    acceptance = exception.get("backend_acceptance_origin") if isinstance(exception, dict) else None
+    operational = acceptance.get("operational_reference") if isinstance(acceptance, dict) else None
+    immutable_ref = publication.get("immutable_ref") if isinstance(publication, dict) else None
+    reference.require(
+        payload.get("status") == "healthy"
+        and sha == refresh.CANDIDATE
+        and payload.get("sha") == sha
+        and isinstance(publication, dict)
+        and publication.get("status") == "published"
+        and isinstance(operational, dict)
+        and operational.get("ref") == reference.REF
+        and operational.get("tag_oid") == publication.get("preserved_operational_tag_oid")
+        and isinstance(immutable_ref, str)
+        and bool(
+            re.fullmatch(
+                rf"refs/tags/deployed/production/{re.escape(sha[:8])}-[0-9]{{8}}T[0-9]{{6}}Z",
+                immutable_ref,
+            )
+        )
+        and isinstance(publication.get("immutable_tag_oid"), str)
+        and bool(reference.HEX40.fullmatch(publication["immutable_tag_oid"]))
+        and publication.get("immutable_tag_readback_oid")
+        == publication.get("immutable_tag_oid")
+        and publication.get("preserved_operational_ref") == reference.REF
+        and isinstance(publication.get("preserved_operational_tag_oid"), str)
+        and bool(reference.HEX40.fullmatch(publication["preserved_operational_tag_oid"]))
+        and publication.get("operational_ref_readback_oid")
+        == publication.get("preserved_operational_tag_oid")
+        and publication.get("immutable_tag_readback_matches") is True,
+        "auth repair publication is missing or its exact tag readbacks are unconfirmed",
+    )
+    return publication
 
 
 def _auth_domain_frontend_exception(sha: str, scope: str, source: str) -> bool:
@@ -415,8 +697,16 @@ def admit(sha: str, scope: str) -> None:
     if source is not None:
         if scope in {"backend", "all"} and sha == source:
             return
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        auth_anchor_is_exact = anchor is None or (
+            anchor["source"] == refresh.ACTIVE_ANCHOR_SOURCE
+            and anchor["original_healthy"]["commit"] == refresh.SOURCE
+            and anchor["sealed_boundary"]["checkpoint"]["plan"]["primary_sha"]
+            == refresh.SOURCE
+        )
         reference.require(
-            anchor is None and _auth_domain_frontend_exception(sha, scope, source),
+            auth_anchor_is_exact
+            and _auth_domain_frontend_exception(sha, scope, source),
             "operational_backend_transition_requires_original_source",
         )
 
@@ -593,7 +883,11 @@ def apply() -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "phase", choices=("prepare", "apply", "resolve", "admit", "healthy")
+        "phase",
+        choices=(
+            "prepare", "apply", "resolve", "admit", "healthy", "auth-publish",
+            "auth-publish-verify",
+        ),
     )
     parser.add_argument("--run-id")
     parser.add_argument("--attempt", type=int)
@@ -602,6 +896,7 @@ def main() -> None:
     parser.add_argument("--scope")
     parser.add_argument("--revision")
     parser.add_argument("--activation", type=Path)
+    parser.add_argument("--status", type=Path)
     args = parser.parse_args()
     if args.phase == "resolve":
         print(resolve())
@@ -609,6 +904,18 @@ def main() -> None:
         admit(args.sha, args.scope)
     elif args.phase == "healthy":
         print(healthy(args.sha, args.revision, args.activation))
+    elif args.phase == "auth-publish":
+        reference.require(args.status is not None, "auth_repair_release_status_required")
+        result = publish_auth_domain_tag(args.status, args.sha)
+        print(
+            "Auth repair immutable tag published; operational reference remained unchanged "
+            f"({result['preserved_operational_tag_oid']})."
+        )
+    elif args.phase == "auth-publish-verify":
+        reference.require(args.status is not None, "auth_repair_release_status_required")
+        payload = json.loads(args.status.read_text(encoding="utf-8"))
+        verify_auth_domain_tag_publication(payload, args.sha)
+        print("Auth repair publication readbacks are confirmed.")
     elif args.phase == "prepare":
         reference.require(
             args.output is not None, "operational_backend_intent_output_required"

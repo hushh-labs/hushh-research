@@ -22,6 +22,10 @@ from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 
 SOURCE = "d8a5fa4858741e611d39fd4f1f28b1ab930d057c"
+# The held production operational tag points at this staged backend revision.
+# Its healthy baseline and sealed primary remain SOURCE; these are distinct
+# source roles and must not be collapsed during auth-domain repair admission.
+ACTIVE_ANCHOR_SOURCE = "4452c7121c80ef73e8e6d43cd7af19b20f679a83"
 CANDIDATE = "00507b68ea293524f73ad42b1839984bcaa46c98"
 IMAGES = {
     "frontend": "gcr.io/hushh-pda/hushh-webapp@sha256:88ac5b5b659f6c851e80f3926d553d4443fd4408f283df09a3974650eebecf98",
@@ -106,6 +110,40 @@ def qualify_backend_acceptance_origin(
     }
     metadata = revision.get("metadata", {})
     labels = metadata.get("labels", {})
+    operational = profile.get("operational_reference")
+    import production_backend_successor as tag_reference
+    require(
+        isinstance(operational, dict)
+        and set(operational)
+        == {"ref", "tag_oid", "commit", "healthy_message", "anchor_record", "tag_object"}
+        and operational.get("ref") == tag_reference.REF
+        and bool(re.fullmatch(r"[0-9a-f]{40}", str(operational.get("tag_oid", ""))))
+        and operational.get("commit") == SOURCE
+        and isinstance(operational.get("healthy_message"), str)
+        and len(operational["healthy_message"].encode()) <= 65536
+        and isinstance(operational.get("tag_object"), str)
+        and len(operational["tag_object"].encode()) <= 131072,
+        "Operational reference is not bound to the reviewed restored source",
+    )
+    tag = tag_reference.tag_identity(operational["tag_object"])
+    tag_healthy, tagged_anchor = tag_reference.split(tag["message"], tag["commit"])
+    require(
+        tag["tag_oid"] == operational["tag_oid"]
+        and tag["commit"] == SOURCE
+        and tag_healthy == operational["healthy_message"]
+        and tagged_anchor == operational.get("anchor_record"),
+        "Operational annotated tag differs from its serialized reference",
+    )
+    anchor_record = operational.get("anchor_record")
+    if anchor_record is not None:
+        tag_reference.validate(anchor_record, operational["healthy_message"], SOURCE)
+        require(
+            anchor_record.get("source") == ACTIVE_ANCHOR_SOURCE
+            and anchor_record.get("healthy_commit") == SOURCE,
+            "Operational anchor does not match the reviewed staged/healthy source pair",
+        )
+    else:
+        tag_reference.healthy_fields(operational["healthy_message"], SOURCE)
     require(
         receipt.get("kind") == "manual-production-predecessor-exception"
         and receipt.get("scope") == "frontend"
@@ -150,6 +188,7 @@ def qualify_backend_acceptance_origin(
         "source": profile["source"],
         "backend": backend,
         "backend_image": identity["image"],
+        "operational_reference": operational,
     }
 
 
