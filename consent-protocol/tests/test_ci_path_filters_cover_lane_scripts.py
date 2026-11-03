@@ -455,6 +455,39 @@ def test_production_emergency_authority_test_is_controller_owned_not_backend() -
     assert "protocol-check" not in commands
 
 
+def test_document_delivery_ci_contract_paths_select_controller_owner_not_backend() -> None:
+    paths = (
+        "consent-protocol/tests/helpers/document_delivery_ci.py",
+        "consent-protocol/tests/test_uat_deploy_parallelism.py",
+    )
+    backend = _filters()["backend"]
+    manifest = (ROOT / "consent-protocol/scripts/test-ci.manifest.txt").read_text()
+    assert "tests/test_uat_deploy_parallelism.py" in manifest.splitlines()
+
+    for path in paths:
+        assert not backend.match_file(path), path
+        plan = _governance_plan((path,))
+        assert plan["selection_error"] is None
+        assert plan["selected_groups"] == ["controller"]
+        commands = {row["id"]: row["argv"] for row in plan["commands"]}
+        assert commands["uat-deploy-parallelism"] == [
+            "uv",
+            "run",
+            "--frozen",
+            "--project",
+            "consent-protocol",
+            "python",
+            "-m",
+            "pytest",
+            "-q",
+            "consent-protocol/tests/test_uat_deploy_parallelism.py",
+        ]
+        assert "protocol-check" not in commands
+
+    # The actual browser behavior owner stays in the application backend lane.
+    assert backend.match_file("consent-protocol/tests/services/test_document_delivery_browser.py")
+
+
 def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() -> None:
     excluded = {
         "deploy/account-deletion/activate_release.py",
