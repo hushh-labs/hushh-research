@@ -1252,6 +1252,13 @@ precedes mutations; the post-build recheck repeats it. Ordinary admission keeps
 its immediate live validation. A metadata receipt never substitutes for either
 live recheck.
 
+Phone-lease history discovery and ancestry remain ordered. Independent per-run
+attempt/artifact proofs use at most three readers with the same inherited
+deadline; results are consumed in history order. All required records must pass
+before the pre-policy boundary admits release. Failure cancels queued reads and
+joins active ones; the optimization changes neither the 90-second authority
+budget nor checkpoint/source requirements.
+
 The exact reviewed parallel maintenance profile may flush canonical records of
 older qualified attempts around its final refusal diagnostic. The reader accepts
 only bounded, typed progress metadata there; those records grant no authority.
