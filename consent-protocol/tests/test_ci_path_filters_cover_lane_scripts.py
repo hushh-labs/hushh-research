@@ -29,6 +29,7 @@ AUTH_HEALTH_TESTS = (
 AUTH_HEALTH_PATHS = frozenset(
     (
         AUTH_HEALTH_SOURCE,
+        "deploy/observability/auth_health_inventory.py",
         "deploy/observability/setup_auth_health.py",
         "deploy/observability/auth_health_uat_common.py",
         "deploy/observability/auth_health_uat_job_install.py",
@@ -297,7 +298,10 @@ def test_auth_health_paths_are_exact_and_schedule_registered_tests(
         assert outputs["auth_health"] == "true", changed_paths
         assert outputs["non_auth_health"] == "false", changed_paths
         assert resolved["auth_health_only"] == "true", changed_paths
-        if changed_paths[0] in AUTH_HEALTH_TESTS:
+        if (
+            changed_paths[0] in AUTH_HEALTH_TESTS
+            and changed_paths[0] != "consent-protocol/tests/test_auth_health_inventory.py"
+        ):
             assert outputs["backend"] == "true", changed_paths
 
 
@@ -356,13 +360,35 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     )
     focused = next(step for step in steps if step.get("name") == "Run exact auth-health contracts")
     assert setup < steps.index(focused)
-    assert (
-        focused["if"]
-        == "github.event_name == 'pull_request' && needs.paths.outputs.auth_health_only == 'true'"
-    )
+    assert focused["if"] == "needs.paths.outputs.auth_health == 'true'"
     assert set(focused["run"].split()[4:]) == {
         path.removeprefix("consent-protocol/") for path in AUTH_HEALTH_TESTS
     }
+    assert jobs["paths"]["outputs"]["auth_health"] == "${{ steps.filter.outputs.auth_health }}"
+
+    # A CI edit must not hide the observer owner or select unrelated DB suites.
+    mixed_outputs, mixed = _auth_health_decision(
+        (
+            "deploy/observability/auth_health_inventory.py",
+            "consent-protocol/tests/test_auth_health_inventory.py",
+            ".github/workflows/ci.yml",
+        ),
+        tmp_path,
+    )
+    assert mixed["auth_health_only"] == "false"
+    assert mixed_outputs["auth_health"] == "true"
+    assert mixed_outputs["backend"] == "false"
+    auto_outputs, auto = _auth_health_decision(
+        ("deploy/observability/auth_health_inventory.py",), tmp_path, "workflow_dispatch"
+    )
+    assert auto_outputs["auth_health"] == "true"
+    assert auto["auth_health_only"] == "false"
+    schema_outputs, schema = _auth_health_decision(
+        ("consent-protocol/tests/test_auth_health_inventory.py", "consent-protocol/db/schema.sql"),
+        tmp_path,
+    )
+    assert schema_outputs["backend"] == "true"
+    assert schema["auth_health_only"] == "false"
 
     backend_output = jobs["preflight-gate"]["outputs"]["backend"]
     assert "needs.paths.outputs.auth_health_only == 'true'" in backend_output

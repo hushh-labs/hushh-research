@@ -1222,13 +1222,19 @@ CI job.
 
 Tests follow the same economy: add a test only for a real regression, a trust boundary (with a negative control), or a public API or schema contract, and extend existing test files before creating new ones (`AGENTS.md`, Verification rules 5 to 8).
 
-An exact auth-health-only pull request can select the focused health suite in the
-required Governance job only when its complete changed-path set is nonempty and
-contains only `deploy/observability/auth_health_job.py` and the five registered
-health tests. Any mixed, unknown, application, schema, SQL, migration, dependency,
-workflow, or manifest path keeps the ordinary broad lanes. Secret scan, DCO,
-freshness, Governance and CI Status Gate remain required; workflow dispatches and
-promotion checks retain their full current contract.
+The required Governance job runs all seven registered auth-health suites whenever
+the existing path filter selects that owner, including mixed changes and filtered
+manual dispatches. Its inventory test has this explicit owner instead of selecting
+the unrelated Protocol/database lanes. The auth-health-only override applies only
+to nonempty, exact PRs; filtered auto dispatch selects affected owners directly.
+Explicit backend/all diagnostic scopes remain broad. Mixed application, schema, SQL,
+migration and dependency changes retain their affected lanes; unknown impact stays
+conservative. Secret scan, DCO, freshness and CI Status Gate remain required.
+
+Production health-job updates must also qualify their immutable image inputs,
+specification and ordered audit history in the existing observer inventory. The
+database-capacity gate refuses unreviewed job generations even when that job is
+healthy. Preserve older profiles and never exempt a workload by its name alone.
 
 ### Script Lifecycle Policy
 
