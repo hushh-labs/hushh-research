@@ -53,6 +53,62 @@ def validate_deployment(api, sha: str, run: str, attempt: str, base: str) -> Non
     exact.require_protected_tip(api, sha)
 
 
+def git_identity(*args: str) -> str:
+    value = exact.git(*args).decode().strip()
+    if not exact.SHA.fullmatch(value):
+        raise Refused("UAT approved PR Git identity could not be established")
+    return value
+
+
+def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=None) -> None:
+    """Bind the governed dispatch to an ordered PR chain and both serving bases."""
+    match = re.fullmatch(
+        r"([0-9a-f]{40}):([0-9a-f]{40}):"
+        r"([1-9][0-9]{0,9}=[0-9a-f]{40}(?:,[1-9][0-9]{0,9}=[0-9a-f]{40}){0,9})",
+        approval,
+    )
+    if not match or not exact.SHA.fullmatch(sha) or not exact.SHA.fullmatch(base):
+        raise Refused("UAT requires an explicit candidate and approved_scope BACKEND:FRONTEND:PR=HEAD[,PR=HEAD]")
+    backend, frontend, approvals = match.groups()
+    if base not in (backend, frontend):
+        raise Refused("The qualified UAT base is absent from the approved service bases")
+    prior = base
+    seen = set()
+    for item in approvals.split(","):
+        number, head = item.split("=")
+        if number in seen:
+            raise Refused("The approved UAT PR chain repeats a pull request")
+        seen.add(number)
+        pr = api.read(f"repos/{exact.REPOSITORY}/pulls/{number}")
+        if not (
+            isinstance(pr, dict)
+            and pr.get("merged") is True
+            and exact.SHA.fullmatch(pr.get("merge_commit_sha") or "")
+            and (pr.get("head") or {}).get("sha") == head
+            and (pr.get("base") or {}).get("ref") == "uat"
+            and ((pr.get("base") or {}).get("repo") or {}).get("full_name") == exact.REPOSITORY
+        ):
+            raise Refused("UAT scope does not identify an approved head's landed release PR")
+        landed = pr["merge_commit_sha"]
+        parent = git_identity("rev-parse", f"{landed}^1")
+        comparison = git_identity("merge-base", "--all", parent, head)
+        # Compare complete trees, including modes, generated files and removals.
+        tree = git_identity("rev-parse", f"{prior}^{{tree}}")
+        if (git_identity("rev-parse", f"{comparison}^{{tree}}") != tree
+                or git_identity("rev-parse", f"{head}^{{tree}}")
+                != git_identity("rev-parse", f"{landed}^{{tree}}")):
+            raise Refused("UAT candidate contains changes outside the approved PR delta against the serving base")
+        prior = landed
+    if prior != sha:
+        raise Refused("UAT candidate is not the last approved PR merge")
+    if read_live is not None:
+        serving = read_live("all")
+        if any(serving.get(name, {}).get("sha") != expected for name, expected in
+               (("backend", backend), ("frontend", frontend))):
+            raise Refused("UAT serving revisions changed after scope approval; compare and approve again")
+    print(f"UAT scope approved: {approvals}, backend base {backend}, frontend base {frontend}")
+
+
 def latest_attempt(api, candidate: str) -> dict:
     """Return diagnostics only; canonical verification below decides eligibility."""
     prefix = f"repos/{exact.REPOSITORY}/actions"
@@ -182,12 +238,13 @@ def render(result: dict) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("validate-inspection", "inspect", "validate-deployment"))
+    parser.add_argument("mode", choices=("validate-inspection", "inspect", "validate-deployment", "validate-scope-live"))
     parser.add_argument("--authority-sha", default="")
     parser.add_argument("--sha", default="")
     parser.add_argument("--ci-run-id", default="")
     parser.add_argument("--ci-attempt", default="")
     parser.add_argument("--base-sha", default="")
+    parser.add_argument("--approved-scope", default="")
     args = parser.parse_args()
     try:
         if args.mode == "validate-inspection":
@@ -195,7 +252,11 @@ def main() -> int:
             return 0
         api = GitHub(exact.REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
         if args.mode == "validate-deployment":
+            verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope)
             validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha)
+        elif args.mode == "validate-scope-live":
+            verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope,
+                                  read_live=exact.live_serving_bases)
         else:
             result = inspect(api, args.authority_sha)
             print(json.dumps(result, sort_keys=True))

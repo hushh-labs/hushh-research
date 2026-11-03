@@ -7,9 +7,8 @@ exact-head Admin PR landing or environment dispatch sequence.
 
 ## Visual Map
 
-Blank UAT source selection resolves to the protected UAT tip. Direct deployment
-remains unqualified until the historical baseline, exact-CI receipt and serving
-base are reconciled and the transition is separately authorized.
+UAT deployment requires an explicit landed application SHA and approved release
+PR scope. Inspection can read the protected tip and serving revisions.
 
 ```mermaid
 flowchart LR
@@ -26,8 +25,7 @@ flowchart LR
 The protected Dev branch is the configured development intake and the default
 source for governed Dev deployment. Preserve its history and qualify the exact
 candidate; an active branch does not prove that its tip is serving. The protected
-UAT-tip default is available for selection but cannot pass deployment admission
-until its historical baseline and predecessor gates are qualified together.
+UAT tip is eligible after its approved PR scope and predecessor gates are qualified.
 Main remains the release-control source; this transition
 does not rewind application source or database history.
 
@@ -42,8 +40,8 @@ after image builds. A later failed CI rerun, moved tip or changed baseline refus
 Reviewed application tests and dependencies may evolve; this follows the existing
 protected-branch trust model, not malicious-code containment.
 
-The UAT selector retains the existing healthy, current full-service receipt checks
-before declaring `NO_OP`. Unknown or in-flight baseline evidence refuses. A direct
+Historical acceptance and no-op receipts retain their original checks. Unknown
+or in-flight baseline evidence refuses. A direct
 candidate also on Main can use its explicit UAT CI evidence; an ordinary historical
 Main release can retain Dev-backed admission. Missing Dev image evidence selects
 a source build; explicit `promote-from-dev` still requires the real accepted image.
@@ -101,13 +99,10 @@ On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
 branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
-Blank-SHA manual UAT selection uses the protected UAT tip through the existing
-`uat_application_selection.py` owner. A new dispatch accepts an exact SHA only
-when it belongs to protected UAT history; a Main-only SHA is not a normal UAT
-source. Direct UAT also requires the exact full-scope candidate run, current
-attempt and observed serving base. Historical Main-backed receipts remain readable
-and retain their Dev-backed acceptance checks; they do not authorize a new Main-only
-dispatch.
+Manual UAT deployment pins the protected candidate, approved PR head and both
+serving SHAs. A Main-only SHA is not a normal UAT source. Direct UAT also requires
+the exact full-scope candidate run, current attempt and observed serving base.
+Historical Main-backed receipts remain readable under their original contract.
 
 For production, `sha` remains the UAT-accepted application. When approval landed
 as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
@@ -172,7 +167,7 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 | Lane | Source and authority |
 |---|---|
 | Dev | Feature PRs target protected `dev`; Main-owned tooling deploys an exact CI-green SHA in protected Dev history. The `ref` input locates a SHA but does not authorize a feature-only or Main-only commit. |
-| UAT | Blank source selection resolves to the protected UAT tip. New selections must belong to protected UAT history; direct UAT also requires exact full-scope CI, the current attempt and the observed serving base. Historical Main-backed receipts retain their Dev-backed checks but do not authorize a new Main-only selection. |
+| UAT | Pin the protected UAT candidate and approved release PR. Direct UAT also requires exact full-scope CI, the current attempt and the observed serving base. Historical Main-backed receipts retain their Dev-backed checks but do not authorize a new Main-only selection. |
 | Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
 | Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
