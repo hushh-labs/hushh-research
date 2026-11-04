@@ -367,8 +367,17 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         raise SystemExit("Main merge queue ruleset is ambiguous")
     queue_endpoint = f"repos/{REPO}/rulesets/{matches[0]['id']}"
     queue = gh_json(["api", queue_endpoint])
+    main_scope = {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+    observed_scope = queue.get("conditions", {})
+    # Older rulesets use GitHub's default-branch alias. Resolve it before
+    # narrowing to Main; never reinterpret an alias pointing at another branch.
+    default_scope = {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}
+    if observed_scope == default_scope:
+        repository = gh_json(["api", f"repos/{REPO}"])
+        if not isinstance(repository, dict) or repository.get("default_branch") != "main":
+            raise SystemExit("Main queue default-branch alias does not resolve to Main")
     if (queue.get("enforcement") != "active"
-            or queue.get("conditions", {}).get("ref_name") != {"include": ["refs/heads/main"], "exclude": []}
+            or observed_scope not in (main_scope, default_scope)
             or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))):
         raise SystemExit("Main queue configuration is not the reviewed active boundary")
     desired = {"users": users, "teams": [], "apps": []}
@@ -379,7 +388,8 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     if main.get("merge_queue_bypass_users") or main.get("merge_queue_bypass_team_slug"):
         raise SystemExit("Combined-result enforcement requires queue bypass to be disabled")
     bypass = []
-    changed = restricted != desired or checks.get("strict") is not False or queue.get("bypass_actors") != bypass
+    changed = (restricted != desired or checks.get("strict") is not False
+               or queue.get("bypass_actors") != bypass or observed_scope != main_scope)
     if not apply:
         print("  Main merges require the verified queue result; no direct queue bypass is enabled.")
         return changed
@@ -389,8 +399,9 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
                 _write(f"{endpoint}/restrictions/{key}", {key: desired[key]}, "PUT")
-    if queue.get("bypass_actors") != bypass:
+    if queue.get("bypass_actors") != bypass or observed_scope != main_scope:
         body = {key: queue[key] for key in ("name", "target", "enforcement", "conditions", "rules")}
+        body["conditions"] = main_scope
         body["bypass_actors"] = bypass
         _write(queue_endpoint, body, "PUT")
     if checks.get("strict") is not False:
