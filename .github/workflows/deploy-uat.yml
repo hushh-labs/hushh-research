@@ -31,7 +31,7 @@ on:
           - backend
           - frontend
       sha:
-        description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
+        description: "Required for a new deployment: full application SHA on the selected protected branch"
         required: false
         type: string
       source_branch:
