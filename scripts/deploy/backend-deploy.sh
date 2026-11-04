@@ -274,6 +274,16 @@ append_optional_secret "${_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET}" "PKM_ANSWER_STR
 append_optional_secret "${_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_WEBHOOK_SECRET"
 append_optional_secret "${_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_TEST_SECRET_KEY"
 append_optional_secret "${_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET"
+if [[ -n "${_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET}" ]]; then
+  if [[ "${PROJECT_ID}" != "hushh-pda-dev" || "${_DEPLOY_ENV}" != "dev" ]]; then
+    echo "The Dev answer test webhook secret cannot be bound outside Dev." >&2; exit 1
+  fi
+  dev_answer_secret="$(commerce_secret_name "${_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET}")"
+  if ! gcloud secrets describe "${dev_answer_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+    echo "The configured Dev answer test webhook secret is unavailable." >&2; exit 1
+  fi
+  secrets="${secrets},PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET=${dev_answer_secret}:latest"
+fi
 append_optional_secret "${_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET}" "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY"
 append_optional_secret "${_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET}" "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET"
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
