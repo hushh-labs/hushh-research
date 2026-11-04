@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "deploy" / "drive" / "verify_scheduler_state.py"
-UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
 PREFIX = "projects/hushh-pda-uat/locations/us-central1/jobs/"
 ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 API = "https://api.uat.hushh.ai"

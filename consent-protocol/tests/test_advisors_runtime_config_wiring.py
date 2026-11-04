@@ -25,7 +25,9 @@ from hushh_mcp.services import advisor_directory_service as ads
 _SYNC_SCRIPT = (
     Path(__file__).resolve().parents[2] / "scripts" / "ops" / "sync_backend_runtime_secrets.py"
 )
-_DEV_WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-dev.yml"
+_DEV_WORKFLOW = (
+    Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-dev-implementation.yml"
+)
 _BACKEND_DEPLOY = Path(__file__).resolve().parents[2] / "scripts" / "deploy" / "backend-deploy.sh"
 
 _CONFIG_ARGS = (
@@ -362,7 +364,10 @@ def test_a_lane_without_access_to_the_source_is_left_inert(monkeypatch):
 def test_the_deploy_workflows_pass_the_flag_they_configure():
     """A generator argument nobody passes is the same as no argument at all."""
     workflow = (
-        Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-uat.yml"
+        Path(__file__).resolve().parents[2]
+        / ".github"
+        / "workflows"
+        / "deploy-uat-implementation.yml"
     ).read_text()
     assert "--advisors-api-base-url" in workflow
 

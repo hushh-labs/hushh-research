@@ -32,17 +32,9 @@
     "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
-      "ankitkumarsingh1702",
-      "Jhumma-hushh",
-      "DamriaNeelesh",
-      "parthmawai",
-      "anoushkauoc",
-      "Roopmann30",
-      "imsharukhan"
+      "ankitkumarsingh1702"
     ],
-    "review_bypass_team_slug": "allowed-maintainers-to-approve",
+    "review_bypass_team_slug": "",
     "merge_queue_required": true,
     "merge_queue_ruleset_name": "main merge queue",
     "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",

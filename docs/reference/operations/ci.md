@@ -643,10 +643,34 @@ jobs.
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. Explicit diagnostic
    shards remain available through `WEB_FULL_SUITE_SHARD`.
+   The selector sends registered JSON contract inputs through Vitest's related
+   dependency graph, keeps unknown runtime JSON fail-closed, and leaves the exact
+   iOS XCTest and phone-flow browser harness to their platform/browser owners.
+   Import analysis uses the locked TypeScript 5.9.3 parser installed from the
+   existing UI tooling lock before selection. It scans runtime and Vitest roots,
+   then follows local imports, re-exports, literal CommonJS `require` calls, and
+   proven `createRequire(import.meta.url)` aliases into helpers, including
+   unit-reachable E2E or script helpers. It resolves literal imports and unique
+   top-level constant-string identifiers; a test that dynamically imports or
+   requires a changed file is selected directly. An unresolved computed import,
+   require, or unproved `createRequire` alias in a unit-only helper selects every
+   whole Vitest owner of that helper. Runtime-reachable unresolved loaders,
+   parser or module-resolution errors, and graphs exceeding the 64 MiB,
+   250,000-state, or 500,000-edge bounds retain diagnostic coverage. E2E-only imports remain
+   with the browser owner unless a unit/runtime root imports that helper. The
+   tracked web JS/TS tree measures 44.57 MiB, above the former 32 MiB cap; the
+   larger finite limit is not a latency guarantee.
 4. Backend changes require `Protocol`, `Protocol Database (1/2)`,
    `Protocol Database (2/2)`, `MCP Package` and `Integration`. The database jobs
    use separate PostgreSQL services and serial test partitions; both must
    succeed. Unselected lanes may skip, but selected lanes cannot pass by skip.
+
+The exact production-restoration fixture helper and test module use a focused
+Governance controller owner. It runs the restoration suite, both phone-schema
+history consumers, and the single historical Drive release-tooling case. Only
+those two fixture paths stay out of Protocol/Database path selection; adjacent
+phone-history tests, runtime modules, schemas and migrations still select their
+existing backend owners.
 
 The affected unit selector does not own standalone Node verifiers: analytics'
 Android-scope verifier and Node failure tests remain in the targeted Node job.
@@ -1845,3 +1869,77 @@ before selection; dev and production retain their predeployment Vertex gate.
 Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core, targeted Node/browser contracts and affected Web Unit Contracts.
 
 Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.
+
+## Matching-branch release control
+
+Dev/UAT entrypoints are thin callers of the reviewed Main implementations.
+Normal application runs originate from `dev` and `uat` respectively. Activate the
+same caller revisions on each environment branch before dispatching; a Main merge
+alone does not update those branches. Hosted read-only qualification remains
+required before claiming that a newly activated route works. No push or merge dispatches a deployment. Pod artifact
+publication retains its separate Main-only operation; it does not install an
+owner release.
+
+The unprivileged request job lives in each Dev/UAT implementation and uses only
+its ordinary Actions token. The protected Main broker alone reads repository
+alerts. Production, rollback, native and package callers retain their existing
+read-only Actions permissions and inline protected check. Do not add a write-token
+requester to their shared reusable workflow.
+
+Receipts distinguish caller SHA, application SHA, implementation SHA and broker
+SHA. Historical Main-origin receipts remain readable, but their provenance cannot
+be relabelled as an environment-branch execution. Downstream consumers verify
+GitHub's recorded reusable path/revision and the current attempt before accepting
+the new job-name prefix or artifact.
+
+Activation order: land reviewed tooling while retaining current Main callers;
+sync helper/dependency foundations before queue activation on each destination;
+reconcile environment branch rules and the
+[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission);
+then install the reviewed thin callers and verify hosted read-only admission.
+Do not retire the working Main entrypoints before that coordinated activation.
+Existing UAT `operation=inspect` checks
+prerequisites without release mutation. The reusable implementations also expose
+`operation=inspect-routing`: the ordinary Main broker issues current-attempt
+clearance, then the environment job verifies its caller and authenticates only to
+read project identity. It cannot enter deployment, migration, image-publication or
+traffic jobs. Expose this operation in the thin callers during their coordinated
+activation; both hosted readbacks are required. Check Dev's exact environment
+branch inventory with `verify-deployment-environment-governance.py --surface dev`;
+keep `ci-security` Main-only. Until activation/readback is recorded,
+matching-branch routing is source-complete only; do not dispatch a normal release
+merely to test it. A failure in setup, authority or deployment still stops dependent
+work; independent validation assertions are collected before the final failed result.
+
+The standalone CI Security Alerts workflow and its PR receipt polling are retired.
+Rerunning PR validation does not create another workflow. Historical receipt readers
+remain for retained evidence; they do not establish new deployment clearance.
+Synchronize an old feature branch with its destination before retrying legacy CI.
+Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
+`pull_request_target` event to avoid visible workflow entries. Automatic AI review, including the Readiness Exam, is removed. Product/provider
+qualification remains an explicitly selected release operation, not a PR reviewer.
+Retained probe identities remain constrained until their credentials are retired.
+
+
+### Focused browser and unit selection
+
+Known backend, contract and package paths keep their existing verification owner;
+explicit browser-pack matches still take precedence. Unknown application impact
+or failed planning retains conservative browser coverage. Global CSS changes
+require the normal compile path, without expanding the unit suite. Authored route
+contracts and the generated route/cache manifests feed the unit dependency graph.
+JSON under `__tests__/fixtures/` also remains a related-test input; it is never
+discarded. Colocated tests have unit ownership, and Calendar directive/review
+modules select the existing Calendar browser pack. Unknown runtime JSON still
+widens coverage. The Calendar run `41801308569` used selectors identical to Main
+but expanded to 1,535 unit files because its JSON fixture was unclassified; this
+was a selector gap, not missing branch synchronization. Compare the actual tested
+checkout and script blobs before attributing future delays to stale branches.
+
+The protected-document and phone browser contract selects both Linux Chromium
+and native macOS WebKit from the same `document` decision. Styling and unrelated
+application changes do not select that macOS job. The route-layout metadata JSON
+is owned by UI Contracts and affected units, and alone does not select
+protected-document WebKit; navigation runtime still does. Parameterized browser
+identities are partitioned by engine, so adding a fixture parameter cannot move a
+WebKit case onto Linux. Release qualification retains both engines.

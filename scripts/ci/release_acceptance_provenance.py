@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+REPOSITORY = "hushh-labs/hushh-research"
+
 
 class Refused(ValueError):
     pass
@@ -12,6 +14,57 @@ class Refused(ValueError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise Refused(message)
+
+
+def deployment_authority(run: dict, environment: str) -> dict:
+    """Separate caller identity from trusted tooling, including retained Main runs.
+
+    GitHub supplies referenced_workflows. Receipt fields and branch names alone
+    cannot establish that a branch caller used the reviewed Main implementation.
+    Callers still verify attempts, outcomes, operators and application admission.
+    """
+    require(environment in {"dev", "uat", "production"}, "Unknown release environment")
+    path = f".github/workflows/deploy-{environment}.yml"
+    sha = run.get("head_sha")
+    require(
+        isinstance(sha, str) and re.fullmatch(r"[a-f0-9]{40}", sha) is not None
+        and run.get("path", "").split("@", 1)[0] == path
+        and all((run.get(key) or {}).get("full_name") == REPOSITORY
+                for key in ("repository", "head_repository")),
+        "Release caller identity is unverified",
+    )
+    branch = run.get("head_branch")
+    if branch == "main":
+        return {"caller_sha": sha, "caller_branch": branch,
+                "implementation_path": path, "tooling_sha": sha}
+    require(environment in {"dev", "uat"} and branch == environment
+            and run.get("event") == "workflow_dispatch",
+            "Release must originate from its environment branch")
+    implementation = f".github/workflows/deploy-{environment}-implementation.yml"
+    references = run.get("referenced_workflows")
+    require(isinstance(references, list) and 0 < len(references) <= 20
+            and all(isinstance(item, dict) for item in references),
+            "Release implementation inventory is unavailable")
+    matches = [item for item in references if isinstance(item.get("path"), str)
+               and item["path"].split("@", 1)[0] == f"{REPOSITORY}/{implementation}"]
+    require(len(matches) == 1, "Release implementation is missing or ambiguous")
+    reference = matches[0]
+    tooling_sha = reference.get("sha")
+    require(isinstance(tooling_sha, str) and re.fullmatch(r"[a-f0-9]{40}", tooling_sha) is not None
+            and reference.get("ref") == "refs/heads/main"
+            and reference["path"] in {
+                f"{REPOSITORY}/{implementation}@main",
+                f"{REPOSITORY}/{implementation}@refs/heads/main",
+                f"{REPOSITORY}/{implementation}@{tooling_sha}",
+            }, "Release implementation is not the recorded Main revision")
+    return {"caller_sha": sha, "caller_branch": branch,
+            "implementation_path": implementation, "tooling_sha": tooling_sha}
+
+
+def deployment_job_name(run: dict, environment: str, name: str) -> str:
+    """Only the canonical verified wrapper adds this exact job-name prefix."""
+    authority = deployment_authority(run, environment)
+    return name if authority["caller_branch"] == "main" else f"Deploy / {name}"
 
 
 def bounded_artifact_inventory(inventory: object) -> list[dict]:
