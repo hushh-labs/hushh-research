@@ -331,7 +331,7 @@ def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
-def protected_pipeline_review_ruleset(policy: dict, *, read=gh_json) -> dict:
+def protected_pipeline_review_rulesets(policy: dict, *, read=gh_json) -> list[dict]:
     """Native approval protects candidate-modified queue workflows independently."""
     main = policy["main"]
     owners = main["protected_pipeline_edit_users"]
@@ -363,8 +363,11 @@ def protected_pipeline_review_ruleset(policy: dict, *, read=gh_json) -> dict:
                 or type(user.get("id")) is not int or user["id"] <= 0):
             raise SystemExit("Protected review bypass requires a verified named user")
         actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
-    return {
-        "name": name, "target": "branch", "enforcement": "active",
+    patterns = sorted({"/" + path + ("**" if path.endswith("/") else "") for path in paths})
+    if not 16 <= len(patterns) <= 30:
+        raise SystemExit("Protected review requires two nonempty partitions of at most 15 patterns")
+    return [{
+        "name": f"{name} {index + 1}", "target": "branch", "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/heads/main", "refs/heads/dev", "refs/heads/uat"], "exclude": []}},
         "bypass_actors": actors,
         "rules": [{"type": "pull_request", "parameters": {
@@ -375,19 +378,19 @@ def protected_pipeline_review_ruleset(policy: dict, *, read=gh_json) -> dict:
             "required_review_thread_resolution": False,
             "require_extra_approval_for_unattributed_changes": False,
             "required_reviewers": [{
-                "file_patterns": sorted({"/" + path + ("**" if path.endswith("/") else "") for path in paths}),
+                "file_patterns": patterns[index * 15:(index + 1) * 15],
                 "minimum_approvals": 1,
                 "reviewer": {"id": team["id"], "type": "Team"},
             }],
         }}],
-    }
+    } for index in range(2)]
 
 
 def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_json) -> bool:
     """Stage A adds protection; it never retires native reviews or queue rules."""
     from prepared_branch_governance import _write
 
-    desired = protected_pipeline_review_ruleset(policy, read=read)
+    desired_rules = protected_pipeline_review_rulesets(policy, read=read)
     owners = sorted(policy["main"]["protected_pipeline_edit_users"])
     actor = read(["api", "user"])
     if actor.get("type") != "User" or actor.get("login") not in owners:
@@ -399,7 +402,7 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
                 raise SystemExit("Reviewer team grants require both existing owners to be repository admins")
 
     verify_admins()
-    team_id = desired["rules"][0]["parameters"]["required_reviewers"][0]["reviewer"]["id"]
+    team_id = desired_rules[0]["rules"][0]["parameters"]["required_reviewers"][0]["reviewer"]["id"]
     team_path = f"orgs/{ORG}/teams/pipeline-editors"
     grant_path = f"{team_path}/repos/{REPO}"
 
@@ -428,21 +431,29 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
     inventory = read(["api", f"{endpoint}?per_page=100"])
     if not isinstance(inventory, list) or len(inventory) >= 100:
         raise SystemExit("Native review ruleset inventory is unavailable or incomplete")
-    matches = [row for row in inventory if row.get("name") == desired["name"]]
-    if len(matches) > 1:
-        raise SystemExit("Native protected review ruleset is ambiguous")
-    existing = read(["api", f"{endpoint}/{matches[0]['id']}"]) if matches else None
-    if existing and not same_review_ruleset(existing, desired):
-        raise SystemExit("Existing protected review differs; explicit reconciliation is required")
+    if any(row.get("name") == policy["branch_flow"]["protected_pipeline_review_ruleset_name"] for row in inventory):
+        raise SystemExit("Legacy unpartitioned protected review requires explicit reconciliation")
+    existing_rules = {}
+    for desired in desired_rules:
+        matches = [row for row in inventory if row.get("name") == desired["name"]]
+        if len(matches) > 1:
+            raise SystemExit("Native protected review ruleset is ambiguous")
+        existing = read(["api", f"{endpoint}/{matches[0]['id']}"]) if matches else None
+        if existing and not same_review_ruleset(existing, desired):
+            raise SystemExit("Existing protected review differs; explicit reconciliation is required")
+        if existing:
+            existing_rules[desired["name"]] = existing
     protections = {branch: read(["api", f"repos/{REPO}/branches/{branch}/protection"])
                    for branch in ("main", "dev", "uat")}
     guards = {row["id"]: read(["api", f"{endpoint}/{row['id']}"])
               for row in inventory if row.get("target") == "branch"}
-    print(f"Stage A: native protected review create={existing is None}; owner-team write={needs_grant}. Existing safeguards retained.")
+    missing = len(desired_rules) - len(existing_rules)
+    print(f"Stage A: native protected review create={missing}; owner-team write={needs_grant}. Existing safeguards retained.")
     if not apply:
-        return existing is None or needs_grant
-    created_id = None
-    creation_attempted = False
+        return bool(missing or needs_grant)
+    created_rules = {}
+    installed_ids = {}
+    uncertain_creation = None
     grant_attempted = False
     grant_confirmed = False
     try:
@@ -458,28 +469,43 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
         verify_admins()
         if grant() not in {"push", "maintain", "admin"}:
             raise SystemExit("Protected reviewer team write access was not confirmed")
-        if existing is None:
-            creation_attempted = True
-            result = subprocess.run(
-                ["gh", "api", "--method", "POST", endpoint, "--input", "-"],
-                input=json.dumps(desired), capture_output=True, text=True,
-            )
-            if result.returncode:
-                raise SystemExit(f"Native review creation failed: {result.stderr.strip()}")
-            created = json.loads(result.stdout)
-            if (type(created.get("id")) is not int or created["id"] <= 0
-                    or created.get("name") != desired["name"]
-                    or any(row.get("id") == created["id"] for row in inventory)):
-                raise SystemExit("Native review creation returned no verified rule ID")
-            created_id = created["id"]
-        rule_id = existing["id"] if existing else created_id
-        installed = read(["api", f"{endpoint}/{rule_id}"])
-        if not same_review_ruleset(installed, desired):
-            raise SystemExit("Native protected review readback differs from approved policy")
+        for desired in desired_rules:
+            existing = existing_rules.get(desired["name"])
+            if existing is None:
+                uncertain_creation = desired["name"]
+                result = subprocess.run(
+                    ["gh", "api", "--method", "POST", endpoint, "--input", "-"],
+                    input=json.dumps(desired), capture_output=True, text=True,
+                )
+                if result.returncode:
+                    raise SystemExit(f"Native review creation failed: {result.stderr.strip()}")
+                created = json.loads(result.stdout)
+                if (type(created.get("id")) is not int or created["id"] <= 0
+                        or created.get("name") != desired["name"]
+                        or created["id"] in created_rules
+                        or any(row.get("id") == created["id"] for row in inventory)):
+                    raise SystemExit("Native review creation returned no verified rule ID")
+                created_rules[created["id"]] = desired
+                uncertain_creation = None
+            rule_id = existing["id"] if existing else created["id"]
+            installed_ids[desired["name"]] = rule_id
+            installed = read(["api", f"{endpoint}/{rule_id}"])
+            if not same_review_ruleset(installed, desired):
+                raise SystemExit("Native protected review readback differs from approved policy")
+            final_inventory = read(["api", f"{endpoint}?per_page=100"])
+            if (not isinstance(final_inventory, list) or len(final_inventory) >= 100
+                    or [row.get("id") for row in final_inventory if row.get("name") == desired["name"]] != [rule_id]):
+                raise SystemExit("Native protected review inventory became ambiguous")
+        # Recheck the whole installed pair: a peer can change partition one
+        # while partition two is being created or read back.
         final_inventory = read(["api", f"{endpoint}?per_page=100"])
-        if (not isinstance(final_inventory, list) or len(final_inventory) >= 100
-                or [row.get("id") for row in final_inventory if row.get("name") == desired["name"]] != [rule_id]):
-            raise SystemExit("Native protected review inventory became ambiguous")
+        if not isinstance(final_inventory, list) or len(final_inventory) >= 100:
+            raise SystemExit("Native protected review final inventory is incomplete")
+        for desired in desired_rules:
+            rule_id = installed_ids[desired["name"]]
+            if ([row.get("id") for row in final_inventory if row.get("name") == desired["name"]] != [rule_id]
+                    or not same_review_ruleset(read(["api", f"{endpoint}/{rule_id}"]), desired)):
+                raise SystemExit("Native protected review pair changed during installation")
         verify_members()
         verify_admins()
         if grant() not in {"push", "maintain", "admin"}:
@@ -491,16 +517,17 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
             raise SystemExit("Existing native safeguards changed during Stage A")
     except (Exception, SystemExit) as error:
         repair = []
-        rule_absent = not creation_attempted
+        rule_absent = not uncertain_creation
         try:
-            if created_id is not None:
+            if uncertain_creation:
+                raise SystemExit(f"Rule creation outcome uncertain ({uncertain_creation}); retained for inspection and resume")
+            for created_id, desired in reversed(list(created_rules.items())):
                 if not same_review_ruleset(read(["api", f"{endpoint}/{created_id}"]), desired):
                     raise SystemExit("New rule changed; refusing to delete another operation's work")
                 _write(f"{endpoint}/{created_id}", {}, "DELETE")
                 after = read(["api", f"{endpoint}?per_page=100"])
                 if not isinstance(after, list) or len(after) >= 100 or any(row.get("id") == created_id for row in after):
                     raise SystemExit("New rule absence is unconfirmed")
-                rule_absent = True
             if grant_attempted and rule_absent and grant() == "push":
                 if not grant_confirmed:
                     raise SystemExit("Reviewer-team grant outcome uncertain; retained for inspection")
@@ -516,13 +543,11 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
                     raise SystemExit("Original reviewer-team access was not restored")
             elif grant_attempted and rule_absent and grant() != previous_grant:
                 repair.append("reviewer-team grant changed; concurrent permission retained for inspection")
-            if creation_attempted and not rule_absent:
-                repair.append("rule creation outcome uncertain; exact owner-team grant retained for inspection")
         except (Exception, SystemExit) as rollback_error:
             repair.append(str(rollback_error))
         raise SystemExit(f"Stage A failed: {error}. Rollback: {'; '.join(repair) if repair else 'task-owned changes restored'}. This operation did not write existing safeguards.") from error
-    print(f"Verified native protected review ruleset {rule_id}; existing safeguards retained.")
-    return existing is None or needs_grant
+    print("Verified both native protected review rulesets; existing safeguards retained.")
+    return bool(missing or needs_grant)
 
 
 def main_owner_admin_ruleset(policy: dict, *, read=gh_json) -> dict:
