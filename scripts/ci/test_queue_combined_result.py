@@ -547,6 +547,7 @@ def test_trusted_queue_requires_owner_only_for_ci_manifest_script_changes(script
 
 def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(tmp_path):
     import importlib.util
+    import os
     import shutil
     import subprocess
     from pathlib import Path
@@ -590,7 +591,10 @@ def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(
     assert "extra:ci" in guard._ci_npm_roots(latest, repository_root=candidate)
     command = [sys.executable, str(authority / "scripts/ci/verify-protected-pipeline-edits.py"),
                "--files", manifest, "--base-sha", base, "--head-sha", head, "--actor", "ordinary-contributor"]
-    result = subprocess.run(command, cwd=candidate, text=True, capture_output=True)
+    event = tmp_path / "pull-request-event.json"
+    event.write_text(json.dumps({"pull_request": {"base": {"sha": base}}}))
+    env = {**os.environ, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)}
+    result = subprocess.run(command, cwd=candidate, text=True, capture_output=True, env=env)
     assert result.returncode == 1 and "non-sanctioned actor" in result.stdout, result.stdout + result.stderr
     dependency_only = copy.deepcopy(before)
     dependency_only["dependencies"] = {"example": "1.0.0"}
@@ -598,5 +602,5 @@ def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(
     clean_head = commit()
     git("fetch", "origin", clean_head, cwd=candidate)
     command[command.index("--head-sha") + 1] = clean_head
-    result = subprocess.run(command, cwd=candidate, text=True, capture_output=True)
+    result = subprocess.run(command, cwd=candidate, text=True, capture_output=True, env=env)
     assert result.returncode == 0, result.stdout + result.stderr
