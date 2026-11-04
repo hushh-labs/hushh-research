@@ -135,8 +135,7 @@ jobs:
       deployment: false
     steps:
       - name: Assert inspection originates from uat
-        run: |
-          [[ "$UAT_SOURCE_BRANCH" == uat || "$UAT_SOURCE_BRANCH" == uat-isolated ]] && test "$GITHUB_REF_NAME" = "$UAT_SOURCE_BRANCH"
+        run: test "$GITHUB_REF_NAME" = uat
       - name: Checkout Main inspection tooling
         uses: actions/checkout@v6
         with:
@@ -199,6 +198,7 @@ jobs:
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
           DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
           DEPLOY_SECURITY_ENVIRONMENT: uat
+          DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
           DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
       - uses: actions/upload-artifact@v6
         if: always()
@@ -234,7 +234,7 @@ jobs:
             echo "Refusing unsupported UAT target."
             exit 1
           fi
-          if [[ "$UAT_SOURCE_BRANCH" != uat && "$UAT_SOURCE_BRANCH" != uat-isolated ]] || [ "$GITHUB_REF_NAME" != "$UAT_SOURCE_BRANCH" ]; then
+          if [ "$GITHUB_REF_NAME" != uat ]; then
             echo "Refusing UAT target selection outside uat."
             exit 1
           fi
@@ -414,8 +414,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$UAT_SOURCE_BRANCH" != uat && "$UAT_SOURCE_BRANCH" != uat-isolated ]] || [ "$GITHUB_REF_NAME" != "$UAT_SOURCE_BRANCH" ]; then
-            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from the selected protected UAT source."
+          if [ "$GITHUB_REF_NAME" != uat ]; then
+            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'uat' only."
             exit 1
           fi
 
@@ -4331,7 +4331,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          [[ "$UAT_SOURCE_BRANCH" == uat || "$UAT_SOURCE_BRANCH" == uat-isolated ]] && test "$GITHUB_REF_NAME" = "$UAT_SOURCE_BRANCH"
+          test "$GITHUB_REF_NAME" = uat
           test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
           [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Authenticate to the matching environment
