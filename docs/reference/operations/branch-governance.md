@@ -271,8 +271,9 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. Dev deploys through `Deploy to Dev`, with the governed actor cohort shared
    with UAT. After matching-branch routing qualification, dispatch from `dev`;
-   until that environment is activated, retain the existing Main entrypoint.
-   Follow the current routing receipt in the CI runbook, not the branch label alone.
+   normal releases wait for the destination source sync and successful
+   `inspect-routing` readback. Historical Main receipts remain recovery evidence,
+   not a dispatch fallback. Follow the current routing receipt in the CI runbook.
 2. The `ref` input defaults to `dev` and only locates the application SHA. The
    selected SHA must belong to protected Dev history and carry an accepted exact
    CI result; an explicit lookup ref cannot authorize branch-only content.

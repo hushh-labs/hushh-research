@@ -243,5 +243,6 @@ curated/incident source exceptions follow section 5. Dev follows
 [Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
 CI-green SHA must be reachable from the requested branch. Matching-branch callers
 use the reviewed Main-owned implementation after live routing qualification; the
-retained Main entrypoint remains the pre-activation path. Follow the CI runbook
-for that transition. Dev does not require an application merge to `main`.
+thin callers already on Main are not a pre-activation fallback: normal releases
+wait for destination synchronization and successful `inspect-routing`. Retained
+Main receipts are historical recovery evidence. Follow the CI runbook for activation. Dev does not require an application merge to `main`.
