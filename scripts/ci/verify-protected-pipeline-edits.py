@@ -215,7 +215,7 @@ def evaluate(
     )
 
 
-def owner_queue_approval(*, author: str, requester: str, review: str, main_policy: dict) -> list[str]:
+def owner_queue_approval(*, author: str, requester: str, review: str | None, main_policy: dict) -> list[str]:
     """An owner's explicit queue request approves their own captured PR head.
 
     The queue owner supplies authenticated membership and exact head evidence.
@@ -225,7 +225,7 @@ def owner_queue_approval(*, author: str, requester: str, review: str, main_polic
     exceptions = set(main_policy.get("review_bypass_users", []))
     if not exceptions <= owners or main_policy.get("review_bypass_team_slug"):
         raise PolicyError("Owner approval must not inherit a broader review bypass")
-    if review in {"APPROVED", "REVIEW_REQUIRED"} and author == requester and requester in exceptions:
+    if review in {"APPROVED", "REVIEW_REQUIRED", None} and author == requester and requester in exceptions:
         return [requester]
     return []
 
