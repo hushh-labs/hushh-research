@@ -2310,6 +2310,18 @@ class AccountService:
                     )
                 results["account_deletion_tombstone"] = True
                 results["firebase_cleanup_intent_count"] = len(cleanup_user_ids)
+                # Preserve consumed phone proofs and requester-scoped receipts
+                # through either account's erasure. The identity write guard
+                # permits detaching this owner only after its tombstone exists.
+                if self._table_exists(conn, "account_phone_linked_deletions"):
+                    for owner_column in ("requester_user_id", "target_user_id"):
+                        conn.execute(
+                            text(
+                                f"UPDATE account_phone_linked_deletions SET {owner_column}=NULL "
+                                f"WHERE {owner_column}=:user_id AND proof_event_digest IS NOT NULL"
+                            ),
+                            params,
+                        )
                 # Admission owns its own deadlines; restore the erasure budget
                 # before destructive statements, including bounded recovery batches.
                 conn.execute(_ACCOUNT_ERASURE_SQL_LIMITS)
