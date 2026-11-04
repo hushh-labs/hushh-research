@@ -2672,6 +2672,25 @@ cancellation and authorization never execute an event. Calendar Join uses the
 event's account email for an explicit Meet pre-join reminder; the external Meet
 app or browser still chooses its own signed-in account. Other meeting providers
 open their original validated links directly.
+Calendar booking reviews retain the exact `account_id` (default, second or third
+connected account), `calendar_id`, event ID, recurring-instance identity and
+OAuth grant generation from preparation through confirmation. Mutation support
+currently accepts only `calendar_id: "primary"` within the explicitly selected
+account; a secondary calendar is rejected before provider access. Recurring
+series changes require an occurrence selection. Event changes recheck occurrence,
+ETag and grant identity before their conditional PATCH or DELETE.
+
+For rescheduling, omitted guest, location and description fields remain unchanged;
+`attendees: []`, `location: ""` and `description: ""` explicitly remove permitted
+guests or clear the named field. Reviews show removals and retain organizer,
+self, room and unrelated attendee metadata. An incomplete guest list cannot be
+reviewed. Chat's legacy and structured reviews share complete account, event,
+time, guest and notification details; incomplete or expired reviews cannot be
+confirmed. Older proposals without sealed account/calendar/grant facts require
+a new review. Invalid, missing, DST-ambiguous or nonexistent local times ask for
+clarification before provider access; explicit offsets retain their UTC instant
+and the review retains the IANA display zone.
+
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,

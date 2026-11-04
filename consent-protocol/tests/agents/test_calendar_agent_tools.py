@@ -3,11 +3,14 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from hushh_mcp.agents.calendar import tools
 from hushh_mcp.agents.calendar.read_offer import (
     STATE_CALENDAR_OFFER,
     STATE_EVENT_OFFER,
     current_calendar_read_offer,
+    make_calendar_read_offer,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
@@ -326,6 +329,7 @@ def test_calendar_free_slots_uses_authenticated_owner_state(monkeypatch) -> None
 def test_calendar_conflict_requires_an_explicit_schedule_anyway_choice(monkeypatch) -> None:  # noqa: ANN001
     context = _context()
     calendar = _Calendar()
+    _seed_event_offer(context, calendar)
 
     async def propose(**kwargs: object) -> dict[str, object]:
         return {
@@ -504,6 +508,7 @@ def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_even
     calendar.propose = propose  # type: ignore[method-assign]
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
 
+    _seed_event_offer(context, calendar)
     asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
 
     payload = context.state["hussh:pending_directive:calendar"]["payload"]
@@ -592,9 +597,21 @@ def _current_event_with_guests() -> dict[str, object]:
     }
 
 
+def _seed_event_offer(context, calendar, event_id="evt-1", calendar_id="primary"):
+    context.state[STATE_EVENT_OFFER] = make_calendar_read_offer(
+        kind="events",
+        owner_id="user-1",
+        conversation_id="conversation-1",
+        grant_binding=asyncio.run(calendar._read_grant_binding()),
+        ids=[event_id],
+        calendar_id=calendar_id,
+    )
+
+
 def _review(monkeypatch, plan: dict[str, object]) -> tuple[str, dict[str, object]]:  # noqa: ANN001
     context = _context()
     calendar = _Calendar()
+    _seed_event_offer(context, calendar)
 
     async def propose(**kwargs: object) -> dict[str, object]:
         calendar.proposal_payload = kwargs["payload"]  # type: ignore[assignment]
@@ -639,6 +656,8 @@ def test_a_reschedule_review_counts_the_events_real_guests(monkeypatch) -> None:
     ]
     # Omitted fields are never sent as empty values that would clear them.
     assert set(calendar.proposal_payload) == {  # type: ignore[arg-type]
+        "account_id",
+        "calendar_id",
         "event_id",
         "start_at",
         "end_at",
@@ -803,3 +822,192 @@ def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_b
     )
     assert changed["status"] == "connection_changed"
     assert ctx.state[STATE_INVITATION_OFFER] is None
+
+
+@pytest.mark.parametrize(
+    "value", ["", "invalid", "2026-03-08T02:30:00", "2026-11-01T01:30:00", "2026-11-01"]
+)
+@pytest.mark.parametrize(
+    "name",
+    [
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "calendar_events",
+        "calendar_availability",
+        "calendar_free_slots",
+    ],
+)
+def test_calendar_invalid_times_need_clarification_without_provider_calls(monkeypatch, value, name):
+    def unavailable():
+        raise AssertionError("Invalid input must be rejected before resolving a provider")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", unavailable)
+    context = _context()
+    context.state["hussh:timezone"] = "America/New_York"
+    kwargs = {"start_at": value, "end_at": "2026-12-01T15:30:00Z"}
+    if name == "calendar_free_slots":
+        kwargs["duration_minutes"] = 30
+    if name == "propose_calendar_event":
+        kwargs["title"] = "Planning"
+    if name == "propose_calendar_reschedule":
+        kwargs["event_id"] = "evt-1"
+    result = asyncio.run(getattr(tools, name)(context, **kwargs))
+    assert result["status"] == "input_required"
+    assert f"{tools._STATE_PENDING_DIRECTIVE}:calendar" not in context.state
+
+
+def test_calendar_explicit_removals_survive_tool_and_review(monkeypatch):
+    calendar = _Calendar()
+    context = _context()
+    plan = {
+        "event_id": "evt-1",
+        "account_id": "default",
+        "calendar_id": "primary",
+        "start_at": "2026-12-02T16:00:00Z",
+        "end_at": "2026-12-02T16:30:00Z",
+        "attendees": [],
+        "description": "",
+        "location": "",
+        "send_updates": True,
+        "current_event": {
+            "title": "Planning",
+            "description": "Old agenda",
+            "location": "Room 4",
+            "attendees": [{"email": "guest@example.com"}],
+        },
+        "attendee_change": {"added": [], "removed": ["guest@example.com"], "result_count": 0},
+    }
+
+    async def propose(**kwargs):
+        calendar.proposal_payload = kwargs["payload"]
+        return {"proposal_id": "gcal_review", "expires_at": "2099-12-02T16:00:00Z", "plan": plan}
+
+    calendar.propose = propose
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    _seed_event_offer(context, calendar)
+    result = asyncio.run(
+        tools.propose_calendar_reschedule(
+            context,
+            event_id="evt-1",
+            start_at=plan["start_at"],
+            end_at=plan["end_at"],
+            attendees=[],
+            description="",
+            location="",
+        )
+    )
+    assert calendar.proposal_payload["attendees"] == []
+    assert calendar.proposal_payload["description"] == calendar.proposal_payload["location"] == ""
+    review = result["directive"]["payload"]
+    assert review["description"] == review["location"] == ""
+    assert review["attendees"] == []
+    assert review["locationCleared"] is True and review["descriptionCleared"] is True
+    assert review["attendeesRemoved"] == ["guest@example.com"]
+
+
+@pytest.mark.parametrize("change", ["missing", "expired", "grant", "event"])
+def test_chat_mutations_refuse_unverified_source_without_primary_fallback(monkeypatch, change):
+    calendar = _Calendar()
+    context = _context()
+    _seed_event_offer(context, calendar, calendar_id="secondary@example.com")
+    if change == "missing":
+        context.state.pop(STATE_EVENT_OFFER)
+    elif change == "expired":
+        context.state[STATE_EVENT_OFFER]["created_at_ms"] = 1
+    elif change == "grant":
+        context.state[STATE_EVENT_OFFER]["grant_binding"][-1] = "stale"
+    else:
+        context.state[STATE_EVENT_OFFER]["ids"] = ["another-event"]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    result = asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    assert result["status"] == "input_required"
+    assert calendar.proposal_payload is None
+
+
+def test_owner_cloud_additional_booking_never_resolves_shared_service(monkeypatch):
+    from hushh_mcp.services import calendar_account_board_service, pod_google_connections
+
+    monkeypatch.setattr(pod_google_connections, "calendar_runs_locally", lambda: True)
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Calendar())
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Shared account factory must not run on owner cloud")
+
+    monkeypatch.setattr(calendar_account_board_service, "account_schedule", forbidden)
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            _context(),
+            title="Planning",
+            start_at="2026-12-02T16:00:00Z",
+            end_at="2026-12-02T16:30:00Z",
+            account_id="account-b",
+        )
+    )
+    assert (
+        result["status"] == "input_required"
+        and result["reason_code"] == "calendar_account_unavailable"
+    )
+
+
+def test_invalid_declared_calendar_zone_does_not_fall_back_to_utc(monkeypatch):
+    context = _context()
+    context.state["hussh:timezone"] = "Invalid/Zone"
+
+    def forbidden():
+        raise AssertionError("Invalid zone must be rejected before provider resolution")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", forbidden)
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Planning",
+            start_at="2026-12-02T16:00:00Z",
+            end_at="2026-12-02T16:30:00Z",
+        )
+    )
+    assert result["status"] == "input_required"
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        ("owner", "calendar", "subject", "connected", "connection-rev", "grant-rev", "account-b"),
+        (
+            "owner",
+            "calendar",
+            "subject",
+            "credential",
+            "grant",
+            "calendar.events",
+            "calendar.freebusy",
+        ),
+    ],
+)
+def test_mutation_references_preserve_every_account_and_owner_cloud_grant_component(
+    monkeypatch, binding
+):
+    calendar = _Calendar()
+
+    async def read_binding(**kwargs):
+        return binding
+
+    calendar._read_grant_binding = read_binding
+    calendar.connections.read_grant_binding = read_binding
+    context = _context()
+    _seed_event_offer(context, calendar)
+    seen = []
+
+    async def propose(**kwargs):
+        seen.append(kwargs)
+        return {"proposal_id": "gcal_example"}
+
+    calendar.propose = propose
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    assert seen[0]["expected_binding"] == binding
+    assert context.state[STATE_EVENT_OFFER]["grant_binding"] == list(binding)
+    context.state[STATE_EVENT_OFFER]["grant_binding"][-1] = "replaced"
+    seen.clear()
+    result = asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    assert result["status"] == "input_required"
+    assert seen == []

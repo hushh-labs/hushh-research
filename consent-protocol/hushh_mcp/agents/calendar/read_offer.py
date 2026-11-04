@@ -23,7 +23,9 @@ class CalendarReadOffer(BaseModel):
     kind: Literal["events", "calendars", "invitations"]
     owner_id: str = Field(min_length=1, max_length=256)
     conversation_id: str = Field(min_length=1, max_length=256)
-    grant_binding: list[str] = Field(min_length=6, max_length=6)
+    # Hub, additional-account and owner-cloud ports have different opaque
+    # binding shapes. Preserve and compare every component, including scopes.
+    grant_binding: list[str] = Field(min_length=6, max_length=64)
     ids: list[str] = Field(min_length=1, max_length=250)
     calendar_id: str = Field(default="primary", min_length=1, max_length=1024)
     created_at_ms: int = Field(ge=1)

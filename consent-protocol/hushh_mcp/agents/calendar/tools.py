@@ -24,6 +24,7 @@ from hushh_mcp.agents.calendar.read_offer import (
     current_calendar_read_offer,
     make_calendar_read_offer,
 )
+from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_calendar_service import (
     EVENT_PAGE_MAX,
     get_google_calendar_service,
@@ -241,7 +242,7 @@ async def _run_calendar_read(
     tool_context: ToolContext,
     call: Callable[[str], Awaitable[dict[str, Any]]],
     *,
-    calendar_read: dict[str, Any] | None = None,
+    calendar_read: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
     owner_local_only: bool = False,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
@@ -260,6 +261,8 @@ async def _run_calendar_read(
     """
     try:
         user_id = _user_id(tool_context)
+        if callable(calendar_read):
+            calendar_read = calendar_read()
         async with asyncio.timeout(25):
             if owner_local_only:
                 from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
@@ -329,11 +332,12 @@ def _iso_window(tool_context: ToolContext, days: int) -> tuple[str, str]:
 def _calendar_iso(value: str, tool_context: ToolContext) -> str:
     """Use the person's declared timezone only when the model omitted an offset."""
     try:
-        resolved = resolve_calendar_time(str(value), timezone_name=_timezone(tool_context))
+        if "T" not in str(value) and " " not in str(value):
+            raise ValueError("calendar_time_missing")
+        zone_name = normalize_time_zone(tool_context.state.get("hussh:timezone"))
+        resolved = resolve_calendar_time(str(value), timezone_name=zone_name)
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return (
-            parsed if parsed.tzinfo else resolved.astimezone(ZoneInfo(_timezone(tool_context)))
-        ).isoformat()
+        return (parsed if parsed.tzinfo else resolved.astimezone(ZoneInfo(zone_name))).isoformat()
     except (ValueError, OverflowError) as exc:
         raise GoogleConnectionError(
             "Use a valid Calendar time with an explicit offset when local time repeats",
@@ -455,7 +459,7 @@ async def calendar_events(
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={
+        calendar_read=lambda: {
             "operation": "events",
             "query": query,
             "event_limit": _bounded_limit(limit),
@@ -561,7 +565,7 @@ async def calendar_availability(
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={
+        calendar_read=lambda: {
             "operation": "availability",
             "start_at": _calendar_iso(start_at, tool_context),
             "end_at": _calendar_iso(end_at, tool_context),
@@ -599,7 +603,7 @@ async def calendar_free_slots(
     return await _run_calendar_read(
         tool_context,
         _call,
-        calendar_read={
+        calendar_read=lambda: {
             "operation": "openings",
             "start_at": _calendar_iso(start_at, tool_context),
             "end_at": _calendar_iso(end_at, tool_context),
@@ -618,6 +622,8 @@ async def propose_calendar_event(
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
+    account_id: str = "default",
+    calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare a meeting for review. It is not created until the owner confirms.
 
@@ -630,9 +636,11 @@ async def propose_calendar_event(
     return await _propose(
         action="create",
         payload={
+            "account_id": account_id,
+            "calendar_id": calendar_id if calendar_id is not None else "primary",
             "title": title,
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
+            "start_at": start_at,
+            "end_at": end_at,
             "time_zone": _timezone(tool_context) if tool_context else "UTC",
             "attendees": attendees or [],
             "description": description or "",
@@ -653,6 +661,8 @@ async def propose_calendar_reschedule(
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
+    account_id: str = "default",
+    calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare a reschedule for a real event id. It is not changed until confirmed.
 
@@ -662,9 +672,11 @@ async def propose_calendar_reschedule(
     shows every attendee it adds or removes. An all-day event stays all-day.
     """
     payload: dict[str, Any] = {
+        "account_id": account_id,
+        **({"calendar_id": calendar_id} if calendar_id is not None else {}),
         "event_id": event_id,
-        "start_at": _calendar_iso(start_at, tool_context),
-        "end_at": _calendar_iso(end_at, tool_context),
+        "start_at": start_at,
+        "end_at": end_at,
         "time_zone": _timezone(tool_context) if tool_context else "UTC",
         "send_updates": send_updates,
     }
@@ -674,7 +686,7 @@ async def propose_calendar_reschedule(
         "description": description,
         "location": location,
     }
-    payload.update({key: value for key, value in changes.items() if value})
+    payload.update({key: value for key, value in changes.items() if value is not None})
     return await _propose(action="reschedule", payload=payload, tool_context=tool_context)
 
 
@@ -682,11 +694,18 @@ async def propose_calendar_cancellation(
     tool_context: ToolContext,
     event_id: str,
     send_updates: bool = True,
+    account_id: str = "default",
+    calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare cancellation of a real event id. It is not cancelled until confirmed."""
     return await _propose(
         action="cancel",
-        payload={"event_id": event_id, "send_updates": send_updates},
+        payload={
+            "account_id": account_id,
+            **({"calendar_id": calendar_id} if calendar_id is not None else {}),
+            "event_id": event_id,
+            "send_updates": send_updates,
+        },
         tool_context=tool_context,
     )
 
@@ -707,11 +726,62 @@ async def _propose(
             "status": "runtime_unavailable",
             "message": "Prepare and confirm calendar changes in the owner app.",
         }
+    # A previous card must never remain confirmable after a rejected replacement.
+    tool_context.state.pop(f"{_STATE_PENDING_DIRECTIVE}:calendar", None)
     try:
-        proposal = await get_google_calendar_service().propose(
-            user_id=_user_id(tool_context), action=action, payload=payload
+        if action != "cancel":
+            payload["start_at"] = _calendar_iso(payload.get("start_at", ""), tool_context)
+            payload["end_at"] = _calendar_iso(payload.get("end_at", ""), tool_context)
+        user_id = _user_id(tool_context)
+        service = get_google_calendar_service()
+        account_id = payload.get("account_id", "default")
+        if account_id != "default":
+            from hushh_mcp.services.pod_google_connections import calendar_runs_locally
+
+            if calendar_runs_locally():
+                raise GoogleConnectionError(
+                    "Additional Calendar accounts are unavailable in this runtime.",
+                    status_code=422,
+                    reason_code="calendar_account_unavailable",
+                )
+            from hushh_mcp.services.calendar_account_board_service import account_schedule
+
+            service = account_schedule(account_id).calendar
+        source_binding = None
+        if action != "create":
+            binding = await _read_binding(service, user_id)
+            offer = current_calendar_read_offer(
+                tool_context.state.get(STATE_EVENT_OFFER),
+                kind="events",
+                owner_id=user_id,
+                conversation_id=_conversation_id(tool_context),
+                grant_binding=binding,
+            )
+            if offer is None or payload["event_id"] not in offer.ids:
+                raise GoogleConnectionError(
+                    "Show the events again, then choose the exact meeting to change.",
+                    status_code=422,
+                    reason_code="calendar_event_offer_required",
+                )
+            if "calendar_id" in payload and payload["calendar_id"] != offer.calendar_id:
+                raise GoogleConnectionError(
+                    "Show this meeting again before reviewing a change.", status_code=422
+                )
+            payload["calendar_id"] = offer.calendar_id
+            source_binding = binding
+        proposal = await service.propose(
+            user_id=user_id,
+            action=action,
+            payload=payload,
+            **({"expected_binding": source_binding} if source_binding else {}),
         )
     except GoogleConnectionError as exc:
+        if exc.status_code == 422:
+            return {
+                "status": "input_required",
+                "reason_code": exc.reason_code or "calendar_invalid_request",
+                "message": str(exc),
+            }
         directive = _handle_connection_error(tool_context, exc, access_level="manage")
         if directive is not None:
             return directive
@@ -777,7 +847,11 @@ async def _propose(
             # real card (title/time/attendees) instead of a flattened
             # sentence. `summary` stays authoritative for voice/non-card
             # surfaces -- these are additive, not a replacement.
+            "accountId": plan.get("account_id"),
+            "calendarId": plan.get("calendar_id"),
             "eventId": plan.get("event_id"),
+            "recurringEventId": plan.get("recurring_event_id"),
+            "originalStartTime": plan.get("original_start_time"),
             "title": event_fields["title"],
             "startAt": event_fields["startAt"],
             "endAt": event_fields["endAt"],
@@ -785,6 +859,8 @@ async def _propose(
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
             "description": event_fields["description"],
+            "locationCleared": action == "reschedule" and plan.get("location") == "",
+            "descriptionCleared": action == "reschedule" and plan.get("description") == "",
             "googleMeet": google_meet,
             **(
                 {
@@ -959,8 +1035,10 @@ def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, A
             "attendees": attendees,
             "attendeesAdded": [str(item) for item in change.get("added", [])],
             "attendeesRemoved": [str(item) for item in change.get("removed", [])],
-            "location": plan.get("location") or current.get("location") or None,
-            "description": plan.get("description") or current.get("description") or None,
+            "location": plan["location"] if "location" in plan else current.get("location"),
+            "description": plan["description"]
+            if "description" in plan
+            else current.get("description"),
         }
     return {
         "title": plan.get("title"),

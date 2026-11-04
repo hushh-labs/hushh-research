@@ -58,7 +58,10 @@
       "attendees": [
         "person@example.com"
       ],
-      "send_updates": true
+      "send_updates": true,
+      "account_id": "default",
+      "calendar_id": "primary",
+      "time_zone": "Asia/Kolkata"
     },
     "conflicts": [],
     "directive": {
@@ -70,7 +73,7 @@
         "action": "create",
         "summary": "Schedule \u201cPlanning\u201d for Tue, Aug 11 at 3:30 PM IST and notify 1 attendee?",
         "confirmLabel": "Schedule meeting",
-        "expiresAt": "2026-08-11T12:00:00Z",
+        "expiresAt": "2099-08-11T12:00:00Z",
         "eventId": null,
         "title": "Planning",
         "startAt": "2026-08-11T10:00:00Z",
@@ -81,7 +84,10 @@
         "location": null,
         "googleMeet": true,
         "sendUpdates": true,
-        "conflicts": []
+        "conflicts": [],
+        "accountId": "default",
+        "calendarId": "primary",
+        "timeZone": "Asia/Kolkata"
       }
     },
     "message": "The app is showing the meeting details for owner confirmation. A Google Meet link will be added after scheduling."
