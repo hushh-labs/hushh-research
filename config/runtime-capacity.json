@@ -27,6 +27,7 @@
     "uat": {
       "project": "hushh-pda-uat",
       "database_instance": "hushh-uat-pg",
+      "optional_non_database_services": ["backend-dev-ankit"],
       "non_database_services": ["hushh-adk-openwebui", "hushh-adk-playground", "hushh-ria-intelligence-api", "hushh-webapp"],
       "services": {
         "consent-protocol-plg-qual": {

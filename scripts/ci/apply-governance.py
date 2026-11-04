@@ -336,8 +336,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true",
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
-    ap.add_argument("--branch", action="append", choices=("dev", "uat"),
-                    help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
+    ap.add_argument("--branch", action="append", choices=("dev", "uat", "uat-isolated"),
+                    help="Reconcile only this prepared branch; repeat for multiple branches. Does not create refs or deploy.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():

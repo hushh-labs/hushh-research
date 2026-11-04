@@ -18,6 +18,10 @@
       "uat": {
         "policy_key": "main",
         "merge_queue_ruleset_name": "uat merge queue"
+      },
+      "uat-isolated": {
+        "policy_key": "main",
+        "merge_queue_ruleset_name": "uat-isolated merge queue"
       }
     }
   },

@@ -74,6 +74,7 @@ CHECKS = (
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
+    _check("uat-pr-scope", "python3", "scripts/ci/test_uat_pr_scope.py", groups=("controller", "release")),
     _check("release-cadence-maintenance", "python3", "scripts/ci/test_release_cadence_maintenance.py", groups=("controller",)),
     _check("release-cadence-monitor", "python3", "scripts/ci/test_release_cadence_monitor.py", groups=("controller",)),
     _check("release-cadence-checkpoint", "python3", "scripts/ci/test_release_cadence_checkpoint.py", groups=("controller",)),
@@ -275,6 +276,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ci/resolve-ui-contract-base.py",
+            "scripts/ci/test_ui_contract_gate.py",
             "scripts/ci/runtime-contract-check.sh",
             "scripts/ci/secret-scan.sh",
             "scripts/ci/test_secret_scan_ranges.py",

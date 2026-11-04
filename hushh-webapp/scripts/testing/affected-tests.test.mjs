@@ -186,6 +186,7 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
       encoding: "utf8",
       env: {
         ...process.env,
+        HUSHH_WEB_TEST_MAX_WORKERS: "2",
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         NPM_TEST_LOG: npmLog,
         CI_VALIDATION_LEVEL: level,

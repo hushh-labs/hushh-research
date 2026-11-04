@@ -220,7 +220,8 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
         serving["frontend"]["sha"] = "d" * 40 if case == "mixed" else ""
     if case == "authority":
 
-        def unreviewed(*args):
+        def unreviewed(*args, branch):
+            assert branch == "uat"
             raise subject.Refused("UAT CI authority differs from reviewed Main")
 
         monkeypatch.setattr(subject.exact, "verify_git_authority", unreviewed)

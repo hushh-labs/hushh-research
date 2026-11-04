@@ -24,6 +24,7 @@ from github_security_authority import GitHub, Refused, verify_source
 from process_group import BoundedReadError, bounded_stdout
 
 REPOSITORY = "hushh-labs/hushh-research"
+SOURCE_BRANCHES = ("uat", "uat-isolated")
 SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
 
@@ -111,14 +112,19 @@ def verify_invocation_authority(candidate: str, authority: str) -> None:
                 "UAT test invocation differs from reviewed Main authority")
 
 
-def verify_git_authority(candidate: str, base: str, authority: str, *, current: bool = True) -> str:
+def verify_git_authority(candidate: str, base: str, authority: str, *, current: bool = True, branch: str = "uat") -> str:
     require(
         all(SHA.fullmatch(value) for value in (candidate, base, authority)),
         "Full immutable SHAs are required",
     )
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
     if current:
-        git("fetch", "--no-tags", "origin", "main", "uat")
-        require(git("rev-parse", "origin/uat").decode().strip() == candidate,
+        git(
+            "fetch", "--no-tags", "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+        )
+        require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
                 "UAT tip changed; qualify the current protected candidate")
     git("merge-base", "--is-ancestor", authority, "origin/main")
     git("merge-base", "--is-ancestor", base, candidate)
@@ -159,9 +165,10 @@ def verify_serving_bases(
     return result
 
 
-def require_protected_tip(api: GitHub, candidate: str) -> None:
-    branch = api.read(f"repos/{REPOSITORY}/branches/uat")
-    require(branch.get("protected") is True and branch.get("commit", {}).get("sha") == candidate,
+def require_protected_tip(api: GitHub, candidate: str, branch: str = "uat") -> None:
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
+    ref = api.read(f"repos/{REPOSITORY}/branches/{branch}")
+    require(ref.get("protected") is True and ref.get("commit", {}).get("sha") == candidate,
             "The protected UAT candidate changed during admission")
 
 
@@ -240,7 +247,7 @@ def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
 
 
 
-def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True):
+def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True, branch="uat"):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory = api.read(f"{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     jobs = inventory.get("jobs")
@@ -324,9 +331,9 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
 
 
 
-def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
+def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True, branch="uat"):
     prefix = f"repos/{REPOSITORY}/actions"
-    inventory_path = f"{prefix}/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch&head_sha={candidate}&per_page=100"
+    inventory_path = f"{prefix}/workflows/ci.yml/runs?branch={branch}&event=workflow_dispatch&head_sha={candidate}&per_page=100"
     rows = api.read(inventory_path)
     runs = rows.get("workflow_runs")
     require(
@@ -338,7 +345,7 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
     relevant = [
         item
         for item in runs
-        if item.get("head_sha") == candidate and item.get("head_branch") == "uat"
+        if item.get("head_sha") == candidate and item.get("head_branch") == branch
     ]
     if not current:
         # Historical serving acceptance binds one immutable successful run. A
@@ -367,7 +374,7 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
         observed = api.read(f"{prefix}/runs/{identifier}/attempts/{current_attempt}")
         require(
             observed.get("id") == identifier and observed.get("run_attempt") == current_attempt
-            and observed.get("head_sha") == candidate and observed.get("head_branch") == "uat",
+            and observed.get("head_sha") == candidate and observed.get("head_branch") == branch,
             "UAT CI attempt chronology belongs to another source",
         )
         attempts.append(observed)
@@ -382,8 +389,9 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
 
 
 def verify_attempt(
-    api: GitHub, candidate: str, base: str, run_id: int, attempt: int, *, current=True
+    api: GitHub, candidate: str, base: str, run_id: int, attempt: int, *, current=True, branch="uat"
 ) -> dict:
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
     require(SHA.fullmatch(candidate), "Full application SHA is required")
     require(SHA.fullmatch(base), "Full UAT serving-base SHA is required")
     require(
@@ -399,7 +407,7 @@ def verify_attempt(
     run = api.read(f"{prefix}/runs/{run_id}")
     require(
         run.get("event") == "workflow_dispatch"
-        and run.get("head_branch") == "uat"
+        and run.get("head_branch") == branch
         and run.get("head_repository", {}).get("id") == source["repository_id"]
         and run.get("head_repository", {}).get("full_name") == REPOSITORY
         and run.get("status") == "completed"
@@ -408,7 +416,7 @@ def verify_attempt(
     )
     _verify_run_jobs(api, run, candidate, base, run_id, attempt, current=current)
     inventory_path, rows = _latest_attempt_inventory(
-        api, candidate, run_id, attempt, current=current
+        api, candidate, run_id, attempt, current=current, branch=branch
     )
     rechecked_source = verify_source(
         api.read,
@@ -422,7 +430,7 @@ def verify_attempt(
             api.read(inventory_path) == rows
             if current
             else _latest_attempt_inventory(
-                api, candidate, run_id, attempt, current=False
+                api, candidate, run_id, attempt, current=False, branch=branch
             )[1] == rows
         ),
         "UAT CI changed during verification",
@@ -433,17 +441,18 @@ def verify_attempt(
 
 def verify_predecessor(prior: dict, *, current: bool) -> None:
     candidate = prior["sha"]
-    tree = verify_git_authority(candidate, prior["base_sha"], prior["authority_sha"], current=current)
+    branch = prior.get("source_branch", "uat")
+    tree = verify_git_authority(candidate, prior["base_sha"], prior["authority_sha"], current=current, branch=branch)
     require(tree == prior["tree"], "UAT predecessor tree changed")
     api = GitHub(REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     if current:
-        require_protected_tip(api, candidate)
+        require_protected_tip(api, candidate, branch)
     verify_attempt(
         api, candidate, prior["base_sha"], prior["run_id"], prior["run_attempt"],
-        current=current,
+        current=current, branch=branch,
     )
     if current:
-        require_protected_tip(api, candidate)
+        require_protected_tip(api, candidate, branch)
 
 
 def issue_predecessor(args) -> dict:
@@ -454,11 +463,14 @@ def issue_predecessor(args) -> dict:
     serving = live_serving_bases(args.scope)
     require(all(value["sha"] == args.base_sha for value in serving.values()),
             "Actual UAT serving baseline changed before mutation")
+    branch = getattr(args, "source_branch", "uat")
     record = {"schema_version": 1, "kind": "uat-exact-ci", "status": "accepted", "environment": "uat",
               "repository": REPOSITORY, "sha": args.sha, "base_sha": args.base_sha,
               "authority_sha": args.authority_sha, "services": sorted(services), "serving": serving,
               "run_id": args.ci_run_id, "run_attempt": args.ci_attempt,
-              "tree": verify_git_authority(args.sha, args.base_sha, args.authority_sha)}
+              "tree": verify_git_authority(args.sha, args.base_sha, args.authority_sha, branch=branch)}
+    if branch != "uat":
+        record["source_branch"] = branch
     verify_predecessor(record, current=True)
     if args.predecessor is not None:
         require(record == json.loads(args.predecessor.read_text()), "Direct UAT admission changed before mutation")

@@ -26,6 +26,8 @@ def validate_inspection(inputs: dict) -> None:
     if not isinstance(inputs, dict):
         raise Refused("Inspection inputs are malformed")
     for key, value in inputs.items():
+        if key == "source_branch" and value in exact.SOURCE_BRANCHES:
+            continue
         if key in allowed:
             if value != allowed[key]:
                 raise Refused("Inspection accepts only the default target and scope")
@@ -46,17 +48,82 @@ def validate_pins(sha: str, run: str, attempt: str, base: str) -> tuple[int, int
     return int(run), int(attempt)
 
 
-def validate_deployment(api, sha: str, run: str, attempt: str, base: str) -> None:
+def validate_deployment(api, sha: str, run: str, attempt: str, base: str, *, branch="uat") -> None:
     run_id, number = validate_pins(sha, run, attempt, base)
-    exact.require_protected_tip(api, sha)
-    exact.verify_attempt(api, sha, base, run_id, number)
-    exact.require_protected_tip(api, sha)
+    exact.require_protected_tip(api, sha, branch)
+    exact.verify_attempt(api, sha, base, run_id, number, branch=branch)
+    exact.require_protected_tip(api, sha, branch)
 
 
-def latest_attempt(api, candidate: str) -> dict:
+def git_identity(*args: str) -> str:
+    value = exact.git(*args).decode().strip()
+    if not exact.SHA.fullmatch(value):
+        raise Refused("UAT approved PR Git identity could not be established")
+    return value
+
+
+def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=None, branch="uat") -> None:
+    """Bind the governed dispatch to an ordered PR chain and both serving bases."""
+    if branch not in exact.SOURCE_BRANCHES:
+        raise Refused("Unrecognized protected UAT branch")
+    match = re.fullmatch(
+        r"([0-9a-f]{40}):([0-9a-f]{40}):"
+        r"([1-9][0-9]{0,9}=[0-9a-f]{40}(?:,[1-9][0-9]{0,9}=[0-9a-f]{40}){0,9})",
+        approval,
+    )
+    if not match or not exact.SHA.fullmatch(sha) or not exact.SHA.fullmatch(base):
+        raise Refused("UAT requires an explicit candidate and approved_scope BACKEND:FRONTEND:PR=HEAD[,PR=HEAD]")
+    backend, frontend, approvals = match.groups()
+    if base not in (backend, frontend):
+        raise Refused("The qualified UAT base is absent from the approved service bases")
+    prior = base
+    seen = set()
+    for item in approvals.split(","):
+        number, head = item.split("=")
+        if number in seen:
+            raise Refused("The approved UAT PR chain repeats a pull request")
+        seen.add(number)
+        pr = api.read(f"repos/{exact.REPOSITORY}/pulls/{number}")
+        if not (
+            isinstance(pr, dict)
+            and pr.get("merged") is True
+            and exact.SHA.fullmatch(pr.get("merge_commit_sha") or "")
+            and (pr.get("head") or {}).get("sha") == head
+            and (pr.get("base") or {}).get("ref") == branch
+            and ((pr.get("base") or {}).get("repo") or {}).get("full_name") == exact.REPOSITORY
+        ):
+            raise Refused("UAT scope does not identify an approved head's landed release PR")
+        landed = pr["merge_commit_sha"]
+        try:
+            head_tree = git_identity("rev-parse", f"{head}^{{tree}}")
+        except Refused:
+            # Squashed/deleted branches may only retain the reviewed GitHub PR ref.
+            exact.git("fetch", "--no-tags", "--no-recurse-submodules", "origin", f"refs/pull/{number}/head")
+            if git_identity("rev-parse", "FETCH_HEAD") != head:
+                raise Refused("The retained GitHub UAT PR ref does not match the approved head") from None
+            head_tree = git_identity("rev-parse", f"{head}^{{tree}}")
+        parent = git_identity("rev-parse", f"{landed}^1")
+        comparison = git_identity("merge-base", "--all", parent, head)
+        # Compare complete trees, including modes, generated files and removals.
+        tree = git_identity("rev-parse", f"{prior}^{{tree}}")
+        if (git_identity("rev-parse", f"{comparison}^{{tree}}") != tree
+                or head_tree != git_identity("rev-parse", f"{landed}^{{tree}}")):
+            raise Refused("UAT candidate contains changes outside the approved PR delta against the serving base")
+        prior = landed
+    if prior != sha:
+        raise Refused("UAT candidate is not the last approved PR merge")
+    if read_live is not None:
+        serving = read_live("all")
+        if any(serving.get(name, {}).get("sha") != expected for name, expected in
+               (("backend", backend), ("frontend", frontend))):
+            raise Refused("UAT serving revisions changed after scope approval; compare and approve again")
+    print(f"UAT scope approved: {approvals}, backend base {backend}, frontend base {frontend}")
+
+
+def latest_attempt(api, candidate: str, branch="uat") -> dict:
     """Return diagnostics only; canonical verification below decides eligibility."""
     prefix = f"repos/{exact.REPOSITORY}/actions"
-    rows = api.read(f"{prefix}/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch"
+    rows = api.read(f"{prefix}/workflows/ci.yml/runs?branch={branch}&event=workflow_dispatch"
                     f"&head_sha={candidate}&per_page=100")
     if not isinstance(rows, dict):
         raise Refused("CI run inventory is malformed")
@@ -80,7 +147,7 @@ def latest_attempt(api, candidate: str) -> dict:
 def qualify_inspection(api, result: dict) -> None:
     """Offer pins only through current canonical admission; diagnose without rerunning."""
     try:
-        run = latest_attempt(api, result["candidate_sha"])
+        run = latest_attempt(api, result["candidate_sha"], result.get("source_branch", "uat"))
         if not run:
             result["reason_code"] = "qualification_missing"
             return
@@ -122,29 +189,31 @@ def qualify_inspection(api, result: dict) -> None:
             result["reason_code"] = "qualification_base_unpublished"
             return
         exact.verify_attempt(api, result["candidate_sha"], result["base_sha"],
-                             run["id"], run["run_attempt"])
+                             run["id"], run["run_attempt"], branch=result.get("source_branch", "uat"))
         result.update(ready=True, reason_code="qualified_current_ci")
     except (Refused, KeyError, TypeError):
         result["reason_code"] = "qualification_unverified"
 
 
-def inspect(api, authority: str, *, read_live=None) -> dict:
+def inspect(api, authority: str, *, read_live=None, branch="uat") -> dict:
     read_live = read_live or exact.live_serving_bases
-    branch = api.read(f"repos/{exact.REPOSITORY}/branches/uat")
-    candidate = branch.get("commit", {}).get("sha", "")
+    if branch not in exact.SOURCE_BRANCHES:
+        raise Refused("Unrecognized protected UAT branch")
+    ref = api.read(f"repos/{exact.REPOSITORY}/branches/{branch}")
+    candidate = ref.get("commit", {}).get("sha", "")
     if not all(exact.SHA.fullmatch(value) for value in (candidate, authority)):
         raise Refused("Protected UAT source or Main workflow identity is unavailable")
-    exact.require_protected_tip(api, candidate)
+    exact.require_protected_tip(api, candidate, branch)
     serving = read_live("all")
     base = serving.get("backend", {}).get("sha", "")
     exact.verify_serving_bases(base, "all", base, serving.get("frontend", {}).get("sha", ""))
     result = {"kind": "uat-prerequisite-inspection", "ready": False,
               "candidate_sha": candidate, "base_sha": base,
-              "authority_sha": authority, "serving": serving,
+              "authority_sha": authority, "serving": serving, "source_branch": branch,
               "reason_code": "qualification_unverified"}
-    exact.verify_git_authority(candidate, base, authority)
+    exact.verify_git_authority(candidate, base, authority, branch=branch)
     qualify_inspection(api, result)
-    exact.require_protected_tip(api, candidate)
+    exact.require_protected_tip(api, candidate, branch)
     if read_live("all") != serving:
         raise Refused("UAT serving state changed during inspection; inspect again")
     return result
@@ -163,7 +232,7 @@ def render(result: dict) -> str:
                   f"  - `ci_base_sha={result['base_sha']}`", "  - `scope=auto`"]
     elif result["reason_code"] in {"qualification_missing", "qualification_base_unpublished", "qualification_base_changed"}:
         lines += ["- Qualification is required. In Actions → PR Validation → Run workflow:",
-                  "  - Branch: `uat`; scope: `all`",
+                  f"  - Branch: `{result.get('source_branch', 'uat')}`; scope: `all`",
                   f"  - `uat_base_sha={result['base_sha']}`",
                   "- Wait for success, then run this inspection again."]
     else:
@@ -182,12 +251,14 @@ def render(result: dict) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("validate-inspection", "inspect", "validate-deployment"))
+    parser.add_argument("mode", choices=("validate-inspection", "inspect", "validate-deployment", "validate-scope-live"))
     parser.add_argument("--authority-sha", default="")
     parser.add_argument("--sha", default="")
     parser.add_argument("--ci-run-id", default="")
     parser.add_argument("--ci-attempt", default="")
     parser.add_argument("--base-sha", default="")
+    parser.add_argument("--approved-scope", default="")
+    parser.add_argument("--source-branch", choices=exact.SOURCE_BRANCHES, default="uat")
     args = parser.parse_args()
     try:
         if args.mode == "validate-inspection":
@@ -195,9 +266,13 @@ def main() -> int:
             return 0
         api = GitHub(exact.REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
         if args.mode == "validate-deployment":
-            validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha)
+            verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope, branch=args.source_branch)
+            validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha, branch=args.source_branch)
+        elif args.mode == "validate-scope-live":
+            verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope,
+                                  read_live=exact.live_serving_bases, branch=args.source_branch)
         else:
-            result = inspect(api, args.authority_sha)
+            result = inspect(api, args.authority_sha, branch=args.source_branch)
             print(json.dumps(result, sort_keys=True))
             if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
                 with Path(summary).open("a") as output:

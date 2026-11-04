@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -184,3 +185,133 @@ async def test_historical_receipts_are_requester_scoped_and_settle_only_after_de
     assert (await AccountService().delete_account(HOLDER, target="both"))["success"] is True
     assert (await linked.status(REQUESTER, operation))["state"] == "admitted"
     assert (await linked.status(REQUESTER, operation))["state"] == "admitted"
+
+
+def _deleting(calls, before=None):
+    """The route's port: the existing full-account admission, recheck included."""
+
+    async def delete(owner, admission_check):
+        calls.append(owner)
+        if before:
+            await before(owner)
+        return await AccountService().delete_account(
+            owner, target="both", admission_check=admission_check
+        )
+
+    return delete
+
+
+async def _confirm(operation, delete, code=CODE):
+    return await linked.confirm(
+        REQUESTER, operation, PHONE, phone_id_token=None, test_code=code, delete=delete
+    )
+
+
+async def test_fixture_code_deletes_the_holder_once_and_the_requester_claims_the_number(
+    db, monkeypatch
+):
+    # Exercise the proposed revert in this disposable fixture only.
+    monkeypatch.setattr(linked, "enabled", lambda: True)
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    calls = []
+    with pytest.raises(HTTPException) as wrong:
+        await _confirm(prepared["operation_id"], _deleting(calls), code="000000")
+    assert wrong.value.status_code == 401 and calls == []
+    result = await _confirm(prepared["operation_id"], _deleting(calls))
+    assert result == {"operation_id": prepared["operation_id"], "state": "admitted"}
+    # A lost response replays the receipt; the erasure is never dispatched twice.
+    assert await _confirm(prepared["operation_id"], _deleting(calls)) == result
+    assert await linked.status(REQUESTER, prepared["operation_id"]) == result
+    assert calls == [HOLDER]
+    assert (
+        await _value(
+            db,
+            "SELECT cleanup_intent_kind FROM account_deletion_tombstones WHERE user_id_hash=$1",
+            account_deletion_user_hash(HOLDER),
+        )
+        == "full_account"
+    )
+    # The admitted deletion releases the number to the requester's ordinary claim.
+    service = identity.ActorIdentityService()
+    assert await service.can_claim_test_phone(user_id=REQUESTER, phone_number=PHONE)
+    claimed = await service.claim_verified_phone(
+        user_id=REQUESTER, phone_number=PHONE, source="uat_test_phone_claim"
+    )
+    assert claimed["phone_verified"] is True and await _holder(db) == REQUESTER
+
+
+@pytest.fixture
+def sms(db, monkeypatch):
+    """Real-number transport; each token maps to one recorded Firebase phone proof."""
+    import api.utils.firebase_admin as firebase_admin
+    import api.utils.phone_claim_proof as claim_proof
+    from hushh_mcp.services import phone_transfer_authority
+
+    monkeypatch.setattr(linked, "enabled", lambda: True)
+    monkeypatch.delenv("HUSHH_UAT_PHONE_TEST_NUMBERS")
+    proofs = {}
+
+    async def verify(token, *, proof_metadata, **_):
+        phone, uid, stamp = proofs[token]
+        proof_metadata.update(event=f"{uid}:{phone}:{stamp}", valid_until=stamp + 300)
+        return phone, uid
+
+    monkeypatch.setattr(claim_proof, "verify_phone_claim_id_token", verify)
+    monkeypatch.setattr(phone_transfer_authority, "assert_real_sms_provider", lambda *_: None)
+    monkeypatch.setattr(firebase_admin, "get_firebase_auth_app", lambda: object())
+    recovery = AsyncMock(return_value=False)
+    monkeypatch.setattr(linked, "_recovery_required", recovery)
+    return SimpleNamespace(proofs=proofs, recovery=recovery)
+
+
+async def _sms_confirm(operation, token, delete):
+    return await linked.confirm(
+        REQUESTER, operation, PHONE, phone_id_token=token, test_code=None, delete=delete
+    )
+
+
+async def test_one_sms_event_authorizes_one_dispatch_for_its_own_number(db, sms):
+    now = int(time.time())
+    sms.proofs.update(
+        own=(PHONE, "phone-session", now),
+        refreshed=(PHONE, "phone-session", now),
+        other=(UNBOUND, "phone-session", now),
+        expired=(PHONE, "old-phone-session", now - 301),
+    )
+    first, second = await linked.prepare(REQUESTER, PHONE), await linked.prepare(REQUESTER, PHONE)
+    assert first["transport"] == second["transport"] == "sms"
+    calls = []
+    with pytest.raises(HTTPException) as foreign:
+        await _sms_confirm(first["operation_id"], "other", _deleting(calls))
+    assert foreign.value.detail["code"] == "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED"
+    with pytest.raises(HTTPException) as expired:
+        await _sms_confirm(first["operation_id"], "expired", _deleting(calls))
+    assert expired.value.detail["code"] == "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED"
+    paused = AsyncMock(return_value={"success": False, "error_code": "ACCOUNT_DELETION_PAUSED"})
+    assert (await _sms_confirm(first["operation_id"], "own", paused))["state"] == "refused"
+    # A refreshed JWT is the same authentication event: it never authorizes again.
+    with pytest.raises(HTTPException) as replay:
+        await _sms_confirm(second["operation_id"], "refreshed", _deleting(calls))
+    assert replay.value.detail["code"] == "PHONE_LINKED_DELETION_PROOF_ALREADY_USED"
+    paused.assert_awaited_once()
+    assert calls == [] and await _holder(db) == HOLDER
+
+
+async def test_sms_proof_that_expires_during_preflight_cannot_admit_erasure(db, sms, monkeypatch):
+    now = int(time.time())
+    sms.proofs["expiring"] = (PHONE, "phone-session", now)
+    clock = SimpleNamespace(time=lambda: now)
+    monkeypatch.setattr(linked, "time", clock)
+
+    async def delay(*_):
+        clock.time = lambda: now + 300
+        return False
+
+    sms.recovery.side_effect = delay
+    prepared = await linked.prepare(REQUESTER, PHONE)
+    delete = AsyncMock()
+    with pytest.raises(HTTPException) as expired:
+        await _sms_confirm(prepared["operation_id"], "expiring", delete)
+    assert expired.value.detail["code"] == "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED"
+    assert (await linked.status(REQUESTER, prepared["operation_id"]))["state"] == "prepared"
+    delete.assert_not_awaited()

@@ -53,7 +53,8 @@ gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<observed-serving-
 # Inspect again after success, then use its exact pins:
 gh workflow run deploy-uat.yml --ref main -f operation=deploy -f scope=auto \
   -f sha=<qualified-protected-uat-tip> -f ci_run_id=<run-id> \
-  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base>
+  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base> \
+  -f approved_scope='<serving-backend-SHA>:<serving-frontend-SHA>:<PR-number>=<PR-head-SHA>'
 ```
 
 New deployments require all qualification pins and validate them before security,
@@ -64,10 +65,18 @@ admin login or copy of its credential. An inspection result grants no release au
 
 `scope=auto` compares each serving service with the selected application and covers
 accumulated changes. Force a lane only with complete target-to-serving delta proof.
-A blank SHA selects the protected UAT tip, never the latest Main application.
-A qualified exact per-service receipt may establish a pin-free `NO_OP`; no build,
-traffic or release-tag update occurs. A later different CI run does not invalidate
-historical acceptance, but a failed/pending rerun of the pinned run still blocks it.
+Deployment requires an explicit SHA and approved scope. The governed dispatcher
+attests the reviewed release PR and both observed service bases. Review the full
+PR delta from the serving base before merging. If other developers' changes
+would be included, obtain explicit approval for the identified PRs or prepare
+an isolated candidate. The landed tree must match the pinned PR head, and the
+PR comparison base must match the qualified serving tree. A concurrent landing
+that changes the approved delta or a serving-base change requires requalification.
+Use the separately protected `uat-isolated` source when the shared branch
+contains changes outside the approved scope. Start it at the observed serving
+SHA, land the reviewed release PR there, and qualify that branch with full CI.
+Set `source_branch=uat-isolated` on inspection and deployment. Both source
+branches deploy to the same shared UAT runtime and use the same release lock.
 New admission requires the literal serving-base-labelled CI job; historical static
 job names remain readable only through retained acceptance. Requalify legacy CI
 before attempting a new deployment.

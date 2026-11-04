@@ -83,6 +83,7 @@ class _Proof:
     method: str
     digest: str
     uid: str | None
+    valid_until: float | None = None
 
 
 def _production_runtime() -> bool:
@@ -254,6 +255,8 @@ async def _admit(owner: str, operation: str, row: Any, proof: _Proof) -> dict[st
             if code:
                 await conn.execute(_REFUSE, operation, code)
                 return _receipt(await _row(conn, owner, operation))
+            if proof.valid_until is not None and proof.valid_until <= time.time():
+                raise refuse("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED", 403)
             await conn.execute(_PENDING, operation, proof.digest)
     except UniqueViolationError:
         raise refuse("PHONE_LINKED_DELETION_PROOF_ALREADY_USED", 409) from None
@@ -366,11 +369,11 @@ async def _verify_proof(
         # Fixture proof is scoped to this requester's operation only.
         event = f"phone-linked-fixture:{owner}:{operation}"
         return _Proof("configured_test", hashlib.sha256(event.encode()).hexdigest(), None)
-    event, uid = await _sms_event(phone_id_token or "", phone)
-    return _Proof("sms", hashlib.sha256(event.encode()).hexdigest(), uid)
+    event, uid, valid_until = await _sms_event(phone_id_token or "", phone)
+    return _Proof("sms", hashlib.sha256(event.encode()).hexdigest(), uid, valid_until)
 
 
-async def _sms_event(token: str, phone: str) -> tuple[str, str]:
+async def _sms_event(token: str, phone: str) -> tuple[str, str, float]:
     """Transfer-grade proof: real provider, fresh <=300 s, single authentication event."""
     from api.utils.firebase_admin import get_firebase_auth_app
     from api.utils.firebase_auth import refuse_foreign_review_mint
@@ -391,7 +394,7 @@ async def _sms_event(token: str, phone: str) -> tuple[str, str]:
     await run_in_threadpool(assert_real_sms_provider, get_firebase_auth_app(), phone)
     if metadata["valid_until"] <= time.time():
         raise refuse("PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED", 403)
-    return f"phone-linked-sms:{metadata['event']}", uid
+    return f"phone-linked-sms:{metadata['event']}", uid, metadata["valid_until"]
 
 
 async def _recovery_required(uid: str, phone: str) -> bool:
@@ -416,8 +419,18 @@ async def _recovery_required(uid: str, phone: str) -> bool:
 
     def has_account_state() -> bool:
         with get_db_connection() as conn:
+            owner = (
+                conn.execute(
+                    text(
+                        "SELECT owner_id FROM account_generations WHERE identity_hash=:identity "
+                        "ORDER BY generation DESC LIMIT 1"
+                    ),
+                    {"identity": account_deletion_user_hash(uid)},
+                ).scalar_one_or_none()
+                or uid
+            )
             return AccountDeletionLifecycleService._has_guarded_account_state_in_transaction(
-                conn, user_id=uid
+                conn, user_id=owner
             )
 
     return await run_in_threadpool(has_account_state)
