@@ -346,8 +346,11 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    surface. It requires `GH_TOKEN` in the governance job to resolve the PR's
    changed files; if it cannot resolve them it **fails closed** (blocks), never
    open. A `--self-test` runs in CI so the guard can never silently regress.
-3. **Branch-protection approval.** The standard 1 independent approval plus
-   approval-of-most-recent-push still applies underneath the two layers above.
+3. **Review and owner approval.** Ordinary PRs require one independent latest-push
+   approval. Kushal or Ankit may explicitly queue their own exact PR head under the
+   [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority).
+   The queue verifies authenticated author/requester identity and unchanged head;
+   CI, combined-result validation and unresolved objections still block.
 
 ### Production access administration
 
@@ -519,7 +522,7 @@ age checks. Read back live branch and deployment policies after application.
 6. Enable repository auto-merge so `gh pr merge` can hand eligible PRs to merge queue.
 7. Block force-pushes.
 8. Block branch deletion.
-9. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
+9. Require one independent PR approval, or the narrow owner self-approval path on `main`; CI and merge queue remain required.
 10. Require the queue and approved Main user restrictions; no team bypass may skip combined-result verification.
 11. Keep non-maintainer contributor and agent development off `main`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`, while train work promotes from `integration/pr-train`.
 
@@ -530,13 +533,13 @@ Current operating note:
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`
-- admin ownership does not count as an independent PR approval
+- GitHub cannot count a self-review; only the two named owners have the explicit self-authored queue-approval exception
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
-- GitHub approvals must satisfy current required review; author or administrator
-  status is not a counted independent approval.
+- Author/admin status alone is not approval. An authorized owner must explicitly
+  approve and queue their captured head; other PRs require ordinary review.
 - Verify Main's actual merger restrictions and queue requester against
   `main.merge_users`; no shared maintainer-team bypass may widen it.
-- Required CI, review and current combined-result proof all apply. A merge is
+- Required CI, ordinary review or owner approval, and current combined-result proof apply. A merge is
   source-only and never authorizes deployment.
 
 ### Retired release branches

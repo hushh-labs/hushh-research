@@ -14,7 +14,8 @@ BASE, FIRST, SECOND, HEAD1, HEAD2 = (letter * 40 for letter in "abcde")
 def entry(number, head, requester="kushaltrivedi5"):
     return {"id": f"entry-{number}", "position": number, "enqueuer": {"login": requester},
             "pullRequest": {"number": number, "headRefOid": head, "baseRefName": "main",
-                            "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED"}}
+                            "state": "OPEN", "isDraft": False, "reviewDecision": "APPROVED",
+                            "author": {"login": "kushaltrivedi5"}}}
 
 
 def parents(*args):
@@ -57,7 +58,7 @@ def test_missing_ambiguous_or_replaced_member_refuses(rows):
 
 def test_dismissed_review_refuses_even_with_same_source():
     row = entry(1, HEAD1)
-    row["pullRequest"]["reviewDecision"] = "REVIEW_REQUIRED"
+    row["pullRequest"]["reviewDecision"] = "CHANGES_REQUESTED"
     with pytest.raises(queue.Refused):
         queue.members(BASE, FIRST, [row], "main", parents)
 
@@ -82,6 +83,61 @@ def test_protected_edit_requires_current_review_not_author_identity():
     with patch.object(queue, "git", side_effect=source), patch.object(queue, "api", return_value=[]):
         with pytest.raises(queue.Refused, match="current-head approval"):
             queue.authorize("hushh-labs/hushh-research", "main", BASE, included)
+
+
+@pytest.mark.parametrize("author,requester,review,allowed", [
+    ("kushaltrivedi5", "kushaltrivedi5", "REVIEW_REQUIRED", True),
+    ("kushaltrivedi5", "kushaltrivedi5", "APPROVED", True),
+    ("ankitkumarsingh1702", "ankitkumarsingh1702", "REVIEW_REQUIRED", True),
+    ("contributor", "kushaltrivedi5", "REVIEW_REQUIRED", False),
+    ("kushaltrivedi5", "msainani", "REVIEW_REQUIRED", False),
+    ("msainani", "msainani", "REVIEW_REQUIRED", False),
+])
+def test_owner_self_approval_is_an_explicit_matching_queue_request(author, requester, review, allowed):
+    owners = ["kushaltrivedi5", "ankitkumarsingh1702"]
+    policy = {"main": {"merge_users": owners + ["msainani"],
+                       "protected_pipeline_edit_users": owners, "review_bypass_users": owners,
+                       "protected_pipeline_paths": [".github/workflows/"]},
+              "production": {"manual_dispatch_users": owners}}
+    row = entry(1, HEAD1, requester)
+    row["pullRequest"].update(author={"login": author}, reviewDecision=review)
+    included = queue.members(BASE, FIRST, [row], "main", parents)
+    def source(*args):
+        return json.dumps(policy) if args[0] == "show" else ".github/workflows/ci.yml"
+    with patch.object(queue, "git", side_effect=source), patch.object(queue, "api", return_value=[]):
+        if allowed:
+            result = queue.authorize("hushh-labs/hushh-research", "main", BASE, included)
+            assert result[0]["protected_approvals"] == [requester]
+            assert result[0]["approval_source"] == "owner_queue_request"
+        else:
+            with pytest.raises(queue.Refused, match="current review"):
+                queue.authorize("hushh-labs/hushh-research", "main", BASE, included)
+
+
+@pytest.mark.parametrize("state", ["CHANGES_REQUESTED", "DISMISSED", "unknown"])
+def test_owner_queue_request_cannot_silently_override_review_history(state):
+    guard = queue._module("verify-protected-pipeline-edits.py", "owner_review_history")
+    rows = [{"id": 1, "user": {"login": "reviewer"}, "state": state, "commit_id": HEAD1}]
+    with pytest.raises((guard.PolicyError, guard.GuardResolutionError)):
+        guard.require_uncontested_owner_approval("hushh-labs/hushh-research", 1, HEAD1, read=lambda _: rows)
+    if state != "unknown":
+        rows.append({"id": 2, "user": {"login": "reviewer"}, "state": "APPROVED", "commit_id": HEAD1})
+        guard.require_uncontested_owner_approval("hushh-labs/hushh-research", 1, HEAD1, read=lambda _: rows)
+
+
+@pytest.mark.parametrize("commit", [None, "", "invalid"])
+def test_owner_queue_request_refuses_unbound_decisive_review(commit):
+    guard = queue._module("verify-protected-pipeline-edits.py", "owner_review_commit")
+    rows = [{"id": 1, "user": {"login": "reviewer"}, "state": "DISMISSED", "commit_id": commit}]
+    with pytest.raises(guard.GuardResolutionError, match="verified commit"):
+        guard.require_uncontested_owner_approval("hushh-labs/hushh-research", 1, HEAD1, read=lambda _: rows)
+
+
+def test_owner_queue_request_refuses_incomplete_review_inventory():
+    guard = queue._module("verify-protected-pipeline-edits.py", "owner_review_inventory")
+    rows = [{"id": 1, "user": {"login": "reviewer"}, "state": "COMMENTED", "commit_id": HEAD1}] * 100
+    with pytest.raises(guard.GuardResolutionError, match="exceeded"):
+        guard.require_uncontested_owner_approval("hushh-labs/hushh-research", 1, HEAD1, read=lambda _: rows)
 
 
 def receipt_fixture():

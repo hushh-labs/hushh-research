@@ -786,8 +786,10 @@ does not grant protected-edit approval.
   candidate policy cannot authorize itself. CODEOWNERS supplies the matching
   review routing. CLI access and generic autonomous permission are not human
   approval of an unrelated policy change.
-- General review and merge-bypass permissions remain separate. Admin SOP preserves required review, exact-head checks and combined-result
-  proof; it does not grant a queue bypass.
+- Ordinary review and owner self-approval are defined once in Admin SOP. Kushal
+  or Ankit explicitly queuing their own captured PR head supplies owner approval.
+  The same queue gate verifies that identity and rechecks it at completion.
+  Neither route grants a CI, queue or deployment bypass.
 
 ### PKM rollout blocker
 
@@ -1064,7 +1066,7 @@ Protected branches are expected to enforce the same CI contract documented here:
 - repository setting
   - auto-merge enabled so `gh pr merge` can hand green PRs to merge queue instead of failing before queue placement
 - `main`
-  - `1` independent approving review of the latest push; protected edits need Kushal/Ankit
+  - `1` independent approving review of the latest push, or the explicit owner self-approval path; protected edits need Kushal/Ankit
   - required status checks: `CI Status Gate`
   - current combined-result verification through the queue; no age-only strict check
   - conversation resolution required

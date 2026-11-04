@@ -504,7 +504,7 @@ def test_main_policy_separates_mergers_reviews_and_uat_access(module) -> None:
     policy = _policy()
     main = policy["main"]
     assert main["merge_users"] == policy["production"]["manual_dispatch_users"]
-    assert main["review_bypass_users"] == []
+    assert main["review_bypass_users"] == main["protected_pipeline_edit_users"]
     assert not main["review_bypass_team_slug"]
     assert main["merge_queue_bypass_team_slug"] == policy["pr_train"]["merge_queue_bypass_team_slug"] == ""
     assert policy["branch_flow"]["prepared_branches"]["uat"]["policy_key"] == "uat_merge"
@@ -520,7 +520,8 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     protection = {
         "required_pull_request_reviews": {
             "require_code_owner_reviews": True, "require_last_push_approval": True,
-            "required_approving_review_count": 1, "bypass_pull_request_allowances": {},
+            "required_approving_review_count": 1, "bypass_pull_request_allowances": {
+                "users": [{"login": name} for name in policy["main"]["review_bypass_users"]]},
         },
         "enforce_admins": {"enabled": True},
         "required_status_checks": {"strict": True, "checks": [{"context": "CI Status Gate", "app_id": 15368}]},

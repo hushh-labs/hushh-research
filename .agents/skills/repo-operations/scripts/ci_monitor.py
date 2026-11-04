@@ -267,7 +267,7 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
         notes=[
             "A PR author still cannot self-approve through GitHub.",
             "Review bypass and merge-queue policy are separate gates.",
-            "The sanctioned main owner-bypass cohort may waive review on main and bypass merge queue through the dedicated team-backed owner path.",
+            "Only a protected owner explicitly queuing their own exact head may use owner self-approval; CI and the merge queue remain required.",
         ],
     )
 
@@ -331,12 +331,12 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     next_actions["impact"] = "./bin/hushh codex impact ci-watch-and-heal"
     next_actions["completion_gate"] = completion_gate["reason"]
     if review_policy["current_actor_can_bypass_review"]:
-        next_actions["review_gate"] = "Current actor may waive the review gate on main; this is not the same as self-approval."
+        next_actions["review_gate"] = "Live GitHub grants a review exception. Policy permits only the protected owner explicitly queuing their own exact head; CI and combined-result validation remain required."
     else:
         next_actions["review_gate"] = "Current actor is not in the PR-review bypass allowlist."
     if review_policy["merge_queue_required"]:
         if review_policy["current_actor_can_bypass_queue"]:
-            next_actions["merge_queue"] = "Current actor may bypass merge queue through the dedicated owner team-backed path."
+            next_actions["merge_queue"] = "Legacy queue bypass is still configured; this is observed access, not authorization to skip combined-result validation."
         else:
             next_actions["merge_queue"] = "main still has an active merge-queue rule; current actor is not in the queue-bypass path."
     next_actions["deploy_uat"] = (

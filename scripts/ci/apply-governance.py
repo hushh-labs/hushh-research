@@ -332,22 +332,25 @@ def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
 
 
 def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
-    """Narrow Main merger authority without bypassing review or CI.
+    """Narrow Main merger authority with explicit owner self-approval and required CI.
 
     This is an explicit rollout operation, after combined-result validation is
     qualified. Keep unrelated branch checks and ruleset rules verbatim.
     """
     main = policy["main"]
     users = sorted(main.get("merge_users", []))
-    if not users or main["review_bypass_users"] or main.get("review_bypass_team_slug"):
-        raise SystemExit("Main merge policy must preserve required independent review")
+    owner_reviews = sorted(main.get("protected_pipeline_edit_users", []))
+    if (not users or not owner_reviews or sorted(main["review_bypass_users"]) != owner_reviews
+            or main.get("review_bypass_team_slug")):
+        raise SystemExit("Main review exception must name only the protected owners")
     if users != sorted(policy["production"]["manual_dispatch_users"]):
         raise SystemExit("Main merge users must match the approved production cohort")
     endpoint = f"repos/{REPO}/branches/main/protection"
     protection = gh_json(["api", endpoint])
     reviews = protection.get("required_pull_request_reviews") or {}
     review_bypass = reviews.get("bypass_pull_request_allowances") or {}
-    if (any(review_bypass.get(key) for key in ("users", "teams", "apps"))
+    if (sorted(row.get("login", "") for row in review_bypass.get("users", [])) != owner_reviews
+            or any(review_bypass.get(key) for key in ("teams", "apps"))
             or not reviews.get("require_code_owner_reviews")
             or not reviews.get("require_last_push_approval")
             or reviews.get("required_approving_review_count", 0) < 1
