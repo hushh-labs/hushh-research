@@ -6,11 +6,13 @@ import importlib.util
 import json
 import subprocess
 import sys
+from copy import deepcopy
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -72,13 +74,18 @@ def _cloud_response(command, *, calls, execution_name, name, outcome, elapsed, *
     return SimpleNamespace(stdout="")
 
 
-@pytest.fixture
-def controller(monkeypatch, tmp_path, outcome):
+def _load_controller():
     spec = importlib.util.spec_from_file_location(
         "uat_text_recovery_wait", REPO_ROOT / "scripts/ops/run_uat_text_recovery_job.py"
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def controller(monkeypatch, tmp_path, outcome):
+    module = _load_controller()
     name = "text-policy-recovery-39949039317"
     execution_name = name + "-qualified"
     source = tmp_path / "service.json"
@@ -155,3 +162,144 @@ def test_text_recovery_waits_for_provider_settlement_before_removing_job(
         assert not any("logging" in call for call in calls)
     assert sum("execute" in call for call in calls) == 1
     assert any("delete" in call for call in calls) == (outcome != "unconfirmed")
+
+
+def test_candidate_recovery_uses_pinned_unserved_revision_and_existing_policy():
+    module = _load_controller()
+    sha, digest, run = "a" * 40, "sha256:" + "b" * 64, "123"
+    revision = {
+        "metadata": {
+            "name": "candidate",
+            "labels": {
+                "serving.knative.dev/service": "consent-protocol",
+                "deploy-sha": sha,
+                "deploy-env": "uat",
+                "deploy-source": "deploy-uat",
+                "github-run-id": run,
+            },
+        },
+        "status": {
+            "conditions": [{"type": "Ready", "status": "True"}],
+            "imageDigest": digest,
+        },
+        "spec": {
+            "serviceAccountName": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+            "containers": [
+                {
+                    "image": f"gcr.io/hushh-pda-uat/consent-protocol@{digest}",
+                    "env": [
+                        {"name": "ENVIRONMENT", "value": "uat"},
+                        {"name": "HUSHH_DEPLOY_SHA", "value": sha},
+                        {"name": "HUSHH_DEPLOY_RUN_ID", "value": run},
+                        {"name": "HUSHH_UAT_MANAGED_AI_PROVIDER", "value": "azure_openai"},
+                        {"name": "HUSHH_UAT_MANAGED_TEXT_PROVIDER", "value": "azure_openai"},
+                    ],
+                }
+            ],
+        },
+    }
+    baseline = deepcopy(revision)
+    baseline["metadata"]["name"] = "baseline"
+    worker_revision = deepcopy(baseline)
+    worker_revision["metadata"]["labels"]["serving.knative.dev/service"] = (
+        "consent-protocol-drive-worker"
+    )
+    worker_revision["spec"]["containers"][0]["name"] = "drive-worker"
+    service = {
+        "status": {
+            "latestReadyRevisionName": "candidate",
+            "traffic": [
+                {"revisionName": "baseline", "percent": 100},
+                {"revisionName": "candidate", "tag": f"account-deletion-{run}"},
+            ],
+        }
+    }
+    job = module.job_spec(
+        service,
+        sha=sha,
+        run_id=run,
+        candidate=revision,
+        baseline=baseline,
+        worker=worker_revision,
+        attempt="1",
+    )
+    worker = job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]
+    assert worker["image"] == revision["spec"]["containers"][0]["image"]
+    assert worker["args"] == ["scripts/recover_uat_text_requests.py", "--apply", "--limit=20"]
+
+    wrong_provider = deepcopy(baseline)
+    wrong_provider["spec"]["containers"][0]["env"][-1]["value"] = "vertex"
+    with pytest.raises(ValueError, match="serving processor binding"):
+        module.job_spec(
+            service,
+            sha=sha,
+            run_id=run,
+            candidate=revision,
+            baseline=wrong_provider,
+            worker=worker_revision,
+            attempt="1",
+        )
+    wrong_worker = deepcopy(worker_revision)
+    wrong_worker["spec"]["containers"][0]["env"][-1]["value"] = "vertex"
+    with pytest.raises(ValueError, match="same serving Drive worker processor"):
+        module.job_spec(
+            service,
+            sha=sha,
+            run_id=run,
+            candidate=revision,
+            baseline=baseline,
+            worker=wrong_worker,
+            attempt="1",
+        )
+    service["status"]["traffic"][0]["revisionName"] = "candidate"
+    with pytest.raises(ValueError, match="serving baseline"):
+        module.job_spec(
+            service,
+            sha=sha,
+            run_id=run,
+            candidate=revision,
+            baseline=baseline,
+            worker=worker_revision,
+            attempt="1",
+        )
+
+
+def test_isolated_traffic_requires_candidate_verification_and_recovery():
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
+    steps = {step["id"]: step for step in workflow["jobs"]["deploy"]["steps"] if "id" in step}
+    order = list(steps)
+    candidate = "verify-isolated-uat-candidates"
+    recovery = "recover-isolated-uat-text-requests"
+    promotion = "promote-uat-traffic"
+    assert order.index(candidate) < order.index(recovery) < order.index(promotion)
+    assert f"steps.{candidate}.outcome == 'success'" in steps[promotion]["if"]
+    assert f"steps.{recovery}.outcome == 'success'" in steps[promotion]["if"]
+    assert "inputs.source_branch != 'uat-isolated'" in steps["recover-uat-text-requests"]["if"]
+
+
+@pytest.mark.parametrize(("status", "expected"), [("200", 0), ("302", 1), ("404", 1)])
+def test_candidate_http_probe_refuses_redirects_and_errors(status, expected):
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["deploy"]["steps"]
+        if item.get("id") == "verify-isolated-uat-candidates"
+    )
+    script = step["run"]
+    start = script.index("require_candidate_http()")
+    end = script.index("\n}", start) + 2
+    result = subprocess.run(  # noqa: S603 - authored probe with fixed synthetic HTTP statuses
+        [
+            "bash",
+            "-c",
+            f'http="$1"\ncurl() {{ printf "%s" "$http"; }}\n{script[start:end]}\nrequire_candidate_http "https://candidate.invalid/health"',
+            "candidate-http",
+            status,
+        ],
+        check=False,
+    )
+    assert result.returncode == expected
