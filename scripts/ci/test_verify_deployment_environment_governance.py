@@ -92,6 +92,27 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     module._gh_json = fake_gh_json
 
 
+def test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> None:
+    module = _module()
+    policy = _policy(module)
+    policy["dev"] = {**policy["uat"], "environment": "dev", "deployment_branches": ["dev", "main", "integration/pr-train"]}
+    rows = [{"type": "branch", "name": name} for name in policy["dev"]["deployment_branches"]]
+    inventory = {"total_count": len(rows), "branch_policies": rows}
+    def read(path):
+        if "deployment-branch-policies" in path:
+            return inventory
+        if path.endswith("/variables"):
+            return {"variables": [{"name": name} for name in policy["dev"]["required_environment_variables"]]}
+        return {**_environment_payload(), "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
+    module._gh_json = read
+    assert module._assert_surface("dev", "owner/repo", policy) == []
+    inventory["total_count"] += 1
+    assert any("incomplete" in error for error in module._assert_surface("dev", "owner/repo", policy))
+    inventory["total_count"] -= 1
+    rows[0]["name"] = "*"
+    assert any("exactly" in error for error in module._assert_surface("dev", "owner/repo", policy))
+
+
 def test_required_environment_variables_are_enforced() -> None:
     module = _module()
     _stub_gh_json(
@@ -466,6 +487,7 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
 
 def main() -> int:
     tests = [
+        test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads,
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,

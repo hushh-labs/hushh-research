@@ -305,7 +305,7 @@ def test_retired_isolated_lane_leaves_standard_release_gates_intact(environment)
     )
     entry = document["jobs"]["deploy" if environment == "dev" else "select-target"]
     if environment == "dev":
-        assert entry["if"] == "inputs.target != 'pod-publication'"
+        assert entry["if"] == "inputs.target != 'pod-publication' && inputs.operation == 'deploy'"
         assert "pod-publication" in trigger["target"]["options"]
     else:
         assert "inputs.target" not in entry.get("if", "")
