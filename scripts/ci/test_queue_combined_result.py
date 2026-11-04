@@ -93,25 +93,26 @@ def test_protected_edit_requires_current_review_not_author_identity():
     ("kushaltrivedi5", "msainani", "REVIEW_REQUIRED", False),
     ("msainani", "msainani", "REVIEW_REQUIRED", False),
 ])
-def test_owner_self_approval_is_an_explicit_matching_queue_request(author, requester, review, allowed):
+@pytest.mark.parametrize("branch", ["main", "dev", "uat", "integration/pr-train"])
+def test_owner_self_approval_is_an_explicit_matching_queue_request(author, requester, review, allowed, branch):
     owners = ["kushaltrivedi5", "ankitkumarsingh1702"]
     policy = {"main": {"merge_users": owners + ["msainani"],
                        "protected_pipeline_edit_users": owners, "review_bypass_users": owners,
                        "protected_pipeline_paths": [".github/workflows/"]},
               "production": {"manual_dispatch_users": owners}}
     row = entry(1, HEAD1, requester)
-    row["pullRequest"].update(author={"login": author}, reviewDecision=review)
-    included = queue.members(BASE, FIRST, [row], "main", parents)
+    row["pullRequest"].update(author={"login": author}, reviewDecision=review, baseRefName=branch)
+    included = queue.members(BASE, FIRST, [row], branch, parents)
     def source(*args):
         return json.dumps(policy) if args[0] == "show" else ".github/workflows/ci.yml"
     with patch.object(queue, "git", side_effect=source), patch.object(queue, "api", return_value=[]):
         if allowed:
-            result = queue.authorize("hushh-labs/hushh-research", "main", BASE, included)
+            result = queue.authorize("hushh-labs/hushh-research", branch, BASE, included)
             assert result[0]["protected_approvals"] == [requester]
             assert result[0]["approval_source"] == "owner_queue_request"
         else:
             with pytest.raises(queue.Refused, match="current review"):
-                queue.authorize("hushh-labs/hushh-research", "main", BASE, included)
+                queue.authorize("hushh-labs/hushh-research", branch, BASE, included)
 
 
 @pytest.mark.parametrize("state", ["CHANGES_REQUESTED", "DISMISSED", "unknown"])

@@ -80,7 +80,9 @@ Kushal or Ankit when that same person authored the PR and the captured head stil
 matches. The GitHub review exception is limited to those two named users, with no
 team/app inheritance. It does not bypass CI, the queue, unresolved review objections,
 conversation resolution or deployment admission. Someone else's PR retains ordinary
-review. A changed head requires a new exact-head queue request.
+review. The same exact-owner approval applies to Dev, UAT and the retained train;
+only Main additionally restricts queue requesters to its production merger cohort.
+A changed head requires a new exact-head queue request.
 
 Record the owner's approval and exact head in the PR release record. Use the normal
 `--match-head-commit` queue command; the queue receipt records author, requester,
