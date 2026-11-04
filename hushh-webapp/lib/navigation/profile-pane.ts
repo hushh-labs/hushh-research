@@ -564,6 +564,8 @@ export type ProfilePaneOpenDetail = {
  * Ask the app shell to present Profile as a transient pane. The shell owns the
  * pane lifecycle so the top bar, native edge gesture, and future entry points
  * share one surface without adding another navigation stack.
+ * Ordinary requests start at Profile home; only an authored destination opens
+ * a nested setting. Reopening does not resume the previous pane session.
  *
  * Returns the shell's answer, or null when no shell listener is mounted.
  * dispatchEvent is synchronous, so the listener has answered by return.
@@ -580,7 +582,7 @@ export function requestProfilePaneOpen(
       detail: {
         source,
         returnFocus,
-        destination,
+        destination: destination ?? { location: PROFILE_PANE_ROOT_LOCATION },
         onResult: (value) => {
           result = value;
         },
