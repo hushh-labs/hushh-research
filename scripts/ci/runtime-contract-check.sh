@@ -58,7 +58,7 @@ fi
 # the Docker step through Cloud Build's ephemeral workspace.
 google_contacts_lookup_step="$(
   awk '
-    /name: "gcr.io\/google.com\/cloudsdktool\/cloud-sdk"/ { current_step = "cloud-sdk" }
+    /name: "gcr.io\/google.com\/cloudsdktool\/cloud-sdk(@sha256:[0-9a-f]+)?"/ { current_step = "cloud-sdk" }
     /name: "gcr.io\/cloud-builders\/docker"/ { current_step = "docker" }
     /gcloud secrets versions access latest/ {
       print current_step
