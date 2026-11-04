@@ -310,7 +310,9 @@ def test_preparation_uses_only_existing_pod_steps_and_requires_guarded_reuse(tmp
 
 
 def test_workflow_publication_uses_real_protocol_project_before_cloud_authentication():
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     job = workflow["jobs"]["pod-publication"]
     steps = job["steps"]
     setup = next(step for step in steps if step.get("uses", "").endswith("setup-python-uv"))
@@ -330,7 +332,7 @@ def test_workflow_publication_uses_real_protocol_project_before_cloud_authentica
         assert next(i for i, step in enumerate(steps) if step.get("name") == required) < auth
     assert steps[0]["name"] == "Require current-attempt deployment security"
     checkout = next(step for step in steps if step.get("uses", "").startswith("actions/checkout@"))
-    assert checkout["with"]["ref"] == "${{ github.sha }}"
+    assert checkout["with"]["ref"] == "${{ job.workflow_sha }}"
     assert "pod-publication" in workflow["jobs"]["deploy"]["if"]
     assert "pod-publication" not in workflow["concurrency"]["group"]
 

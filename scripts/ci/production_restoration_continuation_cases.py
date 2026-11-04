@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 from unittest import mock
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import production_restoration_receipt as restoration
 import production_restoration_continuation as continuation
@@ -100,7 +100,9 @@ def _archive(documents):
     result = io.BytesIO()
     with ZipFile(result, "w") as bundle:
         for name, value in documents.items():
-            bundle.writestr(name, json.dumps(value))
+            # Rebuilding a retained fixture must preserve its immutable digest;
+            # ZIP's default wall-clock timestamp changes every two seconds.
+            bundle.writestr(ZipInfo(name), json.dumps(value))
     return result.getvalue()
 
 

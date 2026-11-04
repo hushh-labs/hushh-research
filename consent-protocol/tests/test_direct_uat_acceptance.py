@@ -274,7 +274,9 @@ def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, 
 
 
 def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
     assert inspector["environment"] == {"name": "uat", "deployment": False}
@@ -294,8 +296,12 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     )
     assert validate < auth
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)
-    assert jobs["select-target"]["if"] == "inputs.operation != 'inspect'"
-    assert "inputs.operation != 'inspect'" in jobs["deployment-security"]["if"]
+    assert jobs["select-target"]["if"] == "inputs.operation == 'deploy'"
+    assert jobs["deployment-security"]["if"] == (
+        "always() && (inputs.operation == 'inspect-routing' || "
+        "(needs.select-target.result == 'success' && "
+        "needs.select-target.outputs.decision != 'NO_OP'))"
+    )
     for name in ("deploy", "wait-capacity"):
         assert (
             "select-target" in jobs[name]["needs"] and "deployment-security" in jobs[name]["needs"]

@@ -17,7 +17,7 @@ import yaml
 from tests.helpers.deployment_cli import executable_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github/workflows/deploy-uat.yml"
+WORKFLOW = ROOT / ".github/workflows/deploy-uat-implementation.yml"
 SHA = "f" * 40
 DEV = "gcr.io/hushh-pda-dev/consent-protocol"
 UAT = "gcr.io/hushh-pda-uat/consent-protocol"
@@ -167,7 +167,8 @@ def test_promotion_keeps_exact_acceptance_and_current_tools_before_mutation():
     assert "backend-image" in gate["run"] and "--environment dev" in gate["run"]
     assert "--predecessor /tmp/uat-predecessor-acceptance.json" in gate["run"]
     for lane in ("dev", "uat", "production", "uat-one-chat"):
-        workflow = yaml.safe_load((WORKFLOW.parent / f"deploy-{lane}.yml").read_text())
+        name = f"deploy-{lane}" + ("-implementation" if lane in {"dev", "uat"} else "")
+        workflow = yaml.safe_load((WORKFLOW.parent / f"{name}.yml").read_text())
         lane_steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
         preserve = next(
             step["run"]

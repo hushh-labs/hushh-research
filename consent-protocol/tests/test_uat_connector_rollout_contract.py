@@ -15,7 +15,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/ops/sync_backend_runtime_secrets.py"
-WORKFLOW = ROOT / ".github/workflows/deploy-uat.yml"
+WORKFLOW = ROOT / ".github/workflows/deploy-uat-implementation.yml"
 CANDIDATE_SECRET_NAME = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_123_1"
 
 
@@ -96,7 +96,10 @@ def test_period_packets_are_independent_and_refuse_non_uat_activation():
 
 def test_four_group_hosted_compilers_default_off_and_require_explicit_uat_activation():
     for lane in ("dev", "uat", "production"):
-        workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text(encoding="utf-8")
+        workflow = (
+            ROOT
+            / f".github/workflows/deploy-{lane}{'-implementation' if lane in {'dev', 'uat'} else ''}.yml"
+        ).read_text(encoding="utf-8")
         if lane == "production":
             assert "deploy/drive/sync_runtime_config_prod.sh" in workflow
             workflow = (ROOT / "deploy/drive/sync_runtime_config_prod.sh").read_text(
@@ -130,7 +133,9 @@ def test_selected_sha_compiler_preserves_flag_compatibility(
     if not bash:
         pytest.skip("The deployment shell compatibility test requires bash")
     workflow_lane = "uat" if feature == "period-packets-enabled" else lane
-    workflow = (ROOT / f".github/workflows/deploy-{workflow_lane}.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / f".github/workflows/deploy-{workflow_lane}-implementation.yml").read_text(
+        encoding="utf-8"
+    )
     variable = (
         "drive_period_packet_args" if feature == "period-packets-enabled" else "drive_group_args"
     )
