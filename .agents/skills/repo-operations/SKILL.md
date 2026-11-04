@@ -85,7 +85,7 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 When the approving user is Kushal or Ankit and authored the PR, use the canonical
 Admin SOP owner self-approval path. Do not create another approval service or ask
 for a second owner solely because GitHub cannot count a self-review. Explicit
-approval, authenticated queue requester, exact head and green combined CI remain
+approval, authenticated owner, exact head and green combined CI remain
 mandatory; generic admin access never authorizes unrelated changes or deployment.
 
 For matching-branch Dev/UAT deployments, follow the CI runbook's

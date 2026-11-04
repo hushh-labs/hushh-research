@@ -46,7 +46,10 @@
     "merge_queue_ruleset_name": "main merge queue",
     "merge_queue_bypass_team_name": "",
     "merge_queue_bypass_team_slug": "",
-    "merge_queue_bypass_users": [],
+    "merge_queue_bypass_users": [
+      "kushaltrivedi5",
+      "ankitkumarsingh1702"
+    ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
       "ankitkumarsingh1702"
@@ -88,7 +91,8 @@
       "ankitkumarsingh1702",
       "DamriaNeelesh",
       "imsharukhan"
-    ]
+    ],
+    "owner_admin_ruleset_name": "main owner validated merge"
   },
   "pr_train": {
     "required_status_check": "CI Status Gate",

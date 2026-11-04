@@ -791,9 +791,9 @@ does not grant protected-edit approval.
   review routing. CLI access and generic autonomous permission are not human
   approval of an unrelated policy change.
 - Ordinary review and owner self-approval are defined once in Admin SOP. Kushal
-  or Ankit explicitly queuing their own captured PR head supplies owner approval.
-  The same queue gate verifies that identity and rechecks it at completion.
-  Neither route grants a CI, queue or deployment bypass.
+  or Ankit use the explicit Admin PR command for their own captured head. It
+  verifies the current successful attempt and exact merge tree. The native owner
+  route has strict CI and PR-only guards; it never authorizes a deployment.
 
 ### PKM rollout blocker
 
@@ -1043,7 +1043,7 @@ or superseded evidence refuses clearance. Final admission repeats membership,
 review, destination and validation checks before publishing `CI Status Gate`.
 
 Rollout order matters: land the trusted helper first, then activate the workflow,
-qualify the combined path, and reconcile branch protection. Remove queue bypass
+qualify the combined path, and reconcile branch protection. Remove ordinary-user queue bypass
 before relaxing strict age checks; partial rollout must retain the stricter
 boundary. Main merger restrictions and required review remain independent.
 The existing governance reconciler handles Main explicitly and Dev/UAT/the legacy
@@ -1192,12 +1192,13 @@ be relabelled as an environment-branch execution. Downstream consumers verify
 GitHub's recorded reusable path/revision and the current attempt before accepting
 the new job-name prefix or artifact.
 
-Activation order: land reviewed tooling while retaining current Main callers;
-sync helper/dependency foundations before queue activation on each destination;
-reconcile environment branch rules and the
-[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission);
-then install the reviewed thin callers and verify hosted read-only admission.
-Do not retire the working Main entrypoints before that coordinated activation.
+Activation checkpoint: Main already contains the reviewed thin callers. They
+are not a fallback for normal Dev/UAT dispatch while destination activation is
+pending. Synchronize helper/dependency foundations and thin callers onto each
+destination, reconcile environment branch rules and the
+[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission),
+then verify hosted read-only admission before releasing applications. Historical
+Main-origin receipts remain recovery evidence; they do not enable a new dispatch.
 Existing UAT `operation=inspect` checks
 prerequisites without release mutation. The reusable implementations also expose
 `operation=inspect-routing`: the ordinary Main broker issues current-attempt
@@ -1206,10 +1207,16 @@ read project identity. It cannot enter deployment, migration, image-publication 
 traffic jobs. Expose this operation in the thin callers during their coordinated
 activation; both hosted readbacks are required. Check Dev's exact environment
 branch inventory with `verify-deployment-environment-governance.py --surface dev`;
-keep `ci-security` Main-only. Until activation/readback is recorded,
-matching-branch routing is source-complete only; do not dispatch a normal release
-merely to test it. A failure in setup, authority or deployment still stops dependent
-work; independent validation assertions are collected before the final failed result.
+keep `ci-security` Main-only.
+
+Routing was qualified on 4 November: [Dev inspection](https://github.com/hushh-labs/hushh-research/actions/runs/41789084043)
+ran from `dev`, and [UAT inspection](https://github.com/hushh-labs/hushh-research/actions/runs/41790379084)
+ran from `uat`. Both passed the Main broker and authenticated project readback;
+all application deployment jobs were skipped. These receipts establish routing,
+not application-release acceptance. New caller or cloud-authority changes require
+fresh routing qualification. A failure in setup, authority or deployment still
+stops dependent work; independent validation assertions are collected before the
+final failed result.
 
 The standalone CI Security Alerts workflow and its PR receipt polling are retired.
 Rerunning PR validation does not create another workflow. Historical receipt readers
@@ -1387,6 +1394,13 @@ receipt. An unread or timed-out execution remains unconfirmed with its Job and
 execution references retained for reconciliation; do not replay it or delete
 active work merely because observation stopped.
 
+The retired One-chat deployment index is excluded from active maintenance discovery.
+On 4 November, all 1,169 retained manual runs since its 11 October introduction
+were inspected across complete, bounded date windows; none belonged to that
+producer. GitHub now returns 404 for its deleted workflow ID. Historical explicit
+run and artifact readers remain, and failures reading active producers still stop
+maintenance. This does not assert that previously deleted history never existed.
+
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
 run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of its former
 cron's 24 daily runs on 2026-10-12..14, `Capacity Maintenance Clock` is now its only
@@ -1408,6 +1422,17 @@ run counters; GitHub's own workflow numbers remain. Maintenance fetches complete
 Git history with `filter: blob:none` to avoid downloading old file bodies.
 Current source qualification binds the static clock title and exact workflow
 blobs; historical numbered receipts retain their separately pinned source.
+
+The November 3 auth-domain release (`41608303952`, attempt 1) served successfully
+but failed immutable tag publication. Its historical tag was reconciled on
+November 4 as object `faeb0e63f5aae00885e5eeb299d17f01f98e6736`; the operational
+`production-latest` object remains `5b4f56d6cdbc3f6153e6565bf894f634fae692e6`.
+The original failed run and refused publication receipt remain unchanged. The
+existing reader pins that incident's run, attempt, source, archive digest and tag,
+rechecks them against GitHub, and retains the independently accepted backend
+origin. This supplies historical publication evidence only: it cannot authorize
+normal promotion, replace live/checkpoint/rollback checks, or prove an application
+was redeployed. Unknown or altered evidence still refuses maintenance.
 
 Source-only checks before authentication and again under that lock skip settled and
 not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,
@@ -2005,3 +2030,18 @@ and native macOS WebKit from the same `document` decision. Styling and unrelated
 application changes do not select that macOS job. Parameterized browser identities
 are partitioned by engine, so adding a fixture parameter cannot move a WebKit case
 onto Linux. Release qualification retains both engines.
+
+### Owner Admin merges and ordinary contributor access
+
+| Person/action | Expected route | What still blocks |
+| --- | --- | --- |
+| Ordinary contributor to Dev/UAT | PR, independent review, combined-result queue | Relevant CI, conflicts, unresolved conversations |
+| Six governed Main operators | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
+| Kushal/Ankit approving their own Main PR | `./bin/hushh codex admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
+| Dev/UAT deployment operator | Explicit matching-branch deployment | Environment/source authority, CI, protected release security and rollback |
+| Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
+
+A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority)
+for the canonical commands and live-policy activation. Do not ask a self-approving
+owner for another person just to satisfy GitHub's native self-review restriction.
+Do not grant ordinary contributors broader bypass to solve an owner-only problem.
