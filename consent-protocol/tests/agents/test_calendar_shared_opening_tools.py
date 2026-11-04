@@ -31,6 +31,12 @@ class AvailabilitySchedule(Schedule):
 
 
 def shared_setup(monkeypatch, count=3):
+    # This fixture isolates the existing offer/grant/dispatch boundary. Invocation
+    # scope is exercised with the real assessor in test_calendar_request_scope.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.request_scope",
+        AsyncMock(return_value=("create",)),
+    )
     owner, store, service, writes = setup(monkeypatch, count, "second")
     for item in owner.accounts:
         account_id = item["account_id"]
@@ -81,6 +87,8 @@ async def test_shared_offer_restore_show_then_confirm_exact_destination_once(mon
         "start_at": "2030-10-21T13:00:00Z",
         "end_at": "2030-10-21T13:30:00Z",
         "available_until": "2030-10-21T15:00:00Z",
+        "local_start_at": "2030-10-21T09:00:00-04:00",
+        "local_end_at": "2030-10-21T09:30:00-04:00",
     }
     assert len(owner.reads) == 3  # One batched availability operation per account.
     assert "binding" not in str(result)

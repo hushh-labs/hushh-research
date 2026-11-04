@@ -8,6 +8,7 @@ import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -68,6 +69,12 @@ class Grant:
 
 @pytest.fixture
 def journey(monkeypatch, tmp_path, active_account_lifecycle):
+    # This service/route replay isolates grant, coverage and dispatch contracts;
+    # real request-scope enforcement is covered through One's SDK runner separately.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.request_scope",
+        AsyncMock(return_value=("create",)),
+    )
     grant = Grant()
     inventory = copy.deepcopy(HOLIDAY["inventory"])
     state = {"error": None, "new_conflict": False, "requests": [], "mutations": []}

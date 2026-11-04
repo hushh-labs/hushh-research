@@ -848,8 +848,11 @@ def _one_runtime_instruction(context: Any) -> str:
     started_at = time.perf_counter()
     try:
         state_getter = getattr(getattr(context, "state", None), "get", None)
+        from hushh_mcp.agents.calendar.read_projection import turn_clock
+
         return (
-            _compose_one_runtime_instruction(context)
+            turn_clock(context)
+            + _compose_one_runtime_instruction(context)
             + follow_up_instruction(state_getter)
             + reaction_instruction(state_getter)
         )

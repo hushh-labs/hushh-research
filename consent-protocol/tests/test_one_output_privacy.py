@@ -72,6 +72,8 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
         "hussh:calendar_list_read_offer",
         "hussh:calendar_invitation_read_offer",
         "hussh:calendar_opening_read_offer",
+        "temp:hussh:calendar_request_scope",
+        "temp:hussh:turn_started_at",
     ],
 )
 def test_calendar_selection_provider_ids_stay_out_of_wire_state(key: str) -> None:

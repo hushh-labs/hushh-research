@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -76,7 +76,8 @@ class CalendarOpeningRange(BaseModel):
 
 class CalendarOpeningWindow(CalendarOpeningRange):
     calendar_id: str = Field(min_length=1, max_length=1024)
-    calendar_ids: list[str] = Field(min_length=1, max_length=20)
+    calendar_ids: list[str] = Field(min_length=1, max_length=100)
+    coverage_policy: Literal["legacy_primary", "board_default"] = "legacy_primary"
 
     @model_validator(mode="after")
     def valid_coverage(self) -> Self:

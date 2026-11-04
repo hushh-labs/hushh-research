@@ -508,6 +508,52 @@ class CalendarScheduleService:
             raise error
         return calendars, options
 
+    @staticmethod
+    def opening_calendar_ids(calendars):
+        """Use the provider's verified primary identity, never an extra calendar."""
+        return ["primary" if item.get("primary") is True else item["id"] for item in calendars]
+
+    async def openings_in_window(
+        self, *, user_id, start_at, end_at, duration_minutes, limit, expected_binding=None
+    ):
+        start_at, end_at = self.calendar._read_window(start_at, end_at)
+        start, end = datetime.fromisoformat(start_at), datetime.fromisoformat(end_at)
+        binding = await self._read_binding(user_id)
+        if expected_binding is not None and binding != expected_binding:
+            raise _error("Calendar connection changed.", 409, "calendar_connection_changed")
+        inventory = await self._included_calendars(user_id, binding=binding)
+        calendars, _ = self._availability_selection(inventory)
+        ids = self.opening_calendar_ids(calendars)
+        busy = await self._busy_intervals(
+            user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
+        )
+        duration = timedelta(minutes=duration_minutes)
+        openings, count = [], 0
+        for left, right in self._free_gaps(start, end, busy):
+            count += (right - left) // duration
+            while left + duration <= right and len(openings) < limit:
+                openings.append(
+                    {
+                        "start_at": self.calendar._utc_iso(left),
+                        "end_at": self.calendar._utc_iso(left + duration),
+                        "available_until": self.calendar._utc_iso(right),
+                    }
+                )
+                left += duration
+        await self.calendar._check_read_binding(user_id, binding)
+        return {
+            "time_min": start_at,
+            "time_max": end_at,
+            "duration_minutes": duration_minutes,
+            "calendar_ids": ids,
+            "coverage_policy": "board_default",
+            "coverage_complete": True,
+            "suggestion_limit": limit,
+            "suggestions_limited": count > limit,
+            "available_slot_count": count,
+            "openings": openings,
+        }
+
     async def free_windows(
         self,
         *,

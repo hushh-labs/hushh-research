@@ -1019,6 +1019,7 @@ class GoogleCalendarService:
         duration_minutes: int,
         limit: int = 3,
         calendar_ids: list[str] | None = None,
+        include_subscribed_calendars: bool = False,
         expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return the earliest free slots of a requested duration.
@@ -1048,6 +1049,17 @@ class GoogleCalendarService:
                 "Choose between one and twenty Calendar openings", status_code=422
             )
 
+        if include_subscribed_calendars:
+            from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+            return await CalendarScheduleService(calendar=self).openings_in_window(
+                user_id=user_id,
+                start_at=start_at,
+                end_at=end_at,
+                duration_minutes=duration,
+                limit=max_slots,
+                expected_binding=expected_binding,
+            )
         availability = await self.freebusy(
             user_id=user_id,
             start_at=start_at,

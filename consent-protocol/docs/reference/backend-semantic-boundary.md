@@ -1,5 +1,20 @@
 # Backend Semantic Boundary
 
+### Declared: Calendar request review ceiling
+
+The existing Calendar manifest owns `request_scope` meaning through a tool-free
+single turn over authenticated current/queued owner messages only. It uses the
+same admitted model as One. The host validates the closed action set, exact quote
+provenance and owner/conversation/invocation/message binding; it never classifies
+read-only language with keywords or infers an action from provider content.
+Before any read it freezes an expiring private receipt, initially denying reviews
+while assessment is pending. Missing, failed or expired authority cannot stage a
+booking, RSVP review or manage-permission card. Existing OAuth consent and the
+exact browser-confirmed executor remain independent. Scope refusal is recorded
+as `calendar.proposal_refused`, never as a successful provider action. Provider-free
+Chat runner tests cover enforcement; actual model interpretation and deployed
+provider behavior require separate read-only qualification.
+
 ### Declared: recipient-requested Finance object review
 
 `one_adk/finance_share_context.py` admits an explicit recipient-selected curated

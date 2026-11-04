@@ -1533,8 +1533,11 @@ async def test_calendar_read_then_booking_prepares_review_without_executing_and_
     monkeypatch,
     needs_permission,
 ):
+    from hushh_mcp.agents.calendar import request_scope
     from hushh_mcp.agents.calendar import tools as calendar_tools
     from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setattr(request_scope, "request_scope", AsyncMock(return_value=("create",)))
 
     plan = {
         "title": "PRIVATE_PROPOSAL_TITLE",

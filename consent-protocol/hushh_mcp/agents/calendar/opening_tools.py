@@ -107,7 +107,9 @@ async def calendar_shared_free_slots(
             "bounded": len(result["shared_free_windows"]) > limit,
         }
 
-    return await tools._run_calendar_read(tool_context, call, shared_accounts=True)
+    return await tools._run_calendar_read(
+        tool_context, call, shared_accounts=True, display_time_zone=time_zone
+    )
 
 
 def _shared_offer(tool_context: ToolContext, user_id: str) -> CalendarSharedOpeningOffer | None:
