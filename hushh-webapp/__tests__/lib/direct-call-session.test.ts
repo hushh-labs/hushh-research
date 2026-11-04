@@ -36,6 +36,18 @@ function fixture(incoming = false, verifyPeer: () => Promise<boolean> = async ()
 afterEach(() => { vi.useRealTimers(); });
 
 describe("call session concurrency", () => {
+  it("does not create a call after cancellation while device initialization is pending", async () => {
+    const f = fixture();
+    Object.assign(f.service, { identity: null });
+    let ready!: () => void;
+    f.service.initialize.mockImplementationOnce(() => new Promise<undefined>(resolve => { ready = () => resolve(undefined); }));
+    const starting = f.session.start("conversation");
+    f.session.dispose();
+    ready(); await starting;
+    expect(f.service.create).not.toHaveBeenCalled();
+    expect(f.media.open).not.toHaveBeenCalled();
+    expect(f.service.action).not.toHaveBeenCalled();
+  });
   it("renews while verification is pending and stops media if authentication never settles", async () => {
     vi.useFakeTimers();
     let verify!: (value: boolean) => void;

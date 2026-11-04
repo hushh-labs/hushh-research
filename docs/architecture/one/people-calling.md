@@ -150,7 +150,7 @@ Native UI intents and comparison results bind the exact call identifier; delayed
 actions cannot affect a replacement call. App and system mute actions share the
 CallKit transaction and its UUID-fenced callback. First-conversation changes
 refresh Messages through its existing owner-scoped domain event.
-Navigation/backgrounding preserves native calls; terminal state, owner changes,
+The coordinator survives navigation; terminal state, owner changes,
 revocation, negotiation timeout and prolonged disconnect stop local media.
 Cold recovery ends an orphaned call only when this installation was its selected
 endpoint; ephemeral DTLS media is never silently resumed or assigned to another
@@ -191,6 +191,15 @@ its restart behavior and APNs receipt before enabling the native capability.
 Physical two-account iPhone foreground/background/locked/cold answer,
 interruption, logout, changed keys, revocation and relay failure remain required;
 an Xcode/simulator pass cannot establish those outcomes.
+
+This integration preserves the application's existing prohibition on the iOS
+`audio` background mode. The native calling sources do not qualify locked or
+background audio in this build. Before admitting that capability, add a scoped
+CallKit audio owner, native WebView capture/playback suspension independent of
+JavaScript lifecycle delivery, and unconditional SMS-player pause before its
+background eligibility checks. Both native privacy validators and negative
+controls must preserve foreground-only One Voice and system-owned SMS alarm
+handoff. The current validators are unchanged; native release remains disabled.
 
 Preparation/ringing expires after 45 seconds. Calls and opaque relay credentials
 have an absolute one-hour maximum from creation. Credentials remain memory-only;
@@ -236,7 +245,8 @@ Remaining release blockers:
   recovery, client-produced previews and navigation-key compatibility. Existing
   messages remain server-readable and their history is unchanged.
 - Qualify the implemented iOS media/signaling, CallKit/PushKit and native auth
-  recovery on physical devices. Implement Android Telecom plus foreground-service
+  recovery on physical devices after the scoped background-audio integration
+  above. Implement Android Telecom plus foreground-service
   integration. Android remains unavailable; no WebView fallback claims native
   locked-screen support.
 - Prove trusted relay TLS/renewal, invalid/expired allocations, independent-network
