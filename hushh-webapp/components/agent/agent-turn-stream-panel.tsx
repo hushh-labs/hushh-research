@@ -145,6 +145,8 @@ const CALENDAR_TOOLS: ReadonlySet<string> = new Set([
   "calendar_event_detail",
   "calendar_availability",
   "calendar_free_slots",
+  "calendar_shared_free_slots",
+  "calendar_opening_detail",
   "propose_calendar_event",
   "propose_calendar_reschedule",
   "propose_calendar_cancellation",
