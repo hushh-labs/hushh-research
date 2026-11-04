@@ -136,7 +136,7 @@ export function CircleChatMessage({ message, previous, session, visible, layoutB
             <DropdownMenuTrigger asChild><ShellActionSurface wrapperClassName={styles.messageOptions} className="size-11" aria-label="Message options" disabled={!visible || layoutBlocked}>
               <ChevronDown className="size-4" aria-hidden="true" />
             </ShellActionSurface></DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className="min-w-52 motion-reduce:animate-none" data-messages-type-scale={messagesLane || undefined}
+            <DropdownMenuContent side="top" align={own ? "end" : "start"} collisionPadding={12} className={`${styles.messageMenu} motion-reduce:animate-none`} data-messages-type-scale={messagesLane || undefined}
               onCloseAutoFocus={(event) => { if (selecting.current) { event.preventDefault(); selecting.current = false; } }}>
               {!deleted ? <>
                 <MessageReactionMenu disabled={busy} onSelect={(emoji) => { void react(emoji); }} />
