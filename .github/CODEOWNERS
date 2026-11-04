@@ -26,6 +26,9 @@
 /.github/workflows/ @kushaltrivedi5 @ankitkumarsingh1702
 /.github/actions/ @kushaltrivedi5 @ankitkumarsingh1702
 /scripts/ci/ @kushaltrivedi5 @ankitkumarsingh1702
+/hushh-webapp/scripts/testing/affected-tests.mjs @kushaltrivedi5 @ankitkumarsingh1702
+/hushh-webapp/scripts/testing/affected-tests.test.mjs @kushaltrivedi5 @ankitkumarsingh1702
+/hushh-webapp/scripts/testing/playwright-shard.cjs @kushaltrivedi5 @ankitkumarsingh1702
 /scripts/git/check-main-sync.sh @kushaltrivedi5 @ankitkumarsingh1702
 /deploy/ @kushaltrivedi5 @ankitkumarsingh1702
 /config/ci-governance.json @kushaltrivedi5 @ankitkumarsingh1702
