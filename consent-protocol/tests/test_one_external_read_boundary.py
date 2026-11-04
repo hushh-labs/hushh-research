@@ -538,6 +538,8 @@ def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_to
         "calendar_event_detail",
         "calendar_availability",
         "calendar_free_slots",
+        "calendar_shared_free_slots",
+        "calendar_opening_detail",
     ],
 )
 def test_each_calendar_read_blocks_a_later_action_in_the_same_turn(read_name):

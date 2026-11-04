@@ -70,6 +70,8 @@ READ_TOOLS = {
     "calendar_event_detail": None,
     "calendar_availability": None,
     "calendar_free_slots": None,
+    "calendar_shared_free_slots": None,
+    "calendar_opening_detail": None,
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,

@@ -113,7 +113,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "6b15117f9052b8f0cb30ea893041e1f2e1847a96ae9bfa603893f587c566cc11",
+      "system_instruction_sha256": "e23afbb19a21d7760abeed1aafb23de6c096e5ef161a284103e333bbedbe39c7",
       "telemetry_namespace": "agent.calendar",
       "tools": [
         {
@@ -162,6 +162,18 @@
           "description": "Find the earliest fitting open slots in an exact owner-calendar window.",
           "name": "calendar_free_slots",
           "py_func": "hushh_mcp.agents.calendar.tools.calendar_free_slots",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Find bounded exact shared slots across all verified Calendar accounts for a requested civil date and duration, using Account Board availability; incomplete coverage is unknown.",
+          "name": "calendar_shared_free_slots",
+          "py_func": "hushh_mcp.agents.calendar.opening_tools.calendar_shared_free_slots",
+          "required_scope": "cap.one.invoke"
+        },
+        {
+          "description": "Show an exact previously offered slot by ordinal without preparing a booking.",
+          "name": "calendar_opening_detail",
+          "py_func": "hushh_mcp.agents.calendar.opening_tools.calendar_opening_detail",
           "required_scope": "cap.one.invoke"
         },
         {
@@ -4786,7 +4798,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "c8a660b082128e683db981c9568d571bca8c38bb3d213e00daab72bb50edbb40",
+      "system_instruction_sha256": "b4c432f6bab86aa8cfb0ef843f2328b4ba49249bb314ed10765b146f040d3586",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

@@ -1281,7 +1281,11 @@ class GoogleCalendarService:
             plan["current_event"] = self._event_summary(event)
             if action == "reschedule":
                 self._stage_reschedule(plan, event)
-        if action in {"create", "reschedule"} and plan.get("booking_source") != "board":
+        if (
+            action in {"create", "reschedule"}
+            and plan.get("booking_source") != "board"
+            and not plan.get("shared_opening_selection")
+        ):
             plan["conflicts"] = await self._find_conflicts(
                 user_id=user_id,
                 start_at=plan["start_at"],
@@ -1301,7 +1305,7 @@ class GoogleCalendarService:
                 )
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
-        if plan.get("opening_selection"):
+        if plan.get("opening_selection") or plan.get("shared_opening_selection"):
             await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
             if plan.get("conflicts"):
                 raise GoogleConnectionError(
@@ -1534,7 +1538,7 @@ class GoogleCalendarService:
                     ),
                 )
             if action == "create":
-                if plan.get("opening_selection"):
+                if plan.get("opening_selection") or plan.get("shared_opening_selection"):
                     await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
                 response = await booking.execute_create(
                     self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
