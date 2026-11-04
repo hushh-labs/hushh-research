@@ -1,5 +1,45 @@
 # API Contracts
 
+## Connection network discovery
+
+These Firebase-authenticated reads bind the viewer to the verified session and
+return `private, no-store`. Web uses the existing `/api/one/[...path]` proxy;
+iOS and Android use the same endpoints through `ApiService.apiFetch`.
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
+| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
+
+A wider list requires its owner's explicit opt-in and the viewer's current active
+direct connection. Every page rechecks owner permission, peer edges, profile
+lifecycle and blocks after directory work. Unavailable, blocked and unauthorized
+targets share a neutral 404. Mid-read invalidation returns retryable 503 instead
+of disclosing a stale page or silently thinning pagination.
+
+Mutuals remain people directly connected to both viewer and target; their existing
+count can exceed the number of viewable profiles. Pending requests, contact books,
+trusted designations and Circle membership alone do not count as graph edges.
+First degree is a direct active connection. Second degree follows the existing
+shared-neighbor visibility contract. Third degree requires both intermediaries
+to enable sharing; it exposes a distance only. `null` does not prove that no
+connection exists. Anonymous public profiles remain unchanged.
+
+Discovery admits at most 4,000 live eligible nodes and 12,000 edges, uses a
+cooperative twelve-second traversal budget and scoped eight-second SQL statement
+timeouts, and fails retryably when it cannot qualify the result. Firebase account
+eligibility retains the canonical directory's bounded cache semantics. No graph
+inventory is persisted in the browser or returned as connecting paths.
+
+The new visibility write remains an unbound discovered API in the capability
+catalog. The existing evolution ledger retires Connections setup graph revisions
+`9ea5b914a24b6f47` and `ac971edb713a113d` rather than carrying an older workflow's
+authority into a new write inventory. This also retires the first revision's
+compatible predecessors for that workflow. Existing persisted connections and
+setup state are unchanged; an old workflow must be freshly admitted.
+
 ## Owner-local Calendar and email tasks
 
 One's To-do list reads private Google metadata directly from the owner's signed,

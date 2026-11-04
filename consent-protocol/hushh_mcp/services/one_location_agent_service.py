@@ -4714,6 +4714,8 @@ class OneLocationAgentService:
         name_only: bool = False,
         verified_email_lookup: list[str] | None = None,
         mutual_target_user_id: str | None = None,
+        network_user_ids: list[str] | None = None,
+        include_recommendations: bool = True,
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
 
@@ -4838,6 +4840,8 @@ class OneLocationAgentService:
             return {"items": [], "page": page, "hasMore": False}
         if targets is not None and len(targets) > 100:
             raise ValueError("Directory profile lookup is limited to 100 people")
+        if network_user_ids is not None and len(network_user_ids) > 4000:
+            raise ValueError("Network discovery is limited to 4000 people")
 
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -4921,6 +4925,8 @@ class OneLocationAgentService:
         # Mutual-connection scope: applied inside the canonical directory,
         # before live-account filtering and pagination.
         mutual_filter_clause = MUTUAL_DIRECTORY_FILTER_SQL if mutual_target_user_id else "TRUE"
+        if network_user_ids is not None:
+            mutual_filter_clause += " AND profile.user_id = ANY(CAST(:network_user_ids AS TEXT[]))"
 
         directory_sql = build_directory_candidate_statement(
             usable_name=usable_name,
@@ -4934,6 +4940,7 @@ class OneLocationAgentService:
             "candidate_user_id": target,
             "candidate_user_ids": targets,
             "mutual_target_user_id": mutual_target_user_id,
+            "network_user_ids": network_user_ids,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
@@ -5051,13 +5058,17 @@ class OneLocationAgentService:
             for row in page_rows
             if (payload := self._recipient_payload(row, directory_phone_mask=True))
         ]
-        items = self._apply_kai_circle_recommendations(
-            owner_user_id=owner_user_id,
-            recipients=recipients,
-            # SQL matches plus resolved provider names were already merged and
-            # ranked before the logical page. Recommendation scores must not
-            # shuffle that stable order.
-            preserve_order=True,
+        items = (
+            self._apply_kai_circle_recommendations(
+                owner_user_id=owner_user_id,
+                recipients=recipients,
+                # SQL matches plus resolved provider names were already merged and
+                # ranked before the logical page. Recommendation scores must not
+                # shuffle that stable order.
+                preserve_order=True,
+            )
+            if include_recommendations
+            else recipients
         )
         return {"items": items, "page": page, "hasMore": has_more}
 

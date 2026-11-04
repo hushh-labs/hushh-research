@@ -2,6 +2,7 @@
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
@@ -3599,6 +3600,7 @@ function ProfilePageContent({
             />
           }
         />
+        <NetworkVisibilitySetting />
         <SettingsRow
           icon={PROFILE_ICONS.visibility}
           iconTone="capability"

@@ -9,8 +9,8 @@ export async function assertMutualListLayout(page: Page, width: number) {
 
   const listBox = await page.getByTestId("mutual-connections-list").boundingBox();
   if (!listBox) throw new Error("Mutual connections list should have a rendered box.");
-  expect(listBox.width).toBeGreaterThan(width === 393 ? 300 : 900);
-  expect(listBox.width).toBeLessThanOrEqual(width === 393 ? 393 : 1120);
+  expect(listBox.width).toBeGreaterThan(width === 393 ? 300 : 760);
+  expect(listBox.width).toBeLessThanOrEqual(width === 393 ? 393 : 880);
   const header = page.getByTestId("mutual-connections-list").locator("header");
   expect(await header.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 

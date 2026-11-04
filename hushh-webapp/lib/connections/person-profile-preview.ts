@@ -6,6 +6,7 @@ export const PERSON_PROFILE_PREVIEW_EVENT = "hussh:person-profile-preview";
 export type PersonProfilePreviewIdentity = {
   personRef?: string | null;
   userId?: string | null;
+  networkList?: "mutuals" | "connections" | "discovery";
 };
 
 export function isPersonProfilePreviewOpen(doc: Document = document): boolean {
@@ -13,7 +14,7 @@ export function isPersonProfilePreviewOpen(doc: Document = document): boolean {
 }
 
 export function openPersonProfilePreview(identity: PersonProfilePreviewIdentity, returnFocus?: HTMLElement): boolean {
-  if (!identity.personRef?.trim() && !identity.userId?.trim()) return false;
+  if (!identity.personRef?.trim() && !identity.userId?.trim() && identity.networkList !== "discovery") return false;
   return !window.dispatchEvent(new CustomEvent(PERSON_PROFILE_PREVIEW_EVENT, {
     cancelable: true,
     detail: { ...identity, returnFocus: returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined) },

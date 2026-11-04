@@ -357,6 +357,43 @@
       "state_exposure": [
         "connection status"
       ]
+    },
+    {
+      "action_id": "people.profile.browse_network",
+      "label": "Browse this person’s network",
+      "meaning": "The profile shows viewer-relative degree and direct shared neighbors. Zero mutuals hide the control, one opens its available profile, and multiple open a list. View connections appears only when the server authorizes this active direct connection after the target opts in.",
+      "aliases": [],
+      "search_keywords": [
+        "network",
+        "mutual",
+        "connections"
+      ],
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person explicitly chooses a visible mutual or authorized connection-list control; nested preview interactions suppress underlying actions.",
+        "intended_handler": "PersonNetworkSummary"
+      },
+      "control_ids": [
+        "person-network-mutuals",
+        "person-network-connections"
+      ],
+      "state_exposure": []
     }
   ],
   "search": {}
