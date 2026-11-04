@@ -65,6 +65,7 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/tag-last-known-good.sh",
         "scripts/ci/verify-predecessor-acceptance.py",
         "scripts/ops/audit_env_toggles.py",
+        "scripts/ops/sync_backend_runtime_secrets.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
@@ -72,6 +73,9 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         assert selection.error is None
         assert selection.groups == ("controller",)
         assert "ci-path-ownership" in selection.check_ids
+        assert {
+            "runtime-config-contract", "deploy-secret-coverage", "protected-pipeline-edits"
+        } <= set(selection.check_ids)
 
 
 def test_production_emergency_authority_test_selects_controller_owner() -> None:
