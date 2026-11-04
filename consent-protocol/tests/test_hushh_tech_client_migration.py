@@ -385,9 +385,9 @@ def test_uat_init_and_full_attest_before_the_first_ddl(
 
 
 def test_deploy_workflows_select_explicit_release_lanes_and_uat_target() -> None:
-    uat_workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-uat.yml").read_text(
-        encoding="utf-8"
-    )
+    uat_workflow = (
+        REPO_ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
+    ).read_text(encoding="utf-8")
     prod_workflow = (REPO_ROOT / ".github" / "workflows" / "deploy-production.yml").read_text(
         encoding="utf-8"
     )
