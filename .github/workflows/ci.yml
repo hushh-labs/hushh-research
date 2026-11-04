@@ -1978,7 +1978,7 @@ jobs:
           record_failure "MCP Package" "$MCP_PACKAGE" "$BACKEND_SELECTED"
           record_failure "Integration" "$INTEGRATION" "$INTEGRATION_REQUIRED"
           record_failure "Protected Document WebKit" "$DOCUMENT_WEBKIT" "$DOCUMENT_SELECTED"
-          for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED"; do
+          for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED" "document=$DOCUMENT_SELECTED"; do
             case "${lane#*=}" in
               true|false) ;;
               *)
