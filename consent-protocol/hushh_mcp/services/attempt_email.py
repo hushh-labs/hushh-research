@@ -38,6 +38,7 @@ def worker_authority():
             "ONE_PLG_AUDIENCE_SECRET",
             "ONE_PLG_UAT_EXPORT_SECRET",
             "ONE_PLG_SUBSCRIPTION_SECRET",
+            "ONE_PLG_OWNER_EXPORT_SECRET",
         )
     ]:
         raise PermissionError("Attempt email worker unavailable")

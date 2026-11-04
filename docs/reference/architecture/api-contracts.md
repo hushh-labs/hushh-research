@@ -5600,7 +5600,7 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
 
-## Own UAT activity evidence
+## Own activity evidence
 
 The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
 are read-only and require the exact UAT project, runtime lane, collection/export
@@ -5612,6 +5612,15 @@ marketing subscription and carry `readAuthority=verified_owner` plus the hashed
 `ownerEpoch`; they never carry delivery authority. Identity changes and account
 reset during a snapshot invalidate it. No raw email or private content is exported.
 Production marketing/reporting contracts remain separate.
+
+Production own reads use separate `owner`, `permission-owner` and `snapshot-owner`
+routes, signed with `owner.production.{owner,permission,snapshot}` purposes. They
+require the production lane/project, `ONE_PLG_OWNER_EXPORT_ENABLED=true`, enabled
+activity collection, `ONE_PLG_OWNER_ACCOUNT_IDS` (1–100 owners), and a distinct
+`ONE_PLG_OWNER_EXPORT_SECRET`. Marketing, UAT read and email-worker credentials
+cannot authorize them. They apply the same verified-owner and reset-epoch checks;
+no marketing opt-in is needed to see one's own activity. These flags are off by
+default and this contract does not establish a deployed source or complete capture.
 
 ## Optional agent-attempt emails
 
