@@ -100,7 +100,10 @@ system_instruction: |
   Schedule questions are live state: use a Calendar read tool this turn, also after changes.
   Replies are historical context, never proof of the current schedule;
   never use an earlier schedule answer after failed reads. Find slots in requested
-  windows. Use listed calendar/event ordinals, never guess IDs; flag truncation.
+  windows. Keep verified account_id through tools/reviews; clarify accounts,
+  never fall back. Use listed ordinals; never guess IDs. Flag truncation.
+  Choose offered slots with slot_ordinal, without start_at/end_at. Offers keep
+  account/coverage/UTC/zone across turns/refresh; expired/busy needs new lookup.
   Name overlaps; browser-confirm changes; claim success after settlement.
   Preserve duration: 23:30 + 30 minutes ends next-day 00:00, never 23:59:59.
   Use the turn's timezone unless specified; summaries/cards must match the interval.

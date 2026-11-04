@@ -2708,6 +2708,38 @@ changed availability at confirmation. Google must return an event identifier
 before creation is reported as successful; mutations are never automatically
 retried.
 
+Calendar Chat reads accept an exact `account_id`. When a fresh request has
+multiple connected accounts and no selection, the tool returns the owner-scoped
+account choices for clarification. Event, subscribed-calendar and invitation
+references retain their own account, calendar, complete opaque grant binding,
+conversation and five-minute expiry. Another account's read cannot redirect a
+reference; a conflicting explicit account is rejected. Invitation handoffs,
+inline reviews, confirmations and reconnect controls preserve this account ID,
+including when two observations have the same email. Additional accounts remain
+unsupported on single-account owner-cloud and data-door ports; those paths
+never resolve shared credentials as a fallback. Organizer Mail preparation
+requires its existing sending grant to prove the same Google subject as the
+selected Calendar grant. A different sender requires a new matching-account
+review; Calendar never changes Mail's selected account automatically.
+
+`calendar_free_slots` retains completed openings in the existing encrypted ADK
+session as a private five-minute offer. It records the selected account,
+destination, exact checked calendar coverage, query window, elapsed duration,
+canonical IANA zone and ordered UTC intervals. Current typed opening searches
+check that account's primary calendar only; they do not claim invitee or
+all-account coverage. `propose_calendar_event(slot_ordinal=...)` resolves a
+one-based choice from this offer and rejects replacement times or a different
+target. Session recovery retains the original creation time, without renewing
+expiry. Failed or empty replacement searches retire previous offers. Public
+state snapshots and deltas exclude this private state.
+
+Slot-backed proposals recheck complete free/busy coverage before issuing a
+review and immediately before confirmed execution. Expired, past, reconnected,
+partially checked or newly busy slots require fresh openings rather than a
+"Schedule anyway" confirmation. Existing proposal expiry, single-use claims,
+included-calendar checks and explicit browser confirmation still apply.
+Availability checks do not reserve provider time atomically.
+
 The visible Schedule view refreshes every thirty seconds and on return to the
 page or network recovery, coalescing requests within three seconds. Superseded
 reads are cancelled. Transient read failures receive at most two short retries;

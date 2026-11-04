@@ -51,6 +51,16 @@ class _Connections:
     def __init__(self) -> None:
         self.binding = ("owner", "calendar", "provider-sub", "connected-at", "grant-generation")
 
+    async def read_calendar_grant_identity(self, **_: object):
+        from hushh_mcp.services.google_calendar_meeting_grant import CalendarGrantIdentity
+
+        return CalendarGrantIdentity(
+            user_id="owner",
+            account_id=getattr(self, "account_id", "default"),
+            provider_subject="provider-sub",
+            binding=self.binding,
+        )
+
     async def status(self, **_: object) -> dict[str, object]:
         return {"google_email": "owner@example.com", "connected": True, "access_level": "manage"}
 
@@ -109,6 +119,14 @@ class _Mail:
         self.prepares: list[dict[str, object]] = []
         self.sends: list[dict[str, object]] = []
         self.fail_send: Exception | None = None
+        self.gmail_service = SimpleNamespace(send_grant_identity=self._sender)
+
+    async def _sender(self, **_):
+        return {
+            "google_sub": "provider-sub",
+            "grant_generation": 1,
+            "account_label": "Connected Mail",
+        }
 
     async def prepare(self, **kwargs: object) -> dict[str, object]:
         self.prepares.append(copy.deepcopy(kwargs))
@@ -742,3 +760,48 @@ def test_exact_proposal_preserves_midnight_and_fails_closed_on_unreadable_calend
         )
     assert failure.value.reason_code == "calendar_unreadable"
     assert not mail.sends
+
+
+@pytest.mark.parametrize("account_id", ["default", "account-b", "account-c"])
+@pytest.mark.parametrize("sender_subject", ["selected-subject", "wrong-primary-subject"])
+def test_invitation_mail_requires_the_same_verified_provider_account(
+    monkeypatch, sender_subject, account_id
+):
+    from hushh_mcp.services.google_calendar_meeting_grant import CalendarGrantIdentity
+
+    service, calendar, _, mail = _service(monkeypatch)
+    calendar.connections.account_id = account_id
+
+    async def identity(**_):
+        return CalendarGrantIdentity(
+            user_id="owner",
+            account_id=account_id,
+            provider_subject="selected-subject",
+            binding=await service._read_binding("owner"),
+        )
+
+    async def sender(**_):
+        return {
+            "google_sub": sender_subject,
+            "grant_generation": 1,
+            "account_label": "selected@example.test",
+        }
+
+    calendar.connections.read_calendar_grant_identity = identity
+    mail.gmail_service = SimpleNamespace(send_grant_identity=sender)
+    original = mail.prepare
+
+    async def prepare(**kwargs):
+        return {**await original(**kwargs), "sender_label": "selected@example.test"}
+
+    mail.prepare = prepare
+    if sender_subject != "selected-subject":
+        with pytest.raises(GoogleConnectionError, match="does not match"):
+            _review(service, offer_times=True)
+        assert mail.prepares == []
+    else:
+        review = _review(service, offer_times=True)
+        assert review["sender_label"] == "selected@example.test"
+        assert len(mail.prepares) == 1
+    assert mail.sends == []
+    assert not any(call.get("method") == "PATCH" for call in calendar.requests)
