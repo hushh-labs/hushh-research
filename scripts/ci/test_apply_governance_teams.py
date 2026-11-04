@@ -531,14 +531,31 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
              "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
              "rules": [{"type": "merge_queue"}],
              "bypass_actors": [{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}]}
-    writes = []
-    with patch.object(module, "gh_json", side_effect=[protection, [{"id": 1, "name": queue["name"]}], queue]), \
-         patch.object(prepared_branch_governance, "_write", side_effect=lambda *args: writes.append(args)):
-        assert module.reconcile_main_merge_policy(policy, apply=True)
-    assert len(writes) == 2
-    assert writes[0][0].endswith("/rulesets/1") and writes[0][1]["bypass_actors"] == []
-    assert writes[1][0].endswith("/required_status_checks") and writes[1][1]["strict"] is False
-    assert writes[1][1]["checks"] == protection["required_status_checks"]["checks"]
+    for scope in ("refs/heads/main", "~DEFAULT_BRANCH"):
+        queue["conditions"]["ref_name"]["include"] = [scope]
+        reads = [protection, [{"id": 1, "name": queue["name"]}], queue]
+        if scope == "~DEFAULT_BRANCH":
+            reads.append({"default_branch": "main"})
+        writes = []
+        with patch.object(module, "gh_json", side_effect=reads), \
+             patch.object(prepared_branch_governance, "_write", side_effect=lambda *args: writes.append(args)):
+            assert module.reconcile_main_merge_policy(policy, apply=True)
+        assert len(writes) == 2
+        assert writes[0][0].endswith("/rulesets/1") and writes[0][1]["bypass_actors"] == []
+        assert writes[0][1]["conditions"] == {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+        assert writes[1][0].endswith("/required_status_checks") and writes[1][1]["strict"] is False
+        assert writes[1][1]["checks"] == protection["required_status_checks"]["checks"]
+    # A changed or unavailable default branch cannot authorize any mutation.
+    for repository in ({"default_branch": "dev"}, {}, None):
+        with patch.object(module, "gh_json", side_effect=[protection, [{"id": 1, "name": queue["name"]}], queue, repository]), \
+             patch.object(prepared_branch_governance, "_write") as write:
+            try:
+                module.reconcile_main_merge_policy(policy, apply=True)
+            except SystemExit as error:
+                assert "does not resolve to Main" in str(error)
+            else:
+                raise AssertionError("Unverified default branch authorized a Main ruleset mutation")
+            write.assert_not_called()
 
 
 def test_prepared_rollout_rejects_bypass_with_non_strict_checks(module) -> None:

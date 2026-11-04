@@ -142,7 +142,7 @@ def authorize(repository, branch, base, included):
         owner_approval = guard.owner_queue_approval(
             author=member["author"], requester=member["requester"],
             review=member["review"], main_policy=main,
-        ) if branch == "main" else []
+        )
         require(member["review"] == "APPROVED" or owner_approval,
                 "Queued PR needs current review or its owner's explicit self-approval")
         if owner_approval:
