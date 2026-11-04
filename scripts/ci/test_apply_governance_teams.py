@@ -1149,7 +1149,7 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
     from unittest.mock import patch
 
     for branch in ("dev", "uat"):
-        for fault in (None, "missing_native", "changed_queue", "changed_protection", "bad_guard", "unknown_bypass", "stale_authority", "main_advanced"):
+        for fault in (None, "reordered", "duplicate_actor", "bad_actor_mode", "missing_native", "changed_queue", "changed_protection", "bad_guard", "unknown_bypass", "stale_authority", "main_advanced"):
             policy, state, base_read, _, _ = _native_review_fixture(module)
             state["grant"] = "push"
             owners = policy["main"]["protected_pipeline_edit_users"]
@@ -1221,6 +1221,12 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                 elif path.endswith("/rulesets/20"):
                     assert guard_created and state["rules"][30]["enforcement"] == "active"
                     state["rules"][20] = {**copy.deepcopy(payload), "id": 20}
+                    if fault == "reordered":
+                        state["rules"][20]["bypass_actors"].reverse()
+                    if fault == "duplicate_actor":
+                        state["rules"][20]["bypass_actors"].append(copy.deepcopy(payload["bypass_actors"][0]))
+                    if fault == "bad_actor_mode":
+                        state["rules"][20]["bypass_actors"][0]["bypass_mode"] = "always"
                 elif path.endswith(f"/branches/{branch}/protection"):
                     assert guard_created
                     assert all(actor["actor_type"] == "User" for actor in state["rules"][20]["bypass_actors"])
@@ -1232,10 +1238,14 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
             with patch.object(prepared, "_write", side_effect=write):
                 prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=False, governance=module) if fault not in {"missing_native", "unknown_bypass", "stale_authority"} else None
                 assert state["writes"] == []
-                if fault is None:
+                if fault in (None, "reordered"):
                     prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
                     assert prepared._same_protection(state["protections"][branch], prepared.protection_payload(prepared.branch_policy(policy, branch)))
                     assert [method for _, _, method in state["writes"]] == ["POST", "PUT", "PUT"]
+                    if fault == "reordered":
+                        state["writes"].clear()
+                        prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
+                        assert state["writes"] == []
                 else:
                     try:
                         prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
