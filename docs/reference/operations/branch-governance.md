@@ -77,7 +77,7 @@ not create a branch, apply protection or grant deployment authority.
 Destination drift is guidance, not an ancestry-age rejection. The queue verifies
 all included changes against the actual destination and preceding queued changes.
 The verifier resolves each declared policy and exact queue ruleset; undeclared
-branches refuse. Ordinary mergers have no queue bypass. Named owner Admin merges additionally
+branches refuse. Ordinary mergers have no queue bypass. Configured direct operators additionally
 require the separate strict-CI/PR guard described in Admin SOP. Source intent is not proof of live settings; read them
 back after the reviewed activation.
 
@@ -351,8 +351,9 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    changed files; if it cannot resolve them it **fails closed** (blocks), never
    open. A `--self-test` runs in CI so the guard can never silently regress.
 3. **Review and owner approval.** Ordinary PRs require one independent latest-push
-   approval. Kushal or Ankit may explicitly land their own exact PR head under the
-   [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority).
+   approval. Configured direct operators may explicitly land their own application
+   PR under the [validated direct procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority).
+   Protected changes retain their separate current-head Kushal/Ankit approval.
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
 
@@ -459,10 +460,11 @@ have.
 
 Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 Ordinary merges require applicable independent review and combined-result queue
-validation. The Main-only owner Admin route lets Kushal or Ankit explicitly
-approve their own exact-head PR without a second owner. Its native strict CI/PR
-guard and canonical command preserve current-base evidence, resolved conversations
-and landed-tree verification. This does not enable an Admin route on Dev/UAT.
+validation. The Main-only validated direct route uses the explicit review/direct
+cohorts in policy for self-authored application PRs. Its native strict CI/PR guard
+and canonical command preserve current-base evidence, resolved conversations and
+landed-tree verification. Protected changes still require Kushal/Ankit approval;
+review bypass does not grant pipeline editing. Dev/UAT have no direct route here.
 Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 
@@ -483,8 +485,9 @@ cannot actually approve on `main`).
 
 Change only the explicitly requested capability lists. Main merge authority is
 `main.merge_users`; deployment lists are separate; protected editors are Kushal
-and Ankit. Only their named owner Admin route has review/queue exceptions;
-its additional strict-CI/PR guard must be active before granting that authority.
+and Ankit. Review exceptions and direct-merge exceptions are separately authored
+subsets of Main mergers; every direct operator must also have review permission.
+Their additional strict-CI/PR guard must be active before granting queue bypass.
 
 Land reviewed policy intent, then dry-run the existing reconciler. Review its
 exact proposed mutations before applying. Default reconciliation handles review
@@ -541,7 +544,7 @@ Current operating note:
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`
-- GitHub cannot count a self-review; only the two named owners have the explicit self-authored Admin PR route
+- GitHub cannot count a self-review; only explicitly configured direct operators have the validated self-authored Main PR route, with protected editing checked separately
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - Author/admin status alone is not approval. An authorized owner must explicitly
   approve their captured head through Admin SOP; other PRs require ordinary review.

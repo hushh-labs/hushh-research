@@ -250,6 +250,39 @@ def test_owner_admin_requires_same_named_owner_not_org_admin_status(actor, autho
     with patch.object(queue, "api", side_effect=[{"login": actor}, pr, {"object": {"sha": BASE}}]), \
          patch.object(queue, "git", return_value=json.dumps(policy)), \
          patch.object(queue.subprocess, "run") as run:
-        with pytest.raises(queue.Refused, match="Only the named owner"):
+        with pytest.raises(queue.Refused, match="Only the named direct operator"):
             queue.owner_admin_snapshot(8825, HEAD1)
         assert run.call_count == 1 and run.call_args.args[0][:2] == ["git", "fetch"]
+
+
+@pytest.mark.parametrize("protected,review_only,owner_review,allowed", [
+    (False, False, False, True), (True, False, False, False),
+    (True, False, True, True), (False, True, False, False),
+])
+def test_direct_operator_does_not_inherit_protected_edit_approval(
+    protected, review_only, owner_review, allowed,
+):
+    actor = "DamriaNeelesh"
+    owners = ["kushaltrivedi5", "ankitkumarsingh1702"]
+    policy = {"main": {"merge_users": owners + [actor], "review_bypass_users": owners + [actor],
+                       "merge_queue_bypass_users": owners if review_only else owners + [actor],
+                       "protected_pipeline_edit_users": owners,
+                       "protected_pipeline_paths": ["scripts/ci/"]},
+              "production": {"manual_dispatch_users": owners}}
+    member = {"number": 1, "head": HEAD1, "author": actor, "requester": actor,
+              "review": "REVIEW_REQUIRED"}
+    reviews = ([{"id": 1, "user": {"login": owners[0]}, "state": "APPROVED", "commit_id": HEAD1}]
+               if owner_review else [])
+    def source(*args):
+        if args[0] == "show":
+            return json.dumps(policy)
+        assert args == ("diff", "--no-renames", "--name-only", BASE, HEAD1)
+        return "scripts/ci/control.py" if protected else "hushh-webapp/app/page.tsx"
+    with patch.object(queue, "git", side_effect=source), patch.object(queue, "api", return_value=reviews):
+        if allowed:
+            result = queue.authorize("hushh-labs/hushh-research", "main", BASE, [member], direct=True)
+            assert result[0]["approval_source"] == "explicit_review_bypass"
+            assert result[0]["protected_approvals"] == ([owners[0]] if protected else [])
+        else:
+            with pytest.raises(queue.Refused):
+                queue.authorize("hushh-labs/hushh-research", "main", BASE, [member], direct=True)

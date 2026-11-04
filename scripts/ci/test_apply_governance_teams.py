@@ -506,7 +506,9 @@ def test_main_policy_separates_mergers_reviews_and_uat_access(module) -> None:
     policy = _policy()
     main = policy["main"]
     assert main["merge_users"] == policy["production"]["manual_dispatch_users"]
-    assert main["review_bypass_users"] == main["protected_pipeline_edit_users"]
+    assert set(main["review_bypass_users"]) == set(main["protected_pipeline_edit_users"]) | {"DamriaNeelesh"}
+    assert main["merge_queue_bypass_users"] == main["review_bypass_users"]
+    assert set(main["protected_pipeline_edit_users"]) == {"kushaltrivedi5", "ankitkumarsingh1702"}
     assert not main["review_bypass_team_slug"]
     assert main["merge_queue_bypass_team_slug"] == policy["pr_train"]["merge_queue_bypass_team_slug"] == ""
     assert policy["branch_flow"]["prepared_branches"]["uat"]["policy_key"] == "uat_merge"
@@ -540,6 +542,7 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
         reads = [protection, [{"id": 1, "name": queue["name"]}], queue]
         if scope == "~DEFAULT_BRANCH":
             reads.append({"default_branch": "main"})
+        reads.append(queue)
         writes = []
         with patch.object(module, "gh_json", side_effect=reads), \
              patch.object(prepared_branch_governance, "_write", side_effect=lambda *args: writes.append(args)):
@@ -687,7 +690,7 @@ def test_owner_admin_native_guard_preserves_review_and_nonowner_queue(module) ->
         return {"login": login, "type": "User", "id": people.index(login) + 1}
 
     guard = module.main_owner_admin_ruleset(policy, read=read)
-    owners = set(policy["main"]["protected_pipeline_edit_users"])
+    owners = set(policy["main"]["merge_queue_bypass_users"])
     assert {a["actor_id"] for a in guard["bypass_actors"]} == {
         people.index(p) + 1 for p in set(people) - owners
     }
@@ -816,10 +819,10 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
         ),
     ):
         assert module.reconcile_main_merge_policy(policy, apply=True)
-    assert calls[0] == "guard_verified" and len(calls) == 2
-    assert {a["actor_id"] for a in calls[1][1]["bypass_actors"]} == {
+    assert calls[:2] == ["guard_verified", "guard_verified"] and len(calls) == 3
+    assert {a["actor_id"] for a in calls[2][1]["bypass_actors"]} == {
         policy["main"]["merge_users"].index(p) + 1
-        for p in policy["main"]["protected_pipeline_edit_users"]
+        for p in policy["main"]["merge_queue_bypass_users"]
     }
     with (
         patch.object(module, "gh_json", side_effect=read),
@@ -837,6 +840,83 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
         else:
             raise AssertionError("Missing strict guard accepted")
         write.assert_not_called()
+
+def test_direct_operator_rollout_preserves_strict_ci_before_grants(module) -> None:
+    import copy
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy = _policy()
+    people = policy["main"]["merge_users"]
+    def person(args):
+        login = args[1].split("/")[-1]
+        return {"login": login, "type": "User", "id": people.index(login) + 1}
+    legacy = module.legacy_owner_policy(policy)
+    prefix = f"repos/{module.REPO}"
+    protection_path = f"{prefix}/branches/main/protection"
+    strict_path, review_path, queue_path = (f"{prefix}/rulesets/{n}" for n in (1, 2, 3))
+    initial = {
+        strict_path: module.main_owner_admin_ruleset(legacy, read=person),
+        review_path: module.main_review_ruleset(legacy, read=person),
+        queue_path: {
+            "name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
+            "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+            "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}],
+            "bypass_actors": module.main_exception_actors(legacy["main"]["merge_queue_bypass_users"], read=person),
+        },
+        protection_path: {
+            "enforce_admins": {"enabled": True}, "required_conversation_resolution": {"enabled": True},
+            "required_status_checks": {"strict": False, "checks": [{"context": "CI Status Gate", "app_id": 15368}]},
+            "required_pull_request_reviews": None,
+            "restrictions": {"users": [{"login": p} for p in people], "teams": [], "apps": []},
+        },
+    }
+    for corruption in (None, "strict", "review", "queue", "partial"):
+        state = copy.deepcopy(initial)
+        if corruption == "strict":
+            state[strict_path]["rules"][0]["parameters"]["strict_required_status_checks_policy"] = False
+        elif corruption == "review":
+            state[review_path]["rules"][0]["parameters"]["required_approving_review_count"] = 0
+        elif corruption == "queue":
+            state[queue_path]["bypass_actors"].append({"actor_id": 99, "actor_type": "OrganizationAdmin", "bypass_mode": "always"})
+        elif corruption == "partial":
+            state[review_path] = module.main_review_ruleset(policy, read=person)
+        writes = []
+        def read(args):
+            path = args[1]
+            if path.startswith("users/"):
+                return person(args)
+            if path.endswith("/rulesets?per_page=100"):
+                return [{"id": n, "name": state[f"{prefix}/rulesets/{n}"]["name"]} for n in (1, 2, 3)]
+            return copy.deepcopy(state[path])
+        def write(path, body, method):
+            assert method == "PUT" and path in (strict_path, review_path, queue_path)
+            writes.append(path)
+            state[path] = copy.deepcopy(body)
+        with patch.object(module, "gh_json", side_effect=read), patch.object(prepared_branch_governance, "_write", side_effect=write):
+            if corruption not in (None, "partial"):
+                try:
+                    module.reconcile_main_review_ruleset(policy, apply=True)
+                except SystemExit:
+                    pass
+                else:
+                    raise AssertionError(f"Unreviewed boundary drift accepted: {corruption}")
+                assert writes == []
+                continue
+            assert module.reconcile_main_review_ruleset(policy, apply=False)
+            assert writes == []
+            assert module.reconcile_main_review_ruleset(policy, apply=True)
+            assert module.reconcile_main_merge_policy(policy, apply=True)
+        assert writes == ([strict_path, queue_path] if corruption == "partial" else
+                          [strict_path, review_path, queue_path])
+        assert state[protection_path] == initial[protection_path]
+        assert state[queue_path]["rules"] == initial[queue_path]["rules"]
+        assert policy["main"]["protected_pipeline_edit_users"] == legacy["main"]["protected_pipeline_edit_users"]
+        damria = person(["api", "users/DamriaNeelesh"])["id"]
+        assert damria not in {a["actor_id"] for a in state[strict_path]["bypass_actors"]}
+        assert damria in {a["actor_id"] for a in state[review_path]["bypass_actors"]}
+        assert damria in {a["actor_id"] for a in state[queue_path]["bypass_actors"]}
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

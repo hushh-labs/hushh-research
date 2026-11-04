@@ -220,9 +220,10 @@ def owner_queue_approval(*, author: str, requester: str, review: str, main_polic
     """
     owners = set(resolve_allowed_users(main_policy))
     exceptions = set(main_policy.get("review_bypass_users", []))
-    if not exceptions <= owners or main_policy.get("review_bypass_team_slug"):
+    if not exceptions <= set(main_policy.get("merge_users", [])) or main_policy.get("review_bypass_team_slug"):
         raise PolicyError("Owner approval must not inherit a broader review bypass")
-    if review in {"APPROVED", "REVIEW_REQUIRED"} and author == requester and requester in exceptions:
+    if (review in {"APPROVED", "REVIEW_REQUIRED"} and author == requester
+            and requester in exceptions and requester in owners):
         return [requester]
     return []
 

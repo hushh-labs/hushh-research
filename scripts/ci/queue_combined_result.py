@@ -127,7 +127,13 @@ def _module(filename, name):
     return module
 
 
-def authorize(repository, branch, base, included):
+def direct_merge_actor(main, requester, author):
+    return requester == author and all(requester in main.get(key, []) for key in
+        ("merge_users", "merge_queue_bypass_users", "review_bypass_users"))
+
+
+def authorize(repository, branch, base, included, *, direct=False):
+    require(not direct or branch == "main", "Direct merge source must target Main")
     policy = json.loads(git("show", f"{base}:config/ci-governance.json"))
     main = policy["main"]
     # Explicit merger authority is separate from authorship and deployment.
@@ -137,20 +143,28 @@ def authorize(repository, branch, base, included):
     protected_owners = guard.resolve_allowed_users(main)
     protected_paths = main.get("protected_pipeline_paths") or guard.DEFAULT_PROTECTED_PATHS
     for member in included:
+        require(not direct or direct_merge_actor(main, member["requester"], member["author"]),
+                "Direct merge needs the named operator's own PR")
         require(branch != "main" or member["requester"] in allowed,
                 "The actual queue requester is not authorized to merge Main")
         owner_approval = guard.owner_queue_approval(
             author=member["author"], requester=member["requester"],
             review=member["review"], main_policy=main,
         )
-        require(member["review"] == "APPROVED" or owner_approval,
+        review_bypass = (branch == "main" and member["author"] == member["requester"]
+                         and member["requester"] in main.get("review_bypass_users", [])
+                         and member["review"] in {"APPROVED", "REVIEW_REQUIRED"})
+        require(member["review"] == "APPROVED" or owner_approval or review_bypass,
                 "Queued PR needs current review or its owner's explicit self-approval")
-        if owner_approval:
+        if owner_approval or review_bypass:
             guard.require_uncontested_owner_approval(repository, member["number"], member["head"], read=api)
-        member["approval_source"] = "owner_queue_request" if owner_approval else "github_review"
+        member["approval_source"] = ("owner_queue_request" if owner_approval else
+                                     "explicit_review_bypass" if review_bypass else "github_review")
         # Compare the actual contribution at its merge parent, including renames
         # as deletion/addition, so a protected file cannot evade approval.
-        changed = git("diff", "--no-renames", "--name-only", f"{member['combined']}^1", member["combined"]).splitlines()
+        before, after = ((base, member["head"]) if direct else
+                         (f"{member['combined']}^1", member["combined"]))
+        changed = git("diff", "--no-renames", "--name-only", before, after).splitlines()
         protected = any(guard._matches(path, rule) for path in changed for rule in protected_paths)
         approvals = owner_approval or (guard._owner_approvals(
             repository, member["number"], member["head"], protected_owners, read=api,
@@ -295,12 +309,8 @@ def owner_admin_snapshot(number, expected_head):
     main = policy["main"]
     guard = _module("verify-protected-pipeline-edits.py", "admin_protected_owner")
     require(
-        actor == pr.get("user", {}).get("login")
-        and actor in main.get("merge_users", [])
-        and actor in main.get("merge_queue_bypass_users", [])
-        and actor in main.get("review_bypass_users", [])
-        and actor in guard.resolve_allowed_users(main),
-        "Only the named owner may explicitly approve their own exact-head Admin merge",
+        direct_merge_actor(main, actor, pr.get("user", {}).get("login")),
+        "Only the named direct operator may explicitly approve their own exact-head Admin merge",
     )
     governance = _module("apply-governance.py", "admin_live_governance")
     governance.reconcile_owner_admin_ruleset(policy, verify_only=True)
@@ -346,6 +356,10 @@ def owner_admin_snapshot(number, expected_head):
     )
     tree = git("merge-tree", "--write-tree", base, expected_head)
     require(SHA.fullmatch(tree), "Current combined merge tree is not proven")
+    # Review/direct permission does not approve protected CI or release changes.
+    authorize(repository, "main", base, [{"number": number, "head": expected_head,
+              "requester": actor, "author": pr["user"]["login"],
+              "review": "REVIEW_REQUIRED"}], direct=True)
     state = {
         "repository": repository,
         "branch": "main",

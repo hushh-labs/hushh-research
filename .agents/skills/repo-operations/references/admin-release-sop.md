@@ -74,23 +74,24 @@ permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's appr
 An explicit user instruction approving this bounded change is authorization to
 execute its reviewed implementation; generic admin credentials alone are not.
 
-**Owner self-approval:** GitHub's native queue admission does not reliably honor
-its review-bypass allowance for an author. Do not request another owner merely
-because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
-Kushal and Ankit have a separate, explicitly approved **Main-only owner Admin PR route**.
-It does not change Dev/UAT review or queue admission.
-Ordinary contributors retain GitHub's independent/latest-push/CODEOWNER reviews
-and the combined-result merge queue.
+**Validated direct merge:** GitHub cannot count an author's self-review. Users
+explicitly listed in both `main.review_bypass_users` and
+`main.merge_queue_bypass_users` may approve their own captured Main application
+PR through the canonical command below. Do not repeatedly toggle bypass modes.
+This is Main-only; Dev/UAT review and queue admission remain unchanged. Protected
+CI, release and fundamental `.agents` changes still require current-head approval
+from Kushal or Ankit; review/direct membership does not grant pipeline editing.
+Other contributors retain independent/latest-push/CODEOWNER reviews and the queue.
 
 The named-owner route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the six-person Main merger restriction remain active.
-- `main owner validated merge` requires a PR and strict current-base CI for the
-  two owners. Only the other four Main mergers bypass this *additional* freshness
+- `main owner validated merge` requires a PR and strict current-base CI for every
+  configured direct operator. Other Main mergers bypass this *additional* freshness
   layer; they cannot bypass the ordinary queue or baseline CI.
-- Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
-  general organization-admin role inherits them. Native user exceptions cannot
+- Review and queue exceptions name their own explicit governed users. No team,
+  GitHub App or general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
   enforces those additional Admin SOP requirements. Do not claim otherwise.
 
@@ -103,7 +104,7 @@ From reviewed tooling synchronized with Main, use:
 
 The first command is read-only apart from fetching Git objects and writing its
 local receipt. The second is explicit approval to merge that captured head. It
-requires the authenticated named owner to be the PR author, live policy parity,
+requires the authenticated configured operator to be the PR author, live policy parity,
 resolved conversations, no outstanding/withdrawn review objection, the current
 successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain
@@ -114,10 +115,14 @@ changed; ordinary reviewed contributors can use the queue without this ancestry
 requirement. A changed source needs its own validation. Missing or failed evidence
 is a refusal, not permission to run `gh --admin` directly.
 
-Activate through `apply-governance.py --main-merge-policy` after landing this
-foundation. It installs and verifies strict CI/PR protection **before** granting
-owner queue exceptions. The existing parity verifier checks both layers. Do not
-remove the strict owner guard while a queue exception remains enabled.
+Land the reviewed policy first, then dry-run/apply the existing scoped
+`apply-governance.py --main-review-policy` reconciliation and finally `--main-merge-policy`. The bounded
+migration recognizes only the legacy coupled-owner rules or the authored result.
+It strengthens the native strict guard before updating review actors, and grants
+queue exceptions last. It rechecks concurrent changes and preserves every other
+rule. The parity verifier checks each cohort separately. Never use a proposed
+policy to authorize its own protected change, or remove the strict guard while
+queue exceptions remain enabled.
 
 The bootstrap of PR #8825 was a separately authorized one-time Admin exception:
 the exact merge tree was proven by CI, server-side strict CI was enabled, only the

@@ -200,7 +200,8 @@ for ruleset in ruleset_list:
         # Do not normalize away unknown actor types or unresolved account IDs.
         if (detail.get("conditions") != {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
                 or sorted(detail.get("bypass_actors", []), key=lambda a: json.dumps(a, sort_keys=True)) != sorted(
-                    reviewed["bypass_actors"], key=lambda a: json.dumps(a, sort_keys=True))):
+                    module.main_exception_actors(expected_queue_bypass, read=read_review),
+                    key=lambda a: json.dumps(a, sort_keys=True))):
             raise SystemExit("Main owner queue exception contains unknown actors, modes or scope")
     if prepared:
         # Prepared queues are deliberately exact-ref rules, not wildcard inference.

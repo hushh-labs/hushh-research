@@ -82,11 +82,12 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/reference/operations/ci.md`.
 16. Use `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one governed exact-attempt retry. It never dispatches an additional security workflow. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
 
-When the approving user is Kushal or Ankit and authored the PR, use the canonical
-Admin SOP owner self-approval path. Do not create another approval service or ask
-for a second owner solely because GitHub cannot count a self-review. Explicit
-approval, authenticated owner, exact head and green combined CI remain
-mandatory; generic admin access never authorizes unrelated changes or deployment.
+For an explicitly configured Main direct operator's own PR, use the canonical
+Admin SOP validated direct-merge path. Review/direct exceptions do not grant
+protected pipeline editing: those changes still require the current-head approval
+of an existing protected owner. Exact head, current-base green CI, resolved
+conversations and authenticated operator remain mandatory. Do not create another
+approval service; generic admin access grants no additional authority.
 
 For matching-branch Dev/UAT deployments, follow the CI runbook's
 **Matching-branch release control** section. Keep the protected security token on
