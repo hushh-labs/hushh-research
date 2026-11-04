@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { DirectMessagesService } from "@/lib/services/direct-messages-service";
-import { DirectMessagesResourceService } from "@/lib/services/direct-messages-resource-service";
+import { DirectMessagesResourceService, type DirectMessageSelection } from "@/lib/services/direct-messages-resource-service";
+import { resolveDirectMessageHref } from "@/lib/direct-messages/navigate-direct-message";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { DirectMessagesPage } from "./direct-messages-page";
 
 import { readMessageHistory, replaceMessageHistory, subscribeMessageHistory } from "@/lib/direct-messages/message-history";
@@ -37,9 +39,54 @@ export function DirectMessagesRoute() {
   const personRef = params?.get("person") || "";
   const selectionKey = JSON.stringify([userId || "", token, conversationId, personRef]);
   const [selection, setSelection] = useState<{ key: string; kind: "conversation" | "person"; ref: string } | null>(null);
+  const [opening, setOpening] = useState<(DirectMessageSelection & { key: string; ownerId: string }) | null>(null);
+  const openingRequest = useRef<object | null>(null);
+  const issuedTokens = useRef(new Set<string>());
+  const clearOpening = useCallback(() => { openingRequest.current = null; setOpening(null); }, []);
+  useLayoutEffect(() => {
+    clearOpening();
+    issuedTokens.current.clear();
+    return () => { openingRequest.current = null; issuedTokens.current.clear(); };
+  }, [clearOpening, user]);
   const selected = Boolean(token || conversationId || personRef);
   const cachedSelection = user && userId && token ? DirectMessagesResourceService.readRoute(userId, token) : null;
-  const visibleSelection = selection?.key === selectionKey ? selection : cachedSelection;
+  const visibleSelection = opening?.ownerId === userId && (opening.key === selectionKey || issuedTokens.current.has(token)) ? opening
+    : selection?.key === selectionKey ? selection : cachedSelection;
+  useLayoutEffect(() => {
+    const ownCommit = issuedTokens.current.delete(token);
+    if (ownCommit && openingRequest.current && opening &&
+      (opening.kind !== cachedSelection?.kind || opening.ref !== cachedSelection?.ref)) {
+      // An earlier push may commit after a newer tap. Keep the newest intent
+      // visible until its own destination commits or the person cancels.
+      setOpening(current => current ? { ...current, key: selectionKey } : null);
+    } else {
+      clearOpening();
+      issuedTokens.current.clear();
+    }
+  }, [clearOpening, selectionKey, token]);
+  const openSelection = (destination: DirectMessageSelection) => {
+    if (!user || !userId) return;
+    const request = {};
+    openingRequest.current = request;
+    // Select the known person before any network work. This changes only the
+    // presentation; history still checks current read and send permission.
+    setOpening({ ...destination, key: selectionKey, ownerId: userId });
+    void resolveDirectMessageHref(destination.kind === "conversation"
+      ? { conversationId: destination.ref } : { personRef: destination.ref })
+      .then((href) => {
+        if (openingRequest.current !== request) return;
+        if (href) {
+          const mintedToken = new URL(href, "https://navigation.invalid").searchParams.get("token");
+          if (mintedToken) issuedTokens.current.add(mintedToken);
+          router.push(href);
+        }
+        else clearOpening();
+      }).catch(() => {
+        if (openingRequest.current !== request) return;
+        clearOpening();
+        morphyToast.error("This conversation could not be opened. Try again.");
+      });
+  };
   useEffect(() => {
     let active = true;
     setSelection(null);
@@ -54,11 +101,13 @@ export function DirectMessagesRoute() {
         });
         if (!active) return;
         DirectMessagesResourceService.writeRoute(userId, session, result);
-        replaceMessageHistory({ owner: userId, token: result.token });
-        writeLastMessagesSelection(userId, { lane: "people", token: result.token });
+        if (!openingRequest.current) {
+          replaceMessageHistory({ owner: userId, token: result.token });
+          writeLastMessagesSelection(userId, { lane: "people", token: result.token });
+        }
         setSelection({ key: token ? selectionKey : JSON.stringify([userId, result.token, "", ""]), kind: result.kind, ref: result.ref });
       } catch {
-        if (active) {
+        if (active && !openingRequest.current) {
           replaceMessageHistory(null);
           writeLastMessagesSelection(userId, { lane: "people", token: null });
           router.replace("/one/messages", { scroll: false });
@@ -67,5 +116,5 @@ export function DirectMessagesRoute() {
     })();
     return () => { active = false; };
   }, [user, userId, selected, token, conversationId, personRef, selectionKey, router]);
-  return <DirectMessagesPage key={userId || "signed-out"} resolvingSelection={loading || Boolean(user && selected && !visibleSelection)} selection={visibleSelection} restoredSelection={hasExplicitSelection || selected ? null : saved} />;
+  return <DirectMessagesPage key={userId || "signed-out"} resolvingSelection={loading || Boolean(user && selected && !visibleSelection)} selection={visibleSelection} onSelect={openSelection} onClearSelection={clearOpening} restoredSelection={hasExplicitSelection || selected ? null : saved} />;
 }

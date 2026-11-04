@@ -84,7 +84,7 @@ import {
   X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
-import { DirectMessagesResourceService } from "@/lib/services/direct-messages-resource-service";
+import { DirectMessagesResourceService, type DirectMessageSelection } from "@/lib/services/direct-messages-resource-service";
 import {
   dispatchDirectMessagesUpdated,
   subscribeToDirectMessagesUpdated,
@@ -438,7 +438,7 @@ function threadFromConversation(
   };
 }
 
-export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null }: { selection?: { kind: "conversation" | "person"; ref: string } | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null } = {}) {
+export function DirectMessagesPage({ selection, resolvingSelection = false, restoredSelection = null, onSelect, onClearSelection }: { selection?: DirectMessageSelection | null; resolvingSelection?: boolean; restoredSelection?: LastMessagesSelection | null; onSelect?: (selection: DirectMessageSelection) => void; onClearSelection?: () => void } = {}) {
   const { user, userId, loading: authLoading } = useAuth();
   // The top shell already hydrates current-owner identity; this route-owned
   // header reads that cache and the Firebase fallback without a second fetch.
@@ -1258,7 +1258,18 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     : null;
   const admittedMessages = isCurrentRead ? messages : [];
   const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
-  const displayMessages = isCurrentRead || hasPresentation ? messages : [];
+  // The inbox is already an authenticated latest-message snapshot. Show it
+  // while the full history refreshes, without making it a pagination boundary
+  // or granting message actions, receipts, attachment reads or send permission.
+  const inboxPreview = !isCurrentRead && hasPresentation ? selectedInboxItem?.latestMessage : null;
+  const lastPresentedMessage = messages.at(-1);
+  const latestPreview = inboxPreview && (!lastPresentedMessage ||
+    (compareMessages(inboxPreview, lastPresentedMessage) > 0 && !messages.some(message => message.id === inboxPreview.id)))
+    ? inboxPreview : null;
+  const displayMessages = isCurrentRead || hasPresentation
+    ? latestPreview && latestPreview.conversationId === selectedInboxItem?.id
+      ? mergeMessages(messages, [latestPreview]) : messages
+    : [];
   const visibleMessages = normalizedMessageSearch
     ? displayMessages.filter((message) =>
         [walletMessagePreview(message.content), message.replyTo ? walletMessagePreview(message.replyTo.content) : null]
@@ -1293,10 +1304,16 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     : inboxItems;
 
   const openConversation = (conversation: DirectMessageConversation) => {
-    void navigateDirectMessage(router, { conversationId: conversation.id });
+    if (activeConversationId === conversation.id && isCurrentRead) {
+      void loadThread({ preserveMessages: true });
+      return;
+    }
+    if (onSelect) onSelect({ kind: "conversation", ref: conversation.id });
+    else void navigateDirectMessage(router, { conversationId: conversation.id });
   };
 
   const backToConnections = () => {
+    onClearSelection?.();
     replaceMessageHistory(null);
     writeLastMessagesSelection(userId, { lane: "people", token: null });
     router.replace(ROUTES.ONE_MESSAGES, { scroll: false });
@@ -1304,6 +1321,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
 
   const chooseLane = (nextLane: "people" | "circles") => {
     if (nextLane === lane) return;
+    onClearSelection?.();
     if (nextLane === "circles") replaceMessageHistory(null);
     writeLastMessagesSelection(userId, nextLane === "people"
       ? { lane: "people", token: null }
@@ -2545,8 +2563,15 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               aria-label={`Message ${person.displayName || "connection"}`}
               disabled={!person.publicPersonRef} onClick={() => {
                 if (!person.publicPersonRef) return;
+                if (userId && cacheSession.current && !DirectMessagesResourceService.readThread(userId, `person:${person.publicPersonRef}`)) {
+                  DirectMessagesResourceService.writeThread(userId, cacheSession.current, `person:${person.publicPersonRef}`, {
+                    ...EMPTY_THREAD, peerPersonRef: person.publicPersonRef,
+                    peerDisplayName: person.displayName ?? null, peerPhotoUrl: person.photoUrl ?? null,
+                  }, []);
+                }
                 setNewChatOpen(false);
-                void navigateDirectMessage(router, { personRef: person.publicPersonRef });
+                if (onSelect) onSelect({ kind: "person", ref: person.publicPersonRef });
+                else void navigateDirectMessage(router, { personRef: person.publicPersonRef });
               }}>
               <ConnectionPersonAvatar label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
               <span>{person.displayName || "Connection"}</span>
