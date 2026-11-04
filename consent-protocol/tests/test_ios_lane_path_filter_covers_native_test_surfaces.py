@@ -300,20 +300,31 @@ def test_upstream_backend_check_mirrors_the_checkout_depth_and_base_ref() -> Non
     assert base_ref.startswith("origin/") and "github.base_ref" in base_ref
 
 
-def test_queue_validation_is_a_pass_through_that_runs_no_lane() -> None:
-    # Queue Validation reuses PR Validation's verdict for an identical tree.
-    # A CI lane re-added there would need its own merge-group base handling
-    # (GITHUB_BASE_REF is unset on merge_group), which this file used to pin.
+def test_queue_combined_checks_reuse_the_existing_lane_owner() -> None:
+    # Changed combined inputs use the existing lane selection, not a second
+    # copy of native/browser jobs. Exact matching evidence can still be reused.
     workflow = _load_workflow(QUEUE_WORKFLOW_PATH)
     jobs = workflow["jobs"]
-    assert set(jobs) == {"pr-validation-reuse", "main-freshness-gate", "ci-status"}, sorted(jobs)
+    assert set(jobs) == {"admission", "combined-checks", "ci-status"}, sorted(jobs)
     assert jobs["ci-status"]["name"] == "CI Status Gate"
-    reuse = _step_running(
-        _steps(workflow, "pr-validation-reuse"), "verify-queue-entry-reuses-pr-validation.py"
-    )
-    assert reuse.get("env", {}).get("MERGE_GROUP_HEAD_SHA") == (
-        "${{ github.event.merge_group.head_sha }}"
-    )
+    combined = jobs["combined-checks"]
+    assert combined["uses"] == "./.github/workflows/ci.yml"
+    assert combined["if"] == "needs.admission.outputs.reuse == 'false'"
+    assert jobs["ci-status"]["needs"] == ["admission", "combined-checks"]
+    # Admission code comes from the protected destination, never the candidate
+    # whose workflow/policy edits are awaiting approval. Both phases use it.
+    for phase, command in (("admission", "plan"), ("ci-status", "finish")):
+        steps = _steps(workflow, phase)
+        authority = next(
+            step for step in steps if step.get("with", {}).get("path") == ".queue-authority"
+        )
+        assert str(authority.get("uses") or "").startswith("actions/checkout@")
+        assert authority["with"]["ref"] == "${{ github.event.merge_group.base_sha }}"
+        assert authority["with"]["persist-credentials"] is False
+        dispatch = _step_running(steps, f"queue_combined_result.py {command}")
+        assert str(dispatch["run"]).startswith(
+            "python3 .queue-authority/scripts/ci/queue_combined_result.py "
+        )
     assert "orchestrate.sh" not in QUEUE_WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
