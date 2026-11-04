@@ -55,6 +55,7 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/promotion_approval.py",
         "scripts/ci/integration-check.sh",
         "scripts/ci/validation-results.sh",
+        "scripts/ci/check-dco-signoff.sh",
         "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",

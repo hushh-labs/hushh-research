@@ -186,6 +186,7 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
       encoding: "utf8",
       env: {
         ...process.env,
+        HUSHH_WEB_TEST_MAX_WORKERS: "2",
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         NPM_TEST_LOG: npmLog,
         CI_VALIDATION_LEVEL: level,
@@ -517,6 +518,22 @@ test("changed JSON test fixtures retain their importing tests without diagnostic
   const missing = buildImportGraphFixture({}, [fixture]);
   assert.equal(missing.effectiveLevel, "diagnostic");
   assert.equal(missing.fallbackReason, "missing_changed_source");
+});
+
+test("nested fixtures and component voice contracts remain related-test inputs", () => {
+  const paths = [
+    "__tests__/components/profile/mocks.tsx",
+    "components/one-voice/panel.voice-action-contract.json",
+  ];
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${paths[0]}`]: "export const person = {};\n",
+    [`hushh-webapp/${paths[1]}`]: "{}\n",
+    "hushh-webapp/__tests__/components/profile.test.tsx":
+      'import { person } from "./profile/mocks"; void person;\n',
+  }, paths);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.deepEqual(plan.relatedFiles, paths);
+  assert.equal(plan.noUnitImpact, false);
 });
 
 test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {
