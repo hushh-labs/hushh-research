@@ -130,6 +130,7 @@ export class DirectCallSession {
     const generation = ++this.generation;
     try {
       if (!this.service.identity) await this.service.initialize();
+      this.current(generation);
       const call = await this.service.create(conversationId, crypto.randomUUID(),personRef);
       await this.adopt(call, generation);
       await this.loadDevices(call.conversationId, generation);
