@@ -688,7 +688,9 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         for step in deploy["steps"]
         if step["name"] == "Validate deployment SHA in selected protected history"
     )
-    assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
+    assert validator["env"]["REQUIRE_CI_SUCCESS"] == (
+        "${{ inputs.source_branch == 'uat-isolated' && '0' || '1' }}"
+    )
     assert (
         validator["env"]["REQUIRED_BRANCH"] == "${{ steps.application-authority.outputs.branch }}"
     )

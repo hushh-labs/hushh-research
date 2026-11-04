@@ -65,6 +65,7 @@ ISOLATED_CI_PATHS = (
     "hushh-webapp/vitest.config.ts", "hushh-webapp/__tests__/setup.ts",
     "packages/hushh-mcp/scripts", "deploy/mail-api/test", "config/ci-governance.json",
     "consent-protocol/config/database_connection_limits.json",
+    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
     "consent-protocol/tests/test_deployment_security.py",
     "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
@@ -78,8 +79,9 @@ ISOLATED_RELEASE_AUTHORITY_PATHS = (
     "consent-protocol/db/connection.py",
     "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",
     "consent-protocol/scripts/adopt_drive_permission_file_claims.py",
-    "consent-protocol/scripts/reconcile_google_drive_uat_connector.py",
-    "consent-protocol/scripts/db_migration_release_guard.py",
+    "consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py",
+    "scripts/ops/db_migration_release_guard.py",
+    "scripts/ops/email_auth_uat_release.py",
 )
 MANIFEST_FILES = (
     "hushh-webapp/package.json", "packages/hushh-mcp/package.json",

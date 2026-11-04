@@ -36,7 +36,7 @@ the exact protected UAT tip against the actual accepted serving base. Main smoke
 alone cannot qualify a Main-only application SHA.
 
 Governed Write/Maintain operators can discover prerequisites entirely in Actions:
-**Deploy to UAT → Run workflow → main → operation=inspect**. Leave other inputs
+**Deploy to UAT → Run workflow → uat → operation=inspect**. Leave other inputs
 at defaults. This reads protected source and serving revision metadata through
 the existing UAT workload identity, creates no deployment record or acceptance,
 and changes no runtime state. The summary provides the application/base and
@@ -44,14 +44,14 @@ existing CI status. Wait for an in-flight run; inspect a failed run before retry
 
 When qualification is missing, run **PR Validation** on **uat**, `scope=all`,
 using the shown `uat_base_sha`. After success inspect again to obtain verified
-current run/attempt/base pins. Then select `operation=deploy` from Main:
+current run/attempt/base pins. Then select `operation=deploy` from the protected UAT caller:
 
 ```bash
-gh workflow run deploy-uat.yml --ref main -f operation=inspect
+gh workflow run deploy-uat.yml --ref uat -f operation=inspect
 # Only when the inspection requires new qualification:
 gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<observed-serving-base>
 # Inspect again after success, then use its exact pins:
-gh workflow run deploy-uat.yml --ref main -f operation=deploy -f scope=auto \
+gh workflow run deploy-uat.yml --ref uat -f operation=deploy -f scope=auto \
   -f sha=<qualified-protected-uat-tip> -f ci_run_id=<run-id> \
   -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base> \
   -f approved_scope='<serving-backend-SHA>:<serving-frontend-SHA>:<PR-number>=<PR-head-SHA>'
@@ -74,12 +74,23 @@ PR comparison base must match the qualified serving tree. A concurrent landing
 that changes the approved delta or a serving-base change requires requalification.
 Use the separately protected `uat-isolated` source when the shared branch
 contains changes outside the approved scope. Start it at the observed serving
-SHA, land the reviewed release PR there, and qualify that branch with full CI.
-Set `source_branch=uat-isolated` on inspection and deployment. Both source
-branches deploy to the same shared UAT runtime and use the same release lock.
-New admission requires the literal serving-base-labelled CI job; historical static
-job names remain readable only through retained acceptance. Requalify legacy CI
-before attempting a new deployment.
+SHA and land the reviewed release PR there. Dispatch the full qualification from
+Main with the exact isolated application commit, its Git tree and the observed
+serving baseline:
+
+```bash
+gh workflow run ci.yml --ref main -f scope=all \
+  -f uat_candidate_sha=<protected-isolated-tip> \
+  -f uat_candidate_tree=<git-tree-of-isolated-tip> \
+  -f uat_base_sha=<observed-serving-base>
+```
+
+Each selected lane tests a disposable checkout at the application SHA with
+reviewed Main validation tooling. Deployment uses the original application
+tree and rechecks shared build recipes, credentialed migration controls, the
+exact Main CI attempt and both serving revisions. Set `source_branch=uat-isolated`
+on inspection and deployment from the protected `uat` caller. Both sources
+share the same UAT runtime and release lock.
 
 A failed first deploy attempt can be ignored during selection only with complete,
 rechecked job/step evidence that its explicit runtime-mutation boundary and all
