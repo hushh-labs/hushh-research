@@ -372,10 +372,12 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
 async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
     import asyncpg
 
+    from db.attempt_email_adoption import attempt_email_qualification_sql
     from hushh_mcp.services import attempt_email as emails
     from hushh_mcp.services import attempt_email_feedback as feedback
     from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
     from hushh_mcp.services.plg_catalog import activity_catalog
+    from tests.services.plg_attempt_adoption_cases import assert_attempt_erasure_qualification
 
     pool = await asyncpg.create_pool(
         url.set(drivername="postgresql").render_as_string(hide_password=False),
@@ -433,10 +435,12 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
 
     try:
         async with pool.acquire() as conn:
+            await conn.execute(attempt_email_qualification_sql())
             await conn.execute(migration)
             await conn.execute(migration)
             await conn.execute(feedback_migration)
             await conn.execute(feedback_migration)
+            await assert_attempt_erasure_qualification(conn)
             await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
             await conn.execute("INSERT INTO vault_keys VALUES($1)", owner)
         generation = (await asyncio.to_thread(activity.admission, owner))["generation"]

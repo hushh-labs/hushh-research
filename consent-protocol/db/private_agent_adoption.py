@@ -12,6 +12,7 @@ import hashlib
 from typing import TYPE_CHECKING, Callable
 
 from db.area_discovery_adoption import area_discovery_qualification_sql
+from db.attempt_email_adoption import attempt_email_qualification_sql
 from db.hosted_custody_adoption import hosted_custody_adoption, hosted_custody_recovery_replay
 from db.hosted_custody_qualification import UPGRADE_HOST_TRIGGER
 from db.private_agent_adoption_successors import qualify_private_agent_successors
@@ -461,6 +462,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
     additions += "('account_deletion_tombstones','account_shared_provider_authority'),"
     additions += "('account_deletion_tombstones','one_area_discovery_erasure'),"
     additions += f"('personal_agent_registry','{UPGRADE_HOST_TRIGGER}'),"
+    additions += "('account_deletion_tombstones','one_attempt_email_erasure'),"
     block = f"DO $pod_414$\nBEGIN\n{inventory[0]}\nEND\n$pod_414$;"
     if entry.sql.count(block) != 1:
         raise MigrationAuthorityError("Private-agent adoption inventory block changed")
@@ -480,6 +482,7 @@ def private_agent_adoption_sql(entry: MigrationManifestEntryV2) -> str:
         + _qualification_sql()
         + _shared_authority_qualification_sql()
         + area_discovery_qualification_sql()
+        + attempt_email_qualification_sql()
     )
     adapted = sql.replace(block, guards + qualified, 1)
     before_commit, commit = adapted.rsplit("COMMIT;", 1)

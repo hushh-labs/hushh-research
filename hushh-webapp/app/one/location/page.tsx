@@ -2493,6 +2493,7 @@ export function OneLocationAgentPageContent({
   const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
   const [onboardingPlaceSavedForUser, setOnboardingPlaceSavedForUser] = useState<string | null>(null);
   const [savedPlaceCaptureBusy, setSavedPlaceCaptureBusy] = useState(false);
+  const [onboardingLocationResume, setOnboardingLocationResume] = useState(0);
   const placesBannerKey = auth.userId
     ? `one_location_places_banner_dismissed_v1:${auth.userId}`
     : null;
@@ -13913,13 +13914,18 @@ export function OneLocationAgentPageContent({
 
   useEffect(() => {
     // Observe permission changes on foreground return without prompting.
+    let active = true;
     const refreshPermissionOnReturn = async () => {
       return refreshLocationPermission().then((next) => {
+        if (!active) return;
         // Once it is actually granted, an old observed denial is history, so
         // the UI stops claiming "blocked" the moment that stops being true.
         if (next?.state === "granted") {
           observedLocationDenialRef.current = false;
           setLocationDenialObserved(false);
+          if (next.locationServicesEnabled !== false) {
+            setOnboardingLocationResume((current) => current + 1);
+          }
         }
       });
     };
@@ -13990,6 +13996,7 @@ export function OneLocationAgentPageContent({
       });
 
     return () => {
+      active = false;
       window.removeEventListener("focus", refreshOnFocus);
       window.removeEventListener("online", refreshOnOnline);
       document.removeEventListener("visibilitychange", refreshOnFocus);
@@ -14077,9 +14084,10 @@ export function OneLocationAgentPageContent({
           // back to the pre-vault bootstrap call, so the screen is always
           // reachable and a failure degrades to its own retry rather than to a
           // missing screen.
-          // Reuse an existing point without acquiring one during onboarding.
+          // Keep the acquired point in the account-owned setup draft.
           mapPoint={onboardingPlace ? onboardingFinaleMapPoint : null}
           onPrepareLocation={savedLocationSessionUserId === auth.userId ? handlePrepareOnboardingLocation : undefined}
+          locationResumeAttempt={onboardingLocationResume}
           savedPlace={onboardingPlaceSavedForUser === auth.userId && Boolean(onboardingPlace?.point)}
           place={{
             address: onboardingPlace?.address ?? null,
