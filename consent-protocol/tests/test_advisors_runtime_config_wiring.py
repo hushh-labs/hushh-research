@@ -186,13 +186,23 @@ def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
         "- name:", 1
     )[0]
     assert '--hosted-custody-profile "dev_control_plane_owner"' in runtime_sync
-    assert '--dev-target "${DEV_TARGET:-shared-dev}"' in runtime_sync
-    assert "custody_profile_args=()" in runtime_sync
-    assert "HOSTED_CUSTODY_FLAG_GATE_BEGIN" in runtime_sync
-    assert "HOSTED_CUSTODY_FLAG_GATE_END" in runtime_sync
+    assert '--dev-target "${DEV_TARGET}"' in runtime_sync
+    assert "backend_sync_args=(" in runtime_sync
     assert '--project "${{ env.GCP_PROJECT_ID }}"' in runtime_sync
+    assert "--environment dev" in runtime_sync
     assert '--db-name "postgres"' in runtime_sync
     assert '--cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}"' in runtime_sync
+    assert 'if [[ "${DEV_TARGET:-}" == "shared-dev" ]]' in runtime_sync
+    assert "grep -q -- '--hosted-custody-profile'" in runtime_sync
+    assert "grep -q -- '--dev-target'" in runtime_sync
+    assert 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' in runtime_sync
+    assert "consent-protocol/db/hosted_custody_profiles.py" in runtime_sync
+    assert "consent-protocol/db/hosted_custody_qualification.py" in runtime_sync
+    assert "drive_group_args=()" in runtime_sync
+    assert 'drive_group_args=(--drive-four-group-index "false")' in runtime_sync
+    assert '"${backend_sync_args[@]}" "${drive_group_args[@]}"' in runtime_sync
+    assert "HOSTED_CUSTODY_FLAG_GATE_BEGIN" in runtime_sync
+    assert "HOSTED_CUSTODY_FLAG_GATE_END" in runtime_sync
 
     migration = workflow.split("- name: Apply dev DB migrations and predeploy schema gate", 1)[
         1
@@ -218,7 +228,9 @@ def test_dev_deploy_and_420_421_replay_source_the_explicit_profile():
     assert "DB_USER=$(commerce_secret_name DB_USER):latest" in deploy
 
 
-def test_dev_custody_sync_flags_are_omitted_for_old_candidates_and_added_for_current():
+def test_dev_custody_sync_flags_are_omitted_for_old_candidates_and_added_for_current(
+    tmp_path,
+):
     workflow = _DEV_WORKFLOW.read_text(encoding="utf-8")
     runtime_sync = workflow.split("- name: Sync canonical hosted runtime secrets", 1)[1].split(
         "- name:", 1
@@ -227,18 +239,23 @@ def test_dev_custody_sync_flags_are_omitted_for_old_candidates_and_added_for_cur
         "# HOSTED_CUSTODY_FLAG_GATE_END", 1
     )[0]
     script = (
-        'set -euo pipefail\nbackend_sync_help="$1"\nDEV_TARGET=shared-dev\n'
-        + gate
-        + "printf '%s\\n' \"${custody_profile_args[@]}\"\n"
+        "set -euo pipefail\n"
+        'backend_sync_help="$1"\n'
+        "DEV_TARGET=shared-dev\n"
+        "backend_sync_args=()\n" + gate + "printf '%s\\n' \"${backend_sync_args[@]}\"\n"
     )
+    profile_file = tmp_path / "consent-protocol/db/hosted_custody_profiles.py"
+    profile_file.parent.mkdir(parents=True, exist_ok=True)
+    profile_file.write_text('DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"\n')
 
-    old_candidate = subprocess.run(  # noqa: S603 - fixed bash gate with synthetic help text
+    old_candidate = subprocess.run(  # noqa: S603 - fixed bash gate with synthetic help text.
         ["bash", "-c", script, "test", "usage: sync_backend_runtime_secrets [options]"],
         capture_output=True,
         text=True,
         check=True,
+        cwd=tmp_path,
     )
-    current_candidate = subprocess.run(  # noqa: S603 - fixed bash gate with synthetic help text
+    current_candidate = subprocess.run(  # noqa: S603 - fixed bash gate with synthetic help text.
         [
             "bash",
             "-c",
@@ -249,6 +266,7 @@ def test_dev_custody_sync_flags_are_omitted_for_old_candidates_and_added_for_cur
         capture_output=True,
         text=True,
         check=True,
+        cwd=tmp_path,
     )
 
     assert old_candidate.stdout.strip() == ""
