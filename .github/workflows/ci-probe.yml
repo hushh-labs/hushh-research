@@ -1,0 +1,12 @@
+name: Temporary native queue qualification
+on:
+  pull_request:
+  merge_group:
+permissions:
+  contents: read
+jobs:
+  proof:
+    name: CI native probe 86b4e65cf6
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo synthetic qualification
