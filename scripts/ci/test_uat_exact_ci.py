@@ -202,7 +202,8 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
 
     def test_dev_normal_dispatch_checks_dev_membership_and_preserves_pod_source(self):
         root = Path(__file__).resolve().parents[2]
-        workflow = (root / ".github/workflows/deploy-dev.yml").read_text()
+        caller = (root / ".github/workflows/deploy-dev.yml").read_text()
+        workflow = (root / ".github/workflows/deploy-dev-implementation.yml").read_text()
         normal_gate = workflow.split(
             "- name: Validate deployment SHA in protected Dev history", 1
         )[1].split("\n      - name:", 1)[0]
@@ -216,8 +217,8 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("REQUIRED_BRANCH: ${{ inputs.ref }}", pod_gate)
         self.assertIn("Application lookup ref", workflow)
         self.assertIn(
-            "run-name: Dev · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
-            workflow,
+            "run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
+            caller,
         )
         self.assertIn("Source authority: protected \\`dev\\` history", workflow)
 
@@ -263,7 +264,8 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
 
     def test_explicit_uat_sha_is_checked_before_selection_completes(self):
         root = Path(__file__).resolve().parents[2]
-        workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
+        caller = (root / ".github/workflows/deploy-uat.yml").read_text()
+        workflow = (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
         selection = workflow.split('if [ -n "$REQUESTED_SHA" ]; then', 1)[1]
         selection = selection.split('echo "sha=$REQUESTED_SHA"', 1)[0]
 
@@ -274,7 +276,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("promotion_approval.py uat", selection)
         self.assertIn(
             "run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }}",
-            workflow,
+            caller,
         )
         self.assertIn('--application-sha "$REQUESTED_SHA"', selection)
         self.assertIn(

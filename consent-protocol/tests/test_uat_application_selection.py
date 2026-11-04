@@ -382,9 +382,9 @@ def test_checkpoint_precedes_first_runtime_write_and_guards_exceptional_mutators
 
     module, *_ = fixture(monkeypatch)
     root = Path(__file__).resolve().parents[2]
-    steps = yaml.safe_load((root / ".github/workflows/deploy-uat.yml").read_text())["jobs"][
-        "deploy"
-    ]["steps"]
+    steps = yaml.safe_load((root / ".github/workflows/deploy-uat-implementation.yml").read_text())[
+        "jobs"
+    ]["deploy"]["steps"]
     boundary = next(i for i, step in enumerate(steps) if step["name"] == module.MUTATION_BOUNDARY)
     assert steps[boundary + 1]["name"] == "Sync canonical hosted runtime secrets"
     assert all(step["name"] in module.PRE_MUTATION_STEPS for step in steps[:boundary])

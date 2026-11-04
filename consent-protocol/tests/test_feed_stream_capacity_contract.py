@@ -21,7 +21,7 @@ def _read(path: str) -> str:
 
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
@@ -140,7 +140,7 @@ def test_backend_scaling_target_validation_cannot_disable_or_overrun_scaling(
 def test_backend_capacity_keeps_shared_limits_and_reviewed_environment_memory() -> None:
     """Production OOM-killed live chat turns; throttled CPU stalled first turns."""
     production_workflow = _read(".github/workflows/deploy-production.yml")
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
 
     backend_build = managed_vertex_probe_surface()
     # The Cloud Build wrapper delegates deployment to the canonical script.

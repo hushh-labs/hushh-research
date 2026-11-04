@@ -16,7 +16,7 @@ from tests.helpers.production_runtime_profile import run_production_backend_buil
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy" / "drive" / "setup_work_drain_scheduler.sh"
 CLOUDBUILD = ROOT / "deploy" / "backend.cloudbuild.yaml"
-UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-production.yml"
 WORKER_RELEASE = ROOT / "deploy" / "drive" / "deploy_worker_service.sh"
 WORKER_ROLLBACK = ROOT / "deploy" / "drive" / "rollback_after_worker_failure.sh"
