@@ -400,6 +400,9 @@ jobs:
             document:
               - 'hushh-webapp/{package.json,package-lock.json,tsconfig.json,vite.config.*,playwright.config.*}'
               - 'hushh-webapp/lib/{auth,crypto,consent,vault,firebase,documents,document-delivery,trusted-device,cache,navigation,onboarding,runtime}/**'
+              # Route metadata has UI Contracts and affected-unit ownership;
+              # neither protected-document browser fixture consumes this JSON.
+              - '!hushh-webapp/lib/navigation/app-route-layout.contract.json'
               - 'hushh-webapp/lib/services/{api-service,auth-service,account-service,account-identity-service,cache-service,consent-service,phone*,vault*,document*,drive*,post-auth-route*,pre-vault-user-state*,onboarding-route-cookie,external-connector*,google-drive-picker*}*'
               - 'hushh-webapp/components/{auth,vault,consent,documents,onboarding}/**'
               - 'hushh-webapp/app/{login,register-phone,api/auth,api/consent,api/account}/**'
