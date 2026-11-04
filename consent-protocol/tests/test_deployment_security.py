@@ -529,6 +529,32 @@ class DeploymentBrokerTest(unittest.TestCase):
                     gate.produce_broker(env, responses.__getitem__, alerts, policy=policy)
                 target["run_attempt"] = old_attempt
 
+    def test_uat_broker_separates_protected_application_from_caller(self):
+        _, request, source, _, responses, _ = self.fixture()
+        prefix = f"repos/{gate.REPOSITORY}"
+        request.update(environment="uat", application_branch="uat-isolated")
+        source.update(head_branch="uat", path=".github/workflows/deploy-uat.yml")
+        source["referenced_workflows"][0]["path"] = (
+            f"{gate.REPOSITORY}/{gate.IMPLEMENTATIONS['uat']}@{SHA}"
+        )
+        responses[f"{prefix}/actions/workflows/deploy-uat.yml"] = {
+            "id": 30,
+            "path": source["path"],
+        }
+        branch = {"protected": True, "commit": {"sha": APP}}
+        responses[f"{prefix}/branches/uat-isolated"] = branch
+        responses[f"{prefix}/compare/{APP}...uat-isolated?per_page=1&page=2"] = {
+            "status": "identical",
+            "merge_base_commit": {"sha": APP},
+        }
+        policy = {"uat": {"manual_dispatch_users": ["operator"]}}
+        admitted = gate.verify_deployment(responses.__getitem__, request, policy)
+        self.assertEqual(admitted["caller_branch"], "uat")
+        self.assertEqual(admitted["application_branch"], "uat-isolated")
+        branch["commit"] = {"sha": SHA}
+        with self.assertRaisesRegex(gate.Refused, "protected isolated UAT tip"):
+            gate.verify_deployment(responses.__getitem__, request, policy)
+
     def test_wrong_branch_operator_source_and_implementation_refuse_before_alert_access(self):
         for key, value in [
             ("head_branch", "main"),

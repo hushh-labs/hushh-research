@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 SHA = re.compile(r"[a-f0-9]{40}")
-DESTINATIONS = {"main", "dev", "uat", "integration/pr-train"}
+DESTINATIONS = {"main", "dev", "uat", "uat-isolated", "integration/pr-train"}
 MAX_MEMBERS = 100
 
 

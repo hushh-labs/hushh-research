@@ -4,7 +4,7 @@ name: "Queue Validation"
 # otherwise call the existing affected-contract workflow on this merge group.
 on:
   merge_group:
-    branches: [main, integration/pr-train, dev, uat]
+    branches: [main, integration/pr-train, dev, uat, uat-isolated]
 
 permissions:
   contents: read
