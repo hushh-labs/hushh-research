@@ -2,12 +2,14 @@
 # SPDX-FileCopyrightText: 2026 Hussh
 """Verify PR scope and protected-source binding before shared UAT mutation."""
 
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 import uat_exact_ci as subject
 import uat_release_prerequisites as prerequisites
+from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attempt_run
 
 
 class ApprovedUatScopeTest(unittest.TestCase):
@@ -53,6 +55,57 @@ class ApprovedUatScopeTest(unittest.TestCase):
         with self.assertRaises(subject.Refused):
             subject.require_protected_tip(api, candidate, "dev")
         self.assertEqual(len(paths), 2)
+
+
+class IsolatedQualificationTest(unittest.TestCase):
+    def test_only_main_attempt_with_exact_app_tree_and_lane_checkouts_qualifies(self):
+        app, base, authority, tree = (value * 40 for value in "abcd")
+        run = attempt_run(authority)
+        run.update(head_branch="main", display_title=f"Isolated UAT {app}")
+        jobs = attempt_jobs(authority, base, "Exact UAT Candidate")
+        prepared = {"name": "Prepare isolated UAT source", "conclusion": "success"}
+        for job in jobs:
+            job["steps"].insert(0, dict(prepared))
+        exact = next(job for job in jobs if job["name"] == "Exact UAT Candidate")
+        exact["steps"].append({"name": f"Verify isolated source ({app} {tree})", "conclusion": "success"})
+        protocol = next(job for job in jobs if job["name"] == "Protocol (Python)")
+        unrelated = {**run, "id": 456, "display_title": "main"}
+        api = AttemptAPI(run, jobs, [run, unrelated], attempt_check(authority))
+        with patch.object(subject, "application_tree", return_value=tree):
+            args = (api, app, base, 123, 1)
+            options = {"branch": "uat-isolated", "authority": authority}
+            self.assertEqual(subject.verify_attempt(*args, **options)["run_id"], 123)
+            protocol["steps"][0]["conclusion"] = "skipped"
+            with self.assertRaisesRegex(subject.Refused, "did not prepare"):
+                subject.verify_attempt(*args, **options)
+            protocol["steps"][0].update(prepared)
+            exact["steps"][-1]["name"] = f"Verify isolated source ({app} {base})"
+            with self.assertRaisesRegex(subject.Refused, "exact isolated application tree"):
+                subject.verify_attempt(*args, **options)
+            exact["steps"][-1]["name"] = f"Verify isolated source ({app} {tree})"
+            with self.assertRaises(subject.Refused):
+                subject.verify_attempt(*args, branch="uat-isolated", authority=base)
+
+    def test_rejects_isolated_release_recipe_drift(self):
+        with patch.object(subject, "git", return_value=b"deploy/backend.cloudbuild.yaml"), patch.object(
+            subject, "verify_invocation_authority"
+        ) as invocations:
+            with self.assertRaisesRegex(subject.Refused, "build or migration authority"):
+                subject.verify_isolated_release_authority("a" * 40, "b" * 40)
+            invocations.assert_not_called()
+
+    def test_release_workflow_preserves_isolated_lane_bindings(self):
+        import yaml
+
+        workflow = Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
+        jobs = yaml.safe_load(workflow.read_text())["jobs"]
+        by_name = {job["name"]: job for job in jobs.values() if "name" in job}
+        for name in subject.REQUIRED_JOBS - subject.AGGREGATE_JOBS:
+            steps = by_name[name]["steps"]
+            prepared = next(i for i, step in enumerate(steps) if step.get("name") == "Prepare isolated UAT source")
+            self.assertEqual(prepared, 1, name)
+            self.assertEqual(steps[0]["uses"], "actions/checkout@v6")
+        self.assertIn("uat_candidate_sha", jobs["uat-exact-source"]["if"])
 
 
 if __name__ == "__main__":

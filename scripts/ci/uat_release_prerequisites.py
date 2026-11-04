@@ -48,10 +48,14 @@ def validate_pins(sha: str, run: str, attempt: str, base: str) -> tuple[int, int
     return int(run), int(attempt)
 
 
-def validate_deployment(api, sha: str, run: str, attempt: str, base: str, *, branch="uat") -> None:
+def validate_deployment(api, sha: str, run: str, attempt: str, base: str, *, branch="uat", authority="") -> None:
     run_id, number = validate_pins(sha, run, attempt, base)
     exact.require_protected_tip(api, sha, branch)
-    exact.verify_attempt(api, sha, base, run_id, number, branch=branch)
+    if branch == "uat-isolated":
+        exact.verify_git_authority(sha, base, authority, branch=branch)
+        exact.verify_attempt(api, sha, base, run_id, number, branch=branch, authority=authority)
+    else:
+        exact.verify_attempt(api, sha, base, run_id, number, branch=branch)
     exact.require_protected_tip(api, sha, branch)
 
 
@@ -120,17 +124,21 @@ def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=
     print(f"UAT scope approved: {approvals}, backend base {backend}, frontend base {frontend}")
 
 
-def latest_attempt(api, candidate: str, branch="uat") -> dict:
+def latest_attempt(api, candidate: str, branch="uat", authority="") -> dict:
     """Return diagnostics only; canonical verification below decides eligibility."""
     prefix = f"repos/{exact.REPOSITORY}/actions"
-    rows = api.read(f"{prefix}/workflows/ci.yml/runs?branch={branch}&event=workflow_dispatch"
-                    f"&head_sha={candidate}&per_page=100")
+    isolated = branch == "uat-isolated"
+    run_branch, head = ("main", authority) if isolated else (branch, candidate)
+    rows = api.read(f"{prefix}/workflows/ci.yml/runs?branch={run_branch}&event=workflow_dispatch"
+                    f"&head_sha={head}&per_page=100")
     if not isinstance(rows, dict):
         raise Refused("CI run inventory is malformed")
     runs = rows.get("workflow_runs")
     if not (isinstance(runs, list) and type(rows.get("total_count")) is int
             and rows["total_count"] == len(runs) <= 100):
         raise Refused("No complete exact-source CI inventory is available")
+    if isolated:
+        runs = [run for run in runs if run.get("display_title") == f"Isolated UAT {candidate}"]
     if not runs:
         return {}
     attempts = []
@@ -147,7 +155,9 @@ def latest_attempt(api, candidate: str, branch="uat") -> dict:
 def qualify_inspection(api, result: dict) -> None:
     """Offer pins only through current canonical admission; diagnose without rerunning."""
     try:
-        run = latest_attempt(api, result["candidate_sha"], result.get("source_branch", "uat"))
+        branch = result.get("source_branch", "uat")
+        run = (latest_attempt(api, result["candidate_sha"], branch, result["authority_sha"])
+               if branch == "uat-isolated" else latest_attempt(api, result["candidate_sha"], branch))
         if not run:
             result["reason_code"] = "qualification_missing"
             return
@@ -188,8 +198,9 @@ def qualify_inspection(api, result: dict) -> None:
         }:
             result["reason_code"] = "qualification_base_unpublished"
             return
+        options = {"authority": result["authority_sha"]} if branch == "uat-isolated" else {}
         exact.verify_attempt(api, result["candidate_sha"], result["base_sha"],
-                             run["id"], run["run_attempt"], branch=result.get("source_branch", "uat"))
+                             run["id"], run["run_attempt"], branch=branch, **options)
         result.update(ready=True, reason_code="qualified_current_ci")
     except (Refused, KeyError, TypeError):
         result["reason_code"] = "qualification_unverified"
@@ -225,16 +236,20 @@ def render(result: dict) -> str:
              f"- Observed serving base: `{result['base_sha']}`",
              f"- Main workflow authority: `{result['authority_sha']}`"]
     if result["ready"]:
-        lines += ["- Current exact-source CI passed. Deploy from Main with:",
+        lines += ["- Current exact-source CI passed. Deploy from the protected UAT caller with:",
                   f"  - `sha={result['candidate_sha']}`",
                   f"  - `ci_run_id={result['ci_run_id']}`",
                   f"  - `ci_run_attempt={result['ci_run_attempt']}`",
                   f"  - `ci_base_sha={result['base_sha']}`", "  - `scope=auto`"]
     elif result["reason_code"] in {"qualification_missing", "qualification_base_unpublished", "qualification_base_changed"}:
+        branch = result.get("source_branch", "uat")
         lines += ["- Qualification is required. In Actions → PR Validation → Run workflow:",
-                  f"  - Branch: `{result.get('source_branch', 'uat')}`; scope: `all`",
+                  f"  - Branch: `{'main' if branch == 'uat-isolated' else branch}`; scope: `all`",
                   f"  - `uat_base_sha={result['base_sha']}`",
                   "- Wait for success, then run this inspection again."]
+        if branch == "uat-isolated":
+            lines.insert(-1, f"  - `uat_candidate_sha={result['candidate_sha']}`")
+            lines.insert(-1, f"  - `uat_candidate_tree={exact.application_tree(result['candidate_sha'])}`")
     else:
         code = result["reason_code"]
         messages = {
@@ -267,7 +282,7 @@ def main() -> int:
         api = GitHub(exact.REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
         if args.mode == "validate-deployment":
             verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope, branch=args.source_branch)
-            validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha, branch=args.source_branch)
+            validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha, branch=args.source_branch, authority=args.authority_sha)
         elif args.mode == "validate-scope-live":
             verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope,
                                   read_live=exact.live_serving_bases, branch=args.source_branch)
