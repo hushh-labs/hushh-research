@@ -86,6 +86,7 @@ def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend
         ("_FRONTEND_RUNTIME_SERVICE_ACCOUNT", "another@hushh-pda-uat.iam.gserviceaccount.com"),
         ("_IMAGE_REFERENCE", "gcr.io/hushh-pda-uat/hushh-webapp:latest"),
         ("_GITHUB_RUN_ATTEMPT", ""),
+        ("_GITHUB_RUN_ATTEMPT", "2"),
         ("_SECRET_PREFIX", "FOREIGN_"),
         ("_MAIL_API_ENDPOINT", "${_OTHER}"),
     ],
@@ -209,14 +210,27 @@ def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
         else:
             assert outputs["image_reference"] == release["_IMAGE_REFERENCE"]
         module = _uat_build_module()
-        # Validate the actual workflow's assembled values, not another fixture
-        # copy of its service identity, zero-traffic or exact-release settings.
+        # Validate both callers' actual release stamps; a fixture-only backend
+        # can hide a missing attempt binding and refuse every real combined build.
+        backend_script = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
+        backend_assignment = next(
+            line for line in backend_script.splitlines() if line.startswith('SUBSTITUTIONS="')
+        )
+        backend_raw = backend_assignment.removeprefix('SUBSTITUTIONS="').removesuffix('"')
+        backend_values = module.substitutions(
+            re.sub(
+                r"\$\{\{\s*(.*?)\s*\}\}",
+                lambda match: expressions.get(match[1], "fixture"),
+                backend_raw,
+            ),
+            "##",
+        )
         module.frontend_parallel_config(
             module.candidate_parallel_config(
                 yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
             ),
             yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml")),
-            {key: release[key] for key in module.SHARED_SUBSTITUTIONS},
+            backend_values,
             module.substitutions(
                 outputs["substitutions"]
                 + ",_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE="
