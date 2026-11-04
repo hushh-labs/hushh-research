@@ -39,6 +39,8 @@ const REGISTERED_CONTRACT_INPUTS = new Set([
   "app/register-phone/page.voice-action-contract.json",
   "contracts/kai/kai-action-gateway.vnext.json",
   "contracts/kai/one-capability-graph.v1.json",
+  "contracts/kai/one-route-orchestration-index.v1.json",
+  "cache-coherence-screen-manifest.generated.json",
   "frontend-native-surface-map.generated.json",
   "lib/navigation/app-route-layout.contract.json",
 ]);
@@ -64,7 +66,6 @@ function isRuntimeModule(file) {
 function isSharedDependency(file) {
   return /^(?:package(?:-lock)?\.json|vitest\.config\.[jt]s|vite\.config\.[jt]s|tsconfig[^/]*\.json)$/.test(file) ||
     file === "__tests__/setup.ts" ||
-    file === "app/globals.css" ||
     file === "app/layout.tsx" ||
     file === "app/providers.tsx" ||
     /^(?:components\/(?:app-ui|ui)|lib\/capacitor)\//.test(file) ||
@@ -72,7 +73,14 @@ function isSharedDependency(file) {
 }
 
 function isRegisteredContractInput(file) {
-  return REGISTERED_CONTRACT_INPUTS.has(file);
+  return REGISTERED_CONTRACT_INPUTS.has(file) ||
+    /^app\/.+\/page\.voice-action-contract\.json$/.test(file);
+}
+
+function isTestFixtureInput(file) {
+  // Keep fixtures as related-test seeds: their importing tests still run.
+  // Unknown runtime JSON retains conservative diagnostic coverage.
+  return /^__tests__\/fixtures\/.+\.json$/.test(file);
 }
 
 function isOtherOwnerFile(file) {
@@ -605,7 +613,7 @@ function sourceRisk(repoRoot, files, level) {
       }
       continue;
     }
-    if (isRegisteredContractInput(file)) {
+    if (isRegisteredContractInput(file) || isTestFixtureInput(file)) {
       const fullPath = path.join(repoRoot, "hushh-webapp", file);
       if (!existsSync(fullPath) || !statSync(fullPath).isFile()) {
         return { reason: "missing_changed_source", directTests: [] };
@@ -619,7 +627,7 @@ function sourceRisk(repoRoot, files, level) {
     }
   }
   const sourceFiles = files.filter((file) =>
-    isRuntimeModule(file) || isRegisteredContractInput(file));
+    isRuntimeModule(file) || isRegisteredContractInput(file) || isTestFixtureInput(file));
   if (sourceFiles.length === 0) return { reason: null, directTests: [] };
   if (level === "focused" || level === "release") {
     return dynamicImportRisk(repoRoot, sourceFiles);
@@ -657,7 +665,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
   const unitFiles = changed.files.filter((file) =>
     !/^(?:contracts\/ui-review\/|docs\/|e2e\/)/.test(file) &&
     !isOtherOwnerFile(file) &&
-    !file.endsWith(".md") && !(file.endsWith(".css") && file !== "app/globals.css"));
+    !file.endsWith(".md") && !file.endsWith(".css"));
   if (requestedLevel === "focused" && unitFiles.length === 0) {
     return { ...base, effectiveLevel: "focused", changedFiles: changed.files, noUnitImpact: true };
   }
@@ -669,7 +677,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
     ...risk.directTests,
   ])].sort();
   const relatedFiles = unitFiles.filter(
-    (file) => isRuntimeModule(file) || isRegisteredContractInput(file),
+    (file) => isRuntimeModule(file) || isRegisteredContractInput(file) || isTestFixtureInput(file),
   );
   if (requestedLevel === "focused" && relatedFiles.length === 0 && directTests.length === 0) {
     return { ...base, changedFiles: changed.files, fallbackReason: "no_related_test_inputs" };
