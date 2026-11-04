@@ -42,7 +42,7 @@ AUTH_HEALTH_PATHS = frozenset(
 )
 WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
-LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend)\s*==\s*'true'")
+LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend|document)\s*==\s*'true'")
 STAGE_ARM_RE = re.compile(r"^    ([\w|-]+)\)\n(.*?)^      ;;", re.MULTILINE | re.DOTALL)
 ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 # The jobs this guard must find; if the `if:` shape changes and discovery
@@ -52,12 +52,12 @@ EXPECTED_JOBS = {
     "web-targeted-check": {"frontend"},
     "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
-    "document-webkit-check": {"frontend", "backend"},
+    "document-webkit-check": {"document"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
     "protocol-database-check-two": {"backend"},
     "mcp-package-check": {"backend"},
-    "integration-check": {"frontend", "backend"},
+    "integration-check": {"frontend", "backend", "document"},
 }
 
 # Actual shared runtime/image inputs used by the governed environment releases.
@@ -100,10 +100,26 @@ RESTORATION_FIXTURE_OWNER_TESTS = (
 
 class _Filter:
     def __init__(self, patterns: list[str]) -> None:
-        self.includes = [p for p in patterns if not p.startswith("!")]
-        self.excludes = [p[1:] for p in patterns if p.startswith("!")]
+        # paths-filter expands brace alternatives; pathspec does not. Retain
+        # those alternatives when checking real runtime paths in this fixture.
+        expanded = [item for pattern in patterns for item in self._expand(pattern)]
+        self.includes = [p for p in expanded if not p.startswith("!")]
+        self.excludes = [p[1:] for p in expanded if p.startswith("!")]
         self._include = pathspec.PathSpec.from_lines("gitignore", self.includes)
         self._exclude = pathspec.PathSpec.from_lines("gitignore", self.excludes)
+
+    @classmethod
+    def _expand(cls, pattern: str) -> list[str]:
+        match = re.search(r"\{([^{}]+)\}", pattern)
+        if not match:
+            return [pattern]
+        return [
+            expanded
+            for alternative in match.group(1).split(",")
+            for expanded in cls._expand(
+                pattern[: match.start()] + alternative + pattern[match.end() :]
+            )
+        ]
 
     def match_file(self, path: str) -> bool:
         return self._include.match_file(path) and not self._exclude.match_file(path)
@@ -525,6 +541,21 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     ]
     assert "protocol-check" not in commands
     assert "cloudrun-retention" not in commands
+
+
+def test_route_metadata_keeps_web_ownership_without_unrelated_document_webkit() -> None:
+    filters = _filters()
+    metadata = "hushh-webapp/lib/navigation/app-route-layout.contract.json"
+    assert filters["frontend"].match_file(metadata)
+    assert not filters["document"].match_file(metadata)
+    for runtime in (
+        "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/navigation/app-route-layout.ts",
+        "hushh-webapp/lib/auth/account-session.ts",
+        "hushh-webapp/lib/crypto/record.ts",
+    ):
+        assert filters["document"].match_file(runtime), runtime
+        assert any(filters["document"].match_file(p) for p in (metadata, runtime))
 
 
 def test_document_delivery_ci_contract_paths_select_controller_owner_not_backend() -> None:
