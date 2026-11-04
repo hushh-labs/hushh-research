@@ -74,59 +74,58 @@ permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's appr
 An explicit user instruction approving this bounded change is authorization to
 execute its reviewed implementation; generic admin credentials alone are not.
 
-**Owner self-approval:** GitHub cannot count an author's review of their own PR.
-The existing queue gate therefore accepts the authenticated queue request from
-Kushal or Ankit when that same person authored the PR and the captured head still
-matches. The GitHub review exception is limited to those two named users, with no
-team/app inheritance. It does not bypass CI, the queue, unresolved review objections,
-conversation resolution or deployment admission. Someone else's PR retains ordinary
-review. The same exact-owner approval applies to Dev, UAT and the retained train;
-only Main additionally restricts queue requesters to its production merger cohort.
-A changed head requires a new exact-head queue request.
+**Owner self-approval:** GitHub's native queue admission does not reliably honor
+its review-bypass allowance for an author. Do not request another owner merely
+because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
+Kushal and Ankit have a separate, explicitly approved **owner Admin PR route**.
+Ordinary contributors retain GitHub's independent/latest-push/CODEOWNER reviews
+and the combined-result merge queue.
 
-Main review exceptions are authored separately from queue enforcement through
-`branch_flow.review_rulesets`. Classic CODEOWNER review bypass did not admit an
-owner-authored PR to GitHub's queue; a source-level owner check alone cannot fix
-that pre-admission refusal. Migrate through `apply-governance.py --main-review-policy`
-only after the queue has no bypass actors. The helper installs and reads back the
-exact Main review ruleset before retiring classic review enforcement; CI, merger
-restrictions, conversation resolution and queue enforcement remain independent.
-Qualify an actual exact-head queue request before claiming owner approval works.
-Until that proof, record the route as staged. Preserve captured classic settings
-for recovery if GitHub still refuses admission. A one-time explicit owner-authorized
-Admin landing must be identified as a bypass and prove that the current merge tree
-is the exact CI-tested tree; it is not queue qualification or deployment authority.
+The named-owner route preserves these independent protections:
 
-Record the owner's approval and exact head in the PR release record. Use the normal
-`--match-head-commit` queue command; the queue receipt records author, requester,
-head and `approval_source=owner_queue_request`. Do not fabricate a GitHub review,
-switch identity or temporarily disable protection. Recheck this authority at finish.
+- Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
+  resolution and the six-person Main merger restriction remain active.
+- `main owner validated merge` requires a PR and strict current-base CI for the
+  two owners. Only the other four Main mergers bypass this *additional* freshness
+  layer; they cannot bypass the ordinary queue or baseline CI.
+- Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
+  general organization-admin role inherits them. Native user exceptions cannot
+  encode self-authorship or unresolved review objections; the command below
+  enforces those additional Admin SOP requirements. Do not claim otherwise.
 
-The normal command in 3A remains the landing path. Before requesting it:
+From reviewed tooling synchronized with Main, use:
 
-1. Verify live protection and ruleset parity with the authored policy.
-2. Run `./bin/hushh codex ci-status --pr <pr> --require-success
-   --expected-sha <head-sha>` and require exit zero.
-3. Recheck head, unresolved conversations and ordinary review or explicit owner approval immediately
-   before the merge request. Missing or failed proof stops the operation.
-4. Monitor the queue's actual combined-result gate, then the landed Main smoke.
+```bash
+./bin/hushh codex admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json>
+./bin/hushh codex admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json> --apply
+```
 
-The combined-result rollout removes queue-bypass actors before relaxing strict
-branch-age checks. Keeping a team bypass would allow a direct UI/API merge using
-old PR-head evidence. Until a mechanically enforced alternative proves the same
-combined result, do not use `gh pr merge --admin` under this policy. Explicit
-incident deployment authorization is separate and cannot clear a failed merge
-check. Do not weaken protection temporarily to make a landing succeed.
+The first command is read-only apart from fetching Git objects and writing its
+local receipt. The second is explicit approval to merge that captured head. It
+requires the authenticated named owner to be the PR author, live policy parity,
+resolved conversations, no outstanding/withdrawn review objection, the current
+successful CI attempt and immutable evidence for the exact current merge tree.
+It rechecks before mutation and verifies the landed parents and tree. An uncertain
+response is reconciled, never automatically replayed. Main smoke remains required.
 
-The initial owner-approval foundation cannot authorize itself from proposed code.
-Its one-time landing requires the owner’s explicit transition authorization, the
-currently published Admin SOP, green exact-head CI, and proof that the current
-Main merge result is the tested tree. Record any legacy Admin landing as a bypass,
-never as queue validation. After the foundation is qualified, use the ordinary
-queue and remove its legacy bypass actors before relaxing ancestry checks.
+For this direct route only, reconcile current Main into the PR if the tested base
+changed; ordinary reviewed contributors can use the queue without this ancestry
+requirement. A changed source needs its own validation. Missing or failed evidence
+is a refusal, not permission to run `gh --admin` directly.
 
-Historical Admin landings do not establish continuing bypass authority. The root checkout and unrelated
-work remain untouched throughout the landing.
+Activate through `apply-governance.py --main-merge-policy` after landing this
+foundation. It installs and verifies strict CI/PR protection **before** granting
+owner queue exceptions. The existing parity verifier checks both layers. Do not
+remove the strict owner guard while a queue exception remains enabled.
+
+The bootstrap of PR #8825 was a separately authorized one-time Admin exception:
+the exact merge tree was proven by CI, server-side strict CI was enabled, only the
+authenticated owner received temporary queue authority, and the original settings
+were restored and read back. That receipt is historical evidence, not a reusable
+approval or proof of ordinary queue behavior.
+
+No merge command grants deployment authority or starts an application deployment.
+The root checkout and unrelated work remain untouched throughout the landing.
 
 ### 4. Establish deploy authority
 
