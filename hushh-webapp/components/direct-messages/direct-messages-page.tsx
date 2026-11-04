@@ -2424,6 +2424,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <DirectMessageEmojiPicker
                       messagesLane
                       key={draftScope}
+                      anchorToComposer
                       triggerIcon={<Smile className="h-5 w-5" />}
                       restoreTriggerFocusOnSelect={false}
                       disabled={sending || recordingVoice || !canCompose || hasUnconfirmedSend}
