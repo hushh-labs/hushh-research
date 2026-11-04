@@ -727,7 +727,9 @@ async def _propose(
             "message": "Prepare and confirm calendar changes in the owner app.",
         }
     # A previous card must never remain confirmable after a rejected replacement.
-    tool_context.state.pop(f"{_STATE_PENDING_DIRECTIVE}:calendar", None)
+    pending_key = f"{_STATE_PENDING_DIRECTIVE}:calendar"
+    if tool_context.state.get(pending_key) is not None:
+        tool_context.state[pending_key] = None
     try:
         if action != "cancel":
             payload["start_at"] = _calendar_iso(payload.get("start_at", ""), tool_context)
