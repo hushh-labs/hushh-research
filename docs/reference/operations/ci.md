@@ -1199,7 +1199,14 @@ reconcile environment branch rules and the
 then install the reviewed thin callers and verify hosted read-only admission.
 Do not retire the working Main entrypoints before that coordinated activation.
 Existing UAT `operation=inspect` checks
-prerequisites without release mutation. Until activation/readback is recorded,
+prerequisites without release mutation. The reusable implementations also expose
+`operation=inspect-routing`: the ordinary Main broker issues current-attempt
+clearance, then the environment job verifies its caller and authenticates only to
+read project identity. It cannot enter deployment, migration, image-publication or
+traffic jobs. Expose this operation in the thin callers during their coordinated
+activation; both hosted readbacks are required. Check Dev's exact environment
+branch inventory with `verify-deployment-environment-governance.py --surface dev`;
+keep `ci-security` Main-only. Until activation/readback is recorded,
 matching-branch routing is source-complete only; do not dispatch a normal release
 merely to test it. A failure in setup, authority or deployment still stops dependent
 work; independent validation assertions are collected before the final failed result.

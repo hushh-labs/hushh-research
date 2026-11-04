@@ -65,7 +65,7 @@ def _reviewer_logins(payload: dict) -> list[str]:
 
 def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
     surface_policy = policy[surface]
-    env_name = surface_policy["environment"] if surface == "uat" else surface_policy["owner_environment"]
+    env_name = surface_policy["environment"] if surface in ("dev", "uat") else surface_policy["owner_environment"]
     payload = _gh_json(f"repos/{repo}/environments/{env_name}")
     variables_payload = _gh_json(f"repos/{repo}/environments/{env_name}/variables")
     branch_policy = payload.get("deployment_branch_policy") or {}
@@ -86,10 +86,20 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         errors.append(f"{env_name} should not require reviewers, found {reviewers}")
     if bool(payload.get("can_admins_bypass")):
         errors.append(f"{env_name} still allows admin bypass")
-    if branch_policy.get("protected_branches") is not True:
-        errors.append(f"{env_name} should allow protected branches only")
-    if branch_policy.get("custom_branch_policies") is not False:
-        errors.append(f"{env_name} should not use custom branch policies")
+    expected_branches = surface_policy.get("deployment_branches")
+    if expected_branches:
+        branches = _gh_json(f"repos/{repo}/environments/{env_name}/deployment-branch-policies?per_page=100")
+        rows = branches.get("branch_policies", [])
+        if branches.get("total_count") != len(rows) or len(rows) >= 100:
+            errors.append(f"{env_name} branch policy inventory is incomplete")
+        if branch_policy != {"protected_branches": False, "custom_branch_policies": True} or sorted(
+                (row.get("type"), row.get("name")) for row in rows) != sorted(("branch", name) for name in expected_branches):
+            errors.append(f"{env_name} must admit exactly the authored deployment branches")
+    else:
+        if branch_policy.get("protected_branches") is not True:
+            errors.append(f"{env_name} should allow protected branches only")
+        if branch_policy.get("custom_branch_policies") is not False:
+            errors.append(f"{env_name} should not use custom branch policies")
 
     missing_variable_names = sorted(required_variable_names - configured_variable_names)
     if missing_variable_names:
@@ -160,16 +170,16 @@ def _assert_readiness_exam(repo: str, policy: dict, accounts: dict) -> list[str]
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify live GitHub deployment environment governance for UAT and production."
+        description="Verify live GitHub deployment environment governance for Dev, UAT and production."
     )
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument(
-        "--surface", choices=("uat", "production", "readiness-exam", "all"), default="all"
+        "--surface", choices=("dev", "uat", "production", "readiness-exam", "all"), default="all"
     )
     args = parser.parse_args()
 
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
-    surfaces = ["uat", "production"] if args.surface == "all" else [args.surface]
+    surfaces = ["dev", "uat", "production"] if args.surface == "all" else [args.surface]
     errors: list[str] = []
     for surface in (item for item in surfaces if item != "readiness-exam"):
         errors.extend(_assert_surface(surface, args.repo, policy))

@@ -7,6 +7,11 @@ name: DEV deployment implementation
 on:
   workflow_call:
     inputs:
+      operation:
+        description: "Deploy, or verify branch routing without changing cloud resources"
+        required: false
+        default: deploy
+        type: string
       target:
         description: "Shared Dev, commerce sandbox, or coordinated pod publication"
         required: true
@@ -88,6 +93,15 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           persist-credentials: false
+      - name: Validate explicit operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
+          if [[ "$OPERATION" == inspect-routing ]]; then
+            test "$TARGET" = shared-dev
+          fi
       - name: Request and verify Main clearance
         id: clearance
         run: python3 scripts/ci/deployment_security.py --request-broker
@@ -109,7 +123,7 @@ jobs:
 
   pod-security:
     name: Pod publication security
-    if: inputs.target == 'pod-publication'
+    if: inputs.target == 'pod-publication' && inputs.operation == 'deploy'
     permissions:
       contents: read
       actions: read
@@ -124,7 +138,7 @@ jobs:
   deploy:
     needs: deployment-security
     name: Deploy Dev Scope
-    if: inputs.target != 'pod-publication'
+    if: inputs.target != 'pod-publication' && inputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     environment: dev
 
@@ -1938,7 +1952,7 @@ jobs:
   pod-publication:
     needs: pod-security
     name: Pod Release Publication
-    if: inputs.target == 'pod-publication'
+    if: inputs.target == 'pod-publication' && inputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: dev
@@ -2061,3 +2075,44 @@ jobs:
           name: pod-publication-dev-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.POD_FOLDER }}
           if-no-files-found: warn
+
+  inspect-routing:
+    name: Verify DEV routing (no deployment)
+    if: inputs.operation == 'inspect-routing'
+    needs: deployment-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: dev
+      deployment: false
+    steps:
+      - name: Verify caller and current security receipt
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+          SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF_NAME" = dev
+          test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+          [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - name: Authenticate to the matching environment
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Read project identity without changing resources
+        env:
+          TOOLING_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          observed="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectId)')"
+          test "$observed" = "$GCP_PROJECT_ID"
+          printf 'Verified caller: %s\nMain tooling: %s\nProject: %s\nNo cloud resources changed.\n' "$GITHUB_REF_NAME" "$TOOLING_SHA" "$observed" >> "$GITHUB_STEP_SUMMARY"

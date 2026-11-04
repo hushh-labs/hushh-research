@@ -84,6 +84,19 @@ review. The same exact-owner approval applies to Dev, UAT and the retained train
 only Main additionally restricts queue requesters to its production merger cohort.
 A changed head requires a new exact-head queue request.
 
+Main review exceptions are authored separately from queue enforcement through
+`branch_flow.review_rulesets`. Classic CODEOWNER review bypass did not admit an
+owner-authored PR to GitHub's queue; a source-level owner check alone cannot fix
+that pre-admission refusal. Migrate through `apply-governance.py --main-review-policy`
+only after the queue has no bypass actors. The helper installs and reads back the
+exact Main review ruleset before retiring classic review enforcement; CI, merger
+restrictions, conversation resolution and queue enforcement remain independent.
+Qualify an actual exact-head queue request before claiming owner approval works.
+Until that proof, record the route as staged. Preserve captured classic settings
+for recovery if GitHub still refuses admission. A one-time explicit owner-authorized
+Admin landing must be identified as a bypass and prove that the current merge tree
+is the exact CI-tested tree; it is not queue qualification or deployment authority.
+
 Record the owner's approval and exact head in the PR release record. Use the normal
 `--match-head-commit` queue command; the queue receipt records author, requester,
 head and `approval_source=owner_queue_request`. Do not fabricate a GitHub review,

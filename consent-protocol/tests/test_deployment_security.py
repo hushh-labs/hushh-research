@@ -197,6 +197,16 @@ class DeploymentSecurityTest(unittest.TestCase):
                 source = (root / ".github/workflows" / source_name).read_text()
                 jobs = yaml.safe_load(source)["jobs"]
                 clearance = jobs["deployment-security"]
+                if prepared and name == "deploy-dev.yml":
+                    for mutation in ("deploy", "pod-security", "pod-publication"):
+                        self.assertIn("inputs.operation == 'deploy'", jobs[mutation]["if"])
+                if prepared and name == "deploy-uat.yml":
+                    self.assertEqual(jobs["select-target"]["if"], "inputs.operation == 'deploy'")
+                    for mutation in ("wait-capacity", "deploy"):
+                        self.assertEqual(
+                            jobs[mutation]["if"],
+                            "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'",
+                        )
                 if prepared:
                     self.assertNotIn("environment", clearance)
                     self.assertNotIn("secrets", clearance)
@@ -207,7 +217,11 @@ class DeploymentSecurityTest(unittest.TestCase):
                         clearance["steps"][0]["with"]["ref"], "${{ job.workflow_sha }}"
                     )
                     self.assertEqual(
-                        clearance["steps"][1]["run"],
+                        next(
+                            step["run"]
+                            for step in clearance["steps"]
+                            if step.get("id") == "clearance"
+                        ),
                         "python3 scripts/ci/deployment_security.py --request-broker",
                     )
                     if name == "deploy-uat.yml":
@@ -237,6 +251,40 @@ class DeploymentSecurityTest(unittest.TestCase):
                         )
                         self.assertNotIn("secrets", job)
                         self.assertNotIn("uses", job)
+                        continue
+                    if prepared and key == "inspect-routing":
+                        self.assertEqual(
+                            job["if"],
+                            "${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect-routing' }}"
+                            if name == "deploy-uat.yml"
+                            else "inputs.operation == 'inspect-routing'",
+                        )
+                        self.assertEqual(job["needs"], "deployment-security")
+                        self.assertEqual(
+                            job["environment"],
+                            {
+                                "name": name.removeprefix("deploy-").removesuffix(".yml"),
+                                "deployment": False,
+                            },
+                        )
+                        self.assertEqual(
+                            job["permissions"], {"contents": "read", "id-token": "write"}
+                        )
+                        self.assertNotIn("secrets", job)
+                        self.assertEqual(len(job["steps"]), 4)
+                        commands = "\n".join(step.get("run", "") for step in job["steps"])
+                        self.assertIn('test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"', commands)
+                        self.assertIn('gcloud projects describe "$GCP_PROJECT_ID"', commands)
+                        self.assertNotRegex(
+                            commands, r"gcloud (run|sql|secrets)|git push|curl|python|deploy --"
+                        )
+                        self.assertEqual(
+                            {step["uses"] for step in job["steps"] if "uses" in step},
+                            {
+                                "google-github-actions/auth@v3",
+                                "google-github-actions/setup-gcloud@v3",
+                            },
+                        )
                         continue
                     if name == "deploy-uat.yml" and key == "inspect-prerequisites":
                         assert_read_only_uat_inspection(self, job, prepared=prepared)

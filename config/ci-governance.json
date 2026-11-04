@@ -23,6 +23,9 @@
         "policy_key": "pr_train",
         "merge_queue_ruleset_name": "integration pr train merge queue"
       }
+    },
+    "review_rulesets": {
+      "main": "main owner review"
     }
   },
   "repository": {
@@ -126,6 +129,15 @@
       "anoushkauoc",
       "Roopmann30",
       "imsharukhan"
+    ],
+    "required_environment_variables": [
+      "GCP_WORKLOAD_IDENTITY_PROVIDER",
+      "GCP_DEPLOY_SERVICE_ACCOUNT"
+    ],
+    "deployment_branches": [
+      "dev",
+      "integration/pr-train",
+      "main"
     ]
   },
   "uat": {

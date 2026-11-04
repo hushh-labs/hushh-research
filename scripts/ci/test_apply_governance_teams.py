@@ -279,6 +279,7 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
     import tempfile
 
     policy = _policy()
+    policy["branch_flow"].pop("review_rulesets", None)  # Historical classic-policy fixture.
     policy["main"] = {
         **policy["main"],
         "review_bypass_users": ["operator", "invitee"],
@@ -576,6 +577,92 @@ def test_prepared_rollout_rejects_bypass_with_non_strict_checks(module) -> None:
         else:
             raise AssertionError("Unsafe direct-merge bypass survived the rollout")
         write.assert_not_called()
+
+
+def test_main_review_migration_orders_replacement_and_refuses_unsafe_queue(module) -> None:
+    import copy
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy = _policy()
+    endpoint = f"repos/{module.REPO}/branches/main/protection"
+    inventory = f"repos/{module.REPO}/rulesets?per_page=100"
+    queue_path = f"repos/{module.REPO}/rulesets/1"
+    user_rows = {f"users/{login}": {"login": login, "type": "User", "id": index}
+                 for index, login in enumerate(policy["main"]["review_bypass_users"], 100)}
+    protection = {"enforce_admins": {"enabled": True},
+                  "required_conversation_resolution": {"enabled": True},
+                  "required_status_checks": {"checks": [{"context": "CI Status Gate", "app_id": 15368}]},
+                  "required_pull_request_reviews": {"required_approving_review_count": 1}}
+    queue = {"enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+             "bypass_actors": [], "rules": [{"type": "merge_queue"}]}
+    def fixture():
+        return {**copy.deepcopy(user_rows), endpoint: copy.deepcopy(protection),
+                inventory: [{"id": 1, "name": policy["main"]["merge_queue_ruleset_name"]}],
+                queue_path: copy.deepcopy(queue)}
+    def reader(state):
+        return lambda args: copy.deepcopy(state[args[1]])
+    state = fixture()
+    writes = []
+    def write(path, payload, method):
+        writes.append((method, path))
+        assert method == "POST"
+        state[inventory].append({"id": 2, "name": payload["name"]})
+        state[f"repos/{module.REPO}/rulesets/2"] = copy.deepcopy(payload)
+    def delete(args):
+        assert args[:3] == ["api", "--method", "DELETE"]
+        # Replacement is already visible, with no queue bypass.
+        module.verify_main_review_ruleset(policy, read=reader(state))
+        assert not state[queue_path]["bypass_actors"]
+        writes.append(("DELETE", args[3]))
+        state[endpoint]["required_pull_request_reviews"] = None
+        return 0, "", ""
+    with patch.object(module, "gh_json", side_effect=reader(state)), \
+         patch.object(module, "gh", side_effect=delete), \
+         patch.object(prepared_branch_governance, "_write", side_effect=write):
+        assert module.reconcile_main_review_ruleset(policy, apply=False)
+        assert writes == []
+        assert module.reconcile_main_review_ruleset(policy, apply=True)
+        assert [w[0] for w in writes] == ["POST", "DELETE"]
+        assert not module.reconcile_main_review_ruleset(policy, apply=True)
+        assert len(writes) == 2
+    for violation in ("queue_bypass", "readback", "stronger_review"):
+        state = fixture()
+        if violation == "queue_bypass":
+            state[queue_path]["bypass_actors"] = [{"actor_type": "Team", "actor_id": 1}]
+        if violation == "stronger_review":
+            state[endpoint]["required_pull_request_reviews"]["dismiss_stale_reviews"] = True
+        with patch.object(module, "gh_json", side_effect=reader(state)), \
+             patch.object(module, "gh") as deletion, \
+             patch.object(prepared_branch_governance, "_write") as creation:
+            try:
+                module.reconcile_main_review_ruleset(policy, apply=True)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError(f"Unsafe review migration accepted: {violation}")
+            deletion.assert_not_called()
+            if violation != "readback":
+                creation.assert_not_called()
+
+
+def test_review_ruleset_rejects_other_boundary_and_authority(module) -> None:
+    import copy
+    policy = _policy()
+    assert set(policy["branch_flow"]["review_rulesets"]) == {"main"}
+    def read(args):
+        login = args[1].split("/")[-1]
+        return {"login": login, "type": "User", "id": policy["main"]["review_bypass_users"].index(login) + 1}
+    desired = module.main_review_ruleset(policy, read=read)
+    assert module.same_review_ruleset(desired, desired)
+    for change in (
+        {"conditions": {"ref_name": {"include": ["refs/heads/dev"], "exclude": []}}},
+        {"enforcement": "disabled"}, {"rules": [{"type": "merge_queue"}]},
+        {"bypass_actors": [{"actor_type": "OrganizationAdmin", "bypass_mode": "always"}]},
+    ):
+        invalid = copy.deepcopy(desired)
+        invalid.update(change)
+        assert not module.same_review_ruleset(invalid, desired)
 
 
 if __name__ == "__main__":
