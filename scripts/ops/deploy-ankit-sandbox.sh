@@ -109,7 +109,8 @@ digest="$(gcloud artifacts docker images describe "$image:$attempt" --project="$
 # The backend uses a recognized runtime profile. Telemetry has its own label.
 env_vars="ENVIRONMENT=development,GOOGLE_CLOUD_PROJECT=$project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
 env_vars+=",REQUIRE_DATABASE_ON_STARTUP=true,DB_NAME=backend_dev_ankit,DB_UNIX_SOCKET=/cloudsql/$sql"
-env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=2,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
+# Each worker holds three LISTEN connections. Preserve one request slot.
+env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=4,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
 env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-ankit"
 env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
 secrets="APP_SIGNING_KEY=BACKEND_DEV_ANKIT_APP_SIGNING_KEY:1,VAULT_DATA_KEY=BACKEND_DEV_ANKIT_VAULT_DATA_KEY:1"
