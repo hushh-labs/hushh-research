@@ -41,6 +41,10 @@ from google.genai import types as genai_types
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.adk_bridge.dispatch import dispatch
+from hushh_mcp.agents.calendar.opening_tools import (
+    calendar_opening_detail,
+    calendar_shared_free_slots,
+)
 from hushh_mcp.agents.calendar.tools import (
     calendar_availability,
     calendar_calendars,
@@ -2618,6 +2622,8 @@ def _one_roster_tools(
         calendar_event_detail,
         calendar_availability,
         calendar_free_slots,
+        calendar_shared_free_slots,
+        calendar_opening_detail,
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,

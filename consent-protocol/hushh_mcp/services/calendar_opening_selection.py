@@ -37,11 +37,9 @@ class CalendarOpening(BaseModel):
         return self
 
 
-class CalendarOpeningWindow(BaseModel):
+class CalendarOpeningRange(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    calendar_id: str = Field(min_length=1, max_length=1024)
-    calendar_ids: list[str] = Field(min_length=1, max_length=20)
     query_start: str
     query_end: str
     duration_minutes: int = Field(ge=5, le=720)
@@ -62,13 +60,8 @@ class CalendarOpeningWindow(BaseModel):
 
     @model_validator(mode="after")
     def valid_window(self) -> Self:
-        if (
-            instant(self.query_start) >= instant(self.query_end)
-            or len(set(self.calendar_ids)) != len(self.calendar_ids)
-            or any(not value.strip() for value in self.calendar_ids)
-            or self.calendar_id not in self.calendar_ids
-        ):
-            raise ValueError("Opening coverage is invalid")
+        if instant(self.query_start) >= instant(self.query_end):
+            raise ValueError("Opening window is invalid")
         return self
 
     def validate_slot(self, slot: CalendarOpening) -> None:
@@ -79,6 +72,60 @@ class CalendarOpeningWindow(BaseModel):
             != timedelta(minutes=self.duration_minutes)
         ):
             raise ValueError("Opening does not fit its original window and duration")
+
+
+class CalendarOpeningWindow(CalendarOpeningRange):
+    calendar_id: str = Field(min_length=1, max_length=1024)
+    calendar_ids: list[str] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def valid_coverage(self) -> Self:
+        if (
+            len(set(self.calendar_ids)) != len(self.calendar_ids)
+            or any(not value.strip() for value in self.calendar_ids)
+            or self.calendar_id not in self.calendar_ids
+        ):
+            raise ValueError("Opening coverage is invalid")
+        return self
+
+
+class CalendarAvailabilityAccount(BaseModel):
+    """Private source evidence; never project the opaque grant to the model."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    account_id: str = Field(min_length=1, max_length=128)
+    account_email: str = Field(min_length=1, max_length=320)
+    binding: list[str] = Field(min_length=1, max_length=64)
+    calendar_ids: list[str] = Field(min_length=1, max_length=250)
+
+    @model_validator(mode="after")
+    def unique_calendars(self) -> Self:
+        if len(set(self.calendar_ids)) != len(self.calendar_ids) or any(
+            not value.strip() for value in self.calendar_ids
+        ):
+            raise ValueError("Opening coverage is invalid")
+        return self
+
+
+class CalendarSharedOpeningWindow(CalendarOpeningRange):
+    board_accounts: list[CalendarAvailabilityAccount] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode="after")
+    def unique_accounts(self) -> Self:
+        ids = [item.account_id for item in self.board_accounts]
+        if len(set(ids)) != len(ids):
+            raise ValueError("Opening account coverage is invalid")
+        return self
+
+
+class CalendarSharedOpeningSelection(CalendarSharedOpeningWindow):
+    slot: CalendarOpening
+    offer_created_at_ms: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def exact_slot(self) -> Self:
+        self.validate_slot(self.slot)
+        return self
 
 
 class CalendarOpeningSelection(CalendarOpeningWindow):

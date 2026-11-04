@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import time
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -10,7 +11,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 
-from hushh_mcp.services.calendar_opening_selection import CalendarOpeningSelection, instant
+from hushh_mcp.services.calendar_opening_selection import (
+    CalendarOpeningSelection,
+    CalendarSharedOpeningSelection,
+    instant,
+)
 from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
@@ -344,6 +349,17 @@ def validate_plan(
         if "opening_selection" in payload:
             selection = _opening_selection(payload["opening_selection"], plan)
             plan["opening_selection"] = selection.model_dump(mode="json")
+        if "shared_opening_selection" in payload:
+            if "opening_selection" in payload or booking_source == "board":
+                raise GoogleConnectionError("Choose one Calendar slot source", status_code=422)
+            shared = _shared_opening_selection(payload["shared_opening_selection"], plan)
+            # Consume the five-minute lookup at preparation, just like a single-
+            # account offer. The issued proposal then owns its advertised TTL.
+            if not 0 <= int(time.time() * 1000) - shared.offer_created_at_ms <= 5 * 60 * 1000:
+                raise GoogleConnectionError(
+                    "This slot expired. Check openings again.", status_code=409
+                )
+            plan["shared_opening_selection"] = shared.model_dump(mode="json")
         from hushh_mcp.services.advisor_calendar_binding import bind_plan
 
         bind_plan(plan, payload)
@@ -448,6 +464,7 @@ async def prepare_included_conflicts(
     if (
         action == "create"
         and plan.get("booking_source") != "board"
+        and not plan.get("shared_opening_selection")
         and await calendar.connections.has_service_scope(
             user_id=user_id, service="calendar", scope=CALENDAR_LIST_READ_SCOPE
         )
@@ -482,7 +499,7 @@ async def execute_create(
 ) -> dict[str, Any]:
     if not str(plan.get("conference_request_id") or "").strip():
         plan["conference_request_id"] = f"meet_legacy_{proposal_id.removeprefix('gcal_')}"
-    if plan.get("booking_source") != "board":
+    if plan.get("booking_source") != "board" and not plan.get("shared_opening_selection"):
         calendar._reject_new_conflicts(
             planned=plan.get("primary_conflicts", plan.get("conflicts")),
             current=await calendar._find_conflicts(
@@ -566,6 +583,9 @@ async def check_opening(
     binding: tuple[str, ...] | None,
 ) -> None:
     """A slot reference is free-only, both before review and before dispatch."""
+    if plan.get("shared_opening_selection"):
+        await _check_shared_opening(calendar, user_id=user_id, plan=plan)
+        return
     selection = _opening_selection(plan["opening_selection"], plan)
     if instant(selection.slot.start_at) <= datetime.now(UTC) or not binding:
         raise GoogleConnectionError("This slot expired. Check openings again.", status_code=409)
@@ -588,3 +608,42 @@ async def check_opening(
             reason_code="calendar_availability_changed",
         )
     await calendar._check_read_binding(user_id, binding)
+
+
+def _shared_opening_selection(raw: Any, plan: dict[str, Any]) -> CalendarSharedOpeningSelection:
+    try:
+        selection = CalendarSharedOpeningSelection.model_validate(raw)
+        if (
+            plan["calendar_id"] != "primary"
+            or plan["account_id"] not in {item.account_id for item in selection.board_accounts}
+            or selection.slot.start_at != plan["start_at"]
+            or selection.slot.end_at != plan["end_at"]
+            or selection.time_zone != plan["time_zone"]
+        ):
+            raise ValueError("Shared opening target changed")
+    except (ValidationError, TypeError, ValueError, KeyError) as exc:
+        raise GoogleConnectionError(
+            "Calendar slot review changed. Check openings again.", status_code=409
+        ) from exc
+    return selection
+
+
+async def _check_shared_opening(
+    calendar: GoogleCalendarService, *, user_id: str, plan: dict[str, Any]
+) -> None:
+    selection = _shared_opening_selection(plan["shared_opening_selection"], plan)
+    if instant(selection.slot.start_at) <= datetime.now(UTC):
+        raise GoogleConnectionError("This slot expired. Check openings again.", status_code=409)
+    # Use Board's existing full-account coverage, grant and write-permission
+    # authority, comparing the ORIGINAL read snapshots before sealing anything.
+    checked = {
+        **plan,
+        "checked_account_ids": [item.account_id for item in selection.board_accounts],
+        "board_accounts": [item.model_dump() for item in selection.board_accounts],
+    }
+    if await board_booking_state(calendar, user_id=user_id, plan=checked):
+        raise GoogleConnectionError(
+            "This slot is no longer free. Check openings again.",
+            status_code=409,
+            reason_code="calendar_availability_changed",
+        )

@@ -347,6 +347,7 @@ async def _run_calendar_read(
     owner_local_only: bool = False,
     account_id: str | None = None,
     source: tuple[str, Literal["events", "calendars", "invitations"]] | None = None,
+    shared_accounts: bool = False,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
     boundary, converting any failure into a clean result instead of letting
@@ -371,6 +372,16 @@ async def _run_calendar_read(
         if callable(calendar_read):
             calendar_read = calendar_read()
         async with asyncio.timeout(25):
+            if shared_accounts:
+                from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
+                from hushh_mcp.services.pod_google_connections import calendar_runs_locally
+
+                # Shared account inventory is never a fallback for a private port.
+                if calendar_reads_via_door() or calendar_runs_locally():
+                    return {
+                        "status": "unavailable",
+                        "message": "Cross-account Calendar reads are unavailable in this runtime.",
+                    }
             if owner_local_only or account_id not in {None, "default"}:
                 from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
 
@@ -382,7 +393,15 @@ async def _run_calendar_read(
             served = await _serve_via_door(tool_context, calendar_read)
             if served is not None:
                 return served
-            service, account_id = await _read_service(user_id, account_id)
+            if shared_accounts:
+                from hushh_mcp.services.calendar_account_board_service import (
+                    CalendarAccountBoardService,
+                )
+
+                service = CalendarAccountBoardService()
+                account_id = ""
+            else:
+                service, account_id = await _read_service(user_id, account_id)
             return {**await call(user_id, service, account_id), "account_id": account_id}
     except _AccountSelectionRequired as exc:
         return {
@@ -900,6 +919,13 @@ async def _select_opening(
     payload: dict[str, Any],
     ordinal: int,
 ) -> tuple[str, ...]:
+    from hushh_mcp.agents.calendar.opening_tools import select_shared_opening
+
+    shared_binding = await select_shared_opening(
+        tool_context, user_id=user_id, payload=payload, ordinal=ordinal
+    )
+    if shared_binding is not None:
+        return shared_binding
     message = "Show available slots again, then choose one from that list."
     try:
         candidate = CalendarOpeningOffer.model_validate(tool_context.state.get(STATE_OPENING_OFFER))
@@ -1082,7 +1108,11 @@ async def _propose(
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
-    display_zone = plan["time_zone"] if plan.get("opening_selection") else _timezone(tool_context)
+    display_zone = (
+        plan["time_zone"]
+        if plan.get("opening_selection") or plan.get("shared_opening_selection")
+        else _timezone(tool_context)
+    )
     summary = _proposal_summary(
         action=action,
         plan=plan,
@@ -1143,7 +1173,12 @@ async def _propose(
     return {
         "status": "confirmation_required",
         "proposal_id": proposal_id,
-        "plan": plan,
+        "plan": {
+            key: value
+            for key, value in plan.items()
+            if key not in {"shared_opening_selection", "board_accounts"}
+            and not (key == "connection_binding" and plan.get("shared_opening_selection"))
+        },
         "conflicts": conflicts,
         "directive": directive,
         "message": (

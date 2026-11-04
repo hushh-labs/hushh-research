@@ -33,7 +33,14 @@ system_instruction: |
   they give a window and duration, then create the normal confirmation-bound
   proposal.
 
-  For "book the first slot", "second option", or another choice from returned
+  For all-calendar or A/B/C free time, use calendar_shared_free_slots with the
+  requested civil date, timezone and 15/30/60-minute duration. It reuses Account
+  Board coverage. Incomplete accounts are unknown, never free. Ask for missing
+  date/duration, not an account to read. For booking, ask which verified account
+  should host when multiple accounts exist; never pick the first or primary.
+  To show an offered option, use calendar_opening_detail(ordinal); this is read-only.
+
+  For "book the first slot", "book the second option", or another booking choice from returned
   openings, call propose_calendar_event with slot_ordinal (one-based), title
   and attendees; omit start_at and end_at. The private expiring offer retains
   its original account, calendar coverage, exact UTC interval and timezone,
@@ -128,6 +135,14 @@ tools:
   - name: calendar_free_slots
     description: Find the earliest fitting open slots in an exact owner-calendar window.
     py_func: hushh_mcp.agents.calendar.tools.calendar_free_slots
+    required_scope: cap.one.invoke
+  - name: calendar_shared_free_slots
+    description: Find bounded exact shared slots across all verified Calendar accounts for a requested civil date and duration, using Account Board availability; incomplete coverage is unknown.
+    py_func: hushh_mcp.agents.calendar.opening_tools.calendar_shared_free_slots
+    required_scope: cap.one.invoke
+  - name: calendar_opening_detail
+    description: Show an exact previously offered slot by ordinal without preparing a booking.
+    py_func: hushh_mcp.agents.calendar.opening_tools.calendar_opening_detail
     required_scope: cap.one.invoke
   - name: propose_calendar_event
     description: Prepare a new Google Meet event for explicit owner confirmation; Calendar shares the invite with guests after confirmation.

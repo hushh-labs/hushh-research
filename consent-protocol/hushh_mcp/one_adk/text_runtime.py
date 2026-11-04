@@ -315,6 +315,8 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "calendar_event_detail": ("agent_calendar", "Calendar"),
     "calendar_availability": ("agent_calendar", "Calendar"),
     "calendar_free_slots": ("agent_calendar", "Calendar"),
+    "calendar_shared_free_slots": ("agent_calendar", "Calendar"),
+    "calendar_opening_detail": ("agent_calendar", "Calendar"),
     "propose_calendar_event": ("agent_calendar", "Calendar"),
     "propose_calendar_reschedule": ("agent_calendar", "Calendar"),
     "propose_calendar_cancellation": ("agent_calendar", "Calendar"),

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from hushh_mcp.services.calendar_opening_selection import (
     CalendarOpening,
     CalendarOpeningWindow,
+    CalendarSharedOpeningWindow,
     instant,
 )
 
@@ -137,6 +138,39 @@ class CalendarOpeningOffer(CalendarOfferIdentity):
                 raise ValueError("Opening results are not ordered")
             previous_end = instant(slot.end_at)
         return self
+
+    def slot_at(self, ordinal: int) -> CalendarOpening | None:
+        if isinstance(ordinal, bool) or not isinstance(ordinal, int):
+            return None
+        return self.slots[ordinal - 1] if 1 <= ordinal <= len(self.slots) else None
+
+
+class CalendarSharedOpeningOffer(BaseModel):
+    """All-account coverage has no implied booking destination."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    owner_id: str = Field(min_length=1, max_length=256)
+    conversation_id: str = Field(min_length=1, max_length=256)
+    created_at_ms: int = Field(ge=1)
+    window: CalendarSharedOpeningWindow
+    slots: list[CalendarOpening] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def exact_results(self) -> Self:
+        previous_end = None
+        for slot in self.slots:
+            self.window.validate_slot(slot)
+            if previous_end is not None and instant(slot.start_at) < previous_end:
+                raise ValueError("Opening results are not ordered")
+            previous_end = instant(slot.end_at)
+        return self
+
+    def current(self, *, owner_id: str, conversation_id: str) -> bool:
+        return bool(
+            self.owner_id == owner_id
+            and self.conversation_id == conversation_id
+            and 0 <= int(time.time() * 1000) - self.created_at_ms <= _OFFER_TTL_MS
+        )
 
     def slot_at(self, ordinal: int) -> CalendarOpening | None:
         if isinstance(ordinal, bool) or not isinstance(ordinal, int):
