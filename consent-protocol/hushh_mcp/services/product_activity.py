@@ -42,6 +42,24 @@ def enabled_for(user_id: str) -> bool:
         return False
     if not user_id or len(user_id) > 128:
         return False
+    from api.utils.firebase_auth import current_auth_lane
+
+    lane = current_auth_lane()
+    if lane == "uat":
+        # UAT is a separate, explicitly enrolled cohort. Never reuse the
+        # production export allowlist or the all-registered collection flag.
+        allowed = {
+            uid.strip()
+            for uid in os.getenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS", "").split(",")
+            if uid.strip()
+        }
+        return (
+            os.getenv("GOOGLE_CLOUD_PROJECT") == "hushh-pda-uat"
+            and os.getenv("ONE_PLG_ACTIVITY_UAT_ENABLED") == "true"
+            and os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") != "true"
+            and 1 <= len(allowed) <= 100
+            and user_id in allowed
+        )
     if (
         os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") == "true"
         and os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda"
@@ -55,9 +73,7 @@ def enabled_for(user_id: str) -> bool:
         }
         if not 1 <= len(allowed) <= 100 or user_id not in allowed:
             return False
-    from api.utils.firebase_auth import current_auth_lane
-
-    return current_auth_lane() == "production"
+    return lane == "production"
 
 
 def admission(user_id: str) -> dict | None:

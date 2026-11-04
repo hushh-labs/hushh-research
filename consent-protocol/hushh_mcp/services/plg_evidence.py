@@ -60,15 +60,128 @@ class PilotRequest(BaseModel):
     accounts: list[PilotAccount] = Field(min_length=0, max_length=20)
 
 
-async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> dict:
+async def uat_read_authority(user_id: str, generation, email_hash: str, revision: int) -> dict:
+    """Fresh read permission and activity epoch; grants no delivery authority."""
+    from hushh_mcp.services import marketing_preferences
+
+    first = await marketing_preferences.current_permission(
+        user_id, generation, email_hash, revision
+    )
+    if not first["allowed"]:
+        return {"allowed": False, "erased": first["erased"], "ownerEpoch": None}
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn, conn.transaction():
+        active = await AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=[user_id]
+        )
+        if user_id not in active:
+            return {"allowed": False, "erased": True, "ownerEpoch": None}
+        epoch = await conn.fetchval(
+            "SELECT generation FROM one_product_activity_epochs WHERE user_id=$1",
+            user_id,
+            timeout=5,
+        )
+    if epoch is None:
+        return {"allowed": False, "erased": False, "ownerEpoch": None}
+    second = await marketing_preferences.current_permission(
+        user_id, generation, email_hash, revision
+    )
+    if not second["allowed"]:
+        return {"allowed": False, "erased": second["erased"], "ownerEpoch": None}
+    return {
+        "allowed": True,
+        "erased": False,
+        "ownerEpoch": hashlib.sha256(str(epoch).encode()).hexdigest(),
+    }
+
+
+async def uat_owner_scope(user_id: str, now: datetime) -> dict | None:
+    """Project one enrolled test owner without exporting their email address."""
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn, conn.transaction():
+        active = await AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=[user_id]
+        )
+        if user_id not in active:
+            return None
+        row = await conn.fetchrow(
+            """SELECT p.generation,p.email_hash,p.revision,p.consent_at,
+                      e.generation AS activity_generation,e.started_at
+                 FROM one_marketing_preferences p JOIN one_product_activity_epochs e USING(user_id)
+                WHERE p.user_id=$1 AND p.enabled""",
+            user_id,
+            timeout=5,
+        )
+    if not row or not row["email_hash"] or not row["consent_at"] or not row["started_at"]:
+        return None
+    authority = await uat_read_authority(
+        user_id, row["generation"], row["email_hash"], row["revision"]
+    )
+    epoch = hashlib.sha256(str(row["activity_generation"]).encode()).hexdigest()
+    if not authority["allowed"] or authority["ownerEpoch"] != epoch:
+        return None
+    since = max(row["consent_at"], row["started_at"], now - timedelta(days=7))
+    if since > now:
+        raise ValueError("Invalid UAT owner scope time")
+    return {
+        "environment": "uat",
+        "accountId": user_id,
+        "emailHash": row["email_hash"],
+        "generation": str(row["generation"]),
+        "revision": row["revision"],
+        "since": since.astimezone(timezone.utc).isoformat(),
+        "journey": "agent_one",
+    }
+
+
+async def uat_session_owner_scope(allowed: set[str], email_hash: str, now: datetime) -> dict | None:
+    """Resolve one verified session within the explicit UAT cohort, never by UID input.
+
+    The cached preference hash is only a candidate selector. The current recipient,
+    permission and lifecycle checks in uat_owner_scope remain authoritative.
+    Ambiguous aliases fail closed rather than selecting another team member.
+    """
+    if not 1 <= len(allowed) <= 100:
+        raise ValueError("Invalid UAT cohort")
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn, conn.transaction():
+        active = await AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=sorted(allowed)
+        )
+        rows = await conn.fetch(
+            """SELECT user_id FROM one_marketing_preferences
+               WHERE user_id=ANY($1::text[]) AND email_hash=$2 AND enabled LIMIT 2""",
+            sorted(active),
+            email_hash,
+            timeout=5,
+        )
+    if len(rows) != 1 or rows[0]["user_id"] not in allowed:
+        return None
+    scope = await uat_owner_scope(rows[0]["user_id"], now)
+    if not scope or scope["emailHash"] != email_hash:
+        return None
+    return scope
+
+
+async def snapshot(
+    request: PilotRequest,
+    allowed: set[str],
+    now: datetime,
+    *,
+    environment: Literal["production", "uat"] = "production",
+) -> dict:
     """Fail the entire batch on missing authority, truncation or source failure."""
+    if environment not in {"production", "uat"}:
+        raise ValueError("Invalid evidence environment")
+    if environment == "uat" and (request.version != 2 or request.customerReporting):
+        raise ValueError("UAT evidence cannot claim production customer reporting")
     policy = reporting_policy() if request.customerReporting else None
     if not request.accounts:
         if request.version != 2:
             raise ValueError("No accounts requested")
         return {
             "version": 2,
-            "environment": "production",
+            "environment": environment,
             "retainedOnly": True,
             "asOf": now.astimezone(timezone.utc).isoformat(),
             "accounts": [],
@@ -178,7 +291,7 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
             result.append(entry)
     response: dict[str, Any] = {
         "version": request.version,
-        "environment": "production",
+        "environment": environment,
         "retainedOnly": True,
         "asOf": now.astimezone(timezone.utc).isoformat(),
         "accounts": result,

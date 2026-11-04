@@ -26,7 +26,13 @@ from hushh_mcp.services.plg_customer_cohort import (
     CohortRequest,
     customer_cohort_page,
 )
-from hushh_mcp.services.plg_evidence import PilotRequest, snapshot
+from hushh_mcp.services.plg_evidence import (
+    PilotAccount,
+    PilotRequest,
+    snapshot,
+    uat_read_authority,
+    uat_session_owner_scope,
+)
 
 from .marketing_preferences import router as marketing_preferences_router
 
@@ -58,6 +64,25 @@ class SubscriptionCheck(BaseModel):
     generation: UUID
     emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
     revision: int = Field(ge=1, le=9_007_199_254_740_991)
+
+
+class UatSnapshotAccount(PilotAccount):
+    generation: UUID
+    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    revision: int = Field(ge=1, le=9_007_199_254_740_991)
+    ownerEpoch: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class UatOwnerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class UatSnapshotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    version: Literal[2]
+    customerReporting: Literal[False]
+    accounts: list[UatSnapshotAccount] = Field(min_length=1, max_length=1)
 
 
 async def _subscription_request(request: Request, purpose: str):
@@ -216,6 +241,113 @@ async def export_snapshot(request: Request):
         ) from None
     except Exception:
         raise HTTPException(503, "Task evidence unavailable", headers=NO_STORE) from None
+    return JSONResponse(result, headers=NO_STORE)
+
+
+def _uat_export_scope():
+    secret = os.getenv("ONE_PLG_UAT_EXPORT_SECRET", "")
+    allowed = {
+        uid.strip()
+        for uid in os.getenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS", "").split(",")
+        if uid.strip()
+    }
+    production_secret = os.getenv("ONE_PLG_EXPORT_SECRET", "")
+    if (
+        os.getenv("ONE_PLG_UAT_EXPORT_ENABLED") != "true"
+        or os.getenv("ONE_PLG_ACTIVITY_ENABLED") != "true"
+        or os.getenv("ONE_PLG_ACTIVITY_UAT_ENABLED") != "true"
+        or os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") == "true"
+        or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda-uat"
+        or current_auth_lane() != "uat"
+        or len(secret) < 32
+        or (production_secret and hmac.compare_digest(secret.encode(), production_secret.encode()))
+        or not 1 <= len(allowed) <= 100
+    ):
+        raise HTTPException(404, "PLG UAT export unavailable", headers=NO_STORE)
+    return secret, allowed
+
+
+@router.post("/permission-uat", include_in_schema=False)
+async def check_uat_read_permission(request: Request):
+    secret, allowed = _uat_export_scope()
+    body = await _signed_body(request, secret=secret, purpose="permission-uat")
+    try:
+        payload = SubscriptionCheck.model_validate_json(body)
+        if payload.accountId not in allowed:
+            raise ValueError("Outside UAT cohort")
+        result = await asyncio.wait_for(
+            uat_read_authority(
+                payload.accountId, payload.generation, payload.emailHash, payload.revision
+            ),
+            timeout=30,
+        )
+    except (ValueError, ValidationError):
+        raise HTTPException(400, "Invalid UAT permission request", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "UAT permission unavailable", headers=NO_STORE) from None
+    return JSONResponse(
+        {"environment": "uat", "deliveryAuthorized": False, **result}, headers=NO_STORE
+    )
+
+
+@router.post("/owner-uat", include_in_schema=False)
+async def export_uat_owner_scope(request: Request):
+    """Session-bound UAT team read; this projection grants no send authority."""
+    secret, allowed = _uat_export_scope()
+    body = await _signed_body(request, secret=secret, purpose="owner-uat")
+    try:
+        payload = UatOwnerRequest.model_validate_json(body)
+        result = await asyncio.wait_for(
+            uat_session_owner_scope(allowed, payload.emailHash, datetime.now(timezone.utc)),
+            timeout=30,
+        )
+    except (ValueError, ValidationError):
+        raise HTTPException(400, "Invalid UAT owner request", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "UAT owner unavailable", headers=NO_STORE) from None
+    return JSONResponse(
+        {"environment": "uat", "deliveryAuthorized": False, "scope": result}, headers=NO_STORE
+    )
+
+
+@router.post("/snapshot-uat", include_in_schema=False)
+async def export_uat_snapshot(request: Request):
+    """Separate signed test-cohort projection; never claim customer reporting."""
+    secret, allowed = _uat_export_scope()
+    body = await _signed_body(request, secret=secret, purpose="snapshot-uat")
+    try:
+        payload = UatSnapshotRequest.model_validate_json(body)
+        account = payload.accounts[0]
+        if account.accountId not in allowed:
+            raise ValueError("Invalid UAT evidence scope")
+        check = (account.accountId, account.generation, account.emailHash, account.revision)
+        before = await uat_read_authority(*check)
+        if not before["allowed"] or before["ownerEpoch"] != account.ownerEpoch:
+            raise ValueError("UAT authority changed")
+        projection = PilotRequest(
+            version=2,
+            accounts=[
+                PilotAccount(
+                    accountId=account.accountId, journey=account.journey, since=account.since
+                )
+            ],
+        )
+        result = await asyncio.wait_for(
+            snapshot(projection, allowed, datetime.now(timezone.utc), environment="uat"), timeout=25
+        )
+        after = await uat_read_authority(*check)
+        row = result["accounts"][0]
+        if (
+            after != before
+            or row.get("deleted") is not False
+            or not row.get("activity")
+            or row["activity"].get("epoch") != account.ownerEpoch
+        ):
+            raise ValueError("UAT authority changed")
+    except (ValueError, ValidationError):
+        raise HTTPException(400, "Invalid UAT evidence request", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "UAT task evidence unavailable", headers=NO_STORE) from None
     return JSONResponse(result, headers=NO_STORE)
 
 
