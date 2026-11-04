@@ -40,18 +40,19 @@ export function DirectMessagesRoute() {
   const selectionKey = JSON.stringify([userId || "", token, conversationId, personRef]);
   const [selection, setSelection] = useState<{ key: string; kind: "conversation" | "person"; ref: string } | null>(null);
   const [failedSelection, setFailedSelection] = useState<string | null>(null);
-  const [opening, setOpening] = useState<(DirectMessageSelection & { key: string; ownerId: string }) | null>(null);
+  const [opening, setOpening] = useState<(DirectMessageSelection & { ownerId: string }) | null>(null);
   const openingRequest = useRef<DirectMessageSelection | null>(null);
   const issuedTokens = useRef(new Set<string>());
-  const clearOpening = useCallback(() => { openingRequest.current = null; setOpening(null); }, []);
+  const clearOpening = useCallback(() => { openingRequest.current = null; setOpening(null); }, [setOpening]);
   useLayoutEffect(() => {
     clearOpening();
-    issuedTokens.current.clear();
-    return () => { openingRequest.current = null; issuedTokens.current.clear(); };
+    const tokens = issuedTokens.current;
+    tokens.clear();
+    return () => { openingRequest.current = null; tokens.clear(); };
   }, [clearOpening, user]);
   const selected = Boolean(token || conversationId || personRef);
   const cachedSelection = user && userId && token ? DirectMessagesResourceService.readRoute(userId, token) : null;
-  const visibleSelection = opening?.ownerId === userId && (opening.key === selectionKey || issuedTokens.current.has(token)) ? opening
+  const visibleSelection = opening?.ownerId === userId ? opening
     : selection?.key === selectionKey ? selection : cachedSelection;
   useLayoutEffect(() => {
     const ownCommit = issuedTokens.current.delete(token);
@@ -61,7 +62,7 @@ export function DirectMessagesRoute() {
       (currentOpening.kind !== committed?.kind || currentOpening.ref !== committed?.ref)) {
       // An earlier push may commit after a newer tap. Keep the newest intent
       // visible until its own destination commits or the person cancels.
-      setOpening(current => current ? { ...current, key: selectionKey } : null);
+      return;
     } else {
       clearOpening();
       issuedTokens.current.clear();
@@ -73,7 +74,7 @@ export function DirectMessagesRoute() {
     openingRequest.current = request;
     // Select the known person before any network work. This changes only the
     // presentation; history still checks current read and send permission.
-    setOpening({ ...destination, key: selectionKey, ownerId: userId });
+    setOpening({ ...destination, ownerId: userId });
     void resolveDirectMessageHref(destination.kind === "conversation"
       ? { conversationId: destination.ref } : { personRef: destination.ref })
       .then((href) => {
