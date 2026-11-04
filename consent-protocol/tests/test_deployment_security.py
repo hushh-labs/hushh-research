@@ -421,12 +421,14 @@ class DeploymentSecurityTest(unittest.TestCase):
 
     def test_native_sources_use_the_resolved_reference(self):
         root = Path(__file__).resolve().parents[2]
-        for name in ["ship-ios-testflight.yml", "ship-android-playstore-v1.yml"]:
+        for name, binding in {
+            "ship-ios-testflight.yml": "SHA: ${{ needs.deployment-security.outputs.application_sha }}",
+            "ship-android-playstore-v1.yml": (
+                "REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
+            ),
+        }.items():
             source = (root / ".github/workflows" / name).read_text()
-            self.assertIn(
-                "REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}",
-                source,
-            )
+            self.assertIn(binding, source)
 
 
 class DeploymentBrokerTest(unittest.TestCase):
