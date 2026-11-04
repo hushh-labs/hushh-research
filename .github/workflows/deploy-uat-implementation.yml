@@ -335,6 +335,7 @@ jobs:
       contents: read
       actions: read
       checks: read
+      pull-requests: read
       id-token: write
     environment:
       name: uat
@@ -379,6 +380,10 @@ jobs:
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
         run: |
           python3 scripts/ci/wait-uat-capacity.py \
             --mode full --target-sha "$TARGET_SHA" \
