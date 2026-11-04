@@ -6,6 +6,8 @@ import re
 import runpy
 from collections import OrderedDict, defaultdict
 from pathlib import Path
+
+from release_workflow_lint import validate_deploy_workflows
 from typing import Any
 
 
@@ -1035,13 +1037,14 @@ def validate_admin_release_contract(errors: list[str]) -> None:
     normalized_reference_text = " ".join(reference_text.split())
     required_phrases = [
         "The ordinary path is PR validation followed by the GitHub merge queue.",
-        "An Admin PR landing is a queue bypass, not a validation bypass.",
-        "Admin PR landing preflight",
-        "--admin --merge --match-head-commit <head-sha>",
+        "Review exception and queue bypass are distinct.",
+        "Baseline `CI Status Gate` from GitHub Actions",
+        "./bin/hushh codex admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json> --apply",
+        "immutable evidence for the exact current merge tree",
         "Main Post-Merge Smoke Gate = success",
         "The workflow compares the target SHA with each service's currently deployed SHA",
         "Hosted Cloud Run UAT and production use their own governed GitHub environments and workload identities.",
-        "Report this truthfully as an Admin queue bypass.",
+        "State which path ran: merge queue, Admin PR landing, or direct-main emergency push.",
         "Restore the preserved developer branch",
     ]
     for phrase in required_phrases:
@@ -1161,82 +1164,7 @@ def validate_admin_release_contract(errors: list[str]) -> None:
                 "config/ci-governance.json: uat.post_merge_workflow must match "
                 ".github/workflows/main-post-merge-smoke.yml"
             )
-    workflow_contracts = {
-        "uat": REPO_ROOT / ".github/workflows/deploy-uat.yml",
-        "production": REPO_ROOT / ".github/workflows/deploy-production.yml",
-    }
-    common_markers = [
-        "workflow_dispatch:",
-        "GITHUB_REF_NAME",
-        "scripts/ci/assert-governed-actor.py",
-        "scripts/ci/require-deploy-sha-on-main.sh",
-        "scripts/ci/cloudrun-rollback.sh",
-        "exit 1",
-    ]
-    for environment, workflow_path in workflow_contracts.items():
-        if not workflow_path.exists():
-            errors.append(f"missing governed deploy workflow: {workflow_path.relative_to(REPO_ROOT)}")
-            continue
-        workflow_text = workflow_path.read_text(encoding="utf-8")
-        policy = governance.get(environment, {})
-        environment_name = policy.get("environment") or policy.get("owner_environment")
-        required_check = policy.get("required_post_merge_check")
-        environment_markers = [
-            *common_markers,
-            f"environment: {environment_name}",
-            f"--surface {environment}",
-            str(required_check),
-        ]
-        for marker in environment_markers:
-            if not marker or marker not in workflow_text:
-                errors.append(
-                    f"{workflow_path.relative_to(REPO_ROOT)}: missing governed deploy marker `{marker}`"
-                )
-
-    uat_workflow_text = workflow_contracts["uat"].read_text(encoding="utf-8")
-    for marker in [
-        "scripts/ci/resolve-deploy-scope.py",
-        "scripts/ci/verify-cloudrun-revision-provenance.py",
-        "Write UAT release status artifact",
-        "Upload UAT deploy artifacts",
-    ]:
-        if marker not in uat_workflow_text:
-            errors.append(
-                f".github/workflows/deploy-uat.yml: missing UAT release proof marker `{marker}`"
-            )
-
-    production_workflow_text = workflow_contracts["production"].read_text(encoding="utf-8")
-    for marker in [
-        "Verify production backend deployment provenance",
-        "Verify production frontend deployment provenance",
-        "scripts/ci/verify-cloudrun-revision-provenance.py",
-        "Write production release status artifact",
-        "Upload production deploy artifacts",
-        "/tmp/prod-release-status.json",
-    ]:
-        if marker not in production_workflow_text:
-            errors.append(
-                f".github/workflows/deploy-production.yml: missing production release proof marker `{marker}`"
-            )
-    promotion_failure_start = production_workflow_text.find(
-        'if [ "$PROMOTE_OUTCOME" = "failure" ]; then'
-    )
-    promotion_failure_end = production_workflow_text.find(
-        'if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ]',
-        promotion_failure_start,
-    )
-    if promotion_failure_start < 0 or promotion_failure_end < 0:
-        errors.append(
-            ".github/workflows/deploy-production.yml: missing partial-promotion failure classification"
-        )
-    else:
-        body = production_workflow_text[promotion_failure_start:promotion_failure_end]
-        for marker in ["backend_failure=true", "frontend_failure=true"]:
-            if marker not in body:
-                errors.append(
-                    ".github/workflows/deploy-production.yml: partial promotion failure must "
-                    f"mark selected services for rollback (`{marker}`)"
-                )
+    validate_deploy_workflows(REPO_ROOT, governance, errors)
 
 
 def validate_truth_first_contract(errors: list[str]) -> None:

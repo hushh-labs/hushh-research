@@ -30,6 +30,7 @@ import hmac
 import logging
 import os
 from functools import lru_cache
+from time import perf_counter
 from typing import Any, Callable, Coroutine, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -39,39 +40,26 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from api.middlewares.observability import get_request_trace_metadata
 from hushh_mcp.integrations.plaid import PlaidApiError, PlaidHttpClient, PlaidRuntimeConfig
-from hushh_mcp.integrations.plaid.products import _link_token_product_sets
+from hushh_mcp.integrations.plaid.products import apply_new_vault_link_products
+from hushh_mcp.integrations.plaid.vault_snapshot import (
+    TRANSACTIONS_SYNC_MAX_PAGES as TRANSACTIONS_SYNC_MAX_PAGES,
+)
+from hushh_mcp.integrations.plaid.vault_snapshot import (
+    clean_string,
+    item_products,
+    log_plaid_failure,
+    read_vault_snapshot,
+    string_list,
+)
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
 
 logger = logging.getLogger(__name__)
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
-# Transactions sync pages at most this many times per snapshot; the device
-# resumes from the returned cursor on its next unlock.
-TRANSACTIONS_SYNC_MAX_PAGES = 10
-_TRANSACTIONS_SYNC_PAGE_SIZE = 500
-
-# Plaid error codes that mean "this product is not available for this Item"
-# rather than a failure. They come back as ``{"unavailable": code}``.
-_PRODUCT_UNAVAILABLE_CODES = frozenset(
-    {
-        "ADDITIONAL_CONSENT_REQUIRED",
-        "INVALID_PRODUCT",
-        "ITEM_PRODUCT_NOT_READY",
-        "NO_ACCOUNTS",
-        "NO_INVESTMENT_ACCOUNTS",
-        "NO_INVESTMENT_AUTH_ACCOUNTS",
-        "PRODUCT_NOT_ENABLED",
-        "PRODUCT_NOT_READY",
-        "PRODUCT_NOT_SUPPORTED",
-        "PRODUCTS_NOT_SUPPORTED",
-    }
-)
-_PRODUCT_NOT_ON_ITEM = "PRODUCTS_NOT_SUPPORTED"
 _ITEM_ALREADY_REMOVED_CODES = frozenset({"ITEM_NOT_FOUND"})
-# A snapshot for one of these returns 200 with ``item.error`` (see vault_snapshot).
-_DEAD_ACCESS_TOKEN_CODES = frozenset({"INVALID_ACCESS_TOKEN"})
 _LOCAL_SANDBOX_PROOF_DEPLOYMENTS = frozenset({"local", "test"})
 
 # Plaid tokens and cursors are opaque ASCII; bound and constrain them so a
@@ -137,6 +125,9 @@ class VaultLinkTokenRequest(_StrictModel):
     # A non-secret marker used only by the local Plaid Sandbox proof.  It is
     # deliberately opt-in so ordinary clients retain their existing contract.
     sandbox_proof: bool = False
+    origin_surface: Literal["profile_nws", "agentone_chat"] | None = None
+    additional_product: Literal["investments", "liabilities"] | None = None
+    select_accounts: bool = False
     # Update mode (relink after "login required"): the device passes the token
     # it holds sealed; Plaid returns a Link token bound to that Item.  Used for
     # this one call only, never stored or logged.
@@ -152,6 +143,7 @@ class VaultExchangeRequest(_StrictModel):
 class VaultSnapshotRequest(_StrictModel):
     access_token: str = Field(..., min_length=8, max_length=256, pattern=_OPAQUE_ID_PATTERN)
     transactions_cursor: str | None = Field(default=None, max_length=4096, pattern=_CURSOR_PATTERN)
+    transactions_continuation: bool = False
 
 
 class VaultRemoveRequest(_StrictModel):
@@ -193,19 +185,6 @@ def _client_user_id(user_id: str) -> str:
     return f"hv1_{digest.hexdigest()}"
 
 
-def _clean(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    return text or None
-
-
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [item for item in (_clean(entry) for entry in value) if item]
-
-
 _SAFE_MESSAGES = {
     "INVALID_INPUT": "Plaid rejected the request. Reconnect the account and try again.",
     "INVALID_REQUEST": "Plaid rejected the request.",
@@ -215,17 +194,6 @@ _SAFE_MESSAGES = {
     "API_ERROR": "Plaid had a problem. Try again shortly.",
     "INSTITUTION_ERROR": "The institution is not responding right now.",
 }
-
-
-def _log_plaid_failure(route: str, error: PlaidApiError, http_status: int | None = None) -> None:
-    """Log a Plaid failure by code only. Never the message, payload or token."""
-    logger.warning(
-        "kai.plaid_vault.%s_failed code=%s type=%s status=%s",
-        route,
-        error.error_code or "PLAID_API_ERROR",
-        error.error_type or "API_ERROR",
-        http_status if http_status is not None else error.status_code,
-    )
 
 
 def _to_http_exception(route: str, error: Exception) -> HTTPException:
@@ -243,7 +211,7 @@ def _to_http_exception(route: str, error: Exception) -> HTTPException:
             http_status = status.HTTP_504_GATEWAY_TIMEOUT
         else:
             http_status = status.HTTP_502_BAD_GATEWAY
-        _log_plaid_failure(route, error, http_status)
+        log_plaid_failure(route, error, http_status)
         return HTTPException(
             status_code=http_status,
             detail={
@@ -289,48 +257,23 @@ def _local_sandbox_proof_deployment() -> bool:
     )
 
 
-def _item_error(error: Any) -> dict[str, str | None] | None:
-    if not isinstance(error, dict):
-        return None
-    code = _clean(error.get("error_code"))
-    if not code:
-        return None
-    return {
-        "code": code,
-        "message": _clean(error.get("display_message")) or _SAFE_MESSAGES["ITEM_ERROR"],
-    }
-
-
-def _item_error_from_exception(error: PlaidApiError) -> dict[str, str | None]:
-    return {
-        "code": error.error_code or "ITEM_ERROR",
-        "message": error.display_message or _SAFE_MESSAGES["ITEM_ERROR"],
-    }
-
-
-def _is_item_error(error: PlaidApiError) -> bool:
-    return (error.error_type or "") == "ITEM_ERROR"
-
-
-def _is_connection_state(error: PlaidApiError) -> bool:
-    """A Plaid verdict on the sealed connection, not on the request's shape.
-
-    The request already passed validation, so ``INVALID_ACCESS_TOKEN`` means
-    this token cannot be used by this deployment's Plaid client (for example a
-    token sealed against the Sandbox, read from UAT). Like an item error it is
-    the connection's state, which the device must record rather than retry.
-    """
-    return _is_item_error(error) or (error.error_code or "") in _DEAD_ACCESS_TOKEN_CODES
-
-
-def _item_products(item: dict[str, Any]) -> list[str]:
-    products = [*_string_list(item.get("products")), *_string_list(item.get("billed_products"))]
-    return list(dict.fromkeys(products))
-
-
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+def _trace_link_token(payload: VaultLinkTokenRequest, response: dict, started: float) -> None:
+    if payload.origin_surface:
+        trace = get_request_trace_metadata()
+        logger.info(
+            "plaid.link_token origin_surface=%s update=%s outcome=%s elapsed_ms=%d request_id=%s trace_id=%s",
+            payload.origin_surface,
+            bool(payload.access_token),
+            "ready" if clean_string(response.get("link_token")) else "incomplete",
+            round((perf_counter() - started) * 1000),
+            trace.request_id if trace else None,
+            trace.trace_id if trace else None,
+        )
 
 
 @router.post("/link-token")
@@ -338,7 +281,8 @@ async def create_vault_link_token(
     payload: VaultLinkTokenRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
-    """Create a Link token. No webhook, no resume-session row, no storage."""
+    """Create a Link token for the existing owner connection flow."""
+    started = perf_counter()
     try:
         config = _require_configured()
         # Never trust a caller to select its Plaid environment.  The local
@@ -376,27 +320,34 @@ async def create_vault_link_token(
                     "message": "The redirect URI is not allowed.",
                 },
             ) from exc
+        liabilities_enabled = os.getenv("PLAID_NWS_LIABILITIES_ENABLED") == "true"
+        if payload.additional_product == "liabilities" and not liabilities_enabled:
+            raise HTTPException(status_code=403, detail="Debt details are unavailable.")
         if payload.access_token:
-            # Update mode carries the Item; Plaid rejects a product list here.
             link_payload["access_token"] = payload.access_token
+            if payload.additional_product:
+                link_payload["additional_consented_products"] = [payload.additional_product]
+            if payload.select_accounts:
+                link_payload["update"] = {"account_selection_enabled": True}
         else:
-            primary, required_if_supported, additional_consented = _link_token_product_sets()
-            link_payload["products"] = primary
-            if required_if_supported:
-                link_payload["required_if_supported_products"] = required_if_supported
-            if additional_consented:
-                link_payload["additional_consented_products"] = additional_consented
-            if "investments" in primary:
-                link_payload["account_filters"] = {"investment": {"account_subtypes": ["all"]}}
+            if payload.additional_product or payload.select_accounts:
+                raise HTTPException(status_code=400, detail="An existing connection is required.")
+            apply_new_vault_link_products(
+                link_payload,
+                score_link=payload.origin_surface is not None,
+                history_days=config.tx_history_days,
+                liabilities_enabled=liabilities_enabled,
+            )
         # Deliberately no "webhook": refresh is device-driven on unlock.
         link_payload.pop("webhook", None)
 
         response = await _plaid_client().post("/link/token/create", link_payload)
+        _trace_link_token(payload, response, started)
     except Exception as exc:
         raise _to_http_exception("link_token", exc) from exc
     return {
-        "link_token": _clean(response.get("link_token")),
-        "expiration": _clean(response.get("expiration")),
+        "link_token": clean_string(response.get("link_token")),
+        "expiration": clean_string(response.get("expiration")),
     }
 
 
@@ -421,8 +372,8 @@ async def exchange_vault_public_token(
     except Exception as exc:
         raise _to_http_exception("exchange", exc) from exc
 
-    access_token = _clean(exchange.get("access_token"))
-    item_id = _clean(exchange.get("item_id"))
+    access_token = clean_string(exchange.get("access_token"))
+    item_id = clean_string(exchange.get("item_id"))
     if not access_token or not item_id:
         raise _to_http_exception("exchange", RuntimeError("incomplete exchange response"))
 
@@ -432,11 +383,11 @@ async def exchange_vault_public_token(
     try:
         item_response = await client.post("/item/get", {"access_token": access_token})
         item = item_response.get("item") if isinstance(item_response.get("item"), dict) else {}
-        products = _item_products(item)
-        consented_products = _string_list(item.get("consented_products"))
-        institution_id = _clean(item.get("institution_id"))
+        products = item_products(item)
+        consented_products = string_list(item.get("consented_products"))
+        institution_id = clean_string(item.get("institution_id"))
         if institution_id:
-            institution = {"id": institution_id, "name": _clean(item.get("institution_name"))}
+            institution = {"id": institution_id, "name": clean_string(item.get("institution_name"))}
             if institution["name"] is None:
                 try:
                     institution_response = await client.post(
@@ -448,11 +399,11 @@ async def exchange_vault_public_token(
                     )
                     record = institution_response.get("institution")
                     if isinstance(record, dict):
-                        institution["name"] = _clean(record.get("name"))
+                        institution["name"] = clean_string(record.get("name"))
                 except PlaidApiError as exc:
-                    _log_plaid_failure("exchange_institution", exc)
+                    log_plaid_failure("exchange_institution", exc)
     except PlaidApiError as exc:
-        _log_plaid_failure("exchange_item", exc)
+        log_plaid_failure("exchange_item", exc)
 
     return {
         "access_token": access_token,
@@ -461,73 +412,6 @@ async def exchange_vault_public_token(
         "products": products,
         "consented_products": consented_products,
     }
-
-
-async def _fetch_investments(
-    client: PlaidHttpClient, access_token: str
-) -> tuple[dict[str, Any], dict[str, str | None] | None]:
-    try:
-        response = await client.post("/investments/holdings/get", {"access_token": access_token})
-    except PlaidApiError as exc:
-        if _is_item_error(exc) and (exc.error_code or "") not in _PRODUCT_UNAVAILABLE_CODES:
-            return {"unavailable": exc.error_code or "ITEM_ERROR"}, _item_error_from_exception(exc)
-        if (exc.error_code or "") in _PRODUCT_UNAVAILABLE_CODES:
-            return {"unavailable": exc.error_code}, None
-        raise
-    holdings = response.get("holdings")
-    securities = response.get("securities")
-    return {
-        "holdings": holdings if isinstance(holdings, list) else [],
-        "securities": securities if isinstance(securities, list) else [],
-    }, None
-
-
-async def _sync_transactions(
-    client: PlaidHttpClient, access_token: str, cursor: str | None
-) -> tuple[dict[str, Any], dict[str, str | None] | None]:
-    restarted = False
-    while True:
-        added: list[Any] = []
-        modified: list[Any] = []
-        removed: list[Any] = []
-        next_cursor = cursor
-        pages = 0
-        has_more = True
-        try:
-            while has_more and pages < TRANSACTIONS_SYNC_MAX_PAGES:
-                request: dict[str, Any] = {
-                    "access_token": access_token,
-                    "count": _TRANSACTIONS_SYNC_PAGE_SIZE,
-                }
-                if next_cursor:
-                    request["cursor"] = next_cursor
-                page = await client.post("/transactions/sync", request)
-                pages += 1
-                for bucket, key in ((added, "added"), (modified, "modified"), (removed, "removed")):
-                    values = page.get(key)
-                    if isinstance(values, list):
-                        bucket.extend(values)
-                next_cursor = _clean(page.get("next_cursor")) or next_cursor
-                has_more = bool(page.get("has_more"))
-        except PlaidApiError as exc:
-            code = exc.error_code or ""
-            if code == "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" and not restarted:
-                # Plaid's contract: restart the whole loop from the original cursor.
-                restarted = True
-                continue
-            if code in _PRODUCT_UNAVAILABLE_CODES:
-                return {"unavailable": code}, None
-            if _is_item_error(exc):
-                return {"unavailable": code or "ITEM_ERROR"}, _item_error_from_exception(exc)
-            raise
-        return {
-            "added": added,
-            "modified": modified,
-            "removed": removed,
-            "next_cursor": next_cursor,
-            "has_more": has_more,
-            "pages": pages,
-        }, None
 
 
 @router.post("/snapshot")
@@ -545,82 +429,14 @@ async def vault_snapshot(
     access_token = payload.access_token
     try:
         _require_configured()
-        client = _plaid_client()
-        try:
-            item_response = await client.post("/item/get", {"access_token": access_token})
-        except PlaidApiError as exc:
-            if not _is_connection_state(exc):
-                raise
-            _log_plaid_failure("snapshot_item", exc, status.HTTP_200_OK)
-            error = _item_error_from_exception(exc)
-            blocked = {"unavailable": error["code"]}
-            return {
-                "item": {
-                    "item_id": None,
-                    "institution_id": None,
-                    "products": [],
-                    "consented_products": [],
-                    "error": error,
-                },
-                "accounts": [],
-                "investments": dict(blocked),
-                "transactions": dict(blocked),
-            }
-        item_raw = item_response.get("item") if isinstance(item_response.get("item"), dict) else {}
-        item: dict[str, Any] = {
-            "item_id": _clean(item_raw.get("item_id")),
-            "institution_id": _clean(item_raw.get("institution_id")),
-            "products": _item_products(item_raw),
-            "consented_products": _string_list(item_raw.get("consented_products")),
-            "error": _item_error(item_raw.get("error")),
-        }
-
-        if item["error"] is not None:
-            blocked = {"unavailable": item["error"]["code"]}
-            return {
-                "item": item,
-                "accounts": [],
-                "investments": dict(blocked),
-                "transactions": dict(blocked),
-            }
-
-        try:
-            accounts_response = await client.post("/accounts/get", {"access_token": access_token})
-        except PlaidApiError as exc:
-            if not _is_item_error(exc):
-                raise
-            item["error"] = _item_error_from_exception(exc)
-            blocked = {"unavailable": item["error"]["code"]}
-            return {
-                "item": item,
-                "accounts": [],
-                "investments": dict(blocked),
-                "transactions": dict(blocked),
-            }
-        accounts = accounts_response.get("accounts")
-        accounts = accounts if isinstance(accounts, list) else []
-
-        products = set(item["products"])
-        if "investments" in products:
-            investments, investments_error = await _fetch_investments(client, access_token)
-        else:
-            investments, investments_error = {"unavailable": _PRODUCT_NOT_ON_ITEM}, None
-        if "transactions" in products:
-            transactions, transactions_error = await _sync_transactions(
-                client, access_token, payload.transactions_cursor
-            )
-        else:
-            transactions, transactions_error = {"unavailable": _PRODUCT_NOT_ON_ITEM}, None
-        item["error"] = investments_error or transactions_error
+        return await read_vault_snapshot(
+            _plaid_client(),
+            access_token,
+            payload.transactions_cursor,
+            continuation=payload.transactions_continuation,
+        )
     except Exception as exc:
         raise _to_http_exception("snapshot", exc) from exc
-
-    return {
-        "item": item,
-        "accounts": accounts,
-        "investments": investments,
-        "transactions": transactions,
-    }
 
 
 @router.post("/remove")

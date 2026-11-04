@@ -1624,7 +1624,7 @@ describe("exact-file document review", () => {
       state.approveBulkShare.mockImplementation(async () => { phase = "queued"; return { ...batch, status: "queued", canApprove: false }; });
 
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-      expect(await screen.findByRole("status")).toHaveTextContent("46 file candidates to review");
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("46 file candidates to review"));
       expect(screen.getByText("Dates inside files haven't been checked. Select the exact files before sharing.")).toBeVisible();
       expect(screen.queryByText(/Matching files are found and shared automatically/)).toBeNull();
       expect(state.startRequestSearch).not.toHaveBeenCalled();

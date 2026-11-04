@@ -28,6 +28,8 @@ export interface PlaidOAuthResumeSession {
   /** The https redirect URI the link token was minted with. */
   redirectUri: string;
   returnPath: string;
+  successReturnPath?: string;
+  originSurface?: "profile_nws" | "agentone_chat";
   startedAt: string;
   expiresAt: string;
   /** Opaque setup-attempt id; never a Plaid or vault credential. */
@@ -64,6 +66,7 @@ export function loadPlaidOAuthResumeSession(now: Date = new Date()): PlaidOAuthR
     const linkToken = nonEmpty(parsed.linkToken, 512);
     const redirectUri = nonEmpty(parsed.redirectUri);
     const returnPath = nonEmpty(parsed.returnPath);
+    const successReturnPath = nonEmpty(parsed.successReturnPath);
     const expiresAt = nonEmpty(parsed.expiresAt, 64);
     if (parsed.version !== 2 || !userId || !linkToken || !redirectUri || !returnPath || !expiresAt) {
       return null;
@@ -74,13 +77,17 @@ export function loadPlaidOAuthResumeSession(now: Date = new Date()): PlaidOAuthR
       return null;
     }
     // Only an in-app path is a valid place to send the person afterwards.
-    const safeReturnPath = returnPath.startsWith("/") && !returnPath.startsWith("//") ? returnPath : "/";
+    const isInternal = (path: string) => /^\/(?![\/\\])/.test(path);
+    const safeReturnPath = isInternal(returnPath) ? returnPath : "/";
     return {
       version: 2,
       userId,
       linkToken,
       redirectUri,
       returnPath: safeReturnPath,
+      ...(successReturnPath && isInternal(successReturnPath) ? { successReturnPath } : {}),
+      ...(parsed.originSurface === "profile_nws" || parsed.originSurface === "agentone_chat"
+        ? { originSurface: parsed.originSurface } : {}),
       startedAt: nonEmpty(parsed.startedAt, 64) ?? now.toISOString(),
       expiresAt,
       onboardingAttemptId: nonEmpty(parsed.onboardingAttemptId, 96),

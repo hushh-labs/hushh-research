@@ -236,6 +236,31 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "route.profile_net_worth_score",
+      "label": "Net Worth Score",
+      "meaning": "Opens the owner’s private Net Worth Score in Profile for bank connections and score coverage.",
+      "aliases": ["open my net worth score", "connect bank for score"],
+      "search_keywords": ["net worth", "financial score", "Plaid bank"],
+      "reachability": {
+        "routes": ["/one/profile"],
+        "screens": ["profile_account"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile?panel=net-worth-score"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": ["components/profile/net-worth-score-card.tsx"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_payouts",
       "label": "Open Payouts",
       "meaning": "Opens payout setup and transaction history.",

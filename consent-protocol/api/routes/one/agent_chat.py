@@ -119,6 +119,7 @@ from hushh_mcp.one_adk.history_projection import (
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
@@ -510,7 +511,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
     forwarded.pop("receiptMemory", None)
-    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -524,8 +524,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
-        consume_request_secret(receipt_memory)
-        receipt_memory = ""
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
@@ -556,6 +554,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -567,7 +566,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
-        STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_MEMORY: "",
         STATE_RECEIPT_RESULT: receipt_result,
     }
 
