@@ -177,6 +177,7 @@ def _resolve_path_outputs(
     env = {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
+        "CI_VALIDATION_LEVEL": "focused",
         "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
         "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
     }
