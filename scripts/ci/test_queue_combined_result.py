@@ -1,7 +1,9 @@
 """Authority and reuse boundaries of the actual merge-result gate."""
 
 import copy
+import base64
 import json
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -63,6 +65,88 @@ def test_dismissed_review_refuses_even_with_same_source():
         queue.members(BASE, FIRST, [row], "main", parents)
 
 
+@pytest.mark.parametrize("change", [
+    lambda pr: pr.pop("reviewDecision"),
+    lambda pr: pr.update(reviewDecision="UNKNOWN"),
+    lambda pr: pr.update(author={"login": ""}),
+])
+def test_absent_native_review_must_remain_explicit_and_owner_bound(change):
+    row = entry(1, HEAD1)
+    row["pullRequest"]["reviewDecision"] = None
+    assert queue.members(BASE, FIRST, [row], "main", parents)[0]["review"] is None
+    change(row["pullRequest"])
+    with pytest.raises(queue.Refused):
+        queue.members(BASE, FIRST, [row], "main", parents)
+
+
+def null_review_policy():
+    owners = ["kushaltrivedi5", "ankitkumarsingh1702"]
+    return {"main": {"merge_users": owners + ["msainani"],
+                     "protected_pipeline_edit_users": owners,
+                     "protected_pipeline_paths": [".github/workflows/"],
+                     "review_bypass_users": owners, "merge_queue_bypass_users": owners},
+            "production": {"manual_dispatch_users": owners},
+            "branch_flow": {"prepared_branches": {
+                "dev": {"policy_key": "pr_train"}, "uat": {"policy_key": "uat_merge"}}},
+            "pr_train": {"review_bypass_users": owners + ["parthmawai"],
+                         "merge_queue_bypass_users": []},
+            "uat_merge": {"review_bypass_users": owners + ["parthmawai"]}}
+
+
+@pytest.mark.parametrize("native_review", [None, "APPROVED", "REVIEW_REQUIRED"])
+@pytest.mark.parametrize("branch,author,requester,reviewer,state,commit,protected,allowed", [
+    ("main", "kushaltrivedi5", "kushaltrivedi5", None, None, None, True, True),
+    ("dev", "kushaltrivedi5", "kushaltrivedi5", None, None, None, True, True),
+    ("uat", "ankitkumarsingh1702", "ankitkumarsingh1702", None, None, None, True, True),
+    ("main", "msainani", "msainani", None, None, None, False, False),
+    ("dev", "parthmawai", "parthmawai", None, None, None, False, True),
+    ("uat", "parthmawai", "parthmawai", None, None, None, False, True),
+    ("dev", "contributor", "parthmawai", None, None, None, False, False),
+    ("main", "contributor", "msainani", "parthmawai", "APPROVED", HEAD1, False, True),
+    ("main", "contributor", "outside-user", "parthmawai", "APPROVED", HEAD1, False, False),
+    ("uat", "contributor", "contributor", "outside-user", "APPROVED", HEAD1, False, False),
+    ("dev", "contributor", "parthmawai", "parthmawai", "APPROVED", HEAD2, False, False),
+    ("uat", "contributor", "parthmawai", "contributor", "APPROVED", HEAD1, False, False),
+    ("dev", "parthmawai", "parthmawai", None, None, None, True, False),
+    ("uat", "parthmawai", "parthmawai", "ankitkumarsingh1702", "APPROVED", HEAD1, True, True),
+    ("dev", "parthmawai", "parthmawai", "ankitkumarsingh1702", "APPROVED", HEAD2, True, False),
+    ("main", "kushaltrivedi5", "kushaltrivedi5", "parthmawai", "CHANGES_REQUESTED", HEAD1, False, False),
+    ("dev", "parthmawai", "parthmawai", "ankitkumarsingh1702", "DISMISSED", HEAD1, False, False),
+])
+def test_native_verdict_requires_current_review_or_exact_self_authority(
+        native_review, branch, author, requester, reviewer, state, commit, protected, allowed):
+    row = entry(1, HEAD1, requester)
+    row["pullRequest"].update(author={"login": author}, reviewDecision=native_review, baseRefName=branch)
+    included = queue.members(BASE, FIRST, [row], branch, parents)
+    reviews = ([] if reviewer is None else [{"id": 1, "user": {"login": reviewer},
+                                             "state": state, "commit_id": commit}])
+    changed = ".github/workflows/ci.yml" if protected else "hushh-webapp/app/page.tsx"
+    with patch.object(queue, "git", return_value=changed), patch.object(queue, "api", return_value=reviews):
+        if allowed:
+            result = queue.authorize("hushh-labs/hushh-research", branch, BASE, included,
+                                     policy=null_review_policy())
+            assert result[0]["review"] == native_review
+            if author != requester:
+                assert result[0]["approval_source"] == "current_head_review"
+                assert result[0]["current_head_reviewers"] == [reviewer]
+        else:
+            with pytest.raises((queue.Refused, RuntimeError)):
+                queue.authorize("hushh-labs/hushh-research", branch, BASE, included,
+                                policy=null_review_policy())
+
+
+def test_native_verdict_refuses_unbounded_review_inventory():
+    row = entry(1, HEAD1)
+    row["pullRequest"]["reviewDecision"] = None
+    included = queue.members(BASE, FIRST, [row], "main", parents)
+    reviews = [{"id": 1, "user": {"login": "parthmawai"},
+                "state": "COMMENTED", "commit_id": HEAD1}] * 100
+    with patch.object(queue, "git", return_value="hushh-webapp/app/page.tsx"), \
+         patch.object(queue, "api", return_value=reviews), pytest.raises(RuntimeError, match="exceeded"):
+        queue.authorize("hushh-labs/hushh-research", "main", BASE, included,
+                        policy=null_review_policy())
+
+
 def test_authorized_author_cannot_replace_actual_enqueuer():
     policy = {"main": {"merge_users": ["kushaltrivedi5"],
                        "protected_pipeline_edit_users": ["kushaltrivedi5", "ankitkumarsingh1702"]},
@@ -73,14 +157,14 @@ def test_authorized_author_cannot_replace_actual_enqueuer():
 
 
 def test_protected_edit_requires_current_review_not_author_identity():
-    policy = {"main": {"merge_users": ["kushaltrivedi5"],
-                       "protected_pipeline_edit_users": ["kushaltrivedi5", "ankitkumarsingh1702"],
-                       "protected_pipeline_paths": [".github/workflows/"]},
-              "production": {"manual_dispatch_users": ["kushaltrivedi5"]}}
+    policy = null_review_policy()
+    policy["main"].update(review_bypass_users=[], merge_queue_bypass_users=[])
     included = queue.members(BASE, FIRST, [entry(1, HEAD1)], "main", parents)
     def source(*args):
         return json.dumps(policy) if args[0] == "show" else ".github/workflows/ci.yml"
-    with patch.object(queue, "git", side_effect=source), patch.object(queue, "api", return_value=[]):
+    ordinary_review = [{"id": 1, "user": {"login": "parthmawai"},
+                        "state": "APPROVED", "commit_id": HEAD1}]
+    with patch.object(queue, "git", side_effect=source), patch.object(queue, "api", return_value=ordinary_review):
         with pytest.raises(queue.Refused, match="current-head approval"):
             queue.authorize("hushh-labs/hushh-research", "main", BASE, included)
 
@@ -95,11 +179,7 @@ def test_protected_edit_requires_current_review_not_author_identity():
 ])
 @pytest.mark.parametrize("branch", ["main", "dev", "uat", "integration/pr-train"])
 def test_owner_self_approval_is_an_explicit_matching_queue_request(author, requester, review, allowed, branch):
-    owners = ["kushaltrivedi5", "ankitkumarsingh1702"]
-    policy = {"main": {"merge_users": owners + ["msainani"],
-                       "protected_pipeline_edit_users": owners, "review_bypass_users": owners,
-                       "protected_pipeline_paths": [".github/workflows/"]},
-              "production": {"manual_dispatch_users": owners}}
+    policy = null_review_policy()
     row = entry(1, HEAD1, requester)
     row["pullRequest"].update(author={"login": author}, reviewDecision=review, baseRefName=branch)
     included = queue.members(BASE, FIRST, [row], branch, parents)
@@ -113,6 +193,91 @@ def test_owner_self_approval_is_an_explicit_matching_queue_request(author, reque
         else:
             with pytest.raises(queue.Refused, match="current review"):
                 queue.authorize("hushh-labs/hushh-research", branch, BASE, included)
+
+
+@pytest.mark.parametrize("branch,lane", [("dev", "pr_train"), ("uat", "uat_merge")])
+def test_maintainer_self_landing_keeps_protected_owner_approval_separate(branch, lane):
+    policy = null_review_policy()
+    policy[lane]["review_bypass_users"] = ["parthmawai"]
+    row = entry(1, HEAD1, "parthmawai")
+    row["pullRequest"].update(author={"login": "parthmawai"},
+                              reviewDecision="REVIEW_REQUIRED", baseRefName=branch)
+    def included():
+        return queue.members(BASE, FIRST, [row], branch, parents)
+    with patch.object(queue, "git", return_value="hushh-webapp/app/page.tsx"), \
+         patch.object(queue, "api", return_value=[]):
+        result = queue.authorize("hushh-labs/hushh-research", branch, BASE, included(), policy=policy)
+        assert result[0]["approval_source"] == "maintainer_queue_request"
+    with patch.object(queue, "git", return_value=".github/workflows/ci.yml"), \
+         patch.object(queue, "api", return_value=[]):
+        with pytest.raises(queue.Refused, match="current-head approval"):
+            queue.authorize("hushh-labs/hushh-research", branch, BASE, included(), policy=policy)
+    owner_review = [{"id": 1, "user": {"login": "ankitkumarsingh1702"},
+                     "state": "APPROVED", "commit_id": HEAD1}]
+    with patch.object(queue, "git", return_value=".github/workflows/ci.yml"), \
+         patch.object(queue, "api", return_value=owner_review):
+        result = queue.authorize("hushh-labs/hushh-research", branch, BASE, included(), policy=policy)
+        assert result[0]["protected_approvals"] == ["ankitkumarsingh1702"]
+    row["pullRequest"]["author"] = {"login": "another-user"}
+    with patch.object(queue, "git", return_value="hushh-webapp/app/page.tsx"), \
+         patch.object(queue, "api", return_value=[]):
+        with pytest.raises(queue.Refused, match="current review"):
+            queue.authorize("hushh-labs/hushh-research", branch, BASE, included(), policy=policy)
+
+
+def test_dev_authority_is_read_from_the_exact_current_main_revision():
+    policy = {"main": {}, "pr_train": {"review_bypass_users": ["parthmawai"]}}
+    encoded = base64.b64encode(json.dumps(policy).encode()).decode()
+    def read(path):
+        if path.endswith("/git/ref/heads/main"):
+            return {"object": {"type": "commit", "sha": HEAD1}}
+        assert path.endswith(f"config/ci-governance.json?ref={HEAD1}")
+        return {"path": "config/ci-governance.json", "encoding": "base64", "content": encoded}
+    with patch.object(queue, "api", side_effect=read):
+        assert queue.authority_policy("hushh-labs/hushh-research", "dev", BASE) == (HEAD1, policy)
+    with patch.object(queue, "api", return_value={"object": {"sha": HEAD1}}):
+        with pytest.raises(queue.Refused, match="authority"):
+            queue.authority_policy("hushh-labs/hushh-research", "dev", BASE)
+    def malformed(path):
+        if path.endswith("/git/ref/heads/main"):
+            return {"object": {"type": "commit", "sha": HEAD1}}
+        return {"path": "config/ci-governance.json", "encoding": "base64", "content": "not-base64!"}
+    with patch.object(queue, "api", side_effect=malformed):
+        with pytest.raises(queue.Refused, match="malformed"):
+            queue.authority_policy("hushh-labs/hushh-research", "uat", BASE)
+
+
+@pytest.mark.parametrize("state,commit", [("APPROVED", HEAD2), ("DISMISSED", HEAD1),
+                                          ("CHANGES_REQUESTED", HEAD1)])
+def test_dev_maintainer_cannot_use_stale_or_withdrawn_owner_review(state, commit):
+    owners = ["kushaltrivedi5", "ankitkumarsingh1702"]
+    policy = {"main": {"merge_users": owners, "review_bypass_users": owners,
+                       "protected_pipeline_edit_users": owners,
+                       "protected_pipeline_paths": [".github/workflows/"]},
+              "production": {"manual_dispatch_users": owners},
+              "branch_flow": {"prepared_branches": {"dev": {"policy_key": "pr_train"}}},
+              "pr_train": {"review_bypass_users": ["parthmawai"]}}
+    row = entry(1, HEAD1, "parthmawai")
+    row["pullRequest"].update(author={"login": "parthmawai"},
+                              reviewDecision="REVIEW_REQUIRED", baseRefName="dev")
+    included = queue.members(BASE, FIRST, [row], "dev", parents)
+    reviews = [{"id": 1, "user": {"login": "kushaltrivedi5"}, "state": state, "commit_id": commit}]
+    with patch.object(queue, "git", return_value=".github/workflows/ci.yml"), \
+         patch.object(queue, "api", return_value=reviews):
+        with pytest.raises((queue.Refused, RuntimeError)):
+            queue.authorize("hushh-labs/hushh-research", "dev", BASE, included, policy=policy)
+
+
+def test_queue_finish_refuses_when_main_authority_changes(tmp_path):
+    receipt = tmp_path / "queue.json"
+    original = {"base": BASE, "policy_revision": HEAD1}
+    receipt.write_text(json.dumps({"state": original, "validations": [], "reuse": False}))
+    changed = {**original, "policy_revision": HEAD2}
+    with patch.object(sys, "argv", ["queue_combined_result.py", "finish", "--receipt", str(receipt)]), \
+         patch.object(queue, "snapshot", return_value=changed), \
+         patch.object(queue, "current_validations", return_value=[]):
+        with pytest.raises(queue.Refused, match="changed"):
+            queue.main()
 
 
 @pytest.mark.parametrize("state", ["CHANGES_REQUESTED", "DISMISSED", "unknown"])

@@ -60,15 +60,136 @@ class PilotRequest(BaseModel):
     accounts: list[PilotAccount] = Field(min_length=0, max_length=20)
 
 
-async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> dict:
+async def _owner_epoch(user_id: str):
+    """Read an existing cohort owner's epoch after the canonical lifecycle barrier."""
+    if not enabled_for(user_id):
+        return None
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn, conn.transaction():
+        active = await AccountDeletionLifecycleService.active_projection_user_ids(
+            conn, user_ids=[user_id]
+        )
+        if user_id not in active:
+            return None
+        return await conn.fetchrow(
+            "SELECT generation,started_at FROM one_product_activity_epochs WHERE user_id=$1",
+            user_id,
+            timeout=5,
+        )
+
+
+async def owner_scope(
+    user_id: str, now: datetime, *, environment: Literal["dev", "uat", "production"] = "uat"
+) -> dict | None:
+    """Own activity is not a marketing subscription or an email-send grant."""
+    from api.utils.firebase_auth import current_auth_lane
+    from hushh_mcp.services import marketing_preferences
+
+    if environment not in {"dev", "uat", "production"} or current_auth_lane() != environment:
+        return None
+    before = await _owner_epoch(user_id)
+    if not before or not before["started_at"]:
+        return None
+    try:
+        recipient = await marketing_preferences.verified_recipient(user_id)
+    except marketing_preferences.VerifiedEmailRequired:
+        return None
+    after = await _owner_epoch(user_id)
+    if not after or dict(before) != dict(after):
+        return None
+    since = max(before["started_at"], now - timedelta(days=7))
+    if since > now:
+        raise ValueError("Invalid owner scope time")
+    return {
+        "environment": environment,
+        "readAuthority": "verified_owner",
+        "accountId": user_id,
+        "emailHash": recipient["email_hash"],
+        "ownerEpoch": hashlib.sha256(str(before["generation"]).encode()).hexdigest(),
+        "since": since.astimezone(timezone.utc).isoformat(),
+        "journey": "agent_one",
+    }
+
+
+async def owner_read_authority(
+    user_id: str,
+    email_hash: str,
+    owner_epoch: str,
+    *,
+    environment: Literal["dev", "uat", "production"] = "uat",
+) -> dict:
+    scope = await owner_scope(user_id, datetime.now(timezone.utc), environment=environment)
+    allowed = bool(
+        scope and scope["emailHash"] == email_hash and scope["ownerEpoch"] == owner_epoch
+    )
+    # An absent scope is unavailable; do not infer erasure or inactivity.
+    return {"allowed": allowed, "erased": False, "ownerEpoch": owner_epoch if allowed else None}
+
+
+async def session_owner_scope(
+    allowed: set[str],
+    email_hash: str,
+    now: datetime,
+    *,
+    environment: Literal["dev", "uat", "production"] = "uat",
+) -> dict | None:
+    """Resolve one verified session within an explicit cohort, never by UID input.
+
+    Identity shadow email is only a candidate selector. The current verified
+    identity and lifecycle/epoch checks in owner_scope remain authoritative.
+    Ambiguous aliases fail closed rather than selecting another team member.
+    """
+    if not 1 <= len(allowed) <= 100:
+        raise ValueError("Invalid owner cohort")
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn, conn.transaction():
+        active = set()
+        ordered = sorted(allowed)
+        for start in range(0, len(ordered), 50):
+            active.update(
+                await AccountDeletionLifecycleService.active_projection_user_ids(
+                    conn, user_ids=ordered[start : start + 50]
+                )
+            )
+        rows = await conn.fetch(
+            """SELECT user_id,email FROM actor_identity_cache
+               WHERE user_id=ANY($1::text[]) AND NULLIF(BTRIM(email),'') IS NOT NULL""",
+            sorted(active),
+            timeout=5,
+        )
+    rows = [
+        row
+        for row in rows
+        if row["user_id"] in active
+        and hashlib.sha256(row["email"].strip().lower().encode()).hexdigest() == email_hash
+    ]
+    if len(rows) != 1 or rows[0]["user_id"] not in allowed:
+        return None
+    scope = await owner_scope(rows[0]["user_id"], now, environment=environment)
+    if not scope or scope["emailHash"] != email_hash:
+        return None
+    return scope
+
+
+async def snapshot(
+    request: PilotRequest,
+    allowed: set[str],
+    now: datetime,
+    *,
+    environment: Literal["dev", "production", "uat"] = "production",
+) -> dict:
     """Fail the entire batch on missing authority, truncation or source failure."""
+    if environment not in {"dev", "production", "uat"}:
+        raise ValueError("Invalid evidence environment")
+    if environment != "production" and (request.version != 2 or request.customerReporting):
+        raise ValueError("Nonproduction evidence cannot claim production customer reporting")
     policy = reporting_policy() if request.customerReporting else None
     if not request.accounts:
         if request.version != 2:
             raise ValueError("No accounts requested")
         return {
             "version": 2,
-            "environment": "production",
+            "environment": environment,
             "retainedOnly": True,
             "asOf": now.astimezone(timezone.utc).isoformat(),
             "accounts": [],
@@ -178,7 +299,7 @@ async def snapshot(request: PilotRequest, allowed: set[str], now: datetime) -> d
             result.append(entry)
     response: dict[str, Any] = {
         "version": request.version,
-        "environment": "production",
+        "environment": environment,
         "retainedOnly": True,
         "asOf": now.astimezone(timezone.utc).isoformat(),
         "accounts": result,

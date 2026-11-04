@@ -153,6 +153,8 @@ type OneLocationOnboardingFlowProps = {
   mapPoint?: { lat: number; lng: number } | null;
   /** Acquire a foreground fix on entry, or when the owner retries. */
   onPrepareLocation?: () => Promise<boolean>;
+  /** A foreground return observed usable, granted location permission. */
+  locationResumeAttempt?: number;
   /** A completed save retained by the account-scoped page through auth gates. */
   savedPlace?: boolean;
   /** Existing saved-place transaction and account-scoped draft state. */
@@ -1033,6 +1035,7 @@ export function OneLocationOnboardingFlow({
   contactsStepAvailable = true,
   contactsSource = "device",
   onPrepareLocation,
+  locationResumeAttempt = 0,
   place,
   savedPlace = false,
   onSyncOnboardingContacts,
@@ -1119,6 +1122,7 @@ export function OneLocationOnboardingFlow({
   const [locationPreparing, setLocationPreparing] = useState(false);
   const locationPreparingRef = useRef(false);
   const autoLocationAttemptedRef = useRef(false);
+  const lastLocationResumeRef = useRef(locationResumeAttempt);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
@@ -1461,6 +1465,15 @@ export function OneLocationOnboardingFlow({
       setLocationError("Couldn't find your location. Allow location access in your browser or device settings, make sure Location is on, then try again.");
     })();
   }, [leaving, onPrepareLocation]);
+
+  useEffect(() => {
+    if (lastLocationResumeRef.current === locationResumeAttempt) return;
+    lastLocationResumeRef.current = locationResumeAttempt;
+    // Resume only a failed setup read. Never replace a chosen point or retry
+    // while the original permission sheet/acquisition is still settling.
+    if (screen !== "features" || leaving || !locationError || placeSaved || place?.mapInitial) return;
+    requestLocation();
+  }, [locationResumeAttempt, screen, leaving, locationError, placeSaved, place?.mapInitial, requestLocation]);
 
   // Ask once when the place screen is ready. Returning from the next screen,
   // a rerender, or Strict Mode must not repeatedly prompt after a refusal.

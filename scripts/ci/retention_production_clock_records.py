@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import retention_preflight_evidence as base
 
 PUBLICATION = "scripts/ci/retention_publication.py"
+PASS_DIAGNOSTICS = "scripts/ci/retention_pass_diagnostics.py"
 
 CLOCK_BOUND_SOURCE_PROFILES = {
     "publication-84b": {
@@ -38,6 +39,21 @@ CLOCK_BOUND_SOURCE_PROFILES = {
         base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
         PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
     },
+    "publication-pass-diagnostics-v3": {
+        # The owner moved stage tracking into an imported helper. Pin that
+        # helper too before recognizing the same pre-mutation guard transcript.
+        base.OWNER: ("f87558a93073034144f3c0ea0d3180abcdc753be", 93963),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
+        PASS_DIAGNOSTICS: ("93516ffd977a0ec92ec007552632820d725a27d7", 4338),
+    },
+    "publication-pass-diagnostics-v4": {
+        # Summary-only refusal codes preserve the unchanged custody transcript.
+        base.OWNER: ("f87558a93073034144f3c0ea0d3180abcdc753be", 93963),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
+        PASS_DIAGNOSTICS: ("d5d8181a7bbb60bd544753575dda74f1f92806c0", 5439),
+    },
 }
 
 CLOCK_FAMILY_HISTORICAL_NUMBERED = "historical-numbered"
@@ -48,6 +64,8 @@ CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES = {
     "publication-98e": CLOCK_FAMILY_HISTORICAL_NUMBERED,
     "publication-84b-blobless-v1": CLOCK_FAMILY_CURRENT_STATIC,
     "publication-aec6-blobless-v2": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-pass-diagnostics-v3": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-pass-diagnostics-v4": CLOCK_FAMILY_CURRENT_STATIC,
 }
 
 

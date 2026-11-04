@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -33,6 +34,169 @@ PLAN = "pkm_plan_abcdefghijkl"
 COMMIT = derive_pkm_mutation_commit_id(
     user_id=ACCOUNT["accountId"], domain="home_projects", plan_id=PLAN
 )
+
+
+def test_attempt_email_choice_is_owner_bound_manual_and_separate(monkeypatch):
+    from hushh_mcp.services import attempt_email as emails
+
+    app = FastAPI()
+    app.include_router(plg.router)
+    with TestClient(app) as caller:
+        url = "/api/one/plg/attempt-email/preferences"
+        body = {"enabled": True, "expectedRevision": 0, "disclosureVersion": emails.DISCLOSURE}
+        assert caller.get(url).status_code == 401
+        assert caller.put(url, json=body).status_code == 401
+        app.dependency_overrides[require_firebase_auth_read_only] = lambda: "authenticated-owner"
+        read = AsyncMock(return_value={"enabled": False, "revision": 0, "available": True})
+        write = AsyncMock(return_value={"enabled": True, "revision": 1})
+        revoke = AsyncMock()
+        monkeypatch.setattr(emails, "preference", read)
+        monkeypatch.setattr(emails, "choose", write)
+        monkeypatch.setattr(emails, "unsubscribe", revoke)
+        result = caller.get(url)
+        assert result.status_code == 200 and "no-store" in result.headers["cache-control"]
+        write.assert_not_called()
+        for invalid in (
+            {**body, "accountId": "other"},
+            {**body, "email": "other@example.invalid"},
+            {**body, "enabled": "true"},
+            {**body, "expectedRevision": True},
+            {**body, "disclosureVersion": "one-email-updates-v1"},
+        ):
+            assert caller.put(url, json=invalid).status_code == 422
+        write.assert_not_called()
+        assert caller.put(url, json=body).status_code == 200
+        assert write.await_args.args == ("authenticated-owner",)
+        # Link scanners only see a manual confirmation; RFC8058 requires POST.
+        assert caller.get("/api/one/plg/attempt-email/unsubscribe?token=fixture").status_code == 200
+        revoke.assert_not_called()
+        assert (
+            caller.post(
+                "/api/one/plg/attempt-email/unsubscribe?token=fixture",
+                content="List-Unsubscribe=One-Click",
+            ).status_code
+            == 200
+        )
+        revoke.assert_awaited_once_with("fixture")
+
+
+def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_body(
+    client, monkeypatch
+):
+    from hushh_mcp.services import attempt_email as emails
+    from hushh_mcp.services import attempt_email_feedback as feedback
+
+    key = "test-only-attempt-worker-separate-secret-with-32-characters"
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "owner")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_SECRET", key)
+    pending = AsyncMock(return_value=[])
+    claim = AsyncMock(return_value=None)
+    monkeypatch.setattr(emails, "pending", pending)
+    monkeypatch.setattr(emails, "claim", claim)
+    monkeypatch.setattr(
+        feedback,
+        "read",
+        AsyncMock(return_value={"oldestAt": None, "unsettled": False, "unbound": []}),
+    )
+    apply_feedback = AsyncMock(return_value=True)
+    monkeypatch.setattr(feedback, "apply", apply_feedback)
+
+    def call(action="pull", purpose="attempt-emails.production.pull", secret=key, body=None):
+        raw = json.dumps(body or {}, separators=(",", ":"))
+        at = str(int(time.time() * 1000))
+        signature = hmac.new(
+            secret.encode(), f"{purpose}\n{at}\n{raw}".encode(), hashlib.sha256
+        ).hexdigest()
+        return client.post(
+            f"/api/one/plg/attempt-email/{action}",
+            content=raw,
+            headers={
+                "Content-Type": "application/json",
+                "X-PLG-Timestamp": at,
+                "X-PLG-Signature": signature,
+            },
+        )
+
+    assert call(secret=SECRET).status_code == 401
+    assert call(purpose="snapshot").status_code == 401
+    assert call(purpose="attempt-emails.uat.pull").status_code == 401
+    pending.assert_not_called()
+    assert call().json() == {"environment": "production", "deliveries": []}
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert call().status_code == 401
+    assert call(purpose="attempt-emails.uat.pull").status_code == 200
+    body = {"id": str(uuid.uuid4()), "claimId": str(uuid.uuid4()), "accountId": "owner"}
+    for field in ("to", "bcc", "text", "subject"):
+        assert (
+            call("claim", "attempt-emails.uat.claim", body={**body, field: "untrusted"}).status_code
+            == 400
+        )
+    claim.assert_not_called()
+    assert call("claim", "attempt-emails.uat.claim", body=body).status_code == 200
+    assert claim.await_args.args[0] == "owner"
+    monkeypatch.setenv("ONE_PLG_UAT_EXPORT_SECRET", key)
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.delenv("ONE_PLG_UAT_EXPORT_SECRET")
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_SECRET", key)
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.delenv("ONE_PLG_AUDIENCE_SECRET")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    # Stopping enrollment does not discard acknowledgements or bounce evidence.
+    ack = AsyncMock(return_value=True)
+    monkeypatch.setattr(emails, "acknowledge", ack)
+    receipt = {"id": body["id"], "claimId": body["claimId"], "providerId": "accepted_fixture"}
+    assert call("settle", "attempt-emails.production.settle", body=receipt).status_code == 401
+    for extra in ({"accountId": "other"}, {"to": "untrusted"}, {"notSubmitted": True}):
+        assert (
+            call("settle", "attempt-emails.uat.settle", body={**receipt, **extra}).status_code
+            == 400
+        )
+    ack.assert_not_awaited()
+    assert call("settle", "attempt-emails.uat.settle", body=receipt).json()["received"] is True
+    assert ack.await_args.args == (
+        uuid.UUID(body["id"]),
+        uuid.UUID(body["claimId"]),
+        "accepted_fixture",
+    )
+    assert call("feedback-state", "attempt-emails.uat.feedback-state").status_code == 200
+    assert call("feedback-state", "attempt-emails.production.feedback-state").status_code == 401
+    facts = {"submissions": [], "bounces": []}
+    assert (
+        call(
+            "feedback-apply",
+            "attempt-emails.uat.feedback-apply",
+            body={**facts, "bcc": "untrusted"},
+        ).status_code
+        == 400
+    )
+    assert (
+        call(
+            "feedback-apply",
+            "attempt-emails.uat.feedback-apply",
+            body={**facts, "bounces": [{"messageId": "bad\r\nheader", "recipientHash": "f" * 64}]},
+        ).status_code
+        == 400
+    )
+    apply_feedback.assert_not_called()
+    assert call("feedback-apply", "attempt-emails.uat.feedback-apply", body=facts).json()[
+        "complete"
+    ]
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "owner")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-dev")
+    # A historical Dev revision labelled UAT cannot borrow UAT authority.
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 401
+    assert call(purpose="attempt-emails.dev.pull").json() == {
+        "environment": "dev",
+        "deliveries": [],
+    }
+    monkeypatch.setenv("ONE_PLG_DEV_EXPORT_SECRET", key)
+    assert call(purpose="attempt-emails.dev.pull").status_code == 404
 
 
 @pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
@@ -187,7 +351,7 @@ async def test_marketing_permission_requires_current_auth_authority_verified_rec
 
 
 def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, route="snapshot"):
-    body = json.dumps(payload or {"accounts": [ACCOUNT]})
+    body = json.dumps({"accounts": [ACCOUNT]} if payload is None else payload)
     timestamp = str(int(time.time() * 1000))
     signature = hmac.new(
         secret.encode(), f"{purpose}\n{timestamp}\n{body}".encode(), hashlib.sha256
@@ -202,6 +366,387 @@ def post(client, payload=None, purpose="snapshot", secret=SECRET, version=None, 
             **({"X-PLG-Version": str(version)} if version is not None else {}),
         },
     )
+
+
+def test_production_own_activity_requires_separate_identity_authority_not_marketing(
+    client, monkeypatch
+):
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    key = "own-fixture-key-" * 3
+    monkeypatch.setenv("ONE_PLG_OWNER_EXPORT_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_OWNER_EXPORT_SECRET", key)
+    monkeypatch.setenv("ONE_PLG_OWNER_ACCOUNT_IDS", ACCOUNT["accountId"])
+    monkeypatch.setattr(
+        marketing_preferences,
+        "current_permission",
+        AsyncMock(side_effect=AssertionError("marketing must not authorize own reads")),
+    )
+    owner = AsyncMock(return_value={"environment": "production", "accountId": ACCOUNT["accountId"]})
+    monkeypatch.setattr(plg, "session_owner_scope", owner)
+    epoch = "b" * 64
+    authority = AsyncMock(return_value={"allowed": True, "erased": False, "ownerEpoch": epoch})
+    monkeypatch.setattr(plg, "owner_read_authority", authority)
+    projection = AsyncMock(
+        return_value={
+            "environment": "production",
+            "accounts": [{"deleted": False, "activity": {"epoch": epoch}}],
+        }
+    )
+    monkeypatch.setattr(plg, "snapshot", projection)
+
+    def call(route="owner", purpose="owner.production.owner", payload=None, secret=key):
+        return post(
+            client,
+            payload=payload or {"emailHash": "a" * 64},
+            route=route,
+            purpose=purpose,
+            secret=secret,
+        )
+
+    assert call(purpose="owner-uat").status_code == 401
+    assert call(secret=SECRET).status_code == 401
+    assert call(payload={"emailHash": "a" * 64, "accountId": "override"}).status_code == 400
+    assert not owner.called
+    assert call().json()["deliveryAuthorized"] is False
+    assert owner.await_args.kwargs == {"environment": "production"}
+    scoped = {**ACCOUNT, "emailHash": "a" * 64, "ownerEpoch": epoch}
+    payload = {"version": 2, "customerReporting": False, "accounts": [scoped]}
+    assert call("snapshot-owner", "owner.production.snapshot", payload).status_code == 200
+    assert projection.await_args.kwargs == {"environment": "production"}
+    assert projection.await_args.args[0].customerReporting is False
+    assert (
+        call(
+            "snapshot-owner", "owner.production.snapshot", {**payload, "customerReporting": True}
+        ).status_code
+        == 400
+    )
+    authority.side_effect = [
+        {"allowed": True, "erased": False, "ownerEpoch": epoch},
+        {"allowed": False, "erased": False, "ownerEpoch": None},
+    ]
+    assert call("snapshot-owner", "owner.production.snapshot", payload).status_code == 400
+    for other_key in (SECRET, "u" * 40):
+        monkeypatch.setenv("ONE_PLG_UAT_EXPORT_SECRET", "u" * 40)
+        monkeypatch.setenv("ONE_PLG_OWNER_EXPORT_SECRET", other_key)
+        assert call(secret=other_key).status_code == 404
+    monkeypatch.setenv("ONE_PLG_OWNER_EXPORT_SECRET", key)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert call().status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert call().status_code == 404
+
+
+@pytest.mark.parametrize("environment", ["uat", "dev"])
+def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(
+    client, monkeypatch, environment
+):
+    uat_secret = "u" * 40
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_{environment.upper()}_EXPORT_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_{environment.upper()}_EXPORT_SECRET", uat_secret)
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ACCOUNT_IDS", ACCOUNT["accountId"])
+    monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
+    epoch = "e" * 64
+    authority = AsyncMock(return_value={"allowed": True, "erased": False, "ownerEpoch": epoch})
+    monkeypatch.setattr(plg, "owner_read_authority", authority)
+    projection = AsyncMock(
+        return_value={
+            "environment": environment,
+            "accounts": [{"deleted": False, "activity": {"epoch": epoch}}],
+        }
+    )
+    monkeypatch.setattr(plg, "snapshot", projection)
+    scoped_account = {
+        **ACCOUNT,
+        "emailHash": "a" * 64,
+        "ownerEpoch": epoch,
+    }
+    payload = {"version": 2, "customerReporting": False, "accounts": [scoped_account]}
+
+    def call(**kw):
+        return post(
+            client, payload=kw.pop("payload", payload), route=f"snapshot-{environment}", **kw
+        )
+
+    assert call(purpose="snapshot", secret=uat_secret).status_code == 401
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 200
+    assert projection.await_args.kwargs == {"environment": environment}
+    permission_request = {
+        key: scoped_account[key] for key in ("accountId", "emailHash", "ownerEpoch")
+    }
+    permission_response = post(
+        client,
+        payload=permission_request,
+        purpose=f"permission-{environment}",
+        secret=uat_secret,
+        route=f"permission-{environment}",
+    )
+    assert permission_response.status_code == 200
+    assert permission_response.json() == {
+        "environment": environment,
+        "deliveryAuthorized": False,
+        "allowed": True,
+        "erased": False,
+        "ownerEpoch": epoch,
+    }
+    assert (
+        post(
+            client,
+            payload=permission_request,
+            purpose=f"snapshot-{environment}",
+            secret=uat_secret,
+            route=f"permission-{environment}",
+        ).status_code
+        == 401
+    )
+    owner_scope = AsyncMock(
+        return_value={"environment": environment, "accountId": ACCOUNT["accountId"]}
+    )
+    monkeypatch.setattr(plg, "session_owner_scope", owner_scope)
+    monkeypatch.setenv(
+        f"ONE_PLG_ACTIVITY_{environment.upper()}_ACCOUNT_IDS", ACCOUNT["accountId"] + ",team-owner"
+    )
+    assert (
+        post(
+            client,
+            payload={},
+            purpose=f"snapshot-{environment}",
+            secret=uat_secret,
+            route=f"owner-{environment}",
+        ).status_code
+        == 401
+    )
+    owner_response = post(
+        client,
+        payload={"emailHash": "a" * 64},
+        purpose=f"owner-{environment}",
+        secret=uat_secret,
+        route=f"owner-{environment}",
+    )
+    assert owner_response.status_code == 200
+    assert owner_response.json()["deliveryAuthorized"] is False
+    assert owner_scope.await_args.args[:2] == ({ACCOUNT["accountId"], "team-owner"}, "a" * 64)
+    assert (
+        post(
+            client,
+            payload={},
+            purpose=f"owner-{environment}",
+            secret=uat_secret,
+            route=f"owner-{environment}",
+        ).status_code
+        == 400
+    )
+    assert (
+        post(
+            client,
+            payload={"accountId": "other"},
+            purpose=f"owner-{environment}",
+            secret=uat_secret,
+            route=f"owner-{environment}",
+        ).status_code
+        == 400
+    )
+    assert (
+        call(
+            purpose=f"snapshot-{environment}",
+            secret=uat_secret,
+            payload={**payload, "customerReporting": True},
+        ).status_code
+        == 400
+    )
+    assert (
+        call(
+            purpose=f"snapshot-{environment}",
+            secret=uat_secret,
+            payload={
+                "version": 2,
+                "customerReporting": False,
+                "accounts": [{**scoped_account, "accountId": "other"}],
+            },
+        ).status_code
+        == 400
+    )
+    authority.side_effect = [
+        {"allowed": True, "erased": False, "ownerEpoch": epoch},
+        {"allowed": False, "erased": False, "ownerEpoch": None},
+    ]
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 400
+    authority.side_effect = [
+        {"allowed": True, "erased": False, "ownerEpoch": epoch},
+        {"allowed": True, "erased": False, "ownerEpoch": "f" * 64},
+    ]
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 400
+    authority.side_effect = None
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
+    monkeypatch.setenv("ONE_PLG_EXPORT_SECRET", uat_secret)
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(monkeypatch):
+    email_hash = hashlib.sha256(b"tester@hushh.ai").hexdigest()
+    rows = [{"user_id": "owner-b", "email": "Tester@hushh.ai"}]
+
+    class Connection:
+        def transaction(self):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        async def fetch(self, sql, users, **_kwargs):
+            assert users == ["owner-b"]  # inactive owner-a is excluded before lookup
+            assert "actor_identity_cache" in sql and "marketing" not in sql
+            return rows
+
+    class Pool:
+        def acquire(self, **_kwargs):
+            return Connection()
+
+    monkeypatch.setattr(evidence, "get_pool", AsyncMock(return_value=Pool()))
+    monkeypatch.setattr(
+        evidence.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={"owner-b"}),
+    )
+    current = AsyncMock(return_value={"accountId": "owner-b", "emailHash": email_hash})
+    monkeypatch.setattr(evidence, "owner_scope", current)
+
+    def resolve():
+        return evidence.session_owner_scope({"owner-a", "owner-b"}, email_hash, NOW)
+
+    assert (await resolve())["accountId"] == "owner-b"
+    current.assert_awaited_once_with("owner-b", NOW, environment="uat")
+    current.return_value = {"accountId": "owner-b", "emailHash": "c" * 64}
+    assert await resolve() is None
+    current.return_value = None  # revoked while the candidate was being resolved
+    assert await resolve() is None
+    current.reset_mock()
+    for candidates in (
+        [],
+        [{"user_id": "owner-b", "email": "tester@hushh.ai"}] * 2,
+        [{"user_id": "outside", "email": "tester@hushh.ai"}],
+    ):
+        rows[:] = candidates
+        assert await resolve() is None
+    current.assert_not_awaited()
+    barrier = evidence.AccountDeletionLifecycleService.active_projection_user_ids
+    barrier.reset_mock()
+    await evidence.session_owner_scope({f"owner-{i:03}" for i in range(100)}, email_hash, NOW)
+    assert [len(call.kwargs["user_ids"]) for call in barrier.await_args_list] == [50, 50]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+async def test_owner_scope_requires_verified_identity_and_epoch_not_marketing(
+    monkeypatch, environment
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    epoch = uuid.UUID("abcdefab-1234-1234-1234-123456789abc")
+    row = {
+        "generation": epoch,
+        "started_at": NOW - timedelta(hours=1),
+    }
+
+    class Connection:
+        def transaction(self):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        async def fetchrow(self, sql, *_args, **_kwargs):
+            assert "one_product_activity_epochs" in sql and "marketing" not in sql
+            return dict(row)
+
+    class Pool:
+        def acquire(self, **_kwargs):
+            return Connection()
+
+    monkeypatch.setattr(evidence, "get_pool", AsyncMock(return_value=Pool()))
+    monkeypatch.setattr(evidence, "enabled_for", lambda _: True)
+    monkeypatch.setattr(
+        evidence.AccountDeletionLifecycleService,
+        "active_projection_user_ids",
+        AsyncMock(return_value={"owner"}),
+    )
+    recipient = AsyncMock(return_value={"email_hash": "a" * 64})
+    monkeypatch.setattr(marketing_preferences, "verified_recipient", recipient)
+    marketing = AsyncMock(side_effect=AssertionError("Own reads must not require marketing"))
+    monkeypatch.setattr(marketing_preferences, "current_permission", marketing)
+    result = await evidence.owner_scope("owner", NOW, environment=environment)
+    assert result == {
+        "environment": environment,
+        "readAuthority": "verified_owner",
+        "accountId": "owner",
+        "emailHash": "a" * 64,
+        "ownerEpoch": hashlib.sha256(str(epoch).encode()).hexdigest(),
+        "since": row["started_at"].isoformat(),
+        "journey": "agent_one",
+    }
+    marketing.assert_not_awaited()
+    recipient.side_effect = marketing_preferences.VerifiedEmailRequired("unverified")
+    assert await evidence.owner_scope("owner", NOW, environment=environment) is None
+
+    async def reset_during_identity(_uid):
+        row["generation"] = uuid.uuid4()
+        return {"email_hash": "a" * 64}
+
+    recipient.side_effect = reset_during_identity
+    assert await evidence.owner_scope("owner", NOW, environment=environment) is None
+    recipient.reset_mock()
+    monkeypatch.setattr(evidence, "enabled_for", lambda _: False)
+    assert await evidence.owner_scope("owner", NOW, environment=environment) is None
+    recipient.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_owner_read_authority_binds_current_recipient_and_owner_epoch(monkeypatch):
+    scope = AsyncMock(return_value={"emailHash": "a" * 64, "ownerEpoch": "b" * 64})
+    monkeypatch.setattr(evidence, "owner_scope", scope)
+    result = await evidence.owner_read_authority("owner", "a" * 64, "b" * 64)
+    assert result == {
+        "allowed": True,
+        "erased": False,
+        "ownerEpoch": "b" * 64,
+    }
+    for changed in (
+        None,
+        {"emailHash": "c" * 64, "ownerEpoch": "b" * 64},
+        {"emailHash": "a" * 64, "ownerEpoch": "c" * 64},
+    ):
+        scope.return_value = changed
+        assert not (await evidence.owner_read_authority("owner", "a" * 64, "b" * 64))["allowed"]
+
+
+@pytest.mark.asyncio
+async def test_uat_snapshot_never_emits_production_reporting_proof():
+    result = await evidence.snapshot(
+        evidence.PilotRequest(version=2, accounts=[]), set(), NOW, environment="uat"
+    )
+    assert result["environment"] == "uat" and "customerReporting" not in result
+    with pytest.raises(ValueError):
+        await evidence.snapshot(
+            evidence.PilotRequest(version=2, accounts=[], customerReporting=True),
+            set(),
+            NOW,
+            environment="uat",
+        )
 
 
 def test_optional_email_preference_uses_only_authenticated_owner(monkeypatch):
@@ -630,6 +1175,15 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
         generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text()
     )
     assert {a["action_id"] for a in gateway["actions"]} <= {a["id"] for a in catalog["actions"]}
+    chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
+    assert {a["agentId"] for a in chat} == {
+        "agent_one",
+        "agent_email",
+        "agent_location",
+        "agent_personal_information",
+        "agent_kai",
+    }
+    assert all(a["proof"] == "client_reported" and a["kind"] == "action" for a in chat)
     private = runtime_descriptor("agent_one", "PRIVATE_CUSTOMER_MCP_TOOL")
     assert private["id"] == "runtime-tool:agent_one"
     assert "PRIVATE_CUSTOMER" not in json.dumps(private)
@@ -661,7 +1215,10 @@ async def test_sdk_pins_epoch_across_sibling_tasks_and_drops_unadmitted_or_finis
     monkeypatch.setattr(sink, "observe", lambda *args: observations.append(args))
     plugin = sdk.ProductActivityPlugin("agent_one")
     run = SimpleNamespace(
-        user_id="owner", invocation_id="invocation", session=SimpleNamespace(state={})
+        user_id="owner",
+        invocation_id="invocation",
+        session=SimpleNamespace(state={}),
+        agent=SimpleNamespace(name="agent_one"),
     )
     context = SimpleNamespace(
         user_id="owner",
@@ -692,11 +1249,23 @@ async def test_sdk_pins_epoch_across_sibling_tasks_and_drops_unadmitted_or_finis
     assert observations[0][2] == "runtime-tool:agent_one"
     assert "PRIVATE" not in repr(observations)
     assert admitted == ["owner"]
+    # Model errors may be recovered by the SDK. Only an error escaping the
+    # runner supplies failed-run evidence, under the original owner/epoch.
+    await plugin.on_model_error_callback(
+        callback_context=context, llm_request="PRIVATE", error=RuntimeError("PRIVATE")
+    )
+    assert len(observations) == 1
+    assert (
+        await plugin.on_run_error_callback(invocation_context=run, error=RuntimeError("PRIVATE"))
+        is None
+    )
+    assert observations[1][1:5] == ("old-epoch", "agent:agent_one", "failed", "execution_observed")
+    assert "PRIVATE" not in repr(observations)
     await plugin.after_run_callback(invocation_context=run)
     await plugin.after_agent_callback(
         agent=SimpleNamespace(parent_agent=None), callback_context=context
     )
-    assert len(observations) == 1
+    assert len(observations) == 2
 
 
 @pytest.mark.asyncio
@@ -1045,6 +1614,31 @@ def test_all_registered_collection_remains_explicit_and_production_only(monkeypa
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "false")
     assert not sink.enabled_for("new-account")
+
+
+@pytest.mark.parametrize("environment", ["uat", "dev"])
+def test_uat_activity_requires_isolated_project_flag_and_explicit_owner(monkeypatch, environment):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ACCOUNT_IDS", "uat-owner")
+    monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
+    monkeypatch.delenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", raising=False)
+    assert not sink.enabled_for("uat-owner")
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", "true")
+    assert sink.enabled_for("uat-owner") and not sink.enabled_for("other-owner")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", "true")
+    assert not sink.enabled_for("uat-owner")
+    monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    assert not sink.enabled_for("uat-owner")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
+    monkeypatch.setenv("ENVIRONMENT", "uat" if environment == "dev" else "dev")
+    assert not sink.enabled_for("uat-owner")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.delenv("ONE_PLG_EXPORT_ACCOUNT_IDS", raising=False)
+    assert not sink.enabled_for("uat-owner")
 
 
 @pytest.mark.asyncio

@@ -301,7 +301,12 @@ def qualify_guard_run(
             expected_diagnostic_sha256=record.diagnostic_sha256,
             clock_bound=True,
             allow_clock_records=(
-                record.source_profile == "publication-aec6-blobless-v2"
+                record.source_profile
+                in {
+                    "publication-aec6-blobless-v2",
+                    "publication-pass-diagnostics-v3",
+                    "publication-pass-diagnostics-v4",
+                }
             ),
         )
     ):
@@ -380,6 +385,17 @@ def qualify_publication(
         if job.get("head_sha") != attempt.get("head_sha"):
             return None
         actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
+        no_mutation = profile.qualify_source_refusal(
+            owner,
+            repository,
+            attempt,
+            job,
+            log_reader=log_reader,
+            source_reader=source_reader,
+            workflow_path=workflow_path,
+        )
+        if no_mutation is not None:
+            return no_mutation
         record, proof = profile.discover_record(owner, repository, attempt, job)
     else:
         actor_validator(owner, attempt, run, attempt.get("run_attempt", 1), ENVIRONMENT)
@@ -391,7 +407,12 @@ def qualify_publication(
         checkout is not None and checkout == expected_checkout,
         "maintenance runner or checkout is unproved",
     )
-    blobs = source_reader(owner, repository, checkout, SOURCE_PATHS)
+    blobs = source_reader(
+        owner,
+        repository,
+        checkout,
+        tuple(CLOCK_BOUND_SOURCE_PROFILES[record.source_profile]),
+    )
     workflow_blob = json.loads(
         owner.command(
             "gh",
