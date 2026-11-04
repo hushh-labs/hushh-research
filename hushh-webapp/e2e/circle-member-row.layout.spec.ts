@@ -226,7 +226,7 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
   );
   fs.writeFileSync(
     path.join(dir, "src/direct-messages-service.ts"),
-    `export const DirectMessagesService = { routeHref: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
+    `export const DirectMessagesService = { routeSelection: async () => { throw new Error("Messaging is outside this roster fixture"); } };`,
   );
   fs.writeFileSync(
     path.join(dir, "src/next-navigation.ts"),
