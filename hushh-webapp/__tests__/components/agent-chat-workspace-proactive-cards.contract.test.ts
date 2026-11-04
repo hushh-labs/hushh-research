@@ -214,20 +214,8 @@ describe("Agent One proactive Calendar cards wiring contract", () => {
 // and mounts a calendar-specific confirmation card only for the persisted
 // proposal. Connection authorization remains on the shared surface.
 describe("Agent One in-chat Calendar directive cards wiring contract", () => {
-  it("keeps Calendar directive parsing bounded to explicit action payloads", () => {
-    const parserStart = source.indexOf(
-      "export function getCalendarDirectiveFromToolEvent",
-    );
-    const parserEnd = source.indexOf(
-      "function getConsentActionsPayload",
-      parserStart,
-    );
-    const parser = source.slice(parserStart, parserEnd);
-    expect(parser).toContain('type: "calendar.connect"');
-    expect(parser).toContain('type: "calendar.execute_proposal"');
-    expect(parser).toContain("proposalId");
-    expect(parser).toContain("confirmLabel");
-  });
+  // Parser behavior and complete review facts are covered by the production-
+  // code tests in agent-chat-calendar-directive.test.ts and calendar-directive-runtime.test.ts.
 
   const normalized = source.replace(/\s+/g, " ");
 
