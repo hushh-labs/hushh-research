@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run bounded recovery from the verified UAT serving revision, then remove the job."""
+"""Run bounded recovery from a verified UAT revision, then remove the job."""
 
 from __future__ import annotations
 
@@ -12,17 +12,82 @@ import time
 from pathlib import Path
 
 
-def job_spec(service: dict, *, sha: str, run_id: str) -> dict:
+def job_spec(
+    service: dict,
+    *,
+    sha: str,
+    run_id: str,
+    candidate: dict | None = None,
+    baseline: dict | None = None,
+    worker: dict | None = None,
+    attempt: str | None = None,
+) -> dict:
     if not re.fullmatch(r"[0-9a-f]{40}", sha) or not re.fullmatch(r"[0-9]+", run_id):
         raise ValueError("Invalid release identity")
-    traffic = [entry for entry in service["status"]["traffic"] if entry.get("percent", 0) > 0]
-    if (
-        len(traffic) != 1
-        or traffic[0]["percent"] != 100
-        or traffic[0].get("revisionName") != service["status"]["latestReadyRevisionName"]
-    ):
-        raise ValueError("Recovery requires the verified sole serving revision")
-    template = service["spec"]["template"]
+    status = service["status"]
+    traffic = [entry for entry in status["traffic"] if (entry.get("percent") or 0) > 0]
+    if len(traffic) != 1 or traffic[0]["percent"] != 100:
+        raise ValueError("Recovery requires an unambiguous serving revision")
+    serving_revision = traffic[0].get("revisionName")
+    if candidate is None:
+        if serving_revision != status["latestReadyRevisionName"] or baseline or worker or attempt:
+            raise ValueError("Recovery requires the verified sole serving revision")
+        template = service["spec"]["template"]
+    else:
+        if baseline is None or worker is None or not re.fullmatch(r"[1-9][0-9]*", attempt or ""):
+            raise ValueError(
+                "Candidate recovery requires its serving baseline, worker and attempt"
+            )
+        metadata = candidate["metadata"]
+        revision = metadata["name"]
+        labels = metadata["labels"]
+        tagged = [
+            entry
+            for entry in status["traffic"]
+            if entry.get("tag") == f"account-deletion-{run_id}"
+        ]
+        if (
+            not serving_revision
+            or baseline["metadata"]["name"] != serving_revision
+            or serving_revision == revision
+            or revision != status["latestReadyRevisionName"]
+            or len(tagged) != 1
+            or tagged[0].get("revisionName") != revision
+            or labels.get("deploy-sha") != sha
+            or labels.get("deploy-env") != "uat"
+            or labels.get("deploy-source") != "deploy-uat"
+            or labels.get("github-run-id") != run_id
+            or labels.get("serving.knative.dev/service") != "consent-protocol"
+            or not any(
+                condition.get("type") == "Ready" and condition.get("status") == "True"
+                for condition in candidate["status"].get("conditions", [])
+            )
+        ):
+            raise ValueError(
+                "Recovery candidate or serving baseline does not match the release"
+            )
+        if processor_environment(candidate["spec"]) != processor_environment(
+            baseline["spec"]
+        ):
+            raise ValueError(
+                "Candidate recovery cannot change the serving processor binding"
+            )
+        candidate_env = processor_environment(candidate["spec"])
+        if (
+            worker["metadata"]["labels"].get("serving.knative.dev/service")
+            != "consent-protocol-drive-worker"
+            or worker["spec"].get("serviceAccountName")
+            != "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+        ):
+            raise ValueError("Candidate recovery requires the verified UAT Drive worker")
+        worker_env = processor_environment(worker["spec"], container_name="drive-worker")
+        for name in ("HUSHH_UAT_MANAGED_AI_PROVIDER", "HUSHH_UAT_MANAGED_TEXT_PROVIDER"):
+            if (
+                (candidate_env.get(name) or {}).get("value") not in {"azure_openai", "vertex"}
+                or candidate_env.get(name) != worker_env.get(name)
+            ):
+                raise ValueError("Candidate recovery requires the same serving Drive worker processor")
+        template = candidate
     runtime = template["spec"]
     container = runtime["containers"][0]
     env = {entry["name"]: entry.get("value") for entry in container.get("env", [])}
@@ -37,6 +102,12 @@ def job_spec(service: dict, *, sha: str, run_id: str) -> dict:
         r"gcr.io/hushh-pda-uat/consent-protocol@sha256:[0-9a-f]{64}", container["image"]
     ):
         raise ValueError("Recovery requires the exact pinned runtime image")
+    if candidate is not None and (
+        container["image"].split("@")[-1]
+        != candidate["status"]["imageDigest"].split("@")[-1]
+        or env.get("HUSHH_DEPLOY_RUN_ID") != run_id
+    ):
+        raise ValueError("Recovery candidate image or run does not match")
     annotations = template.get("metadata", {}).get("annotations", {})
     allowed_annotations = {
         key: value
@@ -83,6 +154,23 @@ def job_spec(service: dict, *, sha: str, run_id: str) -> dict:
                 },
             }
         },
+    }
+
+
+def processor_environment(runtime: dict, *, container_name: str | None = None) -> dict:
+    """Compare binding inputs without reading or emitting secret values."""
+    containers = runtime["containers"]
+    container = containers[0] if container_name is None else next(
+        item for item in containers if item.get("name") == container_name
+    )
+    return {
+        entry["name"]: entry
+        for entry in container.get("env", [])
+        if entry["name"].startswith(
+            ("HUSHH_UAT_MANAGED_", "GOOGLE_CLOUD_", "HUSHH_GEMINI_")
+        )
+        or entry["name"]
+        in {"ENVIRONMENT", "HUSHH_DEPLOY_ENV", "GEMINI_MODEL", "VERTEX_LOCATION"}
     }
 
 
@@ -212,8 +300,29 @@ def main():
     parser.add_argument("--service-json", type=Path, required=True)
     parser.add_argument("--sha", required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--run-attempt")
+    parser.add_argument("--candidate-revision-json", type=Path)
+    parser.add_argument("--serving-revision-json", type=Path)
+    parser.add_argument("--serving-worker-revision-json", type=Path)
     args = parser.parse_args()
-    spec = job_spec(json.loads(args.service_json.read_text()), sha=args.sha, run_id=args.run_id)
+    candidate = (
+        json.loads(args.candidate_revision_json.read_text())
+        if args.candidate_revision_json
+        else None
+    )
+    spec = job_spec(
+        json.loads(args.service_json.read_text()),
+        sha=args.sha,
+        run_id=args.run_id,
+        attempt=args.run_attempt,
+        candidate=candidate,
+        baseline=json.loads(args.serving_revision_json.read_text())
+        if args.serving_revision_json
+        else None,
+        worker=json.loads(args.serving_worker_revision_json.read_text())
+        if args.serving_worker_revision_json
+        else None,
+    )
     expected_generation = expected_policy_generation(spec)
     name = spec["metadata"]["name"]
     common = ["--project=hushh-pda-uat", "--region=us-central1", "--quiet"]
@@ -283,6 +392,9 @@ def main():
             "sha": args.sha,
             "receipts": receipts,
         }
+        if candidate is not None:
+            proof["candidate_revision"] = candidate["metadata"]["name"]
+            proof["run_attempt"] = args.run_attempt
         Path("/tmp/uat-text-recovery-proof.json").write_text(json.dumps(proof))
         print(json.dumps(proof))
     finally:
