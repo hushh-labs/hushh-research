@@ -346,7 +346,7 @@ class CapacityAdmissionTests(unittest.TestCase):
 
 class WorkflowWiringTests(unittest.TestCase):
     def test_both_requests_wait_outside_shared_mutation_lock(self) -> None:
-        for filename in ("deploy-uat.yml", "deploy-uat-one-chat.yml"):
+        for filename in ("deploy-uat-implementation.yml", "deploy-uat-one-chat.yml"):
             with self.subTest(workflow=filename):
                 source = (ROOT / ".github/workflows" / filename).read_text()
                 self.assertIn("group: uat-release-requests-", source)
@@ -362,7 +362,7 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
                 self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
-        full = (ROOT / ".github/workflows/deploy-uat.yml").read_text()
+        full = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
         self.assertIn("inputs.scope == 'frontend' && 'frontend' || 'backend'", full)
         self.assertIn("needs: [select-target, wait-capacity, deployment-security]", full)
         self.assertLess(

@@ -147,7 +147,9 @@ def _read(path: str) -> str:
 def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
     tmp_path, backend, status, pin_status, parallel
 ):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     script = next(step["run"] for step in steps if step.get("id") == "prepare-frontend-rollout")
     release = _frontend_release()
     expressions = {
@@ -384,7 +386,9 @@ def test_parallel_build_keeps_release_and_readiness_before_deployment():
     ],
 )
 def test_uat_browser_consumers_share_one_required_install(frontend, protected, pwm):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     installs = [step for step in steps if "npm ci" in step.get("run", "")]
     assert len(installs) == 1, "Analytics and protected verification must reuse one install"
     install = installs[0]
@@ -422,7 +426,9 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
 def test_uat_browser_install_retries_and_blocks_on_failure(
     tmp_path, npm_status, failures, expected
 ):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     install = next(step for step in steps if step.get("id") == "install-browser-dependencies")
     (tmp_path / "hushh-webapp").mkdir()
     mirrors = tmp_path / "apt-mirrors.txt"

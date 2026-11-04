@@ -1948,3 +1948,53 @@ before selection; dev and production retain their predeployment Vertex gate.
 Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core, targeted Node/browser contracts and affected Web Unit Contracts.
 
 Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.
+
+## Matching-branch release control
+
+Dev/UAT entrypoints are thin callers of the reviewed Main implementations.
+Normal application runs originate from `dev` and `uat` respectively. Activate the
+same caller revisions on each environment branch before dispatching; a Main merge
+alone does not update those branches. Hosted read-only qualification remains
+required before claiming that a newly activated route works. No push or merge dispatches a deployment. Pod artifact
+publication retains its separate Main-only operation; it does not install an
+owner release.
+
+The unprivileged request job lives in each Dev/UAT implementation and uses only
+its ordinary Actions token. The protected Main broker alone reads repository
+alerts. Production, rollback, native and package callers retain their existing
+read-only Actions permissions and inline protected check. Do not add a write-token
+requester to their shared reusable workflow.
+
+Receipts distinguish caller SHA, application SHA, implementation SHA and broker
+SHA. Historical Main-origin receipts remain readable, but their provenance cannot
+be relabelled as an environment-branch execution. Downstream consumers verify
+GitHub's recorded reusable path/revision and the current attempt before accepting
+the new job-name prefix or artifact.
+
+Activation order: land reviewed tooling while retaining current Main callers;
+sync helper/dependency foundations before queue activation on each destination;
+reconcile environment branch rules and the
+[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission);
+then install the reviewed thin callers and verify hosted read-only admission.
+Do not retire the working Main entrypoints before that coordinated activation.
+Existing UAT `operation=inspect` checks
+prerequisites without release mutation. The reusable implementations also expose
+`operation=inspect-routing`: the ordinary Main broker issues current-attempt
+clearance, then the environment job verifies its caller and authenticates only to
+read project identity. It cannot enter deployment, migration, image-publication or
+traffic jobs. Expose this operation in the thin callers during their coordinated
+activation; both hosted readbacks are required. Check Dev's exact environment
+branch inventory with `verify-deployment-environment-governance.py --surface dev`;
+keep `ci-security` Main-only. Until activation/readback is recorded,
+matching-branch routing is source-complete only; do not dispatch a normal release
+merely to test it. A failure in setup, authority or deployment still stops dependent
+work; independent validation assertions are collected before the final failed result.
+
+The standalone CI Security Alerts workflow and its PR receipt polling are retired.
+Rerunning PR validation does not create another workflow. Historical receipt readers
+remain for retained evidence; they do not establish new deployment clearance.
+Synchronize an old feature branch with its destination before retrying legacy CI.
+Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
+`pull_request_target` event to avoid visible workflow entries. Automatic AI review, including the Readiness Exam, is removed. Product/provider
+qualification remains an explicitly selected release operation, not a PR reviewer.
+Retained probe identities remain constrained until their credentials are retired.
