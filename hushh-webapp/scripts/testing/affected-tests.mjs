@@ -79,6 +79,12 @@ function isRegisteredContractInput(file) {
     /^app\/.+\/page\.voice-action-contract\.json$/.test(file);
 }
 
+function isTestFixtureInput(file) {
+  // Keep fixtures as related-test seeds: their importing tests still run.
+  // Unknown runtime JSON retains conservative diagnostic coverage.
+  return /^__tests__\/fixtures\/.+\.json$/.test(file);
+}
+
 function isOtherOwnerFile(file) {
   // The native job owns all iOS Swift sources; Vitest cannot exercise them.
   return OTHER_OWNER_FILES.has(file) || (file.startsWith("ios/") && file.endsWith(".swift"));
@@ -609,7 +615,7 @@ function sourceRisk(repoRoot, files, level) {
       }
       continue;
     }
-    if (isRegisteredContractInput(file)) {
+    if (isRegisteredContractInput(file) || isTestFixtureInput(file)) {
       const fullPath = path.join(repoRoot, "hushh-webapp", file);
       if (!existsSync(fullPath) || !statSync(fullPath).isFile()) {
         return { reason: "missing_changed_source", directTests: [] };
@@ -623,7 +629,7 @@ function sourceRisk(repoRoot, files, level) {
     }
   }
   const sourceFiles = files.filter((file) =>
-    isRuntimeModule(file) || isRegisteredContractInput(file));
+    isRuntimeModule(file) || isRegisteredContractInput(file) || isTestFixtureInput(file));
   if (sourceFiles.length === 0) return { reason: null, directTests: [] };
   if (level === "focused" || level === "release") {
     return dynamicImportRisk(repoRoot, sourceFiles);
@@ -673,7 +679,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
     ...risk.directTests,
   ])].sort();
   const relatedFiles = unitFiles.filter(
-    (file) => isRuntimeModule(file) || isRegisteredContractInput(file),
+    (file) => isRuntimeModule(file) || isRegisteredContractInput(file) || isTestFixtureInput(file),
   );
   if (requestedLevel === "focused" && relatedFiles.length === 0 && directTests.length === 0) {
     return { ...base, changedFiles: changed.files, fallbackReason: "no_related_test_inputs" };
