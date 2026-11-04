@@ -42,7 +42,10 @@ class DeliveryClaim(BaseModel):
     claimId: UUID
 
 
-class DeliverySettlement(DeliveryClaim):
+class DeliverySettlement(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    id: UUID
+    claimId: UUID
     providerId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,256}$")
     notSubmitted: bool = False
 
@@ -139,8 +142,7 @@ async def settle(request: Request):
                 {"detail": "Conflicting submission outcome"}, status_code=400, headers=NO_STORE
             )
         received = await asyncio.wait_for(
-            service.settle(
-                body.accountId,
+            service.acknowledge(
                 body.id,
                 body.claimId,
                 body.providerId,

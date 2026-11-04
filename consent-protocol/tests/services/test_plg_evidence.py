@@ -146,6 +146,22 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "")
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
     # Stopping enrollment does not discard acknowledgements or bounce evidence.
+    ack = AsyncMock(return_value=True)
+    monkeypatch.setattr(emails, "acknowledge", ack)
+    receipt = {"id": body["id"], "claimId": body["claimId"], "providerId": "accepted_fixture"}
+    assert call("settle", "attempt-emails.production.settle", body=receipt).status_code == 401
+    for extra in ({"accountId": "other"}, {"to": "untrusted"}, {"notSubmitted": True}):
+        assert (
+            call("settle", "attempt-emails.uat.settle", body={**receipt, **extra}).status_code
+            == 400
+        )
+    ack.assert_not_awaited()
+    assert call("settle", "attempt-emails.uat.settle", body=receipt).json()["received"] is True
+    assert ack.await_args.args == (
+        uuid.UUID(body["id"]),
+        uuid.UUID(body["claimId"]),
+        "accepted_fixture",
+    )
     assert call("feedback-state", "attempt-emails.uat.feedback-state").status_code == 200
     assert call("feedback-state", "attempt-emails.production.feedback-state").status_code == 401
     facts = {"submissions": [], "bounces": []}

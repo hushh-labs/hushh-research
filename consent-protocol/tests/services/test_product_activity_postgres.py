@@ -474,8 +474,10 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
         assert await emails.claim(owner, delivery, uuid4()) is None
         # Durable positive reconciliation is idempotent; a foreign claim cannot settle.
         assert not await emails.settle(owner, delivery, uuid4(), "provider_fixture")
+        assert not await emails.acknowledge(delivery, uuid4(), "provider_fixture")
         assert await emails.settle(owner, delivery, UUID(claim["claimId"]), "provider_fixture")
         assert await emails.settle(owner, delivery, UUID(claim["claimId"]), "provider_fixture")
+        assert await emails.acknowledge(delivery, UUID(claim["claimId"]), "provider_fixture")
         binding = {
             "providerId": "provider_fixture",
             "messageId": "<actual-fixture@mail.example.invalid>",
@@ -658,6 +660,7 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
         with pytest.raises(PermissionError):
             await choose(0)
         assert (await feedback.read())["oldestAt"] is None
+        assert await emails.acknowledge(delivery, UUID(claim["claimId"]), "provider_fixture")
         assert await feedback.apply(submissions=[reset_binding], bounces=[report])
         assert (await feedback.read())["unbound"] == []
         # Empty rollback/replay proves the actual down path without discarding

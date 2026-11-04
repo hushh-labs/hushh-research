@@ -317,6 +317,40 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
     }
 
 
+async def acknowledge(
+    delivery_id: UUID, claim_id: UUID, provider_id: str | None, *, not_submitted: bool = False
+):
+    """Idempotent receipt, never a send grant. No owner identifier leaves One.
+
+    The durable mailbox acknowledgement queue needs only opaque delivery/claim
+    IDs. An erased/reset delivery is already retired; acknowledging that absence
+    creates no row and does not assert acceptance or Inbox delivery.
+    """
+    pool = await get_pool()
+    async with pool.acquire(timeout=5) as conn:
+        uid = await conn.fetchval(
+            "SELECT user_id FROM one_attempt_email_outbox WHERE id=$1", delivery_id, timeout=5
+        )
+    if uid is None:
+        return True
+    try:
+        received = await settle(
+            uid, delivery_id, claim_id, provider_id, not_submitted=not_submitted
+        )
+    except PermissionError:
+        received = False
+    if received:
+        return True
+    async with pool.acquire(timeout=5) as conn:
+        # A concurrent full erasure/reset may have removed the row after lookup.
+        # A retained row behind a temporary lifecycle barrier must be replayed.
+        return not await conn.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM one_attempt_email_outbox WHERE id=$1)",
+            delivery_id,
+            timeout=5,
+        )
+
+
 async def settle(
     uid: str,
     delivery_id: UUID,

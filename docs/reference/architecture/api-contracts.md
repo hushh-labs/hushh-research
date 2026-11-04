@@ -5638,6 +5638,11 @@ is never automatically retried. Provider acceptance must not be called Inbox del
 The Matrix worker uses these ports and the existing fixed single-recipient Gmail
 sender. Deployment, actual Inbox/feedback evidence and delivery latency remain
 release prerequisites; these source ports alone do not send email.
+Settlement carries only delivery/claim IDs and provider outcome. One derives the
+owner from its durable row, validates the exact claim and retires acknowledgements
+for reset/erased rows without recreating state. Matrix durably retains bounded
+opaque receipts before acknowledgement and replays them after restart before new
+provider work; no owner identity or message content is needed in that queue.
 
 Migration 449 adds actual provider-message binding and durable bounce suppression.
 Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
