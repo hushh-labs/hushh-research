@@ -317,6 +317,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         lower = path.lower()
         if parts[1] == "release":
             return frozenset({"controller"}), None
+        if path == "scripts/ops/sync_backend_runtime_secrets.py":
+            return frozenset({"controller"}), None
         if parts[1] == "ops" and "runtime_topology" in lower:
             return frozenset(), None
         if path in {"scripts/ci/resolve-ci-changed-files.sh", "scripts/ci/document-delivery-check.sh"}:

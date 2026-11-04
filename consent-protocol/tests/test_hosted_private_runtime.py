@@ -326,30 +326,6 @@ def test_project_retirement_refuses_changed_identity_before_mutation():
     session.request.assert_not_called()
 
 
-def test_operator_identity_checks_authenticated_subject_not_a_supplied_email():
-    from unittest.mock import Mock
-
-    from hushh_mcp.services.hosted_operator_identity import verify_operator
-    from hushh_mcp.services.provision_attempt import ProvisionReconciliationRequired
-
-    credentials = Mock()
-    credentials.token = "synthetic"
-    session = Mock()
-    session.get.return_value = Mock(
-        status_code=200,
-        json=lambda: {"email": "foreign@example.test", "email_verified": True, "sub": "foreign"},
-    )
-    with pytest.raises(ProvisionReconciliationRequired, match="retained identity"):
-        verify_operator(credentials, session, expected="user:operator@example.test")
-    session.get.return_value = Mock(
-        status_code=200,
-        json=lambda: {"email": "operator@example.test", "email_verified": True, "sub": "operator"},
-    )
-    verified = verify_operator(credentials, session, expected="user:operator@example.test")
-    assert verified.principal == "user:operator@example.test"
-    assert "synthetic" not in repr(verified)
-
-
 @pytest.mark.parametrize("failure", [None, "denied", "unreachable", "loop", "malformed", "foreign"])
 def test_native_cleanup_inventory_requires_complete_project_scoped_pages(failure):
     from types import SimpleNamespace

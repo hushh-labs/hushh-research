@@ -94,7 +94,10 @@
     "976_gcp_notification_account_id_limit.sql",
     "979_hosted_files_executor.sql",
     "980_personal_agent_upgrade_host_binding.sql",
-    "981_hosted_native_location_contract.sql"
+    "981_hosted_native_location_contract.sql",
+    "982_hosted_provider_account_transition.sql",
+    "983_hosted_provider_account_resolution.sql",
+    "984_hosted_provider_account_dotted_actor.sql"
   ],
   "deferred_release_migrations": [
     {

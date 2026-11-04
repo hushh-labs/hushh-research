@@ -48,11 +48,24 @@ async def schema_ready(repo, version: int, *, join_on_cancel: bool = False) -> b
 
 async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
     """Require the complete durable executor family before managed Files is offered."""
+    from db.hosted_custody_qualification import hosted_custody_profile_from_environment
+
+    try:
+        profile = hosted_custody_profile_from_environment()
+    except ValueError:
+        return False
+
     from db.hosted_custody_adoption import (
         HOSTED_FILES_NEW_SIGNATURES,
         HOSTED_FILES_QUALIFIED,
         HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
         PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED,
         QUALIFIED,
     )
@@ -69,6 +82,23 @@ async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
         hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
         native_contract_new_signatures=frozenset(),
         require_family=True,
+        profile=profile,
+        provider_transition_family=HOSTED_PROVIDER_ACCOUNT_TRANSITION_QUALIFIED,
+        provider_transition_trigger=HOSTED_PROVIDER_ACCOUNT_TRANSITION_TRIGGER,
+        provider_transition_archive_sha256=HOSTED_PROVIDER_ACCOUNT_TRANSITION_ARCHIVE_SHA256,
+        provider_transition_intent_successor_sha256=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED[
+            "valid_hosted_provider_account_transition_intent(jsonb,jsonb)"
+        ],
+        provider_transition_intent_additional_successor_sha256=(
+            HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
+        ),
+        provider_account_resolution_family=HOSTED_PROVIDER_ACCOUNT_RESOLUTION_QUALIFIED,
+        provider_account_resolution_service_role_signatures=(
+            HOSTED_PROVIDER_ACCOUNT_RESOLUTION_SERVICE_ROLE_SIGNATURES
+        ),
+        provider_account_resolution_intent_successor_sha256=(
+            HOSTED_PROVIDER_ACCOUNT_DOTTED_ACTOR_INTENT_SHA256
+        ),
     )
     return await _hosted_schema_readiness.read_hosted_family_ready(
         repo, qualification_sql=qualification_sql, join_on_cancel=join_on_cancel

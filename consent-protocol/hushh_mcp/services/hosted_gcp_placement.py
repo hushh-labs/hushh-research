@@ -96,6 +96,56 @@ def retained_hosted_placement(row: Any) -> HostedPlacement | None:
         return None
 
 
+def hosted_deployment_observation(row: dict[str, Any], service: dict[str, Any]):
+    """Validate the installed hosted marker against its retained owner placement."""
+    from dataclasses import replace
+
+    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV, PrivateGcpDeployment
+
+    placement = retained_hosted_placement(row)
+    if placement is None:
+        raise ValueError("Hosted pod requires a retained placement")
+    metadata = row["backend_metadata"]
+    admission = metadata["provisionAttempt"]["hostedAdmission"]
+    model = admission["modelBinding"]
+    federation = admission["assignment"]["bootstrapContract"]["plan"]["federation"]["impersonation"]
+    spec = service["spec"]["template"]["spec"]
+    containers = spec["containers"]
+    if len(containers) != 1 or not isinstance(containers[0], dict):
+        raise ValueError("Hosted pod observation must contain one verified container")
+    entries = containers[0].get("env", [])
+    names = [entry.get("name") for entry in entries if isinstance(entry, dict)]
+    if len(names) != len(entries) or len(set(names)) != len(names):
+        raise ValueError("Hosted pod environment is malformed or duplicated")
+    marker = next(
+        (entry.get("value") for entry in entries if entry.get("name") == HOSTING_ENV),
+        None,
+    )
+    if not isinstance(marker, str):
+        raise ValueError("Hosted pod placement marker is missing")
+    deployment = PrivateGcpDeployment.decode(marker)
+    if deployment.service_uid is None:
+        deployment = replace(deployment, service_uid=placement.service_uid)
+    if (
+        deployment.hosting_mode != "hussh_hosted"
+        or deployment.owner != placement.hushh_id
+        or deployment.project != placement.project
+        or deployment.project_number != placement.project_number
+        or deployment.region != placement.region
+        or deployment.service_uid != placement.service_uid
+        or deployment.runtime_principal != placement.runtime_principal
+        or deployment.hub_principal != federation.get("granted_to")
+        or deployment.image != metadata.get("image")
+        or deployment.model_project != model["project"]
+        or deployment.inference_model != model["model"]
+        or deployment.inference_profile_hash != model["profileHash"]
+        or row.get("external_agent_id") != placement.service
+    ):
+        raise ValueError("Hosted pod marker differs from its retained authority")
+    deployment.verify_observation(service)
+    return deployment
+
+
 def _model_binding_valid(value: Any) -> bool:
     return bool(
         isinstance(value, dict)

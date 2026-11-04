@@ -9,6 +9,9 @@ from hushh_mcp.services.hosted_pod_journal import HostedPodJournal
 from hushh_mcp.services.hosted_project_preparation import prepare_project_step
 from hushh_mcp.services.user_gcp_bootstrap import UserGcpBootstrap
 from tests.fixtures.hosted_erasure import HostedErasure
+from tests.helpers.hosted_provider_account_resolution import (
+    install_hosted_provider_account_resolver,
+)
 from tests.hosted_pod_support import prepared_project_journal
 from tests.test_hosted_pilot_admission_postgres import ROOT, _claim, _Client, _policy
 from tests.test_hosted_pod_bootstrap_postgres import _approved_bootstrap
@@ -316,6 +319,7 @@ async def admitted_prefix_abort(pg, count, *, substrate=False, bridge=False, res
         pg.apply_file(next((ROOT / "db/migrations/parked").glob(f"{number}_*.sql")))
     pg.apply_file(ROOT / "db/migrations/parked/974_hosted_pod_custody.sql")
     _policy(pg, bootstrap=_approved_bootstrap, preparation=True)
+    install_hosted_provider_account_resolver(pg)
     fixture = HostedPrefixAbort(pg, _claim(pg))
     client = _Client(pg)
     try:

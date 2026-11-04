@@ -61,6 +61,7 @@ def _inspect(
     token: str,
     coordinates: dict,
     contract: dict,
+    effective_billing_account: str,
     region: str,
     inventory: InventoryObserver,
 ) -> dict:
@@ -70,7 +71,7 @@ def _inspect(
     reader = NativeProjectInventory(project=project, number=number, token=token, session=session)
     creation = coordinates["projectIdentity"]
     reader.project_identity(creation)
-    observed_billing = _inspect_authority(session, headers, coordinates, contract)
+    observed_billing = _inspect_authority(session, headers, coordinates, effective_billing_account)
     observed = inventory(reader, creation, region)
     if not isinstance(observed, dict) or observed.get("resourceInventory") != {
         key: [] for key in CORE_FIELDS
@@ -110,7 +111,9 @@ def _inspect(
     }
 
 
-def _inspect_authority(session: Any, headers: dict, coordinates: dict, contract: dict) -> dict:
+def _inspect_authority(
+    session: Any, headers: dict, coordinates: dict, effective_billing_account: str
+) -> dict:
     project, bootstrap = coordinates["project"], coordinates["bootstrap"]
     response = session.get(
         f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{quote(bootstrap, safe='')}",
@@ -158,7 +161,7 @@ def _inspect_authority(session: Any, headers: dict, coordinates: dict, contract:
         {"projectId": project, "billingAccountName": "", "billingEnabled": False},
         {
             "projectId": project,
-            "billingAccountName": contract["billingAccount"],
+            "billingAccountName": effective_billing_account,
             "billingEnabled": True,
         },
     ):

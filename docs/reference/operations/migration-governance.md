@@ -173,6 +173,21 @@ fixture contains function definitions without owner records or pilot policy.
 This compatibility installs neither the parked pilot migrations nor private-pod
 runtime behavior, and changes no historical SQL or ledger checksum.
 
+Hosted Files keeps its strict canonical/native ACL profile by default. The
+`dev_control_plane_owner` profile is a separate, explicit shared-Dev exception:
+the generated `BACKEND_RUNTIME_CONFIG_JSON` must pin `ENVIRONMENT=dev`,
+`DEV_TARGET=shared-dev`, both project variables to `hushh-pda-dev`, the exact
+shared-Dev Cloud SQL instance, database `postgres`, and expected principal
+`hushh_uat_app`. Runtime
+qualification additionally requires `current_user`, `session_user` and the
+`personal_agent_registry` owner to be that principal, no `service_role`, and
+the server-derived PostgreSQL system-identifier SHA-256 pin. It admits only the
+exact owner-only ACL vectors plus the family’s already-declared PUBLIC entries.
+The same explicit profile resolver is used by runtime readiness and immutable
+420/421 adoption/replay; UAT, production, sandbox, local and unconfigured
+contexts retain strict qualification. This source contract does not itself
+qualify or deploy a serving revision.
+
 Permanent account cleanup additionally erases retained owner-scoped consumer
 connections before ordinary OAuth/app cleanup. The shared client and neighboring
 owners remain. This compatibility does not publish the consumer-MCP feature.

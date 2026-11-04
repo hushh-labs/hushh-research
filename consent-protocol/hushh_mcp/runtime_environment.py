@@ -31,6 +31,14 @@ SCOPE_COMMERCE_ENV_MAP: dict[str, str] = {
     "scope_commerce_monitoring_backend_service": "SCOPE_COMMERCE_MONITORING_BACKEND_SERVICE",
 }
 
+HOSTED_CUSTODY_ENV_MAP: dict[str, str] = {
+    "environment": "ENVIRONMENT",
+    "gcp_project_id": "GCP_PROJECT_ID",
+    "dev_target": "DEV_TARGET",
+    "hosted_custody_profile": "HUSHH_HOSTED_CUSTODY_PROFILE",
+    "db_user": "DB_USER",
+}
+
 
 def render_env_value(value: Any) -> str:
     if isinstance(value, bool):

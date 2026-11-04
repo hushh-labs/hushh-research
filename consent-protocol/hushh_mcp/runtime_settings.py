@@ -103,7 +103,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "pkm_answer_stripe_mode": "PKM_ANSWER_STRIPE_MODE",
     "answer_work_drain_enabled": "ANSWER_WORK_DRAIN_ENABLED",
     "answer_work_drain_audience": "ANSWER_WORK_DRAIN_AUDIENCE",
-    "environment": "ENVIRONMENT",
+    **runtime_environment.HOSTED_CUSTODY_ENV_MAP,
     "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
     "google_cloud_project": "GOOGLE_CLOUD_PROJECT",

@@ -77,6 +77,18 @@ def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:
         assert "ci-path-ownership" in selection.check_ids
 
 
+def test_backend_runtime_secret_sync_is_a_controller_owner() -> None:
+    selection = build_selection(
+        {
+            "CI_VALIDATION_LEVEL": "focused",
+            "CI_CHANGED_FILES": "scripts/ops/sync_backend_runtime_secrets.py\n",
+        }
+    )
+    assert selection.error is None
+    assert selection.groups == ("controller",)
+    assert "resolve-deploy-scope" in selection.check_ids
+
+
 def test_production_emergency_authority_test_selects_controller_owner() -> None:
     path = "consent-protocol/tests/test_production_emergency.py"
     selection = build_selection(
@@ -308,6 +320,7 @@ def main() -> int:
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
         test_secret_scan_owner_does_not_become_unknown_during_branch_sync,
+        test_backend_runtime_secret_sync_is_a_controller_owner,
         test_explicit_ci_control_scripts_are_controller_owned,
         test_production_emergency_authority_test_selects_controller_owner,
         test_document_delivery_ci_contract_paths_select_controller_owner,

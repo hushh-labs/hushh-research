@@ -128,13 +128,16 @@ class PreparationCleanup:
         if observed.get("managedPreparationCleanup", {}).get(stage) != receipt:
             raise ProvisionReconciliationRequired("Preparation cleanup receipt readback differs")
 
-    async def inspect(self, coordinates: dict, inventory: InventoryObserver) -> dict:
+    async def inspect(
+        self, coordinates: dict, inventory: InventoryObserver, effective_billing_account: str
+    ) -> dict:
         proof = await asyncio.to_thread(
             _inspect,
             ReadOnlyPreparationSession(self.session),
             self.token,
             coordinates,
             self.contract,
+            effective_billing_account,
             self.assignment["region"],
             inventory,
         )
@@ -156,6 +159,9 @@ class PreparationCleanup:
 
     async def run(self, inventory: InventoryObserver) -> None:
         saved, coordinates = await self.current()
+        effective_billing_account = await self.journal.effective_provider_billing_account(
+            registry_row=saved["registrySnapshot"]
+        )
         state = saved.get("managedPreparationCleanup", {})
         if "deletion" in state:
             if not await asyncio.wait_for(
@@ -180,7 +186,7 @@ class PreparationCleanup:
         if "admission" in state:
             self.admitted = state["admission"]
         else:
-            proof = await self.inspect(coordinates, inventory)
+            proof = await self.inspect(coordinates, inventory, effective_billing_account)
             self.admitted = {**base, "status": "admitted"}
             if "failedPreparation" in coordinates:
                 self.admitted["failureReconciliation"] = proof
@@ -194,7 +200,7 @@ class PreparationCleanup:
             guarded,
             self.token,
             coordinates["projectIdentity"],
-            self.contract["billingAccount"],
+            effective_billing_account,
         )
         if deleted:
             await self.retain("acknowledgement", {**base, "status": "acknowledged"})

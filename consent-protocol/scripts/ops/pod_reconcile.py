@@ -36,6 +36,59 @@ def _fleet_service_names(project: str, region: str) -> list[str]:
     return [str((svc.get("metadata") or {}).get("name") or "") for svc in items]
 
 
+def hosted_provider_transition_service_candidates(
+    services: list[dict],
+    *,
+    project_id: str,
+    project_number: str,
+    service_name: str,
+    attempt_id: str,
+) -> list[dict]:
+    """Return read-only candidates discovered by labels or retained coordinates.
+
+    A candidate is never authority to mutate or delete. The caller must join it
+    to the exact registry attempt and verify UID, image, runtime principal and
+    project identity before presenting it as a matching placement.
+    """
+    if not all(
+        isinstance(value, str) and value.strip()
+        for value in (project_id, project_number, service_name, attempt_id)
+    ):
+        raise ValueError("hosted transition inventory coordinates are invalid")
+    if not isinstance(services, list) or any(not isinstance(item, dict) for item in services):
+        raise ValueError("Cloud Run service inventory is unreadable")
+
+    candidates = []
+    for service in services:
+        metadata = service.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        labels = metadata.get("labels")
+        labels = labels if isinstance(labels, dict) else {}
+        name = metadata.get("name")
+        namespace = metadata.get("namespace")
+        label_match = labels.get("hussh-provision-attempt") == attempt_id or (
+            labels.get("app") == "hussh-one-pod" and labels.get("hussh-tenancy") == "hussh-hosted"
+        )
+        coordinate_match = name == service_name and namespace in {project_id, project_number}
+        if label_match or coordinate_match:
+            candidates.append(
+                {
+                    "service": service,
+                    "candidateSources": [
+                        source
+                        for source, matched in (
+                            ("labels", label_match),
+                            ("retained_coordinates", coordinate_match),
+                        )
+                        if matched
+                    ],
+                    "projectId": project_id,
+                    "projectNumber": project_number,
+                }
+            )
+    return candidates
+
+
 async def _registry_rows() -> list[dict]:
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 

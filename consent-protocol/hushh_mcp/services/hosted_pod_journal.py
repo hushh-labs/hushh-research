@@ -6,8 +6,10 @@ import asyncio
 import json
 from typing import Any, Literal
 
+from hushh_mcp.services.hosted_provider_account_journal import HostedProviderAccountJournalMixin
 
-class HostedPodJournal:
+
+class HostedPodJournal(HostedProviderAccountJournalMixin):
     def __init__(self, database: Any) -> None:
         self._database = database
 

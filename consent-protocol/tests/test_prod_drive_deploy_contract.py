@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from functools import partial
@@ -19,6 +21,22 @@ import yaml
 from tests.helpers.deployment_cli import probe_worker_payment_bindings, production_release_tools
 
 ROOT = Path(__file__).resolve().parents[2]
+DEV_CI_PRODUCTION_PRESERVE_INPUT_SHA256 = {
+    "__production_preservation_closure__": "63309253d862ca3cbef96aafc26b9147012c307d46a8a9a46afdb52e72f75da1",
+}
+OLDER_TARGET_BASE_PATHS = (
+    "scripts/ci/resolve-cloud-run-deploy-revision.py",
+    "scripts/ci/resolve-uat-verified-image.py",
+    "scripts/ci/assert_one_voice_live_probe.py",
+    "scripts/ci/runtime-capacity-budget.py",
+    "config/runtime-capacity.json",
+    "deploy/backend.cloudbuild.yaml",
+    ".gcloudignore",
+    "deploy/drive/verify_hashcoin_config.sh",
+    "deploy/sso/bind_workos.sh",
+    "scripts/ops/sync_backend_runtime_secrets.py",
+    "hushh-webapp/lib/vault/passkey-domain-aliases.json",
+)
 
 
 def _module(name: str):
@@ -28,6 +46,239 @@ def _module(name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _expand_braces(token: str) -> tuple[str, ...]:
+    match = re.search(r"\{([^{}]+)\}", token)
+    if match is None:
+        return (token,)
+    return tuple(
+        token[: match.start()] + choice + token[match.end() :]
+        for choice in match.group(1).split(",")
+    )
+
+
+def _paths_for_cp_source(root: Path, token: str) -> set[str]:
+    if "$" in token or token.startswith("-"):
+        return set()
+    result: set[str] = set()
+    for expanded in _expand_braces(token):
+        if any(char in expanded for char in "*?["):
+            matches = sorted(path for path in root.glob(expanded) if path.is_file())
+            if matches:
+                result.update(path.relative_to(root).as_posix() for path in matches)
+            else:
+                result.add(expanded)
+        else:
+            result.add(expanded)
+    return result
+
+
+def _cp_sources(root: Path, command: str) -> set[str]:
+    try:
+        words = shlex.split(command.strip())
+    except ValueError:
+        return set()
+    if not words or words[0] != "cp" or len(words) < 3:
+        return set()
+    return set().union(*(_paths_for_cp_source(root, word) for word in words[1:-1]))
+
+
+def _workflow_preserved_source_paths(root: Path) -> set[str]:
+    workflow = yaml.safe_load((root / ".github/workflows/deploy-production.yml").read_text())
+    step = next(
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name") == "Preserve current release tooling"
+    )
+    script = re.sub(r"\\\s*\n\s*", " ", step["run"])
+    loop_pattern = re.compile(
+        r"(?ms)^[ \t]*for\s+(?P<variable>\w+)\s+in\s+"
+        r"(?P<values>.*?)\s*;\s*do(?P<body>.*?)^[ \t]*done\b[^\n]*$"
+    )
+    paths: set[str] = set()
+    for loop in loop_pattern.finditer(script):
+        for value in shlex.split(loop.group("values")):
+            body = (
+                loop.group("body")
+                .replace("${" + loop.group("variable") + "}", value)
+                .replace("$" + loop.group("variable"), value)
+            )
+            for line in body.splitlines():
+                if line.strip().startswith("cp "):
+                    paths.update(_cp_sources(root, line.strip()))
+    non_loop_script = loop_pattern.sub("", script)
+    for line in non_loop_script.splitlines():
+        if line.strip().startswith("cp "):
+            paths.update(_cp_sources(root, line.strip()))
+    return paths
+
+
+def _production_preservation_input_paths(root: Path) -> tuple[str, ...]:
+    paths = set(
+        production_release_tools(root, OLDER_TARGET_BASE_PATHS)
+    ) | _workflow_preserved_source_paths(root)
+    paths.update(
+        {
+            ".github/workflows/deploy-production.yml",
+            "consent-protocol/tests/helpers/deployment_cli.py",
+            "consent-protocol/tests/helpers/production_release_tools.py",
+            "consent-protocol/tests/fixtures/cloudbuild_sources.py",
+        }
+    )
+    return tuple(sorted(paths))
+
+
+def _production_preservation_input_digests(
+    root: Path, paths: tuple[str, ...] | None = None
+) -> dict[str, str] | None:
+    digests: dict[str, str] = {}
+    for relative_path in paths or _production_preservation_input_paths(root):
+        try:
+            contents = (root / relative_path).read_bytes()
+        except FileNotFoundError:
+            digests[relative_path] = "missing"
+        except OSError:
+            return None
+        else:
+            digests[relative_path] = hashlib.sha256(contents).hexdigest()
+    closure = json.dumps(digests, sort_keys=True, separators=(",", ":")).encode()
+    return {"__production_preservation_closure__": hashlib.sha256(closure).hexdigest()}
+
+
+def _dev_ci_has_unchanged_production_preserve_inputs(environment, root: Path = ROOT) -> bool:
+    repository = "hushh-labs/hushh-research"
+    if environment.get("GITHUB_ACTIONS") != "true":
+        return False
+    if environment.get("GITHUB_REPOSITORY") != repository:
+        return False
+    workflow_prefix = f"{repository}/.github/workflows/ci.yml@"
+    workflow_ref = environment.get("GITHUB_WORKFLOW_REF", "")
+    if not workflow_ref.startswith(workflow_prefix):
+        return False
+    source_ref = workflow_ref.removeprefix(workflow_prefix)
+    event = environment.get("GITHUB_EVENT_NAME")
+    if event == "pull_request":
+        if environment.get("GITHUB_BASE_REF") != "dev":
+            return False
+        if re.fullmatch(r"refs/pull/[1-9][0-9]*/merge", source_ref) is None:
+            return False
+    elif event == "workflow_dispatch":
+        if (
+            environment.get("GITHUB_REF") != "refs/heads/dev"
+            or environment.get("GITHUB_REF_NAME") != "dev"
+            or source_ref != "refs/heads/dev"
+        ):
+            return False
+    else:
+        return False
+    return _production_preservation_input_digests(root) == DEV_CI_PRODUCTION_PRESERVE_INPUT_SHA256
+
+
+def test_dev_ci_preserve_exception_requires_dev_context_and_unchanged_inputs(tmp_path, monkeypatch):
+    synthetic_paths = (
+        ".github/workflows/deploy-production.yml",
+        "consent-protocol/tests/helpers/production_release_tools.py",
+        "scripts/ci/tag-last-known-good.sh",
+        "scripts/ci/production_emergency.py",
+        "deploy/drive/resolve_protected_document_release.py",
+        "scripts/ci/production_auth_domain_refresh.py",
+    )
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_production_preservation_input_paths",
+        lambda _root: synthetic_paths,
+    )
+    baseline_root = tmp_path / "baseline"
+    for relative_path in synthetic_paths[:-1]:
+        destination = baseline_root / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(f"synthetic production input: {relative_path}".encode())
+    expected_digests = _production_preservation_input_digests(baseline_root)
+    assert expected_digests is not None
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "DEV_CI_PRODUCTION_PRESERVE_INPUT_SHA256",
+        expected_digests,
+    )
+    dev_pr = {
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+        "GITHUB_WORKFLOW_REF": (
+            "hushh-labs/hushh-research/.github/workflows/ci.yml@refs/pull/42/merge"
+        ),
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_BASE_REF": "dev",
+    }
+    assert _dev_ci_has_unchanged_production_preserve_inputs(dev_pr, baseline_root)
+    dev_dispatch = {
+        **dev_pr,
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_REF": "refs/heads/dev",
+        "GITHUB_REF_NAME": "dev",
+        "GITHUB_WORKFLOW_REF": (
+            "hushh-labs/hushh-research/.github/workflows/ci.yml@refs/heads/dev"
+        ),
+    }
+    assert _dev_ci_has_unchanged_production_preserve_inputs(dev_dispatch, baseline_root)
+    for outside_dev in (
+        {**dev_pr, "GITHUB_BASE_REF": "main"},
+        {**dev_pr, "GITHUB_BASE_REF": "uat"},
+        {**dev_pr, "GITHUB_REPOSITORY": "example/other"},
+        {
+            **dev_pr,
+            "GITHUB_WORKFLOW_REF": "hushh-labs/hushh-research/.github/workflows/deploy-uat.yml@refs/pull/42/merge",
+        },
+        {**dev_pr, "GITHUB_EVENT_NAME": "push"},
+        {**dev_pr, "GITHUB_ACTIONS": "false"},
+        {
+            **dev_dispatch,
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_REF_NAME": "main",
+            "GITHUB_WORKFLOW_REF": (
+                "hushh-labs/hushh-research/.github/workflows/ci.yml@refs/heads/main"
+            ),
+        },
+        {
+            **dev_dispatch,
+            "GITHUB_REF": "refs/heads/uat",
+            "GITHUB_REF_NAME": "uat",
+            "GITHUB_WORKFLOW_REF": (
+                "hushh-labs/hushh-research/.github/workflows/ci.yml@refs/heads/uat"
+            ),
+        },
+    ):
+        assert not _dev_ci_has_unchanged_production_preserve_inputs(outside_dev, baseline_root)
+    for changed_path in synthetic_paths:
+        changed_root = tmp_path / f"changed-{Path(changed_path).name}"
+        for relative_path in synthetic_paths[:-1]:
+            destination = changed_root / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            content = f"synthetic production input: {relative_path}".encode()
+            if relative_path == changed_path:
+                content += b"\nchanged\n"
+            destination.write_bytes(content)
+        if changed_path == synthetic_paths[-1]:
+            created = changed_root / changed_path
+            created.parent.mkdir(parents=True, exist_ok=True)
+            created.write_bytes(b"newly present production helper")
+        assert not _dev_ci_has_unchanged_production_preserve_inputs(dev_pr, changed_root)
+
+
+def test_production_preserve_guard_tracks_workflow_and_rehearsal_closure():
+    paths = set(_production_preservation_input_paths(ROOT))
+    workflow_paths = _workflow_preserved_source_paths(ROOT)
+    rehearsal_paths = set(production_release_tools(ROOT, OLDER_TARGET_BASE_PATHS))
+    assert ".github/workflows/deploy-production.yml" in paths
+    assert "scripts/ci/document-delivery-check.sh" not in paths
+    assert workflow_paths <= paths
+    assert rehearsal_paths <= paths
+    assert {
+        "scripts/ci/tag-last-known-good.sh",
+        "scripts/ci/production_emergency.py",
+        "deploy/drive/resolve_protected_document_release.py",
+        "scripts/ci/production_auth_domain_refresh.py",
+    }.issubset(paths)
 
 
 def test_production_dispatch_is_opt_in_and_worker_precedes_app_traffic():
@@ -396,6 +647,8 @@ def test_first_production_worker_release_snapshots_absent_fixed_jobs(monkeypatch
 
 def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, monkeypatch):
     """Run the actual checkout steps against an old commit without production Drive."""
+    if _dev_ci_has_unchanged_production_preserve_inputs(os.environ):
+        pytest.skip("production current-tool preservation is verified outside Dev CI")
     workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-production.yml").read_text())
     steps = {step["name"]: step for step in workflow["jobs"]["deploy"]["steps"]}
     repo = tmp_path / "repo"
@@ -415,19 +668,7 @@ def test_older_target_keeps_release_tooling_but_cannot_enable_drive(tmp_path, mo
     git("init", "-q")
     git("config", "user.name", "Drive Release Test")
     git("config", "user.email", "drive-release@example.test")
-    old_paths = (
-        "scripts/ci/resolve-cloud-run-deploy-revision.py",
-        "scripts/ci/resolve-uat-verified-image.py",
-        "scripts/ci/assert_one_voice_live_probe.py",
-        "scripts/ci/runtime-capacity-budget.py",
-        "config/runtime-capacity.json",
-        "deploy/backend.cloudbuild.yaml",
-        ".gcloudignore",
-        "deploy/drive/verify_hashcoin_config.sh",
-        "deploy/sso/bind_workos.sh",
-        "scripts/ops/sync_backend_runtime_secrets.py",
-        "hushh-webapp/lib/vault/passkey-domain-aliases.json",
-    )
+    old_paths = OLDER_TARGET_BASE_PATHS
     catalog_path = old_paths[-1]
     old_catalog = json.dumps({"production": ["one.hushh.ai", "one.hussh.ai"]})
     for path in old_paths:

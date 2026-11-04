@@ -35,46 +35,6 @@ def _literal_environment(service: dict) -> dict[str, str]:
     return {item["name"]: item["value"] for item in entries if "value" in item}
 
 
-def _hosted_observation(row: dict, service: dict):
-    """Match the installed marker to the retained managed placement, not BYOC fields."""
-    from dataclasses import replace
-
-    from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
-    from hushh_mcp.services.private_gcp_deployment import HOSTING_ENV, PrivateGcpDeployment
-
-    placement = retained_hosted_placement(row)
-    if placement is None:
-        raise ValueError("Files requires a retained hosted placement")
-    metadata = row["backend_metadata"]
-    admission = metadata["provisionAttempt"]["hostedAdmission"]
-    model = admission["modelBinding"]
-    federation = admission["assignment"]["bootstrapContract"]["plan"]["federation"]["impersonation"]
-    marker = _literal_environment(service).get(HOSTING_ENV)
-    if not isinstance(marker, str):
-        raise ValueError("Files hosted placement marker is missing")
-    deployment = PrivateGcpDeployment.decode(marker)
-    if deployment.service_uid is None:
-        deployment = replace(deployment, service_uid=placement.service_uid)
-    if (
-        deployment.hosting_mode != "hussh_hosted"
-        or deployment.owner != placement.hushh_id
-        or deployment.project != placement.project
-        or deployment.project_number != placement.project_number
-        or deployment.region != placement.region
-        or deployment.service_uid != placement.service_uid
-        or deployment.runtime_principal != placement.runtime_principal
-        or deployment.hub_principal != federation.get("granted_to")
-        or deployment.image != metadata.get("image")
-        or deployment.model_project != model["project"]
-        or deployment.inference_model != model["model"]
-        or deployment.inference_profile_hash != model["profileHash"]
-        or row.get("external_agent_id") != placement.service
-    ):
-        raise ValueError("Files hosted placement differs from its retained authority")
-    deployment.verify_observation(service)
-    return deployment
-
-
 class FilesCapabilityChanged(ValueError):
     """A proven refusal before this update has attempted any external mutation."""
 
@@ -260,7 +220,12 @@ class FilesCapabilityPlan(BaseModel):
 
 def _placement_and_model(row: dict, service: dict, env: dict, dev_model_project: str | None):
     hosted = row.get("deployment_target") == "gcp"
-    deployment = _hosted_observation(row, service) if hosted else None
+    if hosted:
+        from hushh_mcp.services.hosted_gcp_placement import hosted_deployment_observation
+
+        deployment = hosted_deployment_observation(row, service)
+    else:
+        deployment = None
     if deployment:
         from hushh_mcp.services.hosted_gcp_placement import retained_hosted_placement
 

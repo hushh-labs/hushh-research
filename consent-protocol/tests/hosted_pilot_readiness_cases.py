@@ -7,7 +7,6 @@ from contextlib import closing
 
 import pytest
 
-from db.hosted_custody_acl import QUALIFIED_FAMILY_SETTING
 from db.hosted_custody_adoption import (
     HOSTED_FILES_QUALIFIED,
     HOSTED_NATIVE_LOCATION_CONTRACT_QUALIFIED,
@@ -15,12 +14,8 @@ from db.hosted_custody_adoption import (
     QUALIFIED,
     _successor_qualification,
 )
-from db.migration_authority import MigrationMode, build_manifest_entries
-from db.private_agent_adoption import execution_sql
-from db.private_agent_adoption_successors import _WORKER_EVENT_SUCCESSOR_SHA256
 from tests.helpers.private_agent_adoption import (
     canonical_database,
-    execute_mode,
     install_legacy_guards,
 )
 from tests.test_byoc_setup_job_azure_admission_postgres import ROOT, _Client, _server
@@ -158,9 +153,15 @@ def _copy_rollback_marker_and_trigger(source, target, target_execute):
         "AND t.tgname IN ('zx_project_grant_registry','zz_personal_agent_erasure_registry') "
         "ORDER BY t.tgname"
     )
+    provider_transition_trigger_rows = source.execute(
+        "SELECT pg_get_triggerdef(t.oid,true) FROM pg_trigger t "
+        "WHERE t.tgrelid='public.personal_agent_registry'::regclass "
+        "AND t.tgname='zx_hosted_provider_account_transition_registry'"
+    )
     assert len(marker_rows) == 5
     assert len(trigger_rows) == 1
     assert len(registry_trigger_rows) == 2
+    assert len(provider_transition_trigger_rows) <= 1
     target_execute(
         "CREATE TABLE public.hosted_files_executor_976_rollback_source ("
         "signature text PRIMARY KEY, definition text NOT NULL)"
@@ -178,6 +179,8 @@ def _copy_rollback_marker_and_trigger(source, target, target_execute):
         for (definition,) in registry_trigger_rows:
             cursor.execute(definition)
         cursor.execute(trigger_rows[0][0])
+        for (definition,) in provider_transition_trigger_rows:
+            cursor.execute(definition)
 
 
 def _target_execute(target, statement, params=None):
@@ -207,85 +210,13 @@ def _assert_adoption_preserves_family(pg, family, monkeypatch):
         _target_execute(target, "SET check_function_bodies=on")
         _copy_rollback_marker_and_trigger(pg, target, _target_execute_wrapper(target))
         _target_execute(target, _successor_qualification())
-        _replay_420_421(pg, target, database, family)
+        from tests.hosted_custody_profile_support import replay_420_421
+
+        replay_420_421(pg, target, database, family)
 
 
 def _target_execute_wrapper(target):
     return lambda statement, params=None: _target_execute(target, statement, params)
-
-
-def _replay_420_421(pg, target, database, family):
-    psycopg2 = pytest.importorskip("psycopg2")
-    before = _custody_family_catalog(target, family)
-    entries = build_manifest_entries(
-        ROOT / "db/migrations",
-        ["420_private_agent_lifecycle_foundation.sql", "421_cloud_removal_recovery.sql"],
-    )
-    adapted_420 = execution_sql(entries[0])
-    worker_event_check = "p.proname='valid_byoc_azure_worker_event'"
-    worker_event_position = adapted_420.index(worker_event_check)
-    guard_start = adapted_420.rfind("DO $object_guard$", 0, worker_event_position)
-    guard_end = adapted_420.index("$object_guard$;", worker_event_position) + len("$object_guard$;")
-    worker_event_guard = adapted_420[guard_start:guard_end]
-    worker_signature = "valid_byoc_azure_worker_event(text,text,jsonb,jsonb,text,text)"
-    dev_hash = PERSONAL_AGENT_UPGRADE_HOST_BINDING_QUALIFIED[worker_signature]
-    successor_hash = _WORKER_EVENT_SUCCESSOR_SHA256
-    assert dev_hash == "95233dcf09e1b7a056cf3d846beb562e157ebf5be907ba33592e96cd45654cb4"
-    installed_hash = before[worker_signature][0]
-    assert installed_hash in {dev_hash, successor_hash}
-    assert f"'{successor_hash}'" in worker_event_guard
-    assert f"current_setting('{QUALIFIED_FAMILY_SETTING}',true)='true'" in worker_event_guard
-
-    # The accepted Dev lineage has the historical 95233 body and passes the
-    # immutable 420 guard directly. The 961 lineage has the measured 460ee
-    # body and requires the complete-family qualification established above.
-    _target_execute(target, "SELECT set_config(%s,'false',false)", (QUALIFIED_FAMILY_SETTING,))
-    if installed_hash == dev_hash:
-        _target_execute(target, worker_event_guard)
-    else:
-        with pytest.raises(
-            psycopg2.errors.RaiseException,
-            match="Unqualified schema drift: valid_byoc_azure_worker_event",
-        ):
-            _target_execute(target, worker_event_guard)
-        _target_execute(target, "SELECT set_config(%s,'true',false)", (QUALIFIED_FAMILY_SETTING,))
-        _target_execute(target, worker_event_guard)
-
-    # Exercise the gated successor branch with a deterministic test body. The
-    # production 460ee pin remains exact in the immutable adapter; substituting
-    # this measured body here tests that only the complete-family GUC admits it.
-    test_body = """CREATE OR REPLACE FUNCTION public.valid_byoc_azure_worker_event(
-      owner_id text, expected_job text, event jsonb, history jsonb, target text, hushh_id text
-    ) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=public AS $$
-    BEGIN RETURN true; END; $$"""
-    _target_execute(target, test_body)
-    test_hash = _target_execute(
-        target,
-        "SELECT encode(sha256(convert_to(pg_get_functiondef('public.valid_byoc_azure_worker_event(text,text,jsonb,jsonb,text,text)'::regprocedure),'UTF8')),'hex')",
-    )[0][0]
-    gated_test_guard = worker_event_guard.replace(f"'{successor_hash}'", f"'{test_hash}'")
-    assert gated_test_guard != worker_event_guard
-    _target_execute(target, "SELECT set_config(%s,'false',false)", (QUALIFIED_FAMILY_SETTING,))
-    with pytest.raises(
-        psycopg2.errors.RaiseException,
-        match="Unqualified schema drift: valid_byoc_azure_worker_event",
-    ):
-        _target_execute(target, gated_test_guard)
-    _target_execute(target, "SELECT set_config(%s,'true',false)", (QUALIFIED_FAMILY_SETTING,))
-    _target_execute(target, gated_test_guard)
-
-    original_definition = pg.execute(
-        "SELECT pg_get_functiondef(%s::regprocedure)", ("public." + worker_signature,)
-    )[0][0]
-    _target_execute(target, original_definition)
-    assert asyncio.run(execute_mode(pg, database, entries[0], MigrationMode.REPLAY)) == (
-        entries[0].filename,
-    )
-    assert asyncio.run(execute_mode(pg, database, entries[1], MigrationMode.REPLAY)) == (
-        entries[1].filename,
-    )
-    _target_execute(target, _successor_qualification())
-    assert _custody_family_catalog(target, family) == before
 
 
 def _apply_hosted_predecessor_migrations(pg, ready):

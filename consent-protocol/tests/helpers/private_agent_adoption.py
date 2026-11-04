@@ -279,9 +279,9 @@ def install_custody_fixture(connection):
     return observed
 
 
-def canonical_database(server, monkeypatch):
-    database = "synthetic_consent_adoption"
-    server.execute("CREATE DATABASE " + database)
+def canonical_database(server, monkeypatch, *, database="synthetic_consent_adoption"):
+    if database != "postgres":
+        server.execute("CREATE DATABASE " + database)
     server.execute(
         "CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN"
     )
@@ -342,9 +342,9 @@ def install_legacy_guards(connection, *, triggers=True):
             cursor.execute(LEGACY_TRIGGERS)
 
 
-async def execute_mode(server, database, entry, mode, *, following=()):
+async def execute_mode(server, database, entry, mode, *, following=(), database_user="hushh"):
     connection = await asyncpg.connect(
-        host=server.dir, port=server.port, user="hushh", database=database
+        host=server.dir, port=server.port, user=database_user, database=database
     )
     try:
         return await apply_manifest_entries(
