@@ -446,7 +446,7 @@ class PublicationRoutingTest(unittest.TestCase):
         )
         self.assertIsNone(publication.qualify(owner, base.REPOSITORY, "dev", run, job))
 
-    def test_unlisted_repository_dispatch_without_exact_clock_stops_before_reads(
+    def test_unlisted_legacy_dispatch_without_clock_stops_before_log_reads(
         self,
     ):
         run, job, _, _ = fixture()
@@ -496,6 +496,7 @@ class PublicationRoutingTest(unittest.TestCase):
             mock.patch.object(publication, "_source") as source,
             self.assertRaises(maintenance.retention.UnsafeState),
         ):
+            source.return_value = {}
             publication.qualify(owner, base.REPOSITORY, "production", run, job)
 
         self.assertTrue(
@@ -505,7 +506,7 @@ class PublicationRoutingTest(unittest.TestCase):
             )
         )
         log.assert_not_called()
-        source.assert_not_called()
+        source.assert_called_once()
         owner.command.assert_not_called()
 
 
