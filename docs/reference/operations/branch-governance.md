@@ -269,8 +269,11 @@ Before deleting a local backup branch, classify its unique commits as:
 
 ### Dev (fast lane)
 
-1. Dev deploys through `Deploy to Dev` (manual dispatch from `main`, governed actor
-   cohort identical to UAT).
+1. Dev deploys through `Deploy to Dev`, with the governed actor cohort shared
+   with UAT. After matching-branch routing qualification, dispatch from `dev`;
+   normal releases wait for the destination source sync and successful
+   `inspect-routing` readback. Historical Main receipts remain recovery evidence,
+   not a dispatch fallback. Follow the current routing receipt in the CI runbook.
 2. The `ref` input defaults to `dev` and only locates the application SHA. The
    selected SHA must belong to protected Dev history and carry an accepted exact
    CI result; an explicit lookup ref cannot authorize branch-only content.
@@ -455,18 +458,21 @@ have.
 ## Admin landing
 
 Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
-Administrative access does not waive required review, validation or the actual
-combined result. Queue bypass is disabled under the new combined-result policy;
-a procedural local check alone cannot protect direct UI/API bypass. Historical
-bypasses remain evidence of their original operations, not permission for new ones.
+Ordinary merges require applicable independent review and combined-result queue
+validation. The Main-only owner Admin route lets Kushal or Ankit explicitly
+approve their own exact-head PR without a second owner. Its native strict CI/PR
+guard and canonical command preserve current-base evidence, resolved conversations
+and landed-tree verification. This does not enable an Admin route on Dev/UAT.
+Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 
 ### Rule: deploy-actor lists are governance, not routine config
 
 Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
-cohort lists are protected-surface edits: they require maintainer-team code-owner
-review, pass the CI guard, and should be authored/merged by the owner. Widening
-who can deploy is never a routine, self-mergeable change.
+cohort lists are protected-surface edits: they require explicit Kushal/Ankit
+approval and the protected-edit CI guard. An owner may use the documented Main
+Admin route for an explicitly approved change; ordinary organization membership
+or deployment access does not grant protected-policy editing authority.
 
 ### Adding or removing a maintainer (the one standardized procedure)
 
@@ -556,7 +562,7 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production` | Governed production deploy lane for `kushaltrivedi5` and `ankitkumarsingh1702` |
+| `production` | Governed production deploy lane for the six operators in `production.manual_dispatch_users`; policy is the authoritative list |
 
 The UAT workflow uses one active GitHub environment name:
 
