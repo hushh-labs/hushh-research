@@ -19,6 +19,14 @@ on:
         description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
         required: false
         type: string
+      source_branch:
+        description: "Protected UAT source branch"
+        required: false
+        type: string
+      approved_scope:
+        description: "Approved serving baselines and reviewed PR heads"
+        required: false
+        type: string
       ci_run_id:
         description: "Exact full UAT validation run, required for direct UAT admission"
         required: false
@@ -80,10 +88,12 @@ permissions:
   # — the workflow never touches a branch.
   contents: write
   checks: read
+  pull-requests: read
   actions: read
   id-token: write
 
 env:
+  UAT_SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
   GCP_PROJECT_ID: hushh-pda-uat
   UAT_FIREBASE_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
@@ -151,7 +161,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTHORITY_SHA: ${{ job.workflow_sha }}
-        run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"
+        run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"
 
   deployment-security:
     name: Request Main security clearance
@@ -188,6 +198,7 @@ jobs:
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
           DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
           DEPLOY_SECURITY_ENVIRONMENT: uat
+          DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
           DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
       - uses: actions/upload-artifact@v6
         if: always()
@@ -207,6 +218,7 @@ jobs:
       contents: read
       checks: read
       deployments: read
+      pull-requests: read
       actions: read
     outputs:
       sha: ${{ steps.resolve-sha.outputs.sha }}
@@ -222,7 +234,7 @@ jobs:
             echo "Refusing unsupported UAT target."
             exit 1
           fi
-          if [ "${GITHUB_REF_NAME}" != "uat" ]; then
+          if [ "$GITHUB_REF_NAME" != uat ]; then
             echo "Refusing UAT target selection outside uat."
             exit 1
           fi
@@ -252,33 +264,36 @@ jobs:
           REQUESTED_SHA: ${{ github.event.inputs.sha }}
         run: |
           set -euo pipefail
-          if [ -n "$REQUESTED_SHA" ]; then
-            if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "UAT requires a full 40-character commit SHA."
-              exit 1
-            fi
-            python3 scripts/ci/promotion_approval.py uat \
-              --application-sha "$REQUESTED_SHA" \
-              --github-output "$RUNNER_TEMP/uat-source-authority-selection"
-            echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
-            echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
+          if [[ -z "$REQUESTED_SHA" && "$UAT_SOURCE_BRANCH" == uat ]]; then
+            # A blank request may verify already-serving shared UAT only.
+            python3 scripts/ci/uat_application_selection.py \
+              --scope "${{ inputs.scope }}" --github-output --allow-no-op --no-op-only
             exit 0
           fi
-          python3 scripts/ci/uat_application_selection.py \
-            --scope "${{ inputs.scope }}" --github-output --allow-no-op
+          if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "UAT deployment requires an explicit full application SHA."
+            exit 1
+          fi
+          python3 scripts/ci/promotion_approval.py uat \
+            --application-sha "$REQUESTED_SHA" --source-branch "$UAT_SOURCE_BRANCH" \
+            --github-output "$RUNNER_TEMP/uat-source-authority-selection"
+          echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Validate exact-source qualification before release jobs
         if: steps.resolve-sha.outputs.decision != 'NO_OP'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
+          AUTHORITY_SHA: ${{ job.workflow_sha }}
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
           CI_BASE_SHA: ${{ inputs.ci_base_sha }}
         run: |
           python3 scripts/ci/uat_release_prerequisites.py validate-deployment \
             --sha "$APPLICATION_SHA" --ci-run-id "$CI_RUN_ID" \
-            --ci-attempt "$CI_ATTEMPT" --base-sha "$CI_BASE_SHA"
+            --ci-attempt "$CI_ATTEMPT" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH" --authority-sha "$AUTHORITY_SHA"
 
       - name: Validate one-time Vertex probe exception
         if: inputs.skip_managed_vertex_probe_once
@@ -400,7 +415,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "uat" ]; then
+          if [ "$GITHUB_REF_NAME" != uat ]; then
             echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'uat' only."
             exit 1
           fi
@@ -451,7 +466,7 @@ jobs:
         env:
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: |
-          python3 scripts/ci/promotion_approval.py uat --application-sha "$APPLICATION_SHA" \
+          python3 scripts/ci/promotion_approval.py uat --application-sha "$APPLICATION_SHA" --source-branch "$UAT_SOURCE_BRANCH" \
             --github-output "$GITHUB_OUTPUT"
 
       # Stable receipt-reader identity. Main retains its smoke requirement;
@@ -460,7 +475,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: ${{ steps.application-authority.outputs.branch }}
-          REQUIRE_CI_SUCCESS: "1"
+          # Isolated qualification is verified on the Main run in the early and locked gates.
+          REQUIRE_CI_SUCCESS: ${{ inputs.source_branch == 'uat-isolated' && '0' || '1' }}
           REQUIRED_CHECK_NAME: ${{ steps.application-authority.outputs.checks || 'Main Post-Merge Smoke Gate' }}
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$APPLICATION_SHA"
@@ -479,7 +495,7 @@ jobs:
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_release_prerequisites.py scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -778,7 +794,7 @@ jobs:
             [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
             [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
-              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" --source-branch "$UAT_SOURCE_BRANCH" \
               --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
@@ -1215,7 +1231,7 @@ jobs:
             [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
             [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
-              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" --source-branch "$UAT_SOURCE_BRANCH" \
               --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
@@ -1226,6 +1242,16 @@ jobs:
               --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
               --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           fi
+
+      - name: Recheck approved PR scope and both serving revisions under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/uat_release_prerequisites.py" validate-scope-live \
+            --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH"
 
       # A skipped boundary plus skipped mutators can prove a failed attempt
       # never changed runtime state. Any attempted boundary remains conservative.
@@ -1486,7 +1512,7 @@ jobs:
             [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
             [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
-              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" --source-branch "$UAT_SOURCE_BRANCH" \
               --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
