@@ -100,6 +100,7 @@ CHECKS = (
     _check("runtime-capacity-route-secrets", "python3", "scripts/ci/test_runtime_capacity_route_secrets.py", groups=("retention",)),
     _check("production-capacity-bridge", "python3", "scripts/ci/test_production_capacity_bridge.py", groups=("retention",)),
     _check("production-capacity-recovery", "python3", "scripts/ci/test_production_capacity_recovery.py", groups=("retention",)),
+    _check("queue-combined-authority", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "scripts/ci/test_queue_combined_result.py", groups=("controller",)),
     _check("production-verification", "python3", "scripts/ci/test_production_verification.py", groups=("controller", "release")),
     _check("production-verification-workflow", "python3", "scripts/ci/test_production_verification_workflow.py", groups=("controller", "release")),
     _check(
