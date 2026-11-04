@@ -25,7 +25,12 @@ export function registerMessagesReactionCases({ mount, fixture, holdMessage }: {
           await page.screenshot({ path: test.info().outputPath(`message-menu-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
           await page.keyboard.press("Escape");
           const draft = page.locator("[data-direct-message-composer-input]");
+          // Finish the dropdown's delayed focus restoration before entering a draft.
+          await expect(menu).toHaveCount(0);
+          await draft.click();
+          await expect(draft).toBeFocused();
           await draft.fill("Keep this draft");
+          await expect(draft).toHaveValue("Keep this draft");
           const avatarOffset = async () => {
             const avatar = (await message.getByRole("link", { name: "View Maya Rao's profile" }).boundingBox())!;
             const bubble = (await message.locator("[data-chat-bubble]").boundingBox())!;

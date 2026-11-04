@@ -732,8 +732,13 @@ test("individual chats send, play, reload and reply to video attachments", async
   await holdMessage(page, sent);
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.locator('[class*="composerReplyPreview"]')).toContainText("Attachment");
-  await page.getByRole("textbox", { name: "Message Maya Rao", exact: true }).fill("A reply to the video");
+  const replyEditor = page.getByRole("textbox", { name: "Message Maya Rao", exact: true });
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(replyEditor).toBeFocused();
+  await replyEditor.fill("A reply to the video");
+  await expect(replyEditor).toHaveValue("A reply to the video");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByText("A reply to the video", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Go to original message from you", exact: true })).toContainText("Attachment");
   await page.getByRole("button", { name: "Back to messages", exact: true }).click();
   await expect(page.locator("video")).toHaveCount(0);
