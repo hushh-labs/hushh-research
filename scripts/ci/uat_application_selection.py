@@ -61,6 +61,7 @@ PRE_MUTATION_STEPS = frozenset({
     'Capture predeploy Cloud Run state',
     'Refuse the HushhTech client beside a serving revision that admits generations',
     'Resolve deployment scope',
+    'Verify answer settlement before runtime mutation',
     'Require exact-SHA predecessor acceptance',
     'Resolve the exact accepted Dev backend image',
     'Resolve retained protected document maintenance',
