@@ -72,6 +72,10 @@ def journey(monkeypatch, tmp_path, active_account_lifecycle):
     # This service/route replay isolates grant, coverage and dispatch contracts;
     # real request-scope enforcement is covered through One's SDK runner separately.
     monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
         "hushh_mcp.agents.calendar.request_scope.request_scope",
         AsyncMock(return_value=("create",)),
     )

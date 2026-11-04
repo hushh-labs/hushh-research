@@ -24,10 +24,24 @@ Action = Literal["create", "reschedule", "cancel", "respond"]
 logger = logging.getLogger(__name__)
 
 
+def _request_key(context: Any, messages: tuple[str, ...]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            [
+                context.state.get("hussh:user_id"),
+                context.state.get("hussh:conversation_id"),
+                getattr(context, "invocation_id", None),
+                messages,
+            ]
+        ).encode()
+    ).hexdigest()
+
+
 class ScopeEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     message_index: int = Field(ge=0, le=16)
     quote: str = Field(min_length=1, max_length=4096)
+    source: Literal["current", "pending"] = "current"
 
 
 class CalendarRequestScope(BaseModel):
@@ -35,6 +49,7 @@ class CalendarRequestScope(BaseModel):
     read_only: bool
     allowed_actions: list[Action] = Field(max_length=4)
     evidence: list[ScopeEvidence] = Field(min_length=1, max_length=8)
+    continuation: bool = False
 
     @model_validator(mode="after")
     def coherent(self):
@@ -42,6 +57,8 @@ class CalendarRequestScope(BaseModel):
             raise ValueError("Read-only requests cannot authorize reviews")
         if len(set(self.allowed_actions)) != len(self.allowed_actions):
             raise ValueError("Repeated action")
+        if self.continuation and self.allowed_actions != ["create"]:
+            raise ValueError("A guest reply can complete only its original create review")
         return self
 
 
@@ -69,6 +86,9 @@ def current_user_messages(context: Any) -> tuple[str, ...]:
 
 
 async def assess_scope(context: Any, messages: tuple[str, ...]) -> CalendarRequestScope:
+    from hushh_mcp.agents.calendar.guest_clarification import admitted_pending
+
+    pending = admitted_pending(context)
     # Preserve the admitted owner's provider/model; never choose a shared fallback.
     agent = context._invocation_context.agent
     model = await agent.canonical_model_async(context)
@@ -76,7 +96,13 @@ async def assess_scope(context: Any, messages: tuple[str, ...]) -> CalendarReque
     assessor = build_single_turn_agent(manifest, output_schema=CalendarRequestScope, model=model)
     result = await run_single_turn(
         assessor,
-        prompt_parts=json.dumps({"mode": "request_scope", "authenticated_user_messages": messages}),
+        prompt_parts=json.dumps(
+            {
+                "mode": "request_scope",
+                "authenticated_user_messages": messages,
+                "pending_clarification": pending.assessment_context() if pending else None,
+            }
+        ),
         user_id=context.state["hussh:user_id"],
         consent_token=resolve_request_secret(context.state.get("hussh:consent_token")),
         timeout_seconds=12,
@@ -85,6 +111,11 @@ async def assess_scope(context: Any, messages: tuple[str, ...]) -> CalendarReque
 
 
 async def request_scope(context: Any) -> tuple[Action, ...]:
+    from hushh_mcp.agents.calendar.guest_clarification import (
+        STATE_GUEST_CLARIFICATION,
+        admitted_pending,
+    )
+
     messages = current_user_messages(context)
     invocation = getattr(context, "invocation_id", None)
     owner = context.state.get("hussh:user_id")
@@ -93,9 +124,7 @@ async def request_scope(context: Any) -> tuple[Action, ...]:
         return ()
     if len(messages) > 17 or any(len(message) > 4096 for message in messages):
         return ()
-    key = hashlib.sha256(
-        json.dumps([owner, conversation, invocation, messages]).encode()
-    ).hexdigest()
+    key = _request_key(context, messages)
     pointer = context.state.get(STATE_REQUEST_SCOPE)
     if isinstance(pointer, str) and pointer.startswith("one_secret_ref:"):
         try:
@@ -113,29 +142,65 @@ async def request_scope(context: Any) -> tuple[Action, ...]:
         json.dumps({"key": key, "actions": []}), ttl_seconds=180
     )
     try:
+        pending = admitted_pending(context)
         scope = await assess_scope(context, messages)
         if messages != current_user_messages(context):
             raise ValueError("Authenticated input changed during assessment")
+        sources = {"current": messages, "pending": tuple(pending.messages) if pending else ()}
         if any(
-            item.message_index >= len(messages)
-            or item.quote not in messages[item.message_index]
+            item.message_index >= len(sources[item.source])
+            or item.quote not in sources[item.source][item.message_index]
             or not item.quote.strip()
             for item in scope.evidence
         ):
             raise ValueError("Scope evidence does not match authenticated input")
+        evidence_sources = {item.source for item in scope.evidence}
+        if scope.continuation:
+            if pending is None or evidence_sources != {"current", "pending"}:
+                raise ValueError("Guest continuation needs both authenticated sources")
+        elif "pending" in evidence_sources:
+            raise ValueError("Prior input cannot authorize a fresh request")
     except Exception:  # model failure never grants proposal authority
+        context.state[STATE_GUEST_CLARIFICATION] = None
         logger.info("calendar.request_scope outcome=unavailable")
         return ()
+    if not scope.continuation:
+        context.state[STATE_GUEST_CLARIFICATION] = None
     context.state[STATE_REQUEST_SCOPE] = store_request_secret(
-        json.dumps({"key": key, "actions": scope.allowed_actions}), ttl_seconds=180
+        json.dumps(
+            {
+                "key": key,
+                "actions": scope.allowed_actions,
+                "continuation": scope.continuation,
+                "pending_digest": pending.source_digest if scope.continuation else None,
+            }
+        ),
+        ttl_seconds=180,
     )
     logger.info("calendar.request_scope outcome=%s", "read_only" if scope.read_only else "review")
     return tuple(scope.allowed_actions)
 
 
+def scope_receipt(context: Any) -> dict[str, Any] | None:
+    try:
+        value = resolve_request_secret(context.state.get(STATE_REQUEST_SCOPE))
+        receipt = json.loads(value) if value else None
+        return receipt if isinstance(receipt, dict) and proof_current(context, receipt) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def proof_current(context: Any, proof: dict[str, Any]) -> bool:
+    return proof.get("key") == _request_key(context, current_user_messages(context))
+
+
 async def require_action(context: Any, action: Action) -> dict[str, Any] | None:
     if action in await request_scope(context):
         return None
+    return scope_refusal(action)
+
+
+def scope_refusal(action: Action) -> dict[str, Any]:
     logger.info("calendar.proposal_refused reason=request_scope action=%s", action)
     return {
         "status": "blocked",

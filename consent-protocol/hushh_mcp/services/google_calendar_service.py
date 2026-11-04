@@ -1074,30 +1074,20 @@ class GoogleCalendarService:
             range_start=range_start,
             range_end=range_end,
         )
-        minimum = timedelta(minutes=duration)
-        openings: list[dict[str, str]] = []
-        cursor = range_start
-        for busy_start, busy_end in [*busy, (range_end, range_end)]:
-            if busy_start - cursor >= minimum:
-                opening_end = cursor + minimum
-                openings.append(
-                    {
-                        "start_at": self._utc_iso(cursor),
-                        "end_at": self._utc_iso(opening_end),
-                        "available_until": self._utc_iso(busy_start),
-                    }
-                )
-                if len(openings) == max_slots:
-                    break
-            if busy_end > cursor:
-                cursor = busy_end
+        from hushh_mcp.services.calendar_opening_selection import opening_options
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 
         return {
             "time_min": availability["time_min"],
             "time_max": availability["time_max"],
             "time_zone": availability.get("time_zone"),
             "duration_minutes": duration,
-            "openings": openings,
+            "coverage_complete": True,
+            **opening_options(
+                CalendarScheduleService._free_gaps(range_start, range_end, busy),
+                duration,
+                max_slots,
+            ),
         }
 
     @classmethod

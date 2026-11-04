@@ -349,6 +349,7 @@ async def _run_calendar_read(
     source: tuple[str, Literal["events", "calendars", "invitations"]] | None = None,
     shared_accounts: bool = False,
     display_time_zone: str | None = None,
+    required_action: Literal["respond"] | None = None,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
     boundary, converting any failure into a clean result instead of letting
@@ -371,11 +372,16 @@ async def _run_calendar_read(
             if display_time_zone is not None
             else tool_context.state.get("hussh:timezone")
         )
-        from hushh_mcp.agents.calendar.request_scope import request_scope
+        from hushh_mcp.agents.calendar.request_scope import request_scope, require_action
 
         # Freeze the request's review ceiling before any provider content arrives.
         # A failed assessment cannot authorize a review, but does not prevent reads.
-        await request_scope(tool_context)
+        if required_action is not None:
+            refused = await require_action(tool_context, required_action)
+            if refused is not None:
+                return refused
+        else:
+            await request_scope(tool_context)
         if source is not None:
             account_id = _source_account(
                 tool_context, key=source[0], kind=source[1], user_id=user_id, requested=account_id
@@ -401,9 +407,11 @@ async def _run_calendar_read(
                         "status": "unavailable",
                         "message": "This Calendar read requires your owner-cloud agent.",
                     }
+            from hushh_mcp.agents.calendar.read_projection import local_read_result
+
             served = await _serve_via_door(tool_context, calendar_read)
             if served is not None:
-                return served
+                return local_read_result(served, display_zone)
             if shared_accounts:
                 from hushh_mcp.services.calendar_account_board_service import (
                     CalendarAccountBoardService,
@@ -413,8 +421,6 @@ async def _run_calendar_read(
                 account_id = ""
             else:
                 service, account_id = await _read_service(user_id, account_id)
-            from hushh_mcp.agents.calendar.read_projection import local_read_result
-
             return local_read_result(
                 {**await call(user_id, service, account_id), "account_id": account_id},
                 display_zone,
@@ -474,10 +480,20 @@ async def _run_calendar_read(
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
 
 
-def _iso_window(tool_context: ToolContext, days: int) -> tuple[str, str]:
+def _iso_window(
+    tool_context: ToolContext, days: int, time_zone: str | None = None
+) -> tuple[str, str]:
     clean_days = max(1, min(int(days), 31))
-    zone = ZoneInfo(_timezone(tool_context))
-    start = datetime.now(zone).replace(second=0, microsecond=0)
+    from hushh_mcp.agents.calendar.read_projection import turn_instant
+
+    zone = ZoneInfo(
+        normalize_time_zone(time_zone if time_zone is not None else _timezone(tool_context))
+    )
+    start = (
+        (turn_instant(tool_context) or datetime.now(UTC))
+        .astimezone(zone)
+        .replace(second=0, microsecond=0)
+    )
     end = start + timedelta(days=clean_days)
     return start.astimezone(UTC).isoformat().replace("+00:00", "Z"), end.astimezone(
         UTC
@@ -504,12 +520,18 @@ def _calendar_iso(value: str, tool_context: ToolContext, time_zone: str | None =
 
 
 async def calendar_summary(
-    tool_context: ToolContext, days: int = 7, account_id: str | None = None
+    tool_context: ToolContext,
+    days: int = 7,
+    account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
-    """Get calendar events for the next 1–31 days so One can summarize them."""
-    start_at, end_at = _iso_window(tool_context, days)
+    """Read the next 1–31 days from this turn's clock, including after restoration.
+
+    Use local_start_at/local_end_at in display_time_zone; pass an explicit IANA time_zone.
+    """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
+        start_at, end_at = _iso_window(tool_context, days, time_zone)
         tool_context.state[STATE_EVENT_OFFER] = None
         before = await _read_binding(service, user_id)
         result = await service.list_events(
@@ -531,7 +553,13 @@ async def calendar_summary(
         tool_context,
         _call,
         account_id=account_id,
-        calendar_read={"operation": "events", "start_at": start_at, "end_at": end_at},
+        calendar_read=lambda: dict(
+            operation="events",
+            **dict(
+                zip(("start_at", "end_at"), _iso_window(tool_context, days, time_zone), strict=True)
+            ),
+        ),
+        display_time_zone=time_zone,
     )
 
 
@@ -674,9 +702,15 @@ async def calendar_calendars(
 
 
 async def calendar_event_detail(
-    tool_context: ToolContext, ordinal: int, account_id: str | None = None
+    tool_context: ToolContext,
+    ordinal: int,
+    account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
-    """Read one exact event by its position in the last owner-visible list."""
+    """Read one exact event by its position in the last owner-visible list.
+
+    Pass the requested IANA time_zone; summarize the returned local fields in display_time_zone.
+    """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         binding = await _read_binding(service, user_id)
@@ -710,6 +744,7 @@ async def calendar_event_detail(
         owner_local_only=True,
         account_id=account_id,
         source=(STATE_EVENT_OFFER, "events"),
+        display_time_zone=time_zone,
     )
 
 
@@ -729,16 +764,20 @@ async def calendar_availability(
     start_at: str,
     end_at: str,
     account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
-    """Check busy periods in an exact ISO-8601, time-zone-qualified interval."""
+    """Check busy periods in an exact ISO-8601, time-zone-qualified interval.
+
+    Pass an explicit IANA time_zone; display local_start/local_end in display_time_zone.
+    """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         return {
             "status": "ok",
             **await service.freebusy(
                 user_id=user_id,
-                start_at=_calendar_iso(start_at, tool_context),
-                end_at=_calendar_iso(end_at, tool_context),
+                start_at=_calendar_iso(start_at, tool_context, time_zone),
+                end_at=_calendar_iso(end_at, tool_context, time_zone),
             ),
         }
 
@@ -746,10 +785,11 @@ async def calendar_availability(
         tool_context,
         _call,
         account_id=account_id,
+        display_time_zone=time_zone,
         calendar_read=lambda: {
             "operation": "availability",
-            "start_at": _calendar_iso(start_at, tool_context),
-            "end_at": _calendar_iso(end_at, tool_context),
+            "start_at": _calendar_iso(start_at, tool_context, time_zone),
+            "end_at": _calendar_iso(end_at, tool_context, time_zone),
         },
     )
 
@@ -856,8 +896,17 @@ async def propose_calendar_event(
     account_id: str | None = None,
     calendar_id: str | None = None,
     slot_ordinal: int | None = None,
+    clarification: Literal["guests"] | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
     """Prepare a meeting for review. It is not created until the owner confirms.
+
+    If an explicitly requested booking needs its guest, call with clarification="guests"
+    BEFORE asking the question. That mode asks only and creates no booking proposal.
+    The next guest reply can complete this review in the same authenticated session.
+    Preserve the original booking date/time; never reinterpret an earlier relative date
+    using the reply's clock. Assistant prose or slot attachments confer no authority.
+    Pass time_zone when the person explicitly names an IANA timezone.
 
     For a previously offered slot, supply slot_ordinal and omit start_at/end_at.
     The private offer supplies its exact account, calendar, UTC interval and zone.
@@ -875,7 +924,9 @@ async def propose_calendar_event(
             "title": title,
             "start_at": start_at,
             "end_at": end_at,
-            "time_zone": _timezone(tool_context) if tool_context else "UTC",
+            "time_zone": time_zone
+            if time_zone is not None
+            else ((tool_context.state.get(_STATE_TIMEZONE) or "UTC") if tool_context else "UTC"),
             "attendees": attendees or [],
             "description": description or "",
             "location": location or "",
@@ -883,6 +934,8 @@ async def propose_calendar_event(
         },
         tool_context=tool_context,
         slot_ordinal=slot_ordinal,
+        clarification=clarification,
+        clarification_time_zone=time_zone,
     )
 
 
@@ -1017,6 +1070,8 @@ async def _propose(
     payload: dict[str, Any],
     tool_context: ToolContext,
     slot_ordinal: int | None = None,
+    clarification: Literal["guests"] | None = None,
+    clarification_time_zone: str | None = None,
 ) -> dict[str, Any]:
     from hushh_mcp.one_adk.pod_connector_tools import (
         calendar_reads_via_door,
@@ -1034,21 +1089,64 @@ async def _propose(
         tool_context.state[pending_key] = None
     try:
         user_id = _user_id(tool_context)
-        from hushh_mcp.agents.calendar.request_scope import require_action
+        from hushh_mcp.agents.calendar.request_scope import (
+            require_action,
+            scope_receipt,
+            scope_refusal,
+        )
 
         refused = await require_action(tool_context, action)
         if refused is not None:
             return refused
-        source_binding = None
+        proof = scope_receipt(tool_context)
+        if proof is None or action not in proof.get("actions", []):
+            return scope_refusal(action)
+        from hushh_mcp.agents.calendar.guest_clarification import (
+            STATE_GUEST_CLARIFICATION,
+            consume_guest_reply,
+            issuing_question,
+            remember_guests,
+        )
+
+        if clarification == "guests":
+            service, account_id = await _read_service(user_id, payload.get("account_id"))
+            binding = await _read_binding(service, user_id)
+            if not binding:
+                raise GoogleConnectionError(
+                    "Verify the Calendar account before asking for its guest.", status_code=422
+                )
+            return remember_guests(
+                tool_context,
+                account_id=account_id,
+                binding=binding,
+                proof=proof,
+                time_zone=clarification_time_zone,
+            )
+        question = issuing_question(tool_context)
+        if question is not None:
+            return question
+        source_binding = await consume_guest_reply(
+            tool_context, payload, proof=proof, requested_time_zone=clarification_time_zone
+        )
+        tool_context.state[STATE_GUEST_CLARIFICATION] = None
         if slot_ordinal is not None:
             if action != "create":
                 raise GoogleConnectionError("Slots prepare new meetings only", status_code=422)
-            source_binding = await _select_opening(
+            slot_binding = await _select_opening(
                 tool_context, user_id=user_id, payload=payload, ordinal=slot_ordinal
             )
+            if source_binding is not None and slot_binding != source_binding:
+                raise GoogleConnectionError(
+                    "Calendar changed. Check this slot again.", status_code=409
+                )
+            source_binding = slot_binding
         if action != "cancel":
-            payload["start_at"] = _calendar_iso(payload.get("start_at", ""), tool_context)
-            payload["end_at"] = _calendar_iso(payload.get("end_at", ""), tool_context)
+            payload["start_at"] = _calendar_iso(
+                payload.get("start_at", ""), tool_context, payload.get("time_zone")
+            )
+            payload["end_at"] = _calendar_iso(
+                payload.get("end_at", ""), tool_context, payload.get("time_zone")
+            )
         account_id = payload.get("account_id")
         if action != "create":
             account_id = _source_account(
@@ -1147,8 +1245,11 @@ async def _propose(
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
     display_zone = (
-        plan["time_zone"]
-        if plan.get("opening_selection") or plan.get("shared_opening_selection")
+        plan.get("time_zone", _timezone(tool_context))
+        if plan.get("opening_selection")
+        or plan.get("shared_opening_selection")
+        or clarification_time_zone is not None
+        or (action == "create" and source_binding is not None)
         else _timezone(tool_context)
     )
     summary = _proposal_summary(
@@ -1418,9 +1519,11 @@ async def calendar_invitations(
     selected_event_id: str = "",
     expected_account_email: str = "",
     account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
     """Read real received invitations; show inline results, never navigate or write.
 
+    Pass an explicit IANA time_zone and preserve returned local dates/times.
     For an RSVP request, read the relevant window first, resolve ambiguity with
     the owner, then call open_calendar_invitation with its returned ordinal.
     """
@@ -1430,12 +1533,14 @@ async def calendar_invitations(
         tool_context.state[STATE_INVITATION_OFFER] = None
         window = {}
         if start_at:
-            window["start_at"] = _calendar_iso(start_at, tool_context)
+            window["start_at"] = _calendar_iso(start_at, tool_context, time_zone)
         if end_at:
-            window["end_at"] = _calendar_iso(end_at, tool_context)
+            window["end_at"] = _calendar_iso(end_at, tool_context, time_zone)
         result = await service.invitations(
             user_id=user_id,
-            time_zone=_timezone(tool_context),
+            time_zone=normalize_time_zone(
+                time_zone if time_zone is not None else _timezone(tool_context)
+            ),
             selected_calendar_id=selected_calendar_id or None,
             selected_event_id=selected_event_id or None,
             **window,
@@ -1476,7 +1581,9 @@ async def calendar_invitations(
                 "filter": filter,
                 "accountEmail": account,
                 "accountId": account_id,
-                "timeZone": _timezone(tool_context),
+                "timeZone": normalize_time_zone(
+                    time_zone if time_zone is not None else _timezone(tool_context)
+                ),
                 "startAt": result["start_at"],
                 "endAt": result["end_at"],
             },
@@ -1493,7 +1600,9 @@ async def calendar_invitations(
             "message": "Invitations are shown inside this conversation. No response was changed. Use open_calendar_invitation to prepare the owner's requested decision; only their explicit browser confirmation can apply it.",
         }
 
-    return await _run_calendar_read(tool_context, call, account_id=account_id)
+    return await _run_calendar_read(
+        tool_context, call, account_id=account_id, display_time_zone=time_zone
+    )
 
 
 async def open_calendar_invitation(
@@ -1506,6 +1615,7 @@ async def open_calendar_invitation(
     alternative_duration_minutes: int = 0,
     organizer_message: str = "",
     account_id: str | None = None,
+    time_zone: str | None = None,
 ) -> dict[str, Any]:
     """Client-only invitation review, never RSVP, Mail preparation or delivery.
 
@@ -1515,12 +1625,6 @@ async def open_calendar_invitation(
     """
 
     async def call(user_id, service, account_id):
-        if decision != "view":
-            from hushh_mcp.agents.calendar.request_scope import require_action
-
-            refused = await require_action(tool_context, "respond")
-            if refused is not None:
-                return refused
         binding = await _read_binding(service, user_id)
         offer = current_calendar_read_offer(
             tool_context.state.get(STATE_INVITATION_OFFER),
@@ -1574,7 +1678,9 @@ async def open_calendar_invitation(
                 "accountEmail": account,
                 "accountId": account_id,
                 **({"terms": terms} if terms else {}),
-                "timeZone": _timezone(tool_context),
+                "timeZone": normalize_time_zone(
+                    time_zone if time_zone is not None else _timezone(tool_context)
+                ),
                 "startAt": start_at,
                 "endAt": end_at,
             },
@@ -1587,5 +1693,10 @@ async def open_calendar_invitation(
         }
 
     return await _run_calendar_read(
-        tool_context, call, account_id=account_id, source=(STATE_INVITATION_OFFER, "invitations")
+        tool_context,
+        call,
+        account_id=account_id,
+        source=(STATE_INVITATION_OFFER, "invitations"),
+        required_action="respond" if decision != "view" else None,
+        display_time_zone=time_zone,
     )

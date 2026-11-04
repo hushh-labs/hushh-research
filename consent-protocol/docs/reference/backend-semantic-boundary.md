@@ -13,7 +13,24 @@ booking, RSVP review or manage-permission card. Existing OAuth consent and the
 exact browser-confirmed executor remain independent. Scope refusal is recorded
 as `calendar.proposal_refused`, never as a successful provider action. Provider-free
 Chat runner tests cover enforcement; actual model interpretation and deployed
-provider behavior require separate read-only qualification.
+provider behavior require separate read-only qualification. Scripted cases vary
+wording, allowed/forbidden staging actions, retry order and restored history;
+provider event/email text is excluded from scope evidence. A blocked action does
+not replace a valid read answer. Current-turn dates use the admitted turn instant;
+UTC/local projection and slot arithmetic validate instants rather than assessing
+intent. Context-only handoffs and source offers confer no action permission.
+
+The existing proposal tool can record a typed missing-guest question only after
+an explicit create assessment. It creates no proposal and grants no execution.
+The five-minute, single-use private context follows existing encrypted ADK
+session ownership and immediate-predecessor admission. Only its next authenticated
+guest reply can continue create, with exact evidence from both messages; current
+restrictions prevail. Prose, providers and attachments cannot create this context.
+A request-only callback supplies its original words, ISO clock and requested zone
+to the planning model after recovery without changing current input or its clock.
+The host validates provenance, lifetime and exact account/grant through staging;
+the model still decides meaning and plans the review. Actual-model interpretation
+of this clarification contract remains separate from scripted enforcement tests.
 
 ### Declared: recipient-requested Finance object review
 

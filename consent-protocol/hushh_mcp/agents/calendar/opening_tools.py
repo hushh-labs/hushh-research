@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import time
-from datetime import timedelta
 from typing import Any
 
 from google.adk.tools.tool_context import ToolContext
@@ -14,7 +13,7 @@ from hushh_mcp.agents.calendar.read_offer import (
     CalendarOpeningOffer,
     CalendarSharedOpeningOffer,
 )
-from hushh_mcp.services.calendar_opening_selection import instant
+from hushh_mcp.services.calendar_opening_selection import instant, opening_options
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 
@@ -29,6 +28,7 @@ async def calendar_shared_free_slots(
 
     Ask for a missing date/duration; never invent working hours. Board supports
     15/30/60 minutes. This reads all included calendars, not invitee availability.
+    Suggestions are future-only; zero options do not prove historical time was busy.
     No destination account is required for this read. Booking needs an exact
     verified destination and the usual explicit confirmation.
     """
@@ -59,6 +59,9 @@ async def calendar_shared_free_slots(
         public = {
             "status": "ok" if result["complete"] else "incomplete",
             "complete": result["complete"],
+            "coverage_complete": result["complete"],
+            "suggestion_limit": limit,
+            "future_only": True,
             "date": result["date"],
             "time_zone": result["time_zone"],
             "duration_minutes": duration_minutes,
@@ -70,16 +73,13 @@ async def calendar_shared_free_slots(
                 **public,
                 "message": "Some accounts could not be checked. No shared free time is verified.",
             }
-        slots = [
-            {
-                "start_at": window["start_at"],
-                "end_at": (
-                    instant(window["start_at"]) + timedelta(minutes=duration_minutes)
-                ).isoformat(),
-                "available_until": window["end_at"],
-            }
-            for window in result["shared_free_windows"][:limit]
-        ]
+        options = opening_options(
+            ((instant(w["start_at"]), instant(w["end_at"])) for w in result["shared_free_windows"]),
+            duration_minutes,
+            limit,
+        )
+        public.update(coverage_complete=True, **options)
+        slots = options["openings"]
         if not slots:
             return public
         offer = CalendarSharedOpeningOffer.model_validate(
@@ -104,7 +104,7 @@ async def calendar_shared_free_slots(
                 dict(ordinal=index, **slot.model_dump())
                 for index, slot in enumerate(offer.slots, 1)
             ],
-            "bounded": len(result["shared_free_windows"]) > limit,
+            "bounded": options["suggestions_limited"],
         }
 
     return await tools._run_calendar_read(
@@ -209,8 +209,13 @@ async def select_shared_opening(
     return tuple(selected.binding)
 
 
-async def calendar_opening_detail(tool_context: ToolContext, ordinal: int) -> dict[str, Any]:
-    """Show an exact previously offered slot by position. Never prepares a booking."""
+async def calendar_opening_detail(
+    tool_context: ToolContext, ordinal: int, time_zone: str | None = None
+) -> dict[str, Any]:
+    """Show an exact previously offered slot by position. Never prepares a booking.
+
+    Default to its source zone; optional time_zone redisplays without altering the reference.
+    """
     from hushh_mcp.agents.calendar import tools
 
     async def call(user_id: str, _service: Any, _account_id: str) -> dict[str, Any]:
@@ -263,11 +268,22 @@ async def calendar_opening_detail(tool_context: ToolContext, ordinal: int) -> di
         and isinstance(raw.get("window"), dict)
         and "board_accounts" in raw["window"]
     ):
-        return await tools._run_calendar_read(tool_context, call, shared_accounts=True)
+        return await tools._run_calendar_read(
+            tool_context,
+            call,
+            shared_accounts=True,
+            display_time_zone=time_zone
+            if time_zone is not None
+            else raw["window"].get("time_zone"),
+        )
     try:
         candidate = CalendarOpeningOffer.model_validate(raw)
     except (ValidationError, TypeError, ValueError):
         return {"status": "input_required", "message": "Show available slots again."}
     return await tools._run_calendar_read(
-        tool_context, call, account_id=candidate.account_id, owner_local_only=True
+        tool_context,
+        call,
+        account_id=candidate.account_id,
+        owner_local_only=True,
+        display_time_zone=time_zone or candidate.window.time_zone,
     )

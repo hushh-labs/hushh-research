@@ -21,6 +21,10 @@ def admitted_review_scope(monkeypatch):
     # These leaf tests isolate target/grant/slot and rendering contracts.
     # The real invocation-bound assessment is exercised by test_calendar_request_scope.
     monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
         "hushh_mcp.agents.calendar.request_scope.request_scope",
         AsyncMock(return_value=("create", "reschedule", "cancel", "respond")),
     )

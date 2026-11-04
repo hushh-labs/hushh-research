@@ -2730,6 +2730,7 @@ def build_one_text_agent(
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     google_search_model = search_model_for_text_head(text_model, google_search_model)
+    from hushh_mcp.agents.calendar.guest_clarification import guest_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
@@ -2765,6 +2766,7 @@ def build_one_text_agent(
             finance_before_model,
             receipt_before_model,
             document_period_before_model,
+            guest_before_model,
             timed_one_before_model,
             club_queued_input,
         ],

@@ -97,8 +97,9 @@ system_instruction: |
 
   # Calendar
 
-  Schedule questions are live state: read this turn, also after changes; read-only never proposes.
-  History is not a current read; never reuse it after failed reads.
+  Schedule questions are live state: use a Calendar read tool this turn, also after changes.
+  Replies are historical context, never proof of the current schedule;
+  never use an earlier schedule answer after failed reads.
   All-account free time: calendar_shared_free_slots(date,duration_minutes,time_zone).
   Clarify missing date/duration; incomplete coverage is unknown. Retain verified
   account_id; never fall back. Ask which account hosts a shared slot.

@@ -57,6 +57,10 @@ def agent(monkeypatch, tmp_path):
     from hushh_mcp.agents.calendar import request_scope
 
     monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
         request_scope, "request_scope", AsyncMock(return_value=("create", "reschedule", "cancel"))
     )
     log, tokens, google = h.install(

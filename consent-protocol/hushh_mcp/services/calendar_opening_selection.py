@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Self
+from typing import Literal, Self, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -16,6 +17,53 @@ def instant(value: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError("Opening times require an offset")
     return parsed.astimezone(UTC)
+
+
+class OpeningOptions(TypedDict):
+    openings: list[dict[str, str]]
+    available_slot_count: int
+    suggestion_limit: int
+    suggestions_limited: bool
+
+
+def opening_options(
+    gaps: Iterable[tuple[datetime, datetime]], duration_minutes: int, limit: int
+) -> OpeningOptions:
+    """Expand verified free intervals into bounded, non-overlapping UTC options.
+
+    This computes suggestion counts only. The caller owns provider coverage.
+    """
+    if type(duration_minutes) is not int or not 1 <= duration_minutes <= 1440:
+        raise ValueError("Invalid slot duration")
+    if type(limit) is not int or not 1 <= limit <= 20:
+        raise ValueError("Invalid suggestion limit")
+    duration = timedelta(minutes=duration_minutes)
+    slots: list[dict[str, str]] = []
+    count = 0
+    previous_end: datetime | None = None
+    for left, right in gaps:
+        if left.tzinfo is None or right.tzinfo is None:
+            raise ValueError("Free intervals require qualified instants")
+        left, right = left.astimezone(UTC), right.astimezone(UTC)
+        if right < left or (previous_end is not None and left < previous_end):
+            raise ValueError("Free intervals must be ordered and non-overlapping")
+        previous_end = right
+        count += (right - left) // duration
+        while left + duration <= right and len(slots) < limit:
+            slots.append(
+                {
+                    "start_at": left.isoformat().replace("+00:00", "Z"),
+                    "end_at": (left + duration).isoformat().replace("+00:00", "Z"),
+                    "available_until": right.isoformat().replace("+00:00", "Z"),
+                }
+            )
+            left += duration
+    return {
+        "openings": slots,
+        "available_slot_count": count,
+        "suggestion_limit": limit,
+        "suggestions_limited": count > limit,
+    }
 
 
 class CalendarOpening(BaseModel):

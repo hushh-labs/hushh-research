@@ -527,19 +527,9 @@ class CalendarScheduleService:
         busy = await self._busy_intervals(
             user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
         )
-        duration = timedelta(minutes=duration_minutes)
-        openings, count = [], 0
-        for left, right in self._free_gaps(start, end, busy):
-            count += (right - left) // duration
-            while left + duration <= right and len(openings) < limit:
-                openings.append(
-                    {
-                        "start_at": self.calendar._utc_iso(left),
-                        "end_at": self.calendar._utc_iso(left + duration),
-                        "available_until": self.calendar._utc_iso(right),
-                    }
-                )
-                left += duration
+        from hushh_mcp.services.calendar_opening_selection import opening_options
+
+        options = opening_options(self._free_gaps(start, end, busy), duration_minutes, limit)
         await self.calendar._check_read_binding(user_id, binding)
         return {
             "time_min": start_at,
@@ -548,10 +538,7 @@ class CalendarScheduleService:
             "calendar_ids": ids,
             "coverage_policy": "board_default",
             "coverage_complete": True,
-            "suggestion_limit": limit,
-            "suggestions_limited": count > limit,
-            "available_slot_count": count,
-            "openings": openings,
+            **options,
         }
 
     async def free_windows(
@@ -678,20 +665,14 @@ class CalendarScheduleService:
             busy = await self._busy_intervals(
                 user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
             )
-            minimum = timedelta(minutes=duration_minutes)
+            from hushh_mcp.services.calendar_opening_selection import opening_options
+
             result = {
                 "time_min": GoogleCalendarService._utc_iso(start),
                 "time_max": GoogleCalendarService._utc_iso(end),
                 "duration_minutes": duration_minutes,
-                "openings": [
-                    {
-                        "start_at": GoogleCalendarService._utc_iso(left),
-                        "end_at": GoogleCalendarService._utc_iso(left + minimum),
-                        "available_until": GoogleCalendarService._utc_iso(right),
-                    }
-                    for left, right in self._free_gaps(start, end, busy)
-                    if right - left >= minimum
-                ][:20],
+                "coverage_complete": True,
+                **opening_options(self._free_gaps(start, end, busy), duration_minutes, 20),
             }
         await self.calendar._check_read_binding(user_id, binding)
         return {**result, "time_zone": time_zone, "calendars": calendars}
