@@ -1207,10 +1207,16 @@ read project identity. It cannot enter deployment, migration, image-publication 
 traffic jobs. Expose this operation in the thin callers during their coordinated
 activation; both hosted readbacks are required. Check Dev's exact environment
 branch inventory with `verify-deployment-environment-governance.py --surface dev`;
-keep `ci-security` Main-only. Until activation/readback is recorded,
-matching-branch routing is source-complete only; do not dispatch a normal release
-merely to test it. A failure in setup, authority or deployment still stops dependent
-work; independent validation assertions are collected before the final failed result.
+keep `ci-security` Main-only.
+
+Routing was qualified on 4 November: [Dev inspection](https://github.com/hushh-labs/hushh-research/actions/runs/41789084043)
+ran from `dev`, and [UAT inspection](https://github.com/hushh-labs/hushh-research/actions/runs/41790379084)
+ran from `uat`. Both passed the Main broker and authenticated project readback;
+all application deployment jobs were skipped. These receipts establish routing,
+not application-release acceptance. New caller or cloud-authority changes require
+fresh routing qualification. A failure in setup, authority or deployment still
+stops dependent work; independent validation assertions are collected before the
+final failed result.
 
 The standalone CI Security Alerts workflow and its PR receipt polling are retired.
 Rerunning PR validation does not create another workflow. Historical receipt readers
@@ -1387,6 +1393,13 @@ that release. Require both provider success and the exact SHA/policy-bound
 receipt. An unread or timed-out execution remains unconfirmed with its Job and
 execution references retained for reconciliation; do not replay it or delete
 active work merely because observation stopped.
+
+The retired One-chat deployment index is excluded from active maintenance discovery.
+On 4 November, all 1,169 retained manual runs since its 11 October introduction
+were inspected across complete, bounded date windows; none belonged to that
+producer. GitHub now returns 404 for its deleted workflow ID. Historical explicit
+run and artifact readers remain, and failures reading active producers still stop
+maintenance. This does not assert that previously deleted history never existed.
 
 UAT and production revision retirement use the existing `Capacity Maintenance` workflow,
 run hourly. Releases never trigger it. Because GitHub delivered only 3-6 of its former
