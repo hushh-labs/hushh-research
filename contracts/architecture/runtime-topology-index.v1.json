@@ -1598,7 +1598,7 @@
       "id": "one_attempt_email",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Owner-authenticated manual GET/PUT attempt-email preference. Accepted correlated client terminal reports atomically enqueue with their current epoch and explicit choice. A separately keyed environment-bound worker selects 20 pending rows and claims each under owner lifecycle/epoch/permission locks before a single provider submission. Indexed state/time maintenance is bounded to 100 rows."
+      "primary_access_path": "Owner-authenticated manual GET/PUT attempt-email preference. Accepted correlated client terminal reports atomically enqueue with their current epoch and explicit choice. A separately keyed environment-bound worker selects 20 pending rows and claims each under owner lifecycle/epoch/permission locks before a single provider submission. Indexed state/time maintenance is bounded to 100 rows. Feedback binds at most 20 accepted provider references before advancing the mailbox cursor; actual RFC/recipient-hash hard failures stop future activity mail."
     },
     {
       "data_class": "workflow_state",
@@ -7255,7 +7255,7 @@
     "action_gateway": "c3dc1aa411eea75b51c4c21ffe57dbacdbd534597c2cd89832612d87220e8717",
     "agent_registry": "003c5b217d1febfd4465e23fb19ede5b325d80b5afeccf5ecb258eee3894f388",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "533d04068d9607f23e64ac94886b8dbe3f665b4c39e0e514d66739113a938982",
+    "data_plane": "07c0ef4e8eaddde0f85cfd22f12d6c0dacc8a7e0adec95025f844fc987fdcbde",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "f36fe4ed1bf2256d5d3d7ac71c67b209aee7f16f9bc18862ac3faa8bb703fe86",
