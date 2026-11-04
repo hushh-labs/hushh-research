@@ -8,6 +8,7 @@ from unittest import mock
 import pytest
 import yaml
 
+from tests.helpers.deployment_cli import read_deploy_source
 from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -277,9 +278,7 @@ def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, 
 
 
 def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
-    workflow = yaml.safe_load(
-        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
-    )
+    workflow = yaml.safe_load(read_deploy_source(ROOT, ".github/workflows/deploy-uat.yml"))
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
     assert inspector["environment"] == {"name": "uat", "deployment": False}
@@ -299,8 +298,12 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     )
     assert validate < auth
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)
-    assert jobs["select-target"]["if"] == "inputs.operation != 'inspect'"
-    assert "inputs.operation != 'inspect'" in jobs["deployment-security"]["if"]
+    assert jobs["select-target"]["if"] == "inputs.operation == 'deploy'"
+    assert jobs["deployment-security"]["if"] == (
+        "always() && (inputs.operation == 'inspect-routing' || "
+        "(needs.select-target.result == 'success' && "
+        "needs.select-target.outputs.decision != 'NO_OP'))"
+    )
     for name in ("deploy", "wait-capacity"):
         assert (
             "select-target" in jobs[name]["needs"] and "deployment-security" in jobs[name]["needs"]
@@ -318,6 +321,15 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert step_names.index(
         "Verify exact serving base (${{ inputs.uat_base_sha }})"
     ) < step_names.index("Verify the exact UAT checkout")
+
+
+def test_deploy_config_reader_rejects_unreviewed_implementation(tmp_path):
+    relative = ".github/workflows/deploy-uat.yml"
+    wrapper = tmp_path / relative
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("jobs:\n  release:\n    uses: other/repository/workflow.yml@main\n")
+    with pytest.raises(AssertionError, match="reviewed Main implementation"):
+        read_deploy_source(tmp_path, relative)
 
 
 @pytest.mark.parametrize(

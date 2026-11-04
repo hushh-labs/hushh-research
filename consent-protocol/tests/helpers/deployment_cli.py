@@ -11,9 +11,26 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import yaml
+
 from tests.helpers.production_release_tools import (
     production_release_tools as production_release_tools,
 )
+
+
+def read_deploy_source(root: Path, relative: str) -> str:
+    """Read runtime settings through the reviewed Main workflow entrypoint."""
+    text = (root / relative).read_text(encoding="utf-8")
+    if relative not in {".github/workflows/deploy-dev.yml", ".github/workflows/deploy-uat.yml"}:
+        return text
+    release = yaml.safe_load(text)["jobs"].get("release", {})
+    if "uses" not in release:
+        return text
+    implementation = relative.removesuffix(".yml") + "-implementation.yml"
+    assert release["uses"] == f"hushh-labs/hushh-research/{implementation}@main", (
+        "Deploy entrypoint must use its reviewed Main implementation"
+    )
+    return (root / implementation).read_text(encoding="utf-8")
 
 
 def cloudrun_revision(*, name: str, service: str, sha: str, intake: str | None = None) -> dict:
