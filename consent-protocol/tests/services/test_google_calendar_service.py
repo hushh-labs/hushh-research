@@ -1942,3 +1942,141 @@ def test_malformed_edits_never_become_implicit_removals(change):
         _reschedule(service, **change)
     assert caught.value.status_code == 422
     assert requests == []
+
+
+def _opening_payload():
+    return {
+        "account_id": "account-b",
+        "calendar_id": "primary",
+        "title": "Exact slot",
+        "start_at": "2099-11-04T12:00:00Z",
+        "end_at": "2099-11-04T12:30:00Z",
+        "time_zone": "America/New_York",
+        "opening_selection": {
+            "calendar_id": "primary",
+            "calendar_ids": ["primary"],
+            "query_start": "2099-11-04T09:00:00Z",
+            "query_end": "2099-11-04T17:00:00Z",
+            "duration_minutes": 30,
+            "time_zone": "America/New_York",
+            "slot": {
+                "start_at": "2099-11-04T12:00:00Z",
+                "end_at": "2099-11-04T12:30:00Z",
+                "available_until": "2099-11-04T13:00:00Z",
+            },
+        },
+    }
+
+
+def _opening_harness():
+    service, requests, stored = _reschedule_harness(_event())
+    service.connections.account_id = "account-b"
+    service.connections.binding = (
+        "user-1",
+        "calendar",
+        "account-b",
+        "subject",
+        "connected",
+        "generation",
+        "scopes",
+    )
+    status = {"mode": "free"}
+    original = service._request
+
+    async def request(**kwargs):
+        if kwargs["path"] != "/freeBusy":
+            return await original(**kwargs)
+        requests.append(kwargs)
+        if status["mode"] == "partial":
+            return {"calendars": {}}
+        if status["mode"] == "grant":
+            service.connections.binding = (*service.connections.binding[:-1], "new-scopes")
+        return {
+            "calendars": {
+                "primary": {
+                    "busy": []
+                    if status["mode"] != "busy"
+                    else [{"start": "2099-11-04T12:00:00Z", "end": "2099-11-04T12:10:00Z"}]
+                }
+            }
+        }
+
+    service._request = request
+    return service, requests, stored, status
+
+
+@pytest.mark.parametrize("stage", ["review", "execution"])
+@pytest.mark.parametrize("mode", ["busy", "partial", "grant"])
+def test_exact_slot_revalidates_complete_live_availability_before_review_and_dispatch(stage, mode):
+    service, requests, stored, status = _opening_harness()
+    if stage == "execution":
+        review = asyncio.run(
+            service.propose(
+                user_id="user-1",
+                action="create",
+                payload=_opening_payload(),
+                expected_binding=service.connections.binding,
+            )
+        )
+        assert review["plan"]["opening_selection"] == _opening_payload()["opening_selection"]
+        requests.clear()
+    status["mode"] = mode
+    with pytest.raises(GoogleConnectionError):
+        if stage == "review":
+            asyncio.run(
+                service.propose(
+                    user_id="user-1",
+                    action="create",
+                    payload=_opening_payload(),
+                    expected_binding=service.connections.binding,
+                )
+            )
+        else:
+            asyncio.run(
+                service.execute(
+                    user_id="user-1", proposal_id="gcal_example", account_id="account-b"
+                )
+            )
+    assert not any(
+        call["method"] in {"PATCH", "DELETE"} or call["path"].endswith("/events")
+        for call in requests
+    )
+    if stage == "review":
+        assert not stored
+
+
+def test_exact_slot_confirmed_execution_uses_the_original_coverage_and_target():
+    service, requests, _, _ = _opening_harness()
+    asyncio.run(
+        service.propose(
+            user_id="user-1",
+            action="create",
+            payload=_opening_payload(),
+            expected_binding=service.connections.binding,
+        )
+    )
+    assert all(call["path"] == "/freeBusy" for call in requests)
+    result = asyncio.run(
+        service.execute(user_id="user-1", proposal_id="gcal_example", account_id="account-b")
+    )
+    reads = [call for call in requests if call["path"] == "/freeBusy"]
+    assert len(reads) == 2
+    assert all(call["payload"]["items"] == [{"id": "primary"}] for call in reads)
+    writes = [call for call in requests if call["path"].endswith("/events")]
+    assert len(writes) == 1
+    assert writes[0]["expected_binding"] == service.connections.binding
+    assert result["account_id"] == "account-b"
+
+
+def test_exact_slot_cannot_shift_interval_zone_or_coverage_in_a_review():
+    service, requests, _, _ = _opening_harness()
+    for field, replacement in [("start_at", "2099-11-04T12:01:00Z"), ("time_zone", "UTC")]:
+        payload = _opening_payload()
+        payload[field] = replacement
+        with pytest.raises(GoogleConnectionError, match="slot review changed"):
+            asyncio.run(service.propose(user_id="user-1", action="create", payload=payload))
+    payload = _opening_payload()
+    payload["opening_selection"]["calendar_ids"] = ["other"]
+    with pytest.raises(GoogleConnectionError, match="slot review changed"):
+        asyncio.run(service.propose(user_id="user-1", action="create", payload=payload))
+    assert requests == []

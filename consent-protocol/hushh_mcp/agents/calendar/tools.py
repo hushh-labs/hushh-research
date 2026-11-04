@@ -11,16 +11,22 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.tools.tool_context import ToolContext
+from pydantic import ValidationError
 
 from hushh_mcp.agents.calendar.read_offer import (
     STATE_CALENDAR_OFFER,
     STATE_EVENT_OFFER,
     STATE_INVITATION_OFFER,
+    STATE_OPENING_OFFER,
+    CalendarOpeningOffer,
+    CalendarReadOffer,
+    current_calendar_opening_offer,
     current_calendar_read_offer,
     make_calendar_read_offer,
 )
@@ -66,6 +72,94 @@ def _timezone(tool_context: ToolContext) -> str:
     return value
 
 
+class _AccountSelectionRequired(Exception):
+    def __init__(self, accounts: list[dict[str, Any]]) -> None:
+        self.accounts = accounts
+
+
+def _calendar_service(account_id: str) -> Any:
+    if not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 128:
+        raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
+    if account_id == "default":
+        return get_google_calendar_service()
+    from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
+    from hushh_mcp.services.pod_google_connections import calendar_runs_locally
+
+    if calendar_reads_via_door() or calendar_runs_locally():
+        raise GoogleConnectionError(
+            "Additional Calendar accounts are unavailable in this runtime.",
+            status_code=422,
+            reason_code="calendar_account_unavailable",
+        )
+    from hushh_mcp.services.calendar_account_board_service import account_schedule
+
+    return account_schedule(account_id).calendar
+
+
+async def _read_service(user_id: str, account_id: str | None) -> tuple[Any, str]:
+    if account_id is not None:
+        return _calendar_service(account_id), account_id
+    service = _calendar_service("default")
+    # Single-account ports (including owner cloud) retain their existing contract.
+    inventory = getattr(getattr(service, "connections", None), "calendar_accounts_status", None)
+    if callable(inventory):
+        status = await inventory(user_id=user_id)
+        accounts = [
+            {
+                "account_id": item["account_id"],
+                "account_email": item.get("google_email"),
+                "status": item.get("status"),
+            }
+            for item in status.get("accounts", [])
+            if isinstance(item, dict) and item.get("account_id")
+        ]
+        if len(accounts) > 1:
+            raise _AccountSelectionRequired(accounts)
+        if accounts:
+            account_id = accounts[0]["account_id"]
+            return _calendar_service(account_id), account_id
+    return service, "default"
+
+
+def _source_account(
+    tool_context: ToolContext,
+    *,
+    key: str,
+    kind: Literal["events", "calendars", "invitations"],
+    user_id: str,
+    requested: str | None,
+) -> str:
+    try:
+        candidate = CalendarReadOffer.model_validate(tool_context.state.get(key))
+    except (ValidationError, TypeError, ValueError):
+        candidate = None
+    if (
+        candidate is None
+        or current_calendar_read_offer(
+            candidate.model_dump(),
+            kind=kind,
+            owner_id=user_id,
+            conversation_id=_conversation_id(tool_context),
+            grant_binding=tuple(candidate.grant_binding),
+        )
+        is None
+    ):
+        raise GoogleConnectionError(
+            "Show this Calendar list again before choosing a reference.",
+            status_code=422,
+            reason_code="calendar_event_offer_required"
+            if kind == "events"
+            else "calendar_list_offer_required",
+        )
+    if requested is not None and requested != candidate.account_id:
+        raise GoogleConnectionError(
+            "This reference belongs to a different Calendar account. Show the requested account again.",
+            status_code=422,
+            reason_code="calendar_account_mismatch",
+        )
+    return candidate.account_id
+
+
 async def _read_binding(service: Any, user_id: str) -> tuple[str, ...] | None:
     connections = getattr(service, "connections", None)
     binding_reader = getattr(connections, "read_grant_binding", None)
@@ -108,6 +202,7 @@ def _remember_offer(
     binding: tuple[str, ...] | None,
     ids: list[str],
     calendar_id: str = "primary",
+    account_id: str = "default",
 ) -> None:
     tool_context.state[key] = (
         make_calendar_read_offer(
@@ -117,6 +212,7 @@ def _remember_offer(
             grant_binding=binding or (),
             ids=ids,
             calendar_id=calendar_id,
+            account_id=account_id,
         )
         if binding
         else None
@@ -136,12 +232,14 @@ def _connection_directive(
     confirm_label: str | None = None,
     reason_code: str | None = None,
     include_calendar_list: bool = False,
+    account_id: str = "default",
 ) -> dict[str, Any]:
     directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
         "payload": {
             "type": "calendar.connect",
+            "accountId": account_id,
             "accessLevel": access_level,
             "reasonCode": reason_code,
             "includeCalendarList": include_calendar_list,
@@ -167,6 +265,7 @@ def _handle_connection_error(
     exc: GoogleConnectionError,
     *,
     access_level: str,
+    account_id: str = "default",
 ) -> dict[str, Any] | None:
     if exc.reason_code not in {
         "google_not_connected",
@@ -186,6 +285,7 @@ def _handle_connection_error(
             confirm_label="Allow calendar list access",
             reason_code=exc.reason_code,
             include_calendar_list=True,
+            account_id=account_id,
         )
     label = "scheduling and editing events" if access_level == "manage" else "reading events"
     if exc.reason_code in {"google_permission_required", "calendar_permission_required"}:
@@ -202,6 +302,7 @@ def _handle_connection_error(
         access_level=access_level,
         message=message,
         reason_code=exc.reason_code,
+        account_id=account_id,
     )
 
 
@@ -240,10 +341,12 @@ async def _serve_via_door(
 
 async def _run_calendar_read(
     tool_context: ToolContext,
-    call: Callable[[str], Awaitable[dict[str, Any]]],
+    call: Callable[[str, Any, str], Awaitable[dict[str, Any]]],
     *,
     calendar_read: dict[str, Any] | Callable[[], dict[str, Any]] | None = None,
     owner_local_only: bool = False,
+    account_id: str | None = None,
+    source: tuple[str, Literal["events", "calendars", "invitations"]] | None = None,
 ) -> dict[str, Any]:
     """Resolve the user id and run a Calendar read call inside one error
     boundary, converting any failure into a clean result instead of letting
@@ -261,10 +364,14 @@ async def _run_calendar_read(
     """
     try:
         user_id = _user_id(tool_context)
+        if source is not None:
+            account_id = _source_account(
+                tool_context, key=source[0], kind=source[1], user_id=user_id, requested=account_id
+            )
         if callable(calendar_read):
             calendar_read = calendar_read()
         async with asyncio.timeout(25):
-            if owner_local_only:
+            if owner_local_only or account_id not in {None, "default"}:
                 from hushh_mcp.one_adk.pod_connector_tools import calendar_reads_via_door
 
                 if calendar_reads_via_door():
@@ -275,11 +382,21 @@ async def _run_calendar_read(
             served = await _serve_via_door(tool_context, calendar_read)
             if served is not None:
                 return served
-            return await call(user_id)
+            service, account_id = await _read_service(user_id, account_id)
+            return {**await call(user_id, service, account_id), "account_id": account_id}
+    except _AccountSelectionRequired as exc:
+        return {
+            "status": "input_required",
+            "reason_code": "calendar_account_required",
+            "accounts": exc.accounts,
+            "message": "Which connected Calendar account should I use?",
+        }
     except TimeoutError:
         return {"status": "timeout", "message": "Calendar took too long. Please try again."}
     except GoogleConnectionError as exc:
-        directive = _handle_connection_error(tool_context, exc, access_level="read")
+        directive = _handle_connection_error(
+            tool_context, exc, access_level="read", account_id=account_id or "default"
+        )
         if directive is not None:
             return directive
         logger.warning("one_adk_calendar_call_failed status=%s", exc.status_code)
@@ -311,7 +428,10 @@ async def _run_calendar_read(
                 }
             return {
                 "status": "input_required",
-                "message": "I need a valid Calendar date, time, or selection to check that.",
+                "reason_code": exc.reason_code,
+                "message": str(exc)
+                if exc.reason_code in {"calendar_account_mismatch", "calendar_account_unavailable"}
+                else "I need a valid Calendar date, time, or selection to check that.",
             }
         return {"status": "failed", "message": _CALENDAR_UNAVAILABLE_MESSAGE}
     except Exception as exc:  # noqa: BLE001 - keep provider information out of diagnostics
@@ -346,13 +466,14 @@ def _calendar_iso(value: str, tool_context: ToolContext) -> str:
         ) from exc
 
 
-async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str, Any]:
+async def calendar_summary(
+    tool_context: ToolContext, days: int = 7, account_id: str | None = None
+) -> dict[str, Any]:
     """Get calendar events for the next 1–31 days so One can summarize them."""
     start_at, end_at = _iso_window(tool_context, days)
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         tool_context.state[STATE_EVENT_OFFER] = None
-        service = get_google_calendar_service()
         before = await _read_binding(service, user_id)
         result = await service.list_events(
             user_id=user_id, start_at=start_at, end_at=end_at, max_results=EVENT_PAGE_MAX
@@ -364,6 +485,7 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
             kind="events",
             user_id=user_id,
             binding=before,
+            account_id=account_id,
             ids=[item.get("id") or "" for item in result.get("events", [])],
         )
         return {"status": "ok", "range_start": start_at, "range_end": end_at, **result}
@@ -371,6 +493,7 @@ async def calendar_summary(tool_context: ToolContext, days: int = 7) -> dict[str
     return await _run_calendar_read(
         tool_context,
         _call,
+        account_id=account_id,
         calendar_read={"operation": "events", "start_at": start_at, "end_at": end_at},
     )
 
@@ -414,6 +537,7 @@ async def calendar_events(
     calendar_id: str = "primary",
     calendar_ordinal: int | None = None,
     page_token: str | None = None,
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """List events in an exact ISO-8601, time-zone-qualified interval.
 
@@ -425,9 +549,8 @@ async def calendar_events(
     guessing one.
     """
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         tool_context.state[STATE_EVENT_OFFER] = None
-        service = get_google_calendar_service()
         selected_id = await _event_calendar_id(
             tool_context, service, user_id, calendar_id, calendar_ordinal
         )
@@ -448,6 +571,7 @@ async def calendar_events(
             kind="events",
             user_id=user_id,
             binding=before,
+            account_id=account_id,
             ids=[item.get("id") or "" for item in result.get("events", [])],
             calendar_id=selected_id,
         )
@@ -459,6 +583,8 @@ async def calendar_events(
     return await _run_calendar_read(
         tool_context,
         _call,
+        account_id=account_id,
+        source=(STATE_CALENDAR_OFFER, "calendars") if calendar_ordinal is not None else None,
         calendar_read=lambda: {
             "operation": "events",
             "query": query,
@@ -473,13 +599,15 @@ async def calendar_events(
 
 
 async def calendar_calendars(
-    tool_context: ToolContext, limit: int = 50, page_token: str | None = None
+    tool_context: ToolContext,
+    limit: int = 50,
+    page_token: str | None = None,
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """List subscribed calendars before selecting a secondary calendar."""
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         tool_context.state[STATE_CALENDAR_OFFER] = None
-        service = get_google_calendar_service()
         before = await _read_binding(service, user_id)
         result = await service.list_calendars(
             user_id=user_id, max_results=_bounded_limit(limit), page_token=page_token
@@ -491,6 +619,7 @@ async def calendar_calendars(
             kind="calendars",
             user_id=user_id,
             binding=before,
+            account_id=account_id,
             ids=[item.get("id") or "" for item in result.get("calendars", [])],
         )
         return {
@@ -498,14 +627,17 @@ async def calendar_calendars(
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call, owner_local_only=True)
+    return await _run_calendar_read(
+        tool_context, _call, owner_local_only=True, account_id=account_id
+    )
 
 
-async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict[str, Any]:
+async def calendar_event_detail(
+    tool_context: ToolContext, ordinal: int, account_id: str | None = None
+) -> dict[str, Any]:
     """Read one exact event by its position in the last owner-visible list."""
 
-    async def _call(user_id: str) -> dict[str, Any]:
-        service = get_google_calendar_service()
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         binding = await _read_binding(service, user_id)
         offer = current_calendar_read_offer(
             tool_context.state.get(STATE_EVENT_OFFER),
@@ -531,7 +663,13 @@ async def calendar_event_detail(tool_context: ToolContext, ordinal: int) -> dict
             **result,
         }
 
-    return await _run_calendar_read(tool_context, _call, owner_local_only=True)
+    return await _run_calendar_read(
+        tool_context,
+        _call,
+        owner_local_only=True,
+        account_id=account_id,
+        source=(STATE_EVENT_OFFER, "events"),
+    )
 
 
 def _bounded_limit(value: object) -> int:
@@ -549,13 +687,14 @@ async def calendar_availability(
     tool_context: ToolContext,
     start_at: str,
     end_at: str,
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """Check busy periods in an exact ISO-8601, time-zone-qualified interval."""
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
         return {
             "status": "ok",
-            **await get_google_calendar_service().freebusy(
+            **await service.freebusy(
                 user_id=user_id,
                 start_at=_calendar_iso(start_at, tool_context),
                 end_at=_calendar_iso(end_at, tool_context),
@@ -565,6 +704,7 @@ async def calendar_availability(
     return await _run_calendar_read(
         tool_context,
         _call,
+        account_id=account_id,
         calendar_read=lambda: {
             "operation": "availability",
             "start_at": _calendar_iso(start_at, tool_context),
@@ -579,6 +719,7 @@ async def calendar_free_slots(
     end_at: str,
     duration_minutes: int,
     limit: int = 3,
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """Find the earliest 1–20 open slots in an exact time window.
 
@@ -588,21 +729,59 @@ async def calendar_free_slots(
     so the browser still presents the final explicit confirmation.
     """
 
-    async def _call(user_id: str) -> dict[str, Any]:
+    # Even an invalid or failed replacement must retire the old selection.
+    tool_context.state[STATE_OPENING_OFFER] = None
+
+    async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
+        before = await _read_binding(service, user_id)
+        start = _calendar_iso(start_at, tool_context)
+        end = _calendar_iso(end_at, tool_context)
+        result = await service.find_openings(
+            user_id=user_id,
+            start_at=start,
+            end_at=end,
+            duration_minutes=duration_minutes,
+            limit=limit,
+            **({"expected_binding": before} if before else {}),
+        )
+        await _check_stable_binding(service, user_id, before)
+        if before and result.get("openings"):
+            try:
+                offer = CalendarOpeningOffer.model_validate(
+                    {
+                        "owner_id": user_id,
+                        "conversation_id": _conversation_id(tool_context),
+                        "account_id": account_id,
+                        "grant_binding": list(before),
+                        "created_at_ms": int(time.time() * 1000),
+                        "window": {
+                            "calendar_id": "primary",
+                            "calendar_ids": ["primary"],
+                            "query_start": start,
+                            "query_end": end,
+                            "duration_minutes": duration_minutes,
+                            "time_zone": _timezone(tool_context),
+                        },
+                        "slots": result["openings"],
+                    }
+                )
+            except (ValidationError, TypeError, ValueError) as exc:
+                raise GoogleConnectionError(
+                    "Calendar openings could not be verified", status_code=502
+                ) from exc
+            tool_context.state[STATE_OPENING_OFFER] = offer.model_dump(mode="json")
         return {
             "status": "ok",
-            **await get_google_calendar_service().find_openings(
-                user_id=user_id,
-                start_at=_calendar_iso(start_at, tool_context),
-                end_at=_calendar_iso(end_at, tool_context),
-                duration_minutes=duration_minutes,
-                limit=limit,
-            ),
+            **result,
+            "calendar_id": "primary",
+            "calendar_ids": ["primary"],
+            "time_zone": _timezone(tool_context),
         }
 
     return await _run_calendar_read(
         tool_context,
         _call,
+        account_id=account_id,
         calendar_read=lambda: {
             "operation": "openings",
             "start_at": _calendar_iso(start_at, tool_context),
@@ -616,17 +795,20 @@ async def calendar_free_slots(
 async def propose_calendar_event(
     tool_context: ToolContext,
     title: str,
-    start_at: str,
-    end_at: str,
+    start_at: str = "",
+    end_at: str = "",
     attendees: list[str] | None = None,
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
-    account_id: str = "default",
+    account_id: str | None = None,
     calendar_id: str | None = None,
+    slot_ordinal: int | None = None,
 ) -> dict[str, Any]:
     """Prepare a meeting for review. It is not created until the owner confirms.
 
+    For a previously offered slot, supply slot_ordinal and omit start_at/end_at.
+    The private offer supplies its exact account, calendar, UTC interval and zone.
     Preserve a title and description supplied by the owner. Otherwise, write
     for every guest who will see the Calendar invitation: use a neutral topic
     or "Meeting with <verified inviter name>" (not the guest's own name), and
@@ -648,6 +830,7 @@ async def propose_calendar_event(
             "send_updates": send_updates,
         },
         tool_context=tool_context,
+        slot_ordinal=slot_ordinal,
     )
 
 
@@ -661,7 +844,7 @@ async def propose_calendar_reschedule(
     description: str | None = None,
     location: str | None = None,
     send_updates: bool = True,
-    account_id: str = "default",
+    account_id: str | None = None,
     calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare a reschedule for a real event id. It is not changed until confirmed.
@@ -694,7 +877,7 @@ async def propose_calendar_cancellation(
     tool_context: ToolContext,
     event_id: str,
     send_updates: bool = True,
-    account_id: str = "default",
+    account_id: str | None = None,
     calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Prepare cancellation of a real event id. It is not cancelled until confirmed."""
@@ -710,11 +893,71 @@ async def propose_calendar_cancellation(
     )
 
 
+async def _select_opening(
+    tool_context: ToolContext,
+    *,
+    user_id: str,
+    payload: dict[str, Any],
+    ordinal: int,
+) -> tuple[str, ...]:
+    message = "Show available slots again, then choose one from that list."
+    try:
+        candidate = CalendarOpeningOffer.model_validate(tool_context.state.get(STATE_OPENING_OFFER))
+    except (ValidationError, TypeError, ValueError) as exc:
+        raise GoogleConnectionError(
+            message, status_code=422, reason_code="calendar_opening_offer_required"
+        ) from exc
+    offer = current_calendar_opening_offer(
+        candidate.model_dump(),
+        owner_id=user_id,
+        conversation_id=_conversation_id(tool_context),
+        grant_binding=tuple(candidate.grant_binding),
+    )
+    slot = offer.slot_at(ordinal) if offer else None
+    if offer is None or slot is None:
+        raise GoogleConnectionError(
+            message, status_code=422, reason_code="calendar_opening_offer_required"
+        )
+    if payload.get("start_at") or payload.get("end_at"):
+        raise GoogleConnectionError(
+            "Choose a slot by position without replacing its times.", status_code=422
+        )
+    if (
+        payload.get("account_id") not in {None, offer.account_id}
+        or payload.get("calendar_id") != offer.window.calendar_id
+    ):
+        raise GoogleConnectionError(
+            "This slot belongs to a different Calendar target. Check openings again.",
+            status_code=422,
+        )
+    binding = await _read_binding(_calendar_service(offer.account_id), user_id)
+    if binding != tuple(offer.grant_binding):
+        tool_context.state[STATE_OPENING_OFFER] = None
+        raise GoogleConnectionError(
+            "Calendar connection changed. Check openings again.", status_code=409
+        )
+    payload.update(
+        {
+            "account_id": offer.account_id,
+            "calendar_id": offer.window.calendar_id,
+            "start_at": slot.start_at,
+            "end_at": slot.end_at,
+            "time_zone": offer.window.time_zone,
+            "opening_selection": {
+                **offer.window.model_dump(mode="json"),
+                "slot": slot.model_dump(mode="json"),
+            },
+        }
+    )
+    return binding
+
+
 async def _propose(
     *,
     action: Literal["create", "reschedule", "cancel"],
     payload: dict[str, Any],
     tool_context: ToolContext,
+    slot_ordinal: int | None = None,
 ) -> dict[str, Any]:
     from hushh_mcp.one_adk.pod_connector_tools import (
         calendar_reads_via_door,
@@ -731,25 +974,28 @@ async def _propose(
     if tool_context.state.get(pending_key) is not None:
         tool_context.state[pending_key] = None
     try:
+        user_id = _user_id(tool_context)
+        source_binding = None
+        if slot_ordinal is not None:
+            if action != "create":
+                raise GoogleConnectionError("Slots prepare new meetings only", status_code=422)
+            source_binding = await _select_opening(
+                tool_context, user_id=user_id, payload=payload, ordinal=slot_ordinal
+            )
         if action != "cancel":
             payload["start_at"] = _calendar_iso(payload.get("start_at", ""), tool_context)
             payload["end_at"] = _calendar_iso(payload.get("end_at", ""), tool_context)
-        user_id = _user_id(tool_context)
-        service = get_google_calendar_service()
-        account_id = payload.get("account_id", "default")
-        if account_id != "default":
-            from hushh_mcp.services.pod_google_connections import calendar_runs_locally
-
-            if calendar_runs_locally():
-                raise GoogleConnectionError(
-                    "Additional Calendar accounts are unavailable in this runtime.",
-                    status_code=422,
-                    reason_code="calendar_account_unavailable",
-                )
-            from hushh_mcp.services.calendar_account_board_service import account_schedule
-
-            service = account_schedule(account_id).calendar
-        source_binding = None
+        account_id = payload.get("account_id")
+        if action != "create":
+            account_id = _source_account(
+                tool_context,
+                key=STATE_EVENT_OFFER,
+                kind="events",
+                user_id=user_id,
+                requested=account_id,
+            )
+        service, account_id = await _read_service(user_id, account_id)
+        payload["account_id"] = account_id
         if action != "create":
             binding = await _read_binding(service, user_id)
             offer = current_calendar_read_offer(
@@ -777,6 +1023,13 @@ async def _propose(
             payload=payload,
             **({"expected_binding": source_binding} if source_binding else {}),
         )
+    except _AccountSelectionRequired as exc:
+        return {
+            "status": "input_required",
+            "reason_code": "calendar_account_required",
+            "accounts": exc.accounts,
+            "message": "Which connected Calendar account should I use?",
+        }
     except GoogleConnectionError as exc:
         if exc.status_code == 422:
             return {
@@ -784,7 +1037,12 @@ async def _propose(
                 "reason_code": exc.reason_code or "calendar_invalid_request",
                 "message": str(exc),
             }
-        directive = _handle_connection_error(tool_context, exc, access_level="manage")
+        directive = _handle_connection_error(
+            tool_context,
+            exc,
+            access_level="manage",
+            account_id=payload.get("account_id") or "default",
+        )
         if directive is not None:
             return directive
         logger.warning(
@@ -824,11 +1082,12 @@ async def _propose(
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
+    display_zone = plan["time_zone"] if plan.get("opening_selection") else _timezone(tool_context)
     summary = _proposal_summary(
         action=action,
         plan=plan,
         conflicts=conflicts,
-        display_time_zone=_timezone(tool_context),
+        display_time_zone=display_zone,
     )
     event_fields = _directive_event_fields(action=action, plan=plan)
     # New events always request a unique Google Meet conference after the
@@ -857,7 +1116,7 @@ async def _propose(
             "title": event_fields["title"],
             "startAt": event_fields["startAt"],
             "endAt": event_fields["endAt"],
-            "timeZone": _timezone(tool_context),
+            "timeZone": display_zone,
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
             "description": event_fields["description"],
@@ -1085,6 +1344,7 @@ async def calendar_invitations(
     selected_calendar_id: str = "",
     selected_event_id: str = "",
     expected_account_email: str = "",
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """Read real received invitations; show inline results, never navigate or write.
 
@@ -1092,8 +1352,7 @@ async def calendar_invitations(
     the owner, then call open_calendar_invitation with its returned ordinal.
     """
 
-    async def call(user_id):
-        service = get_google_calendar_service()
+    async def call(user_id, service, account_id):
         binding = await _read_binding(service, user_id)
         tool_context.state[STATE_INVITATION_OFFER] = None
         window = {}
@@ -1128,6 +1387,7 @@ async def calendar_invitations(
             kind="invitations",
             user_id=user_id,
             binding=binding,
+            account_id=account_id,
             ids=[
                 json.dumps(
                     [e["calendar_id"], e["id"], result["start_at"], result["end_at"], account]
@@ -1142,6 +1402,7 @@ async def calendar_invitations(
                 "type": "calendar.invitations",
                 "filter": filter,
                 "accountEmail": account,
+                "accountId": account_id,
                 "timeZone": _timezone(tool_context),
                 "startAt": result["start_at"],
                 "endAt": result["end_at"],
@@ -1159,7 +1420,7 @@ async def calendar_invitations(
             "message": "Invitations are shown inside this conversation. No response was changed. Use open_calendar_invitation to prepare the owner's requested decision; only their explicit browser confirmation can apply it.",
         }
 
-    return await _run_calendar_read(tool_context, call)
+    return await _run_calendar_read(tool_context, call, account_id=account_id)
 
 
 async def open_calendar_invitation(
@@ -1171,6 +1432,7 @@ async def open_calendar_invitation(
     alternative_end_time: str = "",
     alternative_duration_minutes: int = 0,
     organizer_message: str = "",
+    account_id: str | None = None,
 ) -> dict[str, Any]:
     """Client-only invitation review, never RSVP, Mail preparation or delivery.
 
@@ -1179,8 +1441,7 @@ async def open_calendar_invitation(
     confirmation. No Calendar text can authorize a provider action here.
     """
 
-    async def call(user_id):
-        service = get_google_calendar_service()
+    async def call(user_id, service, account_id):
         binding = await _read_binding(service, user_id)
         offer = current_calendar_read_offer(
             tool_context.state.get(STATE_INVITATION_OFFER),
@@ -1232,6 +1493,7 @@ async def open_calendar_invitation(
                 "eventId": event_id,
                 "decision": decision,
                 "accountEmail": account,
+                "accountId": account_id,
                 **({"terms": terms} if terms else {}),
                 "timeZone": _timezone(tool_context),
                 "startAt": start_at,
@@ -1245,4 +1507,6 @@ async def open_calendar_invitation(
             "message": "Review this invitation in the current conversation. Nothing has been changed or sent.",
         }
 
-    return await _run_calendar_read(tool_context, call)
+    return await _run_calendar_read(
+        tool_context, call, account_id=account_id, source=(STATE_INVITATION_OFFER, "invitations")
+    )
