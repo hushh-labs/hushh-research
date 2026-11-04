@@ -147,7 +147,7 @@ export function SelectedContactsSheet({
                 const busy = busyUserId === recipient.userId;
                 return (
                   <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
-                    <ContactAvatar
+                    <ContactAvatar userId={recipient.userId}
                       label={label}
                       photoUrl={recipient.photoUrl}
                       verified={Boolean(recipient.isRia)}

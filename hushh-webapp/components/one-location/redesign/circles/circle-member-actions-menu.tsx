@@ -1,7 +1,7 @@
 "use client";
+import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { DirectMessageLink } from "@/components/direct-messages/direct-message-link";
 
-import Link from "next/link";
 
 /**
  * Every actionable row uses the same three-dot trigger. The action surface
@@ -101,6 +101,7 @@ import {
   CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
   CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
 } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { resolvePersonRefFromProfilePathname } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { LOCATION_ACTION_SHAPE } from "../location-action-styles";
 import { withLocationTypography } from "../location-typography";
@@ -358,7 +359,7 @@ export function CircleMemberActionsMenu({
                     left this to proximity, and proximity is the one thing a
                     roster of near-identical rows cannot carry. */}
                 <div className="flex items-center gap-3 pb-2">
-                  <ConnectionPersonAvatar
+                  <ConnectionPersonAvatar personRef={resolvePersonRefFromProfilePathname(profileHref)}
                     label={displayName}
                     photoUrl={photoUrl}
                     verified={verified}
@@ -397,11 +398,10 @@ export function CircleMemberActionsMenu({
                     className={cn("w-full overflow-hidden border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]", LOCATION_ACTION_SHAPE)}
                   >
                   {profileHref ? (
-                    <Link
+                    <PersonProfileLink
                       href={profileHref}
                       role="menuitem"
                       className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
-                      onClick={() => closeSheet()}
                       data-testid="circle-member-view-profile"
                     >
                       <UserRound
@@ -409,7 +409,7 @@ export function CircleMemberActionsMenu({
                         aria-hidden="true"
                       />
                       View profile
-                    </Link>
+                    </PersonProfileLink>
                   ) : null}
                   {profileHref && messageHref ? (
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />

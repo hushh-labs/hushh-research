@@ -254,6 +254,8 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
     onCancel,
     onSelectionChange,
     onReadyChange,
+    initialLatitude,
+    initialLongitude,
     confirmLabel,
     cancelLabel,
   }: {
@@ -270,6 +272,8 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
       address: string;
     }) => void;
     onReadyChange?: (ready: boolean) => void;
+    initialLatitude: number;
+    initialLongitude: number;
     confirmLabel?: string;
     cancelLabel?: string;
   }) => {
@@ -299,7 +303,7 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
     }, [onReadyChange, onSelectionChange, picked]);
 
     return (
-      <div aria-label="Mock location picker">
+      <div aria-label="Mock location picker" data-initial-point={`${initialLatitude},${initialLongitude}`}>
         {confirmLabel ? (
           <button type="button" onClick={() => onConfirm(picked)}>
             {confirmLabel}
@@ -987,7 +991,6 @@ function holdNextCapture(): () => void {
 
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
-  fireEvent.click(await screen.findByRole("button", { name: "Use my location" }));
   const later = await screen.findByRole("button", { name: "Set up later" });
   await waitFor(() => expect(later).toBeEnabled());
   fireEvent.click(later);
@@ -3393,13 +3396,12 @@ describe("OneLocationAgentPage", () => {
     const activeRecipientRow = within(alreadySharing)
       .getByText("Trusted B")
       .closest('[data-testid="settings-row"]');
-    expect(activeRecipientRow?.firstElementChild).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    // Selection is unavailable, while the independent portrait remains enabled.
+    expect(activeRecipientRow?.firstElementChild).not.toHaveAttribute("aria-disabled", "true");
     expect(
-      within(alreadySharing).queryByRole("button"),
+      within(alreadySharing).queryByRole("button", { name: /^Select / }),
     ).toBeNull();
+    expect(within(alreadySharing).getByRole("button", { name: "View Trusted B's profile" })).toBeEnabled();
   });
 
   it("keeps one flat list when nobody can see you yet", async () => {
@@ -4575,7 +4577,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
     fireEvent.click(
-      await screen.findByRole("button", { name: /Trusted B/i }),
+      await screen.findByRole("button", { name: "Select Trusted B", exact: true }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Add 1 person" }));
 
@@ -4988,6 +4990,7 @@ describe("OneLocationAgentPage", () => {
         name: "Your place.",
       }),
     ).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     expect(await screen.findByTestId("one-location-onboarding-ready")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
@@ -5143,7 +5146,9 @@ describe("OneLocationAgentPage", () => {
     mockGetPermissionState.mockResolvedValue({ state: "granted", precise: null, background: "foreground-only", locationServicesEnabled: true });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Set up later" }));
+    await screen.findByLabelText("Mock location picker");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     await expectLocationInviteStep();
     expect(screen.queryByTestId("one-location-onboarding-save-place-surface")).toBeNull();
     await waitFor(() => expect(screen.queryByTestId("save-location-modal")).toBeNull());
@@ -5174,8 +5179,9 @@ describe("OneLocationAgentPage", () => {
     mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultKey: null, vaultOwnerToken: null });
     render(<OneLocationAgentPage mode="setup" />);
     await openLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Use my location" }));
+    await screen.findByLabelText("Mock location picker");
     await waitFor(() => expect(screen.getByRole("button", { name: "Set up later" })).toBeEnabled());
+    expect(screen.getByLabelText("Mock location picker")).toHaveAttribute("data-initial-point", "28.6139,77.209");
     fireEvent.click(screen.getByRole("button", { name: "Set up later" }));
     await expectLocationInviteStep();
     expect(mockCaptureCurrentPosition).toHaveBeenCalled();
@@ -7270,9 +7276,9 @@ describe("OneLocationAgentPage", () => {
       name: /Select Advisor C/i,
     });
     expect(advisorAction).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(within(advisorAction).getByText("Advisor C"));
+    fireEvent.click(advisorAction);
     expect(advisorAction).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(within(advisorAction).getByText("Advisor C"));
+    fireEvent.click(advisorAction);
     expect(advisorAction).toHaveAttribute("aria-pressed", "false");
     expect(advisorAction.querySelector("button")).toBeNull();
     const advisorRow = advisorAction.closest('[role="listitem"]');
@@ -8202,8 +8208,9 @@ describe("OneLocationAgentPage", () => {
     await switchLocationTab("People", "People");
 
     const search = await screen.findByPlaceholderText(/Search people/i);
-    const person = await screen.findByText("Trusted B");
-    expect(screen.getByTestId("one-location-people-list")).not.toHaveClass(
+    const peopleList = await screen.findByTestId("one-location-people-list");
+    expect(within(peopleList).getByText("Trusted B")).toBeTruthy();
+    expect(peopleList).not.toHaveClass(
       "overflow-y-auto",
     );
 
@@ -8211,7 +8218,7 @@ describe("OneLocationAgentPage", () => {
     // buttons, which read as page search rather than list search. Nothing
     // focusable may sit between the field and the list it filters.
     expect(
-      search.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING,
+      search.compareDocumentPosition(peopleList) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     const addPeople = screen.getByRole("button", {
       name: /Add or manage people/i,
@@ -8222,9 +8229,9 @@ describe("OneLocationAgentPage", () => {
       (el) =>
         el !== search &&
         el !== addPeople &&
-        !el.contains(person) &&
+          !peopleList.contains(el) &&
         search.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING &&
-        person.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
+          peopleList.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING,
     );
     expect(between).toHaveLength(0);
 

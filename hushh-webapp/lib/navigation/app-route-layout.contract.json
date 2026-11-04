@@ -3778,7 +3778,7 @@
         "callbackError": "Use the verified current route and its generated actions only.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "The two-screen Location introduction finishes when its completion marker is saved and the setup hub settles. Your place requests foreground access only on a tap, saves through the existing transaction, or advances with Set up later. Denial never blocks completion. Optional details, contacts and join tasks use sheets; no sharing starts implicitly.",
+      "completionBoundary": "The two-screen Location introduction finishes when its completion marker is saved and the setup hub settles. Your place requests foreground access on entry, offers a retry if needed, saves through the existing transaction, or advances with Set up later. Denial never blocks completion. Optional details, contacts and join tasks use sheets; no sharing starts implicitly.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

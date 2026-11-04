@@ -15,6 +15,7 @@
  *    envelope. Nothing here is derived from transcript text.
  */
 
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Loader2, MapPinCheck, UserRound } from "@/components/icons";
 
@@ -530,7 +531,7 @@ export function CheckInFlow({
                   const checked = recipient.userId === selectedUserId;
                   return (
                     <li key={recipient.userId}>
-                      <button
+                      <PersonSelectionSurface
                         type="button"
                         role="radio"
                         aria-checked={checked}
@@ -543,7 +544,7 @@ export function CheckInFlow({
                           !ready && "opacity-60",
                         )}
                       >
-                        <AvatarBubble
+                        <AvatarBubble userId={recipient.userId}
                           initials={initialsFor(recipient.displayName)}
                           imageUrl={recipient.photoUrl}
                           size={32}
@@ -561,7 +562,7 @@ export function CheckInFlow({
                         {ready ? (
                           <StatusPill tone="ready">Ready</StatusPill>
                         ) : null}
-                      </button>
+                      </PersonSelectionSurface>
                     </li>
                   );
                 })}

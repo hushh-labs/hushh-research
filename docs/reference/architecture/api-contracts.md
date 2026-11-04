@@ -1,5 +1,16 @@
 # API Contracts
 
+## Feed counterpart profile presentation
+
+Feed metadata may include `counterpart_person_ref`, resolved at read time from
+the viewer-scoped retained counterpart mapping and `actor_profiles`. This is
+the same public reference accepted by `/people/[personRef]`; internal user IDs
+remain excluded from the Feed DTO. Missing or erased profiles clear the
+reference, including when the older-schema fallback runs. Profile viewing uses
+the existing public profile and authenticated relationship/consent endpoints;
+it grants no access to shared information by itself. No schema migration or new
+route is required.
+
 ## Finance sharing with connections
 
 `FinanceSharingService` uses `ApiService.apiFetch` on Web, iOS and Android.

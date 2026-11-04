@@ -10,6 +10,7 @@ import {
 } from "./fixtures/product-font";
 import { assertThinFocusedCircleType } from "./helpers/circle-type-focus";
 import { assertConnectionRemoveDialog } from "./helpers/connection-remove-dialog";
+import { assertMutualListLayout } from "./helpers/mutual-list-layout";
 
 /** Production Connect page against synthetic identity/network boundaries. */
 const WIDTHS = [320, 375, 393, 430, 640, 768, 1440] as const;
@@ -182,12 +183,11 @@ for (const width of [393, 1440]) {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
-    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 });
+    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => { document.documentElement.dataset.longMutualName = "1"; });
     await expect(page).toHaveTitle("Connect layout fixture");
     await page.getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
     await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
-    await expect(page.getByText("20 of 25 shown")).toBeVisible();
-    if (process.env.MUTUAL_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.MUTUAL_EVIDENCE_DIR, `mutual-list-top-${width}.png`) });
+    await assertMutualListLayout(page, width);
     await page.getByRole("button", { name: "Load more mutual connections" }).click();
     const last = page.getByRole("button", { name: "Open Mutual Person 25's profile" });
     await last.scrollIntoViewIfNeeded();
@@ -221,9 +221,10 @@ for (const dark of [false, true]) {
       if (width >= 768) expect(workspaceBox!.width).toBe(728);
       await page.getByRole("tab", { name: /My connections/ }).click();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
-      const contactsHeading = connectionGroup.getByRole("heading", { name: "From contacts", exact: true });
-      await expect(contactsHeading).toHaveCount(1);
-      const contactIcon = await contactsHeading.locator("svg").evaluate((icon) => {
+      await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
+      const contactBadge = connectionGroup.getByLabel("Connected from your contacts");
+      await expect(contactBadge).toHaveCount(1);
+      const contactIcon = await contactBadge.locator("svg").evaluate((icon) => {
         const box = icon.getBoundingClientRect();
         const reference = document.createElement("span");
         icon.parentElement!.appendChild(reference);
@@ -236,15 +237,15 @@ for (const dark of [false, true]) {
           fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
           stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
       });
-      expect(contactIcon.width).toBe(16);
-      expect(contactIcon.height).toBe(16);
+      expect(contactIcon.width).toBe(12);
+      expect(contactIcon.height).toBe(12);
       expect(contactIcon.fill).toBe(contactIcon.accent);
       expect(contactIcon.stroke).toBe(contactIcon.outline);
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
-      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(1);
-      await expect(connectionGroup.getByLabel("Connected from your contacts")).toHaveCount(0);
-      await expect(page.getByTestId("connection-source-contacts").getByText("Jordan Lee", { exact: true })).toHaveCount(1);
-      await expect(page.getByTestId("connection-source-other").getByText("Alex Chen", { exact: true })).toHaveCount(1);
+      await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
+      const connectionRows = connectionGroup.getByTestId("connect-person-row");
+      await expect(connectionRows.filter({ hasText: "Jordan Lee" }).locator('[data-avatar-size="compact"]').getByLabel("Connected from your contacts")).toHaveCount(1);
+      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByLabel("Connected from your contacts")).toHaveCount(0);
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
@@ -304,7 +305,6 @@ for (const dark of [false, true]) {
         const r = node.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, width: r.width };
       }));
-      expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
       expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
       // One column at every width, rows no taller than a compact person row plus
       // its mutual-connections line.

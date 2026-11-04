@@ -17,6 +17,31 @@ state/action and optimized-cascade evidence lives in the
 [Mail contract](./mail.md#connect-alignment-and-mounted-presentation-audit--24-october-2026);
 Connect's own routes and controls remain owned here.
 
+## Connected-person profile access
+
+Person portraits open the existing person profile through the shell's shared
+`PersonProfilePreview`. The source stays mounted: Back dismisses the profile
+and restores its opener, search, scroll, selected people and any open sheet.
+Profile controls are siblings of selection and mutation controls; viewing a
+profile does not add a person, start a chat or change a sharing decision.
+Direct profile URLs and modified-click links retain their normal behavior.
+
+| Source surfaces | Identity owner |
+| --- | --- |
+| Connect directory, connections, mutual people, batch selection, circle orbits and rosters | Connection/directory public reference or authenticated user ID |
+| Circle create, add, invitation, member actions and onboarding lists | Eligible connection, member or invite identity |
+| Location people, requests, shares, check-in, SMS, contact review and map people lists | Recipient, grant owner/recipient or requester identity |
+| Direct messages, circle messages and New chat | Peer public reference or sender identity |
+| Mail recipient autocomplete and Wallet/Finance sharing | Connected recipient identity |
+| Calendar invitation organisers and guests | Unique connected-person email mapping; external guests remain decorative |
+| Consent, Feed, shared-information agent cards, voice people results and PKM access | Authenticated counterpart identity; ambiguous PKM name groups remain decorative |
+
+UID-only sources resolve their public reference through the existing authenticated
+connection-context service. Feed resolves a public reference from its retained
+viewer-scoped counterpart mapping; internal user IDs never enter its public DTO.
+No names, photos or grouped display keys are used to infer identity. The profile
+retains its existing relationship, vault and consent checks.
+
 ## Visual Map
 
 ```mermaid

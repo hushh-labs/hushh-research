@@ -64,4 +64,17 @@ describe("Connect circle flows get their own crumb", () => {
     const crumb = crumbFor("tab=circles&action=nonsense");
     expect(crumb?.items?.map((item) => item.label)).toEqual(["One", "Connect"]);
   });
+
+  it("gives the mutual list a wider aligned breadcrumb frame", () => {
+    const crumb = resolveTopShellBreadcrumb(
+      ROUTES.CONNECT,
+      new URLSearchParams("tab=all&mutuals=person-123&q=Kushal"),
+    );
+
+    expect(crumb?.width).toBe("mutuals");
+    expect(crumb?.items?.map((item) => item.label)).toEqual([
+      "Connect",
+      "Mutual connections",
+    ]);
+  });
 });
