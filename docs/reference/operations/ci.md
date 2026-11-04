@@ -699,9 +699,13 @@ jobs.
 The exact production-restoration fixture helper and test module use a focused
 Governance controller owner. It runs the restoration suite, both phone-schema
 history consumers, and the single historical Drive release-tooling case. Only
-those two fixture paths stay out of Protocol/Database path selection; adjacent
-phone-history tests, runtime modules, schemas and migrations still select their
-existing backend owners.
+those two fixture paths use that owner. Other explicitly listed release-test
+files use the existing release-controller owner, including legacy phone-job
+receipt compatibility. Test-only changes run those complete files without
+selecting unrelated runtime/database suites; account-deletion release tests
+retain their dedicated owner exactly once. Runtime modules, schemas, migrations
+and unregistered test paths still select the existing backend lanes. The path
+contract checks both focused coverage and those conservative controls.
 
 The affected unit selector does not own standalone Node verifiers: analytics'
 Android-scope verifier and Node failure tests remain in the targeted Node job.

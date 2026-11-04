@@ -621,6 +621,31 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_account_generation_admission_deploy.py",
+        "consent-protocol/tests/test_azure_pod_release_publish_step.py",
+        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
+        "consent-protocol/tests/test_cloud_run_image_resolution.py",
+        "consent-protocol/tests/test_commerce_preview_bootstrap.py",
+        "consent-protocol/tests/test_commerce_preview_target.py",
+        "consent-protocol/tests/test_curated_connector_deploy_wiring.py",
+        "consent-protocol/tests/test_deploy_sha_gate_payload_size.py",
+        "consent-protocol/tests/test_dev_candidate_gate.py",
+        "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
+        "consent-protocol/tests/test_drive_v1_worker_lane.py",
+        "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_feed_stream_capacity_contract.py",
+        "consent-protocol/tests/test_gmail_information_request_release_contract.py",
+        "consent-protocol/tests/test_hushh_tech_client_migration.py",
+        "consent-protocol/tests/test_kai_analyze_durable_run_store_deploy_parity.py",
+        "consent-protocol/tests/test_one_wallet_card_deploy_parity.py",
+        "consent-protocol/tests/test_phone_schema_legacy_job.py",
+        "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
+        "consent-protocol/tests/test_plg_qualification_producer.py",
+        "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
+        "consent-protocol/tests/test_uat_connector_rollout_contract.py",
+        "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+        "consent-protocol/tests/test_uat_frontend_image_handoff.py",
+        "consent-protocol/tests/test_uat_kai_regression_smoke.py",
         "consent-protocol/tests/test_dco_history_sync.py",
         "consent-protocol/tests/test_managed_vertex_readiness_script.py",
         "consent-protocol/tests/test_one_chat_service_only_release.py",
@@ -631,11 +656,15 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/scripts/test_readiness_exam_measurement.py",
         "consent-protocol/tests/scripts/test_readiness_exam_premerge.py",
     )
+    dedicated = "consent-protocol/tests/test_account_deletion_release_workflow.py"
     backend = _filters()["backend"]
+    assert not backend.match_file(dedicated)
     assert all(not backend.match_file(path) for path in paths)
     assert backend.match_file("consent-protocol/tests/test_account_deletion_service.py")
     assert backend.match_file("consent-protocol/hushh_mcp/services/account_deletion_service.py")
-    plan = _governance_plan(paths)
+    assert backend.match_file("consent-protocol/db/migrations/098_pkm_v7_recovery_foundation.sql")
+    assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    plan = _governance_plan((*paths, dedicated))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["controller"]
     commands = {row["id"]: row["argv"] for row in plan["commands"]}
@@ -651,3 +680,6 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "-q",
         *paths,
     ]
+
+    assert commands["account-deletion-release-workflow"][-1] == dedicated
+    assert sum(dedicated in argv for argv in commands.values()) == 1
