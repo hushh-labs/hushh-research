@@ -51,7 +51,7 @@ def verify(application: str, approval: str, *, resolve=git) -> dict:
     }
 
 
-def uat_source(application: str, *, resolve=git) -> tuple[str, str]:
+def uat_source(application: str, *, resolve=git, branch="uat") -> tuple[str, str]:
     """Require new UAT selections to belong to protected UAT history.
 
     Historical Main-backed receipts remain readable by the acceptance verifier;
@@ -59,8 +59,10 @@ def uat_source(application: str, *, resolve=git) -> tuple[str, str]:
     """
     if not SHA.fullmatch(application):
         raise ValueError("A full application SHA is required")
-    if resolve("merge-base", application, "origin/uat") == application:
-        return "uat", "CI Status Gate,Queue Validation,Branch Validation Gate"
+    if branch not in ("uat", "uat-isolated"):
+        raise ValueError("Unrecognized protected UAT branch")
+    if resolve("merge-base", application, f"origin/{branch}") == application:
+        return branch, "CI Status Gate,Queue Validation,Branch Validation Gate"
     raise ValueError("Application is not in protected UAT history")
 
 
@@ -69,6 +71,7 @@ def main() -> int:
     parser.add_argument("mode", nargs="?", choices=("main", "uat"), default="main")
     parser.add_argument("--application-sha", required=True)
     parser.add_argument("--approval-sha", default="")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"), default="uat")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
@@ -81,9 +84,14 @@ def main() -> int:
         )
         if not all(SHA.fullmatch(v) for v in values):
             raise ValueError("Full immutable SHAs are required")
-        subprocess.run(["git", "fetch", "--no-tags", "origin", "main", "uat"], check=True)
+        source_branch = args.source_branch if args.mode == "uat" else "uat"
+        subprocess.run([
+            "git", "fetch", "--no-tags", "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            f"+refs/heads/{source_branch}:refs/remotes/origin/{source_branch}",
+        ], check=True)
         if args.mode == "uat":
-            branch, checks = uat_source(args.application_sha)
+            branch, checks = uat_source(args.application_sha, branch=args.source_branch)
             if args.github_output is None:
                 raise ValueError("UAT selection requires the workflow output port")
             with args.github_output.open("a", encoding="utf-8") as output:
