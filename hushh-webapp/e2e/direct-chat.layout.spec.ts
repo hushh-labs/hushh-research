@@ -8,6 +8,7 @@ import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/mess
 import { registerMessagesPresentationCases } from "./fixtures/messages-presentation-cases";
 import { registerMessagesReactionCases } from "./fixtures/messages-reaction-cases";
 import { registerMessagesVoiceCases } from "./fixtures/messages-voice-cases";
+import emojiCatalogue from "../lib/circle-chat/emoji-reactions.generated.json";
 
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.title !== "keeps chat navigation and keyboard controls reachable at 768x852") return;
@@ -391,6 +392,110 @@ for (const width of [393, 1440]) {
 
 test.describe("touch emoji sending", () => {
   test.use({ hasTouch: true, isMobile: true });
+  for (const width of [320, 393, 449, 464, 465, 768, 1440]) {
+    test(`emoji picker keeps categories and grid aligned above the composer at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
+      const errors = await mount(page, width === 393);
+      const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
+      await page.getByRole("button", { name: "Choose emoji", exact: true }).tap();
+      const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
+      await expect(picker).toBeVisible();
+      await expect.poll(() => picker.evaluate((element) => parseFloat(element.parentElement!.style.getPropertyValue("--radix-popper-anchor-width")))).toBeGreaterThan(0);
+      // Opening the picker must not focus Search and raise a phone keyboard
+      // before the person's first emoji tap. Search is an explicit choice.
+      await expect.soft(picker).toBeFocused();
+      await picker.getByRole("tab").first().click({ trial: true });
+      const geometry = await picker.evaluate((element) => {
+        const tabs = element.querySelector('[role="tablist"]')!;
+        const grid = element.querySelector('[role="tabpanel"]')!;
+        const rect = (node: Element) => {
+          const box = node.getBoundingClientRect();
+          return { x: box.x, y: box.y, width: box.width, height: box.height };
+        };
+        const choices = [...grid.querySelectorAll("button")].slice(0, 9);
+        const firstY = choices[0]!.getBoundingClientRect().y;
+        const columns = choices.filter((choice) => Math.abs(choice.getBoundingClientRect().y - firstY) < 1);
+        return {
+          horizontalOverflow: tabs.scrollWidth - tabs.clientWidth,
+          tabs: [...tabs.querySelectorAll("button")].map(rect),
+          columns: columns.map(rect),
+          targets: [...tabs.querySelectorAll("button"), ...choices].map((button) => {
+            const box = button.getBoundingClientRect();
+            return button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+          }),
+        };
+      });
+      expect.soft(geometry.horizontalOverflow).toBeLessThanOrEqual(1);
+      expect(geometry.tabs).toHaveLength(9);
+      for (const [index, tab] of geometry.tabs.entries()) {
+        expect.soft(tab.width).toBeGreaterThanOrEqual(44);
+        expect.soft(tab.height).toBeGreaterThanOrEqual(44);
+        const column = geometry.columns[index % geometry.columns.length]!;
+        expect.soft(Math.abs(tab.x + tab.width / 2 - column.x - column.width / 2)).toBeLessThanOrEqual(1);
+      }
+      expect.soft(geometry.targets.every(Boolean), "all categories and the first grid row can receive a real tap").toBe(true);
+      const box = (await picker.boundingBox())!;
+      const form = (await page.locator("form").filter({ has: composer }).boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(form.y);
+      await picker.getByRole("searchbox").tap();
+      await expect(picker.getByRole("searchbox")).toBeFocused();
+      const categories = picker.getByRole("tablist", { name: "Emoji categories" });
+      await categories.getByRole("tab").first().focus();
+      await expect(categories.getByRole("tab").first()).toBeFocused();
+      await page.keyboard.press("End");
+      await expect(categories.getByRole("tab", { name: "Flags", exact: true })).toBeFocused();
+      await expect(picker.getByRole("tabpanel", { name: "Flags", exact: true })).toBeVisible();
+      await page.keyboard.press("Home");
+      await expect(categories.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+      await page.screenshot({ path: test.info().outputPath(`emoji-picker-${width}.png`), animations: "disabled" });
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Choose emoji", exact: true })).toBeFocused();
+      expect(errors).toEqual([]);
+    });
+  }
+  for (const category of emojiCatalogue.categories) {
+    test(`emoji picker inserts the first and last ${category.label} choices exactly once`, async ({ page }) => {
+      await page.setViewportSize({ width: 393, height: 844 });
+      const errors = await mount(page);
+      const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
+      const trigger = page.getByRole("button", { name: "Choose emoji", exact: true });
+      const first = category.entries[0]![0]!;
+      const last = category.entries.at(-1)![0]!;
+      await composer.fill("Keep this");
+      // Exercise insertion into an existing draft, rather than only appending.
+      await composer.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(0, 4));
+      await trigger.tap();
+      const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
+      await picker.getByRole("tab", { name: category.label, exact: true }).tap();
+      let grid = picker.getByRole("tabpanel", { name: category.label, exact: true });
+      await expect(grid.getByRole("button").first()).toHaveAccessibleName(`Use ${first}`);
+      await grid.getByRole("button").first().tap();
+      await expect(composer).toHaveValue(`${first} this`);
+      await expect(composer).toBeFocused();
+      await trigger.tap();
+      await picker.getByRole("region", { name: "Recently used emoji" }).getByRole("button").first().tap();
+      await expect(composer).toHaveValue(`${first}${first} this`);
+      await trigger.tap();
+      grid = picker.getByRole("tabpanel", { name: category.label, exact: true });
+      // Reach the true final entry, including categories longer than one batch.
+      const finalChoice = grid.getByRole("button", { name: `Use ${last}`, exact: true });
+      for (let batch = 0; batch < Math.ceil(category.entries.length / 128) && !await finalChoice.count(); batch += 1) {
+        const previous = await grid.getByRole("button").count();
+        await grid.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+        await expect.poll(() => grid.getByRole("button").count()).toBeGreaterThan(previous);
+      }
+      await expect(composer).toHaveValue(`${first}${first} this`);
+      await finalChoice.tap();
+      await expect(composer).toHaveValue(`${first}${first}${last} this`);
+      await expect(composer).toBeFocused();
+      await expect(picker).toHaveCount(0);
+      expect(await page.evaluate(() => (window as any).directChatFixture.sends)).toEqual([]);
+      expect(errors).toEqual([]);
+    });
+  }
   test("New chat sends the first recent and grid emojis as separate messages", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("hushh.direct-messages.recent-emojis", JSON.stringify(["😊", "👋", "😀"])));
     await page.setViewportSize({ width: 393, height: 844 });
