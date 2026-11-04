@@ -77,7 +77,8 @@ execute its reviewed implementation; generic admin credentials alone are not.
 **Owner self-approval:** GitHub's native queue admission does not reliably honor
 its review-bypass allowance for an author. Do not request another owner merely
 because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
-Kushal and Ankit have a separate, explicitly approved **owner Admin PR route**.
+Kushal and Ankit have a separate, explicitly approved **Main-only owner Admin PR route**.
+It does not change Dev/UAT review or queue admission.
 Ordinary contributors retain GitHub's independent/latest-push/CODEOWNER reviews
 and the combined-result merge queue.
 
@@ -129,9 +130,13 @@ The root checkout and unrelated work remain untouched throughout the landing.
 
 ### 4. Establish deploy authority
 
-1. Resolve the landed `main` SHA from GitHub after merge; never reuse the PR head
-   SHA or a local SHA by assumption.
-2. Require `Main Post-Merge Smoke Gate = success` for that exact landed SHA.
+1. Resolve the selected environment’s exact application revision from its
+   protected history. Dev uses its qualified Dev revision; direct UAT uses the
+   assembled UAT revision and its exact release qualification. Neither requires
+   an application merge to Main or a preceding environment deployment.
+2. For Main-backed production approval, resolve the actual landed Main SHA and
+   require `Main Post-Merge Smoke Gate = success` for that SHA. Keep application
+   source, Main approval and trusted release-tooling revisions distinct.
 3. Default UAT scope to `auto`. The workflow compares the target SHA with each
    service's currently deployed SHA, so it safely includes every merge since the
    deployed baseline—not only the latest PR or commit. Record its requested and
