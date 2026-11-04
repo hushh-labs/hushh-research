@@ -96,6 +96,7 @@ web_targeted_non_browser_owner() {
     # unknown frontend dependency and must not expand every browser pack.
     consent-protocol/*|contracts/*|packages/*) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
+    hushh-webapp/lib/*/__tests__/*|hushh-webapp/components/*/__tests__/*|hushh-webapp/app/*/__tests__/*) return 0 ;;
     *.md) return 0 ;;
     *) return 1 ;;
   esac
