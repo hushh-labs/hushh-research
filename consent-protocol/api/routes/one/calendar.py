@@ -35,6 +35,7 @@ class CalendarConnectStart(_UserRequest):
     additional: bool = False
     account_id: str | None = Field(default=None, min_length=1, max_length=128)
     include_meeting_files: bool = False
+    include_mail_access: bool = False
 
 
 class CalendarConnectComplete(_UserRequest):
@@ -157,6 +158,7 @@ async def start_connect(
             **({"calendar_additional": True} if payload.additional else {}),
             **({"calendar_account_id": payload.account_id} if payload.account_id else {}),
             **({"include_meeting_files": True} if payload.include_meeting_files else {}),
+            **({"include_mail_access": True} if payload.include_mail_access else {}),
         )
     except Exception as exc:
         raise _http(exc) from exc

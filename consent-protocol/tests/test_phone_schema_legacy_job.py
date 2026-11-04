@@ -29,6 +29,7 @@ def _original_run(module):
         "id": module.RUN,
         "run_attempt": 1,
         "head_sha": module.HEAD,
+        "head_branch": "main",
         "status": "completed",
         "conclusion": "success",
         "repository": {"id": 1},
@@ -295,6 +296,7 @@ def test_job_source_exception_never_becomes_global_image_authority(legacy, monke
         None,
         "attempt",
         "head",
+        "job-branch",
         "status",
         "governance",
         "expired",
@@ -313,6 +315,8 @@ def test_original_job_source_requires_fresh_exact_attempt_and_immutable_archive(
         s.run["run_attempt"] = 2
     elif changed == "head":
         s.run["head_sha"] = "e" * 40
+    elif changed == "job-branch":
+        s.job["head_branch"] = "untrusted-feature"
     elif changed == "status":
         s.run["conclusion"] = "failure"
     elif changed == "governance":

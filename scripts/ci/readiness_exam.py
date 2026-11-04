@@ -327,7 +327,7 @@ def _policy(root: Path = ROOT) -> tuple[str, list[str]]:
     mode = governance["readiness_exam"]["mode"]
     if mode not in {"advisory", "required"}:
         raise ExamRefused("readiness_exam.mode must be advisory or required")
-    return mode, governance["main"]["review_bypass_users"]
+    return mode, governance["main"].get("merge_users", governance["main"]["review_bypass_users"])
 
 
 def _target(event: dict, event_name: str, repo: str, fetch: Callable, root: Path) -> dict:

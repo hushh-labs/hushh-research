@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import retention_preflight_evidence as base  # noqa: E402
 import retention_production_clock_evidence as clock_evidence  # noqa: E402
 import retention_production_evidence as evidence  # noqa: E402
+import retention_uat_guard_evidence as uat_guard  # noqa: E402
 
 SHA = "c" * 40
 STYLE_ON, STYLE_OFF = "\x1b[36;1m", "\x1b[0m"
@@ -306,6 +307,25 @@ class ProductionGuardEvidenceTest(unittest.TestCase):
             for path, (sha, size) in evidence.SOURCE_PROFILES[0].items()
         }
         self.assertIsNotNone(qualify(run, job, log, earlier))
+
+    def test_manual_production_refusal_keeps_the_two_line_log_contract(self):
+        fields = {
+            "run_id": 99,
+            "attempt": 1,
+            "job_id": 98,
+            "checkout_sha": SHA,
+            "qualification": "no_provider_mutation",
+            "clock_run_id": 97,
+        }
+        progress = uat_guard.PROOF_PREFIX + json.dumps(fields, sort_keys=True)
+        run, job, log, blobs = fixture()
+        diagnostic = GUARD
+        buffered = log.replace(
+            diagnostic,
+            diagnostic + f"\n2026-10-29T20:35:42.41Z {progress}",
+            1,
+        )
+        self.assertIsNone(qualify(run, job, buffered, blobs))
 
     def test_other_diagnostics_or_output_after_the_guard_refuse(self):
         refusals = (

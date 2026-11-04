@@ -53,9 +53,18 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
+        "scripts/ci/integration-check.sh",
+        "scripts/ci/account-deletion-check.sh",
+        "scripts/ci/backend-check.sh",
+        "scripts/ci/validation-results.sh",
+        "scripts/ci/check-dco-signoff.sh",
+        "scripts/ci/verify-pr-base-policy.py",
+        "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
         "scripts/ci/tag-last-known-good.sh",
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ops/audit_env_toggles.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
@@ -108,6 +117,33 @@ def test_document_delivery_ci_contract_paths_select_controller_owner() -> None:
             "python", "-m", "pytest", "-q",
             "consent-protocol/tests/test_uat_deploy_parallelism.py",
         )
+
+
+def test_restoration_fixture_paths_select_controller_owner_and_history_consumers() -> None:
+    changed = (
+        "consent-protocol/tests/helpers/production_release_tools.py",
+        "consent-protocol/tests/test_production_restoration_operation.py",
+    )
+    selection = build_selection(
+        {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": "\n".join(changed)}
+    )
+    assert selection.error is None
+    assert selection.groups == ("controller",)
+    selected = {
+        check.check_id: check
+        for check in CHECKS
+        if check.check_id in selection.check_ids
+    }
+    owner = selected["production-restoration-fixture-owner"]
+    assert owner.argv == (
+        "uv", "run", "--frozen", "--project", "consent-protocol",
+        "python", "-m", "pytest", "-q",
+        "consent-protocol/tests/test_production_restoration_operation.py",
+        "consent-protocol/tests/test_phone_schema_origin.py",
+        "consent-protocol/tests/test_phone_schema_history_compatibility.py",
+        "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
+    )
+    assert "cloudrun-retention" not in selection.check_ids
 
 
 def test_known_product_path_does_not_expand_critical_groups() -> None:
@@ -227,6 +263,13 @@ def test_runner_reports_every_failure_instead_of_stopping_early() -> None:
     assert status == 1
     assert "first-failure (exit 7)" in output
     assert "second-failure (exit 9)" in output
+    # Failed assertions collect; missing tools and process cancellation stop.
+    from unittest.mock import patch
+    for result in (-15, 124, 127, 130):
+        with patch("repo_governance_plan.subprocess.run", return_value=subprocess.CompletedProcess([], result)) as run:
+            with contextlib.redirect_stderr(io.StringIO()):
+                assert _run_checks(checks) == (128 - result if result < 0 else result)
+            assert run.call_count == 1
 
 
 def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() -> None:
@@ -263,6 +306,41 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
 
 
+def test_validation_results_collect_independent_failures_and_preserve_stops() -> None:
+    helper = ROOT / "scripts/ci/validation-results.sh"
+    sequence = """
+set -euo pipefail
+source "$1"
+validation_check first bash -c 'echo first; exit 1'
+validation_check second bash -c 'echo second; exit 2'
+validation_check third bash -c 'echo third'
+validation_finish
+"""
+    result = subprocess.run(["bash", "-c", sequence, "_", str(helper)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "third" in result.stdout
+    assert "first (exit 1)" in result.stderr and "second (exit 2)" in result.stderr
+    for code in (124, 126, 127, 130, 143):
+        script = f"""set -euo pipefail
+source "$1"
+validation_check interrupted bash -c 'exit {code}'
+echo must-not-run
+"""
+        result = subprocess.run(["bash", "-c", script, "_", str(helper)], capture_output=True, text=True)
+        assert result.returncode == code
+        assert "must-not-run" not in result.stdout
+    # An external script's prerequisite still stops its dependent command.
+    script = """set -euo pipefail
+source "$1"
+validation_check fixture bash -e -c 'false; echo unsafe-dependent'
+validation_check independent bash -c 'echo independent'
+validation_finish
+"""
+    result = subprocess.run(["bash", "-c", script, "_", str(helper)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "unsafe-dependent" not in result.stdout and "independent" in result.stdout
+
+
 def main() -> int:
     tests = (
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
@@ -270,6 +348,7 @@ def main() -> int:
         test_focused_selection_runs_only_known_affected_regression_groups,
         test_explicit_ci_control_scripts_are_controller_owned,
         test_production_emergency_authority_test_selects_controller_owner,
+        test_restoration_fixture_paths_select_controller_owner_and_history_consumers,
         test_known_product_path_does_not_expand_critical_groups,
         test_affected_unit_selector_test_is_a_controller_owner,
         test_release_always_adds_core_authority_checks_and_only_affected_regressions,
@@ -277,6 +356,7 @@ def main() -> int:
         test_changed_file_input_is_bounded_and_rejects_traversal,
         test_cli_commands_group_is_machine_readable_and_static,
         test_runner_reports_every_failure_instead_of_stopping_early,
+        test_validation_results_collect_independent_failures_and_preserve_stops,
     )
     for test in tests:
         test()

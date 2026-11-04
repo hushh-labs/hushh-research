@@ -104,14 +104,18 @@ run_check() {
     fi
   fi
   echo "== Targeted web check: $name =="
+  local result=0
   if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != "diagnostic" ] && [ "$(check_part "$@")" = "browser" ]; then
-    if ! python3 "$REPO_ROOT/scripts/ci/web-browser-core.py" "$3"; then
-      failed_checks+=("$name")
-    fi
-    return 0
+    python3 "$REPO_ROOT/scripts/ci/web-browser-core.py" "$3" || result=$?
+  else
+    (cd "$WEB_DIR" && "$@") || result=$?
   fi
-  if ! (cd "$WEB_DIR" && "$@"); then
-    echo "!! Targeted web check failed: $name"
+  if [ "$result" -ge 124 ]; then
+    echo "Targeted check interrupted: $name (exit $result)" >&2
+    exit "$result"
+  fi
+  if [ "$result" -ne 0 ]; then
+    echo "!! Targeted web check failed: $name (exit $result)"
     failed_checks+=("$name")
   fi
 }
@@ -271,7 +275,7 @@ fi
 
 # Calendar owns a transport-backed fixture for connected Schedule. Keep this
 # explicitly registered; the general layout script enumerates its own specs.
-if has_match '^hushh-webapp/(components/calendar/|lib/calendar/|lib/services/google-calendar-service\.ts|lib/services/calendar-insights-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
+if has_match '^hushh-webapp/(components/calendar/|components/agent/agent-calendar-proposal-card\.tsx|lib/calendar/|lib/agent/(calendar-directive-runtime|calendar-proposal-review)\.ts|lib/services/google-calendar-service\.ts|lib/services/calendar-insights-service\.ts|e2e/calendar-connected-workspace\.layout\.spec\.ts|e2e/fixtures/calendar-connected)'; then
   run_full_suite_check "Calendar HUSSH person photos" npm run test:calendar-hussh-photos
   run_check "Calendar workspace layout" npm run test:calendar-workspace-layout
   ran=1

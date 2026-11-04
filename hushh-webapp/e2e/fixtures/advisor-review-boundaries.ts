@@ -13,7 +13,20 @@ export function sampleReview(viewer: string): AdvisorReview {
   return { id: reviewId, ownerUserId: "synthetic-owner", ownerPersonRef: "22222222-2222-4222-8222-222222222222", advisorUserId: "synthetic-advisor", advisorPersonRef: "11111111-1111-4111-8111-111111111111", ownerName: "Sample investor", advisorName: "Sample advisor", direction: viewer === "synthetic-owner" ? "outgoing" : "received", status: accepted ? "accepted" : "pending", introduction: "Please review my portfolio allocation.", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600000).toISOString(), serverNow: new Date().toISOString(), contentHash: "a".repeat(64), snapshotAvailable: accepted, meeting, plan: null, planRevision: 0 };
 }
 export class AdvisorReviewError extends Error { constructor(readonly code: string, readonly status = 0) { super(code === "ADVISOR_CONNECT_CALENDAR" ? "Connect Google Calendar and allow scheduling before booking. Your request is saved." : "This request could not be confirmed. Check its status before retrying."); } }
-export async function advisorRequest() { return { items: [{ userId: "synthetic-advisor", personRef: "11111111-1111-4111-8111-111111111111", name: "Sample advisor", bio: "Verified synthetic advisor", crd: "123456", verified: true, keyId: "synthetic-key", publicKeyJwk: { kty: "EC" }, ready: true }], directory: null }; }
+export async function advisorRequest(
+  _context: unknown, path: string, _method: string,
+  body: { scope?: string; query?: string } = {},
+) {
+  if (path === "/portfolio-analysis") {
+    document.body.dataset.portfolioReviewCalls = String(Number(document.body.dataset.portfolioReviewCalls || 0) + 1);
+    if (document.body.dataset.portfolioReviewFailed === "true") throw new Error("Provider unavailable");
+    return { score: 72, takeaway: "One holding dominates this snapshot.", reason: "The position makes up most of the saved allocation.", next_step: "Compare that weight with your plan.", advisor_reason: null };
+  }
+  document.body.dataset.advisorCandidateScope = body.scope;
+  const name = body.scope === "global" ? "Distant advisor"
+    : body.scope === "nearby" ? "Local advisor" : "Sample advisor";
+  return { items: [{ userId: "synthetic-advisor", personRef: "11111111-1111-4111-8111-111111111111", name, bio: "Verified synthetic advisor", crd: "123456", verified: true, keyId: "synthetic-key", publicKeyJwk: { kty: "EC" }, ready: true }], directory: null, hasMore: false };
+}
 export const AdvisorReviewService = {
   view: async (context: { userId: string }) => sampleReview(context.userId),
   decrypt: async () => { document.body.dataset.advisorDecrypts = String(Number(document.body.dataset.advisorDecrypts || 0) + 1); if (document.body.dataset.advisorStage !== "accepted") throw new Error("Snapshot locked"); return sampleAdvisorSnapshot; },

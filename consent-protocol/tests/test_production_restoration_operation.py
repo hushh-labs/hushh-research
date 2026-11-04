@@ -386,6 +386,7 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
         env={
             **os.environ,
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "AUTH_DOMAIN_REPAIR": "false",
             "RESTORATION_RUN": restoration,
             "PHONE_DEPLOY_PHASE": "standard",
             "STAGED_WORKER_LOADED": "false",
@@ -435,7 +436,13 @@ def test_workos_default_history_admits_only_production_exact_closed_restoration(
     import subprocess
 
     monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    import operational_workos_observation as operational
     import workos_rollout as closed
+
+    def absent_operational_proof(_source):
+        raise ValueError("fixture has no operational restoration receipt")
+
+    monkeypatch.setattr(operational, "load", absent_operational_proof)
 
     authority, record = _history_authority(monkeypatch, tmp_path)
     source = record["sourceSha"]

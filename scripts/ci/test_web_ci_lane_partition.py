@@ -167,6 +167,35 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         assert calls == expected, (part, calls)
 
 
+def test_targeted_pack_stops_after_interruption() -> None:
+    code, calls, output = _run(TARGETED, {
+        "WEB_TARGETED_CHANGED_FILES": "hushh-webapp/app/globals.css",
+        "WEB_TARGETED_PART": "browser",
+        "NPM_STUB_FAIL": "test:layout-contracts",
+        "NPM_STUB_EXIT": "130",
+    })
+    assert code == 130, output
+    assert calls[-1] == "run test:layout-contracts", calls
+
+
+def test_browser_commands_report_all_failures_but_stop_on_cancellation() -> None:
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    selected = [["first"], ["second"], ["third"]]
+    execute = BROWSER_CORE["run_selected"]
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=1), SimpleNamespace(returncode=2),
+        SimpleNamespace(returncode=0),
+    ]) as runner:
+        assert execute(selected, {}) == 1
+        assert [call.args[0][-1] for call in runner.call_args_list] == ["first", "second", "third"]
+    for status in (-15, 130, 143, 124):
+        with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=status)) as runner:
+            assert execute(selected, {}) >= 124
+            assert runner.call_count == 1
+
+
 def test_functional_browser_plans_keep_chromium_from_multi_project_packs() -> None:
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     plan = BROWSER_CORE["plan"]
@@ -387,11 +416,83 @@ def test_full_suite_shards_run_verifiers_once() -> None:
         assert code == 2 and not calls, f"shard spec {bad!r} was accepted"
 
 
+def test_full_suite_bootstraps_parser_before_plan_and_skips_when_available() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        stub_dir = Path(tmp) / "bin"
+        stub_dir.mkdir()
+        log = Path(tmp) / "bootstrap.log"
+        node = stub_dir / "node"
+        node.write_text(
+            "#!/usr/bin/env bash\nset -eu\n"
+            'if [ "${1:-}" = "-e" ]; then\n'
+            '  case "${2:-}" in\n'
+            '    *ui-source-index.mjs*) echo "parser-probe:$PWD" >> "$BOOTSTRAP_LOG"; '
+            '      [ "$PARSER_AVAILABLE" = "1" ];;\n'
+            '    *effectiveLevel*) echo "effective-level:$PWD" >> "$BOOTSTRAP_LOG"; '
+            '      printf focused;;\n'
+            '    *) echo "unexpected-node-eval:$2" >&2; exit 91;;\n'
+            '  esac\n'
+            'elif [[ "${1:-}" == */affected-tests.mjs && "${2:-}" == plan ]]; then\n'
+            '  echo "plan:$PWD" >> "$BOOTSTRAP_LOG"\n'
+            '  printf \'{"effectiveLevel":"focused"}\\n\'\n'
+            'else echo "unexpected-node-call:$*" >&2; exit 92; fi\n',
+            encoding="utf-8",
+        )
+        node.chmod(node.stat().st_mode | stat.S_IEXEC)
+        npm = stub_dir / "npm"
+        npm.write_text(
+            "#!/usr/bin/env bash\nset -eu\n"
+            'echo "npm:$PWD:$*" >> "$BOOTSTRAP_LOG"\n',
+            encoding="utf-8",
+        )
+        npm.chmod(npm.stat().st_mode | stat.S_IEXEC)
+
+        tools_dir = ROOT / "hushh-webapp/scripts/architecture/ui-contract-tools"
+        expected = {
+            "available": ["parser-probe", "plan", "effective-level"],
+            "missing": ["parser-probe", "npm", "plan", "effective-level"],
+        }
+        for parser_state, events in expected.items():
+            log.unlink(missing_ok=True)
+            env = dict(os.environ)
+            env.update({
+                "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
+                "BOOTSTRAP_LOG": str(log),
+                "PARSER_AVAILABLE": "1" if parser_state == "available" else "0",
+                "CI_VALIDATION_LEVEL": "focused",
+                "WEB_FULL_SUITE_SHARD": "2/3",
+            })
+            proc = subprocess.run(
+                [_bash(), str(FULL_SUITE)], cwd=ROOT, env=env,
+                capture_output=True, text=True, check=False, timeout=15,
+            )
+            assert proc.returncode == 0, proc.stderr[-2000:]
+            observed = log.read_text(encoding="utf-8").splitlines()
+            assert [line.split(":", 1)[0] for line in observed] == events, observed
+            assert observed[0] == f"parser-probe:{ROOT / 'hushh-webapp'}"
+            assert observed[-2] == f"plan:{ROOT}", observed
+            assert observed[-1] == f"effective-level:{ROOT}", observed
+            if parser_state == "missing":
+                assert observed[1] == f"npm:{tools_dir}:ci --ignore-scripts --no-audit --progress=false"
+            assert "shard 2/3 is not scheduled for affected tests" in proc.stdout
+
+
 def test_workflow_schedules_focused_jobs_and_database_pair() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     playwright = (ROOT / "hushh-webapp/playwright.config.ts").read_text(encoding="utf-8")
     assert_web_lane_topology(workflow, scripts, playwright)
+    governance = re.search(
+        r"(?ms)^  repo-governance:\n(.*?)(?=^  [a-z][a-z0-9_-]*:\n)", workflow
+    )
+    assert governance, "the parser bootstrap must belong to the governance job"
+    parser_install = governance[1].find("- name: Install UI contract parser for governance")
+    governance_checks = governance[1].find("- name: Run repo governance checks")
+    assert 0 <= parser_install < governance_checks, (
+        "install the isolated parser before the affected-tests Node owner runs"
+    )
+    assert "working-directory: hushh-webapp/scripts/architecture/ui-contract-tools" in governance[1]
+    assert "run: npm ci --ignore-scripts --no-audit --progress=false" in governance[1]
     # Keep evidence confined to these synthetic fixtures, never protected reviewers.
     evidence = re.search(
         r"- name: Upload synthetic layout failure evidence\n(.*?)(?=\n      - name:)",
@@ -583,6 +684,8 @@ def main() -> int:
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_functional_browser_plans_keep_chromium_from_multi_project_packs,
+        test_browser_commands_report_all_failures_but_stop_on_cancellation,
+        test_targeted_pack_stops_after_interruption,
         test_functional_browser_plan_accumulates_project_syntax_and_fails_closed,
         test_browser_plan_skips_only_known_no_browser_selection,
         test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,
@@ -593,6 +696,7 @@ def main() -> int:
         test_profile_and_shortcut_inputs_schedule_connections_browser_pack,
         test_layout_overlap_retains_selected_coverage_and_failure_propagation,
         test_full_suite_shards_run_verifiers_once,
+        test_full_suite_bootstraps_parser_before_plan_and_skips_when_available,
         test_workflow_schedules_focused_jobs_and_database_pair,
         test_browser_shard_setting_is_validated_before_any_pack,
     )

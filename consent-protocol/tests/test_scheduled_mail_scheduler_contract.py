@@ -15,7 +15,7 @@ from tests.helpers.production_runtime_profile import production_runtime_profile
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy" / "gmail" / "setup_scheduled_mail_scheduler.sh"
-UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-production.yml"
 URI = "https://api.uat.hushh.ai/api/one/email/scheduled/drain?limit=50"
 SERVICE_ACCOUNT = "mail-scheduled-send@hushh-pda-uat.iam.gserviceaccount.com"

@@ -6103,7 +6103,7 @@
         "playbook_id": "route.one.setup.finance",
         "purpose": "Explore Finance, choose an optional portfolio source, then explicitly finish setup.",
         "screen": "one_setup_finance",
-        "entry_cue": "Explore the introduction or skip to portfolio sources.",
+        "entry_cue": "Explore the introduction, then answer or skip investing preferences.",
         "proactivity": "on_entry",
         "primary_action_id": "setup.finish_finance",
         "happy_path_action_ids": [

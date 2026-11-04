@@ -51,7 +51,7 @@ semantics.
 
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's
-> deployed SHA, and distribute the *same uploaded build* through `resume-ios-testflight.yml`.
+> deployed SHA, and distribute the *same uploaded build* through `ship-ios-testflight.yml` with `upload_run_id` set.
 > Changing targets changes which database the person reaches; it is not a cosmetic build option.
 
 ### Backend target (`backend_target`, added 2026-09-29)
@@ -81,10 +81,10 @@ for `https://one.hushh.ai` and the production API:
   signs in with the same Firebase identity, but reaches the production database. Treat the first
   production-backed release as a decision about those people's information, not only a build flag.
 - **TestFlight for the same binary:** every non-dry run also uploads a `testflight-upload-receipt`
-  artifact. `gh workflow run resume-ios-testflight.yml --ref main -f upload_run_id=<App Store run id>`
+  artifact. `gh workflow run ship-ios-testflight.yml --ref main -f upload_run_id=<App Store run id>`
   then distributes that exact build to the internal and external TestFlight groups.
-  `ship-ios-testflight.yml` still builds a UAT binary only; do not run it for a
-  production-backed release, or testers alternate between two databases.
+  Without `upload_run_id`, `ship-ios-testflight.yml` builds a new UAT binary.
+  Use recovery mode for a production-backed upload so its backend stays unchanged.
 
 ### App Review sign-in on a production-backed build (added 2026-09-29)
 

@@ -21,6 +21,7 @@ import retention_production_clock_records as records  # noqa: E402
 import retention_production_evidence as evidence  # noqa: E402
 import retention_production_profile_evidence as profile_evidence  # noqa: E402
 import retention_publication_source as publication_source  # noqa: E402
+import retention_uat_guard_evidence as uat_guard  # noqa: E402
 from test_retention_production_evidence import clock_bound_fixture  # noqa: E402
 
 
@@ -681,6 +682,81 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                 "clock_run_id": 41489463865,
             },
         )
+
+    def test_v2_clock_proof_accepts_only_exact_buffered_clock_bound_records(self):
+        case = self._case(source_profile="publication-aec6-blobless-v2")
+        _owner, _record, worker, job, log, _blobs, clock = case
+        diagnostic = "Hosted maintenance stopped: stage=publication_guard kind=safety_refusal"
+        current_clock_run_id = clock["run"]["id"]
+        older_clock_run_id = current_clock_run_id - 1
+        fields = {
+            "run_id": 41499429996,
+            "attempt": 1,
+            "job_id": 125464392331,
+            "checkout_sha": profile_evidence.APPROVED_SOURCE_SHA,
+            "qualification": "no_provider_mutation",
+            "clock_run_id": older_clock_run_id,
+        }
+
+        def encoded(value):
+            return uat_guard.PROOF_PREFIX + json.dumps(value, sort_keys=True)
+
+        accepted = encoded(fields)
+        buffered_log = log.replace(
+            diagnostic,
+            diagnostic + f"\n2026-10-29T20:35:42.41Z {accepted}",
+            1,
+        )
+        self.assertEqual(
+            self._qualify(case, log=buffered_log),
+            {
+                "run_id": worker["id"],
+                "attempt": worker["run_attempt"],
+                "job_id": job["id"],
+                "checkout_sha": profile_evidence.APPROVED_SOURCE_SHA,
+                "qualification": "no_provider_mutation",
+                "clock_run_id": current_clock_run_id,
+            },
+        )
+
+        legacy = {key: value for key, value in fields.items() if key != "clock_run_id"}
+        # Both canonical UAT-shaped records and older clock-walk records are
+        # valid progress receipts for this exact source profile.
+        legacy_log = log.replace(
+            diagnostic,
+            diagnostic + f"\n2026-10-29T20:35:42.41Z {encoded(legacy)}",
+            1,
+        )
+        self.assertIsNotNone(self._qualify(case, log=legacy_log))
+
+        refusals = (
+            encoded({**fields, "clock_run_id": 0}),
+            encoded({**fields, "attempt": 11}),
+            encoded({**fields, "extra": "not allowed"}),
+            encoded({**fields, "qualification": "reconciled"}),
+            uat_guard.PROOF_PREFIX + "{",
+        )
+        for line in refusals:
+            with self.subTest(line=line):
+                rejected_log = log.replace(
+                    diagnostic,
+                    diagnostic + f"\n2026-10-29T20:35:42.41Z {line}",
+                    1,
+                )
+                self.assertIsNone(self._qualify(case, log=rejected_log))
+
+        older_profile = self._case(source_profile="publication-84b-blobless-v1")
+        old_clock_run_id = older_profile[6]["run"]["id"] - 1
+        old_clocked = encoded({**fields, "clock_run_id": old_clock_run_id})
+        old_unclocked = encoded(legacy)
+        for line in (old_clocked, old_unclocked):
+            with self.subTest(profile="publication-84b-blobless-v1", line=line):
+                rejected_log = older_profile[4].replace(
+                    diagnostic,
+                    diagnostic + f"\n2026-10-29T20:35:42.41Z {line}",
+                    1,
+                )
+                self.assertIsNone(self._qualify(older_profile, log=rejected_log))
 
     def test_source_clock_job_log_and_api_uncertainty_refuse(self):
         cases = [

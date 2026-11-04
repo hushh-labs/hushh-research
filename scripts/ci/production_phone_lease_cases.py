@@ -2,7 +2,9 @@
 
 import copy
 from pathlib import Path
+import threading
 import tempfile
+import time
 from unittest import mock
 
 import production_phone_lease as lease
@@ -65,6 +67,41 @@ class ProductionPhoneLeaseCases:
             case.documents[2]["serving"][0][1] = True
         elif defect == "traffic":
             case.documents[2]["traffic"][0][0][2] = "phone-rollback-300"
+
+    def lease_with_parallel_history(self, case):
+        base = next(run for run in case.runs if run["id"] == 300)
+        base_attempt = case.attempts[(300, 1)]
+        base_jobs = case.jobs[(300, 1)]
+        for run_id, created_at in (
+            (400, "2026-10-21T03:02:00Z"),
+            (500, "2026-10-21T03:03:00Z"),
+        ):
+            run = {**copy.deepcopy(base), "id": run_id, "run_attempt": 1}
+            run["created_at"] = created_at
+            run["updated_at"] = created_at
+            attempt = {
+                **copy.deepcopy(base_attempt),
+                "id": run_id,
+                "run_attempt": 1,
+                "created_at": created_at,
+                "updated_at": created_at,
+            }
+            jobs = copy.deepcopy(base_jobs)
+            for index, job in enumerate(jobs["jobs"]):
+                job.update(
+                    id=run_id * 10 + index,
+                    run_id=run_id,
+                    run_attempt=1,
+                    head_sha=run["head_sha"],
+                    status="completed",
+                    conclusion="skipped",
+                    steps=[],
+                )
+            case.runs.insert(0, run)
+            case.attempts[(run_id, 1)] = attempt
+            case.jobs[(run_id, 1)] = jobs
+            case.total_count += 1
+        return case
 
     def test_cold_lease_requires_every_attempt_publication_before_admission(self):
         self.setUp()
@@ -146,6 +183,84 @@ class ProductionPhoneLeaseCases:
         case.api = changed
         with self.assertRaisesRegex(lease.retention.UnsafeState, "attempt changed"):
             self.lease_check(case)
+
+    def test_cold_lease_reads_history_in_parallel_but_surfaces_errors_in_order(self):
+        self.setUp()
+        case = self.lease_with_parallel_history(LeaseFixture(self))
+        original = lease._attempt
+        active = 0
+        maximum = 0
+        completed = []
+        lock = threading.Lock()
+
+        def attempt(repository, run, number, api, workflow):
+            nonlocal active, maximum
+            run_id = run["id"]
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            try:
+                time.sleep({500: 0.04, 400: 0.03, 300: 0.005}[run_id])
+                if run_id in {400, 300}:
+                    raise lease.retention.UnsafeState(f"ordered failure {run_id}")
+                return original(repository, run, number, api, workflow)
+            finally:
+                with lock:
+                    active -= 1
+                    completed.append(run_id)
+
+        with mock.patch.object(lease, "_attempt", side_effect=attempt):
+            with self.assertRaisesRegex(lease.retention.UnsafeState, "ordered failure 400"):
+                self.lease_check(case)
+        self.assertEqual(maximum, 3)
+        self.assertEqual(set(completed), {500, 400, 300})
+
+    def test_cold_lease_failure_joins_other_history_reads(self):
+        self.setUp()
+        case = self.lease_with_parallel_history(LeaseFixture(self))
+        original = lease._attempt
+        slow_started = threading.Event()
+        release_slow = threading.Event()
+        failed_400 = threading.Event()
+        completed = []
+        errors = []
+
+        def attempt(repository, run, number, api, workflow):
+            run_id = run["id"]
+            try:
+                if run_id == 300:
+                    slow_started.set()
+                    release_slow.wait(timeout=2)
+                    raise lease.retention.UnsafeState("slow failure 300")
+                if run_id == 400:
+                    if not slow_started.wait(timeout=5):
+                        raise AssertionError("slow read never started")
+                    failed_400.set()
+                    raise lease.retention.UnsafeState("ordered failure 400")
+                return original(repository, run, number, api, workflow)
+            finally:
+                completed.append(run_id)
+
+        def reconcile():
+            try:
+                self.lease_check(case)
+            except BaseException as error:  # surfaced in the test thread
+                errors.append(error)
+
+        with mock.patch.object(lease, "_attempt", side_effect=attempt):
+            worker = threading.Thread(target=reconcile)
+            worker.start()
+            try:
+                self.assertTrue(slow_started.wait(timeout=1))
+                self.assertTrue(failed_400.wait(timeout=1))
+                self.assertTrue(worker.is_alive())
+            finally:
+                release_slow.set()
+                worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertRegex(str(errors[0]), "ordered failure 400")
+        self.assertEqual(set(completed), {500, 400, 300})
 
     def test_fresh_maintenance_directory_still_fences_unresolved_cold_lease(self):
         self.setUp()

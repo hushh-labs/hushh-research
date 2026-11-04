@@ -21,6 +21,7 @@ import re
 import subprocess
 
 from github_security_authority import GitHub, Refused
+import release_acceptance_provenance as release_provenance
 
 REPOSITORY = "hushh-labs/hushh-research"
 PREFIX = f"repos/{REPOSITORY}"
@@ -29,7 +30,7 @@ CHAT_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml"
 READ_ONLY_WORKFLOWS = {
     ".github/workflows/verify-protected-lists.yml",
     ".github/workflows/ship-ios-testflight.yml",
-    ".github/workflows/resume-ios-testflight.yml",
+    ".github/workflows/resume-ios-testflight.yml",  # Read-only historical runs.
     ".github/workflows/ios-voice-device.yml",
     ".github/workflows/ship-android-playstore-v1.yml",
 }
@@ -39,6 +40,8 @@ PRE_MUTATION_STEPS = frozenset({
     'Set up job',
     'Require current-attempt deployment security',
     'Assert manual dispatch originates from main',
+    'Assert manual dispatch originates from uat',
+    'Capture trusted release implementation',
     'Checkout code',
     'Require reconciled maintenance mutations under deployment lock',
     'Assert manual UAT dispatch actor policy',
@@ -73,9 +76,11 @@ PRE_MUTATION_STEPS = frozenset({
     'Install UAT browser verification dependencies',
     'Verify One Location read-only rollout prerequisites',
     'Recheck direct UAT authority and serving baseline before mutation',
+    'Recheck approved PR scope and both serving revisions under deployment lock',
 })
 READ_ONLY_JOBS = frozenset({
     "Select UAT target", "Deployment security / Verify repository secret clearance",
+    "Request Main security clearance",
     "Wait for UAT capacity outside the mutation lock",
     "Inspect UAT prerequisites (no deployment)",
 })
@@ -186,9 +191,14 @@ def untouched_mutation_steps(steps) -> bool:
 
 def proven_pre_mutation_failure(acceptance, run: dict, observed: dict) -> bool:
     """Prove an untouched boundary; never infer safety from a failed legacy run."""
+    try:
+        deploy_name = release_provenance.deployment_job_name(run, "uat", "Deploy UAT Scope")
+        names = {release_provenance.deployment_job_name(run, "uat", name) for name in READ_ONLY_JOBS}
+    except ValueError:
+        return False
     if not (
         run.get("status") == "completed" and run.get("conclusion") == "failure"
-        and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
+        and run.get("event") == "workflow_dispatch"
         and run.get("repository", {}).get("full_name") == REPOSITORY
         and run.get("head_repository", {}).get("full_name") == REPOSITORY
         and type(run.get("id")) is int and run["id"] > 0
@@ -209,10 +219,10 @@ def proven_pre_mutation_failure(acceptance, run: dict, observed: dict) -> bool:
                 and job.get("head_sha") == run["head_sha"]
                 and job.get("status") == "completed" for job in jobs)):
         return False
-    matches = [job for job in jobs if job.get("name") == "Deploy UAT Scope"]
+    matches = [job for job in jobs if job.get("name") == deploy_name]
     if len(matches) != 1 or matches[0].get("conclusion") != "failure":
         return False
-    if any(job.get("name") not in READ_ONLY_JOBS | {"Deploy UAT Scope"}
+    if any(job.get("name") not in names | {deploy_name}
            and job.get("conclusion") != "skipped" for job in jobs):
         return False
     return untouched_mutation_steps(matches[0].get("steps"))
@@ -394,6 +404,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--github-output", action="store_true")
     parser.add_argument("--allow-no-op", action="store_true")
+    parser.add_argument("--no-op-only", action="store_true")
     args = parser.parse_args()
     try:
         subprocess.run(
@@ -413,6 +424,8 @@ def main() -> int:
         )
         result = choose(target, current, args.allow_no_op, ancestor=ancestor)
         require_unchanged_uat_tip(target)
+        if args.no_op_only and result["decision"] != "NO_OP":
+            raise Refused("An explicit application SHA and approved PR scope are required to deploy")
         if args.github_output:
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
                 for key in ("sha", "decision", "uat_actual_sha", "reason"):

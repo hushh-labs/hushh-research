@@ -58,7 +58,7 @@ def _acceptance():
     )
     pins["uat"]["artifact_digest"] = digest
     responses[
-        "workflows/deploy-uat.yml/runs?branch=main&event=workflow_dispatch&per_page=50&page=1"
+        "workflows/deploy-uat.yml/runs?event=workflow_dispatch&per_page=50&page=1"
     ] = {
         "workflow_runs": [{"id": 20}],
     }

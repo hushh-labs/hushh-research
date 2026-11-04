@@ -185,7 +185,7 @@ class GitHub:
             run.get("id") == run_id
             and run.get("run_attempt") == attempt
             and run.get("path") == f".github/workflows/deploy-{environment}.yml"
-            and run.get("head_branch") == "main"
+            and run.get("head_branch") in {"main", environment}
             and run.get("event") == "workflow_dispatch"
             and run.get("status") == "completed"
             and run.get("conclusion") == "success"
@@ -196,6 +196,10 @@ class GitHub:
         artifact = self.read(f"artifacts/{artifact_id}")
         _provenance.validate_artifact(artifact, pin, environment, MAX_BYTES)
         receipt = unpack(self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"])
+        authority = _provenance.deployment_authority(run, environment)
+        if authority["caller_branch"] != "main":
+            require(receipt.get("workflow_authority") == authority,
+                    "Acceptance implementation provenance does not match GitHub")
         require(
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
@@ -218,7 +222,8 @@ class GitHub:
         if environment == "uat":
             predecessor = receipt.get("predecessor", {})
             if predecessor.get("kind") == "uat-exact-ci":
-                require(predecessor.get("authority_sha") == run.get("head_sha"), "UAT workflow authority changed")
+                authority = _provenance.deployment_authority(run, environment)
+                require(predecessor.get("authority_sha") == authority["tooling_sha"], "UAT workflow authority changed")
                 _verify_direct_uat(predecessor, sha, {service}, current=False)
             else:
                 self._accept_dev_predecessor(predecessor, sha, service)
@@ -261,7 +266,7 @@ class GitHub:
         # an exemption. Re-run acceptance on the exact SHA when history is absent.
         for page in range(1, 4):
             runs = self.read(
-                f"workflows/deploy-{environment}.yml/runs?branch=main&event=workflow_dispatch"
+                f"workflows/deploy-{environment}.yml/runs?event=workflow_dispatch"
                 f"&per_page=50&page={page}"
             ).get("workflow_runs", [])
             for run in runs:
@@ -359,10 +364,18 @@ def create(args) -> None:
         "provenance": {},
     }
     try:
-        require(
-            os.environ.get("GITHUB_REF") == "refs/heads/main",
-            "Acceptance must use the main-owned workflow",
-        )
+        if os.environ.get("GITHUB_REF") != "refs/heads/main":
+            run = GitHub().read(f"runs/{receipt['run_id']}")
+            authority = _provenance.deployment_authority(run, args.environment)
+            require(
+                os.environ.get("GITHUB_REF") == f"refs/heads/{args.environment}"
+                and run.get("run_attempt") == receipt["run_attempt"]
+                and run.get("status") == "in_progress"
+                and authority["caller_sha"] == os.environ.get("GITHUB_SHA")
+                and authority["tooling_sha"] == os.environ.get("RELEASE_TOOLING_SHA"),
+                "Acceptance must use the current Main implementation and caller attempt",
+            )
+            receipt["workflow_authority"] = authority
         receipt["required_checks"] = _required_checks(release, args.environment)
         receipt["classification"] = json.loads(
             (args.status.parent / f"{args.environment}-release-classification.json").read_text()
@@ -443,6 +456,7 @@ def main() -> int:
     parser.add_argument("--predecessor", type=Path)
     parser.add_argument("--base-sha")
     parser.add_argument("--authority-sha")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"), default="uat")
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--ci-run-id", type=int)

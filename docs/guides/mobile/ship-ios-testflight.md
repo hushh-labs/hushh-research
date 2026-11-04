@@ -199,8 +199,10 @@ Public App Store submission remains a separate, explicitly authorized workflow.
 ### Recover a processed upload without rebuilding
 
 If Apple processing finishes after the wait expires, or metadata/distribution fails,
-use **Resume TestFlight Distribution** (`resume-ios-testflight.yml`) from `main`,
-with `upload_run_id` set to the original upload run. It reads the upload receipt,
+use **Ship iOS to TestFlight** (`ship-ios-testflight.yml`) from `main`,
+with only `upload_run_id` set to the original upload run. Leave build options at
+their defaults; recovery rejects source/version changes and dry-run/build flags.
+It reads the upload receipt,
 validates its source is on main, reconciles the same version/build with Apple,
 and repeats the idempotent group assignment. It does not archive, upload another
 binary, run App Intent tests, or submit beta review. A still-processing build can

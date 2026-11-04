@@ -54,6 +54,7 @@ const SHEET_CONSUMERS = [
   "components/computer-use/computer-use-task-card.tsx",
   "components/connect/circles/circle-photo-editor.tsx",
   "components/connections/contact-invitation-sheet.tsx",
+  "components/kai/advisor/portfolio-persona.tsx",
   "components/kai/onboarding/KaiPreferencesSheet.tsx",
   "components/kai/share/portfolio-share-sheet.tsx",
   "components/kai/views/analysis-history-dashboard.tsx",

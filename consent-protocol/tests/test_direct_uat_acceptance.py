@@ -13,7 +13,10 @@ from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("job", ["protocol-check", "web-full-suite-check"])
+@pytest.mark.parametrize(
+    "job",
+    ["protocol-check", "web-full-suite-check", "web-targeted-check", "web-targeted-browser"],
+)
 def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
     job: str,
 ) -> None:
@@ -217,7 +220,8 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
         serving["frontend"]["sha"] = "d" * 40 if case == "mixed" else ""
     if case == "authority":
 
-        def unreviewed(*args):
+        def unreviewed(*args, branch):
+            assert branch == "uat"
             raise subject.Refused("UAT CI authority differs from reviewed Main")
 
         monkeypatch.setattr(subject.exact, "verify_git_authority", unreviewed)
@@ -274,7 +278,9 @@ def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, 
 
 
 def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
     assert inspector["environment"] == {"name": "uat", "deployment": False}
@@ -294,8 +300,11 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     )
     assert validate < auth
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)
-    assert jobs["select-target"]["if"] == "inputs.operation != 'inspect'"
-    assert "inputs.operation != 'inspect'" in jobs["deployment-security"]["if"]
+    assert jobs["select-target"]["if"] == "inputs.operation == 'deploy'"
+    security_condition = jobs["deployment-security"]["if"]
+    assert "inputs.operation == 'inspect-routing'" in security_condition
+    assert "needs.select-target.result == 'success'" in security_condition
+    assert "needs.select-target.outputs.decision != 'NO_OP'" in security_condition
     for name in ("deploy", "wait-capacity"):
         assert (
             "select-target" in jobs[name]["needs"] and "deployment-security" in jobs[name]["needs"]

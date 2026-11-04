@@ -171,7 +171,7 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
     import yaml
 
     root = Path(__file__).resolve().parents[2]
-    workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
+    workflow = (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
     cloudbuild_text = (root / "deploy/backend.cloudbuild.yaml").read_text()
     cloudbuild = yaml.safe_load(cloudbuild_text)
     runtime_text = cloudbuild_text + (root / "scripts/deploy/backend-deploy.sh").read_text()
@@ -183,7 +183,8 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
         assert f'append_optional_env "PKM_ANSWER_{flag}" "${{_PKM_ANSWER_{flag}}}"' in runtime_text
         assert cloudbuild["substitutions"][f"_PKM_ANSWER_{flag}"] == "false"
     for environment, suffix in (("uat", "UAT"), ("dev", "DEV"), ("production", "PROD")):
-        mapped = (root / f".github/workflows/deploy-{environment}.yml").read_text()
+        owner = environment if environment == "production" else f"{environment}-implementation"
+        mapped = (root / f".github/workflows/deploy-{owner}.yml").read_text()
         for mode in ("TEST", "LIVE"):
             for name, retained_test_default in (
                 (f"PKM_ANSWER_STRIPE_{mode}_SECRET_KEY", "STRIPE_SECRET_KEY"),
