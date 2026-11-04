@@ -899,7 +899,10 @@ jobs:
           # paid-required requests can finish Checkout and webhook settlement.
           ANSWER_STRIPE_MODE="test"
           case "$ANSWER_STRIPE_MODE" in
-            test) ANSWER_KEY_SECRET=STRIPE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET ;;
+            test)
+              ANSWER_KEY_SECRET="${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || 'STRIPE_SECRET_KEY' }}"
+              ANSWER_WEBHOOK_SECRET="${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || 'STRIPE_WEBHOOK_SECRET' }}"
+              ;;
             live) ANSWER_KEY_SECRET=STRIPE_LIVE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_LIVE_WEBHOOK_SECRET ;;
             *) echo "Invalid answer Stripe mode" >&2; exit 1 ;;
           esac
