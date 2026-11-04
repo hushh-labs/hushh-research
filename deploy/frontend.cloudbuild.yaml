@@ -14,7 +14,7 @@ steps:
   # it does not contain gcloud. Resolve the optional Secret Manager value in a
   # Cloud SDK step, then hand the public client id to the Docker step through
   # Cloud Build's ephemeral /workspace volume.
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk@sha256:3eb25fdc289a5b341bd428a1196690e93e652db436eb044f6bf7d6a19160c238"
     entrypoint: "bash"
     args:
       - "-c"
@@ -48,6 +48,16 @@ steps:
         fi
 
         FRONTEND_IMAGE_PREBUILT="${_SKIP_IMAGE_BUILD}"
+
+        # Cloud SDK images can omit system Python; gcloud exposes its own
+        # bundled interpreter. Resolve it only when python3 is absent.
+        if ! command -v python3 >/dev/null 2>&1; then
+          CLOUDSDK_PYTHON_BIN="$$(gcloud info --format='value(basic.python_location)')"
+          if [[ -z "$${CLOUDSDK_PYTHON_BIN}" || ! -x "$${CLOUDSDK_PYTHON_BIN}" ]]; then
+            echo "Cloud SDK's Python interpreter is unavailable." >&2; exit 1
+          fi
+          python3() { "$${CLOUDSDK_PYTHON_BIN}" "$$@"; }
+        fi
 
         passkey_rp_id_file="/workspace/.passkey-rp-id"
         : > "$${passkey_rp_id_file}"

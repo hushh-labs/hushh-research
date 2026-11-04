@@ -117,6 +117,25 @@ def test_image_build_steps_stay_identical_to_the_combined_build() -> None:
             assert combined_config["substitutions"][name] == default, name
 
 
+@pytest.mark.parametrize("interpreter_available", [True, False])
+def test_cloud_sdk_python_fallback_is_explicit_and_fails_closed(interpreter_available):
+    step = _body(_steps(FRONTEND_IMAGE_BUILD)["resolve-google-contacts-client-config"])
+    setup = step[step.index("# Cloud SDK images") : step.index("passkey_rp_id_file=")].replace(
+        "$$", "$"
+    )
+    interpreter = sys.executable if interpreter_available else "/missing/bundled-python"
+    stubs = (
+        'command() { if [[ "$1" == "-v" && "$2" == "python3" ]]; then return 1; fi; builtin command "$@"; }\n'
+        f'gcloud() {{ printf "%s\\n" {shlex.quote(interpreter)}; }}\n'
+    )
+    result = _run(stubs + setup + 'python3 -c "print(123)"')
+    assert (result.returncode == 0) is interpreter_available
+    if interpreter_available:
+        assert result.stdout.strip() == "123"
+    else:
+        assert "interpreter is unavailable" in result.stderr
+
+
 @pytest.mark.parametrize(
     "environment,prefix", [("dev", "dev.one"), ("uat", "uat.one"), ("production", "one")]
 )
