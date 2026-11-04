@@ -21,7 +21,7 @@ from tests.helpers.phone_retirement_fixture import lifecycle_retirement_revision
 
 ROOT = Path(__file__).resolve().parents[2]
 pytestmark = [pytest.mark.feature_account_deletion, pytest.mark.trace_loop]
-WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
 SERVING_STATE_SCRIPT = ROOT / "scripts" / "ci" / "resolve-cloud-run-serving-state.py"
 SCHEDULER_ATTEMPT_SCRIPT = ROOT / "scripts" / "ci" / "verify-cloud-scheduler-attempt.py"
 SCHEDULER_SETUP_SCRIPT = ROOT / "deploy" / "account-deletion" / "setup_cleanup_scheduler.sh"
@@ -222,7 +222,9 @@ def test_activation_pins_environment_database_and_retains_failure_receipt(
 
 
 def test_shared_dev_requires_lifecycle_activation_before_healthy_acceptance():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     by_name = {step.get("name"): step for step in steps}
     activation = by_name["Activate tombstone-aware account deletion"]
@@ -243,7 +245,12 @@ def test_shared_dev_requires_lifecycle_activation_before_healthy_acceptance():
     ("workflow", "prefix"), [("dev", "dev"), ("uat", "uat"), ("production", "prod")]
 )
 def test_every_release_retains_activation_failure_evidence(workflow, prefix):
-    document = yaml.safe_load((ROOT / f".github/workflows/deploy-{workflow}.yml").read_text())
+    document = yaml.safe_load(
+        (
+            ROOT
+            / f".github/workflows/deploy-{workflow}{'-implementation' if workflow in {'dev', 'uat'} else ''}.yml"
+        ).read_text()
+    )
     required_if = "always()"
     if workflow == "production":
         required_if = f"env.PHONE_DEPLOY_PHASE != 'cold' && ({required_if})"

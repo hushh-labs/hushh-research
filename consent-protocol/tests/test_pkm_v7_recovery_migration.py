@@ -155,7 +155,7 @@ def test_protected_uat_gate_requires_live_recovery_rehearsal():
 
 
 def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
-    workflow = (ROOT.parent / ".github/workflows/deploy-uat.yml").read_text()
+    workflow = (ROOT.parent / ".github/workflows/deploy-uat-implementation.yml").read_text()
     gate = (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
     release_gate = (ROOT.parent / "scripts/ci/run-release-pkm-gate.sh").read_text()
     candidate_evaluator = (
@@ -247,7 +247,9 @@ def test_explicit_pwm_acceptance_blocks_on_failure_and_seals_owner_evidence(
     outcome,
     blocked,
 ):
-    workflow = yaml.safe_load((ROOT.parent / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT.parent / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     by_id = {step["id"]: step for step in steps if "id" in step}
     pwm = by_id["verify-pwm-acceptance"]
@@ -284,4 +286,4 @@ def test_explicit_pwm_acceptance_blocks_on_failure_and_seals_owner_evidence(
     assert upload["with"]["path"] == "tmp/pwm-acceptance.sealed.json"
     assert pwm["env"]["PWM_PROOF_OUTPUT"] == "${{ github.workspace }}/" + upload["with"]["path"]
     triggers = workflow.get("on", workflow.get(True))
-    assert triggers["workflow_dispatch"]["inputs"]["run_pwm_acceptance"]["default"] is False
+    assert triggers["workflow_call"]["inputs"]["run_pwm_acceptance"]["default"] is False

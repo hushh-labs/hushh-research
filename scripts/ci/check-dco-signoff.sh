@@ -42,7 +42,10 @@ history_sync_mode=0
 trusted_main_sha=""
 if [ "${1:-}" = "--history-sync" ]; then
   [ "$#" -eq 1 ] || history_sync_refusal "caller-supplied ranges are not accepted"
-  [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] || history_sync_refusal "a pull request event is required"
+  case "${GITHUB_EVENT_NAME:-}" in
+    pull_request|merge_group) ;;
+    *) history_sync_refusal "a pull request or merge group event is required" ;;
+  esac
   case "${GITHUB_BASE_REF:-}" in
     dev|uat) ;;
     *) history_sync_refusal "only protected Dev or UAT pull requests use history-sync admission" ;;

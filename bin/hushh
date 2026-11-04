@@ -34,6 +34,7 @@ Local runtime uses three separate terminals (one component each):
   codex <subcommand>
 
 Operational commands:
+  diagnose uat-vertex --build-id <Cloud-Build-UUID>
   docs verify
   env bootstrap
   env use --mode <local|uat|dev|prod> [--dry-run]
@@ -923,6 +924,11 @@ EOF
     ;;
   sync)
     run_sync "$@"
+    ;;
+  diagnose)
+    [ "${1:-}" = "uat-vertex" ] || die "Expected: diagnose uat-vertex --build-id <Cloud-Build-UUID>"
+    shift
+    exec python3 "$REPO_ROOT/scripts/ci/summarize_uat_managed_vertex_logs.py" "$@"
     ;;
   rollback)
     run_rollback "$@"

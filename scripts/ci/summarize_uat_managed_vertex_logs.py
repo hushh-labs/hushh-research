@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
+import tempfile
 import sys
 from pathlib import Path
 from typing import Any
@@ -147,15 +149,51 @@ def summarize_build(raw: str) -> list[str]:
     return [prefix for prefix in GATE_PREFIXES if prefix in found]
 
 
+
+def read_build_logs(build_id: str) -> tuple[str, str]:
+    """Read one UAT build only; never emit raw provider output or change resources."""
+    if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", build_id):
+        raise ValueError("A Cloud Build UUID is required")
+    filters = (
+        (f'resource.type="cloud_run_job" AND resource.labels.job_name="genai-ready-{build_id}" AND textPayload:"managed_vertex_probe_result"', 20),
+        (f'resource.type="build" AND resource.labels.build_id="{build_id}"', 200),
+    )
+    results = []
+    for expression, limit in filters:
+        with tempfile.TemporaryFile(mode="w+b") as output:
+            subprocess.run(
+                ["gcloud", "logging", "read", expression, "--project=hushh-pda-uat",
+                 "--freshness=24h", f"--limit={limit}", "--format=json", "--quiet"],
+                stdout=output, stderr=subprocess.DEVNULL, check=True, timeout=60,
+            )
+            if output.tell() > MAX_INPUT_CHARS:
+                raise ValueError("Scoped log output exceeds diagnostic bound")
+            output.seek(0)
+            results.append(output.read(MAX_INPUT_CHARS + 1).decode("utf-8"))
+    return results[0], results[1]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("probe_logs", type=Path, nargs="?")
     parser.add_argument("--build-logs", type=Path)
+    parser.add_argument("--build-id", help="Read and sanitize this exact UAT Cloud Build UUID (no mutation)")
     args = parser.parse_args()
+    if args.build_id and (args.probe_logs is not None or args.build_logs is not None):
+        parser.error("--build-id cannot be combined with log files")
+    fetched = None
+    if args.build_id:
+        try:
+            fetched = read_build_logs(args.build_id)
+        except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+            print("Could not read scoped UAT logs; verify the build UUID and authorized logging access.", file=sys.stderr)
+            return 1
     summary: dict[str, Any] = {"receipt": None, "gate_failures": []}
     failed = False
     try:
-        if args.probe_logs is None:
+        if fetched is not None:
+            raw = fetched[0]
+        elif args.probe_logs is None:
             raw = sys.stdin.read(MAX_INPUT_CHARS + 1)
         else:
             with args.probe_logs.open(encoding="utf-8") as stream:
@@ -163,12 +201,15 @@ def main() -> int:
         summary["receipt"] = summarize_receipt(raw)
     except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
         failed = True
-    if args.build_logs is not None:
+    if fetched is not None or args.build_logs is not None:
         try:
-            with args.build_logs.open(encoding="utf-8") as stream:
-                summary["gate_failures"] = summarize_build(
-                    stream.read(MAX_INPUT_CHARS + 1)
-                )
+            if fetched is not None:
+                summary["gate_failures"] = summarize_build(fetched[1])
+            else:
+                with args.build_logs.open(encoding="utf-8") as stream:
+                    summary["gate_failures"] = summarize_build(
+                        stream.read(MAX_INPUT_CHARS + 1)
+                    )
         except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
             failed = True
     print(json.dumps(summary, separators=(",", ":"), sort_keys=True))

@@ -11,8 +11,10 @@ deployment, rollback, or environment-promotion decision must route here through
    approval, merge, deploy, credentials, rollback, and final release decisions
    stay in the parent session.
 2. The ordinary path is PR validation followed by the GitHub merge queue.
-3. An Admin PR landing is a queue bypass, not a validation bypass. Use it only
-   when the user explicitly authorizes the Admin SOP for that PR.
+3. Admin SOP coordinates an authorized landing. Required CI and combined-result
+   validation always apply. An owner may explicitly approve their own captured PR
+   head through the owner self-approval path below; ordinary reviews remain required
+   for everyone else. Review exception and queue bypass are distinct.
 4. A direct `git push` to `main` is a separate emergency path governed by the
    Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
    that push preflight for the Admin PR landing gate below.
@@ -32,8 +34,9 @@ deployment, rollback, or environment-promotion decision must route here through
 1. Record `git branch --show-current` and `git status --short --branch`.
 2. Fetch `origin/main` and the active remote branch. Continue on the preserved
    branch; do not create a convenience release branch.
-3. If the shared branch is behind, use the normal freshness contract in
-   `maintainer-branch-freshness.md`. Re-run checks after any history change.
+3. Inspect destination changes using `maintainer-branch-freshness.md`. Reconcile
+   relevant fixes and conflicts, then verify affected contracts. Age alone does
+   not reject a PR; the queue qualifies the resulting combined code.
 
 ### 2. Prove the exact PR head
 
@@ -48,7 +51,8 @@ Required pre-merge proof:
 3. every required check on the exact current PR head is terminal and successful;
    intentionally skipped path lanes are recorded as evidence, while unexpected
    auxiliary failures still block;
-4. unresolved conversations, merge conflicts, and freshness drift are cleared;
+4. unresolved conversations and merge conflicts are cleared; destination drift
+   is recorded and the queue validates the current combined result;
 5. the head SHA is re-read immediately before the state-changing command.
 
 ### 3A. Ordinary merge-queue path
@@ -59,48 +63,57 @@ Required pre-merge proof:
    a successful CLI response is not by itself proof that the PR entered queue.
 3. Monitor `Queue Validation` to terminal state and, if landed, continue through
    `Main Post-Merge Smoke` for the landed `main` SHA.
-4. If independent approval or approval-of-latest-push blocks queue entry, report
-   that blocker and obtain the required review. Do not claim the PR is queued.
+4. If review blocks queue entry, resolve ordinary review or the owner self-approval
+   path below. Do not ask an authorized owner for another person merely because
+   GitHub cannot count their self-review. Confirm actual queue entry.
 
-### 3B. Explicit Admin PR landing
+### 3B. Admin landing and queue authority
 
-Use this only after the user explicitly requests the Admin SOP and queue entry is
-blocked or the user explicitly chooses the governed bypass.
+Main merging is restricted to `main.merge_users`, independently of deployment
+permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's approval.
+An explicit user instruction approving this bounded change is authorization to
+execute its reviewed implementation; generic admin credentials alone are not.
 
-Admin PR landing preflight:
+**Owner self-approval:** GitHub cannot count an author's review of their own PR.
+The existing queue gate therefore accepts the authenticated queue request from
+Kushal or Ankit when that same person authored the PR and the captured head still
+matches. The GitHub review exception is limited to those two named users, with no
+team/app inheritance. It does not bypass CI, the queue, unresolved review objections,
+conversation resolution or deployment admission. Someone else's PR retains ordinary
+review. The same exact-owner approval applies to Dev, UAT and the retained train;
+only Main additionally restricts queue requesters to its production merger cohort.
+A changed head requires a new exact-head queue request.
 
-1. prove the active GitHub actor is the intended governed maintainer;
-2. prove that actor is present in both `main.review_bypass_users` and
-   `main.merge_queue_bypass_users`;
-3. verify live branch protection with
-   `./scripts/ci/verify-main-branch-protection.sh`;
-4. require every required PR check on the exact head SHA to be terminal and
-   successful; record intentional path-lane skips and block on unexpected
-   auxiliary failures;
-5. require clean mergeability, no unresolved conversations, DCO, secret hygiene,
-   and changed-surface verification; classify unrelated local changes and stop
-   only when they overlap or make exact-head proof unsafe;
-6. run the existing CI command in strict admission mode:
-   `./bin/hushh codex ci-status --pr <pr> --require-success --expected-sha <head-sha>`.
-   Require exit zero. This checks the canonical source, exact run attempt and
-   aggregate job inventory, then re-reads the run and head. Ordinary monitoring
-   may exit zero while work is pending and cannot replace this admission;
-7. re-read the PR head SHA and abort if it differs from the reviewed SHA.
+Record the owner's approval and exact head in the PR release record. Use the normal
+`--match-head-commit` queue command; the queue receipt records author, requester,
+head and `approval_source=owner_queue_request`. Do not fabricate a GitHub review,
+switch identity or temporarily disable protection. Recheck this authority at finish.
 
-Then land only that reviewed head:
+The normal command in 3A remains the landing path. Before requesting it:
 
-```bash
-gh pr merge <pr> --admin --merge --match-head-commit <head-sha>
-```
+1. Verify live protection and ruleset parity with the authored policy.
+2. Run `./bin/hushh codex ci-status --pr <pr> --require-success
+   --expected-sha <head-sha>` and require exit zero.
+3. Recheck head, unresolved conversations and ordinary review or explicit owner approval immediately
+   before the merge request. Missing or failed proof stops the operation.
+4. Monitor the queue's actual combined-result gate, then the landed Main smoke.
 
-Execute preflight and merge as separately checked operations. In a shell driver,
-use `set -euo pipefail` and propagate every failed assertion; a later successful
-command must never mask a failed preflight. Do not dispatch the merge after a
-nonzero, missing or unparsed admission result.
+The combined-result rollout removes queue-bypass actors before relaxing strict
+branch-age checks. Keeping a team bypass would allow a direct UI/API merge using
+old PR-head evidence. Until a mechanically enforced alternative proves the same
+combined result, do not use `gh pr merge --admin` under this policy. Explicit
+incident deployment authorization is separate and cannot clear a failed merge
+check. Do not weaken protection temporarily to make a landing succeed.
 
-Report this truthfully as an Admin queue bypass. Never describe it as merge-queue
-execution or claim `Queue Validation` ran when it did not. Monitor the resulting
-`Main Post-Merge Smoke` for the exact landed `main` SHA.
+The initial owner-approval foundation cannot authorize itself from proposed code.
+Its one-time landing requires the owner’s explicit transition authorization, the
+currently published Admin SOP, green exact-head CI, and proof that the current
+Main merge result is the tested tree. Record any legacy Admin landing as a bypass,
+never as queue validation. After the foundation is qualified, use the ordinary
+queue and remove its legacy bypass actors before relaxing ancestry checks.
+
+Historical Admin landings do not establish continuing bypass authority. The root checkout and unrelated
+work remain untouched throughout the landing.
 
 ### 4. Establish deploy authority
 
@@ -116,15 +129,9 @@ execution or claim `Queue Validation` ran when it did not. Monitor the resulting
 4. Read the exact-SHA verification-plan artifact. It alone selects PKM and BYOK
    reviewer lanes; do not invent a second path classifier.
 
-The exceptional One chat external Vertex cutover uses deploy-uat-one-chat.yml
-only when the operator requested exactly the existing backend service. It
-requires the same exact landed-main SHA and smoke gate, then checks the complete
-serving-backend-to-target backend image and release-input diff against its narrow
-allowlist. Its release
-artifact is partial and does not replace the full UAT receipt or authorize a
-production release. Its one-time Location baseline exception accepts only four
-reviewed Git blob IDs already on main; any drift or other blocked path requires
-a normal UAT catch-up before retrying this service-only lane.
+UAT backend changes use the normal `deploy-uat.yml` workflow with reviewed
+backend scope. The retired One-chat cutover's historical evidence and recovery
+readers remain available; its fixed-source exceptions do not authorize new releases.
 
 ### 5. Dispatch only the requested environment
 
@@ -217,5 +224,7 @@ provenance does not match, or a rollback target cannot be proved. Ordinary Main
 promotion requires reachability from `main` and successful post-merge smoke;
 curated/incident source exceptions follow section 5. Dev follows
 [Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
-CI-green SHA must be reachable from the requested branch, while the workflow
-definition runs from `main`. Dev does not require an application merge to `main`.
+CI-green SHA must be reachable from the requested branch. Matching-branch callers
+use the reviewed Main-owned implementation after live routing qualification; the
+retained Main entrypoint remains the pre-activation path. Follow the CI runbook
+for that transition. Dev does not require an application merge to `main`.

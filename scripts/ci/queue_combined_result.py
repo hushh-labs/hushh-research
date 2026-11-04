@@ -62,7 +62,7 @@ def queue_entries(repository, branch):
       repository(owner:$owner,name:$name) { mergeQueue(branch:$branch) {
         entries(first:100) { totalCount pageInfo {hasNextPage} nodes {
           id position enqueuer {login} pullRequest {
-            number headRefOid baseRefName state isDraft reviewDecision
+            number headRefOid baseRefName state isDraft reviewDecision author {login}
           }
         } }
       } }
@@ -105,11 +105,13 @@ def members(base, head, entries, branch, parents=git):
             and isinstance((entry.get("enqueuer") or {}).get("login"), str)
             and type(pr.get("number")) is int and pr["number"] > 0
             and pr.get("baseRefName") == branch and pr.get("state") == "OPEN"
-            and pr.get("isDraft") is False and pr.get("reviewDecision") == "APPROVED",
+            and pr.get("isDraft") is False and pr.get("reviewDecision") in {"APPROVED", "REVIEW_REQUIRED"},
             "Queued PR identity or current review is unavailable",
         )
         result.append({"entry": entry["id"], "requester": entry["enqueuer"]["login"],
-                       "number": pr["number"], "head": row[1], "combined": current})
+                       "number": pr["number"], "head": row[1], "combined": current,
+                       "author": (pr.get("author") or {}).get("login", ""),
+                       "review": pr["reviewDecision"]})
         current = row[0]
     require(result and len({item["number"] for item in result}) == len(result),
             "Queue group is empty or repeats a PR")
@@ -137,13 +139,22 @@ def authorize(repository, branch, base, included):
     for member in included:
         require(branch != "main" or member["requester"] in allowed,
                 "The actual queue requester is not authorized to merge Main")
+        owner_approval = guard.owner_queue_approval(
+            author=member["author"], requester=member["requester"],
+            review=member["review"], main_policy=main,
+        )
+        require(member["review"] == "APPROVED" or owner_approval,
+                "Queued PR needs current review or its owner's explicit self-approval")
+        if owner_approval:
+            guard.require_uncontested_owner_approval(repository, member["number"], member["head"], read=api)
+        member["approval_source"] = "owner_queue_request" if owner_approval else "github_review"
         # Compare the actual contribution at its merge parent, including renames
         # as deletion/addition, so a protected file cannot evade approval.
         changed = git("diff", "--no-renames", "--name-only", f"{member['combined']}^1", member["combined"]).splitlines()
         protected = any(guard._matches(path, rule) for path in changed for rule in protected_paths)
-        approvals = guard._owner_approvals(
+        approvals = owner_approval or (guard._owner_approvals(
             repository, member["number"], member["head"], protected_owners, read=api,
-        ) if protected else []
+        ) if protected else [])
         require(not protected or approvals, "Protected changes need Kushal or Ankit's current-head approval")
         member["protected_approvals"] = approvals
     return included
@@ -191,6 +202,9 @@ def current_validations(state, read=api):
         require(record.get("run_attempt") == run.attempt
                 and record.get("status") == "completed" and record.get("conclusion") == "success",
                 "Validation attempt changed during queue inspection")
+        owner.require_unchanged_authority(run, owner.validation_runs(read(
+            f"{prefix}/runs?head_sha={member['head']}&event=pull_request&per_page=100"
+        )), member["head"])
         result.append({"number": member["number"], "head": member["head"],
                        "run": run.run_id, "attempt": run.attempt})
     return result
