@@ -125,6 +125,22 @@ def verify_request(target_sha: str) -> None:
                  "--surface", "uat", "--actor", actor]),
         "UAT actor governance",
     )
+    source_branch = os.environ.get("UAT_SOURCE_BRANCH", "uat")
+    if source_branch == "uat-isolated":
+        # Isolated qualification belongs to the Main run, so validate its
+        # bound application and approval before and after the capacity wait.
+        require_success(command([
+            sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+            "validate-deployment", "--source-branch", source_branch, "--sha", target_sha,
+            "--authority-sha", os.environ.get("RELEASE_TOOLING_SHA", ""),
+            "--ci-run-id", os.environ.get("CI_RUN_ID", ""),
+            "--ci-attempt", os.environ.get("CI_ATTEMPT", ""),
+            "--base-sha", os.environ.get("CI_BASE_SHA", ""),
+            "--approved-scope", os.environ.get("APPROVED_SCOPE", ""),
+        ]), "exact isolated application SHA and CI validation")
+        return
+    if source_branch != "uat":
+        raise AdmissionError("Unrecognized protected UAT source branch")
     require_success(command(["git", "fetch", "--no-tags", "origin", "main", "uat"]),
                     "UAT source refresh")
 

@@ -39,6 +39,39 @@ class FakeClock:
 
 
 class ApplicationAuthorityTests(unittest.TestCase):
+    def test_isolated_capacity_requires_pinned_main_qualification_and_approval(self):
+        candidate, base, authority, head = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
+        approval = f"{base}:{base}:8821={head}"
+        environment = {
+            "GITHUB_REF_NAME": "main",
+            "UAT_SOURCE_BRANCH": "uat-isolated",
+            "RELEASE_TOOLING_SHA": authority,
+            "CI_RUN_ID": "42",
+            "CI_ATTEMPT": "2",
+            "CI_BASE_SHA": base,
+            "APPROVED_SCOPE": approval,
+        }
+        for code in (0, 1):
+            with (
+                self.subTest(code=code),
+                patch.dict(wait.os.environ, environment),
+                patch.object(wait, "command", side_effect=[
+                    subprocess.CompletedProcess([], 0, "", ""),
+                    subprocess.CompletedProcess([], code, "", "qualification refused" if code else ""),
+                ]) as run,
+            ):
+                if code:
+                    with self.assertRaisesRegex(wait.AdmissionError, "qualification refused"):
+                        wait.verify_request(candidate)
+                else:
+                    wait.verify_request(candidate)
+                self.assertEqual(run.call_args.args[0], [
+                    sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+                    "validate-deployment", "--source-branch", "uat-isolated", "--sha", candidate,
+                    "--authority-sha", authority, "--ci-run-id", "42", "--ci-attempt", "2",
+                    "--base-sha", base, "--approved-scope", approval,
+                ])
+
     def test_application_authority_requires_protected_uat_history(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
