@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 447,
+  "expected_migration_version": 448,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -348,7 +348,11 @@
     "scope_commerce_posting_admission",
     "scope_commerce_queue_continuous_refresh_v1",
     "scope_commerce_payout_account_claims_v1",
-    "enforce_stripe_payout_source_binding"
+    "enforce_stripe_payout_source_binding",
+    "enqueue_one_attempt_email",
+    "fence_one_attempt_email_preference",
+    "reset_one_attempt_email",
+    "erase_one_attempt_email"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -2840,6 +2844,38 @@
       "updated_at",
       "user_id"
     ],
+    "one_attempt_email_outbox": [
+      "accepted_at",
+      "action_id",
+      "activity_generation",
+      "agent_id",
+      "attempt_key",
+      "claim_id",
+      "claimed_at",
+      "created_at",
+      "expires_at",
+      "id",
+      "observed_at",
+      "permission_generation",
+      "permission_revision",
+      "phase",
+      "provider_id",
+      "recipient_hash",
+      "status",
+      "user_id"
+    ],
+    "one_attempt_email_preferences": [
+      "activity_generation",
+      "chosen_at",
+      "consent_at",
+      "disclosure_version",
+      "email_hash",
+      "enabled",
+      "generation",
+      "revision",
+      "user_hash",
+      "user_id"
+    ],
     "one_attention_ledger": [
       "created_at",
       "kind",
@@ -4865,5 +4901,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 447
+  "expected_schema_head": 448
 }

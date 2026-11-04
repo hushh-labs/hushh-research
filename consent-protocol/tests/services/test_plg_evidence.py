@@ -36,6 +36,106 @@ COMMIT = derive_pkm_mutation_commit_id(
 )
 
 
+def test_attempt_email_choice_is_owner_bound_manual_and_separate(monkeypatch):
+    from hushh_mcp.services import attempt_email as emails
+
+    app = FastAPI()
+    app.include_router(plg.router)
+    with TestClient(app) as caller:
+        url = "/api/one/plg/attempt-email/preferences"
+        body = {"enabled": True, "expectedRevision": 0, "disclosureVersion": emails.DISCLOSURE}
+        assert caller.get(url).status_code == 401
+        assert caller.put(url, json=body).status_code == 401
+        app.dependency_overrides[require_firebase_auth_read_only] = lambda: "authenticated-owner"
+        read = AsyncMock(return_value={"enabled": False, "revision": 0, "available": True})
+        write = AsyncMock(return_value={"enabled": True, "revision": 1})
+        revoke = AsyncMock()
+        monkeypatch.setattr(emails, "preference", read)
+        monkeypatch.setattr(emails, "choose", write)
+        monkeypatch.setattr(emails, "unsubscribe", revoke)
+        result = caller.get(url)
+        assert result.status_code == 200 and "no-store" in result.headers["cache-control"]
+        write.assert_not_called()
+        for invalid in (
+            {**body, "accountId": "other"},
+            {**body, "email": "other@example.invalid"},
+            {**body, "enabled": "true"},
+            {**body, "expectedRevision": True},
+            {**body, "disclosureVersion": "one-email-updates-v1"},
+        ):
+            assert caller.put(url, json=invalid).status_code == 422
+        write.assert_not_called()
+        assert caller.put(url, json=body).status_code == 200
+        assert write.await_args.args == ("authenticated-owner",)
+        # Link scanners only see a manual confirmation; RFC8058 requires POST.
+        assert caller.get("/api/one/plg/attempt-email/unsubscribe?token=fixture").status_code == 200
+        revoke.assert_not_called()
+        assert (
+            caller.post(
+                "/api/one/plg/attempt-email/unsubscribe?token=fixture",
+                content="List-Unsubscribe=One-Click",
+            ).status_code
+            == 200
+        )
+        revoke.assert_awaited_once_with("fixture")
+
+
+def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_body(
+    client, monkeypatch
+):
+    from hushh_mcp.services import attempt_email as emails
+
+    key = "test-only-attempt-worker-separate-secret-with-32-characters"
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "owner")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_SECRET", key)
+    pending = AsyncMock(return_value=[])
+    claim = AsyncMock(return_value=None)
+    monkeypatch.setattr(emails, "pending", pending)
+    monkeypatch.setattr(emails, "claim", claim)
+
+    def call(action="pull", purpose="attempt-emails.production.pull", secret=key, body=None):
+        raw = json.dumps(body or {}, separators=(",", ":"))
+        at = str(int(time.time() * 1000))
+        signature = hmac.new(
+            secret.encode(), f"{purpose}\n{at}\n{raw}".encode(), hashlib.sha256
+        ).hexdigest()
+        return client.post(
+            f"/api/one/plg/attempt-email/{action}",
+            content=raw,
+            headers={
+                "Content-Type": "application/json",
+                "X-PLG-Timestamp": at,
+                "X-PLG-Signature": signature,
+            },
+        )
+
+    assert call(secret=SECRET).status_code == 401
+    assert call(purpose="snapshot").status_code == 401
+    assert call(purpose="attempt-emails.uat.pull").status_code == 401
+    pending.assert_not_called()
+    assert call().json() == {"environment": "production", "deliveries": []}
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert call().status_code == 401
+    assert call(purpose="attempt-emails.uat.pull").status_code == 200
+    body = {"id": str(uuid.uuid4()), "claimId": str(uuid.uuid4()), "accountId": "owner"}
+    for field in ("to", "bcc", "text", "subject"):
+        assert (
+            call("claim", "attempt-emails.uat.claim", body={**body, field: "untrusted"}).status_code
+            == 400
+        )
+    claim.assert_not_called()
+    assert call("claim", "attempt-emails.uat.claim", body=body).status_code == 200
+    assert claim.await_args.args[0] == "owner"
+    monkeypatch.setenv("ONE_PLG_UAT_EXPORT_SECRET", key)
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.delenv("ONE_PLG_UAT_EXPORT_SECRET")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+
+
 @pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
 def test_snapshot_accepts_the_same_bounded_firebase_uid_as_subscription_enrollment(uid):
     request = evidence.PilotRequest(accounts=[{**ACCOUNT, "accountId": uid}])

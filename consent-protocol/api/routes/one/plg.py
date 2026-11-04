@@ -1,4 +1,4 @@
-"""Server-only signed PLG evidence export; no customer content or send authority."""
+"""Signed metadata exports, manual preferences and separately keyed attempt-email worker."""
 
 from __future__ import annotations
 
@@ -34,10 +34,12 @@ from hushh_mcp.services.plg_evidence import (
     uat_session_owner_scope,
 )
 
+from .attempt_email import router as attempt_email_router
 from .marketing_preferences import router as marketing_preferences_router
 
 router = APIRouter(prefix="/api/one/plg", tags=["One PLG integration"])
 router.include_router(marketing_preferences_router)
+router.include_router(attempt_email_router)
 NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
 
 

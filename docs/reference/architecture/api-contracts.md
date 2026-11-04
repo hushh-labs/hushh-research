@@ -5599,3 +5599,35 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 `GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
+
+## Optional agent-attempt emails
+
+The account screen owns an explicit, default-off activity-email choice at
+`GET/PUT /api/one/plg/attempt-email/preferences`. It is separate from marketing
+permission and accepts no recipient or account override. A fresh verified owner
+email, current activity epoch, bounded configured cohort and environment/project
+admission are required to enable it. Opt-out remains available when rollout is off.
+Manual-only controls cannot be submitted by an agent. The setting is operational
+permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
+
+Migration 448 atomically queues the first accepted correlated client terminal
+report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
+SDK/tool reports and uncorrelated observations do not enqueue. This inherits
+best-effort observation coverage and its existing collection limits. It does not
+establish universal attempt capture or a delivery-time guarantee.
+
+Separately signed, environment-bound `attempt-email/pull`, `claim` and `settle`
+ports give a trusted worker one send grant after checking current permission,
+verified recipient, lifecycle and epoch. Read-export keys cannot call them. Only
+closed catalog labels and reported status are returned; no prompts, tool inputs,
+results or freeform mail fields. A lost claim or submission becomes uncertain and
+is never automatically retried. Provider acceptance must not be called Inbox delivery.
+The provider worker and actual Inbox/feedback checks remain release prerequisites;
+these source ports alone do not send email.
+
+Unsubscribe links bind the exact permission generation. GET shows confirmation;
+POST revokes that choice, so email scanners and stale links cannot disable a later
+re-enrollment. Reset disables the preference and erases its outbox. Full account
+tombstones erase both; phone-orphan intent does not revoke an established choice.
+The down migration refuses nonempty state. Disable admission/dispatch for a
+behavioral rollback; do not discard preferences or uncertain-send receipts.
