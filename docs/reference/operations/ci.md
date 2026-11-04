@@ -1998,3 +1998,27 @@ Keep PR validation on `pull_request`; do not execute untrusted source in a privi
 `pull_request_target` event to avoid visible workflow entries. Automatic AI review, including the Readiness Exam, is removed. Product/provider
 qualification remains an explicitly selected release operation, not a PR reviewer.
 Retained probe identities remain constrained until their credentials are retired.
+
+
+### Focused browser and unit selection
+
+Known backend, contract and package paths keep their existing verification owner;
+explicit browser-pack matches still take precedence. Unknown application impact
+or failed planning retains conservative browser coverage. Global CSS changes
+require the normal compile path, without expanding the unit suite. Authored route
+contracts and the generated route/cache manifests feed the unit dependency graph.
+JSON under `__tests__/fixtures/` also remains a related-test input; it is never
+discarded. Colocated tests have unit ownership, and Calendar directive/review
+modules select the existing Calendar browser pack. Unknown runtime JSON still
+widens coverage. The Calendar run `41801308569` used selectors identical to Main
+but expanded to 1,535 unit files because its JSON fixture was unclassified; this
+was a selector gap, not missing branch synchronization. Compare the actual tested
+checkout and script blobs before attributing future delays to stale branches.
+
+The protected-document and phone browser contract selects both Linux Chromium
+and native macOS WebKit from the same `document` decision. Styling and unrelated
+application changes do not select that macOS job. The route-layout metadata JSON
+is owned by UI Contracts and affected units, and alone does not select
+protected-document WebKit; navigation runtime still does. Parameterized browser
+identities are partitioned by engine, so adding a fixture parameter cannot move a
+WebKit case onto Linux. Release qualification retains both engines.
