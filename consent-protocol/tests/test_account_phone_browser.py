@@ -352,6 +352,7 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         ("webkit", "apple.com", False),
         ("webkit", "apple.com", True),
     ],
+    ids=["chromium-google.com", "webkit-apple.com", "webkit-apple.com-readback-failure"],
 )
 async def test_recorded_phone_browser_journeys(
     database_url, monkeypatch, browser_engine, provider, readback_failure
