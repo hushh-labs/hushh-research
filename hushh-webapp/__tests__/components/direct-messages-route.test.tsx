@@ -66,24 +66,29 @@ describe("DirectMessagesRoute", () => {
       expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/one/messages?token=dm1.b");
     } else expect(screen.getByTestId("messages")).toHaveTextContent("null");
   });
-  it.each(["resolved", "rejected"])("recovers a %s source selection when a newer opening fails", async (outcome) => {
+  it.each(["resolved token", "rejected token", "resolved legacy", "rejected legacy"])("recovers a %s source selection when a newer opening fails", async (outcome) => {
     let finishSource!: (value: unknown) => void;
     let failSource!: (reason: Error) => void;
     let failOpening!: (reason: Error) => void;
-    mocks.query = "token=dm1.source";
+    mocks.query = outcome.endsWith("legacy") ? "conversation=thread-a" : "token=dm1.source";
     mocks.routeSelection.mockReturnValueOnce(new Promise((resolve, reject) => { finishSource = resolve; failSource = reject; }))
       .mockReturnValueOnce(new Promise((_, reject) => { failOpening = reject; }));
-    render(<DirectMessagesRoute />);
+    const view = render(<DirectMessagesRoute />);
     await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Open B" }));
     await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(2));
     await act(async () => {
-      if (outcome === "resolved") finishSource({ token: "dm1.source", kind: "conversation", ref: "thread-a" });
+      if (outcome.startsWith("resolved")) finishSource({ token: "dm1.source", kind: "conversation", ref: "thread-a" });
       else failSource(new Error("Invalid source token"));
     });
+    if (outcome === "resolved legacy") {
+      mocks.query = "";
+      view.rerender(<DirectMessagesRoute />);
+      expect(window.history.state.directMessageSelection).toEqual({ owner: "viewer", token: "dm1.source" });
+    }
     expect(screen.getByTestId("messages")).toHaveTextContent("thread-b");
     await act(async () => failOpening(new Error("Synthetic mint failure")));
-    if (outcome === "resolved") expect(screen.getByTestId("messages")).toHaveTextContent("thread-a");
+    if (outcome.startsWith("resolved")) expect(screen.getByTestId("messages")).toHaveTextContent("thread-a");
     else expect(mocks.replace).toHaveBeenCalledWith("/one/messages", { scroll: false });
     expect(mocks.push).not.toHaveBeenCalled();
   });

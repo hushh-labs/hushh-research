@@ -108,10 +108,11 @@ export function DirectMessagesRoute() {
         });
         if (!active) return;
         DirectMessagesResourceService.writeRoute(userId, session, result);
-        if (!openingRequest.current) {
-          replaceMessageHistory({ owner: userId, token: result.token });
-          writeLastMessagesSelection(userId, { lane: "people", token: result.token });
-        }
+        // Sanitizing a legacy URL is also an owned commit. It must not erase
+        // a newer person being opened while this source request completes.
+        if (openingRequest.current && !token) issuedTokens.current.add(result.token);
+        replaceMessageHistory({ owner: userId, token: result.token });
+        writeLastMessagesSelection(userId, { lane: "people", token: result.token });
         setSelection({ key: token ? selectionKey : JSON.stringify([userId, result.token, "", ""]), kind: result.kind, ref: result.ref });
       } catch {
         if (active) setFailedSelection(selectionKey);
