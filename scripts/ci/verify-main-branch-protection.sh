@@ -103,6 +103,32 @@ data = json.loads(os.environ["PROTECTION_JSON"])
 rulesets = json.loads(os.environ["RULESETS_JSON"])
 ruleset_list = json.loads(os.environ["RULESET_LIST_JSON"])
 
+# Review exceptions apply only to the explicitly mapped branch, never to a
+# downstream lane that happens to share a policy key.
+if branch_flow.get("review_rulesets", {}).get(branch):
+    if branch != "main" or data.get("required_pull_request_reviews") is not None:
+        raise SystemExit("Mapped Main review authority requires retirement of duplicate classic reviews")
+    import importlib.util
+    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                              check=True, capture_output=True, text=True).stdout.strip())
+    spec = importlib.util.spec_from_file_location("apply_governance", root / "scripts/ci/apply-governance.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    def read_review(args):
+        return json.loads(subprocess.run([gh_executable, *args], check=True,
+                                        capture_output=True, text=True).stdout)
+    reviewed = module.verify_main_review_ruleset(policy, read=read_review, repo=repo)
+    params = reviewed["rules"][0]["parameters"]
+    # Feed the same policy comparison below from the verified effective boundary.
+    data["required_pull_request_reviews"] = {
+        "required_approving_review_count": params["required_approving_review_count"],
+        "require_last_push_approval": params["require_last_push_approval"],
+        "require_code_owner_reviews": params["require_code_owner_review"],
+        "bypass_pull_request_allowances": {
+            "users": [{"login": login} for login in expected_bypass], "teams": [], "apps": [],
+        },
+    }
+
 checks = []
 checks.extend(data.get("required_status_checks", {}).get("contexts", []))
 checks.extend(

@@ -155,7 +155,7 @@ jobs:
 
   deployment-security:
     name: Request Main security clearance
-    if: inputs.operation != 'inspect' && needs.select-target.outputs.decision != 'NO_OP'
+    if: always() && (inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
     needs: select-target
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -171,13 +171,22 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           persist-credentials: false
+      - name: Validate explicit operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
+          if [[ "$OPERATION" == inspect-routing ]]; then
+            test "$TARGET" = shared-uat
+          fi
       - name: Request and verify Main clearance
         id: clearance
         run: python3 scripts/ci/deployment_security.py --request-broker
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha }}
+          DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
           DEPLOY_SECURITY_ENVIRONMENT: uat
           DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
       - uses: actions/upload-artifact@v6
@@ -192,7 +201,7 @@ jobs:
 
   select-target:
     name: Select UAT target
-    if: inputs.operation != 'inspect'
+    if: inputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -4277,3 +4286,44 @@ jobs:
             echo "UAT release finished with status: $STATUS"
             exit 1
           fi
+
+  inspect-routing:
+    name: Verify UAT routing (no deployment)
+    if: ${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect-routing' }}
+    needs: deployment-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Verify caller and current security receipt
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+          SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF_NAME" = uat
+          test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+          [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
+      - name: Authenticate to the matching environment
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Read project identity without changing resources
+        env:
+          TOOLING_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          observed="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectId)')"
+          test "$observed" = "$GCP_PROJECT_ID"
+          printf 'Verified caller: %s\nMain tooling: %s\nProject: %s\nNo cloud resources changed.\n' "$GITHUB_REF_NAME" "$TOOLING_SHA" "$observed" >> "$GITHUB_STEP_SUMMARY"
