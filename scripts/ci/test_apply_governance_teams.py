@@ -280,6 +280,7 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
 
     policy = _policy()
     policy["branch_flow"].pop("review_rulesets", None)  # Historical classic-policy fixture.
+    policy["main"].pop("owner_admin_ruleset_name", None)
     policy["main"] = {
         **policy["main"],
         "review_bypass_users": ["operator", "invitee"],

@@ -236,3 +236,20 @@ def test_owner_admin_never_replays_unconfirmed_merge(tmp_path):
             queue.owner_admin_merge(8825, HEAD1, receipt, apply=True)
         write.assert_called_once()
         assert json.loads(receipt.read_text())["outcome"] == "not_confirmed"
+
+
+@pytest.mark.parametrize("actor,author", [("outsider", "outsider"), ("kushaltrivedi5", "someone-else")])
+def test_owner_admin_requires_same_named_owner_not_org_admin_status(actor, author):
+    repo = "hushh-labs/hushh-research"
+    policy = {"main": {"merge_users": ["kushaltrivedi5"],
+                       "merge_queue_bypass_users": ["kushaltrivedi5"],
+                       "review_bypass_users": ["kushaltrivedi5"],
+                       "protected_pipeline_edit_users": ["kushaltrivedi5"]}}
+    pr = {"state": "open", "draft": False, "head": {"sha": HEAD1, "repo": {"full_name": repo}},
+          "base": {"ref": "main", "sha": BASE}, "user": {"login": author}}
+    with patch.object(queue, "api", side_effect=[{"login": actor}, pr, {"object": {"sha": BASE}}]), \
+         patch.object(queue, "git", return_value=json.dumps(policy)), \
+         patch.object(queue.subprocess, "run") as run:
+        with pytest.raises(queue.Refused, match="Only the named owner"):
+            queue.owner_admin_snapshot(8825, HEAD1)
+        assert run.call_count == 1 and run.call_args.args[0][:2] == ["git", "fetch"]
