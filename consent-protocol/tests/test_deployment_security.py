@@ -34,7 +34,7 @@ def assert_read_only_uat_inspection(case, job, *, prepared=True):
         f'test "$GITHUB_REF_NAME" = {"uat" if prepared else "main"}',
         'python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"',
         "python3 scripts/ci/uat_release_prerequisites.py validate-inspection",
-        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"',
+        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"',
     }
     actions = {
         "actions/checkout@v6",
@@ -421,12 +421,14 @@ class DeploymentSecurityTest(unittest.TestCase):
 
     def test_native_sources_use_the_resolved_reference(self):
         root = Path(__file__).resolve().parents[2]
-        for name in ["ship-ios-testflight.yml", "ship-android-playstore-v1.yml"]:
+        for name, binding in {
+            "ship-ios-testflight.yml": "SHA: ${{ needs.deployment-security.outputs.application_sha }}",
+            "ship-android-playstore-v1.yml": (
+                "REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}"
+            ),
+        }.items():
             source = (root / ".github/workflows" / name).read_text()
-            self.assertIn(
-                "REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}",
-                source,
-            )
+            self.assertIn(binding, source)
 
 
 class DeploymentBrokerTest(unittest.TestCase):
@@ -528,6 +530,32 @@ class DeploymentBrokerTest(unittest.TestCase):
                 with self.assertRaises(gate.Refused):
                     gate.produce_broker(env, responses.__getitem__, alerts, policy=policy)
                 target["run_attempt"] = old_attempt
+
+    def test_uat_broker_separates_protected_application_from_caller(self):
+        _, request, source, _, responses, _ = self.fixture()
+        prefix = f"repos/{gate.REPOSITORY}"
+        request.update(environment="uat", application_branch="uat-isolated")
+        source.update(head_branch="uat", path=".github/workflows/deploy-uat.yml")
+        source["referenced_workflows"][0]["path"] = (
+            f"{gate.REPOSITORY}/{gate.IMPLEMENTATIONS['uat']}@{SHA}"
+        )
+        responses[f"{prefix}/actions/workflows/deploy-uat.yml"] = {
+            "id": 30,
+            "path": source["path"],
+        }
+        branch = {"protected": True, "commit": {"sha": APP}}
+        responses[f"{prefix}/branches/uat-isolated"] = branch
+        responses[f"{prefix}/compare/{APP}...uat-isolated?per_page=1&page=2"] = {
+            "status": "identical",
+            "merge_base_commit": {"sha": APP},
+        }
+        policy = {"uat": {"manual_dispatch_users": ["operator"]}}
+        admitted = gate.verify_deployment(responses.__getitem__, request, policy)
+        self.assertEqual(admitted["caller_branch"], "uat")
+        self.assertEqual(admitted["application_branch"], "uat-isolated")
+        branch["commit"] = {"sha": SHA}
+        with self.assertRaisesRegex(gate.Refused, "protected isolated UAT tip"):
+            gate.verify_deployment(responses.__getitem__, request, policy)
 
     def test_wrong_branch_operator_source_and_implementation_refuse_before_alert_access(self):
         for key, value in [

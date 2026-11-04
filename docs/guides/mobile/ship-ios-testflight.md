@@ -180,6 +180,22 @@ redacted readiness, distribution, and timing evidence; keys,
 review-contact details, signed URLs, audio, transcripts, Vault material, and
 model bytes are removed or never uploaded.
 
+### Ship an accepted isolated UAT candidate
+
+Use `source_branch=uat-isolated` and supply the full SHA of the protected
+`uat-isolated` tip. Dispatch from `main` after the scoped UAT release has
+completed. The deployment must have accepted the backend for that SHA using
+exact isolated CI. The Ubuntu preflight verifies the current successful UAT
+deployment attempt, the retained acceptance artifact, and the revision and image
+serving all backend traffic. It also compares the native release controls with
+the Main dispatch commit and uses the graph verifier from the accepted CI
+authority. The archive uses the isolated application SHA and
+checks the serving revision again before export. This mode supports the
+standard build with `require_hardware=false`.
+
+Isolated upload receipts record their source branch. Existing upload recovery
+continues from the original build and source even after UAT traffic moves.
+
 ## Common failures
 
 | Failure | Meaning and safe response |

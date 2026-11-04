@@ -96,7 +96,10 @@ def verify_deployment(read, request: dict, policy: dict) -> dict:
         "requested_scope",
         "tooling_sha",
     }
-    if not isinstance(request, dict) or set(request) != fields:
+    if not isinstance(request, dict) or set(request) not in (
+        fields,
+        fields | {"application_branch"},
+    ):
         raise Refused("Deployment security request fields are incomplete or unknown")
     environment = request["environment"]
     if (
@@ -111,6 +114,12 @@ def verify_deployment(read, request: dict, policy: dict) -> dict:
         }
     ):
         raise Refused("Broker only accepts explicit Dev/UAT deployment scopes")
+    application_branch = request.get("application_branch", environment)
+    if application_branch != environment and (environment, application_branch) != (
+        "uat",
+        "uat-isolated",
+    ):
+        raise Refused("Deployment application branch is not governed")
     for field in ("caller_sha", "application_sha", "tooling_sha"):
         if not isinstance(request[field], str) or not SHA.fullmatch(request[field]):
             raise Refused("Deployment security requires immutable source revisions")
@@ -182,9 +191,17 @@ def verify_deployment(read, request: dict, policy: dict) -> dict:
         }
     ):
         raise Refused("Source does not use the recorded Main deployment implementation")
+    if application_branch == "uat-isolated":
+        selected = read(f"{prefix}/branches/uat-isolated")
+        if (
+            not isinstance(selected, dict)
+            or selected.get("protected") is not True
+            or selected.get("commit", {}).get("sha") != request["application_sha"]
+        ):
+            raise Refused("Deployment requires the protected isolated UAT tip")
     for revision, branch in (
         (request["tooling_sha"], "main"),
-        (request["application_sha"], environment),
+        (request["application_sha"], application_branch),
     ):
         comparison = read(f"{prefix}/compare/{revision}...{branch}?per_page=1&page=2")
         if (
@@ -499,6 +516,9 @@ def request_broker(
         "environment": environment,
         "requested_scope": env["DEPLOY_SECURITY_SCOPE"],
     }
+    application_branch = env.get("DEPLOY_SECURITY_APPLICATION_BRANCH")
+    if application_branch and application_branch != environment:
+        request["application_branch"] = application_branch
     policy = json.loads(
         (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
     )

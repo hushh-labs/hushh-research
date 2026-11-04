@@ -19,6 +19,14 @@ on:
         description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
         required: false
         type: string
+      source_branch:
+        description: "Protected UAT source branch"
+        required: false
+        type: string
+      approved_scope:
+        description: "Approved serving baselines and reviewed PR heads"
+        required: false
+        type: string
       ci_run_id:
         description: "Exact full UAT validation run, required for direct UAT admission"
         required: false
@@ -80,10 +88,12 @@ permissions:
   # — the workflow never touches a branch.
   contents: write
   checks: read
+  pull-requests: read
   actions: read
   id-token: write
 
 env:
+  UAT_SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
   GCP_PROJECT_ID: hushh-pda-uat
   UAT_FIREBASE_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
@@ -151,7 +161,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTHORITY_SHA: ${{ job.workflow_sha }}
-        run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"
+        run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"
 
   deployment-security:
     name: Request Main security clearance
@@ -188,6 +198,7 @@ jobs:
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
           DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
           DEPLOY_SECURITY_ENVIRONMENT: uat
+          DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
           DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
       - uses: actions/upload-artifact@v6
         if: always()
@@ -207,6 +218,7 @@ jobs:
       contents: read
       checks: read
       deployments: read
+      pull-requests: read
       actions: read
     outputs:
       sha: ${{ steps.resolve-sha.outputs.sha }}
@@ -222,7 +234,7 @@ jobs:
             echo "Refusing unsupported UAT target."
             exit 1
           fi
-          if [ "${GITHUB_REF_NAME}" != "uat" ]; then
+          if [ "$GITHUB_REF_NAME" != uat ]; then
             echo "Refusing UAT target selection outside uat."
             exit 1
           fi
@@ -252,33 +264,36 @@ jobs:
           REQUESTED_SHA: ${{ github.event.inputs.sha }}
         run: |
           set -euo pipefail
-          if [ -n "$REQUESTED_SHA" ]; then
-            if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "UAT requires a full 40-character commit SHA."
-              exit 1
-            fi
-            python3 scripts/ci/promotion_approval.py uat \
-              --application-sha "$REQUESTED_SHA" \
-              --github-output "$RUNNER_TEMP/uat-source-authority-selection"
-            echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
-            echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
+          if [[ -z "$REQUESTED_SHA" && "$UAT_SOURCE_BRANCH" == uat ]]; then
+            # A blank request may verify already-serving shared UAT only.
+            python3 scripts/ci/uat_application_selection.py \
+              --scope "${{ inputs.scope }}" --github-output --allow-no-op --no-op-only
             exit 0
           fi
-          python3 scripts/ci/uat_application_selection.py \
-            --scope "${{ inputs.scope }}" --github-output --allow-no-op
+          if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "UAT deployment requires an explicit full application SHA."
+            exit 1
+          fi
+          python3 scripts/ci/promotion_approval.py uat \
+            --application-sha "$REQUESTED_SHA" --source-branch "$UAT_SOURCE_BRANCH" \
+            --github-output "$RUNNER_TEMP/uat-source-authority-selection"
+          echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+          echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Validate exact-source qualification before release jobs
         if: steps.resolve-sha.outputs.decision != 'NO_OP'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
+          AUTHORITY_SHA: ${{ job.workflow_sha }}
           CI_RUN_ID: ${{ inputs.ci_run_id }}
           CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
           CI_BASE_SHA: ${{ inputs.ci_base_sha }}
         run: |
           python3 scripts/ci/uat_release_prerequisites.py validate-deployment \
             --sha "$APPLICATION_SHA" --ci-run-id "$CI_RUN_ID" \
-            --ci-attempt "$CI_ATTEMPT" --base-sha "$CI_BASE_SHA"
+            --ci-attempt "$CI_ATTEMPT" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH" --authority-sha "$AUTHORITY_SHA"
 
       - name: Validate one-time Vertex probe exception
         if: inputs.skip_managed_vertex_probe_once
@@ -320,6 +335,7 @@ jobs:
       contents: read
       actions: read
       checks: read
+      pull-requests: read
       id-token: write
     environment:
       name: uat
@@ -364,6 +380,10 @@ jobs:
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
         run: |
           python3 scripts/ci/wait-uat-capacity.py \
             --mode full --target-sha "$TARGET_SHA" \
@@ -400,7 +420,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "uat" ]; then
+          if [ "$GITHUB_REF_NAME" != uat ]; then
             echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'uat' only."
             exit 1
           fi
@@ -451,7 +471,7 @@ jobs:
         env:
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: |
-          python3 scripts/ci/promotion_approval.py uat --application-sha "$APPLICATION_SHA" \
+          python3 scripts/ci/promotion_approval.py uat --application-sha "$APPLICATION_SHA" --source-branch "$UAT_SOURCE_BRANCH" \
             --github-output "$GITHUB_OUTPUT"
 
       # Stable receipt-reader identity. Main retains its smoke requirement;
@@ -460,7 +480,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REQUIRED_BRANCH: ${{ steps.application-authority.outputs.branch }}
-          REQUIRE_CI_SUCCESS: "1"
+          # Isolated qualification is verified on the Main run in the early and locked gates.
+          REQUIRE_CI_SUCCESS: ${{ inputs.source_branch == 'uat-isolated' && '0' || '1' }}
           REQUIRED_CHECK_NAME: ${{ steps.application-authority.outputs.checks || 'Main Post-Merge Smoke Gate' }}
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$APPLICATION_SHA"
@@ -479,7 +500,7 @@ jobs:
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_release_prerequisites.py scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -497,6 +518,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/calendar"
           cp deploy/calendar/setup_followup_scheduler.sh deploy/calendar/verify_followup_release.py \
             "${RUNNER_TEMP}/release-tools/calendar/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/answers"
+          cp deploy/answers/setup_answer_work_drain_scheduler.sh deploy/answers/verify_settlement_release.py \
+            "${RUNNER_TEMP}/release-tools/answers/"
           cp scripts/ci/account-deletion-fence-decision.py \
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
@@ -778,7 +802,7 @@ jobs:
             [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
             [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
-              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" --source-branch "$UAT_SOURCE_BRANCH" \
               --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
@@ -1215,7 +1239,7 @@ jobs:
             [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
             [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
-              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" --source-branch "$UAT_SOURCE_BRANCH" \
               --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
@@ -1226,6 +1250,32 @@ jobs:
               --environment dev --sha "${{ steps.resolve-sha.outputs.sha }}" \
               --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           fi
+
+      - name: Recheck approved PR scope and both serving revisions under deployment lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+        run: |
+          python3 "${RUNNER_TEMP}/release-tools/uat_release_prerequisites.py" validate-scope-live \
+            --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH"
+
+      - name: Verify answer settlement before runtime mutation
+        id: answer-settlement-admission
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}
+          ANSWER_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --release-admission \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_DRAIN_ENABLED" \
+            --revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --tools-dir "${RUNNER_TEMP}/release-tools" \
+            --output /tmp/uat-answer-settlement-admission.json
 
       # A skipped boundary plus skipped mutators can prove a failed attempt
       # never changed runtime state. Any attempted boundary remains conservative.
@@ -1486,7 +1536,7 @@ jobs:
             [[ "$CI_RUN_ID" =~ ^[1-9][0-9]*$ && "$CI_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
             [[ "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" direct-uat \
-              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" \
+              --environment uat --sha "${{ steps.resolve-sha.outputs.sha }}" --source-branch "$UAT_SOURCE_BRANCH" \
               --scope "${{ steps.scope.outputs.scope }}" --base-sha "$CI_BASE_SHA" \
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
@@ -1935,7 +1985,7 @@ jobs:
           set -euo pipefail
           started_at="$(date +%s)"
           source deploy/drive/uat_stripe_bindings.sh
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}##_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_PROTECTED_DOCUMENT_DELIVERY_ENABLED=${{ steps.document-mode.outputs.enabled || 'false' }}"
           fi
@@ -2577,11 +2627,41 @@ jobs:
                   raise SystemExit(f"Canonical secret binding missing: {name}")
           '
 
+      - name: Verify installed answer candidate settings
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "${{ runner.temp }}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --candidate \
+            --payments-enabled "${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}" \
+            --drain-enabled "${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}" \
+            --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --output /tmp/uat-answer-settlement-candidate.json
+
+      - name: Recheck answer settlement before traffic promotion
+        id: recheck-answer-settlement
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}
+          ANSWER_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --release-admission \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_DRAIN_ENABLED" \
+            --revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --tools-dir "${RUNNER_TEMP}/release-tools" \
+            --baseline /tmp/uat-answer-settlement-admission.json \
+            --output /tmp/uat-answer-settlement-recheck.json
+
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic
         shell: bash
         run: |
           set -euo pipefail
+          echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
@@ -3434,6 +3514,79 @@ jobs:
       # deploy/uat-surface-gates.txt in the deployed commit is the single source of truth: the same
       # file set the backend flags and key binding, and here it sets the job and proves the serving
       # revisions match. It runs only with a backend deploy so flags and job always change together.
+      - name: Reconcile paid-answer settlement schedulers
+        id: activate-answer-work-drain
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ENVIRONMENT: uat
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: answer-work-drain-sched
+          ANSWER_WORK_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --candidate \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_WORK_DRAIN_ENABLED" \
+            --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --output /tmp/uat-answer-settlement-installed.json
+          if [ "$ANSWER_PAYMENTS_ENABLED" == true ]; then
+            # Paid admission can use only previously qualified settlement.
+            # Do not create, update or resume financial jobs in this phase.
+            for attempt in $(seq 1 84); do
+              if python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+                --environment uat --paid-admission \
+                --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+                --tools-dir "${RUNNER_TEMP}/release-tools" \
+                --not-before "${{ steps.promote-uat-traffic.outputs.started_at }}" \
+                --output /tmp/uat-answer-settlement-serving.json; then
+                echo "mode=verified-existing" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "answer_candidate_settlement_not_observed" >&2
+            exit 1
+          fi
+          for stage in timeouts refunds payouts; do
+            STAGE="$stage" JOB_NAME="answer-work-${stage}-uat" \
+              bash "${RUNNER_TEMP}/release-tools/answers/setup_answer_work_drain_scheduler.sh"
+          done
+          if [ "$ANSWER_WORK_DRAIN_ENABLED" != true ]; then
+            echo "mode=reconciled-disabled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          logs="$(mktemp)"
+          trap 'rm -f "$logs"' EXIT
+          for stage in timeouts refunds payouts; do
+            job="answer-work-${stage}-uat"
+            uri="${BACKEND_URL%/}/api/internal/answer-work/drain?stage=${stage}"
+            triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            gcloud scheduler jobs run "$job" --project="$PROJECT_ID" --location="$SCHEDULER_LOCATION"
+            verified=false
+            for attempt in $(seq 1 48); do
+              gcloud logging read \
+                "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${job}\" AND timestamp>=\"${triggered_at}\"" \
+                --project="$PROJECT_ID" --freshness=10m --order=desc --limit=20 --format=json > "$logs"
+              if python3 "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" \
+                --logs-json "$logs" --triggered-at "$triggered_at" \
+                --expected-job "projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${job}" \
+                --expected-uri "$uri" --evidence-path "/tmp/uat-answer-work-${stage}.json"; then
+                verified=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$verified" != true ]; then
+              echo "answer_scheduler_no_fresh_http_completion stage=${stage}" >&2
+              exit 1
+            fi
+          done
+          echo "mode=authenticated-execution" >> "$GITHUB_OUTPUT"
+
       - name: Activate Calendar follow-ups drain
         id: activate-calendar-followups
         if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -3736,6 +3889,38 @@ jobs:
             exit 1
           fi
 
+      - name: Restore backend after answer settlement refusal
+        id: rollback-backend-after-answer
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped' && steps.activate-answer-work-drain.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true' && steps.predeploy-state.outputs.backend_revision != ''
+        shell: bash
+        env:
+          PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
+        run: |
+          set -euo pipefail
+          # Restore the captured predecessor; retain all financial jobs for owed work.
+          bash deploy/drive/rollback_after_worker_failure.sh "${{ env.BACKEND_SERVICE }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+          actual="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          test "$actual" = "${{ steps.predeploy-state.outputs.backend_revision }}"
+
+      - name: Restore frontend after answer settlement refusal
+        id: rollback-frontend-after-answer
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped' && steps.activate-answer-work-drain.outcome == 'failure' && steps.scope.outputs.deploy_frontend == 'true' && steps.predeploy-state.outputs.frontend_revision != ''
+        shell: bash
+        env:
+          PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
+        run: |
+          set -euo pipefail
+          # Restore the captured predecessor; retain all financial jobs for owed work.
+          bash deploy/drive/rollback_after_worker_failure.sh "${{ env.FRONTEND_SERVICE }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+          actual="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
@@ -3860,6 +4045,7 @@ jobs:
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-answer-work-drain.outcome }}" != "success" ] \
                  || [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; }; then
               STATUS="blocked"
             else
@@ -3951,6 +4137,8 @@ jobs:
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
+                  "answer_work_drain_mode": "${{ steps.activate-answer-work-drain.outputs.mode }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
                   "text_processor_recovery": "${{ steps.recover-uat-text-requests.outcome }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
@@ -4074,6 +4262,8 @@ jobs:
             /tmp/uat-account-deletion-scheduler-config.json
             /tmp/uat-account-deletion-scheduler-finished-logs.json
             /tmp/uat-account-deletion-activation.json
+            /tmp/uat-answer-work-*.json
+            /tmp/uat-answer-settlement-*.json
             /tmp/uat-account-deletion-scheduler-evidence.json
             /tmp/uat-account-deletion-cleanup-health.json
             /tmp/uat-account-deletion-revision-retirement.json

@@ -1,4 +1,5 @@
 name: "PR Validation"
+run-name: ${{ inputs.uat_candidate_sha && format('Isolated UAT {0}', inputs.uat_candidate_sha) || 'PR Validation' }}
 
 on:
   pull_request:
@@ -37,18 +38,29 @@ on:
         default: ""
         type: string
 
+      uat_candidate_sha:
+        description: "Protected uat-isolated application SHA (Main release qualification only)"
+        type: string
+        default: ""
+      uat_candidate_tree:
+        description: "Full Git tree of the isolated application SHA"
+        type: string
+        default: ""
+
 permissions:
   contents: read
   pull-requests: read
   security-events: read
 
 concurrency:
-  group: validation-${{ github.workflow }}-${{ github.ref }}
+  group: validation-${{ github.workflow }}-${{ github.ref }}${{ inputs.uat_candidate_sha && format('-{0}', inputs.uat_candidate_sha) || '' }}
   cancel-in-progress: true
 
 env:
   NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
+  UAT_CI_CANDIDATE: ${{ inputs.uat_candidate_sha }}
+  UAT_CI_BASE: ${{ inputs.uat_base_sha }}
   CI_VALIDATION_POLICY: core-focused-v1
   CI_VALIDATION_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'all' && 'release' || 'focused' }}
   CI_NATIVE_PARITY_REQUIRED: "0"
@@ -67,6 +79,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - &prepare_isolated
+        name: Prepare isolated UAT source
+        if: inputs.uat_candidate_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TREE: ${{ inputs.uat_candidate_tree }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          test "$REQUESTED_SCOPE" = all
+          python3 scripts/ci/uat_exact_ci.py "$UAT_CI_CANDIDATE" "$UAT_CI_BASE" "$GITHUB_SHA" "$EXPECTED_TREE"
       - name: Install gitleaks OSS CLI (license-free)
         run: |
           # Keep CI independent from licensed action wrappers by using the OSS binary directly.
@@ -122,13 +145,16 @@ jobs:
           else
             LOG_OPTS="${{ github.sha }}"
           fi
+          if [ -n "${UAT_CI_CANDIDATE:-}" ]; then
+            LOG_OPTS="$UAT_CI_BASE..$UAT_CI_CANDIDATE"
+          fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
       - name: Run gitleaks scan (no license secret required)
         run: bash scripts/ci/orchestrate.sh secret
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
           GH_TOKEN: ${{ github.token }}
-          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_SECURITY_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.event.pull_request.head.sha || github.sha }}
 
   dco-check:
     name: "DCO"
@@ -145,12 +171,14 @@ jobs:
           fetch-depth: 0
           # Signoff checks require complete commit history, not historical
           # file contents. Keep all commits without downloading every old blob.
-          filter: blob:none
+          filter: ${{ inputs.uat_candidate_sha == '' && 'blob:none' || '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - name: Validate DCO signoff
         env:
-          GITHUB_BASE_SHA: ${{ github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
-          GITHUB_HEAD_SHA: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          GITHUB_BASE_SHA: ${{ inputs.uat_base_sha || github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
           GITHUB_BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
@@ -160,7 +188,9 @@ jobs:
           set -euo pipefail
           GITHUB_BASE_REF="${GITHUB_BASE_REF#refs/heads/}"
           export GITHUB_BASE_REF
-          if [[ ( "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == merge_group ) && ( "${GITHUB_BASE_REF:-}" == dev || "${GITHUB_BASE_REF:-}" == uat ) ]]; then
+          if [ -n "$UAT_CI_CANDIDATE" ]; then
+            bash scripts/ci/check-dco-signoff.sh "$UAT_CI_BASE" "$UAT_CI_CANDIDATE"
+          elif [[ ( "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == merge_group ) && ( "${GITHUB_BASE_REF:-}" == dev || "${GITHUB_BASE_REF:-}" == uat ) ]]; then
             bash scripts/ci/check-dco-signoff.sh --history-sync
           else
             bash scripts/ci/check-dco-signoff.sh
@@ -168,15 +198,22 @@ jobs:
 
   pr-base-policy:
     name: "PR Base Policy"
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.uat_candidate_sha != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       # Through env, not inline: a head ref is chosen by whoever opens the PR,
       # and an inline expression is pasted into the script before bash parses it.
       - name: Verify PR target branch policy
+        if: github.event_name == 'pull_request'
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -197,6 +234,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -217,7 +256,7 @@ jobs:
         name: Resolve exact changed contract input
         env:
           CI_IMPACT_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CI_IMPACT_HEAD_SHA: ${{ github.sha }}
+          CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
 
       - name: Run repo governance checks
@@ -260,6 +299,10 @@ jobs:
       auth_health: ${{ steps.filter.outputs.auth_health }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       # A dispatch with scope `auto` runs these same filters. paths-filter v4
       # has no pull request to ask the API about then, so it diffs `ref`
@@ -302,6 +345,8 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # The required Governance main-sync check owns the local push hook.
+              - '!consent-protocol/ops/monorepo/pre-push.sh'
               # Human Browser evidence is covered by unconditional docs governance.
               # Keep other docs in Protocol: env-vars.md has semantic assertions.
               - '!consent-protocol/docs/reference/private-browser-runtime.md'
@@ -658,7 +703,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
         run: |
@@ -746,7 +793,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -814,6 +863,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -834,7 +885,7 @@ jobs:
           WEB_TARGETED_PART: browser
           WEB_TARGETED_ALL_PACKS: "0"
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
+          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
         run: bash scripts/ci/web-targeted-check.sh
 
@@ -931,8 +982,8 @@ jobs:
           PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
           PLAYWRIGHT_LINE_REPORTER: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
       - name: Report no selected browser checks
@@ -998,6 +1049,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1050,6 +1105,8 @@ jobs:
           # against the PR base ref and fails closed when a shallow clone
           # does not carry it.
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1114,6 +1171,10 @@ jobs:
       NEXT_PUBLIC_FIREBASE_VAPID_KEY: test-vapid-key
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -1356,6 +1417,10 @@ jobs:
       CAPACITOR_PLATFORM: android
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-java@v5
         with:
@@ -1440,6 +1505,8 @@ jobs:
           # The capability graph check diffs against the PR base ref, which a
           # shallow clone does not carry.
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -1515,6 +1582,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -1570,6 +1639,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1600,6 +1673,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1627,7 +1702,10 @@ jobs:
           elif [ "${{ github.event_name }}" = merge_group ]; then
             base_sha="${{ github.event.merge_group.base_sha }}"
             target_sha="${{ github.event.merge_group.head_sha }}"
-          elif [[ "${{ github.event_name }}" == workflow_dispatch && "$SOURCE_REF" == refs/heads/uat && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
+          elif [ -n "$UAT_CI_CANDIDATE" ]; then
+            base_sha="$UAT_CI_BASE"
+            target_sha="$UAT_CI_CANDIDATE"
+          elif [[ "${{ github.event_name }}" == workflow_dispatch && ( "$SOURCE_REF" == refs/heads/uat || "$SOURCE_REF" == refs/heads/uat-isolated ) && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
             [[ "$UAT_SOURCE_BASE" =~ ^[0-9a-f]{40}$ ]]
             base_sha="$UAT_SOURCE_BASE"
             target_sha="${{ github.sha }}"
@@ -1701,7 +1779,7 @@ jobs:
   # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat' || github.base_ref == 'uat-isolated')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
@@ -1724,7 +1802,7 @@ jobs:
   # This job alone never authorizes a release or replaces the aggregate gate.
   uat-exact-source:
     name: "Exact UAT Candidate"
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main' && inputs.uat_candidate_sha != '') && inputs.scope == 'all' && inputs.uat_base_sha != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -1735,6 +1813,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - *prepare_isolated
       - name: Verify release-level core selection
         run: test "$CI_VALIDATION_LEVEL:$CI_VALIDATION_POLICY" = 'release:core-focused-v1'
 
@@ -1748,7 +1827,7 @@ jobs:
 
       - name: Verify the exact UAT checkout
         env:
-          EXPECTED_SOURCE: ${{ github.sha }}
+          EXPECTED_SOURCE: ${{ inputs.uat_candidate_sha || github.sha }}
           EXPECTED_BASE: ${{ inputs.uat_base_sha }}
         run: |
           set -euo pipefail
@@ -1757,6 +1836,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
           git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+
+      - name: Verify isolated source (${{ inputs.uat_candidate_sha }} ${{ inputs.uat_candidate_tree }})
+        if: inputs.uat_candidate_sha != ''
+        env:
+          EXPECTED_TREE: ${{ inputs.uat_candidate_tree }}
+        run: test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
 
   # The one required check. GitHub counts a skipped or neutral required check
   # as passing, so this gate must never pass on a lane that did not run when

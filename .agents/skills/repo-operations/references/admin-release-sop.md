@@ -1,5 +1,4 @@
 # Admin Merge And Release SOP
-
 This is the canonical authority contract for merging, Admin PR landing, and
 deploying Hussh environments. Every skill or workflow that reaches a merge,
 deployment, rollback, or environment-promotion decision must route here through
@@ -13,8 +12,8 @@ deployment, rollback, or environment-promotion decision must route here through
 2. The ordinary path is PR validation followed by the GitHub merge queue.
 3. Admin SOP coordinates an authorized landing. Required CI and combined-result
    validation always apply. An owner may explicitly approve their own captured PR
-   head through the owner self-approval path below; ordinary reviews remain required
-   for everyone else. Review exception and queue bypass are distinct.
+   head through the owner self-approval path below; ordinary Main reviews remain required
+   for other authors; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
 4. A direct `git push` to `main` is a separate emergency path governed by the
    Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
    that push preflight for the Admin PR landing gate below.
@@ -67,7 +66,13 @@ Required pre-merge proof:
    path below. Do not ask an authorized owner for another person merely because
    GitHub cannot count their self-review. Confirm actual queue entry.
 
-### 3B. Admin landing and queue authority
+### 3B. Ordinary Dev/UAT maintainer landing
+
+Eligible maintainers may land their own verified product PRs without personal
+Kushal/Ankit review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
+CI/core authorization and required CI remain mandatory; merging never deploys.
+
+### 3C. Main Admin landing and queue authority
 
 Main merging is restricted to `main.merge_users`, independently of deployment
 permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's approval.

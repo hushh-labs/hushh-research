@@ -76,13 +76,17 @@ function isRegisteredContractInput(file) {
   // All authored route action contracts share the UI compiler owner. Keep
   // these as graph inputs (not exclusions), so their consumers are tested.
   return REGISTERED_CONTRACT_INPUTS.has(file) ||
-    /^app\/.+\/page\.voice-action-contract\.json$/.test(file);
+    /^app\/.+\/page\.voice-action-contract\.json$/.test(file) ||
+    /^components\/.+\/[^/]+\.voice-action-contract\.json$/.test(file);
 }
 
 function isTestFixtureInput(file) {
-  // Keep fixtures as related-test seeds: their importing tests still run.
+  // Keep test helpers as related-test seeds: their importing tests still run.
   // Unknown runtime JSON retains conservative diagnostic coverage.
-  return /^__tests__\/fixtures\/.+\.json$/.test(file);
+  return !isVitestFile(file) && (
+    /^__tests__\/.+\.[jt]sx?$/.test(file) ||
+    /^__tests__\/(?:.+\/)?fixtures\/.+\.json$/.test(file)
+  );
 }
 
 function isOtherOwnerFile(file) {

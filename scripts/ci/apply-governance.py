@@ -832,8 +832,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true",
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
-    ap.add_argument("--branch", action="append", choices=("dev", "uat", "integration/pr-train"),
-                    help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
+    ap.add_argument("--branch", action="append", choices=("dev", "uat", "uat-isolated", "integration/pr-train"),
+                    help="Reconcile only this prepared branch; repeat for multiple branches. Does not create refs or deploy.")
     ap.add_argument("--main-review-policy", action="store_true",
                     help="Migrate Main review authority after the queue has no bypass actors.")
     ap.add_argument("--main-merge-policy", action="store_true",

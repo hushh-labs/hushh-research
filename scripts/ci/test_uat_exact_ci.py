@@ -53,7 +53,7 @@ class ExactUatCiTest(unittest.TestCase):
         with patch.object(subject, "git", side_effect=observed), patch.object(subject, "verify_invocation_authority"):
             with self.assertRaisesRegex(subject.Refused, "tip changed"):
                 subject.verify_git_authority(candidate, base, authority)
-            self.assertEqual(calls[0], ("fetch", "--no-tags", "origin", "main", "uat"))
+            self.assertEqual(calls[0], ("fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/uat:refs/remotes/origin/uat"))
             calls.clear()
             self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "e" * 40)
             self.assertNotIn(("rev-parse", "origin/uat"), calls)
@@ -266,7 +266,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         caller = (root / ".github/workflows/deploy-uat.yml").read_text()
         workflow = (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
-        selection = workflow.split('if [ -n "$REQUESTED_SHA" ]; then', 1)[1]
+        selection = workflow.split('if ! [[ "$REQUESTED_SHA"', 1)[1]
         selection = selection.split('echo "sha=$REQUESTED_SHA"', 1)[0]
 
         checkout = workflow.split("- name: Checkout code", 1)[1].split(
@@ -275,7 +275,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("fetch-depth: 0", checkout)
         self.assertIn("promotion_approval.py uat", selection)
         self.assertIn(
-            "run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }}",
+            "run-name: UAT · app ${{ inputs.sha || 'unselected' }}",
             caller,
         )
         self.assertIn('--application-sha "$REQUESTED_SHA"', selection)
