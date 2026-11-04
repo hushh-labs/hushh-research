@@ -10,10 +10,9 @@ deployment, rollback, or environment-promotion decision must route here through
    approval, merge, deploy, credentials, rollback, and final release decisions
    stay in the parent session.
 2. The ordinary path is PR validation followed by the GitHub merge queue.
-3. Admin SOP coordinates an authorized landing. Required CI and combined-result
-   validation always apply. An owner may explicitly approve their own captured PR
-   head through the owner self-approval path below; ordinary Main reviews remain required
-   for other authors; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
+3. Admin SOP requires CI and combined-result validation. Main owners may approve
+   their exact head (§3C); other Main authors need review. Dev/UAT maintainers
+   follow §3B. Review exception and queue bypass are distinct.
 4. A direct `git push` to `main` is a separate emergency path governed by the
    Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
    that push preflight for the Admin PR landing gate below.
