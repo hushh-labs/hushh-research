@@ -23,7 +23,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
@@ -132,7 +131,6 @@ import {
   PROFILE_PANE_OPEN_EVENT,
   PROFILE_PANE_ROOT_LOCATION,
   type ProfilePaneOpenDetail,
-  type ProfilePaneLocation,
   openProfilePane,
   clearProfilePaneQuery,
   closeProfilePane,
@@ -154,13 +152,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   const searchParams = useSearchParams();
   const { isAuthenticated, loading: authLoading, sessionVerificationRequired, userId } = useAuth();
   const profileReturnFocus = useRef<{ owner: string | null; target: HTMLElement } | null>(null);
-  const [profilePaneResume, setProfilePaneResume] = useState<{
-    ownerId: string | null;
-    location: ProfilePaneLocation;
-  }>({
-    ownerId: null,
-    location: PROFILE_PANE_ROOT_LOCATION,
-  });
   // Destination crossings behind the shared back contract. Recorded here
   // because this frame renders for every route, including chrome-less ones,
   // and a screen with no top bar can still be where a destination was entered
@@ -283,8 +274,6 @@ function AppShellFrame({ children }: ProvidersProps) {
     [searchParams],
   );
   const profilePaneOpen = profilePaneEnabled && profilePaneUrlState.open;
-  const profilePaneResumeLocation = profilePaneResume.ownerId === userId
-    ? profilePaneResume.location : PROFILE_PANE_ROOT_LOCATION;
   const isFullscreenTopFlow = routeLayoutMode === "flow";
   const shouldLockFullscreenRoot = isFullscreenTopFlow || hidesPersistentChrome;
   const isFoundationRoute = isFoundationPublicRoute(pathname);
@@ -469,17 +458,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [topShellScrollResetKey]);
 
   useEffect(() => {
-    setProfilePaneResume((current) => {
-      if (current.ownerId !== userId) return {
-        ownerId: userId, location: profilePaneUrlState.open
-          ? profilePaneUrlState.location : PROFILE_PANE_ROOT_LOCATION,
-      };
-      return profilePaneUrlState.open
-        ? { ownerId: userId, location: profilePaneUrlState.location } : current;
-    });
-  }, [profilePaneUrlState, userId]);
-
-  useEffect(() => {
     if (authLoading || isAuthenticated || !profilePaneUrlState.open) return;
     clearProfilePaneQuery(pathname || ROUTES.ONE_HOME, searchParams);
   }, [
@@ -513,7 +491,7 @@ function AppShellFrame({ children }: ProvidersProps) {
       openProfilePane(
         window.location.pathname || pathname || ROUTES.ONE_HOME,
         entrySearch,
-        detail?.destination?.location ?? profilePaneResumeLocation,
+        detail?.destination?.location ?? PROFILE_PANE_ROOT_LOCATION,
         { returnsToOrigin: detail?.destination?.returnsToOrigin },
       );
       if (detail?.source === "tap") appHaptic("light");
@@ -530,7 +508,6 @@ function AppShellFrame({ children }: ProvidersProps) {
   }, [
     pathname,
     profilePaneEnabled,
-    profilePaneResumeLocation,
     userId,
   ]);
 
@@ -543,14 +520,14 @@ function AppShellFrame({ children }: ProvidersProps) {
           openProfilePane(
             entryPathname,
             entrySearch,
-            profilePaneResumeLocation,
+            PROFILE_PANE_ROOT_LOCATION,
           );
         }
         return;
       }
       closeProfilePane(entryPathname, entrySearch);
     },
-    [pathname, profilePaneResumeLocation],
+    [pathname],
   );
 
   useEffect(() => {
