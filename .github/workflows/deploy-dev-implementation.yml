@@ -246,6 +246,10 @@ jobs:
             deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql "${RUNNER_TEMP}/release-tools/account-deletion/"
           cp scripts/ci/verify-cloud-scheduler-attempt.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/answers"
+          cp deploy/answers/setup_answer_work_drain_scheduler.sh deploy/answers/verify_settlement_release.py \
+            "${RUNNER_TEMP}/release-tools/answers/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp deploy/drive/rollback_after_worker_failure.sh "${RUNNER_TEMP}/release-tools/"
           git checkout --detach "${{ steps.resolve-sha.outputs.sha }}"
@@ -392,6 +396,22 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Verify answer settlement before runtime mutation
+        id: answer-settlement-admission
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET == 'shared-dev'
+        shell: bash
+        env:
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}
+          ANSWER_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment dev --release-admission \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_DRAIN_ENABLED" \
+            --revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --tools-dir "${RUNNER_TEMP}/release-tools" \
+            --output /tmp/dev-answer-settlement-admission.json
+
       - name: Resolve dev verification plan
         id: verification-plan
         if: env.DEV_TARGET != 'scope-commerce-sandbox'
@@ -518,34 +538,53 @@ jobs:
               --phase resources --report-path /tmp/dev-runtime-secret-sync.json
             exit 0
           fi
+          backend_sync_help="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py --help 2>/dev/null || true)"
+          backend_sync_args=(
+            --project "${{ env.GCP_PROJECT_ID }}"
+            --environment dev
+            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}"
+            --db-host "cloudsql-socket"
+            --db-port "5432"
+            --db-name "postgres"
+            --db-unix-socket "${{ env.DEV_DB_UNIX_SOCKET }}"
+            --cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}"
+            --consent-sse-enabled "true"
+            --sync-remote-enabled "false"
+            --developer-api-enabled "true"
+            --remote-mcp-enabled "true"
+            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}"
+            --obs-data-stale-ratio-threshold "0.25"
+            --plaid-env "production"
+            --plaid-client-name "Hushh Kai"
+            --plaid-country-codes "US"
+            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook"
+            --plaid-redirect-path "/kai/plaid/oauth/return"
+            --plaid-tx-history-days "730"
+            --one-location-read-only-state-enabled "false"
+            --hushh-trusted-device-enabled "false"
+          )
           drive_group_args=()
           if grep -q -- '--drive-four-group-index' scripts/ops/sync_backend_runtime_secrets.py; then
             drive_group_args=(--drive-four-group-index "false")
           fi
+          # This workflow runs from main while the checked-out candidate may
+          # predate the owner-profile CLI. Keep older candidates on their
+          # existing strict defaults; only the matching source receives both
+          # explicit Dev-selection flags.
+          # HOSTED_CUSTODY_FLAG_GATE_BEGIN
+          if [[ "${DEV_TARGET:-}" == "shared-dev" ]] \
+            && grep -q -- '--hosted-custody-profile' <<<"${backend_sync_help}" \
+            && grep -q -- '--dev-target' <<<"${backend_sync_help}" \
+            && { grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+              consent-protocol/db/hosted_custody_profiles.py 2>/dev/null \
+              || grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                consent-protocol/db/hosted_custody_qualification.py 2>/dev/null; }; then
+            backend_sync_args+=(--hosted-custody-profile "dev_control_plane_owner" \
+              --dev-target "${DEV_TARGET}")
+          fi
+          # HOSTED_CUSTODY_FLAG_GATE_END
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
-            --project "${{ env.GCP_PROJECT_ID }}" \
-            --environment dev \
-            --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --db-host "cloudsql-socket" \
-            --db-port "5432" \
-            --db-name "postgres" \
-            --db-unix-socket "${{ env.DEV_DB_UNIX_SOCKET }}" \
-            --cloudsql-instance-connection-name "${{ env.DEV_CLOUDSQL_INSTANCE }}" \
-            --consent-sse-enabled "true" \
-            --sync-remote-enabled "false" \
-            --developer-api-enabled "true" \
-            --remote-mcp-enabled "true" \
-            --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --obs-data-stale-ratio-threshold "0.25" \
-            --plaid-env "production" \
-            --plaid-client-name "Hushh Kai" \
-            --plaid-country-codes "US" \
-            --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
-            --plaid-redirect-path "/kai/plaid/oauth/return" \
-            --plaid-tx-history-days "730" \
-            --one-location-read-only-state-enabled "false" \
-            --hushh-trusted-device-enabled "false" \
-            "${drive_group_args[@]}" \
+            "${backend_sync_args[@]}" "${drive_group_args[@]}" \
             > /tmp/dev-runtime-secret-sync.json
 
           # Same main-workflow vs train-tree skew guard as the backend sync:
@@ -745,6 +784,36 @@ jobs:
           export DB_USER
           export DB_PASSWORD
 
+          # HOSTED_CUSTODY_PROFILE_ENV_GATE_BEGIN
+          if [[ "${DEV_TARGET:-}" == "shared-dev" ]]; then
+            export ENVIRONMENT="dev"
+            export DEV_TARGET="shared-dev"
+            export GCP_PROJECT_ID="${{ env.GCP_PROJECT_ID }}"
+            export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
+            export CLOUDSQL_INSTANCE_CONNECTION_NAME="${{ env.DEV_CLOUDSQL_INSTANCE }}"
+            backend_sync_help="$("${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py --help 2>/dev/null || true)"
+            custody_profile_supported=false
+            # Current candidates define this in hosted_custody_profiles.py;
+            # retain the prior path for older candidate checkouts.
+            if grep -q -- '--hosted-custody-profile' <<<"${backend_sync_help}" \
+              && grep -q -- '--dev-target' <<<"${backend_sync_help}" \
+              && { grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                consent-protocol/db/hosted_custody_profiles.py 2>/dev/null \
+                || grep -Fq 'DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"' \
+                  consent-protocol/db/hosted_custody_qualification.py 2>/dev/null; }; then
+              custody_profile_supported=true
+            fi
+            if [[ "${custody_profile_supported}" == true ]]; then
+              export HUSHH_HOSTED_CUSTODY_PROFILE="dev_control_plane_owner"
+            else
+              unset HUSHH_HOSTED_CUSTODY_PROFILE || true
+            fi
+          else
+            unset ENVIRONMENT GCP_PROJECT_ID GOOGLE_CLOUD_PROJECT \
+              CLOUDSQL_INSTANCE_CONNECTION_NAME HUSHH_HOSTED_CUSTODY_PROFILE || true
+          fi
+          # HOSTED_CUSTODY_PROFILE_ENV_GATE_END
+
           if [[ "${DEV_TARGET:-shared-dev}" == "scope-commerce-sandbox" ]]; then
             "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
               --phase database --report-path /tmp/dev-preview-predeploy-database.json
@@ -830,11 +899,14 @@ jobs:
           # paid-required requests can finish Checkout and webhook settlement.
           ANSWER_STRIPE_MODE="test"
           case "$ANSWER_STRIPE_MODE" in
-            test) ANSWER_KEY_SECRET=STRIPE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_WEBHOOK_SECRET ;;
+            test)
+              ANSWER_KEY_SECRET="${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || 'STRIPE_SECRET_KEY' }}"
+              ANSWER_WEBHOOK_SECRET="${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || 'STRIPE_WEBHOOK_SECRET' }}"
+              ;;
             live) ANSWER_KEY_SECRET=STRIPE_LIVE_SECRET_KEY; ANSWER_WEBHOOK_SECRET=STRIPE_LIVE_WEBHOOK_SECRET ;;
             *) echo "Invalid answer Stripe mode" >&2; exit 1 ;;
           esac
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_DEV_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_DEV_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_DEV_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_DEV_SECRET || '' }}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE="
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_PKM_ANSWER_REQUESTS_ENABLED=${{ vars.PKM_ANSWER_REQUESTS_DEV_ENABLED || 'true' }}##_PKM_ANSWER_PAYMENTS_ENABLED=${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}##_PKM_ANSWER_COMPOSER_ENABLED=${{ vars.PKM_ANSWER_COMPOSER_DEV_ENABLED || 'false' }}##_PKM_ANSWER_LIVE_PROVIDER_REVIEWED=${{ vars.PKM_ANSWER_LIVE_PROVIDER_DEV_REVIEWED || 'false' }}##_PKM_ANSWER_STRIPE_MODE=${ANSWER_STRIPE_MODE}##_PKM_ANSWER_STRIPE_SECRET_KEY_SECRET=${ANSWER_KEY_SECRET}##_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET=${ANSWER_WEBHOOK_SECRET}##_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_DEV_SECRET || '' }}##_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET=${{ vars.PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_DEV_SECRET || '' }}##_ANSWER_WORK_DRAIN_ENABLED=${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}##_ANSWER_WORK_DRAIN_AUDIENCE=https://consent-protocol-621416509462.us-central1.run.app"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_DEV_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET##_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=STRIPE_CONNECT_WEBHOOK_SECRET"
           # The isolated commerce sandbox keeps its own database baseline; enable on shared Dev only.
           if [[ "${DEV_TARGET:-shared-dev}" != "scope-commerce-sandbox" ]]; then
@@ -1038,10 +1110,41 @@ jobs:
           "${{ env.PROTOCOL_PYTHON }}" scripts/deploy/commerce-preview-verify.py \
             --phase mounts --report-path /tmp/dev-preview-candidate-bindings.json
 
-      - name: Promote deployed revisions to dev traffic
+      - name: Verify installed answer candidate settings
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET == 'shared-dev'
         shell: bash
         run: |
           set -euo pipefail
+          python3 "${{ runner.temp }}/release-tools/answers/verify_settlement_release.py" \
+            --environment dev --candidate \
+            --payments-enabled "${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}" \
+            --drain-enabled "${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}" \
+            --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --output /tmp/dev-answer-settlement-candidate.json
+
+      - name: Recheck answer settlement before traffic promotion
+        id: recheck-answer-settlement
+        if: steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET == 'shared-dev'
+        shell: bash
+        env:
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}
+          ANSWER_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment dev --release-admission \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_DRAIN_ENABLED" \
+            --revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --tools-dir "${RUNNER_TEMP}/release-tools" \
+            --baseline /tmp/dev-answer-settlement-admission.json \
+            --output /tmp/dev-answer-settlement-recheck.json
+
+      - name: Promote deployed revisions to dev traffic
+        id: promote-dev-traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
@@ -1590,6 +1693,107 @@ jobs:
               --report-path /tmp/dev-preview-bootstrap.json
           fi
 
+      - name: Reconcile paid-answer settlement schedulers
+        id: activate-answer-work-drain
+        if: steps.classify-dev-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && env.DEV_TARGET == 'shared-dev'
+        shell: bash
+        env:
+          ENVIRONMENT: dev
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          BACKEND_URL: https://consent-protocol-621416509462.us-central1.run.app
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: answer-work-drain-sched
+          ANSWER_WORK_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_DEV_ENABLED || 'false' }}
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_DEV_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment dev --candidate \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_WORK_DRAIN_ENABLED" \
+            --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --output /tmp/dev-answer-settlement-installed.json
+          if [ "$ANSWER_PAYMENTS_ENABLED" == true ]; then
+            # Paid admission can use only previously qualified settlement.
+            # Do not create, update or resume financial jobs in this phase.
+            for attempt in $(seq 1 84); do
+              if python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+                --environment dev --paid-admission \
+                --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+                --tools-dir "${RUNNER_TEMP}/release-tools" \
+                --not-before "${{ steps.promote-dev-traffic.outputs.started_at }}" \
+                --output /tmp/dev-answer-settlement-serving.json; then
+                echo "mode=verified-existing" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "answer_candidate_settlement_not_observed" >&2
+            exit 1
+          fi
+          for stage in timeouts refunds payouts; do
+            STAGE="$stage" JOB_NAME="answer-work-${stage}-dev" \
+              bash "${RUNNER_TEMP}/release-tools/answers/setup_answer_work_drain_scheduler.sh"
+          done
+          if [ "$ANSWER_WORK_DRAIN_ENABLED" != true ]; then
+            echo "mode=reconciled-disabled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          logs="$(mktemp)"
+          trap 'rm -f "$logs"' EXIT
+          for stage in timeouts refunds payouts; do
+            job="answer-work-${stage}-dev"
+            uri="${BACKEND_URL%/}/api/internal/answer-work/drain?stage=${stage}"
+            triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            gcloud scheduler jobs run "$job" --project="$PROJECT_ID" --location="$SCHEDULER_LOCATION"
+            verified=false
+            for attempt in $(seq 1 48); do
+              gcloud logging read \
+                "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${job}\" AND timestamp>=\"${triggered_at}\"" \
+                --project="$PROJECT_ID" --freshness=10m --order=desc --limit=20 --format=json > "$logs"
+              if python3 "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" \
+                --logs-json "$logs" --triggered-at "$triggered_at" \
+                --expected-job "projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${job}" \
+                --expected-uri "$uri" --evidence-path "/tmp/dev-answer-work-${stage}.json"; then
+                verified=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$verified" != true ]; then
+              echo "answer_scheduler_no_fresh_http_completion stage=${stage}" >&2
+              exit 1
+            fi
+          done
+          echo "mode=authenticated-execution" >> "$GITHUB_OUTPUT"
+
+      - name: Restore backend after answer settlement refusal
+        id: rollback-backend-after-answer
+        if: always() && steps.activate-answer-work-drain.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true' && steps.predeploy-state.outputs.backend_revision != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Restore the captured predecessor; retain all financial jobs for owed work.
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+          actual="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          test "$actual" = "${{ steps.predeploy-state.outputs.backend_revision }}"
+
+      - name: Restore frontend after answer settlement refusal
+        id: rollback-frontend-after-answer
+        if: always() && steps.activate-answer-work-drain.outcome == 'failure' && steps.scope.outputs.deploy_frontend == 'true' && steps.predeploy-state.outputs.frontend_revision != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Restore the captured predecessor; retain all financial jobs for owed work.
+          bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+          actual="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
@@ -1658,7 +1862,9 @@ jobs:
 
           if [ "${{ steps.classify-dev-release.outputs.release_failed }}" = "false" ]; then
             STATUS="healthy"
-            if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" && "${{ steps.scope.outputs.deploy_backend }}" == "true" && "${{ steps.activate-account-deletion.outcome }}" != "success" ]]; then
+            if [[ "${DEV_TARGET:-shared-dev}" == "shared-dev" && "${{ steps.scope.outputs.deploy_backend }}" == "true" ]] \
+               && { [[ "${{ steps.activate-account-deletion.outcome }}" != "success" ]] \
+                 || [[ "${{ steps.activate-answer-work-drain.outcome }}" != "success" ]]; }; then
               STATUS="blocked"
             fi
           else
@@ -1743,6 +1949,8 @@ jobs:
                   "reviewer_byok_outcome": "${{ steps.verify-reviewer-byok.outcome }}",
               },
               "verification": {
+                  "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
+                  "answer_work_drain_mode": "${{ steps.activate-answer-work-drain.outputs.mode }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
                   "parity_success": "${{ steps.classify-dev-release.outputs.parity_success }}",
@@ -1837,6 +2045,8 @@ jobs:
             /tmp/dev-release-verify-attempt-2.json
             /tmp/dev-release-classification.json
             /tmp/dev-release-status.json
+            /tmp/dev-answer-work-*.json
+            /tmp/dev-answer-settlement-*.json
             /tmp/dev-account-deletion-*.json
             /tmp/dev-account-deletion-*.log
             /tmp/dev-verification-plan.json
