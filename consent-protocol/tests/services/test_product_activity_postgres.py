@@ -598,6 +598,26 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
         new_generation = (await asyncio.to_thread(activity.admission, owner))["generation"]
         await emit("returned", "post-reset-choice", new_generation)
         assert len(await emails.pending()) == 1
+        # Prove the schema cascades independently of the tombstone trigger.
+        # Roll back this probe so the same populated owner still exercises
+        # full tombstone erasure and feedback below.
+        async with pool.acquire() as conn:
+            transaction = conn.transaction()
+            await transaction.start()
+            try:
+                assert await conn.fetchval(
+                    "SELECT enabled FROM one_attempt_email_preferences WHERE user_id=$1", owner
+                )
+                await conn.execute("DELETE FROM actor_profiles WHERE user_id=$1", owner)
+                for table in ("one_attempt_email_preferences", "one_attempt_email_outbox"):
+                    assert (
+                        await conn.fetchval(f"SELECT COUNT(*) FROM {table} WHERE user_id=$1", owner)
+                        == 0
+                    )
+            finally:
+                await transaction.rollback()
+        assert (await emails.preference(owner))["enabled"]
+        assert len(await emails.pending()) == 1
         reset_job = (await emails.pending())[0]
         reset_claim = uuid4()
         assert await emails.claim(owner, UUID(reset_job["id"]), reset_claim)
