@@ -228,8 +228,10 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
 
   it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {
     const connectIndex = normalized.indexOf('type === "calendar.connect"');
-    const block = normalized.slice(connectIndex, connectIndex + 1200);
-    expect(block).toContain('runDirectiveConnect("calendar");');
+    const block = normalized.slice(connectIndex, normalized.indexOf('if (type !== "calendar.execute_proposal")', connectIndex));
+    expect(block).toContain('calendarDirectiveAccountId(payload)');
+    expect(block).toContain('requestedAccount !== selectedAccount');
+    expect(block).toContain('runDirectiveConnect("calendar", requestedAccount);');
     expect(block).not.toContain("location.assign");
     // The shared connector still owns the existing Calendar start + journey reset.
     const shared = readFileSync(
