@@ -156,11 +156,11 @@ def authority_policy(repository, branch, base):
 
 
 def current_head_reviewers(repository, member, policy, guard):
-    """Replace an absent native verdict with the canonical maintainer review authority.
+    """Prove approval against the current head and canonical maintainer authority.
 
     Native reviewDecision is null when GitHub has no review-count requirement;
-    that absence never grants approval. Reuse the same cohort that populates
-    the ordinary CODEOWNERS team, without reading mutable team membership.
+    neither that absence nor an APPROVED label grants authority. Reuse the same
+    cohort that populates ordinary CODEOWNERS, without mutable team membership.
     """
     governance = _module("apply-governance.py", "queue_reviewer_cohort")
     teams = [team for team in governance.MANAGED_TEAMS
@@ -205,15 +205,16 @@ def authorize(repository, branch, base, included, *, policy=None):
         require(isinstance(maintainers, list), "Maintainer cohort is malformed")
         maintainer_self = (bool(lane) and member["author"] == member["requester"]
                            and member["requester"] in maintainers)
-        independent = (current_head_reviewers(repository, member, policy, guard)
-                       if member["review"] is None else [])
-        require(member["review"] == "APPROVED" or independent or owner_approval or maintainer_self,
+        self_authorized = bool(owner_approval or maintainer_self)
+        independent = ([] if self_authorized else
+                       current_head_reviewers(repository, member, policy, guard))
+        require(independent or self_authorized,
                 "Queued PR needs current review or its owner's explicit self-approval")
-        if member["review"] is not None and (owner_approval or maintainer_self):
+        if self_authorized:
             guard.require_uncontested_owner_approval(repository, member["number"], member["head"], read=api)
         member["approval_source"] = ("owner_queue_request" if owner_approval else
                                      "maintainer_queue_request" if maintainer_self else
-                                     "current_head_review" if independent else "github_review")
+                                     "current_head_review")
         member["current_head_reviewers"] = independent
         # Compare the actual contribution at its merge parent, including renames
         # as deletion/addition, so a protected file cannot evade approval.
