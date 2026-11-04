@@ -9,6 +9,7 @@ die() { printf '%s\n' "$*" >&2; exit 1; }
 project=hushh-pda-uat
 region=us-central1
 service=backend-dev-ankit
+auth_project=hushh-team-sandbox-auth
 bucket=hushh-pda-uat-backend-dev-ankit-builds
 image="$region-docker.pkg.dev/$project/$service/$service"
 runtime="$service@$project.iam.gserviceaccount.com"
@@ -136,6 +137,8 @@ if [[ "$reuse_revision" == false ]]; then
   # Each worker holds three LISTEN connections. Preserve one request slot.
   env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=4,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
   env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-ankit"
+  env_vars+=",HUSHH_SANDBOX_FIREBASE_PROJECT_ID=$auth_project"
+  env_vars+=",ONE_VOICE_LIVE_ENABLED=true"
   env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
   secrets="APP_SIGNING_KEY=BACKEND_DEV_ANKIT_APP_SIGNING_KEY:1,VAULT_DATA_KEY=BACKEND_DEV_ANKIT_VAULT_DATA_KEY:1"
   secrets+=",DB_USER=BACKEND_DEV_ANKIT_DB_USER:1,DB_PASSWORD=BACKEND_DEV_ANKIT_DB_PASSWORD:1"
