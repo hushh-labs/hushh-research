@@ -12,8 +12,9 @@ deployment, rollback, or environment-promotion decision must route here through
 2. The ordinary path is PR validation followed by the GitHub merge queue.
 3. Admin SOP coordinates an authorized landing. Required CI and combined-result
    validation always apply. An owner may explicitly approve their own captured PR
-   head through the owner self-approval path below; ordinary Main reviews remain required
-   for other authors; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
+   head through the validated direct path below; explicitly configured Main direct
+   operators may use the same route for their own PRs. Other Main authors retain
+   ordinary reviews; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
 4. A direct `git push` to `main` is a separate emergency path governed by the
    Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
    that push preflight for the Admin PR landing gate below.
@@ -71,6 +72,9 @@ Required pre-merge proof:
 Eligible maintainers may land their own verified product PRs without personal
 Kushal/Ankit review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
 CI/core authorization and required CI remain mandatory; merging never deploys.
+Kushal and Ankit retain the validated direct route for their own Dev/UAT PRs after
+the destination's owner guard is installed and verified. Other maintainers use
+the queue; Main's additional direct operators do not inherit Dev/UAT bypass.
 
 ### 3C. Main Admin landing and queue authority
 
@@ -83,12 +87,13 @@ execute its reviewed implementation; generic admin credentials alone are not.
 explicitly listed in both `main.review_bypass_users` and
 `main.merge_queue_bypass_users` may approve their own captured Main application
 PR through the canonical command below. Do not repeatedly toggle bypass modes.
-This is Main-only; Dev/UAT review and queue admission remain unchanged. Protected
+This additional operator exception is Main-only. Dev/UAT retain their existing
+protected-owner direct route and ordinary maintainer queue admission. Protected
 CI, release and fundamental `.agents` changes still require current-head approval
 from Kushal or Ankit; review/direct membership does not grant pipeline editing.
 Other contributors retain independent/latest-push/CODEOWNER reviews and the queue.
 
-The named-owner route preserves these independent protections:
+The validated direct route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the six-person Main merger restriction remain active.
@@ -115,7 +120,7 @@ successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain
 response is reconciled, never automatically replayed. Main smoke remains required.
 
-For this direct route only, reconcile current Main into the PR if the tested base
+For this direct route only, reconcile the current destination into the PR if the tested base
 changed; ordinary reviewed contributors can use the queue without this ancestry
 requirement. A changed source needs its own validation. Missing or failed evidence
 is a refusal, not permission to run `gh --admin` directly.

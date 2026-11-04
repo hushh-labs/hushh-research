@@ -347,7 +347,7 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    open. A `--self-test` runs in CI so the guard can never silently regress.
 3. **Review and owner approval.** Ordinary PRs require one independent latest-push
    approval. Configured direct operators may explicitly land their own application
-   PR under the [validated direct procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority).
+   PR under the [validated direct procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-admin-landing-and-queue-authority).
    Protected changes retain their separate current-head Kushal/Ankit approval.
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
@@ -455,11 +455,13 @@ have.
 
 Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
 Ordinary merges require applicable independent review and combined-result queue
-validation. The Main-only validated direct route uses the explicit review/direct
+validation. Main's validated direct route uses the explicit review/direct
 cohorts in policy for self-authored application PRs. Its native strict CI/PR guard
 and canonical command preserve current-base evidence, resolved conversations and
 landed-tree verification. Protected changes still require Kushal/Ankit approval;
-review bypass does not grant pipeline editing. Dev/UAT have no direct route here.
+review bypass does not grant pipeline editing. Dev/UAT's direct route remains
+limited to Kushal and Ankit's own PRs after the destination's owner guard is
+installed and verified; ordinary maintainers use the queue.
 Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 

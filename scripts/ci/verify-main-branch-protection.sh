@@ -66,6 +66,13 @@ if policy_key not in policy:
     print(f"ERROR: policy key '{policy_key}' is missing from {os.environ['POLICY_FILE']}")
     sys.exit(1)
 branch_policy = dict(policy[policy_key])
+native_prepared = bool(prepared.get("owner_admin_ruleset_name"))
+if native_prepared:
+    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                              check=True, capture_output=True, text=True).stdout.strip())
+    sys.path.insert(0, str(root / "scripts/ci"))
+    from prepared_branch_governance import branch_policy as prepared_policy, verify_destination_authority
+    branch_policy = prepared_policy(policy, branch)
 if prepared:
     branch_policy["merge_queue_ruleset_name"] = prepared["merge_queue_ruleset_name"]
 repository_policy = policy.get("repository") or {}
@@ -130,6 +137,22 @@ if branch_flow.get("review_rulesets", {}).get(branch):
             "users": [{"login": login} for login in expected_bypass], "teams": [], "apps": [],
         },
     }
+
+if native_prepared:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("apply_governance", root / "scripts/ci/apply-governance.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    def read_prepared(args):
+        return json.loads(subprocess.run([gh_executable, *args], check=True,
+                                        capture_output=True, text=True).stdout)
+    module.reconcile_protected_pipeline_review(policy, verify_only=True, read=read_prepared)
+    module.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read_prepared, repo=repo)
+    verify_destination_authority(branch, repo=repo, read=read_prepared)
+    expected_owner_actors = [
+        {"actor_id": read_prepared(["api", f"users/{login}"])["id"], "actor_type": "User", "bypass_mode": "pull_request"}
+        for login in sorted(branch_policy["merge_queue_bypass_users"])
+    ]
 
 checks = []
 checks.extend(data.get("required_status_checks", {}).get("contexts", []))
@@ -203,6 +226,9 @@ for ruleset in ruleset_list:
                     module.main_exception_actors(expected_queue_bypass, read=read_review),
                     key=lambda a: json.dumps(a, sort_keys=True))):
             raise SystemExit("Main owner queue exception contains unknown actors, modes or scope")
+    if native_prepared and sorted(detail.get("bypass_actors", []), key=lambda a: json.dumps(a, sort_keys=True)) != sorted(
+            expected_owner_actors, key=lambda a: json.dumps(a, sort_keys=True)):
+        raise SystemExit("Prepared queue exception contains unknown actors, modes or scope")
     if prepared:
         # Prepared queues are deliberately exact-ref rules, not wildcard inference.
         refs = detail.get("conditions", {}).get("ref_name", {})
@@ -324,17 +350,17 @@ for required_check in required_checks:
         errors.append(f"required status check missing: {required_check}")
 if approvals != expected_approvals:
     errors.append(f"required approvals drifted: expected {expected_approvals}, got {approvals}")
-if branch_policy.get("require_code_owner_reviews") and not data.get("required_pull_request_reviews", {}).get("require_code_owner_reviews"):
-    errors.append("required code-owner approval is not enabled")
-if require_last_push_approval and not last_push_approval:
-    errors.append("latest-push approval requirement is not enabled")
+if bool(branch_policy.get("require_code_owner_reviews")) != bool(data.get("required_pull_request_reviews", {}).get("require_code_owner_reviews")):
+    errors.append("code-owner approval policy differs from authored authority")
+if require_last_push_approval != bool(last_push_approval):
+    errors.append("latest-push approval policy differs from authored authority")
 if strict_checks != require_strict:
     errors.append(f"strict branch-age policy drifted: expected {require_strict}, got {strict_checks}")
 if require_conversation_resolution and not conversation_resolution:
     errors.append("required conversation resolution is not enabled")
 if not admins_enforced:
     errors.append("administrators can bypass required branch checks/review")
-if branch_policy.get("merge_users"):
+if branch == "main" and branch_policy.get("merge_users"):
     restrictions = data.get("restrictions") or {}
     actual_users = sorted(row["login"] for row in restrictions.get("users", []))
     if actual_users != sorted(branch_policy["merge_users"]) or restrictions.get("teams") or restrictions.get("apps"):

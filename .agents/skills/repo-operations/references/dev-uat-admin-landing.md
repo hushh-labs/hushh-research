@@ -38,8 +38,10 @@ protected Main revision, rechecks them before clearance and requires an owner
 approval for protected changes. A direct `--admin` command is a separate bypass;
 do not use it as a substitute for combined-result evidence.
 
-`./bin/hushh codex admin-merge` is the **Main owner-only** command; do not
-send Dev/UAT maintainers through it or interpret its refusal as requiring a
+`./bin/hushh codex admin-merge` also admits Kushal or Ankit's own Dev/UAT PRs after
+the destination's strict owner guard is installed and verified. Other Dev/UAT
+maintainers use the queue; Main's additional direct operators do not inherit this
+exception. A direct-route refusal does not imply an ordinary product PR needs a
 personal review. If canonical and live branch exceptions differ, record that
 specific drift and reconcile it through a reviewed operations change; never
 blindly apply a policy rewrite or weaken CI to make the command work.
