@@ -198,7 +198,9 @@ jobs:
 
   pr-base-policy:
     name: "PR Base Policy"
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.uat_candidate_sha != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -211,6 +213,7 @@ jobs:
       # Through env, not inline: a head ref is chosen by whoever opens the PR,
       # and an inline expression is pasted into the script before bash parses it.
       - name: Verify PR target branch policy
+        if: github.event_name == 'pull_request'
         env:
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}

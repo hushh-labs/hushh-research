@@ -106,6 +106,7 @@ class IsolatedQualificationTest(unittest.TestCase):
             self.assertEqual(prepared, 1, name)
             self.assertEqual(steps[0]["uses"], "actions/checkout@v6")
         self.assertIn("uat_candidate_sha", jobs["uat-exact-source"]["if"])
+        self.assertIn("uat_candidate_sha", jobs["pr-base-policy"]["if"])
 
 
 if __name__ == "__main__":
