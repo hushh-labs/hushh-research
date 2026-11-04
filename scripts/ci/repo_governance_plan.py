@@ -30,7 +30,6 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_pkm_answer_config.py",
     "consent-protocol/tests/test_account_generation_admission_deploy.py",
     "consent-protocol/tests/test_azure_pod_release_publish_step.py",
-    "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
     "consent-protocol/tests/test_cloud_run_image_resolution.py",
     "consent-protocol/tests/test_commerce_preview_bootstrap.py",
     "consent-protocol/tests/test_commerce_preview_target.py",
@@ -324,6 +323,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ci/secret-scan.sh",
             "scripts/ci/test_secret_scan_ranges.py",
             "scripts/ci/tag-last-known-good.sh",
