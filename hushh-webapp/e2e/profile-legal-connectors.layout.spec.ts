@@ -26,6 +26,7 @@ import {
 
 let script: string;
 let css: string;
+let globalCss: string;
 
 test.beforeAll(async () => {
   const root = process.cwd();
@@ -112,7 +113,8 @@ test.beforeAll(async () => {
     },
   );
   const { transform } = await import("lightningcss");
-  css = transform({ filename: "profile-legal.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + componentCss + productFontStyle()), minify: true }).code.toString();
+  globalCss = transform({ filename: "profile-global.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates]))), minify: true }).code.toString();
+  css = transform({ filename: "profile-legal.css", code: Buffer.from(globalCss + componentCss + productFontStyle()), minify: true }).code.toString();
 });
 
 async function mount(
@@ -160,9 +162,12 @@ for (const theme of ["light", "dark"] as const) for (const width of [390, 1440])
       return { background: style.backgroundColor, border: style.borderTopWidth, transform: style.transform };
     });
     for (const control of [back, close]) await expectProfileHeaderControl(control, page);
-    await close.hover();
+    // A later shared stylesheet must not repaint the transparent placement slot.
+    await page.addStyleTag({ content: globalCss });
     await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });
+    await close.hover();
     await pane(page).locator('.profile-pane-header').screenshot({ path: test.info().outputPath("profile-header.png") });
+    await expect.poll(material).toEqual({ background: "rgba(0, 0, 0, 0)", border: "0px", transform: "none" });
     // The retained invisible outer edge still activates Back, not just the
     // smaller painted circle. Closing then remains available from the keyboard.
     await back.click({ position: { x: 1, y: 22 } });
