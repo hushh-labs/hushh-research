@@ -26,10 +26,11 @@ other authority transition:
    The `ref` input locates the SHA; it does not authorize that branch. Re-read the SHA
    immediately before dispatching, not from a note taken earlier.
 3. **Confirm the governed actor** (`scripts/ci/assert-governed-actor.py --surface dev`).
-4. **Dispatch from `main` with `ref` set to the branch.** The workflow definition runs from
-   `main`; the content deployed is `inputs.ref`. A dispatch made *from* the branch is
-   refused in about a second, before a runner is assigned — and reads in the run list as an
-   ordinary failure.
+4. **Dispatch the Dev caller from `dev`.** Its reusable implementation runs from reviewed
+   Main. The application SHA must belong to protected Dev history; `ref` is a lookup
+   hint, not deployment authority. Use `operation=inspect-routing` to verify the caller,
+   Main security broker and cloud identity without changing application resources.
+   Activation requires the matching Main implementation and live routing readback.
 5. **Confirm the run actually started from live state.** A successful CLI response is not
    proof, exactly as §3A says of queue entry.
 6. **Follow it to terminal state**, then verify the deployed revision genuinely carries the

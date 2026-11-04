@@ -27,7 +27,7 @@ from tests.helpers.calendar_followup_scheduler import (
 
 ROOT = Path(__file__).resolve().parents[2]
 VERIFY = ROOT / "deploy" / "calendar" / "verify_followup_release.py"
-UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml"
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-production.yml"
 
 
