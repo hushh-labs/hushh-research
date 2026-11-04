@@ -5,6 +5,7 @@ type Currency = string | null | undefined;
 export interface NwsAccount {
   key: string;
   type: string;
+  liquidCash: boolean;
   currency: Currency;
   current: number | null;
   available: number | null;
@@ -120,6 +121,7 @@ export function computePlaidNwsV1(input: NwsScoreInput): NwsReport {
   const reasons = new Set<NwsCoverageReason>(input.coverageReasons);
   const accounts = new Map<string, NwsAccount>();
   let liquid = 0;
+  let depositoryAssets = 0;
   let investment = 0;
   let overdraft = 0;
   let credit = 0;
@@ -170,7 +172,9 @@ export function computePlaidNwsV1(input: NwsScoreInput): NwsReport {
 
     usable = true;
     if (account.type === "depository") {
-      liquid += Math.max(0, balance);
+      const deposit = Math.max(0, balance);
+      depositoryAssets += deposit;
+      if (account.liquidCash) liquid += deposit;
       overdraft += Math.max(0, -balance);
     } else {
       hasDebtAccount = true;
@@ -205,7 +209,7 @@ export function computePlaidNwsV1(input: NwsScoreInput): NwsReport {
     return { ...report, coverageReasons: [...reasons] };
   }
 
-  const assets = liquid + investment;
+  const assets = depositoryAssets + investment;
   const debt = credit + loan + overdraft;
   if (!Number.isSafeInteger(Math.round(assets * 100)) || !Number.isSafeInteger(Math.round(debt * 100))) {
     reasons.add("balance_unavailable");

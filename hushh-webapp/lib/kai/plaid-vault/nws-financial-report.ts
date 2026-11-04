@@ -1,4 +1,5 @@
 import { computePlaidNwsV1, type NwsCoverageReason, type NwsReport } from "./nws-score";
+import { isLiquidCashAccount } from "./projection";
 import type { FinancialDomain } from "./types";
 
 const accountKey = (itemId: string, accountId: string) => `${itemId}:${accountId}`;
@@ -55,6 +56,7 @@ export function readFinancialNws(financial: FinancialDomain | null | undefined):
       return {
         key,
         type: account.type,
+        liquidCash: isLiquidCashAccount(account),
         currency: account.balances.iso_currency_code ?? account.balances.unofficial_currency_code,
         current: account.balances.current,
         available: account.balances.available,

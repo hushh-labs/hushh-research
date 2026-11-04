@@ -5,6 +5,7 @@ const checking: NwsAccount = {
   key: "a",
   currency: "USD",
   type: "depository",
+  liquidCash: true,
   current: 15_000,
   available: null,
   limit: null,
