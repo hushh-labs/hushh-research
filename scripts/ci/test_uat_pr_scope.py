@@ -98,7 +98,12 @@ class IsolatedQualificationTest(unittest.TestCase):
         import yaml
 
         workflow = Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
-        jobs = yaml.safe_load(workflow.read_text())["jobs"]
+        definition = yaml.safe_load(workflow.read_text())
+        self.assertEqual(
+            definition["run-name"],
+            "${{ inputs.uat_candidate_sha && format('Isolated UAT {0}', inputs.uat_candidate_sha) || 'PR Validation' }}",
+        )
+        jobs = definition["jobs"]
         by_name = {job["name"]: job for job in jobs.values() if "name" in job}
         for name in subject.REQUIRED_JOBS - subject.AGGREGATE_JOBS:
             steps = by_name[name]["steps"]

@@ -1,5 +1,5 @@
 name: "PR Validation"
-run-name: ${{ inputs.uat_candidate_sha && format('Isolated UAT {0}', inputs.uat_candidate_sha) || github.event.pull_request.title || github.ref_name }}
+run-name: ${{ inputs.uat_candidate_sha && format('Isolated UAT {0}', inputs.uat_candidate_sha) || 'PR Validation' }}
 
 on:
   pull_request:
