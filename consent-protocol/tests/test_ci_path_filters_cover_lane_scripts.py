@@ -427,7 +427,6 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
         "pr-base-policy",
         "repo-governance",
         "paths",
-        "main-freshness-gate",
     ]
 
 

@@ -22,6 +22,9 @@ DEFAULT_PROTECTED_PATHS = [
     ".github/workflows/",
     ".github/actions/",
     "scripts/ci/",
+    "hushh-webapp/scripts/testing/affected-tests.mjs",
+    "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+    "hushh-webapp/scripts/testing/playwright-shard.cjs",
     "deploy/",
     "config/ci-governance.json",
 ]
@@ -278,6 +281,7 @@ def _self_test() -> int:
         ("maintainer edits governance config", ["config/ci-governance.json"], "kushaltrivedi5", 0),
         ("community edits only app code", ["hushh-webapp/app/page.tsx"], "random-contributor", 0),
         ("community edits scripts/ci", ["scripts/ci/orchestrate.sh"], "random-contributor", 1),
+        ("community edits unit selector", ["hushh-webapp/scripts/testing/affected-tests.mjs"], "random-contributor", 1),
     ]
     # The cohort resolver: a missing or empty key must STOP the run, never inherit a
     # wider list. Pinned because the widening fallback read as a narrowing in a diff.
