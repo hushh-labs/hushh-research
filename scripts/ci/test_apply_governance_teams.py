@@ -279,6 +279,8 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
     import tempfile
 
     policy = _policy()
+    policy["branch_flow"].pop("review_rulesets", None)  # Historical classic-policy fixture.
+    policy["main"].pop("owner_admin_ruleset_name", None)
     policy["main"] = {
         **policy["main"],
         "review_bypass_users": ["operator", "invitee"],
@@ -287,6 +289,8 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
         "merge_queue_bypass_team_slug": "maintainers",
         "merge_queue_bypass_team_name": "Maintainers",
         "merge_queue_ruleset_name": "Queue",
+        "require_strict_status_checks": True,
+        "merge_users": [],
     }
     team = "organizations/140115870/team/42"
     membership = "orgs/synthetic-org/teams/maintainers/memberships/invitee"
@@ -336,6 +340,18 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
         assert "merge_queue_bypass=['operator']" in accepted.stdout
 
         _check_prepared_branches(policy, policy_file, base, environment, run)
+
+        no_bypass_policy = copy.deepcopy(policy)
+        no_bypass_policy["main"].update(merge_queue_bypass_users=[],
+            merge_queue_bypass_team_slug="", merge_queue_bypass_team_name="")
+        policy_file.write_text(json.dumps(no_bypass_policy), encoding="utf-8")
+        for actor_type in ("Integration", "RepositoryRole", "OrganizationAdmin", "User"):
+            invalid = copy.deepcopy(base)
+            invalid["repos/synthetic-org/repo/rulesets/7"]["bypass_actors"] = [
+                {"actor_type": actor_type, "actor_id": 99, "bypass_mode": "always"}]
+            rejected = run(invalid)
+            assert rejected.returncode != 0 and "forbids every bypass actor" in rejected.stderr
+        policy_file.write_text(json.dumps(policy), encoding="utf-8")
 
         # Negative controls: no blanket allowance for missing users or drift.
         cases = []
@@ -396,10 +412,10 @@ def test_prepared_branch_reconciliation_is_scoped_and_fail_closed(module) -> Non
         assert not writes, "Dry-run mutated GitHub"
         prepared.reconcile(policy, ["dev"], repo=module.REPO, read=read, raw=raw, apply=True)
         assert len(writes) == 2
-        assert writes[0][0].endswith("branches/dev/protection")
-        queue = writes[1][1]
+        assert writes[1][0].endswith("branches/dev/protection")
+        queue = writes[0][1]
         assert queue["conditions"]["ref_name"] == {"include": ["refs/heads/dev"], "exclude": []}
-        assert queue["bypass_actors"] == [{"actor_id": 2, "actor_type": "Team", "bypass_mode": "pull_request"}]
+        assert queue["bypass_actors"] == []
         assert not any("/branches/main" in value or "/members" in value for value in reads)
         writes.clear()
         reads.clear()
@@ -467,6 +483,360 @@ def main() -> int:
     print(f"apply-governance managed-team checks passed ({len(tests)} tests).")
     return 0
 
+
+def test_main_merge_rollout_refuses_existing_review_bypass(module) -> None:
+    from unittest.mock import patch
+
+    policy = _policy()
+    protection = {"required_pull_request_reviews": {
+        "require_code_owner_reviews": True, "require_last_push_approval": True,
+        "required_approving_review_count": 1,
+        "bypass_pull_request_allowances": {"users": [{"login": "old-maintainer"}]},
+    }, "enforce_admins": {"enabled": True}}
+    with patch.object(module, "gh_json", return_value=protection):
+        try:
+            module.reconcile_main_merge_policy(policy, apply=True)
+        except SystemExit as error:
+            assert "required Main review" in str(error)
+        else:
+            raise AssertionError("review bypass survived Main authority rollout")
+
+
+def test_main_policy_separates_mergers_reviews_and_uat_access(module) -> None:
+    policy = _policy()
+    main = policy["main"]
+    assert main["merge_users"] == policy["production"]["manual_dispatch_users"]
+    assert main["review_bypass_users"] == main["protected_pipeline_edit_users"]
+    assert not main["review_bypass_team_slug"]
+    assert main["merge_queue_bypass_team_slug"] == policy["pr_train"]["merge_queue_bypass_team_slug"] == ""
+    assert policy["branch_flow"]["prepared_branches"]["uat"]["policy_key"] == "uat_merge"
+    assert policy["uat_merge"]["merge_queue_bypass_users"] == policy["pr_train"]["merge_queue_bypass_users"]
+
+
+
+def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy = _policy()
+    policy["main"]["merge_queue_bypass_users"] = []
+    policy["main"].pop("owner_admin_ruleset_name", None)
+    protection = {
+        "required_pull_request_reviews": {
+            "require_code_owner_reviews": True, "require_last_push_approval": True,
+            "required_approving_review_count": 1, "bypass_pull_request_allowances": {
+                "users": [{"login": name} for name in policy["main"]["review_bypass_users"]]},
+        },
+        "enforce_admins": {"enabled": True},
+        "required_status_checks": {"strict": True, "checks": [{"context": "CI Status Gate", "app_id": 15368}]},
+        "restrictions": {"users": [{"login": name} for name in policy["main"]["merge_users"]]},
+    }
+    queue = {"name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
+             "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+             "rules": [{"type": "merge_queue"}],
+             "bypass_actors": [{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}]}
+    for scope in ("refs/heads/main", "~DEFAULT_BRANCH"):
+        queue["conditions"]["ref_name"]["include"] = [scope]
+        reads = [protection, [{"id": 1, "name": queue["name"]}], queue]
+        if scope == "~DEFAULT_BRANCH":
+            reads.append({"default_branch": "main"})
+        writes = []
+        with patch.object(module, "gh_json", side_effect=reads), \
+             patch.object(prepared_branch_governance, "_write", side_effect=lambda *args: writes.append(args)):
+            assert module.reconcile_main_merge_policy(policy, apply=True)
+        assert len(writes) == 2
+        assert writes[0][0].endswith("/rulesets/1") and writes[0][1]["bypass_actors"] == []
+        assert writes[0][1]["conditions"] == {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+        assert writes[1][0].endswith("/required_status_checks") and writes[1][1]["strict"] is False
+        assert writes[1][1]["checks"] == protection["required_status_checks"]["checks"]
+    # A changed or unavailable default branch cannot authorize any mutation.
+    for repository in ({"default_branch": "dev"}, {}, None):
+        with patch.object(module, "gh_json", side_effect=[protection, [{"id": 1, "name": queue["name"]}], queue, repository]), \
+             patch.object(prepared_branch_governance, "_write") as write:
+            try:
+                module.reconcile_main_merge_policy(policy, apply=True)
+            except SystemExit as error:
+                assert "does not resolve to Main" in str(error)
+            else:
+                raise AssertionError("Unverified default branch authorized a Main ruleset mutation")
+            write.assert_not_called()
+
+
+def test_prepared_rollout_rejects_bypass_with_non_strict_checks(module) -> None:
+    import prepared_branch_governance
+    from unittest.mock import patch
+
+    policy = _policy()
+    policy["pr_train"]["merge_queue_bypass_team_slug"] = "unsafe-team"
+    template = {"enforcement": "active", "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
+    with patch.object(prepared_branch_governance, "_write") as write:
+        try:
+            prepared_branch_governance.reconcile(policy, ["dev"], repo=module.REPO,
+                read=lambda args: ([{"id": 1, "name": policy["pr_train"]["merge_queue_ruleset_name"]}]
+                                   if "rulesets?" in args[1] else template),
+                raw=lambda *args, **kwargs: None, apply=True)
+        except SystemExit as error:
+            assert "queue bypass" in str(error)
+        else:
+            raise AssertionError("Unsafe direct-merge bypass survived the rollout")
+        write.assert_not_called()
+
+
+def test_main_review_migration_orders_replacement_and_refuses_unsafe_queue(module) -> None:
+    import copy
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy = _policy()
+    endpoint = f"repos/{module.REPO}/branches/main/protection"
+    inventory = f"repos/{module.REPO}/rulesets?per_page=100"
+    queue_path = f"repos/{module.REPO}/rulesets/1"
+    user_rows = {f"users/{login}": {"login": login, "type": "User", "id": index}
+                 for index, login in enumerate(policy["main"]["review_bypass_users"], 100)}
+    protection = {"enforce_admins": {"enabled": True},
+                  "required_conversation_resolution": {"enabled": True},
+                  "required_status_checks": {"checks": [{"context": "CI Status Gate", "app_id": 15368}]},
+                  "required_pull_request_reviews": {"required_approving_review_count": 1}}
+    queue = {"enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+             "bypass_actors": [], "rules": [{"type": "merge_queue"}]}
+    def fixture():
+        return {**copy.deepcopy(user_rows), endpoint: copy.deepcopy(protection),
+                inventory: [{"id": 1, "name": policy["main"]["merge_queue_ruleset_name"]}],
+                queue_path: copy.deepcopy(queue)}
+    def reader(state):
+        return lambda args: copy.deepcopy(state[args[1]])
+    state = fixture()
+    writes = []
+    def write(path, payload, method):
+        writes.append((method, path))
+        assert method == "POST"
+        state[inventory].append({"id": 2, "name": payload["name"]})
+        state[f"repos/{module.REPO}/rulesets/2"] = copy.deepcopy(payload)
+    def delete(args):
+        assert args[:3] == ["api", "--method", "DELETE"]
+        # Replacement is already visible, with no queue bypass.
+        module.verify_main_review_ruleset(policy, read=reader(state))
+        assert not state[queue_path]["bypass_actors"]
+        writes.append(("DELETE", args[3]))
+        state[endpoint]["required_pull_request_reviews"] = None
+        return 0, "", ""
+    with patch.object(module, "gh_json", side_effect=reader(state)), \
+         patch.object(module, "gh", side_effect=delete), \
+         patch.object(prepared_branch_governance, "_write", side_effect=write):
+        assert module.reconcile_main_review_ruleset(policy, apply=False)
+        assert writes == []
+        assert module.reconcile_main_review_ruleset(policy, apply=True)
+        assert [w[0] for w in writes] == ["POST", "DELETE"]
+        assert not module.reconcile_main_review_ruleset(policy, apply=True)
+        assert len(writes) == 2
+    for violation in ("queue_bypass", "readback", "stronger_review"):
+        state = fixture()
+        if violation == "queue_bypass":
+            state[queue_path]["bypass_actors"] = [{"actor_type": "Team", "actor_id": 1}]
+        if violation == "stronger_review":
+            state[endpoint]["required_pull_request_reviews"]["dismiss_stale_reviews"] = True
+        with patch.object(module, "gh_json", side_effect=reader(state)), \
+             patch.object(module, "gh") as deletion, \
+             patch.object(prepared_branch_governance, "_write") as creation:
+            try:
+                module.reconcile_main_review_ruleset(policy, apply=True)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError(f"Unsafe review migration accepted: {violation}")
+            deletion.assert_not_called()
+            if violation != "readback":
+                creation.assert_not_called()
+
+
+def test_review_ruleset_rejects_other_boundary_and_authority(module) -> None:
+    import copy
+    policy = _policy()
+    assert set(policy["branch_flow"]["review_rulesets"]) == {"main"}
+    def read(args):
+        login = args[1].split("/")[-1]
+        return {"login": login, "type": "User", "id": policy["main"]["review_bypass_users"].index(login) + 1}
+    desired = module.main_review_ruleset(policy, read=read)
+    assert module.same_review_ruleset(desired, desired)
+    observed = copy.deepcopy(desired)
+    observed["rules"][0]["parameters"].update({
+        "dismissal_restriction": {"enabled": False, "allowed_actors": []},
+        "allowed_merge_methods": ["merge", "squash", "rebase"], "required_reviewers": [],
+    })
+    assert module.same_review_ruleset(observed, desired)
+    observed["rules"][0]["parameters"]["require_extra_approval_for_unattributed_changes"] = False
+    assert not module.same_review_ruleset(observed, desired)
+    for change in (
+        {"conditions": {"ref_name": {"include": ["refs/heads/dev"], "exclude": []}}},
+        {"enforcement": "disabled"}, {"rules": [{"type": "merge_queue"}]},
+        {"bypass_actors": [{"actor_type": "OrganizationAdmin", "bypass_mode": "always"}]},
+    ):
+        invalid = copy.deepcopy(desired)
+        invalid.update(change)
+        assert not module.same_review_ruleset(invalid, desired)
+
+
+def test_owner_admin_native_guard_preserves_review_and_nonowner_queue(module) -> None:
+    import copy
+
+    policy = _policy()
+    people = policy["main"]["merge_users"]
+
+    def read(args):
+        login = args[1].split("/")[-1]
+        return {"login": login, "type": "User", "id": people.index(login) + 1}
+
+    guard = module.main_owner_admin_ruleset(policy, read=read)
+    owners = set(policy["main"]["protected_pipeline_edit_users"])
+    assert {a["actor_id"] for a in guard["bypass_actors"]} == {
+        people.index(p) + 1 for p in set(people) - owners
+    }
+    rules = {r["type"]: r["parameters"] for r in guard["rules"]}
+    assert rules["required_status_checks"] == {
+        "strict_required_status_checks_policy": True,
+        "do_not_enforce_on_create": False,
+        "required_status_checks": [
+            {"context": "CI Status Gate", "integration_id": 15368}
+        ],
+    }
+    assert rules["pull_request"]["required_approving_review_count"] == 0
+    assert rules["pull_request"]["required_review_thread_resolution"] is True
+    assert module.same_owner_admin_ruleset(guard, guard)
+    # The shell parity verifier imports by file path, without scripts/ci on
+    # sys.path. Read-only inspection must not import the mutation helper.
+    import builtins
+    from unittest.mock import patch
+
+    original_import = builtins.__import__
+
+    def isolated_import(name, *args, **kwargs):
+        if name == "prepared_branch_governance":
+            raise ModuleNotFoundError(name)
+        return original_import(name, *args, **kwargs)
+
+    def inspect(args):
+        if args[1].endswith("/rulesets?per_page=100"):
+            return [{"id": 1, "name": guard["name"]}]
+        if args[1].endswith("/rulesets/1"):
+            return guard
+        return read(args)
+
+    with patch("builtins.__import__", side_effect=isolated_import):
+        assert module.reconcile_owner_admin_ruleset(
+            policy, verify_only=True, read=inspect
+        ) is False
+    for change in ("strict", "ci_app", "owner_bypass", "no_pr"):
+        bad = copy.deepcopy(guard)
+        if change == "strict":
+            bad["rules"][0]["parameters"]["strict_required_status_checks_policy"] = (
+                False
+            )
+        if change == "ci_app":
+            bad["rules"][0]["parameters"]["required_status_checks"][0][
+                "integration_id"
+            ] = 1
+        if change == "owner_bypass":
+            bad["bypass_actors"].append(
+                {
+                    "actor_id": people.index("kushaltrivedi5") + 1,
+                    "actor_type": "User",
+                    "bypass_mode": "always",
+                }
+            )
+        if change == "no_pr":
+            bad["rules"].pop()
+        assert not module.same_owner_admin_ruleset(bad, guard), change
+    policy["main"]["merge_queue_bypass_users"].append("imsharukhan")
+    try:
+        module.main_owner_admin_ruleset(policy, read=read)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("Nonowner acquired owner Admin route")
+
+def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy = _policy()
+    protection = {
+        "enforce_admins": {"enabled": True},
+        "required_pull_request_reviews": {
+            "require_code_owner_reviews": True,
+            "require_last_push_approval": True,
+            "required_approving_review_count": 1,
+            "bypass_pull_request_allowances": {
+                "users": [{"login": p} for p in policy["main"]["review_bypass_users"]]
+            },
+        },
+        "required_status_checks": {
+            "strict": False,
+            "checks": [{"context": "CI Status Gate", "app_id": 15368}],
+        },
+        "restrictions": {
+            "users": [{"login": p} for p in policy["main"]["merge_users"]]
+        },
+    }
+    queue = {
+        "name": policy["main"]["merge_queue_ruleset_name"],
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        "rules": [{"type": "merge_queue"}],
+        "bypass_actors": [],
+    }
+    calls = []
+
+    def read(args):
+        path = args[1]
+        if path.startswith("users/"):
+            login = path.split("/")[-1]
+            return {
+                "login": login,
+                "type": "User",
+                "id": policy["main"]["merge_users"].index(login) + 1,
+            }
+        if path.endswith("/protection"):
+            return protection
+        if path.endswith("/rulesets?per_page=100"):
+            return [{"id": 1, "name": queue["name"]}]
+        if path.endswith("/rulesets/1"):
+            return queue
+        raise AssertionError(path)
+
+    with (
+        patch.object(module, "gh_json", side_effect=read),
+        patch.object(
+            module,
+            "reconcile_owner_admin_ruleset",
+            side_effect=lambda *a, **k: calls.append("guard_verified"),
+        ),
+        patch.object(
+            prepared_branch_governance, "_write", side_effect=lambda *a: calls.append(a)
+        ),
+    ):
+        assert module.reconcile_main_merge_policy(policy, apply=True)
+    assert calls[0] == "guard_verified" and len(calls) == 2
+    assert {a["actor_id"] for a in calls[1][1]["bypass_actors"]} == {
+        policy["main"]["merge_users"].index(p) + 1
+        for p in policy["main"]["protected_pipeline_edit_users"]
+    }
+    with (
+        patch.object(module, "gh_json", side_effect=read),
+        patch.object(
+            module,
+            "reconcile_owner_admin_ruleset",
+            side_effect=SystemExit("missing strict guard"),
+        ),
+        patch.object(prepared_branch_governance, "_write") as write,
+    ):
+        try:
+            module.reconcile_main_merge_policy(policy, apply=True)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Missing strict guard accepted")
+        write.assert_not_called()
 
 if __name__ == "__main__":
     raise SystemExit(main())

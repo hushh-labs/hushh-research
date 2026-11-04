@@ -73,6 +73,8 @@ function isSharedDependency(file) {
 }
 
 function isRegisteredContractInput(file) {
+  // All authored route action contracts share the UI compiler owner. Keep
+  // these as graph inputs (not exclusions), so their consumers are tested.
   return REGISTERED_CONTRACT_INPUTS.has(file) ||
     /^app\/.+\/page\.voice-action-contract\.json$/.test(file);
 }

@@ -30,7 +30,7 @@ def protection_payload(policy: dict) -> dict:
             "require_last_push_approval": policy["require_last_push_approval"],
             "bypass_pull_request_allowances": {
                 "users": sorted(policy["review_bypass_users"]),
-                "teams": [policy["review_bypass_team_slug"]],
+                "teams": [policy["review_bypass_team_slug"]] if policy.get("review_bypass_team_slug") else [],
                 "apps": [],
             },
         },
@@ -108,11 +108,14 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         queue = [r for r in template["rules"] if r["type"] == "merge_queue"]
         if template["enforcement"] != "active" or len(queue) != 1 or not queue[0].get("parameters"):
             raise SystemExit(f"Unqualified queue template for {branch}")
-        team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{source['merge_queue_bypass_team_slug']}"])
+        slug = source.get("merge_queue_bypass_team_slug")
+        if source.get("require_strict_status_checks") is False and (slug or source.get("merge_queue_bypass_users")):
+            raise SystemExit("Combined-result enforcement requires queue bypass to be disabled")
+        team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{slug}"]) if slug else None
         desired_queue = {
             "name": name, "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
-            "bypass_actors": [{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}],
+            "bypass_actors": [{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}] if team else [],
             "rules": copy.deepcopy(queue),
         }
         current_queue = None
@@ -138,8 +141,10 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         print(f"  {branch}: protection_change={protection_changed}, queue_change={queue_changed}")
         if not apply:
             continue
-        if protection_changed:
-            _write(endpoint, desired, "PUT")
+        # Remove bypass before relaxing branch-age checks; partial failure must
+        # retain the stricter boundary, not permit an unchecked direct merge.
         if queue_changed:
             suffix = f"/{matches[0]['id']}" if matches else ""
             _write(f"repos/{repo}/rulesets{suffix}", queue, "PUT" if matches else "POST")
+        if protection_changed:
+            _write(endpoint, desired, "PUT")
