@@ -27,6 +27,9 @@ export interface PlaidVaultLinkTokenRequest {
   redirect_uri?: string | null;
   /** Local native proof only; never selects a provider environment. */
   sandbox_proof?: boolean;
+  origin_surface?: "profile_nws" | "agentone_chat";
+  additional_product?: "investments" | "liabilities";
+  select_accounts?: boolean;
   /** Update mode (relink): the sealed token of the Item being repaired. */
   access_token?: string | null;
 }
@@ -77,6 +80,7 @@ export interface PlaidHolding {
   institution_value?: number | null;
   cost_basis?: number | null;
   iso_currency_code?: string | null;
+  unofficial_currency_code?: string | null;
 }
 
 export interface PlaidSecurity {
@@ -138,6 +142,7 @@ export interface PlaidTx {
   counterparties?: PlaidCounterparty[] | null;
   logo_url?: string | null;
   website?: string | null;
+  unofficial_currency_code?: string | null;
 }
 
 export interface PlaidUnavailable {
@@ -157,6 +162,7 @@ export interface PlaidTransactionsSnapshot {
   /** More pages remain after this snapshot's page cap; follow with next_cursor. */
   has_more?: boolean;
   pages: number;
+  transactions_update_status?: string;
 }
 
 export interface PlaidItemError {
@@ -170,12 +176,15 @@ export interface PlaidSnapshotItem {
   institution_id: string | null;
   products: string[];
   consented_products: string[];
+  nws_debt_details_available?: boolean;
+  nws_investments_available?: boolean;
   error: PlaidItemError | null;
 }
 
 export interface PlaidVaultSnapshotRequest {
   access_token: string;
   transactions_cursor?: string | null;
+  transactions_continuation?: boolean;
 }
 
 export interface PlaidVaultSnapshot {
@@ -183,6 +192,9 @@ export interface PlaidVaultSnapshot {
   accounts: PlaidAccount[];
   investments: PlaidInvestmentsSnapshot | PlaidUnavailable;
   transactions: PlaidTransactionsSnapshot | PlaidUnavailable;
+  liabilities?: {
+    credit: { account_id: string; aprs: { apr_percentage: number | null }[] }[];
+  };
 }
 
 export interface PlaidVaultRemoveResponse {
@@ -213,6 +225,12 @@ export interface ConnectionRecord {
   transactions_cursor: string | null;
   last_refreshed_at: string | null;
   status: ConnectionStatus;
+  nws_holdings_complete?: boolean;
+  nws_history_complete?: boolean;
+  nws_credit_apr?: Record<string, number>;
+  nws_consent?: string[];
+  nws_debt_details_available?: boolean;
+  nws_investments_available?: boolean;
 }
 
 export interface AccountBalancesRecord {
@@ -220,6 +238,7 @@ export interface AccountBalancesRecord {
   current: number | null;
   limit: number | null;
   iso_currency_code: string | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Tier A: `financial.accounts_v1[`${item_id}:${account_id}`]`. */
@@ -249,6 +268,8 @@ export interface HoldingRecord {
   institution_value: number;
   cost_basis: number | null;
   iso_currency_code: string | null;
+  nws_value?: number | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Tier A: `financial.securities_v1[security_id]`. CUSIP stays private here. */
@@ -297,6 +318,8 @@ export interface TransactionRecord {
   counterparties: TransactionCounterpartyRecord[] | null;
   /** True once the 90-day retention rule replaced merchant detail with the category. */
   reduced: boolean;
+  nws_amount?: number | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Every Tier B fact carries where it came from and when. */

@@ -36,7 +36,7 @@ def _config() -> PlaidRuntimeConfig:
         secret="plaid_secret",  # noqa: S106 - test fixture value only
         country_codes=["US"],
         language="en",
-        client_name="Agent One",
+        client_name="AgentOne",
         # Configured on purpose: the vault flow must still never send it.
         webhook_url="https://api.hushh.ai/api/kai/plaid/webhook",
         frontend_url="https://one.hushh.ai",
@@ -176,18 +176,43 @@ def test_link_token_web_happy_path_has_no_webhook_and_opaque_user(authed_client,
     assert response.json() == {"link_token": "link-1", "expiration": "2026-09-24"}
     assert response.headers["cache-control"] == "no-store"
     (path, payload) = fake.calls[0]
-    assert (path, payload["client_name"]) == ("/link/token/create", "Agent One")
+    assert (path, payload["client_name"]) == ("/link/token/create", "AgentOne")
     assert "webhook" not in payload
     assert payload["redirect_uri"] == _REDIRECT_URI
     assert "android_package_name" not in payload
     assert "sandbox_proof" not in payload
     assert payload["products"]
+    assert payload["transactions"] == {"days_requested": 730}
     client_user_id = payload["user"]["client_user_id"]
     assert "owner-123" not in client_user_id
     assert client_user_id.startswith("hv1_")
     # Stable per owner so Plaid can recognise a returning person.
     assert client_user_id == plaid_vault._client_user_id("owner-123")
     assert client_user_id != plaid_vault._client_user_id("owner-456")
+
+
+@pytest.mark.parametrize("origin", ["profile_nws", "agentone_chat"])
+def test_finance_link_requests_only_score_products(authed_client, monkeypatch, origin):
+    monkeypatch.setenv("PLAID_NWS_LIABILITIES_ENABLED", "true")
+    monkeypatch.setenv("PLAID_REQUIRED_IF_SUPPORTED_PRODUCTS", "investments,auth")
+    monkeypatch.setenv("PLAID_ADDITIONAL_CONSENTED_PRODUCTS", "identity")
+    fake = _use(
+        monkeypatch,
+        _FakePlaid({"/link/token/create": [{"link_token": "link-test", "expiration": "x"}]}),
+    )
+
+    response = authed_client.post(
+        f"{_BASE}/link-token",
+        json={"platform": "web", "origin_surface": origin},
+    )
+
+    assert response.status_code == 200
+    _, payload = fake.calls[0]
+    assert payload["products"] == ["transactions"]
+    assert payload["required_if_supported_products"] == ["investments", "liabilities"]
+    assert "additional_consented_products" not in payload
+    assert payload["transactions"] == {"days_requested": 730}
+    assert payload["client_name"] == "AgentOne"
 
 
 def test_link_token_update_mode_binds_the_item_and_sends_no_products(authed_client, monkeypatch):
@@ -491,6 +516,7 @@ def test_snapshot_happy_path_passes_plaid_fields_through(authed_client, monkeypa
         "products": ["transactions", "investments"],
         "consented_products": ["transactions", "investments", "identity"],
         "error": None,
+        "nws_investments_available": True,
     }
     assert body["accounts"] == [_ACCOUNT]
     assert body["investments"] == {"holdings": [_HOLDING], "securities": [_SECURITY]}
@@ -700,6 +726,39 @@ def test_snapshot_transactions_restart_once_on_mutation_during_pagination(
         payload.get("cursor") for path, payload in fake.calls if path == "/transactions/sync"
     ]
     assert sync_cursors == ["c1", "c2", "c1"]
+
+
+def test_snapshot_continuation_returns_mutation_for_original_cursor_restart(
+    authed_client, monkeypatch
+):
+    fake = _use(
+        monkeypatch,
+        _FakePlaid(
+            {
+                "/item/get": [_item(["transactions"])],
+                "/accounts/get": [{"accounts": []}],
+                "/transactions/sync": [
+                    _plaid_error(
+                        "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION", "TRANSACTIONS_ERROR"
+                    ),
+                ],
+            }
+        ),
+    )
+
+    response = authed_client.post(
+        f"{_BASE}/snapshot",
+        json={
+            "access_token": _ACCESS_TOKEN,
+            "transactions_cursor": "c2",
+            "transactions_continuation": True,
+        },
+    )
+
+    assert response.json()["transactions"] == {
+        "unavailable": "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION",
+    }
+    assert [body["cursor"] for path, body in fake.calls if path == "/transactions/sync"] == ["c2"]
 
 
 @pytest.mark.parametrize(

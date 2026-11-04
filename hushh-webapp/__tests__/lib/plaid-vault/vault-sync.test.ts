@@ -35,7 +35,8 @@ vi.mock("@/lib/kai/plaid-vault/pending-seal", () => pendingSeal);
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: domainResource }));
 
 import { loadPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
-import { PLAID_VAULT_SOURCE_MANAGED_BRANCHES } from "@/lib/kai/plaid-vault/types";
+import { readFinancialNws } from "@/lib/kai/plaid-vault/nws-financial-report";
+import { PLAID_VAULT_SOURCE_MANAGED_BRANCHES, type FinancialDomain } from "@/lib/kai/plaid-vault/types";
 import {
   buildVaultPlaidStatus,
   completeVaultOAuthReturn,
@@ -204,6 +205,27 @@ describe("sealing a new Plaid connection", () => {
     expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
     expect(client.fetchVaultSnapshot.mock.calls[1]![0].transactionsCursor).toBe("c1");
     expect(sealed.financial.connections_v1?.["item_1"]?.transactions_cursor).toBe("c2");
+  });
+
+  it("restarts from the original cursor after a mutation across snapshot requests", async () => {
+    saveRunsBuild();
+    client.fetchVaultSnapshot
+      .mockResolvedValueOnce(snapshot({ transactions: { added: [], modified: [], removed: [], next_cursor: "stale", has_more: true, pages: 10 } }))
+      .mockResolvedValueOnce(snapshot({ transactions: { unavailable: "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" } }))
+      .mockResolvedValueOnce(snapshot({ transactions: { added: [], modified: [], removed: [], next_cursor: "fresh", has_more: false, pages: 1 } }));
+
+    const sealed = await sealVaultPlaidConnection({
+      userId: "owner",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      publicToken: "public-sandbox-abc",
+      surface: "web",
+    });
+
+    expect(client.fetchVaultSnapshot.mock.calls.map(([request]) => [
+      request.transactionsCursor, request.transactionsContinuation === true,
+    ])).toEqual([[null, false], ["stale", true], [null, false]]);
+    expect(sealed.financial.connections_v1?.item_1?.transactions_cursor).toBe("fresh");
   });
 });
 
@@ -584,11 +606,17 @@ describe("a bank's OAuth login on the web", () => {
     expect(loadPlaidOAuthResumeSession()).toBeNull();
   });
 
-  it("finishes on the return page: re-opens Link with the bank's parameters and seals", async () => {
+  it("returns a Profile link to the score with usable balances before history completes", async () => {
     linkThat("leaves");
-    void connectVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+    const successReturnPath = "/one/profile?panel=net-worth-score";
+    void connectVaultPlaid({
+      userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot",
+      originSurface: "profile_nws", successReturnPath,
+    });
     await vi.waitFor(() => expect(received).toHaveLength(1));
     const session = loadPlaidOAuthResumeSession()!;
+    expect(session).toMatchObject({ originSurface: "profile_nws", successReturnPath });
+    expect(client.createVaultLinkToken.mock.calls[0]![0].request.origin_surface).toBe("profile_nws");
 
     linkThat("success");
     const outcome = await completeVaultOAuthReturn({
@@ -602,6 +630,9 @@ describe("a bank's OAuth login on the web", () => {
     expect(outcome).toMatchObject({ kind: "connect", result: { status: "connected", itemId: "item_1" } });
     expect(received.at(-1)).toMatchObject({ token: "link-web", receivedRedirectUri: `${REDIRECT}?oauth_state_id=abc` });
     expect(coordinator.saveMergedDomain.mock.calls[0]![0].confirmation.surface).toBe("web");
+    expect(readFinancialNws(plans.at(-1)?.domainData as FinancialDomain)).toMatchObject({
+      score: 895, netWorth: 110, coverageReasons: expect.arrayContaining(["history_incomplete"]),
+    });
     // Single use.
     expect(loadPlaidOAuthResumeSession()).toBeNull();
   });
@@ -630,8 +661,7 @@ describe("a bank's OAuth login on the web", () => {
   });
 
   it("finishes a relink with a forced refresh and seals nothing new", async () => {
-    domainResource.prepareDomainWriteContext.mockResolvedValue({
-      domainData: {
+    const financial = {
         connections_v1: {
           item_1: {
             access_token: ACCESS_TOKEN,
@@ -643,8 +673,9 @@ describe("a bank's OAuth login on the web", () => {
             status: "needs_relink",
           },
         },
-      },
-    });
+    };
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: financial });
+    saveRunsBuild(financial);
     client.fetchVaultSnapshot.mockResolvedValue(snapshot());
     linkThat("success");
     const outcome = await completeVaultOAuthReturn({

@@ -8,6 +8,7 @@ import {
   removeConnection,
   toPortfolioData,
 } from "@/lib/kai/plaid-vault/projection";
+import { readFinancialNws } from "@/lib/kai/plaid-vault/nws-financial-report";
 import { scanSummaryForLeaks, scorePlaidVaultQuality } from "@/lib/kai/plaid-vault/quality";
 import type { FinancialDomain, PlaidVaultSnapshot } from "@/lib/kai/plaid-vault/types";
 import { resolvePkmMemoryLevel, type PkmMemoryLevelView } from "@/lib/pkm/pkm-memory-level";
@@ -84,6 +85,19 @@ describe("applyConnectionLink", () => {
     const frozen = JSON.stringify(input);
     link(input, "item_fp_a", FIRST_PLATYPUS);
     expect(JSON.stringify(input)).toBe(frozen);
+  });
+});
+
+describe("owner net worth score projection", () => {
+  it("uses committed records for the score and drops it when the final Item is removed", () => {
+    const { snapshot, financial } = linkedFirstPlatypus();
+    const report = readFinancialNws(financial);
+    expect(report?.score).toEqual(expect.any(Number));
+    expect(JSON.stringify(report)).not.toContain("access-sandbox");
+    expect(readFinancialNws(applySnapshot(financial, "item_fp_a", {
+      ...snapshot, item: { ...snapshot.item, error: { code: "ITEM_LOGIN_REQUIRED", message: "Reconnect" } },
+    }, NOW))).toEqual(report);
+    expect(readFinancialNws(removeConnection(financial, "item_fp_a", NOW))).toBeNull();
   });
 });
 

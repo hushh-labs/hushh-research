@@ -43,7 +43,7 @@ import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { CONNECTOR_ARTWORK, connectorArtworkId } from "@/lib/profile/connector-artwork";
 import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
 import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
-import { disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { connectVaultPlaid, disconnectVaultPlaid, vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -2442,14 +2442,46 @@ function OwnerConnectorsPanel({
     ...(calendar.error ? { retry: detailAction("Retry", false, () => { void calendar.refresh(); }) } : {}),
     ...(calendarPopupPending ? { cancelSignIn: detailAction("Cancel sign-in", false, () => calendarPopupCancel.current?.abort()) } : {}),
   };
+  async function connectPlaidFromChat() {
+    if (inProfile) {
+      onBack();
+      router.push(ROUTES.KAI_PORTFOLIO_SOURCES);
+      return;
+    }
+    if (!applicationOwnerId || !vaultOwnerToken || !vaultKey || plaidBusy ||
+        liveUnlockOwner.current !== unlockOwner || changesInFlight.current.has("plaid:connect")) return;
+    changesInFlight.current.add("plaid:connect");
+    setPlaidBusy(true);
+    setPlaidMessage("Connecting bank…");
+    try {
+      const result = await connectVaultPlaid({
+        userId: applicationOwnerId,
+        vaultOwnerToken,
+        vaultKey,
+        originSurface: "agentone_chat",
+      });
+      if (liveUnlockOwner.current !== unlockOwner) return;
+      setPlaidMessage(result.status === "connected" ? "Bank connected." :
+        result.status === "blocked" ? result.reason : "");
+      if (result.status === "connected") await financial.refresh({ force: true });
+    } catch {
+      if (liveUnlockOwner.current === unlockOwner) setPlaidMessage("Could not connect that bank. Try again.");
+    } finally {
+      if (liveUnlockOwner.current === unlockOwner) {
+        changesInFlight.current.delete("plaid:connect");
+        setPlaidBusy(false);
+      }
+    }
+  }
+
   const plaidDetail: Extract<ConnectorDetailPresentation, { kind: "plaid" }> = {
     kind: "plaid", status: financial.error ? "Could not check bank connections." : financial.loading ? "Checking bank connections…" : plaidConnections.length ? `${plaidConnections.length} connected ${plaidConnections.length === 1 ? "bank" : "banks"}` : "No banks connected",
-    message: plaidBusy ? "Disconnecting bank…" : plaidMessage,
+    message: plaidBusy && !changesInFlight.current.has("plaid:connect") ? "Disconnecting bank…" : plaidMessage,
     banks: Object.entries(vaultConnections(financial.data?.data)).map(([itemId, connection]) => ({
       key: itemId, name: connection.institution_name || "Bank connection", status: connection.status === "needs_relink" ? "Reconnect needed" : "Connected",
       disconnect: detailAction("Disconnect", plaidBusy, () => setConfirm(`plaid:${itemId}`), true),
     })),
-    ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", false, () => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }) } : {}),
+    ...(!plaidConnections.length && !financial.loading && !financial.error ? { connect: detailAction("Connect a bank", plaidBusy, () => { void connectPlaidFromChat(); }) } : {}),
   };
   const curatedDetail: Extract<ConnectorDetailPresentation, { kind: "curated" }> | null = selectedCatalog ? {
     kind: "curated", name: selectedCatalog.displayName, description: selectedCatalog.description,
@@ -3064,7 +3096,7 @@ function OwnerConnectorsPanel({
                 ))}
                 <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{plaidDetail.message}</p>
                 {!plaidConnections.length && !financial.loading && !financial.error && (
-                  <Button className={touch} size="compact" variant="outline" onClick={() => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }}>
+                  <Button className={touch} size="compact" variant="outline" disabled={plaidBusy} onClick={() => { void connectPlaidFromChat(); }}>
                     Connect a bank
                   </Button>
                 )}

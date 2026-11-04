@@ -25,11 +25,13 @@ Guarantees this module must keep (see
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import os
 from functools import lru_cache
+from time import perf_counter
 from typing import Any, Callable, Coroutine, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -39,6 +41,7 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
+from api.middlewares.observability import get_request_trace_metadata
 from hushh_mcp.integrations.plaid import PlaidApiError, PlaidHttpClient, PlaidRuntimeConfig
 from hushh_mcp.integrations.plaid.products import _link_token_product_sets
 from hushh_mcp.services.owner_placement_guard import hub_content_owner
@@ -137,6 +140,9 @@ class VaultLinkTokenRequest(_StrictModel):
     # A non-secret marker used only by the local Plaid Sandbox proof.  It is
     # deliberately opt-in so ordinary clients retain their existing contract.
     sandbox_proof: bool = False
+    origin_surface: Literal["profile_nws", "agentone_chat"] | None = None
+    additional_product: Literal["investments", "liabilities"] | None = None
+    select_accounts: bool = False
     # Update mode (relink after "login required"): the device passes the token
     # it holds sealed; Plaid returns a Link token bound to that Item.  Used for
     # this one call only, never stored or logged.
@@ -152,6 +158,7 @@ class VaultExchangeRequest(_StrictModel):
 class VaultSnapshotRequest(_StrictModel):
     access_token: str = Field(..., min_length=8, max_length=256, pattern=_OPAQUE_ID_PATTERN)
     transactions_cursor: str | None = Field(default=None, max_length=4096, pattern=_CURSOR_PATTERN)
+    transactions_continuation: bool = False
 
 
 class VaultRemoveRequest(_StrictModel):
@@ -338,7 +345,8 @@ async def create_vault_link_token(
     payload: VaultLinkTokenRequest,
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
-    """Create a Link token. No webhook, no resume-session row, no storage."""
+    """Create a Link token for the existing owner connection flow."""
+    started = perf_counter()
     try:
         config = _require_configured()
         # Never trust a caller to select its Plaid environment.  The local
@@ -376,12 +384,34 @@ async def create_vault_link_token(
                     "message": "The redirect URI is not allowed.",
                 },
             ) from exc
+        liabilities_enabled = os.getenv("PLAID_NWS_LIABILITIES_ENABLED") == "true"
+        if payload.additional_product == "liabilities" and not liabilities_enabled:
+            raise HTTPException(status_code=403, detail="Debt details are unavailable.")
         if payload.access_token:
-            # Update mode carries the Item; Plaid rejects a product list here.
             link_payload["access_token"] = payload.access_token
+            if payload.additional_product:
+                link_payload["additional_consented_products"] = [payload.additional_product]
+            if payload.select_accounts:
+                link_payload["update"] = {"account_selection_enabled": True}
         else:
+            if payload.additional_product or payload.select_accounts:
+                raise HTTPException(status_code=400, detail="An existing connection is required.")
             primary, required_if_supported, additional_consented = _link_token_product_sets()
+            if payload.origin_surface:
+                # Score links request only products used by the finance journey.
+                primary = ["transactions"]
+                required_if_supported = [
+                    product for product in required_if_supported if product == "investments"
+                ]
+                additional_consented = []
             link_payload["products"] = primary
+            if "transactions" in primary or "transactions" in required_if_supported:
+                link_payload["transactions"] = {"days_requested": min(730, config.tx_history_days)}
+            if liabilities_enabled and "liabilities" not in required_if_supported:
+                required_if_supported.append("liabilities")
+                additional_consented = [
+                    product for product in additional_consented if product != "liabilities"
+                ]
             if required_if_supported:
                 link_payload["required_if_supported_products"] = required_if_supported
             if additional_consented:
@@ -392,6 +422,17 @@ async def create_vault_link_token(
         link_payload.pop("webhook", None)
 
         response = await _plaid_client().post("/link/token/create", link_payload)
+        if payload.origin_surface:
+            trace = get_request_trace_metadata()
+            logger.info(
+                "plaid.link_token origin_surface=%s update=%s outcome=%s elapsed_ms=%d request_id=%s trace_id=%s",
+                payload.origin_surface,
+                bool(payload.access_token),
+                "ready" if _clean(response.get("link_token")) else "incomplete",
+                round((perf_counter() - started) * 1000),
+                trace.request_id if trace else None,
+                trace.trace_id if trace else None,
+            )
     except Exception as exc:
         raise _to_http_exception("link_token", exc) from exc
     return {
@@ -476,14 +517,16 @@ async def _fetch_investments(
         raise
     holdings = response.get("holdings")
     securities = response.get("securities")
+    if not isinstance(holdings, list):
+        return {"unavailable": "INCOMPLETE_HOLDINGS"}, None
     return {
-        "holdings": holdings if isinstance(holdings, list) else [],
+        "holdings": holdings,
         "securities": securities if isinstance(securities, list) else [],
     }, None
 
 
 async def _sync_transactions(
-    client: PlaidHttpClient, access_token: str, cursor: str | None
+    client: PlaidHttpClient, access_token: str, cursor: str | None, *, continuation: bool = False
 ) -> tuple[dict[str, Any], dict[str, str | None] | None]:
     restarted = False
     while True:
@@ -492,6 +535,7 @@ async def _sync_transactions(
         removed: list[Any] = []
         next_cursor = cursor
         pages = 0
+        update_status = None
         has_more = True
         try:
             while has_more and pages < TRANSACTIONS_SYNC_MAX_PAGES:
@@ -509,10 +553,13 @@ async def _sync_transactions(
                         bucket.extend(values)
                 next_cursor = _clean(page.get("next_cursor")) or next_cursor
                 has_more = bool(page.get("has_more"))
+                update_status = _clean(page.get("transactions_update_status")) or update_status
         except PlaidApiError as exc:
             code = exc.error_code or ""
-            if code == "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" and not restarted:
-                # Plaid's contract: restart the whole loop from the original cursor.
+            if code == "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION":
+                # Only the caller has the original cursor across snapshot requests.
+                if continuation or restarted:
+                    return {"unavailable": code}, None
                 restarted = True
                 continue
             if code in _PRODUCT_UNAVAILABLE_CODES:
@@ -527,6 +574,7 @@ async def _sync_transactions(
             "next_cursor": next_cursor,
             "has_more": has_more,
             "pages": pages,
+            **({"transactions_update_status": update_status} if update_status else {}),
         }, None
 
 
@@ -598,19 +646,73 @@ async def vault_snapshot(
                 "transactions": dict(blocked),
             }
         accounts = accounts_response.get("accounts")
-        accounts = accounts if isinstance(accounts, list) else []
+        if not isinstance(accounts, list):
+            raise PlaidApiError(
+                message="Plaid returned an incomplete accounts response.",
+                status_code=502,
+                error_code="INCOMPLETE_ACCOUNTS",
+            )
 
         products = set(item["products"])
-        if "investments" in products:
-            investments, investments_error = await _fetch_investments(client, access_token)
-        else:
-            investments, investments_error = {"unavailable": _PRODUCT_NOT_ON_ITEM}, None
-        if "transactions" in products:
-            transactions, transactions_error = await _sync_transactions(
-                client, access_token, payload.transactions_cursor
+        liabilities_enabled = os.getenv("PLAID_NWS_LIABILITIES_ENABLED") == "true"
+        available_products = item_raw.get("available_products")
+        if liabilities_enabled and isinstance(available_products, list):
+            item["nws_debt_details_available"] = (
+                "liabilities" in available_products or "liabilities" in products
             )
-        else:
-            transactions, transactions_error = {"unavailable": _PRODUCT_NOT_ON_ITEM}, None
+        if "investments" in products:
+            item["nws_investments_available"] = True
+        elif isinstance(available_products, list):
+            item["nws_investments_available"] = "investments" in available_products
+
+        async def investments_read():
+            if "investments" in products:
+                return await _fetch_investments(client, access_token)
+            return {"unavailable": _PRODUCT_NOT_ON_ITEM}, None
+
+        async def transactions_read():
+            if "transactions" in products:
+                return await _sync_transactions(
+                    client,
+                    access_token,
+                    payload.transactions_cursor,
+                    continuation=payload.transactions_continuation,
+                )
+            return {"unavailable": _PRODUCT_NOT_ON_ITEM}, None
+
+        async def liability_read():
+            if not liabilities_enabled or not (
+                "liabilities" in products or "liabilities" in item["consented_products"]
+            ):
+                return None
+            try:
+                response = await client.post("/liabilities/get", {"access_token": access_token})
+            except PlaidApiError as exc:
+                _log_plaid_failure("snapshot_liabilities", exc)
+                return None
+            liabilities = response.get("liabilities")
+            if not isinstance(liabilities, dict):
+                return None
+            return {
+                "credit": [
+                    {
+                        "account_id": record.get("account_id"),
+                        "aprs": [
+                            {"apr_percentage": apr.get("apr_percentage")}
+                            for apr in (record.get("aprs") or [])
+                            if isinstance(apr, dict)
+                        ],
+                    }
+                    for record in (liabilities.get("credit") or [])
+                    if isinstance(record, dict) and isinstance(record.get("account_id"), str)
+                ],
+            }
+
+        (
+            (investments, investments_error),
+            (transactions, transactions_error),
+            liabilities,
+        ) = await asyncio.gather(investments_read(), transactions_read(), liability_read())
         item["error"] = investments_error or transactions_error
     except Exception as exc:
         raise _to_http_exception("snapshot", exc) from exc
@@ -620,6 +722,7 @@ async def vault_snapshot(
         "accounts": accounts,
         "investments": investments,
         "transactions": transactions,
+        **({"liabilities": liabilities} if liabilities is not None else {}),
     }
 
 

@@ -1,3 +1,6 @@
+import { readFinancialNws } from "@/lib/kai/plaid-vault/nws-financial-report";
+import type { FinancialDomain } from "@/lib/kai/plaid-vault/types";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { browserTimeZone, chatTurnTimeZone } from "@/lib/agent/chat-turn-time-zone";
 import { browserTaskProgress, privateToolProgressArgs } from "@/lib/computer-use/chat-progress";
 import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
@@ -1286,6 +1289,18 @@ export async function streamAgentChat(input: {
   // Callers may have started their catalog read beside Soul preparation. For
   // other callers, overlap it with the derived key and optional location read.
   const initialConnectorProjection = connectorProjection();
+  const nwsProjection = input.pkmContext && mcpSessionCurrent() &&
+      !input.consentContinuation && !input.financeShare && !input.feedAttention && !recovered
+    ? PkmDomainResourceService.getStaleFirst({
+        userId: input.userId,
+        domain: "financial",
+        vaultKey: input.vaultKey,
+        vaultOwnerToken: input.vaultOwnerToken,
+        backgroundRefresh: false,
+      }).then(snapshot => mcpSessionCurrent() && snapshot?.key.userId === input.userId
+        ? readFinancialNws(snapshot.data as FinancialDomain)
+        : null).catch(() => null)
+    : Promise.resolve(null);
   void initialConnectorProjection.catch(() => undefined);
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
@@ -2122,11 +2137,14 @@ export async function streamAgentChat(input: {
   });
   const unsubscribeReceiptReset = subscribeDurableOwnerReset(owner => { if (owner === input.userId) receiptReset = true; });
   try {
+    const [connectors, nwsReport] = await Promise.all([initialConnectorProjection, nwsProjection]);
+    assertTurnSessionCurrent();
     await runUntilTerminal({
       tools,
       context: [],
       forwardedProps: {
-        ...await initialConnectorProjection,
+        ...connectors,
+        ...(nwsReport ? { nwsReport } : {}),
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,

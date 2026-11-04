@@ -219,6 +219,7 @@ function toAccountRecord(
       current: toNumber(account.balances?.current),
       limit: toNumber(account.balances?.limit),
       iso_currency_code: cleanText(account.balances?.iso_currency_code),
+      unofficial_currency_code: cleanText(account.balances?.unofficial_currency_code),
     },
     duplicate_of: null,
   };
@@ -261,6 +262,8 @@ function toHoldingRecord(
     institution_price: price,
     institution_price_as_of: cleanText(holding.institution_price_as_of),
     institution_value: round2(value),
+    nws_value: toNumber(holding.institution_value),
+    unofficial_currency_code: cleanText(holding.unofficial_currency_code),
     cost_basis: toNumber(holding.cost_basis),
     iso_currency_code: cleanText(holding.iso_currency_code),
   };
@@ -290,6 +293,8 @@ function toTransactionRecord(itemId: string, tx: PlaidTx): TransactionRecord {
     item_id: itemId,
     account_id: tx.account_id,
     amount: toNumber(tx.amount) ?? 0,
+    nws_amount: toNumber(tx.amount),
+    unofficial_currency_code: cleanText(tx.unofficial_currency_code),
     iso_currency_code: cleanText(tx.iso_currency_code),
     date: tx.date,
     authorized_date: cleanText(tx.authorized_date),
@@ -813,6 +818,18 @@ export function applySnapshot(
         : connection.products,
     status: "active",
     last_refreshed_at: now,
+    nws_holdings_complete: !!snapshot.investments && !isUnavailable(snapshot.investments),
+    nws_history_complete: false,
+    nws_consent: snapshot.item?.consented_products,
+    nws_debt_details_available: snapshot.item?.nws_debt_details_available,
+    nws_investments_available: snapshot.item?.nws_investments_available,
+    nws_credit_apr: Object.fromEntries(
+      (snapshot.liabilities?.credit ?? []).flatMap(record => {
+        const rates = record.aprs.map(apr => apr.apr_percentage)
+          .filter((rate): rate is number => typeof rate === "number" && Number.isFinite(rate));
+        return rates.length > 0 ? [[record.account_id, Math.max(...rates)]] : [];
+      }),
+    ),
   };
 
   // Accounts: full picture for this item.
@@ -845,6 +862,8 @@ export function applySnapshot(
   // Transactions: cursor delta.
   if (snapshot.transactions && !isUnavailable(snapshot.transactions)) {
     const delta = snapshot.transactions;
+    nextConnection.nws_history_complete = delta.has_more === false &&
+      delta.transactions_update_status === "HISTORICAL_UPDATE_COMPLETE";
     for (const removed of delta.removed ?? []) {
       const existing = tierA.transactions.get(removed.transaction_id);
       if (existing && existing.item_id === itemId) tierA.transactions.delete(removed.transaction_id);

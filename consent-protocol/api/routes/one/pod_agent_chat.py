@@ -32,6 +32,7 @@ from hushh_mcp.one_adk.history_projection import _call_providers, project_conver
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.pod_agui_context import PodChatContext
 from hushh_mcp.one_adk.pod_agui_lifetime import _ACTIVE_THREADS
 from hushh_mcp.one_adk.pod_chat_stream import (
@@ -176,6 +177,7 @@ def trusted_state(input: RunAgentInput, owner: PodChatContext) -> tuple[dict, Po
         STATE_SPECIALIST_FOCUS: focus,
         "hussh:voice_context": screen,
         "hussh:pkm_context": store_request_secret(options.pkm_context or "", ttl_seconds=240),
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=True),
     }
     return state, options
 
