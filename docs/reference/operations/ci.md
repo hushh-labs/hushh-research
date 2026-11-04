@@ -1423,6 +1423,17 @@ Git history with `filter: blob:none` to avoid downloading old file bodies.
 Current source qualification binds the static clock title and exact workflow
 blobs; historical numbered receipts retain their separately pinned source.
 
+The November 3 auth-domain release (`41608303952`, attempt 1) served successfully
+but failed immutable tag publication. Its historical tag was reconciled on
+November 4 as object `faeb0e63f5aae00885e5eeb299d17f01f98e6736`; the operational
+`production-latest` object remains `5b4f56d6cdbc3f6153e6565bf894f634fae692e6`.
+The original failed run and refused publication receipt remain unchanged. The
+existing reader pins that incident's run, attempt, source, archive digest and tag,
+rechecks them against GitHub, and retains the independently accepted backend
+origin. This supplies historical publication evidence only: it cannot authorize
+normal promotion, replace live/checkpoint/rollback checks, or prove an application
+was redeployed. Unknown or altered evidence still refuses maintenance.
+
 Source-only checks before authentication and again under that lock skip settled and
 not-yet-due work. Each executing pass has a 300-second budget, including subprocesses,
 with teardown/checkpoint time reserved. No runner waits for request drainage: existing
