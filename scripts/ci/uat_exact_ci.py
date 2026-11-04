@@ -71,7 +71,8 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
-    "deploy", ":(exclude)deploy/README.md", ":(exclude)deploy/iam",
+    "deploy", ":(exclude)deploy/README.md", ":(exclude)deploy/iam/README.md",
+    ":(exclude)deploy/iam/setup_nonproduction_github_wif.py",
     ":(exclude)deploy/personal-backend-image.cloudbuild.yaml",
     ":(exclude)deploy/mail-api/test",
     "scripts/deploy", "consent-protocol/db/migrate.py",
@@ -171,9 +172,7 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         "UAT CI authority differs from reviewed Main",
     )
     verify_invocation_authority(candidate, authority)
-    tree = git("rev-parse", f"{candidate}^{{tree}}").decode().strip()
-    require(SHA.fullmatch(tree), "UAT application tree is invalid")
-    return tree
+    return application_tree(candidate)
 
 
 def application_tree(candidate: str) -> str:
