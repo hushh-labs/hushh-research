@@ -799,3 +799,40 @@ async def test_scoped_voice_probe_requires_the_parth_project_to_connect(
     assert report["one_voice_probe_ok"] is connects
     assert report["ok"] is connects
     assert seen and seen[0]["model"] == "gemini-live-2.5-flash-native-audio"
+
+
+def test_scoped_vertex_diagnostic_reads_are_bounded_and_close_output(monkeypatch):
+    monkeypatch.syspath_prepend(str(SUMMARY_PATH.parent))
+    spec = importlib.util.spec_from_file_location("scoped_vertex_summary", SUMMARY_PATH)
+    summary = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(summary)
+    observed = []
+
+    def read(argv, **kwargs):
+        observed.append((argv, kwargs))
+        kwargs["stdout"].write(b"[]")
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(summary.subprocess, "run", read)
+    identity = "12345678-1234-1234-1234-123456789abc"
+    assert summary.read_build_logs(identity) == ("[]", "[]")
+    assert len(observed) == 2
+    for argv, options in observed:
+        assert argv[:3] == ["gcloud", "logging", "read"]
+        assert "--project=hushh-pda-uat" in argv
+        assert identity in argv[3]
+        assert options["timeout"] == 60 and options["check"] is True
+        assert options["stderr"] == subprocess.DEVNULL
+        assert options["stdout"].closed
+    with pytest.raises(ValueError):
+        summary.read_build_logs(identity + '" OR true')
+    assert len(observed) == 2
+
+    def failed_read(argv, **kwargs):
+        observed.append((argv, kwargs))
+        raise subprocess.TimeoutExpired(argv, 60)
+
+    monkeypatch.setattr(summary.subprocess, "run", failed_read)
+    with pytest.raises(subprocess.TimeoutExpired):
+        summary.read_build_logs(identity)
+    assert observed[-1][1]["stdout"].closed

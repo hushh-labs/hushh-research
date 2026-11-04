@@ -255,7 +255,9 @@ def test_preview_first_release_status_never_impersonates_an_application_rollback
 
         module["quarantine"](NoCloudWrites(), path)
         assert json.loads(path.read_text()) == report
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     step = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]

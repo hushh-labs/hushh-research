@@ -146,7 +146,9 @@ def test_rejects_bytes_not_bound_to_pinned_index():
 
 @pytest.mark.parametrize("matches", [True, False])
 def test_actual_candidate_gate_keeps_exact_digest_equality(tmp_path: Path, matches: bool):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     step = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]

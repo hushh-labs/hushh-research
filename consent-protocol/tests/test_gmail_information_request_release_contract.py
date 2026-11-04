@@ -15,14 +15,18 @@ BACKEND = "https://backend.example.test"
 
 
 def _workflow_identity() -> str:
-    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    workflow = yaml.safe_load(
+        (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     return workflow["env"][
         "GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID"
     ]
 
 
 def test_uat_deploy_wires_the_personal_gmail_monitor_identity() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(
+        encoding="utf-8"
+    )
 
     identity = _workflow_identity()
     # The real IAM create contract, rather than an assertion of one chosen name.

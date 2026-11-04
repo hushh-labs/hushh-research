@@ -57,10 +57,14 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/account-deletion-check.sh",
         "scripts/ci/backend-check.sh",
         "scripts/ci/validation-results.sh",
+        "scripts/ci/check-dco-signoff.sh",
+        "scripts/ci/verify-pr-base-policy.py",
         "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
         "scripts/ci/tag-last-known-good.sh",
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ops/audit_env_toggles.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
@@ -259,6 +263,13 @@ def test_runner_reports_every_failure_instead_of_stopping_early() -> None:
     assert status == 1
     assert "first-failure (exit 7)" in output
     assert "second-failure (exit 9)" in output
+    # Failed assertions collect; missing tools and process cancellation stop.
+    from unittest.mock import patch
+    for result in (-15, 124, 127, 130):
+        with patch("repo_governance_plan.subprocess.run", return_value=subprocess.CompletedProcess([], result)) as run:
+            with contextlib.redirect_stderr(io.StringIO()):
+                assert _run_checks(checks) == (128 - result if result < 0 else result)
+            assert run.call_count == 1
 
 
 def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() -> None:
