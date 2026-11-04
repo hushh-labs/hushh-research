@@ -1129,15 +1129,34 @@ for (const width of [390, 1440]) test(`visited conversations stay readable durin
   await page.getByRole("button", { name: /Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun Mehta/ })).toBeEnabled();
   await page.getByRole("button", { name: "Back to messages" }).click();
-  await fixture(page, "fixture.holdHistory()");
-  await page.getByRole("button", { name: /Maya Rao/ }).click();
+  await fixture(page, "fixture.holdHistory(); fixture.holdRouteMint()");
+  const resolutions = await page.evaluate(() => (window as any).directChatFixture.routeResolutions());
+  await page.evaluate(() => {
+    const proof = { wrongFrames: [] as string[], frames: 0, stopped: false };
+    (window as any).messageOpeningProof = proof;
+    const frame = () => {
+      const root = document.querySelector('[data-direct-message-page] > main');
+      const title = root?.querySelector('header h2')?.textContent;
+      if (title) { proof.frames++; if (title !== 'Maya Rao') proof.wrongFrames.push(title); }
+      if (!proof.stopped) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  await page.getByRole("button", { name: /^Maya Rao/ }).click();
+  await expect(page.getByRole("heading", { name: "Maya Rao", exact: true })).toBeVisible();
   await expect(page.locator('[data-chat-message="maya-79"]')).toBeVisible();
   await expect(page.getByText("Loading messages…", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Connecting…", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeDisabled();
+  await fixture(page, "fixture.releaseRouteMint()");
+  await expect.poll(() => page.evaluate(() => history.state.directMessageSelection?.token)).toBe("dm1.maya");
+  expect(await page.evaluate(() => (window as any).directChatFixture.routeResolutions())).toBe(resolutions + 1);
   await page.screenshot({ path: test.info().outputPath(`messages-warm-${width}.png`), animations: "disabled" });
   await fixture(page, "fixture.releaseHistory()");
   await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeEnabled();
+  const proof = await page.evaluate(() => { const proof = (window as any).messageOpeningProof; proof.stopped = true; return proof; });
+  expect(proof.frames).toBeGreaterThan(0);
+  expect(proof.wrongFrames).toEqual([]);
   expect(errors).toEqual([]);
 });
 

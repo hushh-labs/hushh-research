@@ -56,9 +56,15 @@ let delayRead = false;
 let settleRead: (() => void) | null = null;
 const routeRequests: { conversationId?: string; personRef?: string }[] = [];
 let failRouteMint = false;
+let delayRouteMint = false;
+let settleRouteMint: (() => void) | null = null;
+let routeResolutions = 0;
 const fixture = {
   sends, reads, deliveries,
   routeRequests,
+  routeResolutions: () => routeResolutions,
+  holdRouteMint: () => { delayRouteMint = true; },
+  releaseRouteMint: () => { delayRouteMint = false; settleRouteMint?.(); settleRouteMint = null; },
   failNextRouteMint: () => { failRouteMint = true; },
   holdReaction: () => { delayReaction = true; },
   releaseReaction: () => { delayReaction = false; settleReaction?.(); settleReaction = null; },
@@ -127,14 +133,19 @@ const fixture = {
 (window as unknown as { directChatFixture: typeof fixture }).directChatFixture = fixture;
 export class DirectMessagesService {
   static async routeSelection(input: { token?: string; conversationId?: string; personRef?: string }) {
+    routeResolutions++;
+    if (!input.token) {
+      routeRequests.push({ conversationId: input.conversationId, personRef: input.personRef });
+      if (failRouteMint) { failRouteMint = false; throw new Error("Synthetic route service unavailable"); }
+      if (delayRouteMint) await new Promise<void>(resolve => { settleRouteMint = resolve; });
+    }
     const kind = input.personRef || input.token?.startsWith("dm1.person.") ? "person" : "conversation";
     const ref = input.token?.replace(/^dm1\.(?:person\.)?/, "") ?? input.conversationId ?? input.personRef ?? "maya";
     return { token: `dm1.${kind === "person" ? "person." : ""}${ref}`, kind, ref };
   }
   static async routeHref(input: { conversationId?: string; personRef?: string }) {
-    routeRequests.push({ conversationId: input.conversationId, personRef: input.personRef });
-    if (failRouteMint) { failRouteMint = false; throw new Error("Synthetic route service unavailable"); }
-    return `/one/messages?token=dm1.${input.conversationId ?? `person.${input.personRef}`}`;
+    const selection = await this.routeSelection(input);
+    return `/one/messages?token=${selection.token}`;
   }
 
   static async listConversations() {
