@@ -163,6 +163,24 @@ const TEST_VAULT_KEY = "0f".repeat(32);
 const TEST_CHAT_KEY = "hck1.0a3419cafc7896f9384d95ec76704bb30b272e913e80702075270f69a2feae8b";
 
 describe("One chat key transport", () => {
+  it("counts each assembled model request once and prefers provider token usage", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const onContextUsage = vi.fn();
+    mockTransport.emitEvents = subscriber => {
+      const emit = (modelCallId: string, inputTokens: number, tokenCountMethod: string) =>
+        subscriber.onCustomEvent({ event: { name: "hussh.chat_context_usage", value: { modelCallId, inputTokens, tokenCountMethod } } });
+      emit("run:1", 42000, "conservative_utf8_bytes");
+      emit("run:1", 11000, "provider_usage");
+      emit("run:1", 42000, "conservative_utf8_bytes");
+      emit("run:2", 43000, "conservative_utf8_bytes");
+      emit("bad", -1, "provider_usage");
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token", handlers: { onContextUsage } });
+    expect(onContextUsage.mock.calls.map(([usage]) => [usage.modelCallId, usage.inputTokens]))
+      .toEqual([["run:1", 11000], ["run:2", 43000]]);
+  });
+
   it("forwards a valid selected Calendar zone for one turn, then returns to the device zone", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();

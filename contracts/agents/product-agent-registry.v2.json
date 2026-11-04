@@ -353,6 +353,260 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [],
+        "data": [
+          "supplied_owner_memory",
+          "supplied_incremental_chat"
+        ],
+        "invocation": [
+          "owner_chat_runtime"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Proposes a complete consolidated owner memory.md from existing memory and incremental chat messages. Never commits information.",
+      "evaluations": [],
+      "failure_states": [
+        "provider_unavailable",
+        "invalid_document",
+        "owner_changed"
+      ],
+      "icon": null,
+      "id": "agent_chat_memory_manager",
+      "inputs": [
+        {
+          "description": null,
+          "name": "current_markdown",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "new_messages",
+          "type": "array"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/chat_memory_manager/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
+      "name": "Chat Memory Manager",
+      "native_requirements": [],
+      "one_exposure": null,
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "markdown",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 90000,
+        "max_output_tokens": 32768
+      },
+      "pkm": {
+        "behavior": "propose_mutation",
+        "mutation_contract": "one.memory.md.v1"
+      },
+      "privacy": {
+        "context_allowlist": [
+          "current_markdown",
+          "new_messages"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": null,
+        "rollback": "Restore the previous chat memory runtime; retain encrypted documents and transcripts.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "ab1b52b4d855164806edd62d58716544d5f544923940695e828ba44c9610b329",
+      "telemetry_namespace": "agent.chat_memory",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
+        "actions": [],
+        "data": [
+          "supplied_conversation_prefix",
+          "previous_summary"
+        ],
+        "invocation": [
+          "owner_chat_runtime"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development",
+          "uat",
+          "production"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Rewrites the rolling short-term summary of one private conversation.",
+      "evaluations": [],
+      "failure_states": [
+        "provider_unavailable",
+        "invalid_summary",
+        "stale_source_prefix",
+        "owner_changed"
+      ],
+      "icon": null,
+      "id": "agent_chat_stm",
+      "inputs": [
+        {
+          "description": null,
+          "name": "previousSummary",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "messages",
+          "type": "array"
+        },
+        {
+          "description": null,
+          "name": "cutoff",
+          "type": "string"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/chat_stm/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
+      "name": "Conversation Summarizer",
+      "native_requirements": [],
+      "one_exposure": null,
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "summary",
+          "type": "string"
+        },
+        {
+          "description": null,
+          "name": "cutoff",
+          "type": "string"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 4096
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "previousSummary",
+          "messages",
+          "cutoff"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": null,
+        "rollback": "Restore the previous chat runtime; retain encrypted summaries and full transcripts.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "single_turn",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": null,
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "7e7d9f4d6f09664aaaaff9dfb3be39a97f3809a6bf00b7e9de037948e49f687a",
+      "telemetry_namespace": "agent.chat_stm",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [
           "browser.control"
         ],
@@ -4786,7 +5040,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "f28f766c24554b6c8d2b622b36dd0c089900dc117e72137b0fa6ecd33e29c4ba",
+      "system_instruction_sha256": "a700123d8301b2058aac6e31e4ebd8356ac695dbc02e2bb078945d84681ba961",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

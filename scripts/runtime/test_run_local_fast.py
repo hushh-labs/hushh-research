@@ -18,13 +18,17 @@ DIST_DIR = ".next-local-fast"
 
 
 class FastBuildIsolationTest(unittest.TestCase):
-    def run_launcher(self, *, skip_build: bool, isolated_build: bool = False) -> tuple[subprocess.CompletedProcess[str], dict, bool]:
+    def run_launcher(self, *, skip_build: bool, isolated_build: bool = False, https: bool = False) -> tuple[subprocess.CompletedProcess[str], dict, bool]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             runtime = root / "scripts" / "runtime"
             runtime.mkdir(parents=True)
             shutil.copy2(LAUNCHER, runtime / LAUNCHER.name)
+            (runtime / "local_https_proxy.cjs").touch()
             web = root / "hushh-webapp"
+            (web / "certificates").mkdir(parents=True)
+            (web / "certificates" / "localhost.pem").touch()
+            (web / "certificates" / "localhost-key.pem").touch()
             (web / ".next").mkdir(parents=True)
             sentinel = web / ".next" / "verification-sentinel"
             sentinel.write_text("do not replace", encoding="utf-8")
@@ -68,10 +72,14 @@ static.mkdir(exist_ok=True)
 """,
                 "node": f"""#!{sys.executable}
 import json, os, sys
+import time
 from pathlib import Path
+if sys.argv[1].endswith('local_https_proxy.cjs'):
+    time.sleep(60)
+    sys.exit(0)
 server = Path(sys.argv[1])
 asset = server.parent / '{DIST_DIR}' / 'static' / 'fixture.js'
-Path(os.environ['FAST_TEST_SERVER']).write_text(json.dumps({{'server': str(server), 'asset_exists': asset.exists()}}))
+Path(os.environ['FAST_TEST_SERVER']).write_text(json.dumps({{'server': str(server), 'asset_exists': asset.exists(), 'port': os.environ.get('PORT'), 'origin': os.environ.get('APP_FRONTEND_ORIGIN')}}))
 sys.exit(0 if asset.exists() else 1)
 """,
             }
@@ -90,6 +98,7 @@ sys.exit(0 if asset.exists() else 1)
                    "NEXT_DIST_DIR": ".next-unrelated", "FAST_TEST_BUILD": str(build_result),
                    "FAST_TEST_SERVER": str(server_result)}
             completed = subprocess.run(["bash", str(runtime / LAUNCHER.name),
+                                        *(["--https"] if https else []),
                                         *(["--skip-build"] if skip_build else [])],
                                        cwd=root, env=env, capture_output=True, text=True, timeout=15)
             evidence = {"build": json.loads(build_result.read_text()) if build_result.exists() else None,
@@ -116,6 +125,14 @@ sys.exit(0 if asset.exists() else 1)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn(f"missing in {DIST_DIR}", completed.stderr)
         self.assertIsNone(evidence["server"])
+        self.assertTrue(sentinel_unchanged)
+
+    def test_https_uses_private_upstream_and_matching_app_origin(self) -> None:
+        completed, evidence, sentinel_unchanged = self.run_launcher(skip_build=True, isolated_build=True, https=True)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(evidence["server"]["port"], "3001")
+        self.assertEqual(evidence["server"]["origin"], "https://localhost:3000")
+        self.assertIn("Frontend: https://localhost:3000", completed.stdout)
         self.assertTrue(sentinel_unchanged)
 
 

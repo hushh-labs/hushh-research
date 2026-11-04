@@ -84,6 +84,14 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
   stream body arrive. Cold pod admission retains its separate HTTP deadline;
   admission is not a silent model stream. Cancellation invalidates the run so
   late admission cannot dispatch a cancelled turn or restart its watchdog.
+- Chat memory accounting uses the content-free AG-UI custom event
+  `hussh.chat_context_usage`. `modelCallId` identifies one assembled model request;
+  an estimate and its final `provider_usage` update share that ID. The client keeps
+  the provider value when present and otherwise uses the final estimate at run
+  settlement. LTM accounting UPSERTs by request ID, so duplicate transport frames
+  cannot count twice. The event carries numeric input, output-reserve and context
+  budgets, never prompt text or private memory. Background STM/LTM work never
+  supplies assistant deltas or a save-status card.
 - Agent Chat settles a turn from an explicit `RUN_FINISHED` or `RUN_ERROR`. After a clean transport EOF without either event, the client allows 500 ms for already received parser callbacks, then aborts a stuck SDK transport and reports one incomplete result. The workspace reconciles persisted turn history before offering another attempt. An intentional review-card detach remains a separate pending state, not a stream failure. Terminal callbacks are guarded so a late frame cannot create a second completion.
 - Managed `TEXT_CONTENT_FILTERED` and `TEXT_AUTHORITY_ENDED` errors use fixed
   client notices and do not imply backend capacity strain. Keep partial answer

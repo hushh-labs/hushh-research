@@ -10,7 +10,7 @@ FAST_DIST_DIR=".next-local-fast"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/runtime/run_local_fast.sh [--skip-build] [--skip-preflight]
+  scripts/runtime/run_local_fast.sh [--https] [--skip-build] [--skip-preflight]
 
 Starts the local stack in production-style fast mode:
   - activates the local runtime profile
@@ -20,6 +20,8 @@ Starts the local stack in production-style fast mode:
   - starts the optimized frontend on :3000 from its standalone build
 
 Options:
+  --https            Serve https://localhost:3000 using hushh-webapp/certificates/localhost{,-key}.pem.
+                     The standalone HTTP server binds only to 127.0.0.1:3001.
   --skip-build       Reuse the existing .next-local-fast frontend build.
   --skip-preflight   Skip backend preflight checks for faster startup.
 USAGE
@@ -27,9 +29,19 @@ USAGE
 
 SKIP_BUILD=false
 SKIP_PREFLIGHT=false
+HTTPS=false
+WEB_PORT=3000
+WEB_ORIGIN=http://localhost:3000
+TLS_CERT="$WEB_DIR/certificates/localhost.pem"
+TLS_KEY="$WEB_DIR/certificates/localhost-key.pem"
 
 for arg in "$@"; do
   case "$arg" in
+    --https)
+      HTTPS=true
+      WEB_PORT=3001
+      WEB_ORIGIN=https://localhost:3000
+      ;;
     --skip-build)
       SKIP_BUILD=true
       ;;
@@ -51,6 +63,7 @@ done
 PROXY_PID=""
 BACKEND_PID=""
 WEB_PID=""
+HTTPS_PID=""
 
 # Keep each child in its own process group. Terminal-generated Ctrl-C is sent
 # to the foreground process group, so without this boundary the proxy can be
@@ -62,6 +75,10 @@ run_in_private_process_group() {
 }
 
 cleanup() {
+  if [ -n "${HTTPS_PID:-}" ] && kill -0 "$HTTPS_PID" >/dev/null 2>&1; then
+    kill "$HTTPS_PID" >/dev/null 2>&1 || true
+    wait "$HTTPS_PID" >/dev/null 2>&1 || true
+  fi
   if [ -n "${WEB_PID:-}" ] && kill -0 "$WEB_PID" >/dev/null 2>&1; then
     kill "$WEB_PID" >/dev/null 2>&1 || true
     wait "$WEB_PID" >/dev/null 2>&1 || true
@@ -104,7 +121,7 @@ wait_for_http() {
   local start
   start="$(date +%s)"
 
-  until curl -fsS "$url" >/dev/null 2>&1; do
+  until curl -fsS ${HTTPS_CA_ARGS[@]+"${HTTPS_CA_ARGS[@]}"} "$url" >/dev/null 2>&1; do
     if [ $(( $(date +%s) - start )) -ge "$timeout_seconds" ]; then
       echo "Timed out waiting for ${label}: ${url}" >&2
       return 1
@@ -113,11 +130,26 @@ wait_for_http() {
   done
 }
 
-if port_is_listening 127.0.0.1 3000; then
-  echo "Frontend port 3000 is already in use." >&2
-  echo "Stop the existing frontend first, then rerun this script." >&2
-  echo "Useful command: lsof -ti :3000 | xargs kill" >&2
-  exit 1
+for port in 3000 8000; do
+  if port_is_listening 127.0.0.1 "$port"; then
+    echo "Local app port $port is already in use. Stop its owning app first." >&2
+    exit 1
+  fi
+done
+
+HTTPS_CA_ARGS=()
+if [ "$HTTPS" = true ]; then
+  export NEXT_PUBLIC_APP_URL="$WEB_ORIGIN"
+  export APP_FRONTEND_ORIGIN="$WEB_ORIGIN"
+  if port_is_listening 127.0.0.1 "$WEB_PORT"; then
+    echo "HTTPS upstream port $WEB_PORT is already in use. Stop its owning app first." >&2
+    exit 1
+  fi
+  if [ ! -f "$TLS_CERT" ] || [ ! -f "$TLS_KEY" ]; then
+    echo "Missing localhost TLS certificate/key in $WEB_DIR/certificates." >&2
+    exit 1
+  fi
+  HTTPS_CA_ARGS=(--cacert "$TLS_CERT")
 fi
 
 echo "Activating local runtime profile..."
@@ -175,7 +207,7 @@ else
   echo "Skipping frontend build and reusing the existing $FAST_DIST_DIR output..."
 fi
 
-echo "Starting optimized frontend on :3000..."
+echo "Starting optimized frontend on 127.0.0.1:$WEB_PORT..."
 STANDALONE_SERVER=""
 if [ -d "$WEB_DIR/$FAST_DIST_DIR/standalone" ]; then
   STANDALONE_SERVER="$(find "$WEB_DIR/$FAST_DIST_DIR/standalone" -maxdepth 3 -type f -name server.js -print -quit)"
@@ -194,22 +226,32 @@ if [ -d "$WEB_DIR/public" ]; then
 fi
 (
   cd "$STANDALONE_APP_DIR"
-  run_in_private_process_group env HOSTNAME=0.0.0.0 PORT=3000 node "$STANDALONE_SERVER"
+  run_in_private_process_group env HOSTNAME=127.0.0.1 PORT="$WEB_PORT" node "$STANDALONE_SERVER"
 ) &
 WEB_PID=$!
 
-wait_for_http "frontend" "http://127.0.0.1:3000" 60
+wait_for_http "frontend" "http://127.0.0.1:$WEB_PORT" 60
 
-cat <<'EOF'
+if [ "$HTTPS" = true ]; then
+  run_in_private_process_group node "$SCRIPT_DIR/local_https_proxy.cjs" "$WEB_DIR" "$TLS_CERT" "$TLS_KEY" &
+  HTTPS_PID=$!
+  wait_for_http "HTTPS frontend" "$WEB_ORIGIN/login" 30
+fi
+
+cat <<EOF
 
 Fast local stack is running.
-Frontend: http://localhost:3000
+Frontend: $WEB_ORIGIN
 Backend:  http://localhost:8000
 
 Press Ctrl-C to stop both processes.
 EOF
 
 while true; do
+  if [ -n "$HTTPS_PID" ] && ! kill -0 "$HTTPS_PID" >/dev/null 2>&1; then
+    wait "$HTTPS_PID"
+    exit $?
+  fi
   if [ -n "$BACKEND_PID" ] && ! kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
     wait "$BACKEND_PID"
     exit $?

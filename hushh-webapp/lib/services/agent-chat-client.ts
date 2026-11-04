@@ -255,6 +255,8 @@ export type AgentChatStreamHandlers = {
   /** Provider-authored thought summary only; never raw thoughts or continuation signatures. */
   onThinkingSummary?: (chunk: string) => void;
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
+  /** Numerical full-request accounting; no prompt or memory text. */
+  onContextUsage?: (usage: { modelCallId: string; inputTokens: number; tokenCountMethod: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
   onSources?: (sources: AgentSource[]) => void;
@@ -1407,7 +1409,10 @@ export async function streamAgentChat(input: {
   const terminalRun = new Promise<void>((resolve) => {
     settleTerminalRun = resolve;
   });
+  const contextUsage = new Map<string, { modelCallId: string; inputTokens: number; tokenCountMethod: string }>();
   const finishTerminalRun = () => {
+    for (const usage of contextUsage.values()) handlers.onContextUsage?.(usage);
+    contextUsage.clear();
     settleTerminalRun?.();
     settleTerminalRun = null;
   };
@@ -1601,6 +1606,17 @@ export async function streamAgentChat(input: {
       handlers.onToken?.(event.delta);
     },
     onCustomEvent: ({ event }) => {
+      if (event.name === "hussh.chat_context_usage") {
+        const usage = event.value as Record<string, unknown> | null;
+        if (usage && typeof usage.modelCallId === "string" && typeof usage.inputTokens === "number" &&
+          Number.isFinite(usage.inputTokens) && usage.inputTokens >= 0 && typeof usage.tokenCountMethod === "string") {
+          const previous = contextUsage.get(usage.modelCallId);
+          if (!previous || previous.tokenCountMethod !== "provider_usage") {
+            contextUsage.set(usage.modelCallId, { modelCallId: usage.modelCallId, inputTokens: usage.inputTokens, tokenCountMethod: usage.tokenCountMethod });
+          }
+        }
+        return;
+      }
       if (event.name !== QUEUED_INPUT_EVENT) return;
       const notice = parseQueuedInputNotice(event.value);
       if (notice) handlers.onQueuedInput?.(notice);

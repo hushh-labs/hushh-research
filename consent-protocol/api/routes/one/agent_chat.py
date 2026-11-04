@@ -505,7 +505,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The owner's consented memory for this turn: Soul.md, then the bounded
     # Live Mirror facts packet. Popped before the bridge can copy forwarded
     # props; only an unlocked owner turn stores it (below).
-    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
+    if len(raw_pkm_context) > 128_000:
+        raise HTTPException(413, detail="Private memory context exceeds the request budget")
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.

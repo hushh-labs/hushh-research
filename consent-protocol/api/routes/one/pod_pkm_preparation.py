@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from api.routes.one.pod_commands import _admitted
 from api.routes.one.pod_session import verified_session
@@ -19,6 +20,11 @@ from api.routes.one.pod_turn import (
     _resolve_owner_target,
 )
 from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+from hushh_mcp.services.chat_memory_manager import (
+    RewriteMemoryRequest,
+    RewriteMemoryResponse,
+    rewrite_chat_memory,
+)
 from hushh_mcp.services.pkm_preparation_contracts import (
     MEMORY_PROPOSAL_OUTCOME_LOG,
     PKMAgentLabStructureRequest,
@@ -85,6 +91,37 @@ def _owner_model():
         vertex_project=turn.vertex_project,
         vertex_location=turn.vertex_location,
     )
+
+
+@router.post("/memory/rewrite", response_model=RewriteMemoryResponse)
+async def rewrite_memory(
+    body: RewriteMemoryRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
+    _require_enabled()
+    async with _admitted(authorization, request) as claims:
+        if body.user_id != claims["user_id"]:
+            raise HTTPException(403, detail={"code": "POD_MEMORY_OWNER_MISMATCH"})
+        selected, revision = _selection(), ai_selection_revision()
+        authority, _ = verified_session(authorization, role=ROLE_APP, scope=SCOPE_PKM_READ)
+        await authority.require_held()
+        model = _owner_model()
+        if _selection() != selected or ai_selection_revision() != revision:
+            raise HTTPException(409, detail={"code": "OWNER_AI_SELECTION_CHANGED"})
+        try:
+            result = await rewrite_chat_memory(body, model=model)
+        except Exception:
+            raise HTTPException(503, detail={"code": "MEMORY_REWRITE_UNAVAILABLE"}) from None
+        current, current_claims = verified_session(
+            authorization, role=ROLE_APP, scope=SCOPE_PKM_READ
+        )
+        if current is not authority or current_claims != claims:
+            raise HTTPException(403, detail={"code": "POD_MEMORY_OWNER_MISMATCH"})
+        await authority.require_held()
+        if _selection() != selected or ai_selection_revision() != revision:
+            raise HTTPException(409, detail={"code": "OWNER_AI_SELECTION_CHANGED"})
+        return JSONResponse(result.model_dump(), headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/memory/proposals", response_model=PKMAgentLabStructureResponse)

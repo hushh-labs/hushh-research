@@ -1,5 +1,19 @@
 # API Contracts
 
+## V1 chat memory preparation
+
+`POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
+owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
+admission, held owner incarnation and AI-selection checks before and after inference.
+The request contains `user_id`, `current_markdown`, incremental `messages`
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
+`{markdown}`: a proposed complete document with no persistence authority. The
+client validates and atomically commits ciphertext and its source checkpoint
+through the existing PKM writer. Invalid generation returns a bounded failure;
+there is no partial replacement or client-visible success before storage ACK.
+The platform-aware PKM proxy/native transport and explicit pod allowlists own
+placement; unknown/private owners never fall back to Shared inference.
+
 ## Owner-local Calendar and email tasks
 
 One's To-do list reads private Google metadata directly from the owner's signed,

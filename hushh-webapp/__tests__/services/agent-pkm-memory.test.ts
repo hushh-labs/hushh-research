@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { LIVE_MIRROR_PACKET_HEADER } from "@/lib/pkm/live-mirror-agent-facts";
 
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/services/api-service", () => ({
@@ -967,6 +968,22 @@ describe("agent PKM memory helpers", () => {
     await expect(Promise.all([firstRefresh, secondRefresh])).resolves.toHaveLength(2);
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
     expect(pkmGetStaleFirstMock.mock.calls.filter(([params]) => params.domain === "one_memory")).toHaveLength(1);
+  });
+
+  it("supplies the complete V1 Markdown on cold and warm turns without legacy recall packets", async () => {
+    const markdown = "# Memory\n\n## Facts\n" + "- Stable project context and preferences.\n".repeat(900) + "- FINAL_LTM_FACT\n";
+    pkmGetStaleFirstMock.mockImplementation(async ({ domain }) => domain === "one_memory"
+      ? { data: { markdown } } : null);
+    peekLiveMirrorMock.mockImplementation((userId: string) => liveMirrorView(userId, snapshotVaultSessionEpoch()));
+    const loaded = await loadAgentPkmContext({ userId: "user_1", vaultOwnerToken: "vault_token", vaultKey: "vault_key", markdownOnly: true });
+    const warm = peekAgentPkmContext({ userId: "user_1", markdownOnly: true });
+    for (const context of [loaded, warm]) {
+      expect(context?.text.length).toBeGreaterThan(20_000);
+      expect(context?.text).toContain("FINAL_LTM_FACT");
+      expect(context?.text).not.toContain(LIVE_MIRROR_PACKET_HEADER);
+      expect(context?.coverage?.clipped).toBe(false);
+    }
+    expect(peekLiveMirrorMock).not.toHaveBeenCalled();
   });
 
   it("supplies Soul, then only the owner's allowlisted Live Mirror packet, on the peek and load paths", async () => {

@@ -25,7 +25,27 @@ import type { PwmClaim } from "@/lib/services/world-model-decision-service";
 
 export const MARKDOWN_MEMORY_DOMAIN = "one_memory";
 export const MARKDOWN_MEMORY_SCHEMA = "one.memory.md.v1";
-export const MAX_MARKDOWN_MEMORY_CHARS = 18_000;
+export const MAX_MARKDOWN_MEMORY_CHARS = 96_000;
+
+/** Private consolidation progress; never rendered or supplied as personal memory. */
+export type ChatMemoryCheckpoint = {
+  version: 1;
+  editGeneration: number;
+  conversations: Record<string, string[]>;
+  requests: string[];
+};
+
+function readChatCheckpoint(value: unknown): ChatMemoryCheckpoint {
+  if (value === undefined || value === null) return { version: 1, editGeneration: 0, conversations: {}, requests: [] };
+  const entry = record(value);
+  if (entry.version !== 1 || !Number.isSafeInteger(entry.editGeneration) || Number(entry.editGeneration) < 0 ||
+    !entry.conversations || typeof entry.conversations !== "object" || Array.isArray(entry.conversations) ||
+    Object.values(entry.conversations).some(ids => !Array.isArray(ids) || ids.some(id => typeof id !== "string")) ||
+    !Array.isArray(entry.requests) || entry.requests.some(id => typeof id !== "string"))
+    throw new Error("Memory consolidation checkpoint is invalid.");
+  return { version: 1, editGeneration: Number(entry.editGeneration),
+    conversations: entry.conversations as Record<string, string[]>, requests: entry.requests as string[] };
+}
 
 type CachedMarkdownMemory = {
   userId: string;
@@ -41,6 +61,7 @@ type CachedMarkdownMemory = {
   sourceSummaries?: SourceSummaries;
   /** Owner deletions must not resurrect an older structured identity value. */
   deletedFactLabels?: string[];
+  chatMemoryCheckpoint?: ChatMemoryCheckpoint;
   /** Owner decisions on research statements; private, never model context. */
   pwmClaims?: PwmClaims;
 };
@@ -184,7 +205,7 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims } | null {
+function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims; chatMemoryCheckpoint: ChatMemoryCheckpoint } | null {
   const root = record(data);
   if (typeof root.markdown !== "string") {
     if (Object.keys(root).length) throw new Error("memory.md document is invalid.");
@@ -198,6 +219,7 @@ function readStoredDocument(data: unknown): { markdown: string; updatedAt: strin
     sourceSummaries: readSourceSummaries(root._source_summaries),
     deletedFactLabels: Array.isArray(root._deleted_fact_labels) ? root._deleted_fact_labels.filter((label): label is string => typeof label === "string") : [],
     pwmClaims: readPwmClaims(root._pwm_claims),
+    chatMemoryCheckpoint: readChatCheckpoint(root._chat_memory),
   };
 }
 
@@ -334,11 +356,13 @@ function cacheDocument(params: {
   /** Owner deletions must not resurrect an older structured identity value. */
   deletedFactLabels?: string[];
   pwmClaims?: PwmClaims;
+  chatMemoryCheckpoint?: ChatMemoryCheckpoint;
 }): CachedMarkdownMemory {
   const entry = {
     ...params,
     deletedFactLabels: params.deletedFactLabels ?? cache.get(params.userId)?.deletedFactLabels ?? [],
     pwmClaims: params.pwmClaims ?? cache.get(params.userId)?.pwmClaims ?? {},
+    chatMemoryCheckpoint: params.chatMemoryCheckpoint ?? cache.get(params.userId)?.chatMemoryCheckpoint ?? readChatCheckpoint(null),
     vaultEpoch: snapshotVaultSessionEpoch(),
   };
   cache.set(params.userId, entry);
@@ -404,6 +428,7 @@ async function readMarkdownMemory(params: {
     sourceSummaries: pending.sourceSummaries,
     deletedFactLabels: stored?.deletedFactLabels ?? [],
     pwmClaims: stored?.pwmClaims ?? {},
+    chatMemoryCheckpoint: stored?.chatMemoryCheckpoint ?? readChatCheckpoint(null),
     updatedAt: stored?.updatedAt ?? null,
     dataVersion: snapshot?.key?.contentRevision ?? undefined,
     persisted: Boolean(stored),
@@ -842,6 +867,26 @@ export async function replaceMarkdownMemoryDocument(params: {
   expectedPersisted: boolean;
   beforeEffect: () => Promise<void>;
 }): Promise<{ success: boolean; conflict?: boolean; markdown?: string; message?: string }> {
+  return replaceMarkdownMemory({ ...params,
+    confirmation: { confirmedByUser: true, surface: "web", source: "pkm_memory_edited_button" } });
+}
+
+/** The same replacement/CAS authority as the editor, without claiming a manual edit. */
+export async function replaceChatMarkdownMemory(params: {
+  userId: string; vaultKey: string; vaultOwnerToken: string;
+  markdown: string; expectedMarkdown: string; expectedPersisted: boolean;
+  expectedCheckpoint: ChatMemoryCheckpoint; checkpoint: ChatMemoryCheckpoint;
+  confirmation: PkmWriteAuthorization; beforeEffect: () => Promise<void>;
+}): Promise<{ success: boolean; conflict?: boolean; markdown?: string; message?: string }> {
+  return replaceMarkdownMemory(params);
+}
+
+async function replaceMarkdownMemory(params: {
+  userId: string; vaultKey: string; vaultOwnerToken: string;
+  markdown: string; expectedMarkdown: string; expectedPersisted: boolean;
+  confirmation: PkmWriteAuthorization; beforeEffect: () => Promise<void>;
+  expectedCheckpoint?: ChatMemoryCheckpoint; checkpoint?: ChatMemoryCheckpoint;
+}): Promise<{ success: boolean; conflict?: boolean; markdown?: string; message?: string }> {
   const local = peekMarkdownMemory(params.userId);
   if (local && local.markdown !== params.expectedMarkdown) return { success: false, conflict: true, message: "memory.md changed while you were editing. Your draft is still here." };
   const previousQueue = syncQueues.get(params.userId);
@@ -869,12 +914,13 @@ export async function replaceMarkdownMemoryDocument(params: {
   let sourceSummaries = local?.sourceSummaries ?? {};
   let deletedFactLabels = local?.deletedFactLabels ?? [];
   let pwmClaims = local?.pwmClaims ?? {};
+  let chatMemoryCheckpoint = local?.chatMemoryCheckpoint ?? readChatCheckpoint(null);
   const result = await PkmWriteCoordinator.savePreparedDomain({
     userId: params.userId,
     domain: MARKDOWN_MEMORY_DOMAIN,
     vaultKey: params.vaultKey,
     vaultOwnerToken: params.vaultOwnerToken,
-    confirmation: { confirmedByUser: true, surface: "web", source: "pkm_memory_edited_button" },
+    confirmation: params.confirmation,
     beforeEffect: params.beforeEffect,
     mayPublish: () => isVaultSessionEpochCurrent(epoch),
     build: (context) => {
@@ -883,17 +929,21 @@ export async function replaceMarkdownMemoryDocument(params: {
       sourceSummaries = stored?.sourceSummaries ?? sourceSummaries;
       deletedFactLabels = stored?.deletedFactLabels ?? deletedFactLabels;
       pwmClaims = stored?.pwmClaims ?? pwmClaims;
+      chatMemoryCheckpoint = stored?.chatMemoryCheckpoint ?? chatMemoryCheckpoint;
       const currentMarkdown = stored?.markdown ?? seed;
       if ((params.expectedPersisted && !stored) || currentMarkdown !== params.expectedMarkdown ||
-        (peekMarkdownMemory(params.userId)?.markdown ?? params.expectedMarkdown) !== params.expectedMarkdown) {
+        (peekMarkdownMemory(params.userId)?.markdown ?? params.expectedMarkdown) !== params.expectedMarkdown ||
+        (params.expectedCheckpoint && JSON.stringify(chatMemoryCheckpoint) !== JSON.stringify(params.expectedCheckpoint))) {
         conflict = true;
         throw new Error("Markdown memory changed during editing.");
       }
       deletedFactLabels = deletedLabelsAfter(currentMarkdown, markdown, deletedFactLabels);
+      chatMemoryCheckpoint = params.checkpoint ?? { ...chatMemoryCheckpoint,
+        editGeneration: chatMemoryCheckpoint.editGeneration + 1 };
       const updatedAt = new Date().toISOString();
       return {
         domainData: { ...context.currentDomainData, schema_version: MARKDOWN_MEMORY_SCHEMA, markdown,
-          _deleted_fact_labels: deletedFactLabels, updated_at: updatedAt,
+          _deleted_fact_labels: deletedFactLabels, _chat_memory: chatMemoryCheckpoint, updated_at: updatedAt,
           ...(Object.keys(pwmClaims).length ? { _pwm_claims: pwmClaims } : {}) },
         summary: { schema_version: MARKDOWN_MEMORY_SCHEMA, storage_mode: "encrypted_markdown", character_count: markdown.length, updated_at: updatedAt },
       };
@@ -907,7 +957,7 @@ export async function replaceMarkdownMemoryDocument(params: {
   try { await params.beforeEffect(); } catch (error) { releaseQueue(); throw error; }
   if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen memory.md." }; }
   const pending = applyPendingMemory(markdown, sourceSummaries, queue.jobs);
-  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, pwmClaims, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
+  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, pwmClaims, chatMemoryCheckpoint, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
     kycIntakeCompletedAt: queue.jobs.some(job => job.completeKycIntake)
       ? peekMarkdownMemory(params.userId)?.kycIntakeCompletedAt ?? kycIntakeCompletedAt : kycIntakeCompletedAt });
   releaseQueue();
