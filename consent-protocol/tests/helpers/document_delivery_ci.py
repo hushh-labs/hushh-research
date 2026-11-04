@@ -9,11 +9,7 @@ from tests.helpers.deployment_cli import document_installer_environment
 
 ROOT = Path(__file__).resolve().parents[3]
 DOCUMENT = "tests/services/test_document_delivery_browser.py"
-DOCUMENT_WEBKIT = (
-    DOCUMENT + "::test_protected_document_browser_payment_preview_download_revoke[webkit]"
-)
 PHONE = "tests/test_account_phone_browser.py"
-PHONE_WEBKIT = PHONE + "::test_recorded_phone_browser_journeys[webkit-apple.com]"
 
 
 # Valid and rejected invocation cases share the gate assertion owner.
@@ -79,9 +75,9 @@ def assert_document_platform(tmp_path, ci, mode, runner, expected):
     )
     selection = [DOCUMENT, PHONE]
     if mode == ("--ci-linux-document",):
-        selection.extend(("--deselect", DOCUMENT_WEBKIT, "--deselect", PHONE_WEBKIT))
+        selection.extend(("-k", "not webkit"))
     elif mode == ("--ci-macos-webkit",):
-        selection = [DOCUMENT_WEBKIT, PHONE_WEBKIT]
+        selection.extend(("-k", "webkit"))
     assert test_calls.read_text().splitlines() == [f"-m pytest -q {' '.join(selection)}"]
 
 
