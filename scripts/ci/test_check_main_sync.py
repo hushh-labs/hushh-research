@@ -208,6 +208,7 @@ class BoundedBaseFreshnessTests(unittest.TestCase):
                     self.repo.git("checkout", "-q", "main")
                 env = {
                     **self.repo.env, "MAIN_SYNC_TESTED_BASE_SHA": tested,
+                    "MAIN_SYNC_BRANCH": "main",
                     "FRESHNESS_TEST_MODE_FILE": str(observed_mode),
                     "FRESHNESS_TEST_REAL_SCRIPT": str(SCRIPT),
                 }
@@ -232,6 +233,48 @@ class BoundedBaseFreshnessTests(unittest.TestCase):
         # The same branch passes once the limit admits its age, so the block
         # above came from the age bound alone.
         self.assertEqual(self.repo.check("bounded", MAIN_SYNC_MAX_AGE_HOURS="48").code, 0)
+
+    def test_push_hook_uses_open_pr_destination_and_does_not_invent_main(self) -> None:
+        self.repo.behind_branch(branch_files=("app.txt",), main_after_tested=("other.txt",))
+        script = self.repo.work / "scripts/git/check-main-sync.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+        tools = self.repo.root / "bin"
+        tools.mkdir()
+        gh = tools / "gh"
+        gh.write_text('#!/bin/sh\nprintf "%s" "${FRESHNESS_TEST_PR_BASE:-}"\n', encoding="utf-8")
+        gh.chmod(0o755)
+        hook = ROOT / "consent-protocol/ops/monorepo/pre-push.sh"
+
+        for destination in ("dev", "uat", ""):
+            with self.subTest(destination=destination):
+                if destination:
+                    self.repo.git("branch", "-f", destination, "HEAD")
+                    self.repo.git("push", "-q", "origin", destination)
+                result = subprocess.run(
+                    ["sh", str(hook), "origin", "https://github.com/hushh-labs/hushh-research.git"],
+                    cwd=self.repo.work,
+                    env={**self.repo.env, "PATH": f"{tools}:{self.repo.env['PATH']}",
+                         "FRESHNESS_TEST_PR_BASE": destination},
+                    input="", capture_output=True, text=True,
+                )
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotIn("behind origin/main", output)
+                if destination:
+                    self.assertIn(f"contains latest origin/{destination}", output)
+                else:
+                    self.assertIn("PR destination unavailable", output)
+
+        strict = subprocess.run(
+            ["sh", str(hook), "origin", "https://github.com/hushh-labs/hushh-research.git"],
+            cwd=self.repo.work,
+            env={**self.repo.env, "PATH": f"{tools}:{self.repo.env['PATH']}",
+                 "FRESHNESS_TEST_PR_BASE": "", "MAIN_SYNC_MODE": "bounded"},
+            input="", capture_output=True, text=True,
+        )
+        self.assertEqual(strict.returncode, 1)
+        self.assertIn("Cannot run the requested freshness diagnostic", strict.stderr)
 
     def test_main_renaming_a_branch_file_blocks(self) -> None:
         _, tested = self.repo.behind_branch(branch_files=("app.txt",), main_after_tested=("other.txt",))

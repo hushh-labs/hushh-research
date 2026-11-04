@@ -49,6 +49,12 @@ Run affected contract checks before pushing. Full local diagnostics remain
 available explicitly; ordinary pushes do not require a whole-repository mirror.
 Use the actual destination in local diff/selection inputs. `check-main-sync.sh`
 remains a diagnostic tool; its optional strict mode is not the ordinary merge gate.
+The push hook uses an explicitly supplied `MAIN_SYNC_BRANCH`, the current stable
+branch, or the open PR's base. If no destination can be established, it says so
+and skips ancestry guidance rather than comparing a Dev/UAT change to Main.
+Ordinary feature pushes stay advisory; explicit operator diagnostics retain their
+requested mode. This does not replace combined-result validation or direct-push
+Admin preflight.
 
 ## Target and execution preflight
 
