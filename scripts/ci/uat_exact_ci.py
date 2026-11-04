@@ -23,7 +23,6 @@ from pathlib import Path
 
 from github_security_authority import GitHub, Refused, verify_source
 from process_group import BoundedReadError, bounded_stdout
-from repo_governance_plan import RELEASE_CONTROLLER_TESTS
 
 REPOSITORY = "hushh-labs/hushh-research"
 SOURCE_BRANCHES = ("uat", "uat-isolated")
@@ -66,19 +65,20 @@ ISOLATED_CI_PATHS = (
     "hushh-webapp/vitest.config.ts", "hushh-webapp/__tests__/setup.ts",
     "packages/hushh-mcp/scripts", "deploy/mail-api/test", "config/ci-governance.json",
     "consent-protocol/config/database_connection_limits.json",
-    # Workflow tests and their fixtures must describe the Main workflows
-    # restored above. Candidate application tests remain in the exact tree.
-    *RELEASE_CONTROLLER_TESTS,
-    "consent-protocol/tests/helpers/document_delivery_ci.py",
+    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+    "consent-protocol/tests/test_deployment_security.py",
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
+    "consent-protocol/tests/test_production_restoration_operation.py",
+    "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+    "consent-protocol/tests/test_uat_deploy_parallelism.py",
+    "consent-protocol/tests/test_uat_application_selection.py",
+    "consent-protocol/tests/test_uat_paused_drive_maintenance.py",
     "consent-protocol/tests/test_account_deletion_release_workflow.py",
     "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
-    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
-    "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
-    "consent-protocol/tests/test_production_restoration_operation.py",
-    "consent-protocol/tests/test_uat_application_selection.py",
-    "consent-protocol/tests/test_uat_deploy_parallelism.py",
-    "consent-protocol/tests/test_uat_paused_drive_maintenance.py",
+    "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/helpers/document_delivery_ci.py",
+    "consent-protocol/tests/helpers/predecessor_acceptance.py",
     "deploy/iam/setup_nonproduction_github_wif.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
@@ -200,6 +200,8 @@ def verify_isolated_release_authority(candidate: str, authority: str) -> None:
 
 
 def prepare_isolated_checkout(candidate: str, base: str, authority: str, tree: str) -> None:
+    from repo_governance_plan import RELEASE_CONTROLLER_TESTS
+
     require(os.environ.get("GITHUB_REF") == "refs/heads/main"
             and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and os.environ.get("GITHUB_SHA") == authority,
@@ -216,8 +218,11 @@ def prepare_isolated_checkout(candidate: str, base: str, authority: str, tree: s
     git("checkout", "--detach", candidate)
     # HEAD stays at the exact application commit; the staged test overlay
     # is disposable and never becomes a deployment commit.
-    git("restore", f"--source={authority}", "--staged", "--worktree", "--", *ISOLATED_CI_PATHS)
-    require(not git("diff", "--cached", "--name-only", authority, "--", *ISOLATED_CI_PATHS),
+    # The release contracts test the Main workflows overlaid above. Keep those
+    # tests with their controller while product tests stay at the candidate SHA.
+    control_paths = (*ISOLATED_CI_PATHS, *RELEASE_CONTROLLER_TESTS)
+    git("restore", f"--source={authority}", "--staged", "--worktree", "--", *control_paths)
+    require(not git("diff", "--cached", "--name-only", authority, "--", *control_paths),
             "CI working copy differs from reviewed Main authority")
 
 
