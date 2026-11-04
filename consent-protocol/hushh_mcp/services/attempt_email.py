@@ -27,7 +27,7 @@ def worker_authority():
     from api.utils.firebase_auth import current_auth_lane
 
     lane = current_auth_lane()
-    expected = {"production": "hushh-pda", "uat": "hushh-pda-uat"}.get(lane)
+    expected = {"production": "hushh-pda", "uat": "hushh-pda-uat", "dev": "hushh-pda-dev"}.get(lane)
     secret = os.getenv("ONE_PLG_ATTEMPT_EMAIL_SECRET", "")
     if not expected or os.getenv("GOOGLE_CLOUD_PROJECT") != expected or len(secret) < 32:
         raise PermissionError("Attempt email worker unavailable")
@@ -37,6 +37,7 @@ def worker_authority():
             "ONE_PLG_EXPORT_SECRET",
             "ONE_PLG_AUDIENCE_SECRET",
             "ONE_PLG_UAT_EXPORT_SECRET",
+            "ONE_PLG_DEV_EXPORT_SECRET",
             "ONE_PLG_SUBSCRIPTION_SECRET",
             "ONE_PLG_OWNER_EXPORT_SECRET",
         )
@@ -59,8 +60,8 @@ async def unsubscribe(token: str):
     lane, secret = worker_authority()
     if not re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f-]{36}\.[0-9a-f]{64}", token):
         raise ValueError("Invalid unsubscribe link")
-    owner_hash, generation, signature = token.split(".")
-    generation = UUID(generation)
+    owner_hash, generation_text, signature = token.split(".")
+    generation = UUID(generation_text)
     value = f"{owner_hash}.{generation}"
     expected = hmac.new(
         secret.encode(), f"attempt-email-unsubscribe.{lane}.{value}".encode(), hashlib.sha256
@@ -92,7 +93,7 @@ def allowed_accounts() -> set[str]:
     from api.utils.firebase_auth import current_auth_lane
 
     lane = current_auth_lane()
-    expected = {"production": "hushh-pda", "uat": "hushh-pda-uat"}.get(lane)
+    expected = {"production": "hushh-pda", "uat": "hushh-pda-uat", "dev": "hushh-pda-dev"}.get(lane)
     accounts = {
         uid.strip()
         for uid in os.getenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "").split(",")
@@ -176,7 +177,7 @@ async def choose(uid: str, *, enabled: bool, expected_revision: int, disclosure:
             uid,
             timeout=5,
         )
-        if enabled and str(epoch) != admitted["generation"]:
+        if enabled and (not admitted or str(epoch) != admitted["generation"]):
             raise marketing_preferences.PreferenceConflict("Account changed; choose again")
         email_hash = recipient["email_hash"] if recipient else current["email_hash"]
         if (
@@ -279,7 +280,7 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
             and row["activity_generation"] == row["current_epoch"]
             and row["recipient_hash"] == row["current_email"] == recipient["email_hash"]
         )
-        if not current:
+        if not current or action is None or agent is None:
             await conn.execute(
                 "UPDATE one_attempt_email_outbox SET status='suppressed' WHERE id=$1",
                 delivery_id,
@@ -311,7 +312,11 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
         "source": "client_reported",
         "permissionGeneration": str(row["permission_generation"]),
         "unsubscribeUrl": (
-            ("https://api.uat.hushh.ai" if lane == "uat" else "https://api.hushh.ai")
+            {
+                "dev": "https://consent-protocol-aqahj4iyha-uc.a.run.app",
+                "uat": "https://api.uat.hushh.ai",
+                "production": "https://api.hushh.ai",
+            }[lane]
             + "/api/one/plg/attempt-email/unsubscribe?token="
             + unsubscribe_token(uid, row["permission_generation"])
         ),

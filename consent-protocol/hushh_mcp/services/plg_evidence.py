@@ -79,13 +79,13 @@ async def _owner_epoch(user_id: str):
 
 
 async def owner_scope(
-    user_id: str, now: datetime, *, environment: Literal["uat", "production"] = "uat"
+    user_id: str, now: datetime, *, environment: Literal["dev", "uat", "production"] = "uat"
 ) -> dict | None:
     """Own activity is not a marketing subscription or an email-send grant."""
     from api.utils.firebase_auth import current_auth_lane
     from hushh_mcp.services import marketing_preferences
 
-    if environment not in {"uat", "production"} or current_auth_lane() != environment:
+    if environment not in {"dev", "uat", "production"} or current_auth_lane() != environment:
         return None
     before = await _owner_epoch(user_id)
     if not before or not before["started_at"]:
@@ -116,7 +116,7 @@ async def owner_read_authority(
     email_hash: str,
     owner_epoch: str,
     *,
-    environment: Literal["uat", "production"] = "uat",
+    environment: Literal["dev", "uat", "production"] = "uat",
 ) -> dict:
     scope = await owner_scope(user_id, datetime.now(timezone.utc), environment=environment)
     allowed = bool(
@@ -131,7 +131,7 @@ async def session_owner_scope(
     email_hash: str,
     now: datetime,
     *,
-    environment: Literal["uat", "production"] = "uat",
+    environment: Literal["dev", "uat", "production"] = "uat",
 ) -> dict | None:
     """Resolve one verified session within an explicit cohort, never by UID input.
 
@@ -176,13 +176,13 @@ async def snapshot(
     allowed: set[str],
     now: datetime,
     *,
-    environment: Literal["production", "uat"] = "production",
+    environment: Literal["dev", "production", "uat"] = "production",
 ) -> dict:
     """Fail the entire batch on missing authority, truncation or source failure."""
-    if environment not in {"production", "uat"}:
+    if environment not in {"dev", "production", "uat"}:
         raise ValueError("Invalid evidence environment")
-    if environment == "uat" and (request.version != 2 or request.customerReporting):
-        raise ValueError("UAT evidence cannot claim production customer reporting")
+    if environment != "production" and (request.version != 2 or request.customerReporting):
+        raise ValueError("Nonproduction evidence cannot claim production customer reporting")
     policy = reporting_policy() if request.customerReporting else None
     if not request.accounts:
         if request.version != 2:

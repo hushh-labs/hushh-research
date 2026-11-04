@@ -185,6 +185,18 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     assert call("feedback-apply", "attempt-emails.uat.feedback-apply", body=facts).json()[
         "complete"
     ]
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "owner")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-dev")
+    # A historical Dev revision labelled UAT cannot borrow UAT authority.
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 401
+    assert call(purpose="attempt-emails.dev.pull").json() == {
+        "environment": "dev",
+        "deliveries": [],
+    }
+    monkeypatch.setenv("ONE_PLG_DEV_EXPORT_SECRET", key)
+    assert call(purpose="attempt-emails.dev.pull").status_code == 404
 
 
 @pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])
@@ -426,23 +438,26 @@ def test_production_own_activity_requires_separate_identity_authority_not_market
     assert call().status_code == 404
 
 
-def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(client, monkeypatch):
+@pytest.mark.parametrize("environment", ["uat", "dev"])
+def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(
+    client, monkeypatch, environment
+):
     uat_secret = "u" * 40
-    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
     monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
-    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
-    monkeypatch.setenv("ONE_PLG_UAT_EXPORT_ENABLED", "true")
-    monkeypatch.setenv("ONE_PLG_UAT_EXPORT_SECRET", uat_secret)
-    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS", ACCOUNT["accountId"])
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_{environment.upper()}_EXPORT_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_{environment.upper()}_EXPORT_SECRET", uat_secret)
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ACCOUNT_IDS", ACCOUNT["accountId"])
     monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
     epoch = "e" * 64
     authority = AsyncMock(return_value={"allowed": True, "erased": False, "ownerEpoch": epoch})
     monkeypatch.setattr(plg, "owner_read_authority", authority)
     projection = AsyncMock(
         return_value={
-            "environment": "uat",
+            "environment": environment,
             "accounts": [{"deleted": False, "activity": {"epoch": epoch}}],
         }
     )
@@ -455,24 +470,26 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
     payload = {"version": 2, "customerReporting": False, "accounts": [scoped_account]}
 
     def call(**kw):
-        return post(client, payload=kw.pop("payload", payload), route="snapshot-uat", **kw)
+        return post(
+            client, payload=kw.pop("payload", payload), route=f"snapshot-{environment}", **kw
+        )
 
     assert call(purpose="snapshot", secret=uat_secret).status_code == 401
-    assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 200
-    assert projection.await_args.kwargs == {"environment": "uat"}
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 200
+    assert projection.await_args.kwargs == {"environment": environment}
     permission_request = {
         key: scoped_account[key] for key in ("accountId", "emailHash", "ownerEpoch")
     }
     permission_response = post(
         client,
         payload=permission_request,
-        purpose="permission-uat",
+        purpose=f"permission-{environment}",
         secret=uat_secret,
-        route="permission-uat",
+        route=f"permission-{environment}",
     )
     assert permission_response.status_code == 200
     assert permission_response.json() == {
-        "environment": "uat",
+        "environment": environment,
         "deliveryAuthorized": False,
         "allowed": True,
         "erased": False,
@@ -482,34 +499,46 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
         post(
             client,
             payload=permission_request,
-            purpose="snapshot-uat",
+            purpose=f"snapshot-{environment}",
             secret=uat_secret,
-            route="permission-uat",
+            route=f"permission-{environment}",
         ).status_code
         == 401
     )
-    owner_scope = AsyncMock(return_value={"environment": "uat", "accountId": ACCOUNT["accountId"]})
+    owner_scope = AsyncMock(
+        return_value={"environment": environment, "accountId": ACCOUNT["accountId"]}
+    )
     monkeypatch.setattr(plg, "session_owner_scope", owner_scope)
-    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS", ACCOUNT["accountId"] + ",team-owner")
+    monkeypatch.setenv(
+        f"ONE_PLG_ACTIVITY_{environment.upper()}_ACCOUNT_IDS", ACCOUNT["accountId"] + ",team-owner"
+    )
     assert (
         post(
-            client, payload={}, purpose="snapshot-uat", secret=uat_secret, route="owner-uat"
+            client,
+            payload={},
+            purpose=f"snapshot-{environment}",
+            secret=uat_secret,
+            route=f"owner-{environment}",
         ).status_code
         == 401
     )
     owner_response = post(
         client,
         payload={"emailHash": "a" * 64},
-        purpose="owner-uat",
+        purpose=f"owner-{environment}",
         secret=uat_secret,
-        route="owner-uat",
+        route=f"owner-{environment}",
     )
     assert owner_response.status_code == 200
     assert owner_response.json()["deliveryAuthorized"] is False
     assert owner_scope.await_args.args[:2] == ({ACCOUNT["accountId"], "team-owner"}, "a" * 64)
     assert (
         post(
-            client, payload={}, purpose="owner-uat", secret=uat_secret, route="owner-uat"
+            client,
+            payload={},
+            purpose=f"owner-{environment}",
+            secret=uat_secret,
+            route=f"owner-{environment}",
         ).status_code
         == 400
     )
@@ -517,15 +546,15 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
         post(
             client,
             payload={"accountId": "other"},
-            purpose="owner-uat",
+            purpose=f"owner-{environment}",
             secret=uat_secret,
-            route="owner-uat",
+            route=f"owner-{environment}",
         ).status_code
         == 400
     )
     assert (
         call(
-            purpose="snapshot-uat",
+            purpose=f"snapshot-{environment}",
             secret=uat_secret,
             payload={**payload, "customerReporting": True},
         ).status_code
@@ -533,7 +562,7 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
     )
     assert (
         call(
-            purpose="snapshot-uat",
+            purpose=f"snapshot-{environment}",
             secret=uat_secret,
             payload={
                 "version": 2,
@@ -547,18 +576,18 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
         {"allowed": True, "erased": False, "ownerEpoch": epoch},
         {"allowed": False, "erased": False, "ownerEpoch": None},
     ]
-    assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 400
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 400
     authority.side_effect = [
         {"allowed": True, "erased": False, "ownerEpoch": epoch},
         {"allowed": True, "erased": False, "ownerEpoch": "f" * 64},
     ]
-    assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 400
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 400
     authority.side_effect = None
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
-    assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 404
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 404
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
     monkeypatch.setenv("ONE_PLG_EXPORT_SECRET", uat_secret)
-    assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 404
+    assert call(purpose=f"snapshot-{environment}", secret=uat_secret).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -619,7 +648,7 @@ async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(m
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("environment", ["uat", "production"])
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
 async def test_owner_scope_requires_verified_identity_and_epoch_not_marketing(
     monkeypatch, environment
 ):
@@ -1587,23 +1616,26 @@ def test_all_registered_collection_remains_explicit_and_production_only(monkeypa
     assert not sink.enabled_for("new-account")
 
 
-def test_uat_activity_requires_isolated_project_flag_and_explicit_owner(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "uat")
+@pytest.mark.parametrize("environment", ["uat", "dev"])
+def test_uat_activity_requires_isolated_project_flag_and_explicit_owner(monkeypatch, environment):
+    monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
     monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
-    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS", "uat-owner")
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ACCOUNT_IDS", "uat-owner")
     monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
-    monkeypatch.delenv("ONE_PLG_ACTIVITY_UAT_ENABLED", raising=False)
+    monkeypatch.delenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", raising=False)
     assert not sink.enabled_for("uat-owner")
-    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+    monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", "true")
     assert sink.enabled_for("uat-owner") and not sink.enabled_for("other-owner")
     monkeypatch.setenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", "true")
     assert not sink.enabled_for("uat-owner")
     monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     assert not sink.enabled_for("uat-owner")
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
+    monkeypatch.setenv("ENVIRONMENT", "uat" if environment == "dev" else "dev")
+    assert not sink.enabled_for("uat-owner")
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.delenv("ONE_PLG_EXPORT_ACCOUNT_IDS", raising=False)
     assert not sink.enabled_for("uat-owner")

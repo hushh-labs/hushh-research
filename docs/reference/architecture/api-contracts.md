@@ -5613,6 +5613,17 @@ marketing subscription and carry `readAuthority=verified_owner` plus the hashed
 reset during a snapshot invalidate it. No raw email or private content is exported.
 Production marketing/reporting contracts remain separate.
 
+Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
+`snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
+`ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
+`ONE_PLG_ACTIVITY_ENABLED=true`, `ONE_PLG_ACTIVITY_DEV_ENABLED=true`,
+`ONE_PLG_DEV_EXPORT_ENABLED=true`, a separate `ONE_PLG_DEV_EXPORT_SECRET`, and
+`ONE_PLG_ACTIVITY_DEV_ACCOUNT_IDS` (1–100 explicit owners). All-registered
+collection stays off. No UAT, Production, marketing or worker key can authorize
+Dev reads. A legacy Dev revision labelled UAT fails closed; canonical Dev rollout
+must establish the correct lane before activation. Local mocks do not prove that
+rollout, and no environment is enabled by these source defaults.
+
 Production own reads use separate `owner`, `permission-owner` and `snapshot-owner`
 routes, signed with `owner.production.{owner,permission,snapshot}` purposes. They
 require the production lane/project, `ONE_PLG_OWNER_EXPORT_ENABLED=true`, enabled
@@ -5629,6 +5640,9 @@ The account screen owns an explicit, default-off activity-email choice at
 permission and accepts no recipient or account override. A fresh verified owner
 email, current activity epoch, bounded configured cohort and environment/project
 admission are required to enable it. Opt-out remains available when rollout is off.
+The worker accepts exact Dev, UAT or Production project/lane pairs. Dev responses,
+signatures and unsubscribe links bind only to the Dev backend
+`https://consent-protocol-aqahj4iyha-uc.a.run.app`; it cannot borrow UAT authority.
 Manual-only controls cannot be submitted by an agent. The setting is operational
 permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
 

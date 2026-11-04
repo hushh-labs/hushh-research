@@ -251,33 +251,46 @@ async def export_snapshot(request: Request):
     return JSONResponse(result, headers=NO_STORE)
 
 
-def _uat_export_scope():
-    secret = os.getenv("ONE_PLG_UAT_EXPORT_SECRET", "")
+def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
+    prefix = environment.upper()
+    secret_name = f"ONE_PLG_{prefix}_EXPORT_SECRET"
+    secret = os.getenv(secret_name, "")
     allowed = {
         uid.strip()
-        for uid in os.getenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS", "").split(",")
+        for uid in os.getenv(f"ONE_PLG_ACTIVITY_{prefix}_ACCOUNT_IDS", "").split(",")
         if uid.strip()
     }
-    production_secret = os.getenv("ONE_PLG_EXPORT_SECRET", "")
     if (
-        os.getenv("ONE_PLG_UAT_EXPORT_ENABLED") != "true"
+        os.getenv(f"ONE_PLG_{prefix}_EXPORT_ENABLED") != "true"
         or os.getenv("ONE_PLG_ACTIVITY_ENABLED") != "true"
-        or os.getenv("ONE_PLG_ACTIVITY_UAT_ENABLED") != "true"
+        or os.getenv(f"ONE_PLG_ACTIVITY_{prefix}_ENABLED") != "true"
         or os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") == "true"
-        or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda-uat"
-        or current_auth_lane() != "uat"
+        or os.getenv("GOOGLE_CLOUD_PROJECT") != f"hushh-pda-{environment}"
+        or current_auth_lane() != environment
         or len(secret) < 32
-        or (production_secret and hmac.compare_digest(secret.encode(), production_secret.encode()))
-        or secret == os.getenv("ONE_PLG_OWNER_EXPORT_SECRET")
+        or any(
+            secret == os.getenv(key)
+            for key in (
+                "ONE_PLG_EXPORT_SECRET",
+                "ONE_PLG_OWNER_EXPORT_SECRET",
+                "ONE_PLG_UAT_EXPORT_SECRET",
+                "ONE_PLG_DEV_EXPORT_SECRET",
+                "ONE_PLG_ATTEMPT_EMAIL_SECRET",
+                "ONE_PLG_AUDIENCE_SECRET",
+                "ONE_PLG_SUBSCRIPTION_SECRET",
+            )
+            if key != secret_name
+        )
         or not 1 <= len(allowed) <= 100
+        or any(len(uid) > 128 for uid in allowed)
     ):
-        raise HTTPException(404, "PLG UAT export unavailable", headers=NO_STORE)
+        raise HTTPException(404, "Own activity export unavailable", headers=NO_STORE)
     return secret, allowed
 
 
-def _owner_export_scope(environment: str):
-    if environment == "uat":
-        return _uat_export_scope()
+def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
+    if environment == "dev" or environment == "uat":
+        return _nonproduction_export_scope(environment)
     secret = os.getenv("ONE_PLG_OWNER_EXPORT_SECRET", "")
     allowed = {
         uid.strip() for uid in os.getenv("ONE_PLG_OWNER_ACCOUNT_IDS", "").split(",") if uid.strip()
@@ -295,6 +308,7 @@ def _owner_export_scope(environment: str):
             for key in (
                 "ONE_PLG_EXPORT_SECRET",
                 "ONE_PLG_UAT_EXPORT_SECRET",
+                "ONE_PLG_DEV_EXPORT_SECRET",
                 "ONE_PLG_AUDIENCE_SECRET",
                 "ONE_PLG_SUBSCRIPTION_SECRET",
                 "ONE_PLG_ATTEMPT_EMAIL_SECRET",
@@ -306,10 +320,14 @@ def _owner_export_scope(environment: str):
 
 
 def _owner_purpose(action: str, environment: str):
-    return f"{action}-uat" if environment == "uat" else f"owner.production.{action}"
+    return (
+        f"{action}-{environment}" if environment in {"dev", "uat"} else f"owner.production.{action}"
+    )
 
 
-async def _check_owner_permission(request: Request, environment: Literal["uat", "production"]):
+async def _check_owner_permission(
+    request: Request, environment: Literal["dev", "uat", "production"]
+):
     secret, allowed = _owner_export_scope(environment)
     body = await _signed_body(
         request, secret=secret, purpose=_owner_purpose("permission", environment)
@@ -333,7 +351,7 @@ async def _check_owner_permission(request: Request, environment: Literal["uat", 
     )
 
 
-async def _export_owner_scope(request: Request, environment: Literal["uat", "production"]):
+async def _export_owner_scope(request: Request, environment: Literal["dev", "uat", "production"]):
     """Session-bound team read; this projection grants no send authority."""
     secret, allowed = _owner_export_scope(environment)
     body = await _signed_body(request, secret=secret, purpose=_owner_purpose("owner", environment))
@@ -354,7 +372,9 @@ async def _export_owner_scope(request: Request, environment: Literal["uat", "pro
     )
 
 
-async def _export_owner_snapshot(request: Request, environment: Literal["uat", "production"]):
+async def _export_owner_snapshot(
+    request: Request, environment: Literal["dev", "uat", "production"]
+):
     """Separate signed owner projection; never claim customer reporting."""
     secret, allowed = _owner_export_scope(environment)
     body = await _signed_body(
@@ -395,6 +415,21 @@ async def _export_owner_snapshot(request: Request, environment: Literal["uat", "
     except Exception:
         raise HTTPException(503, "UAT task evidence unavailable", headers=NO_STORE) from None
     return JSONResponse(result, headers=NO_STORE)
+
+
+@router.post("/permission-dev", include_in_schema=False)
+async def check_dev_read_permission(request: Request):
+    return await _check_owner_permission(request, "dev")
+
+
+@router.post("/owner-dev", include_in_schema=False)
+async def export_dev_owner_scope(request: Request):
+    return await _export_owner_scope(request, "dev")
+
+
+@router.post("/snapshot-dev", include_in_schema=False)
+async def export_dev_snapshot(request: Request):
+    return await _export_owner_snapshot(request, "dev")
 
 
 @router.post("/permission-uat", include_in_schema=False)
