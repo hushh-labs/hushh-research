@@ -24,7 +24,8 @@ baseline=e8c9b607229f87ba33cc3af838d880abdff8ec28
   die "Expected a GitHub workflow run and attempt."
 
 tag="iso-${SOURCE_SHA:0:12}"
-revision="$service-$tag"
+suffix="$tag-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+revision="$service-$suffix"
 attempt="$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 flags=(--project="$project" --region="$region" --quiet)
 stage="$(mktemp -d)"
@@ -52,42 +53,61 @@ existing="$(gcloud run services list "${flags[@]}" --filter="metadata.name=$serv
 deploy_flags=("${flags[@]}")
 if [[ -n "$existing" ]]; then
   [[ "$existing" == "$service" ]] || die "Unexpected Cloud Run target."
-  gcloud run services describe "$service" "${flags[@]}" --format=json |
-    jq -e --arg owner ankit --arg tag "$tag" '
-      .metadata.labels["sandbox-owner"] == $owner and
-      .metadata.annotations["run.googleapis.com/invoker-iam-disabled"] != "true" and
-      ([.spec.traffic[]?, .status.traffic[]?] | all(.tag != $tag))
-    ' >/dev/null || die "The service is not a private sandbox or the commit tag already exists."
+  service_state="$(gcloud run services describe "$service" "${flags[@]}" \
+    --format='json(metadata.labels,metadata.annotations,spec.traffic,status.traffic,status.latestReadyRevisionName)')"
+  jq -e --arg tag "$tag" '
+    .metadata.labels["sandbox-owner"] == "ankit" and
+    .metadata.annotations["run.googleapis.com/invoker-iam-disabled"] != "true" and
+    ([.status.traffic[]?] | all(.tag != $tag))
+  ' <<< "$service_state" >/dev/null || die "The service is not private or the commit tag is already serving."
   require_private_policy
-  deploy_flags+=(--no-traffic)
+  previous_revision="$(jq -r --arg tag "$tag" '.spec.traffic[]? | select(.tag == $tag) | .revisionName' <<< "$service_state")"
+  if [[ -n "$previous_revision" ]]; then
+    [[ "$previous_revision" =~ ^backend-dev-ankit-[a-z0-9-]+$ ]] || die "Unexpected tagged revision."
+    gcloud run revisions describe "$previous_revision" "${flags[@]}" --format='json(status.conditions)' |
+      jq -e 'any(.status.conditions[]; .type == "Ready" and .status == "False")' >/dev/null ||
+      die "Only a failed, non-serving revision may be replaced for the same commit."
+  fi
+  if [[ -n "$(jq -r '.status.latestReadyRevisionName // ""' <<< "$service_state")" ]]; then
+    deploy_flags+=(--no-traffic)
+  fi
 fi
 
-# Keep the verified generation in the build config. Passing the URI as the
-# source argument to builds submit stages a copy with a different generation.
-{
-  cat deploy/personal-backend-image.cloudbuild.yaml
-  printf 'source:\n  storageSource:\n    bucket: "%s"\n    object: "%s"\n    generation: "%s"\n' \
-    "$bucket" "${SOURCE_OBJECT%#*}" "${SOURCE_OBJECT##*#}"
-} > "$stage/build.yaml"
+build_id="${REUSE_BUILD_ID:-}"
+if [[ -z "$build_id" ]]; then
+  # Preserve the verified generation. A source argument to builds submit would
+  # stage a copy with a different generation.
+  {
+    cat deploy/personal-backend-image.cloudbuild.yaml
+    printf 'source:\n  storageSource:\n    bucket: "%s"\n    object: "%s"\n    generation: "%s"\n' \
+      "$bucket" "${SOURCE_OBJECT%#*}" "${SOURCE_OBJECT##*#}"
+  } > "$stage/build.yaml"
 
-build_id="$(gcloud builds submit --no-source --config="$stage/build.yaml" --project="$project" \
-  --region=global --quiet --suppress-logs --format='value(id)' \
-  --service-account="projects/$project/serviceAccounts/$builder" \
-  --substitutions="_IMAGE=$image,_SOURCE_SHA=$SOURCE_SHA,_ATTEMPT=$attempt")"
-[[ "$build_id" =~ ^[0-9a-f-]{36}$ ]] || die "Cloud Build did not return a build ID."
-printf 'Cloud Build %s completed for %s\n' "$build_id" "$SOURCE_SHA"
+  build_id="$(gcloud builds submit --no-source --config="$stage/build.yaml" --project="$project" \
+    --region=global --quiet --suppress-logs --format='value(id)' \
+    --service-account="projects/$project/serviceAccounts/$builder" \
+    --substitutions="_IMAGE=$image,_SOURCE_SHA=$SOURCE_SHA,_ATTEMPT=$attempt")"
+fi
+[[ "$build_id" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]] || die "Expected a Cloud Build ID."
 
-gcloud builds describe "$build_id" --project="$project" --region=global --format=json |
-  jq -e --arg bucket "$bucket" --arg object "${SOURCE_OBJECT%#*}" --arg generation "${SOURCE_OBJECT##*#}" '
-    .status == "SUCCESS" and (.sourceProvenance.resolvedStorageSource |
-      .bucket == $bucket and .object == $object and (.generation | tostring) == $generation)
-  ' >/dev/null || die "Cloud Build did not confirm the selected source generation."
+attempt="$(gcloud builds describe "$build_id" --project="$project" --region=global --format=json |
+  jq -er --arg bucket "$bucket" --arg object "${SOURCE_OBJECT%#*}" --arg generation "${SOURCE_OBJECT##*#}" \
+    --arg builder "projects/$project/serviceAccounts/$builder" --arg image "$image" --arg sha "$SOURCE_SHA" '
+      select(.status == "SUCCESS" and .serviceAccount == $builder
+        and .substitutions._IMAGE == $image and .substitutions._SOURCE_SHA == $sha
+        and (.sourceProvenance.resolvedStorageSource |
+          .bucket == $bucket and .object == $object and (.generation | tostring) == $generation))
+      | .substitutions._ATTEMPT
+    ')" || die "Cloud Build did not confirm the exact sandbox builder, image and source."
+[[ "$attempt" =~ ^$SOURCE_SHA-[0-9]+-[0-9]+$ ]] || die "Unexpected sandbox image attempt tag."
+printf 'Verified Cloud Build %s for %s\n' "$build_id" "$SOURCE_SHA"
 
 digest="$(gcloud artifacts docker images describe "$image:$attempt" --project="$project" \
   --format='value(image_summary.digest)')"
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "The build did not publish an image digest."
 
-env_vars="ENVIRONMENT=sandbox-ankit,GOOGLE_CLOUD_PROJECT=$project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
+# The backend uses a recognized runtime profile. Telemetry has its own label.
+env_vars="ENVIRONMENT=development,GOOGLE_CLOUD_PROJECT=$project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
 env_vars+=",REQUIRE_DATABASE_ON_STARTUP=true,DB_NAME=backend_dev_ankit,DB_UNIX_SOCKET=/cloudsql/$sql"
 env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=2,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
 env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-ankit"
@@ -98,7 +118,7 @@ secrets+=",DB_USER=BACKEND_DEV_ANKIT_DB_USER:1,DB_PASSWORD=BACKEND_DEV_ANKIT_DB_
 gcloud run deploy "$service" "${deploy_flags[@]}" \
   --service-account="$runtime" --ingress=all --invoker-iam-check --no-allow-unauthenticated \
   --set-cloudsql-instances="$sql" --min-instances=0 --max-instances=1 --concurrency=20 --timeout=3600 \
-  --revision-suffix="$tag" --tag="$tag" --labels="sandbox-owner=ankit,deploy-sha=$SOURCE_SHA,env=sandbox-ankit" \
+  --revision-suffix="$suffix" --tag="$tag" --labels="sandbox-owner=ankit,deploy-sha=$SOURCE_SHA,env=sandbox-ankit" \
   --container=consent-protocol --image="$image@$digest" --port=8080 --cpu=2 --memory=4Gi \
   --set-env-vars="$env_vars" --set-secrets="$secrets" \
   --startup-probe='httpGet.path=/health,httpGet.port=8080,periodSeconds=5,failureThreshold=24'
