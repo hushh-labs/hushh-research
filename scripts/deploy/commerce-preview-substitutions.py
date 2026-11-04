@@ -30,6 +30,10 @@ def substitutions(value: str, kind: str) -> str:
             "_GENAI_PROJECT_ID": "hushh-vertex-personal54",
             "_DRIVE_WORK_DRAIN_ENABLED": "false",
             "_DRIVE_REQUEST_PAYMENTS_ENABLED": "false",
+            # Answer settlement belongs to shared Dev, not this isolated target.
+            "_PKM_ANSWER_PAYMENTS_ENABLED": "false",
+            "_ANSWER_WORK_DRAIN_ENABLED": "false",
+            "_ANSWER_WORK_DRAIN_AUDIENCE": "",
         }
         for key in tuple(pairs):
             if key.startswith(("_PLAID_", "_GMAIL_", "_ONE_EMAIL_")):
