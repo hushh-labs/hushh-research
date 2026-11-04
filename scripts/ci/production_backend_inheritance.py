@@ -300,16 +300,21 @@ def _inherit_auth_frontend(
     repository, run, current, lane, acceptance, owner, *, api, governed,
     timestamp, run_command, timeout,
 ):
+    reconciled = run.get("conclusion") == "failure" and importlib.import_module(
+        "production_backend_successor_control"
+    ).reconciled_auth_domain_publication(repository, run, current)
     _require(
         run.get("status") == "completed"
-        and run.get("conclusion") == "success"
+        and (run.get("conclusion") == "success" or reconciled)
         and governed(run, repository, "production"),
         "auth frontend run is not completed and governed",
     )
-    _verify_frontend_archive(
-        repository, run, current, lane, api=api, timestamp=timestamp,
-        run_command=run_command, timeout=timeout,
-    )
+    if not reconciled:
+        _verify_frontend_archive(
+            repository, run, current, lane, api=api, timestamp=timestamp,
+            run_command=run_command, timeout=timeout,
+        )
+    # The exact reconciliation above already verified its nested legacy archive.
     pointer = current["backend_origin"]
     return _accepted_restoration(
         repository, run, acceptance, pointer, owner, api=api,

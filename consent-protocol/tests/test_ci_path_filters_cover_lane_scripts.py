@@ -64,6 +64,8 @@ EXPECTED_JOBS = {
 # Application flags, policy and SQL already fall under consent-protocol/**.
 # Workflow-only changes use the focused controller owner below.
 DELETION_RELEASE_WORKFLOWS = (
+    ".github/workflows/deploy-dev-implementation.yml",
+    ".github/workflows/deploy-uat-implementation.yml",
     ".github/workflows/deploy-dev.yml",
     ".github/workflows/deploy-uat.yml",
     ".github/workflows/deploy-production.yml",
@@ -98,10 +100,26 @@ RESTORATION_FIXTURE_OWNER_TESTS = (
 
 class _Filter:
     def __init__(self, patterns: list[str]) -> None:
-        self.includes = [p for p in patterns if not p.startswith("!")]
-        self.excludes = [p[1:] for p in patterns if p.startswith("!")]
+        # paths-filter expands brace alternatives; pathspec does not. Retain
+        # those alternatives when checking real runtime paths in this fixture.
+        expanded = [item for pattern in patterns for item in self._expand(pattern)]
+        self.includes = [p for p in expanded if not p.startswith("!")]
+        self.excludes = [p[1:] for p in expanded if p.startswith("!")]
         self._include = pathspec.PathSpec.from_lines("gitignore", self.includes)
         self._exclude = pathspec.PathSpec.from_lines("gitignore", self.excludes)
+
+    @classmethod
+    def _expand(cls, pattern: str) -> list[str]:
+        match = re.search(r"\{([^{}]+)\}", pattern)
+        if not match:
+            return [pattern]
+        return [
+            expanded
+            for alternative in match.group(1).split(",")
+            for expanded in cls._expand(
+                pattern[: match.start()] + alternative + pattern[match.end() :]
+            )
+        ]
 
     def match_file(self, path: str) -> bool:
         return self._include.match_file(path) and not self._exclude.match_file(path)
@@ -524,6 +542,21 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     assert "cloudrun-retention" not in commands
 
 
+def test_route_metadata_keeps_web_ownership_without_unrelated_document_webkit() -> None:
+    filters = _filters()
+    metadata = "hushh-webapp/lib/navigation/app-route-layout.contract.json"
+    assert filters["frontend"].match_file(metadata)
+    assert not filters["document"].match_file(metadata)
+    for runtime in (
+        "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/navigation/app-route-layout.ts",
+        "hushh-webapp/lib/auth/account-session.ts",
+        "hushh-webapp/lib/crypto/record.ts",
+    ):
+        assert filters["document"].match_file(runtime), runtime
+        assert any(filters["document"].match_file(p) for p in (metadata, runtime))
+
+
 def test_document_delivery_ci_contract_paths_select_controller_owner_not_backend() -> None:
     paths = (
         "consent-protocol/tests/helpers/document_delivery_ci.py",
@@ -621,6 +654,14 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
+        "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+        "consent-protocol/tests/test_dev_release_classification.py",
+        "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+        "consent-protocol/tests/test_hushh_tech_runtime_config.py",
+        "consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py",
+        "consent-protocol/tests/test_one_location_read_only_runtime_config.py",
+        "consent-protocol/tests/test_pkm_answer_config.py",
         "consent-protocol/tests/test_account_generation_admission_deploy.py",
         "consent-protocol/tests/test_azure_pod_release_publish_step.py",
         "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",

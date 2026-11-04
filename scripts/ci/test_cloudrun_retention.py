@@ -1356,59 +1356,34 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             )
         self.assertEqual(partial["_maintenance_lane_provenance"]["frontend"]["run_id"], 200)
 
-    def test_partial_after_chained_one_chat_and_frontend_release(self):
-        owner_run, failed_run, owner, partial = self.partial_uat_fixture()
-        owner_run["id"] = 190
-        frontend_run = self.trusted_source(201)
-        frontend = copy.deepcopy(owner)
-        frontend["scope"] = "frontend"
-        frontend["sha"] = "d" * 40
-        frontend["final"]["frontend_revision"] = "hushh-webapp-01699-new"
-        frontend["final"]["frontend_sha"] = frontend["sha"]
-        partial["predeploy"]["frontend_revision"] = frontend["final"]["frontend_revision"]
-        partial["final"]["frontend_revision"] = frontend["final"]["frontend_revision"]
-        partial["final"]["frontend_sha"] = frontend["sha"]
-        partial["rollback_targets"]["frontend_revision"] = frontend["final"]["frontend_revision"]
-        older_one_chat = self.trusted_source(195, "deploy-uat-one-chat.yml")
-        latest_one_chat = self.trusted_source(200, "deploy-uat-one-chat.yml")
-        one_chat_backend = "consent-protocol-02121-new"
-        partial["predeploy"]["backend_revision"] = one_chat_backend
-        partial["rollback_targets"]["backend_revision"] = one_chat_backend
-
-        def api(_repo, endpoint):
-            if "deploy-uat-one-chat.yml" in endpoint:
-                return {"workflow_runs": [latest_one_chat, older_one_chat]}
-            return {"workflow_runs": [frontend_run, owner_run]}
-
-        def one_chat(_repo, run, _directory):
-            self.assertEqual(run["id"], 200)
-            return {
-                "status": "healthy",
-                "scope": "backend",
-                "sha": "c" * 40,
-                "final": {
-                    "backend_revision": one_chat_backend,
-                    "backend_sha": "c" * 40,
-                },
-            }
-
+    def test_explicit_historical_one_chat_backend_still_verifies_receipt(self):
+        _, failed_run, _, _ = self.partial_uat_fixture()
+        historical = self.trusted_source(200, "deploy-uat-one-chat.yml")
+        release = {
+            "status": "healthy", "scope": "backend", "sha": "c" * 40,
+            "final": {"backend_revision": "consent-protocol-02121-new", "backend_sha": "c" * 40},
+        }
         with (
-            mock.patch.object(MAINTENANCE, "api", side_effect=api),
-            mock.patch.object(
-                MAINTENANCE,
-                "load_release",
-                side_effect=lambda _repo, run_id, _directory, _environment: {
-                    190: owner,
-                    201: frontend,
-                }[run_id],
-            ),
-            mock.patch.object(MAINTENANCE, "load_one_chat_release", side_effect=one_chat) as load,
+            mock.patch.object(MAINTENANCE, "api", side_effect=AssertionError("unexpected discovery")),
+            mock.patch.object(MAINTENANCE, "load_one_chat_release", return_value=release) as load,
         ):
-            MAINTENANCE.verify_uat_partial_failure(
-                "org/repo", failed_run, partial, pathlib.Path("/tmp")
+            run_id, observed = MAINTENANCE.prior_healthy_uat_backend_release(
+                "org/repo", failed_run, pathlib.Path("/tmp"), candidate_runs=[historical]
             )
-            load.assert_called_once()
-        self.assertEqual(partial["_maintenance_lane_provenance"]["frontend"]["run_id"], 201)
+        self.assertEqual(run_id, 200)
+        self.assertEqual(observed, release)
+        load.assert_called_once()
+
+    def test_active_observation_excludes_retired_index_but_refuses_active_failure(self):
+        run = self.trusted_source(300)
+        with mock.patch.object(MAINTENANCE, "api", return_value={"workflow_runs": [run]}) as api:
+            self.assertEqual(MAINTENANCE.latest_deploy_observation("org/repo", "uat"), 300)
+        self.assertEqual(api.call_count, 1)
+        self.assertIn("workflows/deploy-uat.yml/", api.call_args.args[1])
+        error = subprocess.CalledProcessError(1, ["gh", "api"])
+        with mock.patch.object(MAINTENANCE, "api", side_effect=error):
+            with self.assertRaises(subprocess.CalledProcessError):
+                MAINTENANCE.latest_deploy_observation("org/repo", "uat")
 
     def test_repeated_passkey_partials_prove_backend_lineage_through_prior_failure(self):
         owner_run, failed_run, owner, later_partial = self.partial_uat_fixture()

@@ -118,6 +118,8 @@ if branch_flow.get("review_rulesets", {}).get(branch):
         return json.loads(subprocess.run([gh_executable, *args], check=True,
                                         capture_output=True, text=True).stdout)
     reviewed = module.verify_main_review_ruleset(policy, read=read_review, repo=repo)
+    if branch_policy.get("owner_admin_ruleset_name") and branch_policy.get("merge_queue_bypass_users"):
+        module.reconcile_owner_admin_ruleset(policy, verify_only=True, read=read_review, repo=repo)
     params = reviewed["rules"][0]["parameters"]
     # Feed the same policy comparison below from the verified effective boundary.
     data["required_pull_request_reviews"] = {
@@ -194,6 +196,12 @@ for ruleset in ruleset_list:
     )
     if expected_queue_ruleset_name and detail.get("name") != expected_queue_ruleset_name:
         continue
+    if branch == "main" and branch_policy.get("owner_admin_ruleset_name"):
+        # Do not normalize away unknown actor types or unresolved account IDs.
+        if (detail.get("conditions") != {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+                or sorted(detail.get("bypass_actors", []), key=lambda a: json.dumps(a, sort_keys=True)) != sorted(
+                    reviewed["bypass_actors"], key=lambda a: json.dumps(a, sort_keys=True))):
+            raise SystemExit("Main owner queue exception contains unknown actors, modes or scope")
     if prepared:
         # Prepared queues are deliberately exact-ref rules, not wildcard inference.
         refs = detail.get("conditions", {}).get("ref_name", {})

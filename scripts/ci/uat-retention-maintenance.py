@@ -187,7 +187,7 @@ def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
     )
 
 
-def verify_post_release_failure(repository: str, run: dict, release: dict) -> None:
+def verify_post_release_failure(repository: str, run: dict, release: dict) -> bool:
     """A failed hygiene step never substitutes for successful release gates."""
     attempt = run.get("run_attempt", 1)
     if type(attempt) is not int or attempt < 1:
@@ -216,6 +216,10 @@ def verify_post_release_failure(repository: str, run: dict, release: dict) -> No
     current = uncached_api(repository, f"runs/{run['id']}")
     if current.get("run_attempt", 1) != attempt or current.get("status") != "completed":
         raise retention.UnsafeState("production deployment attempt changed during inspection")
+    if importlib.import_module("production_backend_successor_control").reconciled_auth_domain_publication(
+        repository, run, release
+    ):
+        return True
     job = deploy[0]
     steps = job.get("steps") or []
     by_name = {step.get("name"): step for step in steps}
@@ -273,6 +277,7 @@ def verify_post_release_failure(repository: str, run: dict, release: dict) -> No
         raise retention.UnsafeState(
             "production artifact does not prove complete release health"
         )
+    return False
 
 
 def verify_post_uat_hygiene_failure(repository: str, run: dict, release: dict) -> None:
@@ -639,7 +644,6 @@ def prior_healthy_uat_backend_release(
     runs = candidate_runs
     if runs is None:
         runs = bounded_uat_runs(repository, standard, "completed")
-        runs += successful_uat_runs(repository, ONE_CHAT_WORKFLOW)
     for run in sorted(
         {run.get("id"): run for run in runs}.values(),
         key=lambda item: int(item.get("id") or 0),
@@ -949,7 +953,6 @@ def find_release(
     else:
         if environment == "uat":
             runs = bounded_uat_runs(repository, lane_config["workflow"], "completed")
-            runs += bounded_uat_runs(repository, ONE_CHAT_WORKFLOW, "completed")
             runs = list({run["id"]: run for run in runs}.values())
             runs.sort(key=lambda run: int(run["id"]), reverse=True)
         else:
@@ -1033,9 +1036,11 @@ def find_release(
         if environment == "uat" and release.get("scope") == "frontend":
             prove_frontend_inherited_backend(repository, run, release, directory)
         if cleanup_failed:
-            verify_post_release_failure(repository, run, release)
-            # Local verified context only; never accepted from an artifact.
-            release["_maintenance_source_run"] = run_id
+            reconciled_publication = verify_post_release_failure(repository, run, release)
+            # Frontend repair retains its independently accepted backend origin.
+            # Ordinary dual-service hygiene failures use one source run.
+            if not reconciled_publication:
+                release["_maintenance_source_run"] = run_id
         restoration_continuation = environment == "production" and "restoration_activation" in release
         if restoration_continuation:
             # This verifier did not deploy the serving pair. Derive its original
@@ -1397,8 +1402,9 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     """A completed run triggers inspection, never grants deletion authority."""
     workflow = LANES[environment]["workflow"]
     workflows = {workflow}
-    if environment == "uat":
-        workflows.add(ONE_CHAT_WORKFLOW)
+    # The retired One-chat producer has no retained runs (2026-11-04 audit).
+    # Explicit historical run/artifact readers remain; deleted workflow indexes
+    # cannot participate in discovery. Unexpected active API failures still refuse.
     runs = []
     for name in sorted(workflows):
         result = api(

@@ -20,6 +20,14 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
+    "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+    "consent-protocol/tests/test_dev_release_classification.py",
+    "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+    "consent-protocol/tests/test_hushh_tech_runtime_config.py",
+    "consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py",
+    "consent-protocol/tests/test_one_location_read_only_runtime_config.py",
+    "consent-protocol/tests/test_pkm_answer_config.py",
     "consent-protocol/tests/test_account_generation_admission_deploy.py",
     "consent-protocol/tests/test_azure_pod_release_publish_step.py",
     "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
@@ -112,6 +120,7 @@ CHECKS = (
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
+    _check("uat-pr-scope", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "scripts/ci/test_uat_pr_scope.py", groups=("controller", "release")),
     _check("release-cadence-maintenance", "python3", "scripts/ci/test_release_cadence_maintenance.py", groups=("controller",)),
     _check("release-cadence-monitor", "python3", "scripts/ci/test_release_cadence_monitor.py", groups=("controller",)),
     _check("release-cadence-checkpoint", "python3", "scripts/ci/test_release_cadence_checkpoint.py", groups=("controller",)),
@@ -315,6 +324,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ci/resolve-ui-contract-base.py",
+            "scripts/ci/test_ui_contract_gate.py",
             "scripts/ci/integration-check.sh",
             "scripts/ci/account-deletion-check.sh",
             "scripts/ci/backend-check.sh",

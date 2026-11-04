@@ -186,6 +186,7 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
       encoding: "utf8",
       env: {
         ...process.env,
+        HUSHH_WEB_TEST_MAX_WORKERS: "2",
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         NPM_TEST_LOG: npmLog,
         CI_VALIDATION_LEVEL: level,
@@ -500,6 +501,23 @@ test("shadowed unit imports select their whole owner and runtime imports remain 
   }, ["lib/changed.js"]);
   assert.equal(cjsRuntime.effectiveLevel, "diagnostic");
   assert.equal(cjsRuntime.fallbackReason, "computed_dynamic_import_dependency");
+});
+
+test("changed JSON test fixtures retain their importing tests without diagnostic expansion", () => {
+  const fixture = "__tests__/fixtures/calendar-chat-controlled-results.json";
+  const owner = "__tests__/components/calendar-chat-controlled-flow.test.tsx";
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${fixture}`]: '{"status":"review_required"}\n',
+    [`hushh-webapp/${owner}`]: 'import result from "../fixtures/calendar-chat-controlled-results.json"; void result;\n',
+  }, [fixture]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.relatedFiles, [fixture]);
+  assert.equal(plan.noUnitImpact, false);
+
+  const missing = buildImportGraphFixture({}, [fixture]);
+  assert.equal(missing.effectiveLevel, "diagnostic");
+  assert.equal(missing.fallbackReason, "missing_changed_source");
 });
 
 test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {

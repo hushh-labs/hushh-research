@@ -6,6 +6,8 @@ import json
 import subprocess
 import tempfile
 from contextlib import ExitStack, contextmanager
+from io import BytesIO
+from zipfile import ZipFile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -350,6 +352,74 @@ class OperationalBackendActivationCases:
 
 
 class OperationalBackendControlCases(OperationalBackendActivationCases):
+    def test_historical_auth_publication_reconciliation_is_exact_and_read_only(self):
+        refresh = importlib.import_module("production_auth_domain_refresh")
+        record = refresh.PUBLICATION_RECONCILIATION
+        for defect in (None, "attempt", "artifact", "release", "failure", "tag", "preserved", "newer", "ambiguous-member", "duplicate-json"):
+            with self.subTest(defect=defect), ExitStack() as stack:
+                run = {"id": record["run_id"], "run_attempt": record["attempt"],
+                       "head_sha": record["workflow_sha"], "status": "completed",
+                       "conclusion": "failure", "event": "workflow_dispatch",
+                       "head_branch": "main", "path": ".github/workflows/deploy-production.yml"}
+                fresh = copy.deepcopy(run)
+                publication = {"status": "refused", "immutable_ref": record["immutable_ref"],
+                               "immutable_tag_oid": None,
+                               "preserved_operational_tag_oid": record["preserved_operational_oid"]}
+                release = {"sha": refresh.CANDIDATE, "scope": "frontend", "status": "healthy",
+                           "auth_domain_tag_publication": publication}
+                archived = copy.deepcopy(release)
+                artifact = {"id": record["artifact_id"], "digest": record["artifact_digest"]}
+                job = {"name": "Deploy Production Scope", "conclusion": "failure", "steps": [
+                    {"name": "Fail workflow when production release did not end healthy",
+                     "conclusion": "failure", "status": "completed"}]}
+                immutable = {"ref": record["immutable_ref"],
+                             "object": {"type": "tag", "sha": record["tag_oid"]}}
+                preserved = {"ref": reference.REF,
+                             "object": {"type": "tag", "sha": record["preserved_operational_oid"]}}
+                tag = {"sha": record["tag_oid"], "tag": record["immutable_ref"].removeprefix("refs/tags/"),
+                       "object": {"type": "commit", "sha": refresh.CANDIDATE}}
+                if defect == "attempt":
+                    run["run_attempt"] += 1
+                if defect == "artifact":
+                    artifact["digest"] = "sha256:" + "0" * 64
+                if defect == "release":
+                    release["scope"] = "all"
+                if defect == "failure":
+                    job["steps"].append({"name": "Other failure", "conclusion": "failure", "status": "completed"})
+                if defect == "tag":
+                    immutable["object"]["sha"] = "0" * 40
+                if defect == "preserved":
+                    preserved["object"]["sha"] = "0" * 40
+                if defect == "newer":
+                    fresh["run_attempt"] += 1
+                def command(*args):
+                    self.assertEqual(args[:2], ("gh", "api"))
+                    path = args[2]
+                    self.assertTrue(path.startswith(f"repos/{proof.REPOSITORY}/git/"))
+                    return json.dumps(tag if "/tags/" in path and "/ref/" not in path
+                                      else preserved if path.endswith("production-latest") else immutable)
+                owner = SimpleNamespace(governed_dispatch=lambda *args: True,
+                    LANES={"production": {}}, api=mock.Mock(), _github_timestamp=mock.Mock(),
+                    retention=SimpleNamespace(run_command=mock.Mock()), command=command,
+                    uncached_api=lambda *args: fresh)
+                stack.enter_context(mock.patch.object(control, "authority", return_value=owner))
+                stack.enter_context(mock.patch.object(receipts, "current_attempt_artifact", return_value=(artifact, job)))
+                buffer = BytesIO()
+                with ZipFile(buffer, "w") as bundle:
+                    body = json.dumps(archived)
+                    if defect == "duplicate-json":
+                        body = body[:-1] + ', "status": "healthy"}'
+                    bundle.writestr("tmp/prod-release-status.json", body)
+                    if defect == "ambiguous-member":
+                        bundle.writestr("prod-release-status.json", body)
+                stack.enter_context(mock.patch.object(receipts, "immutable_archive", return_value=buffer.getvalue()))
+                if defect:
+                    with self.assertRaises((ValueError, receipts.retention.UnsafeState)):
+                        control.reconciled_auth_domain_publication(proof.REPOSITORY, run, release)
+                else:
+                    self.assertTrue(control.reconciled_auth_domain_publication(proof.REPOSITORY, run, release))
+                    self.assertFalse(control.reconciled_auth_domain_publication(proof.REPOSITORY, {**run, "id": 123}, release))
+
     def test_control_applies_exact_published_objects_and_preserves_healthy_bytes(self):
         with _control_case(self) as case:
             identity = reference.tag_identity(case.intent["new_object"])

@@ -28,7 +28,9 @@ def test_semantic_failure_selects_rollback(
     tmp_path, monkeypatch, failure, backend, frontend, blocked
 ):
     root = Path(__file__).resolve().parents[2]
-    workflow = yaml.safe_load((root / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     step = next(
         step
         for job in workflow["jobs"].values()
@@ -88,7 +90,7 @@ def test_semantic_failure_selects_rollback(
             monkeypatch.setenv("SEMANTIC_ATTEMPT_1", "success")
     else:
         monkeypatch.setenv("DEV_TARGET", "shared-dev")
-    exec(compile(source, str(root / ".github/workflows/deploy-dev.yml"), "exec"), {})  # noqa: S102 - trusted repository workflow
+    exec(compile(source, str(root / ".github/workflows/deploy-dev-implementation.yml"), "exec"), {})  # noqa: S102 - trusted repository workflow
     result = json.loads((tmp_path / "dev-release-classification.json").read_text())
     assert result["release_failed"] is blocked
     assert result["backend_failure"] is backend
@@ -109,7 +111,9 @@ def test_selected_owner_navigation_requires_a_successful_receipt(
     tmp_path, monkeypatch, required, outcome, blocked, semantic
 ):
     root = Path(__file__).resolve().parents[2]
-    workflow = yaml.safe_load((root / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     step = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]
@@ -146,7 +150,12 @@ def test_selected_owner_navigation_requires_a_successful_receipt(
 
 @pytest.mark.parametrize("environment", ["dev", "uat"])
 def test_selected_pkm_gate_runs_without_a_backend_deployment(environment):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    workflow = yaml.safe_load(
+        (
+            ROOT
+            / f".github/workflows/deploy-{environment}{'-implementation' if environment != 'production' else ''}.yml"
+        ).read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "verify-pkm-preservation")
     # This is a release-authority wiring contract: frontend-only selection must
@@ -239,7 +248,12 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
 def test_release_phase_blocks_without_unnecessary_rollback(
     tmp_path, monkeypatch, environment, phase
 ):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    workflow = yaml.safe_load(
+        (
+            ROOT
+            / f".github/workflows/deploy-{environment}{'-implementation' if environment != 'production' else ''}.yml"
+        ).read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     identifier = "classify" if environment == "production" else f"classify-{environment}-release"
     step = next(step for step in steps if step.get("id") == identifier)

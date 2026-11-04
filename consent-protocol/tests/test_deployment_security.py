@@ -34,7 +34,7 @@ def assert_read_only_uat_inspection(case, job, *, prepared=True):
         f'test "$GITHUB_REF_NAME" = {"uat" if prepared else "main"}',
         'python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"',
         "python3 scripts/ci/uat_release_prerequisites.py validate-inspection",
-        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"',
+        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"',
     }
     actions = {
         "actions/checkout@v6",
@@ -187,7 +187,40 @@ class DeploymentSecurityTest(unittest.TestCase):
         import yaml
 
         root = Path(__file__).resolve().parents[2]
-        variants = [(name, name, False) for name in gate.CALLERS]
+        variants = [
+            (name, name, False)
+            for name in gate.CALLERS
+            if name not in ("deploy-dev.yml", "deploy-uat.yml")
+        ]
+        for lane in ("dev", "uat"):
+            caller = yaml.safe_load((root / f".github/workflows/deploy-{lane}.yml").read_text())
+            implementation = yaml.safe_load(
+                (root / f".github/workflows/deploy-{lane}-implementation.yml").read_text()
+            )
+            inputs = (caller.get("on") or caller[True])["workflow_dispatch"]["inputs"]
+            declared = (implementation.get("on") or implementation[True])["workflow_call"]["inputs"]
+            self.assertEqual(set(inputs), set(declared))
+            self.assertEqual(
+                set(caller["jobs"]),
+                {"release", "pod-publication"} if lane == "dev" else {"release"},
+            )
+            self.assertIn("inspect-routing", inputs["operation"]["options"])
+            for key, job in caller["jobs"].items():
+                self.assertEqual(
+                    job["uses"],
+                    f"hushh-labs/hushh-research/.github/workflows/deploy-{lane}-implementation.yml@main",
+                )
+                self.assertEqual(
+                    job["with"], {name: "${{ inputs." + name + " }}" for name in inputs}
+                )
+                self.assertNotIn("steps", job)
+                if key == "release":
+                    self.assertNotIn("secrets", job)
+                else:
+                    self.assertEqual(
+                        job["secrets"],
+                        {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
+                    )
         variants.extend(
             (name, name.replace(".yml", "-implementation.yml"), True)
             for name in ("deploy-dev.yml", "deploy-uat.yml")
@@ -198,6 +231,22 @@ class DeploymentSecurityTest(unittest.TestCase):
                 jobs = yaml.safe_load(source)["jobs"]
                 clearance = jobs["deployment-security"]
                 if prepared and name == "deploy-dev.yml":
+                    self.assertEqual(
+                        clearance["if"],
+                        "inputs.target != 'pod-publication' || inputs.operation != 'deploy'",
+                    )
+                    validation = next(
+                        step
+                        for step in clearance["steps"]
+                        if step.get("name") == "Validate explicit operation"
+                    )
+                    refused = subprocess.run(  # noqa: S603 - fixed repository guard, synthetic inputs
+                        ["bash", "-e", "-c", validation["run"]],
+                        env={"OPERATION": "inspect-routing", "TARGET": "pod-publication"},
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(refused.returncode, 0)
                     for mutation in ("deploy", "pod-security", "pod-publication"):
                         self.assertIn("inputs.operation == 'deploy'", jobs[mutation]["if"])
                 if prepared and name == "deploy-uat.yml":
@@ -328,7 +377,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 jobs["permissions"].get("actions"),
-                "read",
+                "write" if name in ("deploy-dev.yml", "deploy-uat.yml") else "read",
                 name,
             )
         for name in ("deployment-security.yml", "ios-voice-device.yml"):
@@ -479,6 +528,32 @@ class DeploymentBrokerTest(unittest.TestCase):
                 with self.assertRaises(gate.Refused):
                     gate.produce_broker(env, responses.__getitem__, alerts, policy=policy)
                 target["run_attempt"] = old_attempt
+
+    def test_uat_broker_separates_protected_application_from_caller(self):
+        _, request, source, _, responses, _ = self.fixture()
+        prefix = f"repos/{gate.REPOSITORY}"
+        request.update(environment="uat", application_branch="uat-isolated")
+        source.update(head_branch="uat", path=".github/workflows/deploy-uat.yml")
+        source["referenced_workflows"][0]["path"] = (
+            f"{gate.REPOSITORY}/{gate.IMPLEMENTATIONS['uat']}@{SHA}"
+        )
+        responses[f"{prefix}/actions/workflows/deploy-uat.yml"] = {
+            "id": 30,
+            "path": source["path"],
+        }
+        branch = {"protected": True, "commit": {"sha": APP}}
+        responses[f"{prefix}/branches/uat-isolated"] = branch
+        responses[f"{prefix}/compare/{APP}...uat-isolated?per_page=1&page=2"] = {
+            "status": "identical",
+            "merge_base_commit": {"sha": APP},
+        }
+        policy = {"uat": {"manual_dispatch_users": ["operator"]}}
+        admitted = gate.verify_deployment(responses.__getitem__, request, policy)
+        self.assertEqual(admitted["caller_branch"], "uat")
+        self.assertEqual(admitted["application_branch"], "uat-isolated")
+        branch["commit"] = {"sha": SHA}
+        with self.assertRaisesRegex(gate.Refused, "protected isolated UAT tip"):
+            gate.verify_deployment(responses.__getitem__, request, policy)
 
     def test_wrong_branch_operator_source_and_implementation_refuse_before_alert_access(self):
         for key, value in [

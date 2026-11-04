@@ -56,14 +56,9 @@ Non-owned surfaces:
 
 ## Workflow
 
-Private GCP hosting shares one immutable image. Follow `deployment-standard.md` and the dev runbook's hosted-pilot section: rendered assignments or shared inference readiness never replace durable admission, the spend ceiling, per-owner identity/custody and reconciled cleanup. The runbook also owns managed-operator erasure, frozen inspection and exact approved writer-operation readback. Its failed-bucket reconciliation procedure preserves the original journal and requires native absence before a same-name retry. Use [independent Dev publication](../../../docs/reference/operations/dev-pod-first-light-runbook.md#independent-dev-pod-publication) for separate artifact preparation and coordinated, qualified catalog activation.
-
-For existing private-pod image updates and explicitly authorized legacy bootstrap,
-follow `docs/reference/operations/dev-pod-first-light-runbook.md`, section
-"Maintaining an existing owner's software release". Resolve owner-cloud placement
-from the environment's registry, verify machine-route authentication before
-diagnosing a missing endpoint, and retain immutable release provenance. A one-time
-bootstrap does not authorize bypassing approval on subsequent updates.
+For private pod hosting, owner updates and legacy bootstrap, follow the
+[Dev pod runbook](../../../docs/reference/operations/dev-pod-first-light-runbook.md).
+It owns durable admission, spend, owner custody, release provenance and cleanup.
 
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
@@ -85,7 +80,7 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 When the approving user is Kushal or Ankit and authored the PR, use the canonical
 Admin SOP owner self-approval path. Do not create another approval service or ask
 for a second owner solely because GitHub cannot count a self-review. Explicit
-approval, authenticated queue requester, exact head and green combined CI remain
+approval, authenticated owner, exact head and green combined CI remain
 mandatory; generic admin access never authorizes unrelated changes or deployment.
 
 For matching-branch Dev/UAT deployments, follow the CI runbook's
@@ -105,38 +100,11 @@ source extraction alone does not activate branch routing. No merge implies deplo
 
 ## Required Checks
 
-Choose checks from the changed contract and validation purpose; an ordinary
-push does not require the full local core mirror. CI uses three levels:
-
-- `focused` keeps authority, security and protected-pipeline gates blocking,
-  then selects regression owners affected by the exact changed-file list.
-- `release` adds core release-authority checks and affected owners.
-- `diagnostic` runs the historical full governance set, including optional
-  skill, documentation, architecture-size and agent-hygiene checks.
-
-Missing, unbounded or unrecognized changed-file input must select conservative
-coverage or fail; it must not silently select an empty set. Run the nearest
-owner checks locally. Use the full core mirror for a dependency graph that
-crosses its stages or when diagnosing a broader failure. `codex pre-pr --base-ref origin/<destination> --body-file <draft>` or
-`codex pre-pr --pr <number>` runs affected local owners and checks the actual
-PR impact description. Browser execution remains hosted and is not certified
-by local preflight. Use `codex pre-pr --diagnostic` for the retained full mirror;
-do not run both modes for the same unchanged candidate. Safari-specific web layout and
-performance checks are developer-local diagnostics. Run native checks when
-native code or a native contract changes. No validation profile relaxes live
-security, source-authority or protected-pipeline checks.
-
-Batch fixes before pushing: a newer PR push cancels the active validation and
-starts another hosted run. Use `./bin/hushh codex ci-rerun` for an eligible
-same-head retry with the exact run, attempt and SHA. Do not launch a standalone
-security worker; release alert clearance belongs to the protected Deployment
-Security job in the explicit release workflow.
-
-For local focused selection, provide `CI_CHANGED_FILES` or
-`CI_CHANGED_FILES_FILE` and set `CI_VALIDATION_LEVEL` to `focused` or `release`.
-Use `diagnostic` to run the retained full governance set. When a local core run
-uses `CI_IMPACT_BASE_SHA`, it must be the verified PR merge base; an unknown
-base stays conservative.
+Use focused or release governance with the exact changed files. The diagnostic
+profile runs the historical full set. Missing inputs stay conservative. Run the
+core mirror for cross-stage changes and `codex pre-pr` for PR impact and affected
+owners. Hosted CI owns browser proof. Use a governed same-attempt retry after a
+diagnosed failure, and keep live authority and security gates blocking.
 
 ```bash
 ./bin/hushh codex ci-status
