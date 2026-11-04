@@ -1192,12 +1192,13 @@ be relabelled as an environment-branch execution. Downstream consumers verify
 GitHub's recorded reusable path/revision and the current attempt before accepting
 the new job-name prefix or artifact.
 
-Activation order: land reviewed tooling while retaining current Main callers;
-sync helper/dependency foundations before queue activation on each destination;
-reconcile environment branch rules and the
-[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission);
-then install the reviewed thin callers and verify hosted read-only admission.
-Do not retire the working Main entrypoints before that coordinated activation.
+Activation checkpoint: Main already contains the reviewed thin callers. They
+are not a fallback for normal Dev/UAT dispatch while destination activation is
+pending. Synchronize helper/dependency foundations and thin callers onto each
+destination, reconcile environment branch rules and the
+[existing cloud providers](../../../deploy/iam/README.md#devuat-matching-branch-admission),
+then verify hosted read-only admission before releasing applications. Historical
+Main-origin receipts remain recovery evidence; they do not enable a new dispatch.
 Existing UAT `operation=inspect` checks
 prerequisites without release mutation. The reusable implementations also expose
 `operation=inspect-routing`: the ordinary Main broker issues current-attempt
