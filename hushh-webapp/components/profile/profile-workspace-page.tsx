@@ -171,6 +171,7 @@ import {
 } from "@/lib/navigation/profile-routes";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import {
+  buildProfilePaneHref,
   popProfilePaneLocation,
   profileLegalParentForPresentation,
   profilePanelParentForPresentation,
@@ -180,6 +181,9 @@ import {
   stripProfilePaneTransientParams,
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
+import { useProfileNetWorthScore } from "./use-profile-net-worth-score";
+import { profileRouteRequiresUnlockedVault } from "./profile-vault-policy";
+import { NetWorthScoreCard, netWorthScoreDisplay } from "@/components/profile/net-worth-score-card";
 import { backProfilePane } from "@/lib/navigation/profile-pane-back";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import {
@@ -487,30 +491,6 @@ function describePasskeyWrapper(wrapper: VaultWrapper): string {
   return formatPasskeyLabel(wrapper);
 }
 
-function profileRouteRequiresUnlockedVault(
-  panel: ProfilePanel | null,
-  detail: ProfileDetail | null,
-): boolean {
-  if (
-    panel === "my-data" ||
-    panel === "payouts" ||
-    panel === "world-model" ||
-    panel === "request-pricing" ||
-    panel === "connected-systems" ||
-    panel === "connectors" ||
-    panel === "gmail"
-  ) {
-    return true;
-  }
-  if (panel === "security") {
-    return true;
-  }
-  return (
-    panel === "preferences" &&
-    (detail === "kai-preferences" || detail === "gemini")
-  );
-}
-
 function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
   return panel === "my-data";
 }
@@ -730,6 +710,12 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const nws = useProfileNetWorthScore({
+    visible: activePanel === "net-worth-score" || (activePanel === null && (presentation !== "native-page" || nativeMenuOpen)),
+    onProfileRoot: activePanel === null, applicationOwnerId, isVaultUnlocked, vaultKey, vaultOwnerToken,
+    open: () => openVaultBackedPanel("net-worth-score"),
+    returnPath: () => buildProfilePaneHref(pathname, searchParams, { panel: "net-worth-score", detail: null }),
+  });
   const emailPreference = useMarketingPreference(activePanel === "account" ? applicationOwnerId ?? null : null, "account");
   const phoneVaultEpoch = snapshotVaultSessionEpoch();
   const phoneVisit = useMemo(() => ({ active: false, id: Symbol("phone-visit"), userId: applicationOwnerId, owner: snapshotValidatedAuthSessionPrincipal(),
@@ -1987,6 +1973,7 @@ function ProfilePageContent({
       ProfilePanel,
       | "my-data"
       | "payouts"
+      | "net-worth-score"
       | "world-model"
       | "request-pricing"
       | "connected-systems"
@@ -4319,6 +4306,12 @@ function ProfilePageContent({
         </div>
       ),
     });
+  } else if (!routeBlockedByVault && activePanel === "net-worth-score") {
+    profileStackEntries.push({
+      key: "panel:net-worth-score",
+      title: "Net Worth Score",
+      content: <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary} secondary={nws.secondary} detail />,
+    });
   } else if (!routeBlockedByVault && activePanel === "world-model") {
     // The Profile pane is how /one/profile/world-model is presented (proxy.ts
     // redirects every Profile path to it), so the model renders here in both
@@ -4697,6 +4690,8 @@ function ProfilePageContent({
 
       <AppPageContentRegion>
         <SurfaceStack compact>
+          <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary}
+            secondary={nws.secondary} onOpen={() => openVaultBackedPanel("net-worth-score")} />
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
@@ -5245,7 +5240,11 @@ function ProfilePageContent({
             nativeMemoryActive && nativeMemory.navigationBlocked() || nativeRuntimeActive && runtimeSettings.operationPending()) return false;
         return closeNativeProfile();
       },
-      groups: menuGroups, actions: menuActions }}
+      groups: menuGroups, actions: menuActions,
+      ...(nws.unlocked ? { scoreCard: {
+        ...netWorthScoreDisplay(nws.report), status: nws.status, primary: nws.primary, secondary: nws.secondary,
+        onOpen: () => openVaultBackedPanel("net-worth-score"),
+      } } : {}) }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",
       title: nativeActiveHeading?.owner === nativeDetailOwner ? nativeActiveHeading.title : typeof profileStackEntries.at(-1)?.title === "string" ? String(profileStackEntries.at(-1)?.title) : "Profile",
       owner: applicationOwnerId, context: JSON.stringify([applicationOwnerId, snapshotVaultSessionEpoch(), activePanel, activeDetail]),

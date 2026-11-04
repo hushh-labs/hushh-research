@@ -27,6 +27,10 @@ export function useRouter() {
 }
 export function usePathname() { return "/one/calendar"; }
 export function useSearchParams() { return new URLSearchParams(); }
+// The shared cache can import market readers, but this fixture serves only
+// Calendar. Preserve the error imports without admitting market requests.
+export class MarketNewsSnapshotChangedError extends Error {}
+export function isMarketInsightsEmptyError() { return false; }
 export class ApiService {
   static apiFetch(path: string, init?: RequestInit) { return globalThis.fetch(path, init); }
   static async getPersonalAgentStatus() { return { hostingMode: "shared" }; }
