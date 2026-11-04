@@ -5600,6 +5600,19 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
 
+## Own UAT activity evidence
+
+The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
+are read-only and require the exact UAT project, runtime lane, collection/export
+flags, separate credential and explicit bounded account cohort. The Matrix
+session supplies only its verified email hash; cached identity data selects a
+candidate but current Firebase verified identity and lifecycle/epoch checks
+authorize the result. Ambiguous candidates fail closed. Owner reads require no
+marketing subscription and carry `readAuthority=verified_owner` plus the hashed
+`ownerEpoch`; they never carry delivery authority. Identity changes and account
+reset during a snapshot invalidate it. No raw email or private content is exported.
+Production marketing/reporting contracts remain separate.
+
 ## Optional agent-attempt emails
 
 The account screen owns an explicit, default-off activity-email choice at

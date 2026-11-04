@@ -363,9 +363,7 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
     monkeypatch.setattr(plg, "snapshot", projection)
     scoped_account = {
         **ACCOUNT,
-        "generation": "12345678-1234-1234-1234-123456789abc",
         "emailHash": "a" * 64,
-        "revision": 1,
         "ownerEpoch": epoch,
     }
     payload = {"version": 2, "customerReporting": False, "accounts": [scoped_account]}
@@ -377,7 +375,7 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
     assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 200
     assert projection.await_args.kwargs == {"environment": "uat"}
     permission_request = {
-        key: scoped_account[key] for key in ("accountId", "generation", "emailHash", "revision")
+        key: scoped_account[key] for key in ("accountId", "emailHash", "ownerEpoch")
     }
     permission_response = post(
         client,
@@ -479,7 +477,8 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(c
 
 @pytest.mark.asyncio
 async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(monkeypatch):
-    rows = [{"user_id": "owner-b"}]
+    email_hash = hashlib.sha256(b"tester@hushh.ai").hexdigest()
+    rows = [{"user_id": "owner-b", "email": "Tester@hushh.ai"}]
 
     class Connection:
         def transaction(self):
@@ -491,9 +490,9 @@ async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(m
         async def __aexit__(self, *_):
             pass
 
-        async def fetch(self, _sql, users, recipient, **_kwargs):
+        async def fetch(self, sql, users, **_kwargs):
             assert users == ["owner-b"]  # inactive owner-a is excluded before lookup
-            assert recipient == "b" * 64
+            assert "actor_identity_cache" in sql and "marketing" not in sql
             return rows
 
     class Pool:
@@ -506,11 +505,11 @@ async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(m
         "active_projection_user_ids",
         AsyncMock(return_value={"owner-b"}),
     )
-    current = AsyncMock(return_value={"accountId": "owner-b", "emailHash": "b" * 64})
+    current = AsyncMock(return_value={"accountId": "owner-b", "emailHash": email_hash})
     monkeypatch.setattr(evidence, "uat_owner_scope", current)
 
     def resolve():
-        return evidence.uat_session_owner_scope({"owner-a", "owner-b"}, "b" * 64, NOW)
+        return evidence.uat_session_owner_scope({"owner-a", "owner-b"}, email_hash, NOW)
 
     assert (await resolve())["accountId"] == "owner-b"
     current.assert_awaited_once_with("owner-b", NOW)
@@ -521,24 +520,23 @@ async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(m
     current.reset_mock()
     for candidates in (
         [],
-        [{"user_id": "owner-a"}, {"user_id": "owner-b"}],
-        [{"user_id": "outside"}],
+        [{"user_id": "owner-b", "email": "tester@hushh.ai"}] * 2,
+        [{"user_id": "outside", "email": "tester@hushh.ai"}],
     ):
         rows[:] = candidates
         assert await resolve() is None
     current.assert_not_awaited()
+    barrier = evidence.AccountDeletionLifecycleService.active_projection_user_ids
+    barrier.reset_mock()
+    await evidence.uat_session_owner_scope({f"owner-{i:03}" for i in range(100)}, email_hash, NOW)
+    assert [len(call.kwargs["user_ids"]) for call in barrier.await_args_list] == [50, 50]
 
 
 @pytest.mark.asyncio
-async def test_uat_owner_scope_requires_current_permission_and_matching_epoch(monkeypatch):
-    generation = uuid.UUID("12345678-1234-1234-1234-123456789abc")
+async def test_uat_owner_scope_requires_verified_identity_and_epoch_not_marketing(monkeypatch):
     epoch = uuid.UUID("abcdefab-1234-1234-1234-123456789abc")
     row = {
-        "generation": generation,
-        "email_hash": "a" * 64,
-        "revision": 2,
-        "consent_at": NOW - timedelta(days=1),
-        "activity_generation": epoch,
+        "generation": epoch,
         "started_at": NOW - timedelta(hours=1),
     }
 
@@ -552,85 +550,68 @@ async def test_uat_owner_scope_requires_current_permission_and_matching_epoch(mo
         async def __aexit__(self, *_):
             pass
 
-        async def fetchrow(self, *_args, **_kwargs):
-            return row
+        async def fetchrow(self, sql, *_args, **_kwargs):
+            assert "one_product_activity_epochs" in sql and "marketing" not in sql
+            return dict(row)
 
     class Pool:
         def acquire(self, **_kwargs):
             return Connection()
 
     monkeypatch.setattr(evidence, "get_pool", AsyncMock(return_value=Pool()))
+    monkeypatch.setattr(evidence, "enabled_for", lambda _: True)
     monkeypatch.setattr(
         evidence.AccountDeletionLifecycleService,
         "active_projection_user_ids",
         AsyncMock(return_value={"owner"}),
     )
-    authority = AsyncMock(
-        return_value={
-            "allowed": True,
-            "erased": False,
-            "ownerEpoch": hashlib.sha256(str(epoch).encode()).hexdigest(),
-        }
-    )
-    monkeypatch.setattr(evidence, "uat_read_authority", authority)
+    recipient = AsyncMock(return_value={"email_hash": "a" * 64})
+    monkeypatch.setattr(marketing_preferences, "verified_recipient", recipient)
+    marketing = AsyncMock(side_effect=AssertionError("Own reads must not require marketing"))
+    monkeypatch.setattr(marketing_preferences, "current_permission", marketing)
     result = await evidence.uat_owner_scope("owner", NOW)
     assert result == {
         "environment": "uat",
+        "readAuthority": "verified_owner",
         "accountId": "owner",
         "emailHash": "a" * 64,
-        "generation": str(generation),
-        "revision": 2,
+        "ownerEpoch": hashlib.sha256(str(epoch).encode()).hexdigest(),
         "since": row["started_at"].isoformat(),
         "journey": "agent_one",
     }
-    authority.return_value = {"allowed": False, "erased": False, "ownerEpoch": None}
+    marketing.assert_not_awaited()
+    recipient.side_effect = marketing_preferences.VerifiedEmailRequired("unverified")
     assert await evidence.uat_owner_scope("owner", NOW) is None
-    authority.return_value = {"allowed": True, "erased": False, "ownerEpoch": "f" * 64}
+
+    async def reset_during_identity(_uid):
+        row["generation"] = uuid.uuid4()
+        return {"email_hash": "a" * 64}
+
+    recipient.side_effect = reset_during_identity
     assert await evidence.uat_owner_scope("owner", NOW) is None
+    recipient.reset_mock()
+    monkeypatch.setattr(evidence, "enabled_for", lambda _: False)
+    assert await evidence.uat_owner_scope("owner", NOW) is None
+    recipient.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_uat_read_authority_rechecks_permission_and_binds_owner_epoch(monkeypatch):
-    generation = uuid.UUID("12345678-1234-1234-1234-123456789abc")
-    epoch = uuid.UUID("abcdefab-1234-1234-1234-123456789abc")
-    permission = AsyncMock(side_effect=[{"allowed": True, "erased": False}] * 2)
-    monkeypatch.setattr(marketing_preferences, "current_permission", permission)
-    monkeypatch.setattr(
-        evidence.AccountDeletionLifecycleService,
-        "active_projection_user_ids",
-        AsyncMock(return_value={"owner"}),
-    )
-
-    class Connection:
-        def transaction(self):
-            return self
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_):
-            pass
-
-        async def fetchval(self, *_args, **_kwargs):
-            return epoch
-
-    class Pool:
-        def acquire(self, **_kwargs):
-            return Connection()
-
-    monkeypatch.setattr(evidence, "get_pool", AsyncMock(return_value=Pool()))
-    result = await evidence.uat_read_authority("owner", generation, "a" * 64, 1)
+async def test_uat_read_authority_binds_current_recipient_and_owner_epoch(monkeypatch):
+    scope = AsyncMock(return_value={"emailHash": "a" * 64, "ownerEpoch": "b" * 64})
+    monkeypatch.setattr(evidence, "uat_owner_scope", scope)
+    result = await evidence.uat_read_authority("owner", "a" * 64, "b" * 64)
     assert result == {
         "allowed": True,
         "erased": False,
-        "ownerEpoch": hashlib.sha256(str(epoch).encode()).hexdigest(),
+        "ownerEpoch": "b" * 64,
     }
-    assert permission.await_count == 2
-    permission.side_effect = [
-        {"allowed": True, "erased": False},
-        {"allowed": False, "erased": False},
-    ]
-    assert (await evidence.uat_read_authority("owner", generation, "a" * 64, 1))["allowed"] is False
+    for changed in (
+        None,
+        {"emailHash": "c" * 64, "ownerEpoch": "b" * 64},
+        {"emailHash": "a" * 64, "ownerEpoch": "c" * 64},
+    ):
+        scope.return_value = changed
+        assert not (await evidence.uat_read_authority("owner", "a" * 64, "b" * 64))["allowed"]
 
 
 @pytest.mark.asyncio

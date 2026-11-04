@@ -69,9 +69,14 @@ class SubscriptionCheck(BaseModel):
 
 
 class UatSnapshotAccount(PilotAccount):
-    generation: UUID
     emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    revision: int = Field(ge=1, le=9_007_199_254_740_991)
+    ownerEpoch: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class UatReadCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    accountId: str = Field(min_length=1, max_length=128)
+    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
     ownerEpoch: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
@@ -274,13 +279,11 @@ async def check_uat_read_permission(request: Request):
     secret, allowed = _uat_export_scope()
     body = await _signed_body(request, secret=secret, purpose="permission-uat")
     try:
-        payload = SubscriptionCheck.model_validate_json(body)
+        payload = UatReadCheck.model_validate_json(body)
         if payload.accountId not in allowed:
             raise ValueError("Outside UAT cohort")
         result = await asyncio.wait_for(
-            uat_read_authority(
-                payload.accountId, payload.generation, payload.emailHash, payload.revision
-            ),
+            uat_read_authority(payload.accountId, payload.emailHash, payload.ownerEpoch),
             timeout=30,
         )
     except (ValueError, ValidationError):
@@ -322,7 +325,7 @@ async def export_uat_snapshot(request: Request):
         account = payload.accounts[0]
         if account.accountId not in allowed:
             raise ValueError("Invalid UAT evidence scope")
-        check = (account.accountId, account.generation, account.emailHash, account.revision)
+        check = (account.accountId, account.emailHash, account.ownerEpoch)
         before = await uat_read_authority(*check)
         if not before["allowed"] or before["ownerEpoch"] != account.ownerEpoch:
             raise ValueError("UAT authority changed")
