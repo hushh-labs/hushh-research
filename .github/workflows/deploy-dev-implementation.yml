@@ -78,7 +78,7 @@ concurrency:
 jobs:
   deployment-security:
     name: Request Main security clearance
-    if: inputs.target != 'pod-publication'
+    if: inputs.target != 'pod-publication' || inputs.operation != 'deploy'
     runs-on: ubuntu-24.04
     timeout-minutes: 7
     permissions:

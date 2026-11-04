@@ -172,7 +172,7 @@ scanning remains in PR validation and privileged unresolved-secret clearance run
 only in an explicit Main-owned deployment's protected job.
 
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
-`uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from Main
+`uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. These identify the
 application, validation attempt and comparison base separately. Do not substitute
 a PR merge-tree check, another attempt or a branch status for that exact run.
@@ -1172,11 +1172,11 @@ Main-only and never pass its token into Dev/UAT caller jobs.
 
 ### Matching-branch release control
 
-The matching-branch implementation is a staged foundation. Current Main Dev/UAT
-entrypoints remain active until downstream source and IAM qualification complete.
-Activation replaces them with identical thin entrypoint files across branches;
-application runs then originate from `dev` and `uat` respectively, using the
-reviewed Main implementation. No push or merge dispatches a deployment. Pod artifact
+Dev/UAT entrypoints are thin callers of the reviewed Main implementations.
+Normal application runs originate from `dev` and `uat` respectively. Activate the
+same caller revisions on each environment branch before dispatching; a Main merge
+alone does not update those branches. Hosted read-only qualification remains
+required before claiming that a newly activated route works. No push or merge dispatches a deployment. Pod artifact
 publication retains its separate Main-only operation; it does not install an
 owner release.
 
@@ -1356,7 +1356,7 @@ transcript contracts; arbitrary output still refuses reconciliation.
 ## Branch Lanes
 
 1. **Dev intake** is the default for new development. Preserve existing `integration/pr-train` work and protection. Governed maintainers retain direct Main operations/hotfix authority under Admin SOP.
-2. Release workflows run from Main. Dev accepts an exact CI-green branch SHA through the [Dev Fast Lane](./dev-fast-lane.md).
+2. Dev/UAT application dispatches originate from their matching environment branches and call reviewed Main implementations; production and pod publication originate from Main. Dev accepts an exact CI-green protected Dev SHA through the [Dev Fast Lane](./dev-fast-lane.md).
 3. UAT deploys by explicit manual dispatch through `.github/workflows/deploy-uat.yml`. New application selections must belong to protected UAT history. A direct UAT candidate also needs exact full-scope CI with its current attempt, observed serving base, and protected security checks. Historical Main-backed receipts remain readable and retain Dev-backed acceptance, but Main-only application SHAs are not normal UAT dispatch sources.
 4. Manual UAT dispatch is limited to the current
    `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not

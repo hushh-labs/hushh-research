@@ -64,6 +64,8 @@ EXPECTED_JOBS = {
 # Application flags, policy and SQL already fall under consent-protocol/**.
 # Workflow-only changes use the focused controller owner below.
 DELETION_RELEASE_WORKFLOWS = (
+    ".github/workflows/deploy-dev-implementation.yml",
+    ".github/workflows/deploy-uat-implementation.yml",
     ".github/workflows/deploy-dev.yml",
     ".github/workflows/deploy-uat.yml",
     ".github/workflows/deploy-production.yml",
@@ -621,6 +623,14 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
+        "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+        "consent-protocol/tests/test_dev_release_classification.py",
+        "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+        "consent-protocol/tests/test_hushh_tech_runtime_config.py",
+        "consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py",
+        "consent-protocol/tests/test_one_location_read_only_runtime_config.py",
+        "consent-protocol/tests/test_pkm_answer_config.py",
         "consent-protocol/tests/test_account_generation_admission_deploy.py",
         "consent-protocol/tests/test_azure_pod_release_publish_step.py",
         "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",

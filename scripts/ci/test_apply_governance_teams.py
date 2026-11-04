@@ -655,6 +655,14 @@ def test_review_ruleset_rejects_other_boundary_and_authority(module) -> None:
         return {"login": login, "type": "User", "id": policy["main"]["review_bypass_users"].index(login) + 1}
     desired = module.main_review_ruleset(policy, read=read)
     assert module.same_review_ruleset(desired, desired)
+    observed = copy.deepcopy(desired)
+    observed["rules"][0]["parameters"].update({
+        "dismissal_restriction": {"enabled": False, "allowed_actors": []},
+        "allowed_merge_methods": ["merge", "squash", "rebase"], "required_reviewers": [],
+    })
+    assert module.same_review_ruleset(observed, desired)
+    observed["rules"][0]["parameters"]["require_extra_approval_for_unattributed_changes"] = False
+    assert not module.same_review_ruleset(observed, desired)
     for change in (
         {"conditions": {"ref_name": {"include": ["refs/heads/dev"], "exclude": []}}},
         {"enforcement": "disabled"}, {"rules": [{"type": "merge_queue"}]},

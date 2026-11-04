@@ -237,12 +237,11 @@ def test_branch_validation_is_limited_to_dev_and_explicit_curated_uat() -> None:
     # for the explicit manual incident route, always paired with CI Status Gate.
     assert sorted(consumers) == [
         "deploy-dev-implementation.yml",
-        "deploy-dev.yml",
         "deploy-production.yml",
     ]
     assert all(
         "Branch Validation Gate" in accepted.split(",")
-        for workflow in ("deploy-dev.yml", "deploy-dev-implementation.yml")
+        for workflow in ("deploy-dev-implementation.yml",)
         for accepted in consumers[workflow]
     )
     for accepted in consumers["deploy-production.yml"]:

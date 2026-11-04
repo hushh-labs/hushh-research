@@ -187,7 +187,40 @@ class DeploymentSecurityTest(unittest.TestCase):
         import yaml
 
         root = Path(__file__).resolve().parents[2]
-        variants = [(name, name, False) for name in gate.CALLERS]
+        variants = [
+            (name, name, False)
+            for name in gate.CALLERS
+            if name not in ("deploy-dev.yml", "deploy-uat.yml")
+        ]
+        for lane in ("dev", "uat"):
+            caller = yaml.safe_load((root / f".github/workflows/deploy-{lane}.yml").read_text())
+            implementation = yaml.safe_load(
+                (root / f".github/workflows/deploy-{lane}-implementation.yml").read_text()
+            )
+            inputs = (caller.get("on") or caller[True])["workflow_dispatch"]["inputs"]
+            declared = (implementation.get("on") or implementation[True])["workflow_call"]["inputs"]
+            self.assertEqual(set(inputs), set(declared))
+            self.assertEqual(
+                set(caller["jobs"]),
+                {"release", "pod-publication"} if lane == "dev" else {"release"},
+            )
+            self.assertIn("inspect-routing", inputs["operation"]["options"])
+            for key, job in caller["jobs"].items():
+                self.assertEqual(
+                    job["uses"],
+                    f"hushh-labs/hushh-research/.github/workflows/deploy-{lane}-implementation.yml@main",
+                )
+                self.assertEqual(
+                    job["with"], {name: "${{ inputs." + name + " }}" for name in inputs}
+                )
+                self.assertNotIn("steps", job)
+                if key == "release":
+                    self.assertNotIn("secrets", job)
+                else:
+                    self.assertEqual(
+                        job["secrets"],
+                        {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
+                    )
         variants.extend(
             (name, name.replace(".yml", "-implementation.yml"), True)
             for name in ("deploy-dev.yml", "deploy-uat.yml")
@@ -198,6 +231,22 @@ class DeploymentSecurityTest(unittest.TestCase):
                 jobs = yaml.safe_load(source)["jobs"]
                 clearance = jobs["deployment-security"]
                 if prepared and name == "deploy-dev.yml":
+                    self.assertEqual(
+                        clearance["if"],
+                        "inputs.target != 'pod-publication' || inputs.operation != 'deploy'",
+                    )
+                    validation = next(
+                        step
+                        for step in clearance["steps"]
+                        if step.get("name") == "Validate explicit operation"
+                    )
+                    refused = subprocess.run(  # noqa: S603 - fixed repository guard, synthetic inputs
+                        ["bash", "-e", "-c", validation["run"]],
+                        env={"OPERATION": "inspect-routing", "TARGET": "pod-publication"},
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(refused.returncode, 0)
                     for mutation in ("deploy", "pod-security", "pod-publication"):
                         self.assertIn("inputs.operation == 'deploy'", jobs[mutation]["if"])
                 if prepared and name == "deploy-uat.yml":
@@ -328,7 +377,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 jobs["permissions"].get("actions"),
-                "read",
+                "write" if name in ("deploy-dev.yml", "deploy-uat.yml") else "read",
                 name,
             )
         for name in ("deployment-security.yml", "ios-voice-device.yml"):
