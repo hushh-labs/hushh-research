@@ -1,14 +1,13 @@
+import { EARLIER, link, linkedFirstPlatypus } from "./projection-fixture";
 import { describe, expect, it } from "vitest";
 
 import {
-  applyConnectionLink,
   applySnapshot,
   amountBand,
   recomputeDerived,
   removeConnection,
   toPortfolioData,
 } from "@/lib/kai/plaid-vault/projection";
-import { readFinancialNws } from "@/lib/kai/plaid-vault/nws-financial-report";
 import { scanSummaryForLeaks, scorePlaidVaultQuality } from "@/lib/kai/plaid-vault/quality";
 import type { FinancialDomain, PlaidVaultSnapshot } from "@/lib/kai/plaid-vault/types";
 import { resolvePkmMemoryLevel, type PkmMemoryLevelView } from "@/lib/pkm/pkm-memory-level";
@@ -38,32 +37,6 @@ import {
   tartanSandboxSnapshot,
 } from "./fixtures";
 
-const EARLIER = "2026-09-23T11:00:00.000Z";
-
-function link(
-  financial: FinancialDomain | null,
-  itemId: string,
-  institution: { id: string; name: string },
-  now = EARLIER
-): FinancialDomain {
-  return applyConnectionLink(
-    financial,
-    {
-      item_id: itemId,
-      access_token: `access-sandbox-${itemId}-secret`,
-      institution,
-      products: ["transactions", "investments"],
-    },
-    now
-  );
-}
-
-function linkedFirstPlatypus(itemId = "item_fp_a", prefix = "fpa", base: FinancialDomain | null = null) {
-  const snapshot = firstPlatypusSnapshot(itemId, prefix);
-  const linked = link(base, itemId, FIRST_PLATYPUS);
-  return { snapshot, financial: applySnapshot(linked, itemId, snapshot, NOW) };
-}
-
 describe("applyConnectionLink", () => {
   it("writes the connection with the sealed token and an empty cursor", () => {
     const financial = link({ other_key: 1 }, "item_fp_a", FIRST_PLATYPUS);
@@ -85,19 +58,6 @@ describe("applyConnectionLink", () => {
     const frozen = JSON.stringify(input);
     link(input, "item_fp_a", FIRST_PLATYPUS);
     expect(JSON.stringify(input)).toBe(frozen);
-  });
-});
-
-describe("owner net worth score projection", () => {
-  it("uses committed records for the score and drops it when the final Item is removed", () => {
-    const { snapshot, financial } = linkedFirstPlatypus();
-    const report = readFinancialNws(financial);
-    expect(report?.score).toEqual(expect.any(Number));
-    expect(JSON.stringify(report)).not.toContain("access-sandbox");
-    expect(readFinancialNws(applySnapshot(financial, "item_fp_a", {
-      ...snapshot, item: { ...snapshot.item, error: { code: "ITEM_LOGIN_REQUIRED", message: "Reconnect" } },
-    }, NOW))).toEqual(report);
-    expect(readFinancialNws(removeConnection(financial, "item_fp_a", NOW))).toBeNull();
   });
 });
 

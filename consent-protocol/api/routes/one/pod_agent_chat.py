@@ -17,6 +17,7 @@ from api.routes.external_connectors import (
 from api.routes.one import pod_agent_chat_connectors, pod_command_proposals
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_chat_owner import owner_context
+from api.routes.one.pod_consent_chat import admit_continuation
 from api.routes.one.pod_turn import PodTurnRequest, _require_enabled
 from hushh_mcp.one_adk import owner_style
 from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME
@@ -210,8 +211,6 @@ async def chat(input: RunAgentInput, owner: PodChatContext = Depends(context)):
         )
     except (ValueError, KeyError, TypeError):
         raise HTTPException(403, detail={"code": "POD_CHAT_RECEIPT_NOT_ADMITTED"}) from None
-    from api.routes.one.pod_consent_chat import admit_continuation
-
     state.update(await admit_continuation(forwarded, input, owner, ONE_APP_NAME))
     await owner.require_access()
     agent = await owner.build_agent(options)

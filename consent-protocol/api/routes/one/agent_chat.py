@@ -511,7 +511,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
     forwarded.pop("receiptMemory", None)
-    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -525,8 +524,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
-        consume_request_secret(receipt_memory)
-        receipt_memory = ""
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
@@ -569,7 +566,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
-        STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_MEMORY: "",
         STATE_RECEIPT_RESULT: receipt_result,
     }
 

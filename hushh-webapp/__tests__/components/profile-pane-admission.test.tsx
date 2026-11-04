@@ -1,9 +1,9 @@
+import { pull } from "./profile-pane-gesture-fixture";
 import { registerBackLayer } from "@/lib/navigation/back-layers";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
-import { NetWorthScoreCard } from "@/components/profile/net-worth-score-card";
 import { previewProfilePane } from "@/lib/navigation/profile-pane";
 
 const vault = vi.hoisted(() => ({ isVaultUnlocked: false }));
@@ -45,7 +45,6 @@ beforeEach(() => {
   native.scoreSupported = true;
   vault.isVaultUnlocked = false;
   url.query = "profile_pane=1&profile_panel=preferences";
-  vault.isVaultUnlocked = false;
   pendingFrames = new Map();
   profilePage.renders = 0;
   vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
@@ -99,17 +98,6 @@ it("uses the React Profile renderer for an older native drawer", async () => {
   expect(await screen.findByTestId("pane-body")).not.toHaveAttribute("data-native-open");
   view.unmount();
 });
-
-function pull(type: string, target: Element, x: number, y: number, time: number) {
-  const point = { identifier: 1, clientX: x, clientY: y };
-  const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperties(event, {
-    touches: { value: type === "touchend" ? [] : [point] },
-    changedTouches: { value: [point] },
-    timeStamp: { value: time },
-  });
-  fireEvent(target, event);
-}
 
 it("keeps the drag preview inert and does not mount protected Profile content before admission", () => {
   vi.useFakeTimers();
@@ -509,20 +497,4 @@ it("leaves the screen behind Profile unchanged when its panel goes Back", () => 
     unregister();
     view.unmount();
   }
-});
-
-it("opens the unlinked score detail without starting a bank connection", () => {
-  const connect = vi.fn();
-  function UnlinkedProfile() {
-    const [detail, setDetail] = useState(false);
-    return <NetWorthScoreCard report={null} status={null} detail={detail}
-      onOpen={() => setDetail(true)} primary={{ label: "Connect bank", run: connect }} />;
-  }
-  render(<UnlinkedProfile />);
-  expect(screen.getByText("—")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Net Worth Score" }));
-  expect(screen.queryByRole("button", { name: "Net Worth Score" })).toBeNull();
-  expect(connect).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Connect bank" }));
-  expect(connect).toHaveBeenCalledOnce();
 });
