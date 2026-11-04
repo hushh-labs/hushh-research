@@ -20,7 +20,7 @@
         "merge_queue_ruleset_name": "uat merge queue"
       },
       "uat-isolated": {
-        "policy_key": "main",
+        "policy_key": "uat_merge",
         "merge_queue_ruleset_name": "uat-isolated merge queue"
       },
       "integration/pr-train": {
