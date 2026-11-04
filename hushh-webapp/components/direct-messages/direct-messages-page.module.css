@@ -794,6 +794,11 @@ article[data-message-role="user"] .messageActionError {
   flex-wrap: wrap;
 }
 
+/* Circles composes this surface on a wrapper around its own shared editor. */
+form.composer { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px auto; }
+.composer > :is(.composerReplyPreview, .attachmentPreview, .readOnlyNotice, .composerError),
+.composerActions:has(.recordingControls) { grid-column: 1 / -1; }
+
 .composerReplyPreview {
   display: flex;
   width: 100%;
@@ -1442,20 +1447,20 @@ article[data-message-role="user"] .messageActions {
 }
 .reactionChip::after { inset: -9px -8px; }
 
-/* The menu has reserved bubble space; reactions stay beside the message. */
+/* Both controls overlay a constant side gutter, clear of text and metadata. */
 article[data-message-role] .messageActions {
   top: 0;
-  left: 0;
-  right: 0;
-  width: auto;
+  left: calc(100% + 6px);
+  right: auto;
+  width: max-content;
   justify-content: flex-end;
   flex-wrap: nowrap;
   gap: 0;
   transform: none;
   pointer-events: none;
 }
-.messageActions > :first-child:not(:last-child) { position: absolute; left: calc(100% + 6px); }
-article[data-message-role="user"] .messageActions > :first-child:not(:last-child) { left: auto; right: calc(100% + 6px); }
+article[data-message-role="user"] .messageActions { left: auto; right: calc(100% + 6px); }
+.messageActions > :first-child:not(:last-child) { position: static; left: auto; right: auto; }
 article[data-message-role] .messageActionButton { pointer-events: none; }
 article[data-actions-visible="true"] .messageActionButton,
 .messageFeedItem article:hover .messageActionButton,
@@ -1464,8 +1469,8 @@ article[data-actions-visible="true"] .messageActionButton,
 .messageFeedItem article:focus-within .messageActions,
 .messageBubbleWrap:has([data-state="open"]) .messageActions { opacity: 1; }
 
-/* Reserve the reaction target, including the peer avatar gutter. */
-.messageCluster { max-width: min(85%, calc(100% - 50px)); }
+/* Reserve two 44px targets and their 6px gap even while the tray is hidden. */
+.messageCluster { max-width: min(85%, calc(100% - 94px)); }
 article[data-message-role="peer"] .messageCluster {
   max-width: min(85%, calc(100% - 90px));
 }
@@ -1698,7 +1703,7 @@ article[data-message-role="peer"] .messageCluster {
   box-shadow: none !important;
   border-radius: 18px !important;
   min-height: 44px;
-  padding: 10px 44px 10px 14px !important;
+  padding: 10px 14px !important;
   font-family: var(--font-app-body);
   font-size: 16px;
   font-weight: 400;
@@ -1712,8 +1717,8 @@ article[data-message-role="peer"] .messageBubble {
   box-shadow: none !important;
   border-radius: 18px !important;
 }
-/* Only the text reserves 44px for actions; metadata ends at the 14px inset. */
-.messageBubbleMeta { font-size: 10px; line-height: 12px; min-height: 12px; margin-right: -30px; }
+/* Metadata shares the text inset; the action tray never covers either. */
+.messageBubbleMeta { font-size: 10px; line-height: 12px; min-height: 12px; margin-right: 0; }
 @media (max-width: 374px) {
   .messageBubble, article[data-message-role="user"] .messageBubble { padding-left: 8px !important; }
 }
@@ -1793,7 +1798,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .newChatPerson:disabled { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: 44px; color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
-  /* Both panes reserve the viewport-centered composer and navigation. */
+  /* Both panes reserve the shared composer and navigation stack. */
   .page, .page[data-chat-open="true"] {
     height: max(0px, calc(100dvh - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance))));
   }
@@ -1804,7 +1809,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
   }
   .messageCluster,
   article[data-message-role="peer"] .messageCluster {
-    max-width: min(75%, 40rem);
+    max-width: min(75%, 40rem, calc(100% - 94px));
   }
 }
 /* A proportional tablet sidebar keeps its title and actions on separate
@@ -1922,10 +1927,6 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .newChatDialog .newChatSearch { font-family: var(--font-app-body); font-size: 14px; line-height: 22px; font-weight: 400; }
 .editDialog .messageEditInput { font-size: 16px; line-height: 24px; font-weight: 400; }
 
-@media (min-width: 768px) and (max-width: 1023px) and (min-height: 500px) {
-  /* Five 44px Circle actions need a real second row in the tablet sidebar. */
-  .page { --app-messages-sidebar-width: max(30vw, 272px); }
-}
 @media (max-width: 620px) {
   .page .inboxSearchField input, .page .threadSearchField input,
   .newChatDialog .newChatSearch { font-size: 16px; }
@@ -1963,14 +1964,14 @@ article[data-message-role="peer"] .messageCluster,
 article[data-message-role="peer"] .messageContent { display: contents; }
 article[data-message-role="peer"] .messageBubbleWrap,
 article[data-message-role="peer"] .messageReactions,
-article[data-message-role="peer"] .messageActionError { grid-column: 2; min-width: 0; max-width: min(calc(85% + 32.3px), calc(100% - 52px)); justify-self: start; }
+article[data-message-role="peer"] .messageActionError { grid-column: 2; min-width: 0; max-width: min(calc(85% + 32.3px), calc(100% - 94px)); justify-self: start; }
 article[data-message-role="peer"] .messageBubbleWrap { grid-row: 1; }
 article[data-message-role="peer"] .messageReactions { grid-row: 2; }
 article[data-message-role="peer"] .messageActionError { grid-row: 3; }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
   article[data-message-role="peer"] .messageBubbleWrap,
   article[data-message-role="peer"] .messageReactions,
-  article[data-message-role="peer"] .messageActionError { max-width: min(calc(75% + 28.5px), 40rem); }
+  article[data-message-role="peer"] .messageActionError { max-width: min(calc(75% + 28.5px), 40rem, calc(100% - 94px)); }
 }
 @media (max-width: 767px), (hover: none) {
   article[data-message-role="peer"] .messageBubbleWrap,
