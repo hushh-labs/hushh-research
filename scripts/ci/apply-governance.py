@@ -441,8 +441,6 @@ def same_owner_admin_ruleset(observed: dict, desired: dict) -> bool:
 def reconcile_owner_admin_ruleset(
     policy: dict, *, apply=False, verify_only=False, read=gh_json, repo=REPO
 ) -> bool:
-    from prepared_branch_governance import _write
-
     desired = main_owner_admin_ruleset(policy, read=read)
     rows = read(["api", f"repos/{repo}/rulesets?per_page=100"])
     if not isinstance(rows, list) or len(rows) >= 100:
@@ -463,6 +461,8 @@ def reconcile_owner_admin_ruleset(
         "  Owner Admin guard: create strict CI and PR-only boundary before admitting owner direct merges"
     )
     if apply:
+        from prepared_branch_governance import _write
+
         _write(f"repos/{repo}/rulesets", desired, "POST")
         reconcile_owner_admin_ruleset(policy, verify_only=True, read=read, repo=repo)
     return True

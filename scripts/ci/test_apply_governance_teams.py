@@ -702,6 +702,29 @@ def test_owner_admin_native_guard_preserves_review_and_nonowner_queue(module) ->
     assert rules["pull_request"]["required_approving_review_count"] == 0
     assert rules["pull_request"]["required_review_thread_resolution"] is True
     assert module.same_owner_admin_ruleset(guard, guard)
+    # The shell parity verifier imports by file path, without scripts/ci on
+    # sys.path. Read-only inspection must not import the mutation helper.
+    import builtins
+    from unittest.mock import patch
+
+    original_import = builtins.__import__
+
+    def isolated_import(name, *args, **kwargs):
+        if name == "prepared_branch_governance":
+            raise ModuleNotFoundError(name)
+        return original_import(name, *args, **kwargs)
+
+    def inspect(args):
+        if args[1].endswith("/rulesets?per_page=100"):
+            return [{"id": 1, "name": guard["name"]}]
+        if args[1].endswith("/rulesets/1"):
+            return guard
+        return read(args)
+
+    with patch("builtins.__import__", side_effect=isolated_import):
+        assert module.reconcile_owner_admin_ruleset(
+            policy, verify_only=True, read=inspect
+        ) is False
     for change in ("strict", "ci_app", "owner_bypass", "no_pr"):
         bad = copy.deepcopy(guard)
         if change == "strict":
