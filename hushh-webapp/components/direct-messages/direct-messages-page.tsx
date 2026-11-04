@@ -791,7 +791,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useLayoutEffect(() => {
     const input = composerRef.current;
     if (!input) return;
-    input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 144)}px`;
+    input.style.height = "auto"; input.style.height = `${input.scrollHeight}px`;
   }, [draft, thread.canSend]);
 
   useEffect(() => {
@@ -2271,8 +2271,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     aria-label={`${reaction.emoji} reaction, ${reaction.count}`}
                                     onClick={() => saveReaction(message, reaction.emoji)}
                                   >
-                                    <span>{reaction.emoji}</span>
-                                    <span>{reaction.count}</span>
+                                    <span className={styles.reactionBadge}>
+                                      <span>{reaction.emoji}</span>
+                                      <span>{reaction.count}</span>
+                                    </span>
                                   </button>
                                 ))}
                               </div>

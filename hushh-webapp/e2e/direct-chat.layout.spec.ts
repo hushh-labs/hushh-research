@@ -644,13 +644,23 @@ test("quoted history navigation preserves live updates while an older page is pe
   expect(errors).toEqual([]);
 });
 
-for (const width of [320, 768]) test(`file and voice bubbles stay usable with native tap targets at ${width}px`, async ({ page }) => {
+for (const width of [320, 768]) for (const caption of [false, true]) test(`file and voice bubbles stay usable with native tap targets at ${width}px${caption ? " with captions" : ""}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 852 }); const errors = await mount(page);
-  await fixture(page, "fixture.addFiles()");
+  await fixture(page, caption ? 'fixture.addFiles("Notes shared with the attachment")' : "fixture.addFiles()");
   const file = page.locator('[data-chat-message="fixture-file"]');
   const voice = page.locator('[data-chat-message="fixture-audio"]');
   await expect(file).toContainText("Chat_Spec_v2.pdf"); await expect(file).toContainText("PDF");
   await expect(voice).toContainText("0:04");
+  for (const message of [file, voice]) {
+    const metadata = message.locator('[class*="messageBubbleMeta"]');
+    await expect(metadata).toHaveCSS("display", "flex");
+    await expect(metadata).toHaveCSS("justify-content", "flex-end");
+    await expect(metadata).toHaveCSS("margin-inline-start", "0px");
+    const time = (await metadata.locator("time").boundingBox())!;
+    const bubble = (await message.locator("[data-chat-bubble]").boundingBox())!;
+    expect(time.x).toBeGreaterThan(bubble.x + bubble.width / 2);
+    expect(time.y + time.height).toBeLessThanOrEqual(bubble.y + bubble.height);
+  }
   await expect(voice.getByLabel("Delivered", { exact: true })).toBeVisible();
   for (const button of [file.getByRole("button", { name: "Download Chat_Spec_v2.pdf" }), voice.getByRole("button", { name: "Play voice message" })]) {
     const box = (await button.boundingBox())!;
@@ -770,7 +780,7 @@ registerMessagesPresentationCases({ mount, touchMessageActions, expectSharedDock
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });
-  for (const width of [320, 393, 768, 1440]) test(`compact message timestamps sit at the lower right at ${width}px`, async ({ page }) => {
+  for (const width of [320, 393, 768, 1440]) test(`message timestamps share the text baseline at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mount(page, width === 393);
@@ -792,10 +802,12 @@ test.describe("compact message layout", () => {
         const time = element.querySelector("time")!.getBoundingClientRect();
         const bubble = element.getBoundingClientRect();
         const meta = element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect();
-        return { textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: Math.min(14, parseFloat(getComputedStyle(element).paddingRight)), timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
+        return { textTop: text.top, textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: parseFloat(getComputedStyle(element).paddingRight), textGap: meta.left - text.right, timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
       });
       expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
-      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
+      expect(geometry.timeTop, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textTop);
+      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.textBottom);
+      expect(geometry.textGap).toBeGreaterThanOrEqual(12);
       expect(geometry.timeBottom).toBeLessThanOrEqual(geometry.bubbleBottom);
       expect(Math.abs(geometry.rightInset - geometry.expectedInset), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
       expect(geometry.timeSize).toBeLessThanOrEqual(11);
@@ -1088,7 +1100,8 @@ test("preserves pending reactions and deleted reply geometry with a short phone 
     };
   });
   expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeLessThan(deletedGeometry.textBottom);
-  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textBottom);
+  expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textTop);
+  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(deletedGeometry.textBottom);
   expect(Math.abs(deletedGeometry.rightInset - deletedGeometry.expectedInset), JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(1);
   await expect(deletedMeta).toHaveCSS("justify-content", "flex-end");
   // Muted ink on the darker pressed fill fell below the text contrast floor.
@@ -1186,6 +1199,12 @@ for (const width of [320, 393, 1440]) {
     await expect(bubble).toHaveCSS("border-top-width", "0px");
     const bubbleBox = (await bubble.boundingBox())!;
     const imageBox = (await sent.getByRole("img", { name: "Photo", exact: true }).boundingBox())!;
+    const metadata = sent.locator('[class*="messageBubbleMeta"]');
+    await expect(metadata).toHaveCSS("display", "flex");
+    await expect(metadata).toHaveCSS("margin-inline-start", "0px");
+    const time = (await metadata.locator("time").boundingBox())!;
+    expect(time.x).toBeGreaterThan(bubbleBox.x + bubbleBox.width / 2);
+    expect(time.y + time.height).toBeLessThanOrEqual(bubbleBox.y + bubbleBox.height);
     expect(Math.abs(imageBox.x - bubbleBox.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(imageBox.y - bubbleBox.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(imageBox.width - bubbleBox.width)).toBeLessThanOrEqual(1);

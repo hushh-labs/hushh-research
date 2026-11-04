@@ -166,7 +166,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
   }, [session, revision]);
 
   return <><section ref={surface} data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
-    ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
+    ? `${laneStyles.surface} flex h-full min-h-0 flex-col overflow-visible bg-transparent`
     : `${inlineStyles.surface} overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card`}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
       {collapsible ? <Button variant="ghost" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
@@ -606,7 +606,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
   return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : inlineStyles.body}`}>
     <div ref={transcript} tabIndex={0} aria-label="Circle messages" style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
       className={chatLane
-        ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
+        ? `${laneStyles.transcript} overflow-y-auto overscroll-contain bg-transparent py-4 sm:py-5`
         : `${inlineStyles.transcript} h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5`}>
       {hasOlder ? <Button variant="ghost" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
@@ -656,12 +656,12 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
     </div>
     <AgentDockPortal enabled={chatLane} visible={visible}>
     <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer data-messages-type-scale={chatLane || undefined}>
-    {anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className={`absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm ${chatLane ? quietStyles.action : ""}`} onClick={() => {
+    {anchored.current || !atBottom && messages.length ? <div className={chatLane ? laneStyles.latestControl : "absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3"}><Button variant="ghost" size="sm" disabled={jumping} className={chatLane ? quietStyles.action : "min-h-11 rounded-full border border-border bg-card shadow-sm"} onClick={() => {
       if (anchored.current) { void showWindow(); return; }
       atBottomRef.current = true;
       if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
       window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
-    }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null}
+    }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button></div> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     {jumping ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
     {reply ? <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-3 py-2" aria-label="Replying to message">

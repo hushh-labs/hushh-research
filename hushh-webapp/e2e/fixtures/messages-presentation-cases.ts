@@ -15,6 +15,121 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
   touchMessageActions: (page: Page) => Promise<boolean>;
   expectSharedDockFrame: (page: Page) => Promise<void>;
 }): void {
+  const geometry = (node: HTMLElement | SVGElement) => {
+    const style = getComputedStyle(node);
+    const box = node.getBoundingClientRect();
+    return { width: box.width, height: box.height, top: box.top, bottom: box.bottom,
+      padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
+      font: [style.fontFamily, style.fontSize, style.lineHeight, style.fontWeight],
+      radius: style.borderTopLeftRadius, background: style.backgroundColor,
+      border: style.borderTopWidth };
+  };
+  for (const width of [390, 768, 1280]) for (const dark of [false, true]) {
+    test(`Messages shares People and Circle geometry at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      const sample = async (kind: "people" | "circles") => {
+        const errors = await mount(page, dark, false, true);
+        if (kind === "circles") await page.getByRole("tab", { name: "Circles 3" }).click();
+        const pane = kind === "people" ? page.locator('[data-direct-message-page]') : page.locator('[data-circle-messages-pane]');
+        const row = pane.locator(kind === "people" ? '[class*="conversationRow"]' : '[class*="rowText"]').first();
+        const rowSurface = kind === "people" ? row : row.locator("..");
+        await rowSurface.hover();
+        const list = {
+          row: await rowSurface.evaluate(geometry),
+          avatar: await pane.locator(kind === "people" ? '[class*="conversationAvatar"]' : '[class*="groupAvatarFront"]').first().evaluate(geometry),
+          header: await pane.locator(kind === "people" ? '[class*="inboxHeader"]' : 'aside > header').first().evaluate(geometry),
+        };
+        if (kind === "people") await page.getByRole("button", { name: "Maya Rao", exact: true }).click();
+        else await pane.getByRole("button", { name: /Weekend friends/ }).click();
+        const editor = page.getByRole("textbox", { name: kind === "people" ? "Message Maya Rao" : "Message", exact: true });
+        await expect(editor).toBeVisible();
+        const selected = await rowSurface.evaluate(node => getComputedStyle(node).backgroundColor);
+        await editor.fill("Keep this draft");
+        const send = page.getByRole("button", { name: "Send message", exact: true });
+        const composer = { editor: await editor.evaluate(geometry), send: await send.evaluate(geometry),
+          material: await send.locator("..").evaluate(geometry) };
+        const message = page.locator(kind === "people" ? '[data-chat-message="maya-78"]' : '[data-circle-chat-lane] [data-chat-message="message-42"]');
+        const bubble = message.locator('[data-chat-bubble]');
+        const metadata = message.locator(kind === "people" ? '[class*="messageBubbleMeta"]' : '[class*="_meta_"]');
+        const avatar = message.locator(kind === "people" ? '[class*="messagePeerAvatar"]' : '[class*="avatar"] [data-slot="avatar"]');
+        const transcript = { bubble: await bubble.evaluate(geometry), metadata: await metadata.evaluate(geometry),
+          avatar: await avatar.evaluate(geometry),
+          inset: await page.locator(kind === "people" ? '[class*="messageList"]' : '[aria-label="Circle messages"]').evaluate(node => getComputedStyle(node).paddingLeft) };
+        const addReaction = message.getByRole("button", { name: "React to message", exact: true });
+        await expect(addReaction.locator("svg")).toHaveCSS("width", "20px");
+        await expect(addReaction.locator("svg")).toHaveCSS("height", "20px");
+        await page.keyboard.press("Tab");
+        await addReaction.focus();
+        await expect(addReaction).toHaveCSS("outline-width", "2px");
+        await expect(addReaction).toHaveCSS("background-image", /14px.*15px/);
+        // Compact actions live above the bubble for keyboard focus. Their touch
+        // entry is the separately covered long-press menu, not a pointer click.
+        if (await touchMessageActions(page)) await addReaction.press("Enter");
+        else await addReaction.click();
+        const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
+        await picker.getByPlaceholder("Search emoji").fill("👍");
+        await picker.getByRole("button", { name: "Use 👍", exact: true }).click();
+        const reaction = message.getByRole("button", { name: /👍.*1/ });
+        await expect(reaction).toBeVisible();
+        const badge = reaction.locator(":scope > span").first();
+        const reactions = { target: await reaction.evaluate(geometry), badge: await badge.evaluate(geometry) };
+        const avatarTarget = await message.getByRole(kind === "people" ? "link" : "button", { name: /View .* profile/ }).evaluate(geometry);
+        const reactionGap = (await reaction.locator("..").boundingBox())!.y - (await bubble.boundingBox())!.y - (await bubble.boundingBox())!.height;
+        await expect(editor).toHaveValue("Keep this draft");
+        await editor.fill(Array.from({ length: 20 }, (_, index) => `Line ${index}`).join("\n"));
+        await expect.poll(async () => (await editor.boundingBox())!.height).toBeLessThanOrEqual(128);
+        const grown = (await editor.boundingBox())!.height;
+        await editor.fill("Keep this draft");
+        await page.screenshot({ path: testInfo.outputPath(`${kind}-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
+        expect(errors).toEqual([]);
+        // Leave the real route in its inbox state before mounting the other lane;
+        // a phone visit otherwise correctly restores the last open conversation.
+        if (kind === "people") await page.getByRole("button", { name: "Back to messages", exact: true }).click();
+        return { list, selected, composer, transcript, reactions, avatarTarget, reactionGap, grown };
+      };
+      const people = await sample("people");
+      const circles = await sample("circles");
+      console.log("MESSAGES_GEOMETRY " + JSON.stringify({ width, dark, people, circles }));
+      for (const result of [people, circles]) {
+        expect(result.list.row.height).toBeGreaterThanOrEqual(70);
+        expect(result.list.avatar.width).toBe(44);
+        expect(result.list.avatar.height).toBe(44);
+        expect(result.composer.send.width).toBe(44);
+        expect(result.composer.send.height).toBe(44);
+        expect(result.composer.material.width).toBe(44);
+        expect(result.composer.material.height).toBe(44);
+        expect(result.composer.material.padding).toEqual(["0px", "0px", "0px", "0px"]);
+        expect(result.composer.material.border).toBe("0px");
+        expect(result.composer.editor.height).toBe(44);
+        expect(result.transcript.avatar.width).toBe(32);
+        expect(result.transcript.avatar.height).toBe(32);
+        expect(result.transcript.inset).toBe("16px");
+        expect(result.transcript.bubble.padding).toEqual(["10px", width < 768 ? "14px" : "44px", "10px", "14px"]);
+        expect(result.transcript.metadata.font.slice(1, 3)).toEqual(["10px", "12px"]);
+        expect(Math.abs(result.transcript.avatar.bottom - result.transcript.bubble.bottom)).toBeLessThanOrEqual(1);
+        expect(result.reactions.target.width).toBeGreaterThanOrEqual(44);
+        expect(result.reactions.target.height).toBe(44);
+        expect(result.reactions.badge.height).toBe(26);
+        expect(result.avatarTarget.width).toBeGreaterThanOrEqual(44);
+        expect(result.avatarTarget.height).toBeGreaterThanOrEqual(44);
+        expect(Math.abs(result.reactionGap)).toBeLessThanOrEqual(1);
+        expect(result.transcript.metadata.top).toBeGreaterThanOrEqual(result.transcript.bubble.top);
+        expect(result.transcript.metadata.bottom).toBeLessThanOrEqual(result.transcript.bubble.bottom);
+        expect(result.grown).toBe(128);
+      }
+      expect(Math.abs(people.list.row.width - circles.list.row.width)).toBeLessThanOrEqual(1);
+      expect(people.list.header.padding).toEqual(circles.list.header.padding);
+      expect(people.list.row.background).toBe(circles.list.row.background);
+      expect(people.selected).toBe(circles.selected);
+      expect(people.transcript.bubble.padding).toEqual(circles.transcript.bubble.padding);
+      expect(people.transcript.bubble.font).toEqual(circles.transcript.bubble.font);
+      expect(people.transcript.bubble.radius).toBe(circles.transcript.bubble.radius);
+      expect(people.transcript.metadata.font).toEqual(circles.transcript.metadata.font);
+      expect(people.composer.editor.padding).toEqual(circles.composer.editor.padding);
+      expect(people.composer.editor.font).toEqual(circles.composer.editor.font);
+    });
+  }
   test("hover actions do not shift messages or the centered composer", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
     const touchActions = await touchMessageActions(page);

@@ -86,7 +86,7 @@ const fixture = {
   },
   photoPending: () => [...pendingPhotos.values()].some(photo => photo.started),
   releasePhotos: () => { for (const photo of pendingPhotos.values()) photo.release(); },
-  addFiles: () => {
+  addFiles: (caption = "") => {
     const bytes = new Uint8Array(44 + 128000), view = new DataView(bytes.buffer);
     for (const [offset, tag] of [[0, "RIFF"], [8, "WAVE"], [12, "fmt "], [36, "data"]] as const) bytes.set(new TextEncoder().encode(tag), offset);
     view.setUint32(4, bytes.length - 8, true); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
@@ -98,7 +98,7 @@ const fixture = {
     ] as const) {
       attachments.set(id, blob);
       const items = rows.get("maya")!;
-      items.push({ id, conversationId: "maya", content: "", senderIsViewer, createdAt: new Date(Date.parse(items.at(-1)!.createdAt) + 60000).toISOString(), readAt: null, deliveredAt: senderIsViewer ? new Date().toISOString() : null, attachment });
+      items.push({ id, conversationId: "maya", content: caption, senderIsViewer, createdAt: new Date(Date.parse(items.at(-1)!.createdAt) + 60000).toISOString(), readAt: null, deliveredAt: senderIsViewer ? new Date().toISOString() : null, attachment });
     }
     dispatchDirectMessagesUpdated({ userId: "fixture-owner", conversationId: "maya", messageId: "fixture-files", source: "sse" });
   },

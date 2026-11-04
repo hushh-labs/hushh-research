@@ -15,13 +15,14 @@ import { CircleChat } from "./circle-chat";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { MessagesBackButton } from "@/components/direct-messages/messages-back-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { ArrowLeft, MessageCircle, Pencil, Plus, RefreshCw, Search, UsersRound } from "@/components/icons";
 import styles from "./circle-messages-pane.module.css";
 import peopleStyles from "@/components/direct-messages/direct-messages-page.module.css";
 import quietStyles from "@/components/direct-messages/messages-quiet-action.module.css";
 
-function GroupAvatar({ photoUrl }: { photoUrl?: string | null }) {
-  return <span className={styles.groupAvatar} aria-hidden="true">
+function GroupAvatar({ photoUrl, header = false }: { photoUrl?: string | null; header?: boolean }) {
+  return <span className={`${styles.groupAvatar} ${header ? styles.headerAvatar : ""}`} aria-hidden="true">
     <span className={styles.groupAvatarFront}>{photoUrl ? <Image src={photoUrl} alt="" width={33} height={33} unoptimized /> : <UsersRound className="size-5" />}</span>
   </span>;
 }
@@ -166,7 +167,7 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
       {normalizedSearch && circles.length > 0 && visibleCircles.length === 0 ? <div className={styles.empty}>
         <p>No matching circles</p><p>Try another name.</p>
       </div> : null}
-      {visibleCircles.map((circle) => <button key={circle.id} type="button" className={styles.row}
+      {visibleCircles.map((circle) => <PersonSelectionSurface key={circle.id} type="button" className={styles.row}
         data-selected={selectedId === circle.id || undefined} onClick={() => {
           setSelectedId(circle.id);
           writeLastMessagesSelection(ownerId, { lane: "circles", circleId: circle.id });
@@ -174,16 +175,16 @@ export function CircleMessagesPane({ active = true, initialCircleId = null, onTh
         <GroupAvatar photoUrl={circle.photoUrl} />
         <span className={styles.rowText}><strong>{circle.name}</strong><span>{circle.memberCount} {circle.memberCount === 1 ? "member" : "members"}</span></span>
         <MessageCircle aria-hidden="true" className="size-4" />
-      </button>)}
+      </PersonSelectionSurface>)}
       </div>
     </aside>
     <section className={styles.thread} data-thread-open={Boolean(selected) || undefined} aria-label={selected ? `${selected.name} messages` : "Circle messages"}>
       {selected && session ? <>
         <header className={peopleStyles.threadHeader}>
           <div className={peopleStyles.threadHeaderContent}>
-          <ShellActionSurface className={`${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
+          <ShellActionSurface className={`${peopleStyles.backButton} ${styles.back} !size-11`} aria-label="Back to circles" onClick={closeThread}><ArrowLeft aria-hidden="true" className="size-5" /></ShellActionSurface>
           <div className={peopleStyles.threadIdentity}>
-          <GroupAvatar photoUrl={selected.photoUrl} />
+          <GroupAvatar photoUrl={selected.photoUrl} header />
           <div className={peopleStyles.threadTitle}><h2>{selected.name}</h2><p>{selected.memberCount} {selected.memberCount === 1 ? "member" : "members"}</p></div>
           </div>
           <div className={peopleStyles.threadHeaderActions}>{profileAction}</div>
