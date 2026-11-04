@@ -1019,6 +1019,7 @@ class GoogleCalendarService:
         duration_minutes: int,
         limit: int = 3,
         calendar_ids: list[str] | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return the earliest free slots of a requested duration.
 
@@ -1052,6 +1053,7 @@ class GoogleCalendarService:
             start_at=start_at,
             end_at=end_at,
             calendar_ids=calendar_ids,
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
         )
         range_start = datetime.fromisoformat(availability["time_min"].replace("Z", "+00:00"))
         range_end = datetime.fromisoformat(availability["time_max"].replace("Z", "+00:00"))
@@ -1299,6 +1301,14 @@ class GoogleCalendarService:
                 )
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
+        if plan.get("opening_selection"):
+            await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
+            if plan.get("conflicts"):
+                raise GoogleConnectionError(
+                    "This slot is no longer free. Check openings again.",
+                    status_code=409,
+                    reason_code="calendar_availability_changed",
+                )
         await self._check_read_binding(user_id, binding)
         proposal_id, expires_at = await self.proposals.issue(
             user_id=user_id, action=action, plan=plan, expected_etag=expected_etag
@@ -1524,6 +1534,8 @@ class GoogleCalendarService:
                     ),
                 )
             if action == "create":
+                if plan.get("opening_selection"):
+                    await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
                 response = await booking.execute_create(
                     self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
                 )

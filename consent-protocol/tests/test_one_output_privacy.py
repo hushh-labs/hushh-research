@@ -55,6 +55,8 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
     delta = StateDeltaEvent(
         delta=[
             {"op": "add", "path": "/" + key, "value": offer},
+            {"op": "copy", "from": "/" + key + "/ids", "path": "/copied"},
+            {"op": "move", "from": "/" + key, "path": "/moved"},
             {"op": "replace", "path": "", "value": {key: offer, "visible": 2}},
         ]
     )
@@ -64,7 +66,13 @@ def test_mail_selection_provider_ids_stay_out_of_wire_state():
 
 
 @pytest.mark.parametrize(
-    "key", ["hussh:calendar_event_read_offer", "hussh:calendar_list_read_offer"]
+    "key",
+    [
+        "hussh:calendar_event_read_offer",
+        "hussh:calendar_list_read_offer",
+        "hussh:calendar_invitation_read_offer",
+        "hussh:calendar_opening_read_offer",
+    ],
 )
 def test_calendar_selection_provider_ids_stay_out_of_wire_state(key: str) -> None:
     offer = {"owner_id": "owner", "ids": ["private-calendar-provider-id"]}
@@ -73,6 +81,8 @@ def test_calendar_selection_provider_ids_stay_out_of_wire_state(key: str) -> Non
     delta = StateDeltaEvent(
         delta=[
             {"op": "add", "path": "/" + key, "value": offer},
+            {"op": "copy", "from": "/" + key + "/ids", "path": "/copied"},
+            {"op": "move", "from": "/" + key, "path": "/moved"},
             {"op": "replace", "path": "", "value": {key: offer, "visible": 2}},
         ]
     )

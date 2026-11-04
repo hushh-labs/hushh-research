@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import ValidationError
+
+from hushh_mcp.services.calendar_opening_selection import CalendarOpeningSelection, instant
 from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
@@ -338,6 +341,9 @@ def validate_plan(
         )
         if booking_source == "board":
             plan.update(board_create_fields(payload, account_id, meeting_type, meeting_link))
+        if "opening_selection" in payload:
+            selection = _opening_selection(payload["opening_selection"], plan)
+            plan["opening_selection"] = selection.model_dump(mode="json")
         from hushh_mcp.services.advisor_calendar_binding import bind_plan
 
         bind_plan(plan, payload)
@@ -533,3 +539,52 @@ def event_payload(plan: dict[str, Any]) -> dict[str, Any]:
 
     bind_event(body, plan)
     return body
+
+
+def _opening_selection(raw: Any, plan: dict[str, Any]) -> CalendarOpeningSelection:
+    try:
+        selection = CalendarOpeningSelection.model_validate(raw)
+        if (
+            selection.calendar_id != plan["calendar_id"]
+            or selection.slot.start_at != plan["start_at"]
+            or selection.slot.end_at != plan["end_at"]
+            or selection.time_zone != plan["time_zone"]
+        ):
+            raise ValueError("Opening target changed")
+    except (ValidationError, TypeError, ValueError, KeyError) as exc:
+        raise GoogleConnectionError(
+            "Calendar slot review changed. Check openings again.", status_code=409
+        ) from exc
+    return selection
+
+
+async def check_opening(
+    calendar: GoogleCalendarService,
+    *,
+    user_id: str,
+    plan: dict[str, Any],
+    binding: tuple[str, ...] | None,
+) -> None:
+    """A slot reference is free-only, both before review and before dispatch."""
+    selection = _opening_selection(plan["opening_selection"], plan)
+    if instant(selection.slot.start_at) <= datetime.now(UTC) or not binding:
+        raise GoogleConnectionError("This slot expired. Check openings again.", status_code=409)
+    result = await calendar.freebusy(
+        user_id=user_id,
+        start_at=selection.slot.start_at,
+        end_at=selection.slot.end_at,
+        calendar_ids=selection.calendar_ids,
+        expected_binding=binding,
+    )
+    busy = calendar._merged_busy_intervals(
+        calendars=result.get("calendars"),
+        range_start=instant(selection.slot.start_at),
+        range_end=instant(selection.slot.end_at),
+    )
+    if busy:
+        raise GoogleConnectionError(
+            "This slot is no longer free. Check openings again.",
+            status_code=409,
+            reason_code="calendar_availability_changed",
+        )
+    await calendar._check_read_binding(user_id, binding)

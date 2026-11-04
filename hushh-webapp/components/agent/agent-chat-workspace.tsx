@@ -311,6 +311,7 @@ import {
 } from "@/lib/agent/agent-chat-history-cache";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
@@ -4123,7 +4124,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * cancellable while Google's window is open; on success it is cleared, as
    * the old redirect-return did, and the person stays in this chat.
    */
-  const runDirectiveConnect = (kind: "gmail_modify" | "calendar") => {
+  const runDirectiveConnect = (kind: "gmail_modify" | "calendar", accountId = "default") => {
     const owner = user;
     if (!owner?.uid || !applicationOwnerId) return;
     const ownerId = applicationOwnerId;
@@ -4135,7 +4136,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       (controls) =>
         kind === "calendar"
           ? connectCalendarInPlace({
-              owner,
+              owner, accountId,
               accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true,
               ...controls,
               vaultOwnerCapability: vaultOwnerToken ?? undefined,
@@ -4409,7 +4410,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       setPendingSpecialistDirective({ delegateAgentId: "agent_calendar", directive: { kind: "action", payload: {
-        type: "calendar.invitations", filter: "all", calendarId: invitation.calendarId,
+        type: "calendar.invitations", filter: "all", accountId: invitation.accountId ?? "default", calendarId: invitation.calendarId,
         eventId: invitation.eventId, decision: invitation.decision || "offer_times", accountEmail: invitation.accountEmail, timeZone: invitation.timeZone,
         startAt: invitation.startAt, endAt: invitation.endAt,
       } }, message: invitation.request || "Review this invitation.", stateChanged: true,
@@ -8115,12 +8116,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (!calendarSlot || !(error instanceof GoogleCalendarError) || error.status !== 409 || error.message !== "Calendar availability changed; review the proposed time again before confirming") return;
         setCalendarSlot(current => current === calendarSlot ? null : current);
         const payload = directive.directive.payload;
-        appendMessage({ id: `calendar-conflict-${crypto.randomUUID()}`, role: "assistant", ...stampNow(), status: "done", text: "That time became busy. No event was created. I can check newly available times for this meeting.", renderAsPlainAssistantMessage: true, followUps: [`Find newly available times on ${calendarSlot.selection.date} in ${calendarSlot.selection.timeZone} for this ${calendarSlot.selection.durationMinutes}-minute meeting with ${JSON.stringify(payload.attendees)}. Keep the title ${JSON.stringify(payload.title)}. The previous time became unavailable; check fresh availability and show a new proposal for confirmation.`] });
+        appendMessage({ id: `calendar-conflict-${crypto.randomUUID()}`, role: "assistant", ...stampNow(), status: "done", text: "That time became busy. No event was created. I can check newly available times for this meeting.", renderAsPlainAssistantMessage: true, followUps: [`Find newly available times using Calendar account_id ${JSON.stringify(calendarSlot.selection.accountId ?? "default")} on ${calendarSlot.selection.date} in ${calendarSlot.selection.timeZone} for this ${calendarSlot.selection.durationMinutes}-minute meeting with ${JSON.stringify(payload.attendees)}. Keep the title ${JSON.stringify(payload.title)}. The previous time became unavailable; check fresh availability and show a new proposal for confirmation.`] });
       },
       run: async () => {
         if (calendarSlot) {
           const status = await GoogleCalendarService.status(await user!.getIdToken(), userId);
-          if (!status.connected || !status.google_email || status.google_email.toLowerCase() !== calendarSlot.selection.accountEmail.toLowerCase()) {
+          const selected = calendarAccountStatus(status, calendarSlot.selection.accountId ?? "default");
+          if (!selected?.connected || !selected.google_email || selected.google_email.toLowerCase() !== calendarSlot.selection.accountEmail.toLowerCase()) {
             throw new Error("The connected Calendar account changed. Ask One to check this meeting again before scheduling.");
           }
           if (!chatSessionRef.current.isCurrent(confirmedChatEpoch)) throw new Error("The conversation changed before scheduling.");
@@ -10750,8 +10752,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     >;
                     const type = String(payload.type ?? "");
                     if (type === "calendar.invitations" && user && applicationOwnerId) {
-                      return <CalendarInvitationChat key={`${applicationOwnerId}:${vaultSessionEpoch}:${conversationId}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
+                      return <CalendarInvitationChat key={`${applicationOwnerId}:${vaultSessionEpoch}:${conversationId}:${String(payload.accountId || "default")}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
                         owner={user} ownerId={applicationOwnerId} payload={payload} vaultOwnerCapability={vaultOwnerToken} confirmLegacyTransition={terms => confirmTransition(terms, 'calendar')}
+                        expectedAccountId={calendarInvitationContext && calendarInvitationContext.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountId ?? "default" : undefined}
                         expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
                         onBusyChange={setSpecialistBusy} onClose={() => { setPendingSpecialistDirective(null); setCalendarInvitationContext(null); }}
                         onResult={result => appendMessage({ id: `calendar-rsvp-${crypto.randomUUID()}`, role: "assistant", ...stampNow(),
@@ -10799,7 +10802,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }
                         // Opens Google's window synchronously, in this click;
                         // the chat window never navigates.
-                        runDirectiveConnect("calendar");
+                        const requestedAccount = calendarDirectiveAccountId(payload);
+                        if (requestedAccount === null) {
+                          addErrorMessage("The Calendar account selection is invalid. Check it again before reconnecting.");
+                          return;
+                        }
+                        const selectedAccount = calendarInvitationContext?.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current
+                          ? calendarInvitationContext.selection.accountId ?? "default"
+                          : calendarSlot?.selection.ownerId === applicationOwnerId && calendarSlot.conversationId === conversationIdRef.current
+                            ? calendarSlot.selection.accountId ?? "default" : null;
+                        if (selectedAccount !== null && requestedAccount !== selectedAccount) {
+                          addErrorMessage("The Calendar account selection changed. Check the selected account again before reconnecting.");
+                          return;
+                        }
+                        runDirectiveConnect("calendar", requestedAccount);
                         return;
                       }
                       if (type !== "calendar.execute_proposal") {
@@ -10861,7 +10877,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           timeOptions={calendarSlot ? calendarSlotStarts(calendarSlot.selection) : []}
                           onChangeTime={calendarSlot && calendarSlot.selection.ownerId === applicationOwnerId && calendarAction === "create" ? start => {
                             setPendingSpecialistDirective(null);
-                            enqueuePrompt(`Change this meeting to ${start}, ending ${new Date(Date.parse(start) + calendarSlot.selection.durationMinutes * 60000).toISOString()} (${calendarSlot.selection.timeZone}). Keep the ${calendarSlot.selection.durationMinutes}-minute duration, title ${JSON.stringify(payload.title)} and attendees ${JSON.stringify(attendees)}. Check availability again and show a fresh proposal for confirmation; do not schedule yet.`);
+                            enqueuePrompt(`Change this meeting using Calendar account_id ${JSON.stringify(calendarSlot.selection.accountId ?? "default")} to ${start}, ending ${new Date(Date.parse(start) + calendarSlot.selection.durationMinutes * 60000).toISOString()} (${calendarSlot.selection.timeZone}). Keep the ${calendarSlot.selection.durationMinutes}-minute duration, title ${JSON.stringify(payload.title)} and attendees ${JSON.stringify(attendees)}. Check availability again and show a fresh proposal for confirmation; do not schedule yet.`);
                           } : undefined}
                         />
                       );
