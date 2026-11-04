@@ -1,5 +1,5 @@
 {
-  "version": "2026.11-dev.37",
+  "version": "2026.11-dev.38",
   "channel": "dev",
   "summary": "Reliable restarts and private chat.",
   "notes": {
@@ -15,7 +15,6 @@
     ]
   },
   "supportedUpgradeDigests": [
-    "sha256:6e57f251081954e207311c5c2b8b44b36fa49caaf639518d370060039eeac423",
-    "sha256:5d8f7243ff5d10c1f3596fdb66f95c337c3637afcd997808fe62cf13152b46aa"
+    "sha256:639958a5d5a9adf12c5a93839afaa3a8a1a86421896291b746b4e8c257ffc8a1"
   ]
 }
