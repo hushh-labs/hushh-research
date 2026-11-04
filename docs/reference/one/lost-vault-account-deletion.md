@@ -57,19 +57,21 @@ Automated phone-entry and OTP coverage uses synthetic provider and SMS ports. It
 
 ## Occupied-phone entry
 
-Where phone-linked deletion is enabled (outside production by default; see
-[account-deletion rollout, 436](../operations/account-deletion-rollout.md)), the
-phone-conflict **Delete my previous account** choice opens an in-place review
-instead: the requester's proof of the number deletes the account holding it, and
-the requester then verifies the number on their own account. Otherwise the
-choice resumes this same panel after independent sign-in to that account. A
-server-bound opaque continuation
-preserves the chosen action through sign-out, account switching and refresh.
-It is navigation state, never proof of ownership. The phone link and account
+The phone-conflict screen offers **Sign in to existing account** and **Use a
+different number**. Sign-in creates a server-bound opaque recovery continuation,
+then requires independent sign-in to the account already linked to the number.
+The conflict screen does not offer deletion, transfer or device revocation.
+The continuation preserves the chosen action through sign-out, account switching
+and refresh; it is navigation state, never proof of ownership.
+
+Previously issued deletion continuations retain their separate review and
+confirmation flow. Phone-linked deletion availability remains governed by the
+[account-deletion rollout, 436](../operations/account-deletion-rollout.md).
+The phone link and account
 generation must still match when deletion is submitted. An expired request says
 **Account not deleted** and asks the person to start again; it cannot silently
 sign them out as if erasure succeeded. Recovery and device review use separate
-continuations. Moving a phone link preserves the previous files and vault.
+continuations. The retained phone-transfer API preserves the previous files and vault.
 
 Native proof startup has one bounded deadline, distinct from OTP expiry. The
 same-user Google/Apple reauthentication and secondary phone-proof adapters retain
