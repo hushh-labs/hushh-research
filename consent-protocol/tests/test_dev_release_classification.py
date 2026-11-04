@@ -312,3 +312,162 @@ def test_release_phase_blocks_without_unnecessary_rollback(
     assert outputs["frontend_failure"] == str(rollback).lower()
     early = next(i for i, item in enumerate(steps) if item.get("id") == "check-frontend-image")
     assert early < next(i for i, item in enumerate(steps) if item.get("id") == "deploy-backend")
+
+
+def _dev_workflow_step(name: str) -> dict:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
+    return next(step for step in workflow["jobs"]["deploy"]["steps"] if step["name"] == name)
+
+
+def _fake_backend_sync(tmp_path: Path, help_text: str, has_profile_constant: bool = False) -> None:
+    script = tmp_path / "scripts/ops/sync_backend_runtime_secrets.py"
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(
+        '"""--drive-four-group-index compatibility fixture."""\n'
+        "import json, os, sys\n"
+        f'if "--help" in sys.argv:\n print({help_text!r})\n'
+        "else:\n"
+        ' open(os.environ["BACKEND_ARGS_FILE"], "w").write(json.dumps(sys.argv[1:]))\n'
+    )
+    if has_profile_constant:
+        profile_file = tmp_path / "consent-protocol/db/hosted_custody_profiles.py"
+        profile_file.parent.mkdir(parents=True, exist_ok=True)
+        profile_file.write_text('DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"\n')
+
+
+@pytest.mark.parametrize(
+    ("help_text", "has_profile_constant", "expected_profile"),
+    [
+        ("", True, False),
+        ("--hosted-custody-profile", True, False),
+        ("--dev-target", True, False),
+        ("--hosted-custody-profile --dev-target", False, False),
+        ("--hosted-custody-profile --dev-target", True, True),
+    ],
+)
+def test_backend_secret_sync_adds_custody_flags_only_for_compatible_source(
+    tmp_path, help_text, has_profile_constant, expected_profile
+):
+    step = _dev_workflow_step("Sync canonical hosted runtime secrets")
+    source = step["run"].split("# Same main-workflow", 1)[0]
+    _fake_backend_sync(tmp_path, help_text, has_profile_constant)
+    replacements = {
+        "${{ env.PROTOCOL_PYTHON }}": sys.executable,
+        "${{ env.GCP_PROJECT_ID }}": "hushh-pda-dev",
+        "${{ env.APP_FRONTEND_ORIGIN }}": "https://dev.example",
+        "${{ env.DEV_DB_UNIX_SOCKET }}": str(tmp_path / "socket"),
+        "${{ env.DEV_CLOUDSQL_INSTANCE }}": "hushh-pda-dev:us-central1:hushh-dev-pg",
+        "/tmp/dev-runtime-secret-sync.json": str(tmp_path / "dev-runtime-secret-sync.json"),  # noqa: S108 - redirect workflow output into pytest isolation.
+    }
+    for old, new in replacements.items():
+        source = source.replace(old, new)
+    source += "\nexit 0\n"
+    args_file = tmp_path / "backend-args.json"
+    env = os.environ.copy()
+    env.update(BACKEND_ARGS_FILE=str(args_file), DEV_TARGET="shared-dev")
+    result = subprocess.run(  # noqa: S603 - execute trusted repository workflow shell with fake local commands.
+        ["bash", "-euo", "pipefail", "-c", source],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    args = json.loads(args_file.read_text())
+    has_profile = "--hosted-custody-profile" in args
+    assert has_profile is expected_profile
+    assert ("--dev-target" in args) is expected_profile
+    if expected_profile:
+        assert args[args.index("--hosted-custody-profile") + 1] == "dev_control_plane_owner"
+        assert args[args.index("--dev-target") + 1] == "shared-dev"
+
+
+@pytest.mark.parametrize(
+    ("target", "help_text", "has_profile_constant", "expected"),
+    [
+        ("shared-dev", "--hosted-custody-profile --dev-target", True, "dev_control_plane_owner"),
+        ("shared-dev", "--hosted-custody-profile", True, ""),
+        ("shared-dev", "--hosted-custody-profile --dev-target", False, ""),
+        ("", "--hosted-custody-profile --dev-target", True, ""),
+        ("scope-commerce-sandbox", "--hosted-custody-profile --dev-target", True, ""),
+        ("pod-publication", "--hosted-custody-profile --dev-target", True, ""),
+    ],
+)
+def test_predeploy_profile_export_is_dev_target_and_source_gated(
+    tmp_path, target, help_text, has_profile_constant, expected
+):
+    step = _dev_workflow_step("Apply dev DB migrations and predeploy schema gate")
+    source = (
+        step["run"]
+        .split("# HOSTED_CUSTODY_PROFILE_ENV_GATE_BEGIN", 1)[1]
+        .split("# HOSTED_CUSTODY_PROFILE_ENV_GATE_END", 1)[0]
+    )
+    _fake_backend_sync(tmp_path, help_text, has_profile_constant)
+    source = source.replace("${{ env.PROTOCOL_PYTHON }}", sys.executable)
+    source = source.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-dev")
+    source = source.replace(
+        "${{ env.DEV_CLOUDSQL_INSTANCE }}", "hushh-pda-dev:us-central1:hushh-dev-pg"
+    )
+    source += '\nprintf "%s" "${HUSHH_HOSTED_CUSTODY_PROFILE-}"\n'
+    env = os.environ.copy()
+    env.update(DEV_TARGET=target, HUSHH_HOSTED_CUSTODY_PROFILE="stale-profile")
+    result = subprocess.run(  # noqa: S603 - execute trusted repository workflow shell with fake local commands.
+        ["bash", "-euo", "pipefail", "-c", source],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == expected
+
+
+def test_commerce_target_skips_hosted_backend_secret_sync(tmp_path):
+    step = _dev_workflow_step("Sync canonical hosted runtime secrets")
+    source = step["run"].split("# Same main-workflow", 1)[0]
+    _fake_backend_sync(tmp_path, "--hosted-custody-profile --dev-target")
+    preview = tmp_path / "scripts/deploy/commerce-preview-verify.py"
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_text(
+        "import json, os, sys\n"
+        'open(os.environ["PREVIEW_ARGS_FILE"], "w").write(json.dumps(sys.argv[1:]))\n'
+    )
+    source = source.replace("${{ env.PROTOCOL_PYTHON }}", sys.executable)
+    source = source.replace("/tmp/dev-runtime-secret-sync.json", str(tmp_path / "report.json"))  # noqa: S108 - isolate workflow report path.
+    args_file = tmp_path / "backend-args.json"
+    preview_args_file = tmp_path / "preview-args.json"
+    env = os.environ.copy()
+    env.update(
+        BACKEND_ARGS_FILE=str(args_file),
+        PREVIEW_ARGS_FILE=str(preview_args_file),
+        DEV_TARGET="scope-commerce-sandbox",
+    )
+    result = subprocess.run(  # noqa: S603 - execute trusted repository workflow shell with fake local commands.
+        ["bash", "-euo", "pipefail", "-c", source],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not args_file.exists()
+    assert json.loads(preview_args_file.read_text()) == [
+        "--phase",
+        "resources",
+        "--report-path",
+        str(tmp_path / "report.json"),
+    ]
+
+
+def test_pod_publication_job_cannot_export_hosted_custody_profile():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
+    pod_job = workflow["jobs"]["pod-publication"]
+    assert "HUSHH_HOSTED_CUSTODY_PROFILE" not in str(pod_job)
+    assert "--hosted-custody-profile" not in str(pod_job)
