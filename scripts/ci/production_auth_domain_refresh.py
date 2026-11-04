@@ -28,6 +28,20 @@ ACTIVE_ANCHOR_SOURCE = "4452c7121c80ef73e8e6d43cd7af19b20f679a83"
 # and the restored healthy application source.
 ACTIVE_ANCHOR_PRIMARY_SOURCE = "84b80bcab6b5b7a4de21a5a992d3c969dacba5b9"
 CANDIDATE = "00507b68ea293524f73ad42b1839984bcaa46c98"
+# Reviewed historical publication repair only; not ordinary deployment acceptance.
+# The original failed run/artifact remain immutable and retain their refused result.
+PUBLICATION_RECONCILIATION = {
+    "run_id": 41608303952,
+    "attempt": 1,
+    "workflow_sha": "0e4e0c57a367bc050aeef311d22af9ba25486a54",
+    "artifact_id": 13218986310,
+    "artifact_digest": "sha256:d104d6db7bdc01844ceb5bc2c05b94300071502f253e0b1239cef550e60ac27f",
+    "immutable_ref": "refs/tags/deployed/production/00507b68-20261103T092251Z",
+    "tag_oid": "faeb0e63f5aae00885e5eeb299d17f01f98e6736",
+    "preserved_operational_oid": "5b4f56d6cdbc3f6153e6565bf894f634fae692e6",
+    "reconciled_by": "kushaltrivedi5",
+    "reconciled_at": "2026-11-04T07:31:42.563316+00:00",
+}
 IMAGES = {
     "frontend": "gcr.io/hushh-pda/hushh-webapp@sha256:88ac5b5b659f6c851e80f3926d553d4443fd4408f283df09a3974650eebecf98",
     "backend": "gcr.io/hushh-pda/consent-protocol@sha256:cce7d40168dfd8fc0958903f530242f754d346c3d8df6ae264e62fd11e889f60",
