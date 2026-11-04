@@ -22,6 +22,9 @@ DEFAULT_PROTECTED_PATHS = [
     ".github/workflows/",
     ".github/actions/",
     "scripts/ci/",
+    "hushh-webapp/scripts/testing/affected-tests.mjs",
+    "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+    "hushh-webapp/scripts/testing/playwright-shard.cjs",
     "deploy/",
     "config/ci-governance.json",
 ]
@@ -212,25 +215,60 @@ def evaluate(
     )
 
 
-def _owner_approvals(repo: str, number: int, head: str, allowed: list[str], token: str = "", *, read=None) -> list[str]:
-    """Only a current-head, non-dismissed approval from a protected owner counts."""
+def owner_queue_approval(*, author: str, requester: str, review: str, main_policy: dict) -> list[str]:
+    """An owner's explicit queue request approves their own captured PR head.
+
+    The queue owner supplies authenticated membership and exact head evidence.
+    This grants review authority only, never CI, queue or deployment bypass.
+    """
+    owners = set(resolve_allowed_users(main_policy))
+    exceptions = set(main_policy.get("review_bypass_users", []))
+    if not exceptions <= owners or main_policy.get("review_bypass_team_slug"):
+        raise PolicyError("Owner approval must not inherit a broader review bypass")
+    if review in {"APPROVED", "REVIEW_REQUIRED"} and author == requester and requester in exceptions:
+        return [requester]
+    return []
+
+
+def _latest_reviews(repo: str, number: int, token: str = "", *, read=None) -> dict[str, dict]:
+    """Read bounded decisive review history; comments do not withdraw a review."""
     from github_security_authority import GitHub
 
     read_page = read if read is not None else GitHub(repo, token).read
     latest: dict[str, dict] = {}
     for page in range(1, 21):
         rows = read_page(f"repos/{repo}/pulls/{number}/reviews?per_page=100&page={page}")
-        if not isinstance(rows, list):
+        if not isinstance(rows, list) or len(rows) > 100:
             raise GuardResolutionError("Malformed protected-review inventory")
         for row in rows:
-            login = str((row.get("user") or {}).get("login", ""))
-            if login in allowed and row.get("state") != "COMMENTED":
-                if int(row.get("id", 0)) > int(latest.get(login, {}).get("id", 0)):
+            if not isinstance(row, dict) or not isinstance(row.get("user"), dict):
+                raise GuardResolutionError("Malformed protected review")
+            login = row["user"].get("login")
+            if (not isinstance(login, str) or not login or type(row.get("id")) is not int
+                    or row["id"] <= 0 or row.get("state") not in
+                    {"APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED", "PENDING"}):
+                raise GuardResolutionError("Unverified protected review")
+            if row["state"] not in {"COMMENTED", "PENDING"}:
+                if not isinstance(row.get("commit_id"), str) or not re.fullmatch(r"[a-f0-9]{40}", row["commit_id"]):
+                    raise GuardResolutionError("Protected review has no verified commit")
+                if row["id"] > latest.get(login, {}).get("id", 0):
                     latest[login] = row
         if len(rows) < 100:
-            return sorted(login for login, row in latest.items()
-                          if row.get("state") == "APPROVED" and row.get("commit_id") == head)
+            return latest
     raise GuardResolutionError("Protected-review inventory exceeded its bound")
+
+
+def _owner_approvals(repo: str, number: int, head: str, allowed: list[str], token: str = "", *, read=None) -> list[str]:
+    """Only a current-head, non-dismissed approval from a protected owner counts."""
+    return sorted(login for login, row in _latest_reviews(repo, number, token, read=read).items()
+                  if login in allowed and row.get("state") == "APPROVED" and row.get("commit_id") == head)
+
+
+def require_uncontested_owner_approval(repo: str, number: int, head: str, *, read):
+    for row in _latest_reviews(repo, number, read=read).values():
+        if row.get("state") == "CHANGES_REQUESTED" or (
+                row.get("state") == "DISMISSED" and row.get("commit_id") == head):
+            raise PolicyError("Resolve the outstanding or withdrawn review before owner self-approval")
 
 
 def _self_test() -> int:
@@ -243,6 +281,7 @@ def _self_test() -> int:
         ("maintainer edits governance config", ["config/ci-governance.json"], "kushaltrivedi5", 0),
         ("community edits only app code", ["hushh-webapp/app/page.tsx"], "random-contributor", 0),
         ("community edits scripts/ci", ["scripts/ci/orchestrate.sh"], "random-contributor", 1),
+        ("community edits unit selector", ["hushh-webapp/scripts/testing/affected-tests.mjs"], "random-contributor", 1),
     ]
     # The cohort resolver: a missing or empty key must STOP the run, never inherit a
     # wider list. Pinned because the widening fallback read as a narrowing in a diff.
