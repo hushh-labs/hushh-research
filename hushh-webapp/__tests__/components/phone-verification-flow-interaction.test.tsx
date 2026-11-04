@@ -830,6 +830,32 @@ describe("phone conflict recovery", () => {
     }
     expect(transfer).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
   });
+  it("admits recovery only for an allowed current owner, once while busy", async () => {
+    let finish!: () => void;
+    let ownerCurrent = true;
+    let operationAllowed = true;
+    const recover = vi.fn().mockImplementation(() => operationAllowed
+      ? new Promise<void>(resolve => { finish = resolve; }) : Promise.resolve());
+    const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "link", isCurrent: () => ownerCurrent,
+      operationAllowed: () => operationAllowed,
+      startVerification: vi.fn().mockResolvedValue({ autoVerified: false }), recoverPreviousAccount: recover,
+      confirmVerification: vi.fn().mockRejectedValue(new ApiError("Conflict", 409, { code: "PHONE_ALREADY_VERIFIED" })), onCompleted: vi.fn() }));
+    await act(async () => { await result.current.handleStartVerification(false, "+16505550101"); });
+    await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });
+    const retained = result.current.recoverPrevious;
+    operationAllowed = false;
+    await act(async () => { await retained(); });
+    expect(recover).not.toHaveBeenCalled();
+    operationAllowed = true;
+    let pending!: Promise<void>;
+    act(() => { pending = retained(); void retained(); });
+    expect(recover).toHaveBeenCalledExactlyOnceWith("+16505550101");
+    expect(result.current.busy).toBe(true);
+    await act(async () => { finish(); await pending; });
+    ownerCurrent = false;
+    await act(async () => { await retained(); });
+    expect(recover).toHaveBeenCalledOnce();
+  });
   it("returns from an occupied number to phone entry through Back", async () => {
     const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",
       startVerification: vi.fn().mockResolvedValue({ autoVerified: false }),

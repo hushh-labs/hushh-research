@@ -828,7 +828,7 @@ export function usePhoneVerificationFlow({
   }, [submitVerificationCode, verificationCode]);
 
   const recoverPrevious = useCallback(async () => {
-    if (!current() || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
+    if (!current() || allowedOperation.current?.() === false || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
     await performPhoneRecovery(recoverPreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError);
   }, [current, busy, recoverPreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
 
