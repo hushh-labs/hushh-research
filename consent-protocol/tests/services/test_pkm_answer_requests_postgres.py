@@ -569,7 +569,7 @@ async def test_missing_age_can_be_omitted_before_a_payable_sex_and_location_answ
         request = (
             connection.execute(
                 text(
-                    "SELECT request_id, owner_user_id, terms_digest, composer_consent_digest "
+                    "SELECT request_id, owner_user_id, requester_user_id, terms_digest, composer_consent_digest "
                     "FROM pkm_answer_requests WHERE request_id=:r"
                 ),
                 {"r": request_id},

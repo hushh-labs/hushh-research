@@ -80,7 +80,7 @@
       },
       "deploy_paths": [
         {
-          "path": ".github/workflows/deploy-dev.yml",
+          "path": ".github/workflows/deploy-dev-implementation.yml",
           "accepted_worst_case": {
             "connections": 91,
             "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
@@ -116,7 +116,7 @@
       },
       "deploy_paths": [
         {
-          "path": ".github/workflows/deploy-uat.yml",
+          "path": ".github/workflows/deploy-uat-implementation.yml",
           "accepted_worst_case": {
             "connections": 237,
             "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
