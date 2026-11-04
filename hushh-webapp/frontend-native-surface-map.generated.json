@@ -2621,7 +2621,7 @@
         },
         "voice_playbook": {
           "playbook_id": "route.connect",
-          "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue. Multiple mutual connections open a paginated list on the mutuals query; a single mutual opens its profile directly. Profile Back returns to the same list, and list Back restores Find people.",
+          "purpose": "Find people opens by default; My connections is an adjacent local view with an independent accepted-roster search. Circles remains a route-backed surface. Review scoped requests only through the exact-person reviewPerson query; a retained Location task rechecks eligibility only after the owner returns with Continue. Multiple mutual connections open a paginated list on the mutuals query; a single mutual opens its profile directly. Profile Back returns to the same list, and list Back restores Find people. Explore your network opens the shared person preview journey with exact viewer-relative 1st, 2nd and 3rd filters. Consented profile connection lists and mutual lists can open further profiles in the same dialog, without growing route URLs.",
           "screen": "connect",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -2667,6 +2667,7 @@
       "voice_action_contract_ids": [
         "connect.accept_request",
         "connect.cancel_request",
+        "connect.explore_network",
         "connect.open_connections",
         "connect.open_nearby",
         "connect.open_people",
@@ -9464,6 +9465,7 @@
       },
       "voice_action_contract_file": "app/people/[personRef]/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "people.profile.browse_network",
         "people.profile.cancel_connection_request",
         "people.profile.connect",
         "people.profile.manage_consent",
@@ -11052,5 +11054,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "836c3c40683ee386aa7e5ea439249abc08eb2d64c9b98a9ea0d339f5ef50eb77"
+  "content_sha256": "7842788a4abf61d51d79cdd0de63e80d4a9a2b1839ebe04b1998500d00b5fa32"
 }

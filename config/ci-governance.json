@@ -13,11 +13,13 @@
     "prepared_branches": {
       "dev": {
         "policy_key": "pr_train",
-        "merge_queue_ruleset_name": "dev merge queue"
+        "merge_queue_ruleset_name": "dev merge queue",
+        "owner_admin_ruleset_name": "dev owner validated merge"
       },
       "uat": {
         "policy_key": "uat_merge",
-        "merge_queue_ruleset_name": "uat merge queue"
+        "merge_queue_ruleset_name": "uat merge queue",
+        "owner_admin_ruleset_name": "uat owner validated merge"
       },
       "uat-isolated": {
         "policy_key": "uat_merge",
@@ -89,7 +91,14 @@
       ".agents/skills/codex-skill-authoring/",
       ".agents/skills/verify-before-claim/",
       ".agents/skills/docs-governance/",
-      "docs/vision/agent-ontology.md"
+      "docs/vision/agent-ontology.md",
+      "bin/hushh",
+      "consent-protocol/.github/actions/setup-python-uv/",
+      "consent-protocol/scripts/ci/",
+      "consent-protocol/scripts/run-test-ci.sh",
+      "consent-protocol/scripts/sync_runtime_requirements.sh",
+      "hushh-webapp/playwright.config.ts",
+      "hushh-webapp/vitest.config.ts"
     ],
     "require_code_owner_reviews": true,
     "merge_users": [
@@ -252,7 +261,14 @@
       ".agents/skills/codex-skill-authoring/",
       ".agents/skills/verify-before-claim/",
       ".agents/skills/docs-governance/",
-      "docs/vision/agent-ontology.md"
+      "docs/vision/agent-ontology.md",
+      "bin/hushh",
+      "consent-protocol/.github/actions/setup-python-uv/",
+      "consent-protocol/scripts/ci/",
+      "consent-protocol/scripts/run-test-ci.sh",
+      "consent-protocol/scripts/sync_runtime_requirements.sh",
+      "hushh-webapp/playwright.config.ts",
+      "hushh-webapp/vitest.config.ts"
     ],
     "require_code_owner_reviews": true
   }

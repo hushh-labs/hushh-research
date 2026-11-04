@@ -1590,6 +1590,17 @@
       "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_attempt_email_preferences",
+        "one_attempt_email_outbox"
+      ],
+      "id": "one_attempt_email",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Owner-authenticated manual GET/PUT attempt-email preference. Accepted correlated client terminal reports atomically enqueue with their current epoch and explicit choice. A separately keyed environment-bound worker selects 20 pending rows and claims each under owner lifecycle/epoch/permission locks before a single provider submission. Indexed state/time maintenance is bounded to 100 rows. Feedback binds at most 20 accepted provider references before advancing the mailbox cursor; actual RFC/recipient-hash hard failures stop future activity mail."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "one_attention_ledger"
@@ -3504,6 +3515,7 @@
         "action_ids": [
           "connect.accept_request",
           "connect.cancel_request",
+          "connect.explore_network",
           "connect.open_connections",
           "connect.open_nearby",
           "connect.open_people",
@@ -7241,21 +7253,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "a485c2152c81131c0483e42780697322248f448814393871c537fd071e014ca0",
-    "action_gateway": "17f7a78bf1b63e26603f504d394baf8b2248e0d30038172da7a91cfa02c30716",
+    "action_gateway": "766892200886a946e581bea59922c658247b13746c41d2a6c542b9c4dcfdfa62",
     "agent_registry": "20b8c73a348832f0ee2e26e63bec2231503c602cae507c3e86c8f6d258b6601a",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "04643579d871ddbe1c1a69c85db254950461aa1157a85138cbbc2ac3735c1f9a",
+    "data_plane": "07c0ef4e8eaddde0f85cfd22f12d6c0dacc8a7e0adec95025f844fc987fdcbde",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
-    "route_index": "f78d98ce14b0eb9afc131484e9253a10a2680274559ffa0534b2a6dcc205cfd6",
-    "route_layout": "f3cf7f8a67ebecd6881618d2034f733c1a4392cd763db6532ef0f049791636d0",
-    "surface_map": "67347a304024c3733da745874682f3df70ef9eadffe3ef87911ecdf7249644c7",
+    "route_index": "2f7c319fcc0a0a96b0dee159e1edb50bdd5c23fbaef941b212aae4b44f1d77e7",
+    "route_layout": "3ae691a61a95404ac107e5ed9599b1425acbb35bd8e6960b7b716fc2d3841f15",
+    "surface_map": "0ccefde885b9a41558209051fe4fb8a8672bc1eaa05a243e075436cff2da990e",
     "topology_contract": "f7648e6890e00ada03ed0a52648c819e937d33aa956a0cfb146629a1908e2779",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 307,
+    "actions": 313,
     "agents": 21,
     "aliases": 4,
     "decision_required": 2,
@@ -7263,6 +7275,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 143
+    "table_families": 144
   }
 }
