@@ -5578,13 +5578,20 @@ be confirmed. Owner-scoped `GET /phone/transfer/{transfer_id}`, existing committ
 provider-effect settlement, notices and erasure fences remain supported. Release
 must drain older producer revisions; do not reverse historical committed effects.
 
-Phone-proven linked-account deletion is disabled in every environment, even if
-`HUSHH_PHONE_LINKED_DELETION_ENABLED` is set. Both new preparation and confirmation
-of old prepared operations refuse with `PHONE_LINKED_DELETION_UNAVAILABLE` before
-proof or erasure dispatch. A caller cannot delete another email account to claim
-its number. Historical linked-deletion status and cancellation remain available.
-The original owner may still independently sign in and use ordinary account
-deletion; no live account or existing phone binding is changed by this release.
+Phone-proven linked-account deletion uses `HUSHH_PHONE_LINKED_DELETION_ENABLED`:
+explicit false disables preparation and confirmation; otherwise it defaults on
+outside production and off in production. The independent phone-recovery producer
+gate remains required. A fresh real Firebase SMS authentication event for the
+exact stored number is required; configured/shared test codes never authorize
+cross-account deletion. Proof expiry is rechecked after admission lock waits.
+Final account erasure detaches only the deleting owner's raw references after its
+tombstone exists, retaining hashed, requester-scoped receipts and consumed-event
+uniqueness for the existing 90-day retention window, including after either account
+is erased. Status and cancellation remain available
+when new deletion is disabled. Existing full-account provider cleanup and release
+fences still apply; admission is not proof of completed erasure. This restores
+backend availability only; the current UI continues its independent previous-account
+sign-in journey. It does not restore phone transfers or authorize a live deletion.
 
 ## Private-pod memory processing consent
 

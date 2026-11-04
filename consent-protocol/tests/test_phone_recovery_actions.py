@@ -450,7 +450,9 @@ def test_confirm_requires_literal_true_and_does_not_echo_credentials(monkeypatch
 
 
 @pytest.mark.parametrize("environment", ["production", "uat", "dev"])
-def test_linked_deletion_cannot_release_another_email_accounts_number(monkeypatch, environment):
+def test_disabled_linked_deletion_rejects_proof_and_redacts_invalid_requests(
+    monkeypatch, environment
+):
     from api.routes import account_phone_linked_deletion as linked_routes
     from hushh_mcp.services import phone_linked_deletion
 
@@ -472,8 +474,7 @@ def test_linked_deletion_cannot_release_another_email_accounts_number(monkeypatc
     for name in ("HUSHH_PHONE_LINKED_DELETION_ENABLED", "APP_RUNTIME_PROFILE", "HUSHH_DEPLOY_ENV"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ENVIRONMENT", environment)
-    # A stale deployment flag cannot re-enable cross-account takeover.
-    monkeypatch.setenv("HUSHH_PHONE_LINKED_DELETION_ENABLED", "true")
+    monkeypatch.setenv("HUSHH_PHONE_LINKED_DELETION_ENABLED", "false")
     assert phone_linked_deletion.enabled() is False
     response = client.post(
         "/api/account/phone/linked-account/deletions", json={"phone_number": PHONE}
@@ -497,3 +498,48 @@ def test_linked_deletion_cannot_release_another_email_accounts_number(monkeypatc
     assert response.json()["detail"]["code"] == "PHONE_LINKED_DELETION_UNAVAILABLE"
     proof.assert_not_awaited()
     dispatch.assert_not_awaited()
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+@pytest.mark.parametrize("explicit", [None, "true", "false", "invalid"])
+def test_linked_deletion_uses_its_existing_environment_rollout_control(
+    monkeypatch, environment, explicit
+):
+    from hushh_mcp.services import phone_linked_deletion as linked
+
+    for name in ("HUSHH_PHONE_LINKED_DELETION_ENABLED", "APP_RUNTIME_PROFILE", "HUSHH_DEPLOY_ENV"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    if explicit is not None:
+        monkeypatch.setenv("HUSHH_PHONE_LINKED_DELETION_ENABLED", explicit)
+    assert linked.enabled() is (
+        explicit == "true" if explicit is not None else environment != "production"
+    )
+    if explicit is None:
+        monkeypatch.setenv("APP_RUNTIME_PROFILE", "production")
+        assert linked.enabled() is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["configured_test", "sms"])
+async def test_shared_test_code_never_authorizes_linked_account_deletion(monkeypatch, transport):
+    from hushh_mcp.services import phone_linked_deletion as linked
+
+    verify = AsyncMock()
+    monkeypatch.setattr(linked, "_sms_event", verify)
+    with pytest.raises(HTTPException) as refused:
+        await linked._verify_proof("requester", str(uuid4()), PHONE, transport, None, "123456")
+    assert refused.value.detail["code"] == "PHONE_LINKED_DELETION_REAL_SMS_REQUIRED"
+    verify.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_linked_deletion_keeps_the_independent_recovery_producer_gate(monkeypatch):
+    from api.middlewares import auth_reliability_trace
+    from hushh_mcp.services import phone_linked_deletion as linked
+
+    monkeypatch.setenv("HUSHH_PHONE_LINKED_DELETION_ENABLED", "true")
+    monkeypatch.setattr(auth_reliability_trace, "request_feature_enabled", lambda _: False)
+    with pytest.raises(HTTPException) as refused:
+        await linked.prepare("requester", PHONE)
+    assert refused.value.detail["code"] == "PHONE_RECOVERY_UNAVAILABLE"
