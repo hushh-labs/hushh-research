@@ -30,7 +30,8 @@
     },
     "review_rulesets": {
       "main": "main owner review"
-    }
+    },
+    "protected_pipeline_review_ruleset_name": "protected pipeline review"
   },
   "repository": {
     "allow_auto_merge": true
