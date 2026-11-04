@@ -56,8 +56,8 @@ def test_backend_cloud_build_uses_valid_secret_flag_combinations():
 def test_selected_reviewer_repetition_requires_each_independent_pass(
     tmp_path: Path, repeat: bool, fail_at: int, expected_calls: int, completed: int
 ) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
-    inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    inputs = workflow.get("on", workflow.get(True))["workflow_call"]["inputs"]
     assert inputs["repeat_reviewer_byok"]["default"] is False
     step = next(
         step
@@ -114,7 +114,7 @@ def test_selected_reviewer_repetition_requires_each_independent_pass(
 def test_email_auth_release_admits_only_supported_enabled_backends(
     tmp_path, supported, backend, flag, allowed
 ):
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     sync = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]
@@ -265,6 +265,8 @@ def test_initial_contacts_hydrated_profiles_pass_the_strict_shape_contract(
 
 
 def _read(path: str) -> str:
+    if path in {".github/workflows/deploy-dev.yml", ".github/workflows/deploy-uat.yml"}:
+        path = path.removesuffix(".yml") + "-implementation.yml"
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
@@ -569,7 +571,7 @@ def test_uat_drive_worker_uses_the_evaluated_fleet_model() -> None:
 def test_uat_semantic_provider_reaches_api_and_both_worker_revisions(
     selector, default, expected_name
 ) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     flag = selector.replace("_UAT", "")
     for step_id in ("deploy-backend", "deploy-drive-worker", "deploy-drive-v1-worker"):
@@ -613,7 +615,7 @@ def test_uat_semantic_provider_deploy_guards_fail_closed(tmp_path, lane, provide
     if provider is not None:
         environment[selector] = provider
     if lane == "api":
-        workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+        workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
         backend = next(
             step
             for step in workflow["jobs"]["deploy"]["steps"]
@@ -649,7 +651,7 @@ def test_uat_semantic_provider_deploy_guards_fail_closed(tmp_path, lane, provide
 
 
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     selection = workflow["jobs"]["select-target"]
     wait = workflow["jobs"]["wait-capacity"]
     deploy = workflow["jobs"]["deploy"]
@@ -714,7 +716,7 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 def test_initial_contacts_source_change_requires_paired_scope_before_builds(
     tmp_path: Path, scope: str
 ) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     scope_index = next(index for index, step in enumerate(steps) if step.get("id") == "scope")
     scope_step = steps[scope_index]
@@ -772,7 +774,7 @@ def test_initial_contacts_source_change_requires_paired_scope_before_builds(
 
 
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
@@ -796,7 +798,7 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
 
 def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     """Drive-only credentials are opt-in UAT bindings, never generic fallbacks."""
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     backend_build = managed_vertex_probe_surface()
     names = (
         "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
@@ -830,7 +832,7 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
         assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
         assert "_STRIPE_CONNECT_WEBHOOK_SECRET_SECRET=${{" not in workflow
 
-    uat = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    uat = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = uat["jobs"]["deploy"]["steps"]
     backend = next(step for step in steps if step.get("id") == "deploy-backend")
     worker = next(step for step in steps if step.get("id") == "deploy-drive-worker")
@@ -917,7 +919,7 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
 
 def test_document_owner_payouts_require_explicit_uat_api_and_worker_switches() -> None:
     """A UAT payout rollout must reach both runtimes and cannot silently reach production."""
-    uat = _read(".github/workflows/deploy-uat.yml")
+    uat = _read(".github/workflows/deploy-uat-implementation.yml")
     production = _read(".github/workflows/deploy-production.yml")
     backend_build = managed_vertex_probe_surface()
     uat_worker = _read("deploy/drive/deploy_worker_service.sh")
@@ -950,7 +952,7 @@ def test_frontend_verifies_server_chunks_before_binding_cloud_run_port() -> None
 
 
 def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     rollback_block = workflow[
         workflow.index("- name: Resolve rollback targets from predeploy traffic") : workflow.index(
             "- name: Resolve final Cloud Run state"
@@ -975,7 +977,7 @@ def test_uat_automatic_rollback_prefers_predeploy_serving_revision() -> None:
 
 
 def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
-    workflow_source = _read(".github/workflows/deploy-uat.yml")
+    workflow_source = _read(".github/workflows/deploy-uat-implementation.yml")
     workflow = yaml.safe_load(workflow_source)
 
     assert workflow["env"]["UAT_FIREBASE_PROJECT_ID"] == "hushh-pda"
@@ -987,7 +989,7 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
     backend_build = managed_vertex_probe_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
 
     assert load_profile("uat")["text_locations"] == ["global"]
     assert "_MANAGED_AI_CONFIG_HASH" in backend_build
@@ -1011,7 +1013,7 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
     workflow = yaml.safe_load(uat_workflow)
     # PyYAML's YAML 1.1 loader treats the workflow `on` key as True.
-    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    dispatch = workflow.get("on", workflow.get(True))["workflow_call"]
     assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
     plan = next(
         step
@@ -1216,8 +1218,8 @@ def _assert_vertex_candidate_probe(probe: str) -> None:
 
 
 def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Path) -> None:
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
-    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    dispatch = workflow.get("on", workflow.get(True))["workflow_call"]
     assert dispatch["inputs"]["skip_managed_vertex_probe_once"]["default"] is False
     steps = workflow["jobs"]["select-target"]["steps"]
     validation = next(
@@ -1559,7 +1561,7 @@ def test_managed_vertex_targets_follow_environment_profiles() -> None:
 def test_one_chat_uses_central_project_and_verified_profile() -> None:
     backend_build = managed_vertex_probe_surface()
     readiness = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
-    workflow = _read(".github/workflows/deploy-uat.yml")
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     assert "_HUSHH_ONE_CHAT_VERTEX_PROJECT=" not in workflow
     assert (
         '-n "${_HUSHH_ONE_CHAT_VERTEX_PROJECT}" || -n "${_HUSHH_ONE_VOICE_VERTEX_PROJECT}" ]]'
@@ -1593,7 +1595,7 @@ def test_one_voice_uses_central_project_and_is_probed_before_traffic() -> None:
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
     sources = [
         _read("deploy/backend.cloudbuild.yaml"),
-        _read(".github/workflows/deploy-uat.yml"),
+        _read(".github/workflows/deploy-uat-implementation.yml"),
         _read(".github/workflows/deploy-production.yml"),
         _read("consent-protocol/scripts/verify_managed_vertex_runtime.py"),
     ]
@@ -1617,7 +1619,7 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
 
 def test_calendar_voice_details_are_enabled_only_for_uat_rollout() -> None:
     backend_build = managed_vertex_probe_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert '_ONE_VOICE_CALENDAR_NARRATION_ENABLED: "false"' in backend_build
@@ -1636,8 +1638,8 @@ def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> 
     from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
 
     backend_build = managed_vertex_probe_surface()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
-    dev_workflow = _read(".github/workflows/deploy-dev.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev-implementation.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     for name in ("ONE_VOICE_LIVE_ENABLED", "VERTEX_LIVE_MODEL_ID", "VERTEX_LIVE_LOCATION"):
@@ -1686,7 +1688,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
 def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> None:
     backend_build = managed_vertex_probe_surface()
     backend_deploy = _backend_deploy()
-    uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    uat_workflow = _read(".github/workflows/deploy-uat-implementation.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert '"DB_POOL_MIN_SIZE=${_DB_POOL_MIN_SIZE}"' in backend_deploy
@@ -2575,7 +2577,7 @@ def test_complete_azure_bundle_does_not_require_a_working_alternate(classificati
 
 
 def test_provider_receipt_workflow_pins_collector_and_exact_build_identity():
-    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
     steps = workflow["jobs"]["deploy"]["steps"]
     deploy = next(s for s in steps if s.get("id") == "deploy-backend")
     capture = next(

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Literal
 
 import release_artifact_receipts
+import release_acceptance_provenance as release_provenance
 import production_phone_receipt
 import production_phone_lease
 import production_phone_nonproducer
@@ -142,7 +143,13 @@ def api(repository: str, endpoint: str):
     key = (repository, endpoint)
     if cache is not None and key in cache:
         return deepcopy(cache[key])
-    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{endpoint}"))
+    # GitHub may stop resolving a retired workflow by filename. Preserve its
+    # observed repository-local ID for history reads; origin checks still verify path.
+    retired = f"workflows/{ONE_CHAT_WORKFLOW}/"
+    if endpoint.startswith(retired) and repository != "hushh-labs/hushh-research":
+        raise retention.UnsafeState("retired workflow identity belongs to a different repository")
+    resolved = "workflows/382099846/" + endpoint[len(retired):] if endpoint.startswith(retired) else endpoint
+    result = json.loads(command("gh", "api", f"repos/{repository}/actions/{resolved}"))
     if cache is not None:
         cache[key] = deepcopy(result)
     return result
@@ -164,9 +171,16 @@ def trusted_run(run: dict, repository: str, workflow: str) -> bool:
 
 
 def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
+    branch_admitted = run.get("head_branch") == "main"
+    if not branch_admitted and workflow == "deploy-uat.yml":
+        try:
+            release_provenance.deployment_authority(run, "uat")
+            branch_admitted = True
+        except ValueError:
+            return False
     return (
         run.get("path") == f".github/workflows/{workflow}"
-        and run.get("head_branch") == "main"
+        and branch_admitted
         and run.get("status") == "completed"
         and (run.get("repository") or {}).get("full_name") == repository
         and (run.get("head_repository") or {}).get("full_name") == repository
@@ -175,11 +189,34 @@ def trusted_origin(run: dict, repository: str, workflow: str) -> bool:
 
 def verify_post_release_failure(repository: str, run: dict, release: dict) -> None:
     """A failed hygiene step never substitutes for successful release gates."""
-    result = api(repository, f"runs/{run['id']}/jobs?filter=latest&per_page=100")
-    jobs = result.get("jobs") or []
-    if result.get("total_count") != 1 or len(jobs) != 1:
+    attempt = run.get("run_attempt", 1)
+    if type(attempt) is not int or attempt < 1:
+        raise retention.UnsafeState("production deployment attempt is invalid")
+    result = api(repository, f"runs/{run['id']}/attempts/{attempt}/jobs?per_page=100")
+    jobs = result.get("jobs")
+    if (not isinstance(jobs, list) or not 1 <= len(jobs) <= 100
+            or result.get("total_count") != len(jobs)
+            or any(not isinstance(job, dict) for job in jobs)):
         raise retention.UnsafeState("production deployment job inventory is incomplete")
-    job = jobs[0]
+    deploy = [job for job in jobs if job.get("name") == "Deploy Production Scope"]
+    if len(deploy) != 1 or any(
+        job.get("status") != "completed"
+        or job.get("conclusion") not in {"success", "skipped"}
+        for job in jobs if job.get("name") != "Deploy Production Scope"
+    ):
+        raise retention.UnsafeState("production failure includes another job")
+    # New workflows include dispatch/security and conditional activation jobs.
+    # A skipped mandatory clearance is not a legitimate skipped activation.
+    if len(jobs) > 1:
+        for name in ("Validate Production dispatch mode",
+                     "Deployment security / Verify repository secret clearance"):
+            matched = [job for job in jobs if job.get("name") == name]
+            if len(matched) != 1 or matched[0].get("conclusion") != "success":
+                raise retention.UnsafeState("production mandatory preflight did not succeed")
+    current = uncached_api(repository, f"runs/{run['id']}")
+    if current.get("run_attempt", 1) != attempt or current.get("status") != "completed":
+        raise retention.UnsafeState("production deployment attempt changed during inspection")
+    job = deploy[0]
     steps = job.get("steps") or []
     by_name = {step.get("name"): step for step in steps}
     failed = [step.get("name") for step in steps if step.get("conclusion") == "failure"]
@@ -518,7 +555,7 @@ def bounded_uat_runs(repository: str, workflow: str, status: str) -> list[dict]:
     for page in range(1, 11):
         batch = api(
             repository,
-            f"workflows/{workflow}/runs?branch=main&status={status}&per_page=100&page={page}",
+            f"workflows/{workflow}/runs?{'branch=main&' if workflow != 'deploy-uat.yml' else ''}status={status}&per_page=100&page={page}",
         )["workflow_runs"]
         if not isinstance(batch, list) or any(not isinstance(run, dict) for run in batch):
             raise retention.UnsafeState("UAT deployment history is invalid")
@@ -918,7 +955,7 @@ def find_release(
         else:
             runs = api(
                 repository,
-                f"workflows/{lane_config['workflow']}/runs?branch=main&status=completed&per_page=50",
+                f"workflows/{lane_config['workflow']}/runs?{'branch=main&' if environment != 'uat' else ''}status=completed&per_page=50",
             )["workflow_runs"]
     for run in runs:
         one_chat = environment == "uat" and trusted_origin(
@@ -1366,7 +1403,7 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     for name in sorted(workflows):
         result = api(
             repository,
-            f"workflows/{name}/runs?branch=main&status=completed&per_page=50",
+            f"workflows/{name}/runs?{'branch=main&' if name != 'deploy-uat.yml' else ''}status=completed&per_page=50",
         )
         batch = result.get("workflow_runs")
         if not isinstance(batch, list) or any(not isinstance(run, dict) for run in batch):
@@ -1375,8 +1412,7 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     runs.sort(key=lambda run: int(run["id"]), reverse=True)
     for run in runs:
         if (
-            run.get("path") in {f".github/workflows/{name}" for name in workflows}
-            and run.get("head_branch") == "main"
+            any(trusted_origin(run, repository, name) for name in workflows)
             and run.get("status") == "completed"
             and run.get("event") == "workflow_dispatch"
             and (run.get("repository") or {}).get("full_name") == repository

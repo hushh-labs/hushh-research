@@ -72,11 +72,30 @@ policy references for `dev` and `uat`. These are branch policies, separate from
 the top-level `dev` and `uat` environment dispatch cohorts. A declaration does
 not create a branch, apply protection or grant deployment authority.
 
-Preparation provides strict destination freshness, merge-queue event coverage,
-and aggregate CI rejection of skipped freshness for both branches. Main keeps
-its existing bounded PR freshness; queue admission remains strict. The existing
-protection verifier resolves the declared branch policy and exact queue ruleset;
-it refuses undeclared branches rather than silently treating them as Main.
+Destination drift is guidance, not an ancestry-age rejection. The queue verifies
+all included changes against the actual destination and preceding queued changes.
+The verifier resolves each declared policy and exact queue ruleset; undeclared
+branches refuse. Ordinary mergers have no queue bypass. Named owner Admin merges additionally
+require the separate strict-CI/PR guard described in Admin SOP. Source intent is not proof of live settings; read them
+back after the reviewed activation.
+
+Roll out combined-result validation separately on every destination (`main`,
+`dev`, `uat` and the retained train). Admission executes authority code from the
+merge group's protected **base**, so including the helper for the first time in
+the activation PR is insufficient:
+
+1. Land the queue helper, its dependencies and focused tests through the existing
+   validation path; leave the current queue workflow active.
+2. Land the activation workflow after verifying that foundation exists in the
+   destination base. Preserve unrelated destination changes during each sync.
+3. Observe a successful subsequent combined-result run using the corrected
+   helper. The activation PR itself cannot certify a helper fix absent from its
+   base.
+4. Apply the reviewed merger/review restrictions and read back the result.
+   Ordinary queue intake is non-strict; the named owner direct route retains
+   its independent strict-CI/PR guard.
+
+These are source and policy operations only. They do not deploy an application.
 
 Before enabling intake, preserve existing refs and outstanding work, prepare each
 branch from the then-current Main baseline, and apply/read back its protection.
@@ -115,9 +134,10 @@ The following work remains before the UAT selection transition:
 
 1. Maintain Dev intake without discarding train or active branch work.
 2. Select dependency-complete changes into UAT; stabilize there and carry fixes
-   back to Dev. Keep both deployments manual. Until the direct-CI path is
-   qualified, the final assembled SHA still needs Dev acceptance; an original
-   cherry-picked commit's receipt cannot qualify it.
+   back to Dev. Keep both deployments manual. Direct UAT uses exact assembled-SHA
+   qualification; an original cherry-picked commit's receipt cannot qualify it.
+   Verify the direct route's admission and serving evidence before claiming the
+   transition is operationally complete.
 3. Promote the exact UAT-qualified application SHA through a reviewed Main
    promotion. Record the Main approval merge separately, prove no new content was
    introduced, and preserve service-specific acceptance and rollback.
@@ -258,7 +278,10 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
 2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
-3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
+3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
+   authority. Preserve the existing Dev/UAT cohorts. Main's six merge operators
+   match its production operators, while protected edits require Kushal/Ankit.
+   Changing one capability does not silently grant another.
 4. Preflight requires reachability from protected UAT. Direct UAT candidates
    require exact current-branch CI and the observed serving base; source selection
    alone is not admission.
@@ -294,7 +317,7 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 - `.github/workflows/`
 - `.github/actions/`
 - `scripts/ci/`
-- `scripts/git/check-main-sync.sh` (the Base Freshness Gate's implementation; a PR
+- `scripts/git/check-main-sync.sh` (destination drift diagnostics; a PR
   runs its own copy, so changing it needs the same review as the workflow)
 - `deploy/`
 - `config/ci-governance.json`
@@ -319,14 +342,17 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    surface. It requires `GH_TOKEN` in the governance job to resolve the PR's
    changed files; if it cannot resolve them it **fails closed** (blocks), never
    open. A `--self-test` runs in CI so the guard can never silently regress.
-3. **Branch-protection approval.** The standard 1 independent approval plus
-   approval-of-most-recent-push still applies underneath the two layers above.
+3. **Review and owner approval.** Ordinary PRs require one independent latest-push
+   approval. Kushal or Ankit may explicitly land their own exact PR head under the
+   [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority).
+   The Admin command verifies authenticated author identity, current validation
+   and the exact tested merge tree; unresolved objections still block.
 
 ### Production access administration
 
-Production dispatch and protected pipeline edits are limited to the six actors
+Production dispatch and Main merging are limited to the six actors
 in the committed policy: `kushaltrivedi5`, `msainani`,
-`RGlodAkshat`, `ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged.
+`RGlodAkshat`, `ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged. Protected pipeline edits require Kushal or Ankit.
 The managed teams mirror these lists; changing a team alone does not change
 workflow authority. Policy changes take effect after landing on Main.
 
@@ -344,10 +370,10 @@ outside it, and the boundaries are enforced, not informal:
 
 | Ring | Team | Authority | Source of truth |
 |---|---|---|---|
-| Merge cohort | `allowed-maintainers-to-approve` | bypass review + merge queue | `main` / `pr_train` `review_bypass_users` + `merge_queue_bypass_users` |
+| Main merger | Explicit user restrictions | request a reviewed, verified Main merge | `main.merge_users` |
 | Pipeline editors | `pipeline-editors` | edit protected pipeline paths | `main.protected_pipeline_edit_users` |
 | Dev deploy cohort | `deploy-dev` | dispatch a dev deploy | `dev.manual_dispatch_users` |
-| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a protected-UAT application SHA with exact current CI | `uat.manual_dispatch_users` (held == merge cohort) |
+| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a protected-UAT application SHA with exact current CI | `uat.manual_dispatch_users` |
 | Production deploy cohort | `deploy-production` | dispatch production deploy | `production.manual_dispatch_users` |
 
 Live membership is `config/ci-governance.json` only, never transcribed into this
@@ -362,17 +388,12 @@ workflow log line — the refusal names the surface and the actor — not the ro
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
-- **UAT == merge cohort.** Anyone trusted to land code on `main` may validate it
-  in the UAT sandbox — no more, no less. The two lists are held equal and any
-  independent drift fails the check.
-- **The rings nest: production ⊆ uat ⊆ dev ⊆ merge cohort.** A more privileged
-  lane can never be held by more people than a less privileged one. Asserted by
-  `scripts/ci/test_apply_governance_teams.py`, which is pure config with no
-  network and therefore runs in the *blocking* governance lane. That placement is
-  the point: the UAT equality check above lives in the **advisory** lane, so when
-  UAT drifted to nine names against a fourteen-name merge cohort, the failure was
-  printed on every advisory run and blocked nothing for as long as it took
-  someone to read it.
+- **Main merge and deployment are independent.** Main's merger set matches the
+  approved production operator set, but each operation still has its own gate.
+  Dev/UAT retain their separately authored dispatch cohorts.
+- **Deployment rings nest: production ⊆ UAT ⊆ Dev.** Managed-team membership
+  remains derived from explicit policy. It cannot expand Main merge or protected
+  edit authority through an inherited bypass team.
 - **Production == approved dispatch cohort.** `production.manual_dispatch_users`
   must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
   widening or narrowing fails the check.
@@ -411,12 +432,10 @@ costs a reviewed protected-path PR.**
 
 `apply-governance.py` adds every managed-team member at `role=member`, and demotes
 anyone found at `maintainer` on each sync. This is load-bearing:
-`allowed-maintainers-to-approve` sits in `main`'s branch-protection `bypass_teams`,
-and a GitHub team *maintainer* can add members to their own team. At that role any
-member could hand a newcomer review bypass on `main` with no PR, no review and no
-trace in this repo — the same bypass the eight-person `protected_pipeline_edit_users`
-ring exists to prevent. The script previously created every member at
-`role=maintainer`, so this was live.
+a team maintainer can add members to that team. Deployment and prepared-branch
+roles must therefore remain derived from reviewed policy, without an indirect
+self-service grant path. Main has no shared-team review or queue bypass under the
+combined-result policy. Protected edit authority remains Kushal/Ankit.
 
 Organization owners are the exception, and the sync skips them. GitHub reports an
 owner as a maintainer of every team they belong to and refuses to demote them
@@ -428,52 +447,14 @@ did not already hold. The demotion therefore applies to exactly the population i
 matters for — org *members* who would otherwise gain a grant path they should not
 have.
 
-## The bypass lane
+## Admin landing
 
-The most privileged path in the repository, gathered in one place because it was
-previously described correctly but scattered across a dozen paragraphs with no heading
-of its own — so nobody could find it by searching for what it is called.
-
-**What it is.** A single sanctioned cohort — the `allowed-maintainers-to-approve` GitHub
-team, declared in [`config/ci-governance.json`](../../../config/ci-governance.json) as
-`review_bypass_users` and `merge_queue_bypass_users`. It applies to both the `main` and
-`pr_train` branch policies.
-
-**What it waives.** Two things only:
-
-1. **Review.** A member may land a PR on `main` without a counted GitHub approval. A PR
-   author still cannot self-approve through GitHub — sanctioned "self approval" *is* this
-   explicit branch-protection bypass, not a review that GitHub counted.
-2. **The train detour.** A member may open a PR **directly into `main`** from any branch,
-   instead of routing through `integration/pr-train` or a registered promote branch.
-
-It additionally carries the right to edit `protected_pipeline_paths`
-(`.github/workflows/`, `deploy/`, `scripts/ci/`, `config/ci-governance.json`), through the
-separate `protected_pipeline_edit_users` list.
-
-**What it never waives — this is the load-bearing half.** Bypass waives *review*, never
-*validation*. All of these still apply, to every member, on every PR:
-
-- `CI Status Gate`
-- merge queue validation
-- `Main Post-Merge Smoke Gate`
-
-A bypass that skipped validation would not be a lane, it would be a hole. Anything
-presented as needing to "bypass CI" is out of contract — see
-[ci.md](./ci.md) and never route it through this cohort.
-
-**Where the live membership lives.** `config/ci-governance.json`, and nowhere else. Do
-**not** transcribe the names into prose anywhere, including here — they drift, and a stale
-copy in a document is worse than no copy. The rings table above shows the relationships;
-the JSON shows who.
-
-**How to change it.** Edit the JSON, then run
-`python3 scripts/ci/apply-governance.py --apply`. The cohort lists are protected-surface
-edits — see *Adding or removing a maintainer* below for the one standardized procedure,
-and *Rule: deploy-actor lists are governance* for why they are not routine config.
-`scripts/ci/verify-main-branch-protection.sh` and
-`scripts/ci/verify-deployment-environment-governance.py` fail if the live GitHub state and
-this JSON drift apart.
+Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
+Administrative access does not waive required review, validation or the actual
+combined result. Queue bypass is disabled under the new combined-result policy;
+a procedural local check alone cannot protect direct UI/API bypass. Historical
+bypasses remain evidence of their original operations, not permission for new ones.
+Main's actual merger/requester is restricted to its approved production cohort.
 
 ### Rule: deploy-actor lists are governance, not routine config
 
@@ -489,36 +470,18 @@ thing you author. One apply command pushes it to GitHub — never edit GitHub
 settings by hand, that is what drifts (and silently leaves a "maintainer" who
 cannot actually approve on `main`).
 
-```bash
-# 1. Edit config/ci-governance.json. For a full maintainer, add the GitHub login to:
-#      main.review_bypass_users
-#      main.merge_queue_bypass_users
-#      dev.manual_dispatch_users        (held equal to the merge cohort)
-#      uat.manual_dispatch_users        (held equal to the merge cohort)
-#    Leave production.manual_dispatch_users and protected_pipeline_edit_users
-#    unchanged unless the owner says otherwise — those are the narrow rings.
-#    Granting merge alone does NOT grant deploy: the lists are independent, and
-#    a name missing from a deploy list is refused at dispatch with no hint that
-#    the config is where to look.
+Change only the explicitly requested capability lists. Main merge authority is
+`main.merge_users`; deployment lists are separate; protected editors are Kushal
+and Ankit. Only their named owner Admin route has review/queue exceptions;
+its additional strict-CI/PR guard must be active before granting that authority.
 
-# 2. Push intent to GitHub (idempotent). Dry-run first, then apply:
-python3 scripts/ci/apply-governance.py
-python3 scripts/ci/apply-governance.py --apply
-
-# 3. Confirm no drift (these run in CI too):
-./scripts/ci/verify-main-branch-protection.sh
-python3 scripts/ci/verify-deployment-environment-governance.py
-
-# 4. Land the JSON edit through the train (it is a protected_pipeline_path —
-#    needs maintainer-team review and should be merged by the owner).
-```
-
-`apply-governance.py` is the write side (JSON → GitHub branch-protection
-review-bypass + the `allowed-maintainers-to-approve` team). The `verify-*`
-scripts are the read side (drift detection). They are mirror images: if a verify
-reports drift, run apply. UAT/production deploy authority needs no GitHub sync —
-`scripts/ci/assert-governed-actor.py` reads `manual_dispatch_users` from the JSON
-at workflow runtime.
+Land reviewed policy intent, then dry-run the existing reconciler. Review its
+exact proposed mutations before applying. Default reconciliation handles review
+allowances and managed teams; `--main-merge-policy` handles Main's merger/queue
+boundary after combined-result qualification. `--branch dev`, `--branch uat`
+and `--branch integration/pr-train` handle only the named existing branch.
+They do not create refs or deploy. Queue restrictions are applied before relaxed
+age checks. Read back live branch and deployment policies after application.
 
 ## Hotfix Playbook
 
@@ -538,7 +501,7 @@ at workflow runtime.
 
 1. Require pull requests before merge.
 2. Require the `CI Status Gate` status check.
-3. Require strict/up-to-date checks.
+3. Require current combined-result validation; branch age alone is advisory.
 4. Require conversation resolution before merge.
 5. Enable merge queue for `integration/pr-train`.
 6. Block force-pushes.
@@ -550,14 +513,14 @@ at workflow runtime.
 
 1. Require pull requests before merge.
 2. Require the `CI Status Gate` status check.
-3. Require strict/up-to-date checks.
+3. Require current combined-result validation; branch age alone is advisory.
 4. Require conversation resolution before merge.
 5. Enable merge queue for `main`.
 6. Enable repository auto-merge so `gh pr merge` can hand eligible PRs to merge queue.
 7. Block force-pushes.
 8. Block branch deletion.
-9. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
-10. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
+9. Require one independent PR approval, or the narrow owner self-approval path on `main`; CI and current combined-result proof remain required.
+10. Require the queue and approved Main user restrictions; no team bypass may skip combined-result verification.
 11. Keep non-maintainer contributor and agent development off `main`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`, while train work promotes from `integration/pr-train`.
 
 Current operating note:
@@ -567,17 +530,14 @@ Current operating note:
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`
-- admin ownership does not count as an independent PR approval
+- GitHub cannot count a self-review; only the two named owners have the explicit self-authored Admin PR route
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
-- a PR author cannot self-approve through GitHub; sanctioned maintainer "self approval" means explicit branch-protection bypass, not a counted GitHub review
-- the current live branch protection review-bypass allowlist is whatever `config/ci-governance.json` `main.review_bypass_users` declares (kept in sync by `scripts/ci/apply-governance.py`); do not transcribe names here — they drift
-- the current live merge-queue bypass team is `Allowed Maintainers to Approve`, whose membership equals `main.merge_queue_bypass_users`
-- An approved but inactive team invitation is reported separately, never as active authority. The live verifier permits an unrelated `pending/member` invitation only after confirming the executing operator is already an active governed member of the exact queue team. Missing/inaccessible memberships, active extra actors and all protection drift still block; a pending invitation never authorizes its recipient to operate.
-- the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
-- if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
-- bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
-- direct pushes to `main` are not the bypass model; use a green PR, either a governed maintainer-authored direct-main PR or a green `integration/pr-train` promotion PR, and bypass merge only when explicitly justified
-- CI should still gate the landing decision; bypass is for review policy, not for skipping validation
+- Author/admin status alone is not approval. An authorized owner must explicitly
+  approve their captured head through Admin SOP; other PRs require ordinary review.
+- Verify Main's actual merger restrictions and queue requester against
+  `main.merge_users`; no shared maintainer-team bypass may widen it.
+- Required CI, ordinary review or owner approval, and current combined-result proof apply. A merge is
+  source-only and never authorizes deployment.
 
 ### Retired release branches
 
@@ -602,7 +562,7 @@ The UAT workflow uses one active GitHub environment name:
 Operational rules:
 
 1. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow.
-2. Other developers may still merge to `main` through PR flow, but production dispatch remains restricted to the production dispatch cohort.
+2. Main merging uses `main.merge_users`; production dispatch uses its separate explicit operator list. Neither grants the other operation.
 3. `production` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
 5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

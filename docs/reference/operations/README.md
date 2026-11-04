@@ -132,7 +132,7 @@ the calendar is an event record, never a timekeeping or performance measure.
 - [pod-completion-judge.md](./pod-completion-judge.md): the completion ledger and explicit readiness assessment. Status is derived from checks, never declared; unevaluable reports UNKNOWN rather than PASS.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
 - [workos-sso-local-run.md](./workos-sso-local-run.md): local sandbox run for WorkOS enterprise SSO (dashboard setup, env, org seed, checks).
-- [branch-governance.md](./branch-governance.md): branch rules, review gates, protected surfaces, and **the bypass lane** — the sanctioned maintainer cohort that may land directly on `main` and edit protected pipeline paths. It waives review, never validation: `CI Status Gate`, merge queue validation, and `Main Post-Merge Smoke Gate` still apply to every member. Live membership is `config/ci-governance.json` only — never transcribed into prose.
+- [branch-governance.md](./branch-governance.md): branch rules, review gates, protected surfaces and access cohorts. Ordinary Main operators use reviewed queues. Only the two protected owners have the explicit Admin PR route, guarded by current-base CI and exact merge-tree verification. Main smoke remains required; no merge deploys. `config/ci-governance.json` owns membership.
 - [documentation-architecture-map.md](./documentation-architecture-map.md): canonical docs-home map across root, cross-cutting docs, and package docs.
 - [documentation-recursive-knowledge-model.md](./documentation-recursive-knowledge-model.md): recursive folder contract, rewrite sequence, and long-doc split policy.
 - [docs-governance.md](./docs-governance.md): documentation placement and quality gates.

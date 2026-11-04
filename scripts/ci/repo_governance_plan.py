@@ -19,6 +19,50 @@ MAX_CHANGED_PATHS = 2048
 MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
+RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
+    "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+    "consent-protocol/tests/test_dev_release_classification.py",
+    "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+    "consent-protocol/tests/test_hushh_tech_runtime_config.py",
+    "consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py",
+    "consent-protocol/tests/test_one_location_read_only_runtime_config.py",
+    "consent-protocol/tests/test_pkm_answer_config.py",
+    "consent-protocol/tests/test_account_generation_admission_deploy.py",
+    "consent-protocol/tests/test_azure_pod_release_publish_step.py",
+    "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
+    "consent-protocol/tests/test_cloud_run_image_resolution.py",
+    "consent-protocol/tests/test_commerce_preview_bootstrap.py",
+    "consent-protocol/tests/test_commerce_preview_target.py",
+    "consent-protocol/tests/test_curated_connector_deploy_wiring.py",
+    "consent-protocol/tests/test_deploy_sha_gate_payload_size.py",
+    "consent-protocol/tests/test_dev_candidate_gate.py",
+    "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
+    "consent-protocol/tests/test_drive_v1_worker_lane.py",
+    "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+    "consent-protocol/tests/test_feed_stream_capacity_contract.py",
+    "consent-protocol/tests/test_gmail_information_request_release_contract.py",
+    "consent-protocol/tests/test_hushh_tech_client_migration.py",
+    "consent-protocol/tests/test_kai_analyze_durable_run_store_deploy_parity.py",
+    "consent-protocol/tests/test_one_wallet_card_deploy_parity.py",
+    "consent-protocol/tests/test_phone_schema_legacy_job.py",
+    "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
+    "consent-protocol/tests/test_plg_qualification_producer.py",
+    "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
+    "consent-protocol/tests/test_uat_connector_rollout_contract.py",
+    "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+    "consent-protocol/tests/test_uat_frontend_image_handoff.py",
+    "consent-protocol/tests/test_uat_kai_regression_smoke.py",
+    "consent-protocol/tests/test_dco_history_sync.py",
+    "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+    "consent-protocol/tests/test_one_chat_service_only_release.py",
+    "consent-protocol/tests/test_deployment_security.py",
+    "consent-protocol/tests/test_native_ship_artifact_workflows.py",
+    "consent-protocol/tests/test_uat_backend_image_promotion.py",
+    "consent-protocol/tests/test_predecessor_acceptance_contract.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_measurement.py",
+    "consent-protocol/tests/scripts/test_readiness_exam_premerge.py",
+)
 RESTORATION_FIXTURE_INPUTS = frozenset(
     {
         "consent-protocol/tests/helpers/production_release_tools.py",
@@ -49,6 +93,8 @@ def _check(check_id: str, *argv: str, groups: Sequence[str] = (), diagnostic: bo
 # regression group remain in the focused baseline; non-blocking hygiene is
 # diagnostic-only, and the named regression groups are selected by changed path.
 CHECKS = (
+    _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
     _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
     _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
@@ -257,7 +303,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_production_emergency.py",
         "consent-protocol/tests/test_uat_deploy_parallelism.py",
         "consent-protocol/tests/helpers/document_delivery_ci.py",
+        "consent-protocol/tests/test_account_deletion_release_workflow.py",
         *RESTORATION_FIXTURE_INPUTS,
+        *RELEASE_CONTROLLER_TESTS,
     }:
         return frozenset({"controller"}), None
     if root == ".agents":
@@ -283,10 +331,14 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/account-deletion-check.sh",
             "scripts/ci/backend-check.sh",
             "scripts/ci/validation-results.sh",
+            "scripts/ci/check-dco-signoff.sh",
+            "scripts/ci/verify-pr-base-policy.py",
             "scripts/ci/runtime-contract-check.sh",
             "scripts/ci/secret-scan.sh",
             "scripts/ci/test_secret_scan_ranges.py",
             "scripts/ci/tag-last-known-good.sh",
+            "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ops/audit_env_toggles.py",
         }:
             return frozenset({"controller"}), None
         if path in {
@@ -379,6 +431,9 @@ def _run_checks(checks: Sequence[Check], selection_error: str | None = None) -> 
         except OSError as exc:
             status = 127
             print(f"unable to start check: {type(exc).__name__}: {exc}", file=sys.stderr)
+        if status < 0 or status >= 124:
+            print(f"Governance interrupted: {check.check_id} (exit {status}); no further checks started", file=sys.stderr)
+            return 128 - status if status < 0 else status
         if status:
             groups = ",".join(sorted(check.groups)) or "baseline"
             failures.append((groups, f"{check.check_id} (exit {status})"))
