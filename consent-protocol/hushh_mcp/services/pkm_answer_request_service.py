@@ -49,6 +49,11 @@ from hushh_mcp.services.pkm_answer_payment_service import (
     PkmAnswerPaymentService,
     valid_answer_price_cents,
 )
+from hushh_mcp.services.pkm_answer_receiving_queries import (
+    ANSWERABLE_WITH_RECIPIENT,
+    PARTICIPANT_STATE,
+    STAGE_RECIPIENT_DELIVERY,
+)
 from hushh_mcp.services.pkm_answer_work_worker import file_refund
 
 logger = logging.getLogger(__name__)
@@ -670,9 +675,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def read(connection):
             row = self._row(
                 connection,
-                """SELECT owner_user_id, status, question
-                FROM pkm_answer_requests WHERE request_id=:request
-                AND (owner_user_id=:user OR requester_user_id=:user)""",
+                PARTICIPANT_STATE,
                 {"request": request_id, "user": user_id},
             )
             if row is None:
@@ -681,6 +684,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 "role": "owner" if row["owner_user_id"] == user_id else "requester",
                 "requestStatus": row["status"],
                 "question": row["question"],
+                "requesterKeyReady": bool(row["requester_key_ready"]),
+                "deliveryRecipientKeyId": row["delivery_recipient_key_id"],
+                "deliveryRecipientKeyActive": bool(row["delivery_recipient_key_active"]),
             }
             # Before approval, the proposed selectors are for the owner's
             # review only. After approval, both people may see the exact
@@ -763,35 +769,7 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
         def read(connection):
             rows = (
                 connection.execute(
-                    text(
-                        """SELECT r.request_id, r.question, r.period_start, r.period_end,
-                              r.requester_user_id, r.terms_digest, r.answer_deadline_at
-                       FROM pkm_answer_requests r
-                       LEFT JOIN pkm_answer_payment_orders o ON o.request_id = r.request_id
-                       LEFT JOIN pkm_answer_deliveries d ON d.request_id = r.request_id
-                       WHERE r.owner_user_id = :owner
-                         AND (d.request_id IS NULL OR
-                              (d.has_content AND
-                               (d.source_revisions->>'_composition_terms' IS DISTINCT FROM r.terms_digest)))
-                         AND EXISTS (SELECT 1 FROM connections c WHERE c.status='active'
-                           AND ((c.user_a_id=r.owner_user_id AND c.user_b_id=r.requester_user_id)
-                             OR (c.user_b_id=r.owner_user_id AND c.user_a_id=r.requester_user_id)))
-                         AND (
-                           -- Staging. The owner has just approved, so their
-                           -- device is present and unlocked: the answer is
-                           -- prepared now and withheld until payment, and a
-                           -- question nothing matches never reaches a price.
-                           r.status = 'approved'
-                           -- The paid-first path, for a request approved while
-                           -- the owner's device could not prepare it.
-                           OR (r.status = 'answering'
-                               AND o.status = 'paid' AND NOT o.reconciliation_required
-                               AND o.stripe_mode IN ('test', 'live')
-                               AND r.answer_deadline_at > clock_timestamp())
-                         )
-                       ORDER BY r.approved_at
-                       LIMIT :limit"""
-                    ),
+                    text(ANSWERABLE_WITH_RECIPIENT),
                     {
                         "owner": owner_user_id,
                         "limit": max(1, min(int(limit), 25)),
@@ -831,6 +809,11 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                             else None
                         ),
                         "requesterUserId": row["requester_user_id"],
+                        "recipientKey": {
+                            "keyId": row["key_id"],
+                            "publicKeyJwk": row["public_key_jwk"],
+                            "algorithm": row["algorithm"],
+                        },
                     }
                 )
             # Attach the requester's published ECDH recipient key so the device
@@ -857,32 +840,6 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                     "displayName": identity.get("display_name"),
                     "email": identity.get("email"),
                     "photoUrl": identity.get("photo_url"),
-                }
-                key = (
-                    connection.execute(
-                        text(
-                            """SELECT key_id, public_key_jwk, algorithm
-                           FROM marketplace_recipient_keys
-                           WHERE user_id = :user AND status = 'active'
-                           ORDER BY created_at DESC LIMIT 1"""
-                        ),
-                        {"user": item["requesterUserId"]},
-                    )
-                    .mappings()
-                    .first()
-                )
-                if not key or not key["key_id"] or not key["public_key_jwk"]:
-                    # Not a failure: the sweep retries, exactly as the
-                    # marketplace does for RecipientKeyUnavailableError.
-                    logger.info(
-                        "answer_delivery.recipient_key_unavailable request=%s",
-                        item["requestId"],
-                    )
-                    continue
-                item["recipientKey"] = {
-                    "keyId": key["key_id"],
-                    "publicKeyJwk": key["public_key_jwk"],
-                    "algorithm": key["algorithm"],
                 }
                 ready.append(item)
             return ready
@@ -1034,28 +991,10 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                 revisions[COMPOSITION_RECEIPT_KEY] = composition_receipt
                 revisions[COMPOSITION_TERMS_KEY] = request["terms_digest"]
             connection.execute(
-                text(
-                    """INSERT INTO pkm_answer_deliveries
-                       (request_id, recipient_key_id, ciphertext, iv,
-                        sender_ephemeral_public_key_jwk, source_revisions, has_content)
-                       VALUES (:request, :key_id, :ciphertext, :iv,
-                               CAST(:jwk AS JSONB), CAST(:revisions AS JSONB), :has_content)
-                       ON CONFLICT (request_id) DO UPDATE SET
-                         recipient_key_id=EXCLUDED.recipient_key_id,
-                         ciphertext=EXCLUDED.ciphertext, iv=EXCLUDED.iv,
-                         sender_ephemeral_public_key_jwk=EXCLUDED.sender_ephemeral_public_key_jwk,
-                         source_revisions=EXCLUDED.source_revisions,
-                         has_content=EXCLUDED.has_content,
-                         created_at=clock_timestamp()
-                       WHERE pkm_answer_deliveries.has_content
-                         AND ((pkm_answer_deliveries.source_revisions->>'_composition_terms'
-                              IS DISTINCT FROM EXCLUDED.source_revisions->>'_composition_terms'
-                              AND EXCLUDED.source_revisions ? '_composition_receipt')
-                           OR (NOT EXCLUDED.has_content
-                               AND NOT pkm_answer_deliveries.source_revisions ? '_composition_receipt'))"""
-                ),
+                text(STAGE_RECIPIENT_DELIVERY),
                 {
                     "request": request_id,
+                    "requester": request["requester_user_id"],
                     "key_id": envelope["recipientKeyId"],
                     "ciphertext": envelope["ciphertext"],
                     "iv": envelope["iv"],
@@ -1223,11 +1162,9 @@ class PkmAnswerRequestService(ExternalConnectorLifecycleStore):
                          WHERE r.status = 'answering'
                            AND r.answer_deadline_at IS NOT NULL
                            AND r.answer_deadline_at < clock_timestamp()
-                           -- NOT EXISTS, not a LEFT JOIN: Postgres refuses
-                           -- FOR UPDATE on the nullable side of an outer join.
-                           AND NOT EXISTS (
-                             SELECT 1 FROM pkm_answer_deliveries d
-                             WHERE d.request_id = r.request_id)
+                           -- An unreleased stage can remain after receiving-key
+                           -- recovery. Only 'answered' proves delivery; staging
+                           -- must not prevent the paid deadline refund.
                          ORDER BY r.answer_deadline_at
                          LIMIT :limit FOR UPDATE SKIP LOCKED)
                        RETURNING request_id"""

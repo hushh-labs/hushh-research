@@ -1,7 +1,7 @@
 "use client";
 
+import { coverageLabel, validAnswerCoverage } from "@/lib/answers/answer-request-coverage";
 import { answerStageTiming } from "@/lib/answers/answer-stage-timing";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { isOwnProfileNameScope } from "@/lib/pkm/identity-memory-facts";
 import { answerProfilePhotoUrl, isAnswerProfilePhotoScope } from "@/lib/answers/answer-profile-photo";
 
@@ -29,11 +29,11 @@ import { AuthService } from "@/lib/services/auth-service";
 import {
   AnswerRequestService,
   type AnswerPaymentView,
-  type AnswerRequestCoverage,
   type AnswerRequestState,
   type PendingAnswerRequest,
 } from "@/lib/services/answer-request-service";
 import { decryptMarketplaceEnvelope } from "@/lib/one-marketplace/encryption";
+import { useAnswerRequestAction, useAnswerRequestReceiving } from "@/components/consent/use-answer-request-actions";
 import { AnswerRequestReview } from "@/components/consent/answer-request-review";
 import { Button } from "@/lib/morphy-ux/button";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
@@ -47,6 +47,7 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { useAuth } from "@/hooks/use-auth";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
@@ -57,21 +58,6 @@ export interface AnswerRequestCardProps {
 
 function money(cents: number | null): string {
   return cents === null ? "" : `$${(cents / 100).toFixed(0)}`;
-}
-
-function validAnswerCoverage(value: AnswerRequestCoverage | undefined): value is AnswerRequestCoverage {
-  if (!value || !Array.isArray(value.included) || !Array.isArray(value.notIncluded) ||
-      !value.included.length || value.included.length + value.notIncluded.length > 12) return false;
-  const rows = [...value.included, ...value.notIncluded];
-  if (rows.some(entry => !entry || typeof entry.scope !== "string" ||
-      !/^attr\.[a-z0-9_]+(?:\.[a-z0-9_*]+)+$/.test(entry.scope) ||
-      !(entry.label === null || typeof entry.label === "string" && entry.label.length <= 160))) return false;
-  return new Set(rows.map(entry => entry.scope)).size === rows.length;
-}
-
-function coverageLabel(label: string | null): string {
-  const clean = label?.replace(/\s+/g, " ").trim();
-  return clean && !/[\u0000-\u001f\u007f]/.test(clean) ? clean.slice(0, 120) : "Requested information";
 }
 
 export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
@@ -110,13 +96,20 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   >(null);
   const [pendingOpen, setPendingOpen] = useState<{ userId: string; requestId: string } | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const load = useCallback(async () => {
     const projectionStarted = performance.now();
     const sequence = ++loadSequence.current;
     const owner = userId;
     const epoch = snapshotVaultSessionEpoch();
+    const authGeneration = getAuthSessionGeneration();
     const valid = () =>
+      mounted.current && authGeneration === getAuthSessionGeneration() &&
       sequence === loadSequence.current &&
       ownerRef.current === owner &&
       requestRef.current === requestId &&
@@ -189,6 +182,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     };
   }, [load, vaultOwnerToken]);
 
+
   useEffect(() => {
     if (!state?.role || ["answered", "cancelled", "declined", "expired"].includes(payment?.requestStatus ?? state.requestStatus)) return;
     let polls = 0;
@@ -199,36 +193,11 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     return () => window.clearInterval(timer);
   }, [load, state?.role, state?.requestStatus, payment?.requestStatus]);
 
-  const run = useCallback(async (
-    action: (token: string, epoch: number) => Promise<unknown>,
-  ) => {
-    const epoch = snapshotVaultSessionEpoch();
-    const owner = userId;
-    const valid = () =>
-      ownerRef.current === owner && requestRef.current === requestId && isVaultSessionEpochCurrent(epoch);
-    setBusy(true);
-    setError(null);
-    try {
-      const token = await AuthService.getIdToken();
-      if (!token) throw new Error("Sign in to continue.");
-      if (!valid())
-        throw new Error("Session changed. Open this request again.");
-      await action(token, epoch);
-      if (!valid()) return;
-      if (userId) CacheSyncService.onConsentMutated(userId);
-      dispatchConsentStateChanged({
-        userId,
-        requestId: `answer_request:${requestId}`,
-      });
-      await load();
-    } catch (cause) {
-      if (valid()) setError(
-        cause instanceof Error ? cause.message : "That could not be completed.",
-      );
-    } finally {
-      if (valid()) setBusy(false);
-    }
-  }, [load, requestId, userId]);
+  const run = useAnswerRequestAction({ userId, requestId, load, setBusy, setError });
+  const { deviceKeyReady, openCheckout, setupReceiving } = useAnswerRequestReceiving({
+    state, requestId, run, coverageVerified: validAnswerCoverage(state?.coverage),
+    onUnlock: () => setUnlockOpen(true),
+  });
 
   // Most "Preparation could not finish" failures are a single transient
   // revision conflict (another write landed mid-read) that a fresh reread
@@ -236,51 +205,55 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
   // that into one clean attempt instead of the owner clicking Retry by hand
   // several times before it happens to land between writes.
   const PREPARE_ATTEMPTS = 3;
-  const prepare = () => run(async (token, epoch) => {
+  const prepare = () => run(async (token, epoch, current) => {
     if (!user || !userId || !vaultKey || !vaultOwnerToken) throw new Error("Unlock your memory to prepare this answer.");
+    const latest = await AnswerRequestService.state(token, requestId);
+    if (!current()) return;
+    if (latest.requesterKeyReady === false) {
+      setState(latest);
+      throw new Error("The requester needs to open this question and enable secure receiving before you can prepare the answer.");
+    }
     setPrepareOutcome(null);
     let result: AnswerSweepResult | null = null;
     for (let attempt = 1; attempt <= PREPARE_ATTEMPTS; attempt += 1) {
+      if (!current()) return;
       result = await runAnswerDeliverySweep({ userId, vaultKey, vaultOwnerToken,
         firebaseIdToken: token, requestId, ownerIdentity: { displayName: user.displayName, photoUrl: user.photoURL } }, epoch);
+      if (!current()) return;
       if (result.delivered || result.empty) break;
       if (attempt < PREPARE_ATTEMPTS) await new Promise(resolve => window.setTimeout(resolve, 500 * attempt));
     }
     if (!result || (!result.delivered && !result.empty)) {
+      if (!current()) return;
+      const refreshed = await AnswerRequestService.state(token, requestId);
+      if (!current()) return;
+      setState(refreshed);
+      if (refreshed.requesterKeyReady === false)
+        throw new Error("Waiting for the requester to enable secure receiving. Your approval and price are saved.");
       setPrepareOutcome("failed");
       throw new Error("Preparation could not finish. Keep your memory unlocked and retry preparation.");
     }
     setPrepareOutcome(result.delivered ? "delivered" : "empty");
   });
 
-  const openCheckout = () =>
-    run(async (token, epoch) => {
-      if (!validAnswerCoverage(state?.coverage))
-        throw new Error("Answer coverage could not be verified. Refresh this question before paying.");
-      const url = await AnswerRequestService.checkout(token, requestId);
-      // Validated as a Stripe-hosted host by the service before we get here.
-      if (ownerRef.current === userId && requestRef.current === requestId &&
-          isVaultSessionEpochCurrent(epoch)) window.location.assign(url);
-    });
-
   useEffect(() => {
     setAnswer(null);
   }, [userId, isVaultUnlocked, vaultOwnerToken, requestId]);
 
   const openAnswer = useCallback(() =>
-    run(async (token, epoch) => {
+    run(async (token, epoch, current) => {
       const owner = userId;
       if (!owner || !isVaultUnlocked)
         throw new Error("Unlock to read your answer.");
       const envelope = await AnswerRequestService.answer(token, requestId);
-      if (ownerRef.current !== owner || requestRef.current !== requestId || !isVaultSessionEpochCurrent(epoch))
+      if (!current())
         return;
       // Decrypted with this person's own recipient key, held on this device.
       const decrypted = await decryptMarketplaceEnvelope({
         userId: owner,
         envelope: envelope as never,
       });
-      if (ownerRef.current !== owner || requestRef.current !== requestId || !isVaultSessionEpochCurrent(epoch))
+      if (!current())
         return;
       const value = decrypted as Record<string, unknown>;
       if (value?.version !== 1 || value.answerMode !== "agent" ||
@@ -339,6 +312,8 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         <HelperText as="p" role="status">
           {state.requestStatus === "answering"
             ? "Payment verified. Unlock and choose Write answer. Failed attempts can be retried until the 72-hour deadline; then a full refund is due."
+            : state.requestStatus === "approved" && state.requesterKeyReady === false
+              ? "Waiting for the requester to open this question and enable secure receiving. Your approval and price are saved."
             : state.requestStatus === "approved"
               ? busy
                 ? "Preparing answer…"
@@ -350,8 +325,8 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
               : `Request ${state.requestStatus}.`}
         </HelperText>
         {["approved", "answering"].includes(state.requestStatus) ? (
-          <Button data-consent-role="compact-action"
-            disabled={busy || !isVaultUnlocked}
+          <Button data-consent-role="compact-action" data-voice-control-id="answer-request-prepare"
+            disabled={busy || !isVaultUnlocked || state.requesterKeyReady === false}
             onClick={() => void prepare()}
           >
             {busy
@@ -364,6 +339,7 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
           </Button>
         ) : null}
         {error ? <HelperText role="alert">{error}</HelperText> : null}
+        <Button data-consent-role="compact-action" size="standard" variant="none" disabled={busy} onClick={() => void load()}>Refresh question</Button>
       </div>
     );
   }
@@ -381,6 +357,14 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
     return (
       <div className="consent-presentation-surface min-w-0 space-y-4">
         {state?.question ? <BodyText>{state.question}</BodyText> : null}
+        {(state?.requesterKeyReady === false || state?.deliveryRecipientKeyId && state.deliveryRecipientKeyActive === false) && ["pending_resolution", "awaiting_owner", "approved", "answering"].includes(payment.requestStatus) ? (
+          <div className="space-y-2" role="status">
+            <HelperText as="p">Enable secure receiving on this device so they can prepare your answer. Your request and price are kept.</HelperText>
+            <Button data-consent-role="compact-action" data-voice-control-id="answer-request-receive" disabled={busy} onClick={setupReceiving}>
+              {isVaultUnlocked ? "Enable secure receiving" : "Unlock to receive"}
+            </Button>
+          </div>
+        ) : null}
         {coverage ? (
           <div className="space-y-1" aria-label="Priced answer coverage">
             <HelperText as="p">Included in this answer: {coverage.included.map(entry => coverageLabel(entry.label)).join(", ")}.</HelperText>
@@ -394,27 +378,31 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
             <BodyText>
               {money(payment.amountCents)} to answer this question.
             </BodyText>
-            {payments === "on" && payment.preparationStatus === "ready" && coverage ? (
+            {payments === "on" && payment.preparationStatus === "ready" && coverage && state?.requesterKeyReady !== false ? (
               <>
                 {/* The wait is disclosed BEFORE checkout, not after. */}
                 <HelperText as="p">
                   Their answer is prepared. One payment buys this answer to
                   the approved question. It is released after payment confirmation.
                 </HelperText>
-                <Button data-consent-role="primary-action"
+                {!isVaultUnlocked ? <Button data-consent-role="compact-action" data-voice-control-id="answer-request-unlock-pay" disabled={busy} onClick={() => setUnlockOpen(true)}>Unlock to pay</Button> : !deviceKeyReady ? (
+                  <HelperText as="p" role="status">This device cannot receive the prepared answer. Open this question on the device that sent it before paying.</HelperText>
+                ) : <Button data-consent-role="primary-action" data-voice-control-id="answer-request-pay"
                   type="button"
                   size="prominent"
                   disabled={busy}
                   onClick={() => void openCheckout()}
                 >
                   {busy ? "Opening…" : `Pay ${money(payment.amountCents)}`}
-                </Button>
+                </Button>}
               </>
             ) : (
               // The price stands and the request is intact; only paying is
               // unavailable. No Pay control, because checkout would 503.
               <HelperText as="p" role="status">
-                {payment.preparationStatus === "retry_required"
+                {state?.requesterKeyReady === false
+                  ? "Secure receiving setup is required before they can prepare your answer. You have not been charged."
+                  : payment.preparationStatus === "retry_required"
                   ? "Preparation needs another attempt. Ask them to open this request, unlock their memory, and retry. You have not been charged."
                   : payment.preparationStatus === "empty"
                   ? "Answer not found. You have not been charged."
@@ -502,9 +490,9 @@ export function AnswerRequestCard({ requestId }: AnswerRequestCardProps) {
         <Button data-consent-role="compact-action" size="standard" variant="none" data-consent-quiet-action="true" disabled={busy} onClick={() => void load()}>Refresh question</Button>
         {user ? <VaultUnlockDialog user={user} open={unlockOpen}
           onOpenChange={(open) => { setUnlockOpen(open); if (!open) setPendingOpen(null); }}
-          onSuccess={() => undefined} title="Unlock to read your answer"
-          description="Your answer is sealed to your private key. Unlock to read it on this device."
-          allowVaultCreation={false} presentationClassName="consent-presentation-surface" /> : null}
+          onSuccess={() => setUnlockOpen(false)} title={pendingOpen ? "Unlock to read your answer" : "Unlock secure receiving"}
+          description="Unlock to receive and read your answer securely on this device."
+          allowVaultCreation={!pendingOpen} presentationClassName="consent-presentation-surface" /> : null}
       </div>
     );
   }
