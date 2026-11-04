@@ -93,6 +93,31 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
         )
         return copy.deepcopy(self.rows[args[:length]])
 
+    def test_optional_personal_backend_cannot_attach_to_uat_sql(self) -> None:
+        name = "backend-dev-ankit"
+        revision = f"{name}-revision"
+        self.rows[("run", "services", "list")].append({"metadata": {"name": name}})
+        self.rows[("run", "services", "describe", name)] = {
+            "status": {
+                "traffic": [{"revisionName": revision, "percent": 100}],
+                "latestReadyRevisionName": revision,
+            },
+        }
+        metadata = {
+            "name": revision,
+            "annotations": {
+                "run.googleapis.com/cloudsql-instances": "hushh-pda-uat:us-central1:backend-dev-ankit-pg",
+            },
+        }
+        self.rows[("run", "revisions", "list", f"--service={name}")] = [
+            {"metadata": metadata},
+        ]
+        with mock.patch.object(budget, "gcloud_json", side_effect=self.read):
+            self.assertNotIn(name, budget.collect(self.profile, "uat")["services"])
+            metadata["annotations"]["run.googleapis.com/cloudsql-instances"] = CONNECTION
+            with self.assertRaisesRegex(budget.BudgetError, "attaches to budgeted Cloud SQL"):
+                budget.collect(self.profile, "uat")
+
     def test_bounded_uat_reads_preserve_complete_serial_inventory(self) -> None:
         with mock.patch.object(budget, "gcloud_json", side_effect=self.read) as serial:
             expected = budget.collect(self.profile, "production")

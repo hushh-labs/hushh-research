@@ -4,7 +4,6 @@
 """Read-only GitHub release observation and notification regressions."""
 import unittest
 import importlib.util
-import json
 import os
 import sys
 import tempfile
@@ -317,6 +316,52 @@ class TestFlightCompletionTest(unittest.TestCase):
             self.assertEqual((ledger.state["count"], child["run_id"], request["sha"]), (4, 201, upload["source_sha"]))
             dispatch.assert_not_called()
 
+    def test_current_and_historical_recovery_require_actual_distribution(self):
+        for workflow in testflight.RECOVERY_WORKFLOWS:
+            for completed in (True, False):
+                with self.subTest(workflow=workflow, completed=completed):
+                    original, upload, recovery, value, jobs = self.fixture()
+                    repository = testflight.RETIRED_RECOVERY[0]
+                    for item in (original, recovery):
+                        item["repository"] = item["head_repository"] = {"full_name": repository}
+                    original["conclusion"] = "failure"
+                    recovery["path"] = ".github/workflows/" + workflow
+                    if not completed:
+                        jobs["jobs"][0]["conclusion"] = "skipped"
+                    def transport(path):
+                        if "/workflows/" in path:
+                            identity = testflight.RETIRED_RECOVERY[1] if workflow == testflight.RESUME else workflow
+                            assert testflight.RESUME not in path
+                            selected = f"/workflows/{identity}/" in path
+                            return {"total_count": int(selected), "workflow_runs": [recovery] if selected else []}
+                        return jobs
+                    with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                            patch.object(github, "api", side_effect=transport), \
+                            patch.object(github, "artifact_json", side_effect=lambda repo, identity, *args, **kwargs: upload if identity == 201 else value):
+                        if completed:
+                            self.assertEqual(testflight.completion(repository, original, upload["source_sha"]),
+                                             {"recovery_run_id": 301, "recovery_run_attempt": 1})
+                        else:
+                            with self.assertRaises(core.UnsafeRelease):
+                                testflight.completion(repository, original, upload["source_sha"])
+
+    def test_frequent_normal_builds_do_not_hide_positive_recovery(self):
+        original, upload, recovery, value, jobs = self.fixture()
+        original["conclusion"] = "failure"
+        recovery["path"] = ".github/workflows/ship-ios-testflight.yml"
+        ordinary = [run(400 + i, "ship-ios-testflight.yml") for i in range(19)]
+        def transport(path):
+            if "/workflows/ship-ios-testflight.yml/" in path:
+                return {"total_count": 100, "workflow_runs": [*ordinary, recovery]}
+            if "/workflows/" in path:
+                return {"total_count": 0, "workflow_runs": []}
+            return jobs
+        with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
+                patch.object(github, "api", side_effect=transport), \
+                patch.object(github, "artifact_json", side_effect=lambda repo, identity, *args, **kwargs: {201: upload, 301: value}.get(identity)):
+            self.assertEqual(testflight.completion(REPOSITORY, original, upload["source_sha"]),
+                             {"recovery_run_id": 301, "recovery_run_attempt": 1})
+
     def test_stale_recovery_does_not_hide_valid_rerun_of_an_older_recovery(self):
         original, upload, recovery, value, jobs = self.fixture()
         original["run_attempt"] = 2
@@ -341,15 +386,24 @@ class TestFlightCompletionTest(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 original, upload, recovery, value, jobs = self.fixture()
                 inventory = {"total_count": 1, "workflow_runs": [recovery]}
-                if invalid in fields: value[invalid] = fields[invalid]
-                elif invalid in {"actor", "triggering_actor"}: recovery[invalid] = {"login": "outsider"}
-                elif invalid == "path": recovery[invalid] = ".github/workflows/other.yml"
-                elif invalid == "head_branch": recovery[invalid] = "feature"
-                elif invalid == "repository": recovery[invalid] = {"full_name": "attacker/repo"}
-                elif invalid == "event": recovery[invalid] = "push"
-                elif invalid == "step": jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
-                elif invalid == "truncated": inventory["total_count"] = 21
-                else: original["run_attempt"] = 2
+                if invalid in fields:
+                    value[invalid] = fields[invalid]
+                elif invalid in {"actor", "triggering_actor"}:
+                    recovery[invalid] = {"login": "outsider"}
+                elif invalid == "path":
+                    recovery[invalid] = ".github/workflows/other.yml"
+                elif invalid == "head_branch":
+                    recovery[invalid] = "feature"
+                elif invalid == "repository":
+                    recovery[invalid] = {"full_name": "attacker/repo"}
+                elif invalid == "event":
+                    recovery[invalid] = "push"
+                elif invalid == "step":
+                    jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+                elif invalid == "truncated":
+                    inventory["total_count"] = 21
+                else:
+                    original["run_attempt"] = 2
                 with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
                         patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
                         patch.object(github, "artifact_json", side_effect=lambda repo, identity, *args, **kwargs: upload if identity == 201 else value), \
@@ -363,15 +417,19 @@ class TestFlightCompletionTest(unittest.TestCase):
                     "steps": [{"name": name, "conclusion": "success"} for name in (
                         "Wait for valid TestFlight processing", "Attach the same valid build to both TestFlight groups")]}]}
             distribution = {"internal": "active", "build_id": "apple-build-159"}
-            if invalid == "skipped-job": jobs["jobs"][0]["conclusion"] = "skipped"
-            if invalid == "skipped-step": jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
-            if invalid == "inactive": distribution["internal"] = "inactive"
+            if invalid == "skipped-job":
+                jobs["jobs"][0]["conclusion"] = "skipped"
+            if invalid == "skipped-step":
+                jobs["jobs"][0]["steps"][0]["conclusion"] = "skipped"
+            if invalid == "inactive":
+                distribution["internal"] = "inactive"
             inventory = {"total_count": 0, "workflow_runs": []}
             with patch.object(github, "configuration", return_value=(NEW_POLICY, GOVERNANCE)), \
                     patch.object(github, "api", side_effect=lambda path: inventory if "/workflows/" in path else jobs), \
                     patch.object(github, "artifact_json", side_effect=lambda repo, identity, name, *args, **kwargs: upload if name == "testflight-upload-receipt" else distribution):
                 if invalid:
-                    with self.assertRaises(core.UnsafeRelease): testflight.completion(REPOSITORY, original, upload["source_sha"])
+                    with self.assertRaises(core.UnsafeRelease):
+                        testflight.completion(REPOSITORY, original, upload["source_sha"])
                 else:
                     self.assertEqual(testflight.completion(REPOSITORY, original, upload["source_sha"]), {})
 
