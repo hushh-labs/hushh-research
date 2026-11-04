@@ -849,7 +849,7 @@ def _native_review_fixture(module):
         "members": [{"login": owner, "type": "User"} for owner in owners],
         "rules": {1: {"id": 1, "name": "retained queue", "target": "branch", "rules": [{"type": "merge_queue"}]}},
         "protections": {branch: {"strict": True, "required_review_count": 1} for branch in ("main", "dev", "uat")},
-        "fault": None,
+        "fault": None, "grant_reads": 0, "rollback_inventory_reads": 0,
     }
     grant_path = f"orgs/{module.ORG}/teams/pipeline-editors/repos/{module.REPO}"
     endpoint = f"repos/{module.REPO}/rulesets"
@@ -869,8 +869,15 @@ def _native_review_fixture(module):
         if path.endswith("/members?per_page=100"):
             return copy.deepcopy(state["members"])
         if path == f"repos/{module.REPO}/teams?per_page=100":
+            state["grant_reads"] += 1
+            if state["fault"] == "grant_drift" and state["grant_reads"] == 2:
+                state["grant"] = "admin"
             return [] if state["grant"] is None else [{"id": 42, "slug": "pipeline-editors", "permission": state["grant"]}]
         if path == f"{endpoint}?per_page=100":
+            if state["fault"] == "rollback_grant_drift" and any(item[0] == endpoint + "/10" for item in state["writes"]):
+                state["rollback_inventory_reads"] += 1
+                if state["rollback_inventory_reads"] == 2:
+                    state["grant"] = "admin"
             return copy.deepcopy(list(state["rules"].values()))
         if path.startswith(endpoint + "/"):
             return copy.deepcopy(state["rules"][int(path.split("/")[-1])])
@@ -893,7 +900,7 @@ def _native_review_fixture(module):
         body = json.loads(kwargs["input"])
         state["writes"].append((endpoint, copy.deepcopy(body), "POST"))
         state["rules"][10] = {**body, "id": 10}
-        if state["fault"] == "changed_guard":
+        if state["fault"] in {"changed_guard", "rollback_grant_drift"}:
             state["rules"][1]["peer_change"] = True
         if state["fault"] == "revoked_admin":
             state["admins"].clear()
@@ -1006,6 +1013,29 @@ def test_native_review_refuses_authority_drift_before_writes(module) -> None:
                 raise AssertionError(f"Native review accepted unproven authority: {change}")
             write.assert_not_called()
             create.assert_not_called()
+
+
+def test_native_review_preserves_peer_grant_changes_before_write_and_rollback(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    for fault in ("grant_drift", "rollback_grant_drift"):
+        policy, state, read, write, create = _native_review_fixture(module)
+        state["fault"] = fault
+        with patch.object(prepared_branch_governance, "_write", side_effect=write), \
+             patch.object(module.subprocess, "run", side_effect=create):
+            try:
+                module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+            except SystemExit as error:
+                assert "concurrent permission retained" in str(error)
+            else:
+                raise AssertionError(f"Native review overwrote a concurrent grant: {fault}")
+        assert state["grant"] == "admin" and set(state["rules"]) == {1}
+        grant_writes = [item for item in state["writes"] if "/teams/pipeline-editors/repos/" in item[0]]
+        if fault == "grant_drift":
+            assert grant_writes == []
+        else:
+            assert len(grant_writes) == 1 and grant_writes[0][2] == "PUT"
 
 
 if __name__ == "__main__":

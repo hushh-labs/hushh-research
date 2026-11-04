@@ -443,9 +443,15 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
         return existing is None or needs_grant
     created_id = None
     creation_attempted = False
+    grant_attempted = False
     grant_confirmed = False
     try:
         if needs_grant:
+            if grant() != previous_grant:
+                raise SystemExit("Reviewer-team grant changed before mutation; concurrent permission retained")
+            # GitHub uses an unconditional PUT, not compare-and-swap. Recheck
+            # observed drift, and serialize operator applies across machines.
+            grant_attempted = True
             _write(grant_path, {"permission": "push"}, "PUT")
             grant_confirmed = True
         verify_members()
@@ -495,18 +501,20 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool, read=gh_js
                 if not isinstance(after, list) or len(after) >= 100 or any(row.get("id") == created_id for row in after):
                     raise SystemExit("New rule absence is unconfirmed")
                 rule_absent = True
-            if needs_grant and rule_absent and grant() == "push":
+            if grant_attempted and rule_absent and grant() == "push":
                 if not grant_confirmed:
                     raise SystemExit("Reviewer-team grant outcome uncertain; retained for inspection")
                 after = read(["api", f"{endpoint}?per_page=100"])
                 if (not isinstance(after, list) or len(after) >= 100
                         or any(row.get("id") not in {item.get("id") for item in inventory} for row in after)):
                     raise SystemExit("Ruleset inventory changed; owner-team grant retained for inspection")
+                if grant() != "push":
+                    raise SystemExit("Reviewer-team grant changed before rollback; concurrent permission retained")
                 _write(grant_path, {"permission": previous_grant} if previous_grant else {},
                        "PUT" if previous_grant else "DELETE")
                 if grant() != previous_grant:
                     raise SystemExit("Original reviewer-team access was not restored")
-            elif needs_grant and rule_absent and grant() != previous_grant:
+            elif grant_attempted and rule_absent and grant() != previous_grant:
                 repair.append("reviewer-team grant changed; concurrent permission retained for inspection")
             if creation_attempted and not rule_absent:
                 repair.append("rule creation outcome uncertain; exact owner-team grant retained for inspection")
