@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: Apache-2.0
+name: Deploy Ankit's personal backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full commit SHA used to create the git archive
+        required: true
+        type: string
+      source:
+        description: Sandbox source object path with its GCS generation (personal-backend/NAME#GENERATION)
+        required: true
+        type: string
+      source_sha256:
+        description: SHA-256 of the archive created from that commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-backend-dev-ankit
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.repository == 'hushh-labs/hushh-research' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'ankitkumarsingh1702' &&
+      github.triggering_actor == 'ankitkumarsingh1702'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment: uat
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Confirm deploy authority
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Build and deploy the isolated revision
+        env:
+          SOURCE_SHA: ${{ inputs.sha }}
+          SOURCE_OBJECT: ${{ inputs.source }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+        run: bash scripts/ops/deploy-ankit-sandbox.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-dev-ankit-receipt
+          path: ${{ runner.temp }}/hushh-personal-backend
+          if-no-files-found: error

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Image-only build. The Main workflow supplies the verified Storage generation.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        rm -rf consent-protocol/contracts
+        cp -R contracts consent-protocol/contracts
+        docker buildx create --use --driver docker-container
+        docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+          --label "org.opencontainers.image.revision=${_SOURCE_SHA}" \
+          --cache-from "type=registry,ref=${_IMAGE}:buildcache" \
+          --cache-to "type=registry,ref=${_IMAGE}:buildcache,mode=max" \
+          --tag "${_IMAGE}:${_ATTEMPT}" --push consent-protocol
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 1800s
