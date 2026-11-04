@@ -16,6 +16,54 @@ async function fixture() {
   return { ...identity, ...client };
 }
 describe("private product observation lifecycle", () => {
+  it("keeps a streamed attempt on its original epoch and admits only its first terminal", async () => {
+    const f = await fixture();
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    let epoch = "original-epoch";
+    mocks.fetch.mockImplementation(async (_url, options) => new Response(JSON.stringify(
+      options.method === "POST" ? { recorded: true } : { enabled: true, generation: epoch },
+    )));
+    const id = "12345678-1234-1234-1234-123456789012";
+    const attempt = f.captureProductAttempt("chat:agent_one", "owner-a", id);
+    attempt.settled("returned"); // No started run: no terminal evidence.
+    attempt.started();
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    epoch = "new-epoch";
+    clock.mockReturnValue(now + 60_001);
+    f.observeProductEvent("one_memory_action", "detail_edited", "success");
+    await vi.waitFor(() => expect(posts()).toHaveLength(2));
+    attempt.started(); // A confirmation resume is still the original attempt.
+    attempt.settled("returned");
+    attempt.settled("failed");
+    await vi.waitFor(() => expect(posts()).toHaveLength(3));
+    const reports = posts().map((call) => JSON.parse(call[1].body)).filter((body) => body.operationId === id);
+    expect(reports.map((body) => [body.phase, body.generation])).toEqual([
+      ["started", "original-epoch"], ["returned", "original-epoch"],
+    ]);
+  });
+  it.each(["reset", "switch"])("does not settle a streamed attempt after owner %s", async (change) => {
+    const f = await fixture();
+    const attempt = f.captureProductAttempt("chat:agent_one", "owner-a");
+    attempt.started();
+    await vi.waitFor(() => expect(posts()).toHaveLength(1));
+    if (change === "reset") mocks.reset!("owner-a");
+    else f.publishValidatedAuthSessionOwner("owner-b");
+    attempt.settled("returned");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(posts()).toHaveLength(1);
+  });
+  it("refuses mismatched owners and keeps free-form message identifiers out of reports", async () => {
+    const f = await fixture();
+    const refused = f.captureProductAttempt("chat:agent_one", "owner-b");
+    refused.started(); refused.settled("returned");
+    expect(mocks.token).not.toHaveBeenCalled();
+    const admitted = f.captureProductAttempt("chat:agent_one", "owner-a", "PRIVATE_MESSAGE_BODY");
+    admitted.started(); admitted.settled("returned");
+    await vi.waitFor(() => expect(posts()).toHaveLength(2));
+    expect(JSON.stringify(posts())).not.toContain("PRIVATE_MESSAGE_BODY");
+    expect(new Set(posts().map((call) => JSON.parse(call[1].body).operationId)).size).toBe(1);
+  });
   it("drains a burst after four in-flight reports without delaying product results", async () => {
     const f = await fixture();
     let release!: () => void;

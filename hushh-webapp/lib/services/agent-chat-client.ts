@@ -4,6 +4,7 @@ import { queuedInputPorts } from "@/lib/agent/queued-input-ports";
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { AGENT_RESPONSE_REFUSAL_MESSAGE } from "./agent-event-boundary";
 import { ApiService, type ApiFetchOptions } from "@/lib/services/api-service";
+import { captureProductAttempt, type ProductAttempt } from "@/lib/observability/product-activity-client";
 import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
@@ -1166,7 +1167,11 @@ export function prepareAgentChatConnectorConfigurations(input: {
   };
 }
 
-export async function streamAgentChat(input: {
+export function streamAgentChat(input: Parameters<typeof streamAgentChatAttempt>[0]) {
+  return streamAgentChatAttempt(input);
+}
+
+async function streamAgentChatAttempt(input: {
   userId: string;
   message: string;
   /** Stable id for this turn's user message, so a resend is recognised as the same one. */
@@ -1217,7 +1222,7 @@ export async function streamAgentChat(input: {
   handlers?: AgentChatStreamHandlers;
   /** A keyed native interrupt recovered from the pod; never a new user turn. */
   resumeMcpReview?: { interruptId: string; reference: McpCallReviewReference; approval: McpCallApproval | null };
-}): Promise<{
+}, carriedAttempt?: ProductAttempt | null): Promise<{
   conversationId: string | null;
   model: string | null;
   text: string;
@@ -1270,6 +1275,14 @@ export async function streamAgentChat(input: {
     input.signal?.throwIfAborted();
     if (!turnSessionCurrent()) throw new Error("Your vault session changed. Unlock and try again.");
   };
+  const focusOwner = { email: "agent_email", location: "agent_location", information: "agent_personal_information", finance: "agent_kai" } as const;
+  // A recovered interrupt has no original capture admission. Never acquire a
+  // new epoch for old work. In-page resumes share this exact attempt instead.
+  const activityAttempt = carriedAttempt !== undefined ? carriedAttempt
+    : input.resumeMcpReview ? null : captureProductAttempt(
+      `chat:${input.specialistFocus ? focusOwner[input.specialistFocus] : "agent_one"}`,
+      input.userId, input.messageId,
+    );
   // Owner-authored names from the owner's own vault, keyed by opaque id. The
   // provider-authored tool name never labels a step: a server can write anything.
   const connectorNames = new Map<string, string>();
@@ -1586,6 +1599,7 @@ export async function streamAgentChat(input: {
     },
     onRunStartedEvent: () => {
       runStarted = true;
+      activityAttempt?.started();
       noteChatKeyAccepted();
       handlers.onStart?.({ conversationId: threadId });
     },
@@ -2013,10 +2027,10 @@ export async function streamAgentChat(input: {
               // A lost acknowledgement must not cause an automatic second mutation.
               attempted = true;
               if (resumeHandlers) {
-                await streamAgentChat({ ...input, message: "", attachments: [], signal,
+                await streamAgentChatAttempt({ ...input, message: "", attachments: [], signal,
                   handlers: resumeHandlers,
                   resumeMcpReview: { interruptId, reference: review.reference, approval },
-                });
+                }, activityAttempt);
                 return;
               }
               const abortResume = () => { liveness.stop(); agent.abortRun(); };
@@ -2059,6 +2073,7 @@ export async function streamAgentChat(input: {
         finishTerminalRun();
         return;
       }
+      activityAttempt?.settled("returned");
       handlers.onComplete?.({ conversationId: threadId });
       finishTerminalRun();
     },
@@ -2070,6 +2085,7 @@ export async function streamAgentChat(input: {
         return;
       }
       const refusal = chatKeyRefusalCode(event.code || "");
+      activityAttempt?.settled("failed");
       const strain = classifyBackendStrain({ code: event.code });
       if (strain) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
       failure = refusal

@@ -82,6 +82,34 @@ export function observeProductAction(actionId: string, phase: Phase, operationId
   if (id) enqueue(actionId, phase, id, observation(snapshotProductActivityScope()));
 }
 
+export type ProductAttempt = { started(): void; settled(phase: Exclude<Phase, "started">): void };
+
+/** A streamed attempt retains its admission across confirmation/resume boundaries. */
+export function captureProductAttempt(actionId: string, ownerId: string, operationId?: string): ProductAttempt {
+  const scope = snapshotProductActivityScope();
+  const inactive: ProductAttempt = { started() {}, settled() {} };
+  if (typeof window === "undefined" || !scope || scope.owner.userId !== ownerId) return inactive;
+  // Only an opaque UUID may cross the observation boundary; never a message/body.
+  const id = operationId && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(operationId)
+    ? operationId : globalThis.crypto?.randomUUID?.();
+  if (!id) return inactive;
+  const captured = observation(scope);
+  let started = false;
+  let settled = false;
+  return {
+    started() {
+      if (started || settled) return;
+      started = true;
+      enqueue(actionId, "started", id, captured);
+    },
+    settled(phase) {
+      if (!started || settled) return;
+      settled = true;
+      enqueue(actionId, phase, id, captured);
+    },
+  };
+}
+
 export function observeProductEvent(event: string, action: unknown, result: unknown, scope = snapshotProductActivityScope()): void {
   if (!Object.hasOwn(contract.events, event)) return;
   const values = (contract.events as Record<string, string[]>)[event];

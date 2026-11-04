@@ -1146,6 +1146,15 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
         generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text()
     )
     assert {a["action_id"] for a in gateway["actions"]} <= {a["id"] for a in catalog["actions"]}
+    chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
+    assert {a["agentId"] for a in chat} == {
+        "agent_one",
+        "agent_email",
+        "agent_location",
+        "agent_personal_information",
+        "agent_kai",
+    }
+    assert all(a["proof"] == "client_reported" and a["kind"] == "action" for a in chat)
     private = runtime_descriptor("agent_one", "PRIVATE_CUSTOMER_MCP_TOOL")
     assert private["id"] == "runtime-tool:agent_one"
     assert "PRIVATE_CUSTOMER" not in json.dumps(private)
@@ -1177,7 +1186,10 @@ async def test_sdk_pins_epoch_across_sibling_tasks_and_drops_unadmitted_or_finis
     monkeypatch.setattr(sink, "observe", lambda *args: observations.append(args))
     plugin = sdk.ProductActivityPlugin("agent_one")
     run = SimpleNamespace(
-        user_id="owner", invocation_id="invocation", session=SimpleNamespace(state={})
+        user_id="owner",
+        invocation_id="invocation",
+        session=SimpleNamespace(state={}),
+        agent=SimpleNamespace(name="agent_one"),
     )
     context = SimpleNamespace(
         user_id="owner",
@@ -1208,11 +1220,23 @@ async def test_sdk_pins_epoch_across_sibling_tasks_and_drops_unadmitted_or_finis
     assert observations[0][2] == "runtime-tool:agent_one"
     assert "PRIVATE" not in repr(observations)
     assert admitted == ["owner"]
+    # Model errors may be recovered by the SDK. Only an error escaping the
+    # runner supplies failed-run evidence, under the original owner/epoch.
+    await plugin.on_model_error_callback(
+        callback_context=context, llm_request="PRIVATE", error=RuntimeError("PRIVATE")
+    )
+    assert len(observations) == 1
+    assert (
+        await plugin.on_run_error_callback(invocation_context=run, error=RuntimeError("PRIVATE"))
+        is None
+    )
+    assert observations[1][1:5] == ("old-epoch", "agent:agent_one", "failed", "execution_observed")
+    assert "PRIVATE" not in repr(observations)
     await plugin.after_run_callback(invocation_context=run)
     await plugin.after_agent_callback(
         agent=SimpleNamespace(parent_agent=None), callback_context=context
     )
-    assert len(observations) == 1
+    assert len(observations) == 2
 
 
 @pytest.mark.asyncio
