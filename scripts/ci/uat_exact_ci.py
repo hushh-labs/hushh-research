@@ -74,6 +74,7 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_uat_deploy_parallelism.py",
     "consent-protocol/tests/test_uat_application_selection.py",
     "consent-protocol/tests/test_uat_paused_drive_maintenance.py",
+    "consent-protocol/tests/test_protected_document_release_contract.py",
     "consent-protocol/tests/test_account_deletion_release_workflow.py",
     "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
     "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
