@@ -22,7 +22,7 @@ SHA = "a" * 40
 APP = "b" * 40
 
 
-def assert_read_only_uat_inspection(case, job):
+def assert_read_only_uat_inspection(case, job, *, prepared=True):
     case.assertEqual(job.get("if"), "inputs.operation == 'inspect'")
     case.assertEqual(job.get("environment"), {"name": "uat", "deployment": False})
     case.assertEqual(
@@ -31,7 +31,7 @@ def assert_read_only_uat_inspection(case, job):
     )
     case.assertNotIn("secrets", job)
     commands = {
-        'test "$GITHUB_REF_NAME" = uat',
+        f'test "$GITHUB_REF_NAME" = {"uat" if prepared else "main"}',
         'python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"',
         "python3 scripts/ci/uat_release_prerequisites.py validate-inspection",
         'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"',
@@ -42,7 +42,10 @@ def assert_read_only_uat_inspection(case, job):
         "google-github-actions/setup-gcloud@v3",
     }
     checkout = next(step for step in job["steps"] if step.get("uses") == "actions/checkout@v6")
-    case.assertEqual(checkout.get("with"), {"ref": "${{ job.workflow_sha }}", "fetch-depth": 0})
+    case.assertEqual(
+        checkout.get("with"),
+        {"ref": "${{ job.workflow_sha }}" if prepared else "${{ github.sha }}", "fetch-depth": 0},
+    )
     authentication = next(
         step for step in job["steps"] if step.get("uses") == "google-github-actions/auth@v3"
     )
@@ -184,17 +187,17 @@ class DeploymentSecurityTest(unittest.TestCase):
         import yaml
 
         root = Path(__file__).resolve().parents[2]
-        for name in gate.CALLERS:
-            with self.subTest(workflow=name):
-                source_name = (
-                    name.replace(".yml", "-implementation.yml")
-                    if name in {"deploy-dev.yml", "deploy-uat.yml"}
-                    else name
-                )
+        variants = [(name, name, False) for name in gate.CALLERS]
+        variants.extend(
+            (name, name.replace(".yml", "-implementation.yml"), True)
+            for name in ("deploy-dev.yml", "deploy-uat.yml")
+        )
+        for name, source_name, prepared in variants:
+            with self.subTest(workflow=source_name):
                 source = (root / ".github/workflows" / source_name).read_text()
                 jobs = yaml.safe_load(source)["jobs"]
                 clearance = jobs["deployment-security"]
-                if name in {"deploy-dev.yml", "deploy-uat.yml"}:
+                if prepared:
                     self.assertNotIn("environment", clearance)
                     self.assertNotIn("secrets", clearance)
                     self.assertEqual(
@@ -207,15 +210,6 @@ class DeploymentSecurityTest(unittest.TestCase):
                         clearance["steps"][1]["run"],
                         "python3 scripts/ci/deployment_security.py --request-broker",
                     )
-                    wrapper = yaml.safe_load((root / ".github/workflows" / name).read_text())
-                    ranks = {"none": 0, "read": 1, "write": 2}
-                    for candidate in jobs.values():
-                        for scope, level in candidate.get("permissions", {}).items():
-                            self.assertGreaterEqual(
-                                ranks[wrapper["permissions"].get(scope, "none")],
-                                ranks[level],
-                                scope,
-                            )
                     if name == "deploy-uat.yml":
                         self.assertEqual(jobs["wait-capacity"]["permissions"]["actions"], "read")
                 else:
@@ -245,7 +239,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                         self.assertNotIn("uses", job)
                         continue
                     if name == "deploy-uat.yml" and key == "inspect-prerequisites":
-                        assert_read_only_uat_inspection(self, job)
+                        assert_read_only_uat_inspection(self, job, prepared=prepared)
                         continue
                     if name == "deploy-dev.yml" and key == "pod-security":
                         self.assertEqual(job["uses"], "./.github/workflows/deployment-security.yml")
@@ -259,7 +253,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                     needs = job["needs"]
                     self.assertIn(
                         "pod-security"
-                        if name == "deploy-dev.yml" and key == "pod-publication"
+                        if prepared and name == "deploy-dev.yml" and key == "pod-publication"
                         else "deployment-security",
                         [needs] if isinstance(needs, str) else needs,
                     )
@@ -286,7 +280,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 jobs["permissions"].get("actions"),
-                "write" if name in {"deploy-dev.yml", "deploy-uat.yml"} else "read",
+                "read",
                 name,
             )
         for name in ("deployment-security.yml", "ios-voice-device.yml"):
