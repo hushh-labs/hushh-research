@@ -456,7 +456,7 @@ describe("full Calendar workspace with real AG-UI stream handling", { timeout: 3
     expect(execute).not.toHaveBeenCalled();
     fireEvent.click(confirm); fireEvent.click(confirm);
     await waitFor(() => expect(execute).toHaveBeenCalledOnce());
-    expect(execute).toHaveBeenCalledWith({ vaultOwnerToken: "test-owner-token", userId: "owner", proposalId: "gcal_local_review" });
+    expect(execute).toHaveBeenCalledWith({ vaultOwnerToken: "test-owner-token", userId: "owner", proposalId: "gcal_local_review", accountId: "default" });
     resolveExecution({ action: "create", event: { id: "local-event", title: "Call" } } as never);
     await waitFor(() => expect(screen.queryByRole("button", { name: "Schedule meeting" })).toBeNull());
     fireEvent.change(screen.getByRole("textbox", { name: "Message One" }), { target: { value: "Book another call with the still-valid Calendar permission" } });
@@ -942,4 +942,21 @@ it.each([false, true])("reports authorized Calendar/Mail settlement without repe
   expect(stream).not.toHaveBeenCalled();
   expect(confirm).not.toHaveBeenCalled();
   expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
+});
+
+
+it("retires the previous booking review when its replacement needs clarification", async () => {
+  const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementationOnce(async () => sse("tool"))
+    .mockImplementation(async () => sse("tool", { status: "input_required", reason_code: "calendar_time_invalid", message: "Choose a valid time." }));
+  const execute = vi.spyOn(GoogleCalendarService, "executeProposal");
+  workspace();
+  const composer = await screen.findByRole("textbox", { name: "Message One" });
+  fireEvent.change(composer, { target: { value: "Book a call" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  expect(await screen.findByRole("button", { name: "Schedule meeting" })).toBeEnabled();
+  fireEvent.change(composer, { target: { value: "Change the time first" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+  await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByTestId("agent-calendar-proposal-card")).toBeNull());
+  expect(execute).not.toHaveBeenCalled();
 });
