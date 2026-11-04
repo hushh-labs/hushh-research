@@ -71,6 +71,36 @@ def test_adc_project_mismatch_cannot_fall_back_to_an_existing_app(monkeypatch):
         authority.ensure_firebase_admin()
 
 
+def test_team_sandbox_adc_pins_identity_separately_from_cloud_run_project(monkeypatch):
+    import firebase_admin
+    from firebase_admin import credentials
+
+    project = "hushh-team-sandbox-auth"
+    monkeypatch.setenv("K_SERVICE", "backend-dev-ankit")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("HUSHH_SANDBOX_FIREBASE_PROJECT_ID", project)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(authority, "_get_existing_app", lambda *_: None)
+    monkeypatch.setattr(authority, "_load_service_account_from_env", lambda *_: None)
+    monkeypatch.setattr(credentials, "ApplicationDefault", object)
+    monkeypatch.setattr(
+        firebase_admin,
+        "initialize_app",
+        lambda _, *, options: SimpleNamespace(project_id=options["projectId"]),
+    )
+    assert authority.ensure_firebase_admin() == (True, project)
+
+    monkeypatch.setattr(
+        authority, "_get_existing_app", lambda *_: SimpleNamespace(project_id="hushh-pda")
+    )
+    with pytest.raises(authority.FirebaseAuthorityError):
+        authority.ensure_firebase_admin()
+
+    monkeypatch.setenv("K_SERVICE", "consent-protocol-uat")
+    with pytest.raises(authority.FirebaseAuthorityError):
+        authority.ensure_firebase_admin()
+
+
 @pytest.mark.parametrize(
     "environment,project,expected",
     [

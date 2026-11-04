@@ -170,7 +170,7 @@ else
     --update-env-vars="OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-$owner"
 fi
 HUSHH_ISOLATED_DIGEST="$digest" HUSHH_ISOLATED_TELEMETRY_ENV="sandbox-$owner" \
-  "$root/dev-isolated.sh" --check
+  "$root/hushh-webapp/scripts/dev-isolated.sh" --check
 receipt="$(git rev-parse --path-format=absolute --git-path hushh-personal-backend)"
 printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sha" "$project" "$region" "$service" "$baseline" "$digest" > "$stage/receipt"
 mv "$stage/receipt" "$receipt"

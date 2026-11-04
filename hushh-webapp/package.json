@@ -9,7 +9,7 @@
     "prebuild": "node scripts/prepare-wallet-ocr.mjs",
     "prebuild:webpack": "node scripts/prepare-wallet-ocr.mjs",
     "dev": "next dev --turbopack",
-    "dev:sandbox": "../dev-isolated.sh --personal",
+    "dev:sandbox": "./scripts/dev-isolated.sh --personal",
     "dev:webpack": "next dev --webpack",
     "build": "next build",
     "build:turbopack": "npm run build",

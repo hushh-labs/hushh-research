@@ -12,6 +12,7 @@ Credential sources (in priority order):
 from __future__ import annotations
 
 import json
+import os
 import threading
 from typing import Any, Optional, Tuple
 
@@ -34,6 +35,17 @@ class SharedFirebaseIdentityRetained(FirebaseAuthorityError):
     """A valid nonproduction runtime must preserve its shared production identity."""
 
 
+def _sandbox_project() -> str | None:
+    project = os.getenv("HUSHH_SANDBOX_FIREBASE_PROJECT_ID")
+    if project is not None and (
+        project != "hushh-team-sandbox-auth"
+        or os.getenv("K_SERVICE") != "backend-dev-ankit"
+        or get_app_runtime_settings().environment != "development"
+    ):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    return project
+
+
 def _checked_project(app: Any, service_account: Optional[dict[str, Any]] = None) -> str:
     actual = _project_id_from_app(app)
     configured = _project_id_from_service_account(service_account)
@@ -44,6 +56,9 @@ def _checked_project(app: Any, service_account: Optional[dict[str, Any]] = None)
     ):
         raise FirebaseAuthorityError("firebase_authority_mismatch")
     runtime = get_app_runtime_settings()
+    sandbox_project = _sandbox_project()
+    if sandbox_project and (actual != sandbox_project or service_account is not None):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
     production = {"prod", "production"}
     if (
         runtime.environment in production or runtime.runtime_profile in production
@@ -142,6 +157,9 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     # check-and-initialize sequence must be atomic.
     with _FIREBASE_ADMIN_INIT_LOCK:
         sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
+        sandbox_project = _sandbox_project()
+        if sandbox_project and sa is not None:
+            raise FirebaseAuthorityError("firebase_authority_mismatch")
         app = _get_existing_app()
         if app is not None:
             return True, _checked_project(app, sa)
@@ -163,12 +181,12 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
             return True, _checked_project(app, sa)
 
         # Fall back to ADC (Cloud Run / local gcloud).
+        options: dict[str, Any] = {"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS}
+        if sandbox_project:
+            options["projectId"] = sandbox_project
         try:
             cred = credentials.ApplicationDefault()
-            app = firebase_admin.initialize_app(
-                cred,
-                options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
-            )
+            app = firebase_admin.initialize_app(cred, options=options)
         except Exception:
             app = _get_existing_app()
             if app is None:

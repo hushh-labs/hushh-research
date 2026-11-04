@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: ./dev-isolated.sh [--check|--tunnel|--direct|--personal]
+Usage: ./hushh-webapp/scripts/dev-isolated.sh [--check|--tunnel|--direct|--personal]
 
 Required environment (from an approved isolated deployment receipt):
   HUSHH_ISOLATED_PROJECT    GCP project ID (UAT allows backend-dev-ankit only)
@@ -34,10 +34,10 @@ case "$mode" in
   *) usage >&2; exit 1 ;;
 esac
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 if [[ "$mode" == --personal ]]; then
   receipt="$(git -C "$root" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
-  [[ -f "$receipt" ]] || die "Run scripts/deploy-personal-backend.sh from this worktree first."
+  [[ -f "$receipt" ]] || die "Download the approved sandbox deployment receipt to $receipt."
   IFS=$'\t' read -r receipt_sha HUSHH_ISOLATED_PROJECT HUSHH_ISOLATED_REGION \
     HUSHH_ISOLATED_SERVICE HUSHH_ISOLATED_BASELINE HUSHH_ISOLATED_DIGEST < "$receipt"
   [[ "$(git -C "$root" rev-parse --verify HEAD)" == "$receipt_sha" ]] ||
@@ -55,6 +55,7 @@ baseline="${HUSHH_ISOLATED_BASELINE:?Set the known-good baseline SHA}"
 digest="${HUSHH_ISOLATED_DIGEST:?Set the image digest from the deployment receipt}"
 proxy_port="${HUSHH_ISOLATED_PROXY_PORT:-8080}"
 web_port="${HUSHH_ISOLATED_WEB_PORT:-3000}"
+sandbox_auth_project=
 
 case "$project" in
   hushh-pda|hushh-pda-dev) die "Refusing a shared release project: $project" ;;
@@ -62,6 +63,7 @@ case "$project" in
     [[ "$region/$service" == us-central1/backend-dev-ankit ]] ||
       die "Only backend-dev-ankit can be attached in the UAT project."
     HUSHH_ISOLATED_TELEMETRY_ENV=sandbox-ankit
+    sandbox_auth_project=hushh-team-sandbox-auth
     ;;
 esac
 for name in "$project" "$region" "$service"; do
@@ -105,7 +107,7 @@ gcloud run revisions describe "$revision" "${run_flags[@]}" \
   --format='json(metadata.name,metadata.labels,spec.containers,status.conditions,status.imageDigest)' |
   python3 -c '
 import json, sys
-revision, service, sha, digest, expected_env = sys.argv[1:]
+revision, service, sha, digest, expected_env, sandbox_auth_project = sys.argv[1:]
 obj = json.load(sys.stdin)
 meta, status = obj.get("metadata", {}), obj.get("status", {})
 labels = meta.get("labels", {})
@@ -121,11 +123,13 @@ checks = {
     "sandbox telemetry identity": not expected_env or (
         env.get("HUSHH_TELEMETRY_ENV") == expected_env and labels.get("env") == expected_env
     ),
+    "sandbox Firebase identity": not sandbox_auth_project or
+        env.get("HUSHH_SANDBOX_FIREBASE_PROJECT_ID") == sandbox_auth_project,
 }
 failed = [k for k, v in checks.items() if not v]
 if failed:
     sys.exit("Isolated revision verification failed: " + ", ".join(failed))
-' "$revision" "$service" "$sha" "$digest" "${HUSHH_ISOLATED_TELEMETRY_ENV:-}"
+' "$revision" "$service" "$sha" "$digest" "${HUSHH_ISOLATED_TELEMETRY_ENV:-}" "${sandbox_auth_project:-}"
 
 printf 'Verified %s/%s/%s revision=%s\ncommit=%s image=%s\n' \
   "$project" "$region" "$service" "$revision" "$sha" "$digest"
@@ -138,6 +142,49 @@ fi
 
 cd "$root/hushh-webapp"
 [[ -x node_modules/.bin/next ]] || die "Install frontend dependencies first."
+if [[ -n "${sandbox_auth_project:-}" ]]; then
+  sandbox_account="localhost-sandbox-auth@$sandbox_auth_project.iam.gserviceaccount.com"
+  sandbox_app=1:835694853522:web:c9cadc5c22b42148fbd54b
+  export GOOGLE_APPLICATION_CREDENTIALS="${HUSHH_SANDBOX_ADC_FILE:-$HOME/.config/hushh-sandbox-gcloud/application_default_credentials.json}"
+  python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1]) as file:
+        adc = json.load(file)
+    expected = ("https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/"
+                + sys.argv[2] + ":generateAccessToken")
+    assert adc.get("type") == "impersonated_service_account"
+    assert adc.get("service_account_impersonation_url") == expected
+except (OSError, ValueError, AssertionError):
+    sys.exit("Set up the dedicated sandbox ADC profile as described in the team sandbox guide.")
+' "$GOOGLE_APPLICATION_CREDENTIALS" "$sandbox_account"
+  [[ ! -e firebase-service-account.json ]] || die "Use a sandbox checkout without a Firebase service account JSON file."
+  export FIREBASE_ADMIN_CREDENTIALS_JSON= FIREBASE_SERVICE_ACCOUNT_JSON=
+  firebase_fields="$(gcloud auth print-access-token --impersonate-service-account="$sandbox_account" --quiet |
+    python3 -c '
+import json, re, sys, urllib.request
+project, app = sys.argv[1:]
+token = sys.stdin.read().strip()
+if not token:
+    sys.exit("Could not authenticate to read the sandbox Firebase web configuration.")
+url = f"https://firebase.googleapis.com/v1beta1/projects/{project}/webApps/{app}/config"
+request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+with urllib.request.urlopen(request, timeout=15) as response:
+    config = json.load(response)
+if (config.get("projectId") != project or config.get("appId") != app
+        or config.get("authDomain") != project + ".firebaseapp.com"
+        or not re.fullmatch(r"[a-zA-Z0-9_-]+", config.get("apiKey", ""))
+        or not re.fullmatch(r"[0-9]+", config.get("messagingSenderId", ""))):
+    sys.exit("Firebase returned an unexpected sandbox web configuration.")
+print(config["apiKey"], config["authDomain"], config["messagingSenderId"], sep="\t")
+' "$sandbox_auth_project" "$sandbox_app")"
+  IFS=$'\t' read -r NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN \
+    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID <<< "$firebase_fields"
+  export NEXT_PUBLIC_FIREBASE_API_KEY NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+  export NEXT_PUBLIC_FIREBASE_PROJECT_ID="$sandbox_auth_project" NEXT_PUBLIC_FIREBASE_APP_ID="$sandbox_app"
+  export NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET= NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
+  export NEXT_PUBLIC_OBSERVABILITY_ENABLED=false
+fi
 # Do not activate a shared profile or rewrite .env files. Next loads this
 # worktree's existing frontend configuration; these origins take precedence.
 if [[ "$mode" == --direct ]]; then
@@ -183,7 +230,7 @@ try:
                 sys.exit(f"Local port {local_port} is already in use.")
     proxy = subprocess.Popen(sys.argv[3:split], start_new_session=True)
     children.append(proxy)
-    deadline = time.monotonic() + 40
+    deadline = time.monotonic() + 120
     while time.monotonic() < deadline and proxy.poll() is None:
         check = subprocess.run(
             ["curl", "-fsS", "--noproxy", "*", "--max-time", "2", "-o", "/dev/null", "-w", "%{http_code}",

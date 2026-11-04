@@ -8,6 +8,7 @@ import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
 import { AuthService, type AuthResult } from "@/lib/services/auth-service";
 import { EmailSignInSection } from "@/components/onboarding/EmailSignInSection";
+import { SandboxSignInSection } from "@/components/onboarding/SandboxSignInSection";
 import { InitialContactsOnboardingService } from "@/lib/services/initial-contacts-onboarding-service";
 import { preloadGoogleSignupAuth } from "@/lib/auth/google-signup-token";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -649,7 +650,7 @@ export function AuthStep({
     } finally { completePostAuthSettlement(settlementId); }
   }, [beginPostAuthSettlement, admitPostAuthSettlement, completePostAuthSettlement, initialContactsEnabled, findInitialContacts, growthEntrySurface, growthJourney, resolveAndNavigate]);
 
-  const handleEmailAuthenticated = useCallback(async (customToken: string) => {
+  const settleEmailSignIn = useCallback(async (authenticate: () => Promise<AuthResult>) => {
     if (providerAttemptRef.current) throw new Error("Another sign-in is in progress.");
     const attempt: ProviderAttempt = {
       id: `email_${Date.now()}_${++providerAttemptSequenceRef.current}`, provider: "email",
@@ -660,7 +661,7 @@ export function AuthStep({
     providerAbortRef.current = controller;
     publishProviderAttempt(attempt);
     try {
-      const result = await AuthService.signInWithCustomToken(customToken);
+      const result = await authenticate();
       if ((providerAttemptRef.current as ProviderAttempt | null)?.id !== attempt.id) throw new Error("Restart sign-in.");
       await finishAuthentication(result, "email", attempt.resumeRoute, attempt.id, controller.signal);
     } finally {
@@ -668,6 +669,11 @@ export function AuthStep({
       if ((providerAttemptRef.current as ProviderAttempt | null)?.id === attempt.id) publishProviderAttempt(null);
     }
   }, [finishAuthentication, publishProviderAttempt, redirectPath]);
+
+  const handleEmailAuthenticated = useCallback(
+    (customToken: string) => settleEmailSignIn(() => AuthService.signInWithCustomToken(customToken)),
+    [settleEmailSignIn],
+  );
 
   const handleProviderLogin = useCallback(
     (
@@ -990,6 +996,9 @@ export function AuthStep({
       ];
 
   const showReviewer = shouldAutoAuthenticateReviewer(nativeTestConfig) && nativeReviewerVisible;
+  const sandboxSignIn = isWeb() &&
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === "hushh-team-sandbox-auth" &&
+    window.location.origin === "http://localhost:3000";
 
   if (isWeb()) {
     authOptions.push({
@@ -1100,7 +1109,12 @@ export function AuthStep({
                     sign-in option securely.
                   </p>
                 ) : null}
-                {!emailExpanded && authOptions.map((option) => (
+                {sandboxSignIn ? <SandboxSignInSection
+                  onSignIn={(email, password) => settleEmailSignIn(
+                    () => AuthService.signInWithEmailAndPassword(email, password),
+                  )}
+                /> : null}
+                {!sandboxSignIn && !emailExpanded && authOptions.map((option) => (
                   <AuthProviderButton
                     key={option.id}
                     label={option.label}
@@ -1116,19 +1130,19 @@ export function AuthStep({
                     )}
                   />
                 ))}
-                {!emailExpanded ? <EnterpriseSsoSection
+                {!sandboxSignIn && !emailExpanded ? <EnterpriseSsoSection
                   redirectPath={redirectPath}
                   disabled={providerBusy}
                 /> : null}
 
-                {isWeb() ? <EmailSignInSection
+                {!sandboxSignIn && isWeb() ? <EmailSignInSection
                   disabled={Boolean(providerAttempt)}
                   onBusyChange={setEmailOperationBusy}
                   onExpandedChange={setEmailExpanded}
                   onAuthenticated={handleEmailAuthenticated}
                 /> : null}
 
-                {showReviewer && !emailExpanded ? (
+                {!sandboxSignIn && showReviewer && !emailExpanded ? (
                   <AuthProviderButton
                     label="Continue as Reviewer"
                     icon={<Icon icon={Shield} size="md" />}
