@@ -851,8 +851,8 @@ def _one_runtime_instruction(context: Any) -> str:
         from hushh_mcp.agents.calendar.read_projection import turn_clock
 
         return (
-            str(turn_clock(context))
-            + _compose_one_runtime_instruction(context)
+            _compose_one_runtime_instruction(context)
+            + str(turn_clock(context))
             + follow_up_instruction(state_getter)
             + reaction_instruction(state_getter)
         )

@@ -585,6 +585,8 @@ async def calendar_events(
     never claim the list is complete. Use this before rescheduling or
     cancelling so you use the event id returned by Google rather than
     guessing one.
+    Pass the person's explicit IANA ``time_zone``. Render ``local_start_at`` /
+    ``local_end_at`` in ``display_time_zone``; retain their dates and source instants.
     """
 
     async def _call(user_id: str, service: Any, account_id: str) -> dict[str, Any]:
@@ -767,6 +769,9 @@ async def calendar_free_slots(
     It checks the selected account's Board-included calendars; it does not claim invitee
     availability. Once a person chooses a slot, use the normal proposal tool
     so the browser still presents the final explicit confirmation.
+    Pass the requested IANA ``time_zone``; render the local fields in ``display_time_zone``.
+    ``coverage_complete`` describes provider coverage; ``suggestion_limit`` and
+    ``suggestions_limited`` describe option counts, never incomplete provider coverage.
     """
 
     # Even an invalid or failed replacement must retire the old selection.

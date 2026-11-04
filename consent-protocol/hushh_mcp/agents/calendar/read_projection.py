@@ -6,6 +6,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def turn_clock(context: Any) -> str:
+    # An empty factory/evaluation context is not a user turn.
+    if not getattr(context, "invocation_id", None):
+        return ""
     zone_name = context.state.get("hussh:timezone")
     try:
         zone = ZoneInfo(zone_name)
@@ -21,12 +24,9 @@ def turn_clock(context: Any) -> str:
     except (AttributeError, TypeError, ValueError, ZoneInfoNotFoundError):
         return "\nCALENDAR CLOCK: For relative dates, call get_current_time; do not use chat history.\n"
     return (
-        f"\nCALENDAR CLOCK for this user turn: {now.isoformat()} [{zone.key}]. "
+        f"\nCalendar [{zone.key}]: "
         f"Today={now.date().isoformat()}; tomorrow={(now + timedelta(days=1)).date().isoformat()}. "
-        "Resolve relative dates from this turn, never earlier messages. Preserve explicit dates. "
-        "Use Calendar read services for meetings and availability; never prepare a proposal "
-        "as a read or conflict-check workaround. Summarize local_start_at/local_end_at in "
-        "display_time_zone, preserving their dates. Coverage and suggestion limits are separate.\n"
+        "Use turn dates; preserve explicit dates.\n"
     )
 
 
