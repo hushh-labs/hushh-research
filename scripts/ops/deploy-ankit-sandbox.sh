@@ -51,25 +51,48 @@ require_private_policy() {
 
 existing="$(gcloud run services list "${flags[@]}" --filter="metadata.name=$service" --format='value(metadata.name)')"
 deploy_flags=("${flags[@]}")
+reuse_revision=false
+pin_traffic=true
 if [[ -n "$existing" ]]; then
   [[ "$existing" == "$service" ]] || die "Unexpected Cloud Run target."
   service_state="$(gcloud run services describe "$service" "${flags[@]}" \
     --format='json(metadata.labels,metadata.annotations,spec.traffic,status.traffic,status.latestReadyRevisionName)')"
-  jq -e --arg tag "$tag" '
+  jq -e '
     .metadata.labels["sandbox-owner"] == "ankit" and
-    .metadata.annotations["run.googleapis.com/invoker-iam-disabled"] != "true" and
-    ([.status.traffic[]?] | all(.tag != $tag))
-  ' <<< "$service_state" >/dev/null || die "The service is not private or the commit tag is already serving."
+    .metadata.annotations["run.googleapis.com/invoker-iam-disabled"] != "true"
+  ' <<< "$service_state" >/dev/null || die "The target is not a private sandbox."
   require_private_policy
+  if [[ -n "$(jq -r '.status.latestReadyRevisionName // ""' <<< "$service_state")" ]]; then
+    deploy_flags+=(--no-traffic)
+    pin_traffic=false
+  fi
+
   previous_revision="$(jq -r --arg tag "$tag" '.spec.traffic[]? | select(.tag == $tag) | .revisionName' <<< "$service_state")"
   if [[ -n "$previous_revision" ]]; then
     [[ "$previous_revision" =~ ^backend-dev-ankit-[a-z0-9-]+$ ]] || die "Unexpected tagged revision."
-    gcloud run revisions describe "$previous_revision" "${flags[@]}" --format='json(status.conditions)' |
-      jq -e 'any(.status.conditions[]; .type == "Ready" and .status == "False")' >/dev/null ||
-      die "Only a failed, non-serving revision may be replaced for the same commit."
-  fi
-  if [[ -n "$(jq -r '.status.latestReadyRevisionName // ""' <<< "$service_state")" ]]; then
-    deploy_flags+=(--no-traffic)
+    ready="$(gcloud run revisions describe "$previous_revision" "${flags[@]}" --format='json(status.conditions)' |
+      jq -er '.status.conditions[] | select(.type == "Ready") | .status')"
+    case "$ready" in
+      True)
+        [[ -n "${REUSE_BUILD_ID:-}" ]] || die "Supply the verified build ID to finalize a ready revision."
+        jq -e --arg tag "$tag" --arg revision "$previous_revision" '
+          ([.status.traffic[]? | select(.tag == $tag)] |
+            length == 1 and .[0].revisionName == $revision)
+        ' <<< "$service_state" >/dev/null || die "The serving tag does not match its explicit revision."
+        reuse_revision=true
+        revision="$previous_revision"
+        # The first ready revision can have its tag and default traffic merged
+        # in status. Freeze that default without moving the tag or rebuilding.
+        if jq -e --arg tag "$tag" --arg revision "$revision" '
+          .status.latestReadyRevisionName == $revision and
+          any(.status.traffic[]?; .tag == $tag and .latestRevision == true and .percent == 100)
+        ' <<< "$service_state" >/dev/null; then
+          pin_traffic=true
+        fi
+        ;;
+      False) ;;
+      *) die "The tagged revision is still settling." ;;
+    esac
   fi
 fi
 
@@ -106,24 +129,38 @@ digest="$(gcloud artifacts docker images describe "$image:$attempt" --project="$
   --format='value(image_summary.digest)')"
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "The build did not publish an image digest."
 
-# The backend uses a recognized runtime profile. Telemetry has its own label.
-env_vars="ENVIRONMENT=development,GOOGLE_CLOUD_PROJECT=$project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
-env_vars+=",REQUIRE_DATABASE_ON_STARTUP=true,DB_NAME=backend_dev_ankit,DB_UNIX_SOCKET=/cloudsql/$sql"
-# Each worker holds three LISTEN connections. Preserve one request slot.
-env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=4,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
-env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-ankit"
-env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
-secrets="APP_SIGNING_KEY=BACKEND_DEV_ANKIT_APP_SIGNING_KEY:1,VAULT_DATA_KEY=BACKEND_DEV_ANKIT_VAULT_DATA_KEY:1"
-secrets+=",DB_USER=BACKEND_DEV_ANKIT_DB_USER:1,DB_PASSWORD=BACKEND_DEV_ANKIT_DB_PASSWORD:1"
+if [[ "$reuse_revision" == false ]]; then
+  # The backend uses a recognized runtime profile. Telemetry has its own label.
+  env_vars="ENVIRONMENT=development,GOOGLE_CLOUD_PROJECT=$project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
+  env_vars+=",REQUIRE_DATABASE_ON_STARTUP=true,DB_NAME=backend_dev_ankit,DB_UNIX_SOCKET=/cloudsql/$sql"
+  # Each worker holds three LISTEN connections. Preserve one request slot.
+  env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=4,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
+  env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-ankit"
+  env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
+  secrets="APP_SIGNING_KEY=BACKEND_DEV_ANKIT_APP_SIGNING_KEY:1,VAULT_DATA_KEY=BACKEND_DEV_ANKIT_VAULT_DATA_KEY:1"
+  secrets+=",DB_USER=BACKEND_DEV_ANKIT_DB_USER:1,DB_PASSWORD=BACKEND_DEV_ANKIT_DB_PASSWORD:1"
 
-gcloud run deploy "$service" "${deploy_flags[@]}" \
-  --service-account="$runtime" --ingress=all --invoker-iam-check --no-allow-unauthenticated \
-  --set-cloudsql-instances="$sql" --min-instances=0 --max-instances=1 --concurrency=20 --timeout=3600 \
-  --revision-suffix="$suffix" --tag="$tag" --labels="sandbox-owner=ankit,deploy-sha=$SOURCE_SHA,env=sandbox-ankit" \
-  --container=consent-protocol --image="$image@$digest" --port=8080 --cpu=2 --memory=4Gi \
-  --set-env-vars="$env_vars" --set-secrets="$secrets" \
-  --startup-probe='httpGet.path=/health,httpGet.port=8080,periodSeconds=5,failureThreshold=24'
+  gcloud run deploy "$service" "${deploy_flags[@]}" \
+    --service-account="$runtime" --ingress=all --invoker-iam-check --no-allow-unauthenticated \
+    --set-cloudsql-instances="$sql" --min-instances=0 --max-instances=1 --concurrency=20 --timeout=3600 \
+    --revision-suffix="$suffix" --tag="$tag" --labels="sandbox-owner=ankit,deploy-sha=$SOURCE_SHA,env=sandbox-ankit" \
+    --container=consent-protocol --image="$image@$digest" --port=8080 --cpu=2 --memory=4Gi \
+    --set-env-vars="$env_vars" --set-secrets="$secrets" \
+    --startup-probe='httpGet.path=/health,httpGet.port=8080,periodSeconds=5,failureThreshold=24'
+fi
 
+gcloud run revisions describe "$revision" "${flags[@]}" --format=json |
+  jq -e --arg sha "$SOURCE_SHA" --arg digest "$digest" --arg runtime "$runtime" --arg sql "$sql" '
+    .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == "sandbox-ankit" and
+    .metadata.annotations["run.googleapis.com/cloudsql-instances"] == $sql and
+    .spec.serviceAccountName == $runtime and
+    (.status.imageDigest | split("@")[-1]) == $digest and
+    any(.status.conditions[]; .type == "Ready" and .status == "True")
+  ' >/dev/null || die "The revision did not match the sandbox deployment."
+
+if [[ "$pin_traffic" == true ]]; then
+  gcloud run services update-traffic "$service" "${flags[@]}" --to-revisions="$revision=100"
+fi
 gcloud run services add-iam-policy-binding "$service" "${flags[@]}" \
   --member=user:ankit@hushh.ai --role=roles/run.invoker --format=none
 
@@ -134,15 +171,6 @@ gcloud run services describe "$service" "${flags[@]}" --format=json |
     ([.spec.traffic[], .status.traffic[]] | map(select(.tag == $tag)) |
       length == 2 and all(.revisionName == $revision and .latestRevision != true))
   ' >/dev/null || die "The private commit tag did not resolve to the new revision."
-gcloud run revisions describe "$revision" "${flags[@]}" --format=json |
-  jq -e --arg sha "$SOURCE_SHA" --arg digest "$digest" --arg runtime "$runtime" --arg sql "$sql" '
-    .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == "sandbox-ankit" and
-    .metadata.annotations["run.googleapis.com/cloudsql-instances"] == $sql and
-    .spec.serviceAccountName == $runtime and
-    (.status.imageDigest | split("@")[-1]) == $digest and
-    any(.status.conditions[]; .type == "Ready" and .status == "True")
-  ' >/dev/null || die "The revision did not match the sandbox deployment."
-
 printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$SOURCE_SHA" "$project" "$region" "$service" "$baseline" "$digest" \
   > "${RUNNER_TEMP:?Expected the GitHub runner temporary directory}/hushh-personal-backend"
 printf 'Cloud Build: %s\nRevision: %s\nCommit: %s\nImage: %s@%s\n' \
