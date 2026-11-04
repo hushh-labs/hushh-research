@@ -184,18 +184,7 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    UAT and production both require exact revision provenance and a consolidated
    release-status artifact; environment-specific semantic gates remain explicit
    in their owning workflow/report. Use [provider diagnosis](managed-provider-readiness.md) for readiness failures.
-4. Prefer workflow artifacts as authoritative proof. Local admin work as
-   `kushal@hushh.ai` uses Application Default Credentials (ADC), independently of
-   the selected gcloud CLI account. Refresh ADC, verify the expected
-   principal and target project, then prove the exact authorized read. Classify
-   authentication failure separately from permission denial; never try unrelated
-   identities, broaden IAM, or change impersonation to make a check pass. An
-   evidence-only CLI helper may receive an ephemeral `CLOUDSDK_AUTH_ACCESS_TOKEN`
-   from the verified ADC in the same process. Approved reviewer
-   secret reads must stay in process memory. Never print or persist tokens,
-   credential files, secret payloads or provider error bodies, or move credentials
-   between environments. Request ADC renewal only when that approved identity
-   actually cannot refresh. Local ADC does not replace workflow deployment WIF.
+4. Use workflow artifacts as release evidence. Follow [release diagnostics](release-diagnostics.md) for local admin reads and failure diagnosis.
 5. A warning-only evaluator does not authorize rollback by itself. Runtime
    health, provenance, schema, or semantic authority failures follow the owning
    workflow's bounded rollback contract. Humans do not repair traffic with an
@@ -210,27 +199,6 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
 3. Restore the preserved developer branch, back-sync landed `main` when needed,
    remove only temporary branches created by this session, and leave the tree
    clean.
-
-### Lessons from the 2026-09-02 Wallet release
-
-- **Deploy-surface changes get their own local proof before the PR.** When `deploy/`,
-  a workflow substitution string, or an agent manifest changes, run
-  `consent-protocol/tests/test_cloudbuild_step_arg_limit.py` (the 10,000-character Cloud Build arg cap,
-  per-lane after substitution) and the readiness probe's manifest collection
-  (`consent-protocol/scripts/verify_managed_vertex_runtime.py` (its manifest model collection) with the lane's
-  `HUSSH_GEMINI_TEXT_MODEL`). A protocol lane that stops at mypy never reaches pytest, so
-  a "clean" local run can hide a failing test; rerun the lane after the mypy fix.
-- **A lane's Gemini project is not the deploy project.** UAT deploys to `hushh-pda-uat`
-  but its Gemini calls go to `hushh-gemini-bridge`; a model admitted in one allowlist can
-  still be rejected by the other. Probe the lane's Gemini project directly before flipping
-  the fleet model switch for that lane.
-- **Prove a run's conclusion, never its watcher.** `gh run watch --exit-status` reported
-  exit 0 for a failed UAT deploy; read `gh run view <id> --json conclusion` and the
-  job list before acting on a result.
-- **The serving worktree never switches branches.** The founder's localhost was served
-  from an ADK worktree; while it sat on a release branch, the old
-  wording came back on screen. Land from the workstream branch, fast-forward it after
-  each landing, and give scratch work its own worktree.
 
 ## Stop conditions
 

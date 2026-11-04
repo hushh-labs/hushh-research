@@ -77,18 +77,8 @@ It owns durable admission, spend, owner custody, release provenance and cleanup.
 15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/reference/operations/ci.md`.
 16. Use `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one governed exact-attempt retry. It never dispatches an additional security workflow. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
 
-When the approving user is Kushal or Ankit and authored the PR, use the canonical
-Admin SOP owner self-approval path. Do not create another approval service or ask
-for a second owner solely because GitHub cannot count a self-review. Explicit
-approval, authenticated owner, exact head and green combined CI remain
-mandatory; generic admin access never authorizes unrelated changes or deployment.
-
-For matching-branch Dev/UAT deployments, follow the CI runbook's
-**Matching-branch release control** section. Keep the protected security token on
-Main; Dev/UAT requester jobs carry only their ordinary Actions token. The existing
-nonproduction WIF updater owns its observed provider condition. Verify both caller
-and reusable-workflow permissions, source/attempt receipts and live admission;
-source extraction alone does not activate branch routing. No merge implies deployment.
+The [Admin release SOP](references/admin-release-sop.md) owns exact-head owner approval.
+The [CI runbook](../../../docs/reference/operations/ci.md) owns matching-branch Dev/UAT release control and credential isolation.
 
 ## Handoff Rules
 
