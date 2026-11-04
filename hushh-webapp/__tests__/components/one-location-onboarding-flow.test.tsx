@@ -181,6 +181,7 @@ describe("OneLocationOnboardingFlow introduction", () => {
       await waitFor(() => expect(onPrepareLocation).toHaveBeenCalledTimes(1));
       view.unmount();
       render(<ControlledFlow {...props} onPrepareLocation={onPrepareLocation} savedPlace />);
+      await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 0)); });
       expect(onPrepareLocation).toHaveBeenCalledTimes(1);
     });
 
