@@ -99,7 +99,9 @@ presentation only.
 Revisits render the matching transcript while revalidation runs. Without a
 transcript, the authenticated inbox's latest message is presentation only until
 history arrives. It never narrows the initial history page or replaces newer
-cached edits. Cold entries
+cached edits or deletions, including confirmed empty transcripts. Tapping the
+active conversation refreshes history directly while retaining the transcript.
+Cold entries
 retain the shell and known contact header without a blocking loading panel or
 premature empty state. Transport failures retain readable history; authoritative
 401/403/404 responses clear it. Focus, resume, polling and message signals use

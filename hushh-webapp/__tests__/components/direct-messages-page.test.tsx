@@ -544,6 +544,13 @@ describe("DirectMessagesPage", () => {
     expect(mocks.getConversationWithPerson).toHaveBeenCalledWith({ idToken: "test-token", personRef: "person-1" });
     expect(mocks.getConversationMessages).toHaveBeenCalledWith({ idToken: "test-token", conversationId: "conversation-1", limit: 60 });
     expect(screen.queryByText(/Start the conversation with/)).not.toBeInTheDocument();
+    const newest = { ...visibleMessage, id: "latest-on-tap", content: "Latest message on tap", createdAt: "2026-10-06T10:02:00Z" };
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [visibleMessage, newest],
+      canSend: true, disconnectedNotice: null, nextBefore: null });
+    fireEvent.click(screen.getByRole("button", { name: /^Ankit Kumar Singh/ }));
+    expect(await screen.findByText(newest.content)).toBeVisible();
+    expect(screen.getByText(visibleMessage.content)).toBeVisible();
+    expect(mocks.router.push).not.toHaveBeenCalled();
   });
 
   it("restores a visited thread immediately while checking permission again", async () => {
@@ -563,20 +570,20 @@ describe("DirectMessagesPage", () => {
     expect(screen.queryByText("Loading messages…")).not.toBeInTheDocument();
     expect(screen.queryByText("You are no longer connected.")).not.toBeInTheDocument();
   });
-  it("keeps a newer cached edit when the inbox still has the older latest-message preview", async () => {
+  it.each(["edit", "deletion"])("keeps a cached %s when the inbox still has the older latest-message preview", async (change) => {
     mocks.listConversations.mockResolvedValue({ items: [{ ...mocks.conversation, latestMessage: visibleMessage }], unreadCount: 0 });
     const edited = { ...visibleMessage, content: "Edited on another device", editedAt: "2026-10-06T10:02:00Z" };
-    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: [edited],
+    mocks.getConversationMessages.mockResolvedValue({ conversation: mocks.conversation, items: change === "edit" ? [edited] : [],
       canSend: true, disconnectedNotice: null, nextBefore: null });
     const view = renderConnectionThread();
-    await screen.findByText(edited.content);
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toBeEnabled());
     mocks.search = "conversation=another-thread";
     mocks.getConversationMessages.mockImplementation(() => new Promise(() => {}));
     view.rerender(<ConnectionThread />);
     mocks.search = "person=person-1";
     mocks.getConversationWithPerson.mockImplementation(() => new Promise(() => {}));
     view.rerender(<ConnectionThread />);
-    expect(screen.getByTestId("direct-message-list")).toHaveTextContent(edited.content);
+    if (change === "edit") expect(screen.getByTestId("direct-message-list")).toHaveTextContent(edited.content);
     expect(screen.getByTestId("direct-message-list")).not.toHaveTextContent(visibleMessage.content);
   });
 
@@ -907,6 +914,7 @@ describe("DirectMessagesPage", () => {
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith({
       idToken: "test-token", page: 1, limit: 50, query: "",
     });
+    CacheSyncService.onDirectMessagesMutated("viewer-1");
     fireEvent.click(await within(picker).findByRole("button", { name: "Message Divya" }));
     expect(mocks.navigateSelection).toHaveBeenCalledWith({ personRef: "person-new" });
     mocks.search = "person=person-new";

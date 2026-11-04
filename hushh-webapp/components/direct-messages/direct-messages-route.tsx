@@ -39,8 +39,9 @@ export function DirectMessagesRoute() {
   const personRef = params?.get("person") || "";
   const selectionKey = JSON.stringify([userId || "", token, conversationId, personRef]);
   const [selection, setSelection] = useState<{ key: string; kind: "conversation" | "person"; ref: string } | null>(null);
+  const [failedSelection, setFailedSelection] = useState<string | null>(null);
   const [opening, setOpening] = useState<(DirectMessageSelection & { key: string; ownerId: string }) | null>(null);
-  const openingRequest = useRef<object | null>(null);
+  const openingRequest = useRef<DirectMessageSelection | null>(null);
   const issuedTokens = useRef(new Set<string>());
   const clearOpening = useCallback(() => { openingRequest.current = null; setOpening(null); }, []);
   useLayoutEffect(() => {
@@ -54,8 +55,10 @@ export function DirectMessagesRoute() {
     : selection?.key === selectionKey ? selection : cachedSelection;
   useLayoutEffect(() => {
     const ownCommit = issuedTokens.current.delete(token);
-    if (ownCommit && openingRequest.current && opening &&
-      (opening.kind !== cachedSelection?.kind || opening.ref !== cachedSelection?.ref)) {
+    const currentOpening = openingRequest.current;
+    const committed = userId && token ? DirectMessagesResourceService.readRoute(userId, token) : null;
+    if (ownCommit && currentOpening &&
+      (currentOpening.kind !== committed?.kind || currentOpening.ref !== committed?.ref)) {
       // An earlier push may commit after a newer tap. Keep the newest intent
       // visible until its own destination commits or the person cancels.
       setOpening(current => current ? { ...current, key: selectionKey } : null);
@@ -63,10 +66,10 @@ export function DirectMessagesRoute() {
       clearOpening();
       issuedTokens.current.clear();
     }
-  }, [clearOpening, selectionKey, token]);
+  }, [clearOpening, selectionKey, token, userId]);
   const openSelection = (destination: DirectMessageSelection) => {
     if (!user || !userId) return;
-    const request = {};
+    const request = { ...destination };
     openingRequest.current = request;
     // Select the known person before any network work. This changes only the
     // presentation; history still checks current read and send permission.
@@ -77,7 +80,10 @@ export function DirectMessagesRoute() {
         if (openingRequest.current !== request) return;
         if (href) {
           const mintedToken = new URL(href, "https://navigation.invalid").searchParams.get("token");
-          if (mintedToken) issuedTokens.current.add(mintedToken);
+          if (mintedToken) {
+            issuedTokens.current.add(mintedToken);
+            if (issuedTokens.current.size > 64) issuedTokens.current.delete(issuedTokens.current.values().next().value!);
+          }
           router.push(href);
         }
         else clearOpening();
@@ -90,6 +96,7 @@ export function DirectMessagesRoute() {
   useEffect(() => {
     let active = true;
     setSelection(null);
+    setFailedSelection(null);
     if (!user || !userId || !selected) return;
     const session = DirectMessagesResourceService.beginRequest(userId);
     void (async () => {
@@ -107,14 +114,18 @@ export function DirectMessagesRoute() {
         }
         setSelection({ key: token ? selectionKey : JSON.stringify([userId, result.token, "", ""]), kind: result.kind, ref: result.ref });
       } catch {
-        if (active && !openingRequest.current) {
-          replaceMessageHistory(null);
-          writeLastMessagesSelection(userId, { lane: "people", token: null });
-          router.replace("/one/messages", { scroll: false });
-        }
+        if (active) setFailedSelection(selectionKey);
       }
     })();
     return () => { active = false; };
   }, [user, userId, selected, token, conversationId, personRef, selectionKey, router]);
+  useEffect(() => {
+    // Defer a source-link failure while another person is opening. If that
+    // opening also fails, return to the inbox instead of waiting indefinitely.
+    if (failedSelection !== selectionKey || openingRequest.current) return;
+    replaceMessageHistory(null);
+    writeLastMessagesSelection(userId, { lane: "people", token: null });
+    router.replace("/one/messages", { scroll: false });
+  }, [failedSelection, selectionKey, opening, userId, router]);
   return <DirectMessagesPage key={userId || "signed-out"} resolvingSelection={loading || Boolean(user && selected && !visibleSelection)} selection={visibleSelection} onSelect={openSelection} onClearSelection={clearOpening} restoredSelection={hasExplicitSelection || selected ? null : saved} />;
 }

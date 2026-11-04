@@ -454,6 +454,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [settledReadScopes, setSettledReadScopes] = useState<readonly string[]>([]);
   const [presentedScope, setPresentedScope] = useState<string | null>(null);
+  const [presentedFromCache, setPresentedFromCache] = useState(false);
   const cacheSession = useRef<object | null>(null);
   const [storedInbox, setInbox] = useState<{
     ownerId: string;
@@ -775,7 +776,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
     cacheSession.current = ownerId ? DirectMessagesResourceService.beginRequest(ownerId) : null;
     const cached = ownerId && selectedRouteKey ? DirectMessagesResourceService.readThread(ownerId, selectedRouteKey) : null;
     const known = inboxRef.current.find((item) => requestedConversationId ? item.id === requestedConversationId : requestedPersonRef && item.peerPersonRef === requestedPersonRef);
-    setLoadingOlder(false); setPresentedScope(readScope); setThreadError(null);
+    setLoadingOlder(false); setPresentedScope(readScope); setPresentedFromCache(Boolean(cached)); setThreadError(null);
     // An accepted send admits only this owner's exact destination before
     // encrypted navigation. Preserve it until the destination history settles.
     const observed = selectionRead.current;
@@ -1261,11 +1262,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   // The inbox is already an authenticated latest-message snapshot. Show it
   // while the full history refreshes, without making it a pagination boundary
   // or granting message actions, receipts, attachment reads or send permission.
-  const inboxPreview = !isCurrentRead && hasPresentation ? selectedInboxItem?.latestMessage : null;
-  const lastPresentedMessage = messages.at(-1);
-  const latestPreview = inboxPreview && (!lastPresentedMessage ||
-    (compareMessages(inboxPreview, lastPresentedMessage) > 0 && !messages.some(message => message.id === inboxPreview.id)))
-    ? inboxPreview : null;
+  // Even an empty cached transcript can reflect a confirmed deletion. Never
+  // restore an older inbox preview over that authoritative presentation.
+  const latestPreview = !isCurrentRead && hasPresentation && !presentedFromCache
+    ? selectedInboxItem?.latestMessage : null;
   const displayMessages = isCurrentRead || hasPresentation
     ? latestPreview && latestPreview.conversationId === selectedInboxItem?.id
       ? mergeMessages(messages, [latestPreview]) : messages
@@ -2563,8 +2563,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
               aria-label={`Message ${person.displayName || "connection"}`}
               disabled={!person.publicPersonRef} onClick={() => {
                 if (!person.publicPersonRef) return;
-                if (userId && cacheSession.current && !DirectMessagesResourceService.readThread(userId, `person:${person.publicPersonRef}`)) {
-                  DirectMessagesResourceService.writeThread(userId, cacheSession.current, `person:${person.publicPersonRef}`, {
+                if (userId && !DirectMessagesResourceService.readThread(userId, `person:${person.publicPersonRef}`)) {
+                  const session = DirectMessagesResourceService.beginRequest(userId);
+                  DirectMessagesResourceService.writeThread(userId, session, `person:${person.publicPersonRef}`, {
                     ...EMPTY_THREAD, peerPersonRef: person.publicPersonRef,
                     peerDisplayName: person.displayName ?? null, peerPhotoUrl: person.photoUrl ?? null,
                   }, []);

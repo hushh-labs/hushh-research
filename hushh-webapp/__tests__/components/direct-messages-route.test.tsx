@@ -66,20 +66,25 @@ describe("DirectMessagesRoute", () => {
       expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/one/messages?token=dm1.b");
     } else expect(screen.getByTestId("messages")).toHaveTextContent("null");
   });
-  it("retains a resolved source selection when a newer opening fails", async () => {
+  it.each(["resolved", "rejected"])("recovers a %s source selection when a newer opening fails", async (outcome) => {
     let finishSource!: (value: unknown) => void;
+    let failSource!: (reason: Error) => void;
     let failOpening!: (reason: Error) => void;
     mocks.query = "token=dm1.source";
-    mocks.routeSelection.mockReturnValueOnce(new Promise(resolve => { finishSource = resolve; }))
+    mocks.routeSelection.mockReturnValueOnce(new Promise((resolve, reject) => { finishSource = resolve; failSource = reject; }))
       .mockReturnValueOnce(new Promise((_, reject) => { failOpening = reject; }));
     render(<DirectMessagesRoute />);
     await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Open B" }));
     await waitFor(() => expect(mocks.routeSelection).toHaveBeenCalledTimes(2));
-    await act(async () => finishSource({ token: "dm1.source", kind: "conversation", ref: "thread-a" }));
+    await act(async () => {
+      if (outcome === "resolved") finishSource({ token: "dm1.source", kind: "conversation", ref: "thread-a" });
+      else failSource(new Error("Invalid source token"));
+    });
     expect(screen.getByTestId("messages")).toHaveTextContent("thread-b");
     await act(async () => failOpening(new Error("Synthetic mint failure")));
-    expect(screen.getByTestId("messages")).toHaveTextContent("thread-a");
+    if (outcome === "resolved") expect(screen.getByTestId("messages")).toHaveTextContent("thread-a");
+    else expect(mocks.replace).toHaveBeenCalledWith("/one/messages", { scroll: false });
     expect(mocks.push).not.toHaveBeenCalled();
   });
   it("preserves a newer tap when an earlier pushed destination commits late", async () => {
