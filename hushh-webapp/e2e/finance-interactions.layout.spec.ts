@@ -1,8 +1,10 @@
+import { registerAdvisorReviewChecks } from "./fixtures/advisor-review-checks";
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import { expectMarketIndexChart, expectMarketMiniCharts, registerFinanceScreenChecks, registerFinanceChartChecks, registerHoldingEntryChecks, registerStockQuoteRecoveryChecks, expectMarketLocalTimes } from "./fixtures/finance-screen-checks";
 import os from "node:os";
 import { registerFinanceSharingChecks } from "./fixtures/finance-sharing-checks";
+import { registerFinanceOnboardingChecks } from "./fixtures/finance-onboarding-checks";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
 
@@ -48,6 +50,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
         ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
         { find: /^@\/lib\/kai\/kai-market-home-resource$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
@@ -88,6 +91,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
         ...[
           "next/navigation", "@/hooks/use-auth", "@/lib/firebase/auth-context",
           "@/lib/vault/vault-context", "@/lib/cache/use-stale-resource",
@@ -267,7 +271,7 @@ test.afterAll(() => {
 });
 
 
-async function mount(page: Page, width = 393) {
+async function mount(page: Page, width = 393, onboarding = false) {
   const runtimeErrors: string[] = [];
   page.on("pageerror", error => runtimeErrors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
@@ -279,6 +283,7 @@ async function mount(page: Page, width = 393) {
     body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
   }));
   await page.goto("http://localhost/finance-fixture");
+  if (onboarding) await page.evaluate(() => { document.body.dataset.financeOnboarding = "true"; });
   await page.addScriptTag({ content: script });
   await page.waitForFunction(() => Boolean(document.querySelector("#root > main")), undefined, { timeout: 5000 }).catch(error => {
     throw new Error(runtimeErrors.join("\n") || String(error));
@@ -455,3 +460,7 @@ registerHoldingEntryChecks(mount);
 registerStockQuoteRecoveryChecks(mount);
 
 registerFinanceScreenChecks(mount);
+
+registerFinanceOnboardingChecks((page, width) => mount(page, width, true));
+
+registerAdvisorReviewChecks(mount);

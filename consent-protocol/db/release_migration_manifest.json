@@ -380,7 +380,9 @@
     "442_calendar_mail_read_grant.sql",
     "443_calendar_email_followups.sql",
     "444_calendar_email_followup_delivery.sql",
-    "445_gcp_notification_account_id_limit.sql"
+    "445_gcp_notification_account_id_limit.sql",
+    "446_finance_advisor_share_options.sql",
+    "447_finance_advisor_handshake.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -807,6 +809,8 @@
     "442_calendar_mail_read_grant.sql": "rollback/442_calendar_mail_read_grant.rollback.sql",
     "443_calendar_email_followups.sql": "rollback/443_calendar_email_followups.rollback.sql",
     "444_calendar_email_followup_delivery.sql": "rollback/444_calendar_email_followup_delivery.rollback.sql",
-    "445_gcp_notification_account_id_limit.sql": "rollback/445_gcp_notification_account_id_limit.rollback.sql"
+    "445_gcp_notification_account_id_limit.sql": "rollback/445_gcp_notification_account_id_limit.rollback.sql",
+    "446_finance_advisor_share_options.sql": "rollback/446_finance_advisor_share_options.rollback.sql",
+    "447_finance_advisor_handshake.sql": "rollback/447_finance_advisor_handshake.rollback.sql"
   }
 }

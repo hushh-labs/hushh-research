@@ -239,7 +239,7 @@ def test_live_context_derives_static_route_policy_and_rejects_client_policy_fiel
     assert context["route_instruction_id"] == "route.one.setup.finance"
     assert context["route_context_policy"] == "publish"
     assert context["screen"] == "one_setup_finance"
-    assert context["route_playbook"]["primary_action_id"] == "kai.setup.answer_horizon"
+    assert context["route_playbook"]["primary_action_id"] == "setup.finish_finance"
 
 
 def test_live_context_intersects_actions_and_screen_with_generated_route_policy():

@@ -4,8 +4,13 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { normalizeDetailedPersona, type DetailedPersonaAnswers } from "@/lib/kai/detailed-persona";
+import { normalizeLossCapacity, type LossCapacity } from "@/lib/kai/investing-persona";
+import { applyKaiPreferenceUpdates } from "@/lib/kai/profile-preferences";
 import { PkmStoreDomainError } from "@/lib/services/pkm-store-domain-error";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+
+export { resolveHorizonAnchorAt, shouldPromptForHorizonAnchor } from "@/lib/kai/profile-preferences";
 
 const FINANCIAL_DOMAIN = "financial";
 const SCHEMA_VERSION = 3 as const;
@@ -37,6 +42,9 @@ export type KaiPreferences = {
 
   volatility_preference: VolatilityPreference | null;
   volatility_preference_selected_at: string | null;
+
+  loss_capacity?: LossCapacity | null;
+  detailed_assessment_v1?: DetailedPersonaAnswers | null;
 
   risk_score: number | null; // 0..6
   risk_profile: RiskProfile | null;
@@ -74,7 +82,7 @@ export type KaiOnboardingCompletion = KaiSetupCompletion;
 export type KaiPreferencesUpdate = Partial<
   Pick<
     KaiPreferences,
-    "investment_horizon" | "drawdown_response" | "volatility_preference"
+    "investment_horizon" | "drawdown_response" | "volatility_preference" | "loss_capacity" | "detailed_assessment_v1"
   >
 >;
 
@@ -149,27 +157,6 @@ export function mapRiskProfile(score: number): RiskProfile {
   if (score <= 2) return "conservative";
   if (score <= 4) return "balanced";
   return "aggressive";
-}
-
-export function shouldPromptForHorizonAnchor(params: {
-  mode: "onboarding" | "edit";
-  previousHorizon: InvestmentHorizon | null;
-  nextHorizon: InvestmentHorizon | null;
-}): boolean {
-  if (params.mode !== "edit") return false;
-  if (!params.previousHorizon) return false;
-  return params.previousHorizon !== params.nextHorizon;
-}
-
-export function resolveHorizonAnchorAt(params: {
-  previousAnchorAt: string | null;
-  now: string;
-  choice: HorizonAnchorChoice;
-}): string {
-  if (params.choice === "keep_original") {
-    return params.previousAnchorAt ?? params.now;
-  }
-  return params.now;
 }
 
 function createDefaultProfile(now?: Date): KaiProfileV2 {
@@ -267,6 +254,8 @@ function normalizeProfileV2(raw: Record<string, unknown>): KaiProfileV2 {
       volatility_preference_selected_at: normalizeOptionalIso(
         prefsRaw.volatility_preference_selected_at
       ),
+      loss_capacity: normalizeLossCapacity(prefsRaw.loss_capacity),
+      detailed_assessment_v1: normalizeDetailedPersona(prefsRaw.detailed_assessment_v1),
       risk_score,
       risk_profile,
       risk_profile_selected_at: normalizeOptionalIso(
@@ -396,7 +385,7 @@ async function getFinancialScopedBlob(params: {
   };
 }
 
-function selectProfileFromFinancialDomain(financialValue: unknown): KaiProfileV2 {
+export function selectProfileFromFinancialDomain(financialValue: unknown): KaiProfileV2 {
   if (financialValue && typeof financialValue === "object" && !Array.isArray(financialValue)) {
     const financialRecord = financialValue as Record<string, unknown>;
     const canonicalProfile = financialRecord.profile;
@@ -571,100 +560,60 @@ export class KaiProfileService {
     mode: "onboarding" | "edit";
     horizonAnchorChoice?: HorizonAnchorChoice;
     now?: Date;
+    beforeEffect?: () => Promise<void>;
   }): Promise<KaiProfileV2> {
     const iso = nowIso(params.now);
-    const fullBlob: Record<string, unknown> = await getFinancialScopedBlob(params).catch(
-      () => ({})
-    );
-    const current = selectProfile(fullBlob);
-
-    const next: KaiProfileV2 = {
-      ...current,
-      schema_version: SCHEMA_VERSION,
-      setup: {
-        ...current.setup,
-        version: 3,
-        // Saving preferences implies "not skipped".
-        skipped_preferences: false,
-      },
-      preferences: { ...current.preferences },
-      updated_at: iso,
-    };
-
-    // Investment horizon (with anchor semantics)
-    if (params.updates.investment_horizon !== undefined) {
-      const nextHorizon = params.updates.investment_horizon;
-      const prevHorizon = next.preferences.investment_horizon;
-      if (nextHorizon !== prevHorizon) {
-        next.preferences.investment_horizon = nextHorizon;
-        next.preferences.investment_horizon_selected_at = iso;
-
-        if (!prevHorizon) {
-          // First time selection: anchor = now.
-          next.preferences.investment_horizon_anchor_at = iso;
-        } else if (
-          shouldPromptForHorizonAnchor({
-            mode: params.mode,
-            previousHorizon: prevHorizon,
-            nextHorizon,
-          })
-        ) {
-          const choice: HorizonAnchorChoice = params.horizonAnchorChoice ?? "from_now";
-          next.preferences.investment_horizon_anchor_at = resolveHorizonAnchorAt({
-            previousAnchorAt: next.preferences.investment_horizon_anchor_at,
-            now: iso,
-            choice,
-          });
-        } else {
-          // onboarding mode, or null->value edits
-          next.preferences.investment_horizon_anchor_at = iso;
-        }
-      }
-    }
-
-    if (params.updates.drawdown_response !== undefined) {
-      const nextDrawdown = params.updates.drawdown_response;
-      if (nextDrawdown !== next.preferences.drawdown_response) {
-        next.preferences.drawdown_response = nextDrawdown ?? null;
-        next.preferences.drawdown_response_selected_at = iso;
-      }
-    }
-
-    if (params.updates.volatility_preference !== undefined) {
-      const nextVol = params.updates.volatility_preference;
-      if (nextVol !== next.preferences.volatility_preference) {
-        next.preferences.volatility_preference = nextVol ?? null;
-        next.preferences.volatility_preference_selected_at = iso;
-      }
-    }
-
-    next.preferences = recomputeDerived(next.preferences, iso);
+    let committedProfile: KaiProfileV2 | null = null;
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: FINANCIAL_DOMAIN,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
       confirmation: {
         confirmedByUser: true,
         surface: "web",
         source: "kai_profile_preference_confirm",
       },
-      build: (context) => ({
-        domainData: buildFinancialProfileDomain({
-          fullBlob: context.baseFullBlob,
-          profile: next,
-          updatedAtIso: iso,
-        }),
-        summary: buildProfileSummary(next),
-      }),
+      build: (context) => {
+        const current = selectProfile(context.baseFullBlob);
+        const next: KaiProfileV2 = {
+          ...current,
+          schema_version: SCHEMA_VERSION,
+          setup: {
+            ...current.setup,
+            version: 3,
+            // Saving preferences implies "not skipped".
+            skipped_preferences: false,
+          },
+          preferences: recomputeDerived(
+            applyKaiPreferenceUpdates(current.preferences, params, iso),
+            iso,
+          ),
+          updated_at: iso,
+        };
+        committedProfile = next;
+        return {
+          domainData: buildFinancialProfileDomain({
+            fullBlob: context.baseFullBlob,
+            profile: next,
+            updatedAtIso: iso,
+          }),
+          summary: buildProfileSummary(next),
+        };
+      },
     });
 
-    if (!result.success) {
+    if (!result.success || !committedProfile) {
       throw new Error("Failed to persist financial.profile preferences");
     }
-
-    CacheService.getInstance().set(CACHE_KEYS.KAI_PROFILE(params.userId), next, CACHE_TTL.SESSION);
-    return next;
+    await params.beforeEffect?.();
+    CacheService.getInstance().set(
+      CACHE_KEYS.KAI_PROFILE(params.userId),
+      committedProfile,
+      CACHE_TTL.SESSION,
+    );
+    return committedProfile;
   }
 
   static async setOnboardingCompleted(params: {

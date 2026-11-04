@@ -1,4 +1,6 @@
+import { directMessageFeedHref } from "./connection-feed-navigation";
 import type { ComponentType } from "react";
+import { advisorReviewPresentation } from "./advisor-review-presentation";
 import { connectionMessagePreview as walletMessagePreview } from "@/lib/finance-sharing/message-preview";
 import { isCardRequestId, walletCardRequestHref } from "@/lib/wallet/card-request";
 import {
@@ -116,20 +118,6 @@ function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
   return metadata[key] === true;
 }
 
-function directMessageFeedHref(metadata: Record<string, unknown>): string {
-  const token = metadataString(metadata, "direct_message_route_token");
-  if (token.startsWith("dm1."))
-    return `${ROUTES.ONE_MESSAGES}?token=${encodeURIComponent(token)}`;
-  const conversationId = metadataString(
-    metadata,
-    "direct_message_conversation_id",
-  );
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    conversationId,
-  )
-    ? `${ROUTES.ONE_MESSAGES}?conversation=${encodeURIComponent(conversationId)}`
-    : ROUTES.ONE_MESSAGES;
-}
 
 /**
  * "3 hours" / "as long as they need" for a `<prefix>_hours` + `<prefix>_mode`
@@ -685,6 +673,7 @@ const AGENT_OUTCOME_COPY: Record<string, readonly [string, string, string]> = {
 };
 
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
+  const advisorReview = advisorReviewPresentation(item); if (advisorReview) return advisorReview;
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
   // Best-available name for the other party (label → display → first →
