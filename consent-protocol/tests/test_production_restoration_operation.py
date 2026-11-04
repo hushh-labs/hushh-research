@@ -436,7 +436,13 @@ def test_workos_default_history_admits_only_production_exact_closed_restoration(
     import subprocess
 
     monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    import operational_workos_observation as operational
     import workos_rollout as closed
+
+    def absent_operational_proof(_source):
+        raise ValueError("fixture has no operational restoration receipt")
+
+    monkeypatch.setattr(operational, "load", absent_operational_proof)
 
     authority, record = _history_authority(monkeypatch, tmp_path)
     source = record["sourceSha"]
