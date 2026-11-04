@@ -2481,6 +2481,27 @@
       "trust_boundary": "Recipient Finance ciphertext is withheld until verified RIA acceptance atomically activates the canonical connection. Every read rechecks participant, status, expiry, advisor role, current key and connection. Blocking/disconnection is terminal. Explicit two-party time agreement precedes the existing Calendar review/execute boundary. Test-mode Stripe price, plan revision, destination and provider payment state are authoritative; payment never broadens consent or permits trading.",
       "plaintext_posture": "introduction_relationship_meeting_and_billing_metadata_only_finance_contents_recipient_encrypted",
       "expected_row_growth": "one_open_review_per_owner_advisor_pair_one_subscription_per_review_and_bounded_provider_cleanup_refs"
+    },
+    {
+      "id": "direct_call_control",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals",
+        "direct_call_voip_tokens",
+        "direct_call_voip_outbox"
+      ],
+      "primary_access_path": "Signed active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification.",
+      "retention_policy": "Public device keys follow canonical device/account lifetime. Signaling is erased on terminal actions. Bounded maintenance erases expired signaling and compacts terminal metadata after 24 hours; scheduler installation and live erasure proof remain release prerequisites. Replay nonces expire after at most 120 seconds and are compacted in bounded batches. PushKit tokens follow active calling-installation lifetime and are removed on invalidation, logout cleanup, ownership transfer or provider invalidation.",
+      "deletion_behavior": "Actor, conversation and trusted-device foreign-key cascades remove dependent state; existing account-deletion guards remain authoritative. A block prevents signaling and credentials but still allows signed local-device end/cleanup. No message history is removed.",
+      "trust_boundary": "Media and plaintext SDP never enter these tables. HPKE ciphertext is bound to purpose, conversation, call, exact device keys and sequence; commands use canonical registered-device proof with expiry and replay fencing. Peer identity comparison precedes accepting remote SDP. Keys here are public bindings, never private device keys, TURN secrets or vault keys.",
+      "plaintext_posture": "ciphertext_and_bounded_call_metadata",
+      "expected_row_growth": "bounded_per_call_and_device; terminal metadata requires governed compaction"
     }
   ]
 }

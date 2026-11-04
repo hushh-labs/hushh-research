@@ -193,6 +193,18 @@ ciphertext is cleared on access/history reconciliation; dormant ciphertext and
 confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
+## People calling review implementation
+
+`GET /api/one/messages/calls/capabilities` and signed
+`POST /api/one/messages/calls/{operation}` use Firebase identity plus separately
+purposed canonical-device proofs. Operations are register-key, directory, create,
+  offer, inbox, read, heartbeat, action, signal, credentials and iOS-only register-voip. Commands reject foreign,
+revoked, replayed, expired, oversized and unexpected fields without echoing
+signaling. Existing participant/relationship/block authority remains decisive.
+The existing One proxy and platform-aware service transport own client pairing.
+Native execution and release admission remain unavailable pending qualification.
+See [People calling](../one/people-calling.md) for exact privacy, schema, retention
+and remaining E2EE/native requirements.
 
 ## Public market quotes
 
