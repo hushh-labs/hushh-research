@@ -68,6 +68,7 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
     "consent-protocol/tests/test_deployment_security.py",
     "consent-protocol/tests/test_direct_uat_acceptance.py",
+    "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
