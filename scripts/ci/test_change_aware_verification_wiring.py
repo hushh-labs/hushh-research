@@ -387,7 +387,7 @@ def test_uat_analytics_smoke_requires_successful_collect_responses() -> None:
 
 
 def test_uat_analytics_transient_asset_retry_is_bounded_and_fail_closed() -> None:
-    path = ".github/workflows/deploy-uat.yml"
+    path = ".github/workflows/deploy-uat-implementation.yml"
     content = (ROOT / path).read_text(encoding="utf-8")
     step = content.split("      - name: Verify governed analytics transport on zero-traffic UAT candidate", 1)[1].split(
         "      - name: Remove zero-traffic frontend analytics candidate tag", 1

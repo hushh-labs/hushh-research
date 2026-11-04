@@ -63,6 +63,8 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
         "scripts/ci/tag-last-known-good.sh",
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ops/audit_env_toggles.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
