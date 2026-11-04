@@ -5,11 +5,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.helpers.production_runtime_profile import production_runtime_profile
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SYNC_SCRIPT = _REPO_ROOT / "scripts/ops/sync_backend_runtime_secrets.py"
 _SERVICE = _REPO_ROOT / "consent-protocol/hushh_mcp/services/one_location_agent_service.py"
 _WORKFLOWS = {
-    lane: (_REPO_ROOT / f".github/workflows/deploy-{lane}.yml").read_text()
+    lane: (
+        _REPO_ROOT
+        / f".github/workflows/deploy-{lane}{'-implementation' if lane != 'production' else ''}.yml"
+    ).read_text()
     for lane in ("dev", "production", "uat")
 }
 
@@ -29,8 +34,10 @@ def test_hosted_sync_default_is_fail_closed_without_changing_service_semantics()
 
 
 def test_dev_and_production_pin_the_hosted_rollout_off():
-    for lane in ("dev", "production"):
-        assert '--one-location-read-only-state-enabled "false"' in _WORKFLOWS[lane]
+    assert '--one-location-read-only-state-enabled "false"' in _WORKFLOWS["dev"]
+    assert '--one-location-read-only-state-enabled "false"' in production_runtime_profile(
+        _WORKFLOWS["production"]
+    )
 
 
 def test_uat_defaults_off_and_verifies_scheduler_before_secret_sync():

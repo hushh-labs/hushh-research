@@ -67,7 +67,22 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
     surface_policy = policy[surface]
     env_name = surface_policy["environment"] if surface in ("dev", "uat") else surface_policy["owner_environment"]
     payload = _gh_json(f"repos/{repo}/environments/{env_name}")
-    variables_payload = _gh_json(f"repos/{repo}/environments/{env_name}/variables")
+    variables_payload = _gh_json(f"repos/{repo}/environments/{env_name}/variables?per_page=100")
+    # GitHub may cap environment-variable pages below the requested size.
+    rows = list(variables_payload.get("variables") or [])
+    expected = variables_payload.get("total_count")
+    for page in range(2, 11):
+        if not isinstance(expected, int) or len(rows) >= expected:
+            break
+        next_page = _gh_json(f"repos/{repo}/environments/{env_name}/variables?per_page=100&page={page}")
+        more = next_page.get("variables") or []
+        if next_page.get("total_count") != expected or not more:
+            break
+        names = {row.get("name") for row in rows}
+        if any(row.get("name") in names for row in more):
+            break
+        rows.extend(more)
+    variables_payload["variables"] = rows
     branch_policy = payload.get("deployment_branch_policy") or {}
     reviewers = _reviewer_logins(payload)
     configured_variable_names = {
@@ -81,6 +96,9 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         if str(name).strip()
     }
     errors: list[str] = []
+    variable_rows = variables_payload.get("variables") or []
+    if variables_payload.get("total_count") != len(variable_rows):
+        errors.append(f"{env_name} environment variable inventory is incomplete")
 
     if reviewers:
         errors.append(f"{env_name} should not require reviewers, found {reviewers}")

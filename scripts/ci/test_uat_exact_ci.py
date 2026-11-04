@@ -217,7 +217,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("REQUIRED_BRANCH: ${{ inputs.ref }}", pod_gate)
         self.assertIn("Application lookup ref", workflow)
         self.assertIn(
-            "run-name: Dev · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
+            "run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
             caller,
         )
         self.assertIn("Source authority: protected \\`dev\\` history", workflow)

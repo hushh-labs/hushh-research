@@ -85,8 +85,8 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     """
 
     def fake_gh_json(path: str) -> dict:
-        if path.endswith("/variables"):
-            return {"variables": [{"name": name} for name in variables]}
+        if "/variables?per_page=100" in path:
+            return {"total_count": len(variables), "variables": [{"name": name} for name in variables]}
         return _environment_payload()
 
     module._gh_json = fake_gh_json
@@ -101,8 +101,9 @@ def test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> 
     def read(path):
         if "deployment-branch-policies" in path:
             return inventory
-        if path.endswith("/variables"):
-            return {"variables": [{"name": name} for name in policy["dev"]["required_environment_variables"]]}
+        if "/variables?per_page=100" in path:
+            names = policy["dev"]["required_environment_variables"]
+            return {"total_count": len(names), "variables": [{"name": name} for name in names]}
         return {**_environment_payload(), "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
     module._gh_json = read
     assert module._assert_surface("dev", "owner/repo", policy) == []
@@ -121,6 +122,21 @@ def test_required_environment_variables_are_enforced() -> None:
     )
 
     assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    original_reader = module._gh_json
+    def paginated(path):
+        if "/variables?" in path:
+            names = ["GCP_DEPLOY_SERVICE_ACCOUNT"] if "page=2" in path else ["GCP_WORKLOAD_IDENTITY_PROVIDER"]
+            return {"total_count": 2, "variables": [{"name": name} for name in names]}
+        return original_reader(path)
+    module._gh_json = paginated
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    module._gh_json = original_reader
+    reader = module._gh_json
+    module._gh_json = lambda path: ({**reader(path), "total_count": 31}
+                                  if "/variables?" in path else reader(path))
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == [
+        "production environment variable inventory is incomplete"
+    ]
 
 
 def test_missing_environment_variable_fails_verification() -> None:

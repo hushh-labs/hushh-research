@@ -64,6 +64,8 @@ EXPECTED_JOBS = {
 # Application flags, policy and SQL already fall under consent-protocol/**.
 # Workflow-only changes use the focused controller owner below.
 DELETION_RELEASE_WORKFLOWS = (
+    ".github/workflows/deploy-dev-implementation.yml",
+    ".github/workflows/deploy-uat-implementation.yml",
     ".github/workflows/deploy-dev.yml",
     ".github/workflows/deploy-uat.yml",
     ".github/workflows/deploy-production.yml",

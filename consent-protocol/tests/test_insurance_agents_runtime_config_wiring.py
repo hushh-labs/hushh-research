@@ -173,7 +173,10 @@ def test_a_lane_without_access_to_the_source_is_left_inert(monkeypatch):
 def test_the_deploy_workflow_passes_the_flag_it_configures():
     """A generator argument nobody passes is the same as no argument at all."""
     workflow = (
-        Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-uat.yml"
+        Path(__file__).resolve().parents[2]
+        / ".github"
+        / "workflows"
+        / "deploy-uat-implementation.yml"
     ).read_text()
     assert "--insurance-agents-api-base-url" in workflow
     assert (
@@ -263,7 +266,9 @@ def test_uat_deploy_uses_safe_environment_arguments_and_only_defaults_to_the_pil
     import yaml
 
     workflow = yaml.safe_load(
-        (Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat.yml").read_text()
+        (
+            Path(__file__).resolve().parents[2] / ".github/workflows/deploy-uat-implementation.yml"
+        ).read_text()
     )
     step = next(
         step

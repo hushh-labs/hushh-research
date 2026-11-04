@@ -352,6 +352,7 @@ def main_review_ruleset(policy: dict, *, read=gh_json) -> dict:
             "dismiss_stale_reviews_on_push": False,
             "require_code_owner_review": bool(main["require_code_owner_reviews"]),
             "require_last_push_approval": bool(main["require_last_push_approval"]),
+            "require_extra_approval_for_unattributed_changes": True,
             "required_approving_review_count": main["required_approving_reviews"],
             # Conversation resolution remains independently enforced in classic protection.
             "required_review_thread_resolution": False,
@@ -389,8 +390,7 @@ def same_review_ruleset(observed: dict, desired: dict) -> bool:
     # Refuse unowned review controls; GitHub may serialize empty optional defaults.
     extras = {k: v for k, v in actual.items() if k not in wanted}
     defaults = {"required_reviewers": [], "allowed_merge_methods": ["merge", "squash", "rebase"],
-                "require_extra_approval_for_unattributed_changes": False,
-                "dismissal_restrictions": {"enabled": False, "allowed_actors": []}}
+                "dismissal_restriction": {"enabled": False, "allowed_actors": []}}
     return all(actual.get(k) == v for k, v in wanted.items()) and all(
         k in defaults and v == defaults[k] for k, v in extras.items())
 
