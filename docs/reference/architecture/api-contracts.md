@@ -5622,8 +5622,24 @@ verified recipient, lifecycle and epoch. Read-export keys cannot call them. Only
 closed catalog labels and reported status are returned; no prompts, tool inputs,
 results or freeform mail fields. A lost claim or submission becomes uncertain and
 is never automatically retried. Provider acceptance must not be called Inbox delivery.
-The provider worker and actual Inbox/feedback checks remain release prerequisites;
-these source ports alone do not send email.
+The Matrix worker uses these ports and the existing fixed single-recipient Gmail
+sender. Deployment, actual Inbox/feedback evidence and delivery latency remain
+release prerequisites; these source ports alone do not send email.
+
+Migration 449 adds actual provider-message binding and durable bounce suppression.
+Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
+provider references, RFC message IDs and recipient hashes. A matched hard-failure
+report disables future activity emails, including re-enrollment; reports cannot
+enroll anyone or assert positive Inbox delivery. A sending/uncertain reservation
+without a durable acceptance holds feedback progression. Exact acceptance binding
+precedes history processing so out-of-order reports remain replayable. The worker
+may acknowledge receipts and stop reports after new enrollment is disabled.
+
+Only a definite pre-submission/provider rejection may settle with
+`notSubmitted=true` and no provider ID. It releases the exact current claim for a
+later paced cycle, at most three claims total. It cannot release an uncertain or
+accepted submission, or a newer claim. Ambiguous sends remain held. The rollback
+refuses to discard retry counts, bindings or suppression evidence.
 
 Unsubscribe links bind the exact permission generation. GET shows confirmation;
 POST revokes that choice, so email scanners and stale links cannot disable a later

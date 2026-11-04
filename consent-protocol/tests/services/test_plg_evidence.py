@@ -84,6 +84,7 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     client, monkeypatch
 ):
     from hushh_mcp.services import attempt_email as emails
+    from hushh_mcp.services import attempt_email_feedback as feedback
 
     key = "test-only-attempt-worker-separate-secret-with-32-characters"
     monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ENABLED", "true")
@@ -93,6 +94,13 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     claim = AsyncMock(return_value=None)
     monkeypatch.setattr(emails, "pending", pending)
     monkeypatch.setattr(emails, "claim", claim)
+    monkeypatch.setattr(
+        feedback,
+        "read",
+        AsyncMock(return_value={"oldestAt": None, "unsettled": False, "unbound": []}),
+    )
+    apply_feedback = AsyncMock(return_value=True)
+    monkeypatch.setattr(feedback, "apply", apply_feedback)
 
     def call(action="pull", purpose="attempt-emails.production.pull", secret=key, body=None):
         raw = json.dumps(body or {}, separators=(",", ":"))
@@ -132,8 +140,35 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     monkeypatch.setenv("ONE_PLG_UAT_EXPORT_SECRET", key)
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
     monkeypatch.delenv("ONE_PLG_UAT_EXPORT_SECRET")
+    monkeypatch.setenv("ONE_PLG_AUDIENCE_SECRET", key)
+    assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    monkeypatch.delenv("ONE_PLG_AUDIENCE_SECRET")
     monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "")
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
+    # Stopping enrollment does not discard acknowledgements or bounce evidence.
+    assert call("feedback-state", "attempt-emails.uat.feedback-state").status_code == 200
+    assert call("feedback-state", "attempt-emails.production.feedback-state").status_code == 401
+    facts = {"submissions": [], "bounces": []}
+    assert (
+        call(
+            "feedback-apply",
+            "attempt-emails.uat.feedback-apply",
+            body={**facts, "bcc": "untrusted"},
+        ).status_code
+        == 400
+    )
+    assert (
+        call(
+            "feedback-apply",
+            "attempt-emails.uat.feedback-apply",
+            body={**facts, "bounces": [{"messageId": "bad\r\nheader", "recipientHash": "f" * 64}]},
+        ).status_code
+        == 400
+    )
+    apply_feedback.assert_not_called()
+    assert call("feedback-apply", "attempt-emails.uat.feedback-apply", body=facts).json()[
+        "complete"
+    ]
 
 
 @pytest.mark.parametrize("uid", ["owner.with+custom@example.test", "private/owner", "a" * 128])

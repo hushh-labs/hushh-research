@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 448,
+  "expected_migration_version": 449,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -2904,6 +2904,7 @@
       "activity_generation",
       "agent_id",
       "attempt_key",
+      "bounced_at",
       "claim_id",
       "claimed_at",
       "created_at",
@@ -2915,13 +2916,16 @@
       "phase",
       "provider_id",
       "recipient_hash",
+      "rfc_message_id",
       "status",
+      "submission_attempts",
       "user_id"
     ],
     "one_attempt_email_preferences": [
       "activity_generation",
       "chosen_at",
       "consent_at",
+      "delivery_blocked",
       "disclosure_version",
       "email_hash",
       "enabled",
@@ -4955,5 +4959,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 448
+  "expected_schema_head": 449
 }

@@ -35,6 +35,7 @@ def worker_authority():
         os.getenv(name, "")
         for name in (
             "ONE_PLG_EXPORT_SECRET",
+            "ONE_PLG_AUDIENCE_SECRET",
             "ONE_PLG_UAT_EXPORT_SECRET",
             "ONE_PLG_SUBSCRIPTION_SECRET",
         )
@@ -133,7 +134,9 @@ async def preference(uid: str):
         )
     return {
         **_public(row),
-        "available": uid in allowed_accounts() and product_activity.enabled_for(uid),
+        "available": uid in allowed_accounts()
+        and product_activity.enabled_for(uid)
+        and not (row and row["delivery_blocked"]),
     }
 
 
@@ -161,6 +164,8 @@ async def choose(uid: str, *, enabled: bool, expected_revision: int, disclosure:
             timeout=5,
         )
         revision = current["revision"] if current else 0
+        if enabled and current and current["delivery_blocked"]:
+            raise PermissionError("Provider delivery is held")
         if expected_revision != revision:
             raise marketing_preferences.PreferenceConflict("Refresh the current email choice")
         if not enabled and not current:
@@ -224,7 +229,7 @@ async def pending():
         )
         rows = await conn.fetch(
             """SELECT id,user_id FROM one_attempt_email_outbox
-            WHERE status='pending' AND expires_at>NOW() AND user_id=ANY($1::text[])
+            WHERE status='pending' AND submission_attempts<3 AND expires_at>NOW() AND user_id=ANY($1::text[])
             ORDER BY created_at,id LIMIT 20""",
             accounts,
             timeout=5,
@@ -241,9 +246,10 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
     lane, _ = worker_authority()
     pool = await get_pool()
     async with pool.acquire(timeout=5) as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock(448,1)", timeout=5)
         await _owner_lock(conn, uid)
         row = await conn.fetchrow(
-            """SELECT o.*,p.enabled,p.generation AS current_permission,p.revision AS current_revision,
+            """SELECT o.*,p.enabled,p.delivery_blocked,p.generation AS current_permission,p.revision AS current_revision,
               p.email_hash AS current_email,e.generation AS current_epoch
             FROM one_attempt_email_outbox o
             JOIN one_attempt_email_preferences p ON p.user_id=o.user_id
@@ -266,6 +272,7 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
             and agent["public"]
             and agent["available"]
             and row["enabled"]
+            and not row["delivery_blocked"]
             and row["permission_generation"] == row["current_permission"]
             and row["permission_revision"] == row["current_revision"]
             and row["activity_generation"] == row["current_epoch"]
@@ -279,8 +286,9 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
             )
             return None
         changed = await conn.fetchval(
-            """UPDATE one_attempt_email_outbox SET status='sending',claim_id=$2,claimed_at=NOW()
-            WHERE id=$1 AND expires_at>NOW() RETURNING id""",
+            """UPDATE one_attempt_email_outbox SET status='sending',claim_id=$2,claimed_at=NOW(),
+              submission_attempts=submission_attempts+1
+            WHERE id=$1 AND submission_attempts<3 AND expires_at>NOW() RETURNING id""",
             delivery_id,
             claim_id,
             timeout=5,
@@ -309,13 +317,46 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
     }
 
 
-async def settle(uid: str, delivery_id: UUID, claim_id: UUID, provider_id: str | None):
+async def settle(
+    uid: str,
+    delivery_id: UUID,
+    claim_id: UUID,
+    provider_id: str | None,
+    *,
+    not_submitted: bool = False,
+):
     """Lost/ambiguous submission stays claimed; acknowledgement can be retried."""
     if provider_id is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,256}", provider_id):
         raise ValueError("Invalid provider acceptance")
+    if not_submitted and provider_id is not None:
+        raise ValueError("Conflicting submission outcome")
     pool = await get_pool()
     async with pool.acquire(timeout=5) as conn, conn.transaction():
+        await conn.execute("SELECT pg_advisory_xact_lock(448,1)", timeout=5)
         await _owner_lock(conn, uid)
+        if not_submitted:
+            # Only the trusted transport's definite pre-submission rejection
+            # can release a current claim. Unknown submissions never return here.
+            changed = await conn.fetchval(
+                """UPDATE one_attempt_email_outbox SET
+                status=CASE WHEN submission_attempts>=3 THEN 'suppressed' ELSE 'pending' END,claimed_at=NULL
+                WHERE id=$1 AND user_id=$2 AND claim_id=$3 AND status='sending' AND provider_id IS NULL RETURNING id""",
+                delivery_id,
+                uid,
+                claim_id,
+                timeout=5,
+            )
+            return bool(
+                changed
+                or await conn.fetchval(
+                    """SELECT EXISTS(SELECT 1 FROM one_attempt_email_outbox WHERE id=$1 AND user_id=$2
+                AND claim_id=$3 AND status IN ('pending','suppressed') AND claimed_at IS NULL)""",
+                    delivery_id,
+                    uid,
+                    claim_id,
+                    timeout=5,
+                )
+            )
         changed = await conn.fetchval(
             """UPDATE one_attempt_email_outbox SET
               status=CASE WHEN $4::text IS NULL THEN 'uncertain' ELSE 'accepted' END,

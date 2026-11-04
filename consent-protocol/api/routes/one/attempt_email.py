@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from api.middleware import require_firebase_auth_read_only
 from hushh_mcp.services import attempt_email as service
+from hushh_mcp.services import attempt_email_feedback as feedback
 from hushh_mcp.services.marketing_preferences import PreferenceConflict, VerifiedEmailRequired
 
 router = APIRouter()
@@ -43,16 +44,17 @@ class DeliveryClaim(BaseModel):
 
 class DeliverySettlement(DeliveryClaim):
     providerId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,256}$")
+    notSubmitted: bool = False
 
 
-async def _worker_body(request: Request, purpose: str):
+async def _worker_body(request: Request, purpose: str, *, delivery: bool = True):
     from .plg import _signed_body
 
     try:
         lane, secret = service.worker_authority()
     except PermissionError:
         raise HTTPException(404, "Attempt email worker unavailable", headers=NO_STORE) from None
-    if not service.allowed_accounts():
+    if delivery and not service.allowed_accounts():
         raise HTTPException(404, "Attempt email worker unavailable", headers=NO_STORE)
     raw = await _signed_body(request, secret=secret, purpose=f"attempt-emails.{lane}.{purpose}")
     return raw, lane
@@ -129,17 +131,20 @@ async def claim(request: Request):
 
 @router.post("/attempt-email/settle", include_in_schema=False)
 async def settle(request: Request):
-    raw, lane = await _worker_body(request, "settle")
+    raw, lane = await _worker_body(request, "settle", delivery=False)
     try:
         body = DeliverySettlement.model_validate_json(raw)
-        if body.accountId not in service.allowed_accounts():
-            raise PermissionError("Account unavailable")
+        if body.notSubmitted and body.providerId is not None:
+            return JSONResponse(
+                {"detail": "Conflicting submission outcome"}, status_code=400, headers=NO_STORE
+            )
         received = await asyncio.wait_for(
             service.settle(
                 body.accountId,
                 body.id,
                 body.claimId,
                 body.providerId,
+                not_submitted=body.notSubmitted,
             ),
             timeout=15,
         )
@@ -150,6 +155,49 @@ async def settle(request: Request):
     except Exception:
         raise HTTPException(503, "Attempt email receipt not confirmed", headers=NO_STORE) from None
     return JSONResponse({"environment": lane, "received": received}, headers=NO_STORE)
+
+
+class ReportBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    messageId: str = Field(
+        pattern=r"^<[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,200}@[A-Za-z0-9.-]{1,200}>$"
+    )
+    recipientHash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class SubmissionBinding(ReportBinding):
+    providerId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,160}$")
+
+
+class FeedbackBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    submissions: list[SubmissionBinding] = Field(max_length=20)
+    bounces: list[ReportBinding] = Field(max_length=100)
+
+
+@router.post("/attempt-email/feedback-state", include_in_schema=False)
+async def feedback_state(request: Request):
+    raw, lane = await _worker_body(request, "feedback-state", delivery=False)
+    if raw != b"{}":
+        raise HTTPException(400, "Invalid worker request", headers=NO_STORE)
+    try:
+        result = await asyncio.wait_for(feedback.read(), timeout=15)
+    except Exception:
+        raise HTTPException(503, "Attempt feedback unavailable", headers=NO_STORE) from None
+    return JSONResponse({"environment": lane, **result}, headers=NO_STORE)
+
+
+@router.post("/attempt-email/feedback-apply", include_in_schema=False)
+async def feedback_apply(request: Request):
+    raw, lane = await _worker_body(request, "feedback-apply", delivery=False)
+    try:
+        body = FeedbackBatch.model_validate_json(raw)
+        complete = await asyncio.wait_for(feedback.apply(**body.model_dump()), timeout=25)
+    except ValidationError:
+        raise HTTPException(400, "Invalid feedback request", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "Attempt feedback not confirmed", headers=NO_STORE) from None
+    return JSONResponse({"environment": lane, "complete": complete}, headers=NO_STORE)
 
 
 @router.put("/attempt-email/preferences")
