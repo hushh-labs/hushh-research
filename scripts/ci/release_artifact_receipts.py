@@ -18,6 +18,8 @@ import stat
 from typing import Any
 from zipfile import BadZipFile, ZipFile
 
+import release_acceptance_provenance as release_provenance
+
 retention = importlib.import_module("cloudrun-retention")
 Document = dict[str, Any]
 Timestamp = Callable[[object], datetime | None]
@@ -109,6 +111,12 @@ def _upload_job(
     if not isinstance(expected_name, str) or not expected_name:
         raise retention.UnsafeState("release attempt deploy job name is invalid")
     raw_aliases = lane.get("deploy_job_aliases", (expected_name,))
+    if run.get("head_branch") == "uat":
+        try:
+            expected_name = release_provenance.deployment_job_name(run, "uat", expected_name)
+        except ValueError as error:
+            raise retention.UnsafeState(str(error)) from error
+        raw_aliases = (expected_name,)
     if (
         not isinstance(raw_aliases, (tuple, list, set, frozenset))
         or not raw_aliases
@@ -124,7 +132,7 @@ def _upload_job(
         "run_id": run["id"],
         "run_attempt": attempt,
         "head_sha": run["head_sha"],
-        "head_branch": "main",
+        "head_branch": run.get("head_branch"),
     }
     producers = []
     for deploy in candidates:
@@ -190,7 +198,7 @@ def _artifact_created(
             for key, value in {
                 "id": run["id"],
                 "head_sha": run["head_sha"],
-                "head_branch": "main",
+                "head_branch": run.get("head_branch"),
                 "repository_id": run["repository"]["id"],
                 "head_repository_id": run["head_repository"]["id"],
             }.items()

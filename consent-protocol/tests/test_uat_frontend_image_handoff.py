@@ -192,9 +192,9 @@ def _pin_late_image(module, context, tmp_path, monkeypatch, build_values=None):
 def _frontend_producer_values(module, context, tmp_path):
     # Run the actual tag/substitution producer: a synthetic consumer-only tag
     # missed a real mismatch between this workflow and the pending handoff.
-    workflow_steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"][
-        "steps"
-    ]
+    workflow_steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))[
+        "jobs"
+    ]["deploy"]["steps"]
     producer = next(s["run"] for s in workflow_steps if s.get("id") == "start-frontend-image-build")
     expressions = {
         "steps.resolve-sha.outputs.sha": context.sha,
@@ -348,7 +348,9 @@ def test_late_image_roundtrip_uses_the_original_hash_checked_pin_without_resolvi
 
 
 def test_historical_checkout_keeps_the_current_handoff_and_its_resolver(tmp_path):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     scripts = [
         next(s["run"] for s in steps if s.get("name") == name)
         for name in ("Preserve current release tooling", "Checkout deployment SHA")

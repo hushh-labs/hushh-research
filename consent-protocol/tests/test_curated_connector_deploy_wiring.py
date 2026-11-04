@@ -26,7 +26,9 @@ from tests.helpers.production_runtime_profile import production_runtime_profile
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_SCRIPT = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text(encoding="utf-8")
 CLOUDBUILD = (REPO_ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
-UAT_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-uat.yml").read_text(encoding="utf-8")
+UAT_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-uat-implementation.yml").read_text(
+    encoding="utf-8"
+)
 PROD_WORKFLOW = (REPO_ROOT / ".github" / "workflows" / "deploy-production.yml").read_text(
     encoding="utf-8"
 )

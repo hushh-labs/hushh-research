@@ -12,7 +12,7 @@ ONE such arg, and it crossed the cap twice:
         INVALID_ARGUMENT: invalid build: invalid .steps field:
         build step 1 arg 1 too long (max: 10000)
 
-`deploy/backend.cloudbuild.yaml` is invoked identically by deploy-dev.yml, deploy-uat.yml
+`deploy/backend.cloudbuild.yaml` is invoked identically by deploy-dev-implementation.yml, deploy-uat-implementation.yml
 and deploy-production.yml, so one file puts every lane at risk at once. It does not
 follow that every lane breaks together: at ba39d0342 UAT (10,282) and dev (10,208) were
 over while production (8,937) was under, so production kept deploying while the other
@@ -84,9 +84,9 @@ CLOUDBUILD_CONFIGS = [
 
 # Workflows that invoke deploy/backend.cloudbuild.yaml, and the lane each one deploys.
 BACKEND_DEPLOY_WORKFLOWS = [
-    ".github/workflows/deploy-uat.yml",
+    ".github/workflows/deploy-uat-implementation.yml",
     ".github/workflows/deploy-production.yml",
-    ".github/workflows/deploy-dev.yml",
+    ".github/workflows/deploy-dev-implementation.yml",
 ]
 
 _SUBSTITUTION = re.compile(r"\$\{(_[A-Z0-9_]+)\}")

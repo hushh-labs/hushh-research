@@ -300,18 +300,21 @@ def test_retired_isolated_lane_leaves_standard_release_gates_intact(environment)
     trigger = document.get("on", document.get(True))["workflow_dispatch"]["inputs"]
     assert "plg-isolated-qualification" not in trigger["target"]["options"]
     assert not {"plg_source_validation_run", "plg_schema_action", "plg_dev_run"} & trigger.keys()
+    document = yaml.safe_load(
+        (ROOT / f".github/workflows/deploy-{environment}-implementation.yml").read_text()
+    )
     entry = document["jobs"]["deploy" if environment == "dev" else "select-target"]
     if environment == "dev":
-        assert entry["if"] == "inputs.target != 'pod-publication'"
+        assert entry["if"] == "inputs.target != 'pod-publication' && inputs.operation == 'deploy'"
         assert "pod-publication" in trigger["target"]["options"]
     else:
         assert "inputs.target" not in entry.get("if", "")
     steps = document["jobs"]["deploy"]["steps"]
     names = {step.get("name") for step in steps}
     assert {
-        "Validate deployment SHA against requested ref"
+        "Validate deployment SHA in protected Dev history"
         if environment == "dev"
-        else "Validate deployment SHA against main",
+        else "Validate deployment SHA in selected protected history",
         f"Produce exact-SHA {environment.upper() if environment == 'uat' else 'dev'} acceptance",
         "Post-deploy dev schema contract gate"
         if environment == "dev"
@@ -332,12 +335,14 @@ def test_retired_uat_target_cannot_fall_through_to_a_shared_release(target, expe
 
     import yaml
 
-    document = yaml.safe_load((ROOT / ".github/workflows/deploy-uat.yml").read_text())
+    document = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     guard = document["jobs"]["select-target"]["steps"][0]
-    assert guard["name"] == "Assert manual dispatch originates from main"
+    assert guard["name"] == "Assert manual dispatch originates from uat"
     environment = {
         "PATH": os.environ.get("PATH", ""),
-        "GITHUB_REF_NAME": "main",
+        "GITHUB_REF_NAME": "uat",
         "REQUESTED_TARGET": target,
     }
     if "SYSTEMROOT" in os.environ:
