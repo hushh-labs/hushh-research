@@ -59,6 +59,7 @@ AUTHORITY_PATHS = (
 ISOLATED_CI_PATHS = (
     ".agents", ".github", "bin", "scripts/ci", "scripts/git", "scripts/ops",
     "consent-protocol/.github", "consent-protocol/scripts/ci",
+    "consent-protocol/ops/monorepo/pre-push.sh",
     "consent-protocol/scripts/run-test-ci.sh",
     "consent-protocol/scripts/generate_capability_graph.py",
     "hushh-webapp/scripts", "hushh-webapp/playwright.config.ts",
