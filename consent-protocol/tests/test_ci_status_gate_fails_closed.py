@@ -50,7 +50,7 @@ AUTHORITY = (
     "preflight-gate",
     "dco-check",
 )
-PULL_REQUEST_ONLY = ("pr-base-policy", "main-freshness-gate")
+PULL_REQUEST_ONLY = ("pr-base-policy",)
 ALL_JOBS = sorted(
     {*AUTHORITY, *PULL_REQUEST_ONLY, *(lane for lanes in LANES.values() for lane in lanes)}
 )
@@ -161,6 +161,10 @@ def _verdict(run: Run, tmp_path: Path) -> tuple[bool, str]:
     assert set(run.results) >= set(ALL_JOBS), "the scenario must give every needed job a result"
     output = ""
     for step in _gate()["steps"]:
+        # Artifact production is tested by the queue receipt owner. This harness
+        # executes the actual verdict scripts, not checkout/upload actions.
+        if "uses" in step or step.get("name") == "Record tested merge inputs":
+            continue
         condition = step.get("if")
         if condition is not None:
             conditions = {
@@ -199,13 +203,6 @@ def _failing_runs() -> list[tuple[str, Run]]:
         runs.append((f"dispatch-{job}-skipped", DISPATCH.with_result(job, "skipped")))
     runs += [
         ("pr-base-policy-skipped", EVERYTHING.with_result("pr-base-policy", "skipped")),
-        ("freshness-skipped-into-main", EVERYTHING.with_result("main-freshness-gate", "skipped")),
-        (
-            "freshness-skipped-into-train",
-            replace(EVERYTHING, base_ref="integration/pr-train").with_result(
-                "main-freshness-gate", "skipped"
-            ),
-        ),
         (
             "editor-output-undecided",
             replace(EVERYTHING, outputs={**EVERYTHING.outputs, "editor": ""}),
@@ -215,14 +212,6 @@ def _failing_runs() -> list[tuple[str, Run]]:
         ("dispatch-backend-scope", replace(DISPATCH, scope="backend")),
         ("dispatch-unknown-scope", replace(DISPATCH, scope="unknown")),
     ]
-    for base in ("dev", "uat"):
-        for result in ("skipped", "cancelled", "failure"):
-            runs.append(
-                (
-                    f"{base}-freshness-{result}",
-                    replace(EVERYTHING, base_ref=base).with_result("main-freshness-gate", result),
-                )
-            )
     return runs
 
 
@@ -232,6 +221,11 @@ def _passing_runs() -> list[tuple[str, Run]]:
     ]
     runs += [
         ("everything-selected", EVERYTHING),
+        ("combined-merge-result", replace(DISPATCH, event="merge_group")),
+        (
+            "failed-drift-guidance-is-advisory",
+            EVERYTHING.with_result("main-freshness-gate", "failure"),
+        ),
         ("dev-freshness-passed", replace(EVERYTHING, base_ref="dev")),
         ("uat-freshness-passed", replace(EVERYTHING, base_ref="uat")),
         ("nothing-selected", _selected()),
@@ -338,7 +332,7 @@ def test_manual_branch_verdict_cannot_satisfy_pr_protection() -> None:
     # This is a branch-protection identity boundary, not an outcome shortcut.
     # The guarded branch names are deliberately absent from the dispatch name.
     assert _gate()["name"] == (
-        "${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}"
+        "${{ github.event_name == 'merge_group' && 'Combined Result Gate' || github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}"
     )
 
 
