@@ -5688,3 +5688,25 @@ re-enrollment. Reset disables the preference and erases its outbox. Full account
 tombstones erase both; phone-orphan intent does not revoke an established choice.
 The down migration refuses nonempty state. Disable admission/dispatch for a
 behavioral rollback; do not discard preferences or uncertain-send receipts.
+### PLG release configuration
+
+Dev/UAT own-activity rollout uses the canonical backend runtime configuration
+writer and `deploy/plg/bind_secrets.sh`. The structured flags
+`one_plg_dev_export_enabled`, `one_plg_activity_dev_enabled`,
+`one_plg_uat_export_enabled`, `one_plg_activity_uat_enabled`,
+`one_plg_owner_export_enabled` (Production only) and
+`one_plg_attempt_email_enabled` default false. Explicit existing choices survive
+sync only for their exact environment/project; foreign-lane activation is
+rejected. The common `one_plg_activity_enabled` flag still applies, and Dev/UAT
+also require their own activity flag with all-registered off.
+
+Secrets and account cohorts are direct Secret Manager mounts, never fields in
+the structured runtime configuration. Dev mounts only its DEV read/cohort
+names, UAT only UAT, and Production retains its existing campaign mounts plus
+independent OWNER names. Each project may mount its own
+`ONE_PLG_ATTEMPT_EMAIL_SECRET` and `ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS` only when
+the versions are enabled. Preview secret namespaces cannot borrow canonical
+PLG credentials. A mount cannot enroll an owner or activate delivery; current
+verified identity, owner epoch, explicit per-attempt choice and the separately
+qualified Matrix worker remain required. Keep the attempt key available for
+generation-bound unsubscribe even when new delivery is disabled.
