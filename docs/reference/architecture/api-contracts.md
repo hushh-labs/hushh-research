@@ -1,5 +1,45 @@
 # API Contracts
 
+## Connection network discovery
+
+These Firebase-authenticated reads bind the viewer to the verified session and
+return `private, no-store`. Web uses the existing `/api/one/[...path]` proxy;
+iOS and Android use the same endpoints through `ApiService.apiFetch`.
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
+| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
+
+A wider list requires its owner's explicit opt-in and the viewer's current active
+direct connection. Every page rechecks owner permission, peer edges, profile
+lifecycle and blocks after directory work. Unavailable, blocked and unauthorized
+targets share a neutral 404. Mid-read invalidation returns retryable 503 instead
+of disclosing a stale page or silently thinning pagination.
+
+Mutuals remain people directly connected to both viewer and target; their existing
+count can exceed the number of viewable profiles. Pending requests, contact books,
+trusted designations and Circle membership alone do not count as graph edges.
+First degree is a direct active connection. Second degree follows the existing
+shared-neighbor visibility contract. Third degree requires both intermediaries
+to enable sharing; it exposes a distance only. `null` does not prove that no
+connection exists. Anonymous public profiles remain unchanged.
+
+Discovery admits at most 4,000 live eligible nodes and 12,000 edges, uses a
+cooperative twelve-second traversal budget and scoped eight-second SQL statement
+timeouts, and fails retryably when it cannot qualify the result. Firebase account
+eligibility retains the canonical directory's bounded cache semantics. No graph
+inventory is persisted in the browser or returned as connecting paths.
+
+The new visibility write remains an unbound discovered API in the capability
+catalog. The existing evolution ledger retires Connections setup graph revisions
+`9ea5b914a24b6f47` and `ac971edb713a113d` rather than carrying an older workflow's
+authority into a new write inventory. This also retires the first revision's
+compatible predecessors for that workflow. Existing persisted connections and
+setup state are unchanged; an old workflow must be freshly admitted.
+
 ## Feed counterpart profile presentation
 
 Feed metadata may include `counterpart_person_ref`, resolved at read time from
@@ -2719,7 +2759,7 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | --- | --- | --- |
 | GET | `/availability` | Three independent gates: `requests` admits intake and owner review, `payments` admits checkout and additionally requires usable answer credentials, `payouts` reports owner payout reachability. Legacy `payments`-meaning `enabled` is retained so an older client fails closed. Each field is absent-is-false; a surface whose gate is off opens an explanation instead of a control, and a check that could not be made is reported as retryable rather than as a disabled lane. |
 | POST | `/` | Create a connected-person question and resolve eligible scopes through the existing resolver. Optional UUID `clientRequestId` replays the same requester/owner/canonical question/dates without reopening lifecycle state or duplicating Feed events; conflicts return generic 409, invalid IDs 422. Omission preserves legacy UUID generation. Participant `/{id}/state` supports uncertain-submit recovery. `periodStart` and `periodEnd` may be omitted or null; a supplied range must contain two real ISO calendar dates in order. |
-| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. |
+| GET | `/inbox`, `/{id}/state` | Owner review queue or exact participant state; unrelated users cannot read the question. State includes `requesterKeyReady`, nullable `deliveryRecipientKeyId` and `deliveryRecipientKeyActive`; these describe public receiving-key readiness, never private key material. |
 | POST | `/{id}/approve`, `/{id}/decline`, `/{id}/cancel` | Exact terms and model-processing consent, refusal or withdrawal; paid cancellation owes a full refund. Approval is admitted by the request gate and records a price without charging; with payments paused the requester sees that price and no pay control. |
 | GET / POST | `/{id}/payment`, `/{id}/payment/checkout` | Quote/status and mode-bound hosted Checkout with durable overlapping-session recovery. |
 | POST | `/api/payments/stripe/webhook` (shared endpoint) | Raw signed provider event; exact attempt, terms, currency, amount and mode verification. |
@@ -2729,6 +2769,10 @@ The Request scope dialog contains a recipient, one labelled question field and C
 | GET / POST | `/payout-account`, `/payout-account/{action}` | Verified mode-specific owner account, onboarding or bank-management link; Drive resumption is excluded. Onboarding accepts an optional strict body `{attempt_id: UUID, purpose?: "verify"}` and returns the matching opaque attempt, hosted URL and canonical Payouts return URL with `source=answers`. Legacy calls without a body remain supported. Owner, account and mode are server-owned. |
 
 Answers remain manual while unlocked. Exact approved plaintext reaches the backend composer and Google Vertex AI for one call, with application NO_CONTENT telemetry and no plaintext persistence. Live mode additionally requires provider-retention review attestation; it does not establish provider zero retention. Payments retain Drive's 3% platform fee, actual Stripe fee, full refund and owner-earnings rules. The separate authenticated answer drain handles deadlines, refunds and settlement even when admission is paused. Historical unbound modes and approvals without consent require explicit reconciliation. See [enablement steps](../operations/env-and-secrets.md#request-scope-enablement-follow-up-2026-10-11) and [memory/runtime boundary](./living-memory-freshness-adr.md).
+
+The paid question flow is requester A asks, owner B reviews exact scopes and sets a price, B prepares, A pays, then A opens the released answer. Before sending, A's browser verifies publication of its durable device public key. Storage failure is never treated as an absent key, concurrent setup preserves the first stored key, and setup timeout retires late publication. Older requests without a usable key expose explicit requester-only receiving setup; B sees that prerequisite rather than an owner-unlock error. Key readiness is filtered before the preparation queue limit, so keyless requests cannot starve ready work. Before checkout, A must unlock the device holding the staged key; no replacement is generated merely to make payment available.
+
+Revoking a staged receiving key blocks new checkout. If revocation races a previously opened checkout, the signed valid payment remains recorded and the request enters the existing 72-hour answer/refund recovery. B can restage the same approved terms to A's replacement active key only after the old key is inactive and a fresh composition receipt is verified. An active same-term delivery remains immutable. No second charge, approval replay, cross-device private-key recovery or automatic grant is introduced.
 
 Answer payout setup uses the shared fenced hosted-browser flow. A warm return preserves the initiating unlocked session; a cold Payouts return requires normal authentication and unlock before answer-specific status or fresh-link recovery. Only opaque attempt/source/purpose metadata persists. Return notifications trigger authenticated reads and never establish eligibility. Answer and document markers are separate; scope events accept neither source. Bank-management links use a separately admitted auxiliary window or native browser and are retired when the owner or vault session changes.
 
@@ -5659,3 +5703,114 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 `GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
+
+## Own activity evidence
+
+The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
+are read-only and require the exact UAT project, runtime lane, collection/export
+flags, separate credential and explicit bounded account cohort. The Matrix
+session supplies only its verified email hash; cached identity data selects a
+candidate but current Firebase verified identity and lifecycle/epoch checks
+authorize the result. Ambiguous candidates fail closed. Owner reads require no
+marketing subscription and carry `readAuthority=verified_owner` plus the hashed
+`ownerEpoch`; they never carry delivery authority. Identity changes and account
+reset during a snapshot invalidate it. No raw email or private content is exported.
+Production marketing/reporting contracts remain separate.
+
+Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
+`snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
+`ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
+`ONE_PLG_ACTIVITY_ENABLED=true`, `ONE_PLG_ACTIVITY_DEV_ENABLED=true`,
+`ONE_PLG_DEV_EXPORT_ENABLED=true`, a separate `ONE_PLG_DEV_EXPORT_SECRET`, and
+`ONE_PLG_ACTIVITY_DEV_ACCOUNT_IDS` (1–100 explicit owners). All-registered
+collection stays off. No UAT, Production, marketing or worker key can authorize
+Dev reads. A legacy Dev revision labelled UAT fails closed; canonical Dev rollout
+must establish the correct lane before activation. Local mocks do not prove that
+rollout, and no environment is enabled by these source defaults.
+
+Production own reads use separate `owner`, `permission-owner` and `snapshot-owner`
+routes, signed with `owner.production.{owner,permission,snapshot}` purposes. They
+require the production lane/project, `ONE_PLG_OWNER_EXPORT_ENABLED=true`, enabled
+activity collection, `ONE_PLG_OWNER_ACCOUNT_IDS` (1–100 owners), and a distinct
+`ONE_PLG_OWNER_EXPORT_SECRET`. Marketing, UAT read and email-worker credentials
+cannot authorize them. They apply the same verified-owner and reset-epoch checks;
+no marketing opt-in is needed to see one's own activity. These flags are off by
+default and this contract does not establish a deployed source or complete capture.
+
+## Optional agent-attempt emails
+
+The account screen owns an explicit, default-off activity-email choice at
+`GET/PUT /api/one/plg/attempt-email/preferences`. It is separate from marketing
+permission and accepts no recipient or account override. A fresh verified owner
+email, current activity epoch, bounded configured cohort and environment/project
+admission are required to enable it. Opt-out remains available when rollout is off.
+The worker accepts exact Dev, UAT or Production project/lane pairs. Dev responses,
+signatures and unsubscribe links bind only to the Dev backend
+`https://consent-protocol-aqahj4iyha-uc.a.run.app`; it cannot borrow UAT authority.
+Manual-only controls cannot be submitted by an agent. The setting is operational
+permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
+
+Migration 448 atomically queues the first accepted correlated client terminal
+report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
+SDK/tool reports and uncorrelated observations do not enqueue. This inherits
+best-effort observation coverage and its existing collection limits. It does not
+establish universal attempt capture or a delivery-time guarantee.
+
+Separately signed, environment-bound `attempt-email/pull`, `claim` and `settle`
+ports give a trusted worker one send grant after checking current permission,
+verified recipient, lifecycle and epoch. Read-export keys cannot call them. Only
+closed catalog labels and reported status are returned; no prompts, tool inputs,
+results or freeform mail fields. A lost claim or submission becomes uncertain and
+is never automatically retried. Provider acceptance must not be called Inbox delivery.
+The Matrix worker uses these ports and the existing fixed single-recipient Gmail
+sender. Deployment, actual Inbox/feedback evidence and delivery latency remain
+release prerequisites; these source ports alone do not send email.
+Settlement carries only delivery/claim IDs and provider outcome. One derives the
+owner from its durable row, validates the exact claim and retires acknowledgements
+for reset/erased rows without recreating state. Matrix durably retains bounded
+opaque receipts before acknowledgement and replays them after restart before new
+provider work; no owner identity or message content is needed in that queue.
+
+Migration 449 adds actual provider-message binding and durable bounce suppression.
+Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
+provider references, RFC message IDs and recipient hashes. A matched hard-failure
+report disables future activity emails, including re-enrollment; reports cannot
+enroll anyone or assert positive Inbox delivery. A sending/uncertain reservation
+without a durable acceptance holds feedback progression. Exact acceptance binding
+precedes history processing so out-of-order reports remain replayable. The worker
+may acknowledge receipts and stop reports after new enrollment is disabled.
+
+Only a definite pre-submission/provider rejection may settle with
+`notSubmitted=true` and no provider ID. It releases the exact current claim for a
+later paced cycle, at most three claims total. It cannot release an uncertain or
+accepted submission, or a newer claim. Ambiguous sends remain held. The rollback
+refuses to discard retry counts, bindings or suppression evidence.
+
+Unsubscribe links bind the exact permission generation. GET shows confirmation;
+POST revokes that choice, so email scanners and stale links cannot disable a later
+re-enrollment. Reset disables the preference and erases its outbox. Full account
+tombstones erase both; phone-orphan intent does not revoke an established choice.
+The down migration refuses nonempty state. Disable admission/dispatch for a
+behavioral rollback; do not discard preferences or uncertain-send receipts.
+### PLG release configuration
+
+Dev/UAT own-activity rollout uses the canonical backend runtime configuration
+writer and `deploy/plg/bind_secrets.sh`. The structured flags
+`one_plg_dev_export_enabled`, `one_plg_activity_dev_enabled`,
+`one_plg_uat_export_enabled`, `one_plg_activity_uat_enabled`,
+`one_plg_owner_export_enabled` (Production only) and
+`one_plg_attempt_email_enabled` default false. Explicit existing choices survive
+sync only for their exact environment/project; foreign-lane activation is
+rejected. The common `one_plg_activity_enabled` flag still applies, and Dev/UAT
+also require their own activity flag with all-registered off.
+
+Secrets and account cohorts are direct Secret Manager mounts, never fields in
+the structured runtime configuration. Dev mounts only its DEV read/cohort
+names, UAT only UAT, and Production retains its existing campaign mounts plus
+independent OWNER names. Each project may mount its own
+`ONE_PLG_ATTEMPT_EMAIL_SECRET` and `ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS` only when
+the versions are enabled. Preview secret namespaces cannot borrow canonical
+PLG credentials. A mount cannot enroll an owner or activate delivery; current
+verified identity, owner epoch, explicit per-attempt choice and the separately
+qualified Matrix worker remain required. Keep the attempt key available for
+generation-bound unsubscribe even when new delivery is disabled.

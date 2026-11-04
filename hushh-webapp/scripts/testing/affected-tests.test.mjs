@@ -186,6 +186,7 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
       encoding: "utf8",
       env: {
         ...process.env,
+        HUSHH_WEB_TEST_MAX_WORKERS: "2",
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         NPM_TEST_LOG: npmLog,
         CI_VALIDATION_LEVEL: level,
@@ -502,21 +503,65 @@ test("shadowed unit imports select their whole owner and runtime imports remain 
   assert.equal(cjsRuntime.fallbackReason, "computed_dynamic_import_dependency");
 });
 
+test("changed JSON test fixtures retain their importing tests without diagnostic expansion", () => {
+  const fixture = "__tests__/fixtures/calendar-chat-controlled-results.json";
+  const owner = "__tests__/components/calendar-chat-controlled-flow.test.tsx";
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${fixture}`]: '{"status":"review_required"}\n',
+    [`hushh-webapp/${owner}`]: 'import result from "../fixtures/calendar-chat-controlled-results.json"; void result;\n',
+  }, [fixture]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.relatedFiles, [fixture]);
+  assert.equal(plan.noUnitImpact, false);
+
+  const missing = buildImportGraphFixture({}, [fixture]);
+  assert.equal(missing.effectiveLevel, "diagnostic");
+  assert.equal(missing.fallbackReason, "missing_changed_source");
+});
+
+test("nested fixtures and component voice contracts remain related-test inputs", () => {
+  const paths = [
+    "__tests__/components/profile/mocks.tsx",
+    "components/one-voice/panel.voice-action-contract.json",
+  ];
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${paths[0]}`]: "export const person = {};\n",
+    [`hushh-webapp/${paths[1]}`]: "{}\n",
+    "hushh-webapp/__tests__/components/profile.test.tsx":
+      'import { person } from "./profile/mocks"; void person;\n',
+  }, paths);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.deepEqual(plan.relatedFiles, paths);
+  assert.equal(plan.noUnitImpact, false);
+});
+
 test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {
   const registered = `contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`;
   const mixed = buildImportGraphFixture({
     [`hushh-webapp/${DIRECT_TEST}`]: "import { expect, test } from 'vitest'; test('selected', () => expect(true).toBe(true));\n",
     [`hushh-webapp/${registered}`]: "{}\n",
+    "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json": "{}\n",
+    "hushh-webapp/cache-coherence-screen-manifest.generated.json": "{}\n",
+    "hushh-webapp/contracts/kai/one-route-orchestration-index.v1.json": "{}\n",
   }, [
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
     "scripts/testing/phone-conflict-flow.mjs",
     registered,
+    "app/one/setup/finance/import/page.voice-action-contract.json",
+    "cache-coherence-screen-manifest.generated.json",
+    "contracts/kai/one-route-orchestration-index.v1.json",
     DIRECT_TEST,
   ]);
   assert.equal(mixed.effectiveLevel, "focused");
   assert.deepEqual(mixed.directFiles, [DIRECT_TEST]);
-  assert.deepEqual(mixed.relatedFiles, [registered]);
+  assert.deepEqual(mixed.relatedFiles, [
+    "app/one/setup/finance/import/page.voice-action-contract.json",
+    "cache-coherence-screen-manifest.generated.json",
+    registered,
+    "contracts/kai/one-route-orchestration-index.v1.json",
+  ]);
 
   for (const path of [
     "hushh-webapp/lib/vault/passkey-domain-aliases.json",
@@ -558,4 +603,12 @@ test("dynamic import scanning retains a finite 64 MiB fail-closed limit", () => 
     process.env.PATH = originalPath;
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+
+test("styling-only changes have no unit execution while runtime modules remain selected", () => {
+  const style = buildPlan({ env: { CI_VALIDATION_LEVEL: "focused", CI_CHANGED_FILES: "hushh-webapp/app/globals.css" } });
+  assert.equal(style.effectiveLevel, "focused");
+  assert.equal(style.noUnitImpact, true);
+  assert.equal(style.fallbackReason, null);
 });

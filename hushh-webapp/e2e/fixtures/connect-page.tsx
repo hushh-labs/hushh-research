@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import ConnectPageClient from "../../app/connect/page-client";
 import { usePathname, useSearchParams, useRouter } from "./connect-page-boundaries";
 import { navigateTopShellBack } from "../../lib/navigation/top-shell-back";
+import { PersonProfilePreview } from "../../components/connections/person-profile-preview";
+import { useWebHistoryBack } from "../../lib/navigation/web-history-back";
 import {
   resolveSignedInShellContentOffset,
   resolveTopShellGeometryStyle,
@@ -19,6 +21,7 @@ function Shell() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  useWebHistoryBack(pathname, searchParams.toString());
   return (
     <div
       data-app-shell-root="true"
@@ -64,6 +67,7 @@ function Shell() {
           <span className="font-semibold">{pathname.startsWith("/people/") ? "Profile" : searchParams.get("mutuals") ? "Mutual connections" : "Connect"}</span>
         </nav>
       </div>
+      <PersonProfilePreview />
       {document.documentElement.dataset.bottomChrome === "1" ? (
         <div
           data-fixture-bottom-shell=""

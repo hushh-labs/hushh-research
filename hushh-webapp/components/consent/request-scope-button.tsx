@@ -17,6 +17,10 @@ import { useEffect, useRef, useState, type RefObject, type ReactNode } from "rea
 import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
+import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
 import { AuthService } from "@/lib/services/auth-service";
 import {
@@ -56,10 +60,27 @@ export function RequestScopeButton({
   returnFocusRef,
   renderTrigger,
 }: RequestScopeButtonProps) {
-  const { userId } = useAuth();
+  const { user, userId } = useAuth();
+  const { isVaultUnlocked, vaultOwnerToken } = useVault();
   const [open, setOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef<symbol | null>(null);
+  const mounted = useRef(true);
+  const view = useRef({ userId, personRef, open });
+  view.current = { userId, personRef, open };
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    inFlight.current = null;
+    setBusy(false);
+    setQuestion("");
+    setCreated(null);
+    setError(null);
+    setUncertain(false);
+    setUnlockOpen(false);
+    attempt.current = null;
+  }, [userId, personRef]);
   const eligibility = useRef(canRequest);
   eligibility.current = canRequest;
   const attempt = useRef<{ question: string; id: string } | null>(null);
@@ -138,14 +159,27 @@ export function RequestScopeButton({
   };
 
   const submit = async () => {
-    if (!canRequest || gate.kind !== "ready" || !valid || busy) return;
+    if (!canRequest || gate.kind !== "ready" || !valid || busy || inFlight.current) return;
+    if (!user || !userId) { setError("Sign in to send this request."); return; }
+    if (!isVaultUnlocked || !vaultOwnerToken) { setUnlockOpen(true); return; }
+    const operation = Symbol();
+    inFlight.current = operation;
+    const session = getAuthSessionGeneration();
+    const epoch = snapshotVaultSessionEpoch();
+    const owner = userId;
+    const current = () => mounted.current && inFlight.current === operation &&
+      view.current.open && view.current.userId === owner &&
+      view.current.personRef === personRef && session === getAuthSessionGeneration() &&
+      isVaultSessionEpochCurrent(epoch);
+    const admitted = () => current() && eligibility.current;
     setBusy(true);
     setError(null);
     try {
-      const session = getAuthSessionGeneration();
+      await bootstrapCurrentUserMarketplaceRecipientKey({ userId: owner, vaultOwnerToken, isCurrent: admitted });
+      if (!admitted()) return;
       const token = await AuthService.getIdToken();
       if (!token) throw new Error("Sign in to send this request.");
-      if (!eligibility.current || session !== getAuthSessionGeneration()) throw new Error("Your connection needs to be confirmed before sending. Your question is kept.");
+      if (!admitted()) return;
       const cleanQuestion = question.trim();
       if (attempt.current?.question !== cleanQuestion) attempt.current = { question: cleanQuestion, id: crypto.randomUUID() };
       const { requestId } = await AnswerRequestService.create(
@@ -154,13 +188,17 @@ export function RequestScopeButton({
         {
           question,
         },
-        { clientRequestId: attempt.current.id, isEffectCurrent: () => eligibility.current && session === getAuthSessionGeneration() },
+        { clientRequestId: attempt.current.id, isEffectCurrent: admitted },
       );
+      // A current server acknowledgement survives a connection refresh. It
+      // authorizes no new mutation; dispatch and retries still use admitted.
+      if (!current()) return;
       if (userId) CacheSyncService.onConsentMutated(userId);
       setCreated(requestId);
       attempt.current = null;
       reset();
     } catch (cause) {
+      if (!current()) return;
       setUncertain(Boolean(attempt.current));
       setError(
         cause instanceof Error
@@ -168,17 +206,20 @@ export function RequestScopeButton({
           : "This request could not be sent.",
       );
     } finally {
-      setBusy(false);
+      if (inFlight.current === operation) {
+        inFlight.current = null;
+        if (mounted.current) setBusy(false);
+      }
     }
   };
 
   return (
-    <Dialog
+    <><Dialog
       modal
-      open={open}
+      open={open && !unlockOpen}
       onOpenChange={(value) => {
         if (value) setOpen(true);
-        else close();
+        else if (!unlockOpen) close();
       }}
     >
       {showTrigger ? <DialogTrigger asChild>
@@ -307,7 +348,7 @@ export function RequestScopeButton({
                   size="prominent"
                   disabled={!canRequest || !valid || busy}
                 >
-                  {busy ? takingLonger ? "Still sending—please wait…" : "Sending…" : "Send request"}
+                  {busy ? takingLonger ? "Still sending—please wait…" : "Sending…" : isVaultUnlocked ? "Send request" : "Unlock to send"}
                 </Button>
               }
               secondary={
@@ -327,5 +368,9 @@ export function RequestScopeButton({
         )}
       </IllustratedRequestContent>
     </Dialog>
+    {user ? <VaultUnlockDialog user={user} open={unlockOpen} onOpenChange={setUnlockOpen}
+      onSuccess={() => setUnlockOpen(false)} title="Unlock to receive securely"
+      description="Unlock your vault, then send your question. Your draft is kept."
+      presentationClassName="consent-presentation-surface" /> : null}</>
   );
 }

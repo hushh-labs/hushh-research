@@ -53,9 +53,13 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
+        "scripts/ci/integration-check.sh",
+        "scripts/ci/validation-results.sh",
+        "scripts/ci/check-dco-signoff.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
         "scripts/ci/tag-last-known-good.sh",
+        "scripts/ops/sync_backend_runtime_secrets.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
@@ -63,6 +67,9 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         assert selection.error is None
         assert selection.groups == ("controller",)
         assert "ci-path-ownership" in selection.check_ids
+        assert {
+            "runtime-config-contract", "deploy-secret-coverage", "protected-pipeline-edits"
+        } <= set(selection.check_ids)
 
 
 def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:

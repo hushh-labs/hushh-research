@@ -21,6 +21,20 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("ConnectionsService", () => {
   beforeEach(() => mockApiFetch.mockReset());
 
+  it("sends network discovery, permission and visibility through the authenticated no-store API owner", async () => {
+    mockApiFetch.mockResolvedValue(jsonResponse({ person: null, items: [], page: 2, hasMore: false }));
+    await ConnectionsService.listNetwork({ idToken: "token", degree: 3, query: " A & B ", page: 2 });
+    const [href, options] = mockApiFetch.mock.calls[0];
+    const params = new URL(href, "https://app.test").searchParams;
+    expect(Object.fromEntries(params)).toEqual({ degree: "3", query: "A & B", page: "2", limit: "20" });
+    expect(options).toMatchObject({ method: "GET", cache: "no-store", headers: { Authorization: "Bearer token" } });
+    mockApiFetch.mockResolvedValue(jsonResponse({ shareConnectionList: true }));
+    expect(await ConnectionsService.updateNetworkVisibility({ idToken: "token", shareConnectionList: true })).toEqual({ shareConnectionList: true });
+    expect(mockApiFetch).toHaveBeenLastCalledWith("/api/one/connections/network/visibility", expect.objectContaining({ method: "PATCH", cache: "no-store", body: '{"share_connection_list":true}' }));
+    mockApiFetch.mockResolvedValue(jsonResponse({ detail: "Unavailable" }, 403));
+    await expect(ConnectionsService.listNetwork({ idToken: "token", personRef: "private-person", page: 1 })).rejects.toMatchObject({ status: 403 });
+  });
+
   it.each([
     {person:{userId:"different",relationship:"none"},request:null},
     {person:{userId:"target",relationship:"pending_outgoing"},request:null},

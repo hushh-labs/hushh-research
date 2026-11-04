@@ -1,7 +1,8 @@
 /* The slot owns placement and the button owns its one circular surface.
  * Keep a 44px touch target; the visible 34.32px circle is 22% smaller. */
-.closeSlot,
-.closeSlot:hover {
+/* Outrank the shared pane-close rule even when its stylesheet loads last. */
+.closeSlot.closeSlot,
+.closeSlot.closeSlot:hover {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;

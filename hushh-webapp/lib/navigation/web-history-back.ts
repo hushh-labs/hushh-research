@@ -165,6 +165,23 @@ function isOverlayAbovePersonPreview(doc: Document): boolean {
   return isPersonProfilePreviewOpen(doc) && !overlays[overlays.length - 1]?.hasAttribute("data-person-profile-preview");
 }
 
+/** Request overlays consume a preview Back, including child-to-parent visits. */
+export function dismissPersonPreviewOverlayOnBack(params: {
+  previousHistoryState: unknown; revealedHistoryState: unknown;
+  previousEntryIndex?: number | null; revealedEntryIndex?: number | null; doc?: Document;
+}): boolean {
+  const previous = personPreviewHistoryEntry(params.previousHistoryState);
+  const revealed = personPreviewHistoryEntry(params.revealedHistoryState);
+  if (previous === null || previous === revealed) return false;
+  const backward = params.previousEntryIndex != null && params.revealedEntryIndex != null
+    ? isBackwardHistoryTraversal(params.previousEntryIndex, params.revealedEntryIndex)
+    // The reviewed preview owner issues monotonically increasing visit keys.
+    // A greater known key is Forward, even without browser entry indices.
+    : revealed === null || revealed < previous;
+  const doc = params.doc ?? document;
+  return backward && isOverlayAbovePersonPreview(doc) && dismissTopmostOverlay(doc);
+}
+
 function isTopmostConfirmationOpen(doc: Document): boolean {
   const overlays = doc.querySelectorAll<HTMLElement>(
     '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
@@ -268,10 +285,10 @@ export function useWebHistoryBack(pathname: string, search: string): void {
         search: window.location.search,
       };
       const revealedIndex = navigationEntryIndex();
-      const restorePersonPreview = personPreviewHistoryEntry(previousHistoryState) !== null &&
-        personPreviewHistoryEntry(event.state) === null && isOverlayAbovePersonPreview(document) &&
-        (previousIndex == null || revealedIndex == null || isBackwardHistoryTraversal(previousIndex, revealedIndex));
-      if (restorePersonPreview) dismissTopmostOverlay(document);
+      const restorePersonPreview = dismissPersonPreviewOverlayOnBack({
+        previousHistoryState, revealedHistoryState: event.state,
+        previousEntryIndex: previousIndex, revealedEntryIndex: revealedIndex,
+      });
       if (restorePersonPreview || dismissProfileConfirmationOnBack({
         previous,
         previousHistoryState,

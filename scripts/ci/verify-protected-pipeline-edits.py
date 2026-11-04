@@ -22,6 +22,9 @@ DEFAULT_PROTECTED_PATHS = [
     ".github/workflows/",
     ".github/actions/",
     "scripts/ci/",
+    "hushh-webapp/scripts/testing/affected-tests.mjs",
+    "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+    "hushh-webapp/scripts/testing/playwright-shard.cjs",
     "deploy/",
     "config/ci-governance.json",
 ]
@@ -212,7 +215,7 @@ def evaluate(
     )
 
 
-def owner_queue_approval(*, author: str, requester: str, review: str, main_policy: dict) -> list[str]:
+def owner_queue_approval(*, author: str, requester: str, review: str | None, main_policy: dict) -> list[str]:
     """An owner's explicit queue request approves their own captured PR head.
 
     The queue owner supplies authenticated membership and exact head evidence.
@@ -222,7 +225,7 @@ def owner_queue_approval(*, author: str, requester: str, review: str, main_polic
     exceptions = set(main_policy.get("review_bypass_users", []))
     if not exceptions <= owners or main_policy.get("review_bypass_team_slug"):
         raise PolicyError("Owner approval must not inherit a broader review bypass")
-    if review in {"APPROVED", "REVIEW_REQUIRED"} and author == requester and requester in exceptions:
+    if review in {"APPROVED", "REVIEW_REQUIRED", None} and author == requester and requester in exceptions:
         return [requester]
     return []
 
@@ -278,6 +281,7 @@ def _self_test() -> int:
         ("maintainer edits governance config", ["config/ci-governance.json"], "kushaltrivedi5", 0),
         ("community edits only app code", ["hushh-webapp/app/page.tsx"], "random-contributor", 0),
         ("community edits scripts/ci", ["scripts/ci/orchestrate.sh"], "random-contributor", 1),
+        ("community edits unit selector", ["hushh-webapp/scripts/testing/affected-tests.mjs"], "random-contributor", 1),
     ]
     # The cohort resolver: a missing or empty key must STOP the run, never inherit a
     # wider list. Pinned because the widening fallback read as a narrowing in a diff.

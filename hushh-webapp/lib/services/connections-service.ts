@@ -57,6 +57,17 @@ export interface MutualConnectionsPage {
   totalCount: number;
 }
 
+export type NetworkDegree = 1 | 2 | 3;
+export type NetworkPerson = { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null };
+export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
+export type NetworkSummary = {
+  person: { publicPersonRef: string; displayName: string | null };
+  networkDegree: NetworkDegree | null;
+  mutualConnectionCount: number;
+  mutualConnectionPreview: NetworkPerson | null;
+  canBrowseConnections: boolean;
+};
+
 export type ConnectionPersonContext = {
   person: DirectoryPerson;
   request: { id: string; direction: "incoming" | "outgoing"; status: string } | null;
@@ -280,10 +291,40 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class ConnectionsService {
+  static async getNetworkSummary(opts: { idToken: string; personRef: string; signal?: AbortSignal }): Promise<NetworkSummary> {
+    const params = new URLSearchParams({ person_ref: opts.personRef });
+    return jsonOrThrow<NetworkSummary>(await ApiService.apiFetch(`/api/one/connections/network/summary?${params}`, {
+      method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
+    }));
+  }
+
+  static async listNetwork(opts: { idToken: string; personRef?: string; degree?: NetworkDegree; query?: string; page: number; signal?: AbortSignal }): Promise<NetworkPage> {
+    const params = new URLSearchParams({ page: String(opts.page), limit: "20" });
+    if (opts.personRef) params.set("person_ref", opts.personRef);
+    if (opts.degree) params.set("degree", String(opts.degree));
+    if (opts.query?.trim()) params.set("query", opts.query.trim());
+    return jsonOrThrow<NetworkPage>(await ApiService.apiFetch(`/api/one/connections/network?${params}`, {
+      method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
+    }));
+  }
+
+  static async getNetworkVisibility(opts: { idToken: string; signal?: AbortSignal }): Promise<{ shareConnectionList: boolean }> {
+    return jsonOrThrow(await ApiService.apiFetch("/api/one/connections/network/visibility", {
+      method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
+    }));
+  }
+
+  static async updateNetworkVisibility(opts: { idToken: string; shareConnectionList: boolean }): Promise<{ shareConnectionList: boolean }> {
+    return jsonOrThrow(await ApiService.apiFetch("/api/one/connections/network/visibility", {
+      method: "PATCH", headers: authHeaders(opts.idToken), cache: "no-store",
+      body: JSON.stringify({ share_connection_list: opts.shareConnectionList }),
+    }));
+  }
+
   static async listMutualConnections(opts: { idToken: string; personRef: string; page: number; signal?: AbortSignal }): Promise<MutualConnectionsPage> {
     const params = new URLSearchParams({ person_ref: opts.personRef, page: String(opts.page), limit: "20" });
     const response = await ApiService.apiFetch(`/api/one/connections/mutuals?${params}`, {
-      method: "GET", headers: authHeaders(opts.idToken), signal: opts.signal,
+      method: "GET", headers: authHeaders(opts.idToken), cache: "no-store", signal: opts.signal,
     });
     return jsonOrThrow<MutualConnectionsPage>(response);
   }

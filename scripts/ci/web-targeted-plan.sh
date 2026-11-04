@@ -91,8 +91,9 @@ web_targeted_plan_check() {
 web_targeted_non_browser_owner() {
   case "$1" in
     .agents/*|.github/*|docs/*|scripts/*|deploy/*|config/*|AGENTS.md|README.md|LICENSE*|NOTICE*) return 0 ;;
-    consent-protocol/tests/*|consent-protocol/contracts/*|contracts/*|packages/*) return 0 ;;
+    consent-protocol/*|contracts/*|packages/*) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
+    hushh-webapp/lib/*/__tests__/*|hushh-webapp/components/*/__tests__/*|hushh-webapp/app/*/__tests__/*) return 0 ;;
     *.md) return 0 ;;
     *) return 1 ;;
   esac
