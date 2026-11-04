@@ -112,9 +112,7 @@ jobs:
             fi
           }
 
-          if [ -n "$UAT_CI_CANDIDATE" ]; then
-            LOG_OPTS="$UAT_CI_BASE..$UAT_CI_CANDIDATE"
-          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
             LOG_OPTS="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
           elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
             if git rev-parse "${{ github.event.before }}" >/dev/null 2>&1 && git merge-base --is-ancestor "${{ github.event.before }}" "${{ github.sha }}"; then
@@ -146,6 +144,9 @@ jobs:
             LOG_OPTS="$(resolve_from_default_branch)"
           else
             LOG_OPTS="${{ github.sha }}"
+          fi
+          if [ -n "${UAT_CI_CANDIDATE:-}" ]; then
+            LOG_OPTS="$UAT_CI_BASE..$UAT_CI_CANDIDATE"
           fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
       - name: Run gitleaks scan (no license secret required)
