@@ -634,7 +634,6 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_pkm_answer_config.py",
         "consent-protocol/tests/test_account_generation_admission_deploy.py",
         "consent-protocol/tests/test_azure_pod_release_publish_step.py",
-        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
         "consent-protocol/tests/test_cloud_run_image_resolution.py",
         "consent-protocol/tests/test_commerce_preview_bootstrap.py",
         "consent-protocol/tests/test_commerce_preview_target.py",
