@@ -197,3 +197,59 @@ def test_new_attempt_during_inspection_invalidates_old_green(later_state):
     with pytest.raises(owner.QueueEntryRejected, match="Competing validation"):
         with patch.object(queue, "_module", return_value=owner):
             queue.current_validations(state, read=read)
+
+
+def test_owner_admin_rechecks_inputs_before_mutation(tmp_path):
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}}
+    changed = copy.deepcopy(proof)
+    changed["state"]["base"] = SECOND
+    with patch.object(queue, "owner_admin_snapshot", side_effect=[proof, changed]), \
+         patch.object(queue.subprocess, "run") as write:
+        with pytest.raises(queue.Refused, match="changed before merge"):
+            queue.owner_admin_merge(8825, HEAD1, tmp_path / "receipt.json", apply=True)
+        write.assert_not_called()
+
+
+@pytest.mark.parametrize("request_exit", [0, 1, "timeout"])
+def test_owner_admin_reconciles_response_without_second_merge(tmp_path, request_exit):
+    from types import SimpleNamespace
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}}
+    commit = {"tree": {"sha": FIRST}, "parents": [{"sha": BASE}, {"sha": HEAD1}]}
+    with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
+         patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=request_exit),
+                      side_effect=queue.subprocess.TimeoutExpired("gh", 60) if request_exit == "timeout" else None) as write, \
+         patch.object(queue, "api", side_effect=[{"merged": True, "merge_commit_sha": SECOND}, commit]):
+        receipt = tmp_path / "receipt.json"
+        queue.owner_admin_merge(8825, HEAD1, receipt, apply=True)
+        write.assert_called_once()
+        assert json.loads(receipt.read_text())["landed"] == SECOND
+
+
+def test_owner_admin_never_replays_unconfirmed_merge(tmp_path):
+    from types import SimpleNamespace
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}}
+    with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
+         patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=1)) as write, \
+         patch.object(queue, "api", return_value={"merged": False}):
+        receipt = tmp_path / "receipt.json"
+        with pytest.raises(queue.Refused, match="not confirmed"):
+            queue.owner_admin_merge(8825, HEAD1, receipt, apply=True)
+        write.assert_called_once()
+        assert json.loads(receipt.read_text())["outcome"] == "not_confirmed"
+
+
+@pytest.mark.parametrize("actor,author", [("outsider", "outsider"), ("kushaltrivedi5", "someone-else")])
+def test_owner_admin_requires_same_named_owner_not_org_admin_status(actor, author):
+    repo = "hushh-labs/hushh-research"
+    policy = {"main": {"merge_users": ["kushaltrivedi5"],
+                       "merge_queue_bypass_users": ["kushaltrivedi5"],
+                       "review_bypass_users": ["kushaltrivedi5"],
+                       "protected_pipeline_edit_users": ["kushaltrivedi5"]}}
+    pr = {"state": "open", "draft": False, "head": {"sha": HEAD1, "repo": {"full_name": repo}},
+          "base": {"ref": "main", "sha": BASE}, "user": {"login": author}}
+    with patch.object(queue, "api", side_effect=[{"login": actor}, pr, {"object": {"sha": BASE}}]), \
+         patch.object(queue, "git", return_value=json.dumps(policy)), \
+         patch.object(queue.subprocess, "run") as run:
+        with pytest.raises(queue.Refused, match="Only the named owner"):
+            queue.owner_admin_snapshot(8825, HEAD1)
+        assert run.call_count == 1 and run.call_args.args[0][:2] == ["git", "fetch"]

@@ -280,6 +280,7 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
 
     policy = _policy()
     policy["branch_flow"].pop("review_rulesets", None)  # Historical classic-policy fixture.
+    policy["main"].pop("owner_admin_ruleset_name", None)
     policy["main"] = {
         **policy["main"],
         "review_bypass_users": ["operator", "invitee"],
@@ -518,6 +519,8 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     import prepared_branch_governance
 
     policy = _policy()
+    policy["main"]["merge_queue_bypass_users"] = []
+    policy["main"].pop("owner_admin_ruleset_name", None)
     protection = {
         "required_pull_request_reviews": {
             "require_code_owner_reviews": True, "require_last_push_approval": True,
@@ -672,6 +675,145 @@ def test_review_ruleset_rejects_other_boundary_and_authority(module) -> None:
         invalid.update(change)
         assert not module.same_review_ruleset(invalid, desired)
 
+
+def test_owner_admin_native_guard_preserves_review_and_nonowner_queue(module) -> None:
+    import copy
+
+    policy = _policy()
+    people = policy["main"]["merge_users"]
+
+    def read(args):
+        login = args[1].split("/")[-1]
+        return {"login": login, "type": "User", "id": people.index(login) + 1}
+
+    guard = module.main_owner_admin_ruleset(policy, read=read)
+    owners = set(policy["main"]["protected_pipeline_edit_users"])
+    assert {a["actor_id"] for a in guard["bypass_actors"]} == {
+        people.index(p) + 1 for p in set(people) - owners
+    }
+    rules = {r["type"]: r["parameters"] for r in guard["rules"]}
+    assert rules["required_status_checks"] == {
+        "strict_required_status_checks_policy": True,
+        "do_not_enforce_on_create": False,
+        "required_status_checks": [
+            {"context": "CI Status Gate", "integration_id": 15368}
+        ],
+    }
+    assert rules["pull_request"]["required_approving_review_count"] == 0
+    assert rules["pull_request"]["required_review_thread_resolution"] is True
+    assert module.same_owner_admin_ruleset(guard, guard)
+    for change in ("strict", "ci_app", "owner_bypass", "no_pr"):
+        bad = copy.deepcopy(guard)
+        if change == "strict":
+            bad["rules"][0]["parameters"]["strict_required_status_checks_policy"] = (
+                False
+            )
+        if change == "ci_app":
+            bad["rules"][0]["parameters"]["required_status_checks"][0][
+                "integration_id"
+            ] = 1
+        if change == "owner_bypass":
+            bad["bypass_actors"].append(
+                {
+                    "actor_id": people.index("kushaltrivedi5") + 1,
+                    "actor_type": "User",
+                    "bypass_mode": "always",
+                }
+            )
+        if change == "no_pr":
+            bad["rules"].pop()
+        assert not module.same_owner_admin_ruleset(bad, guard), change
+    policy["main"]["merge_queue_bypass_users"].append("imsharukhan")
+    try:
+        module.main_owner_admin_ruleset(policy, read=read)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("Nonowner acquired owner Admin route")
+
+def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy = _policy()
+    protection = {
+        "enforce_admins": {"enabled": True},
+        "required_pull_request_reviews": {
+            "require_code_owner_reviews": True,
+            "require_last_push_approval": True,
+            "required_approving_review_count": 1,
+            "bypass_pull_request_allowances": {
+                "users": [{"login": p} for p in policy["main"]["review_bypass_users"]]
+            },
+        },
+        "required_status_checks": {
+            "strict": False,
+            "checks": [{"context": "CI Status Gate", "app_id": 15368}],
+        },
+        "restrictions": {
+            "users": [{"login": p} for p in policy["main"]["merge_users"]]
+        },
+    }
+    queue = {
+        "name": policy["main"]["merge_queue_ruleset_name"],
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        "rules": [{"type": "merge_queue"}],
+        "bypass_actors": [],
+    }
+    calls = []
+
+    def read(args):
+        path = args[1]
+        if path.startswith("users/"):
+            login = path.split("/")[-1]
+            return {
+                "login": login,
+                "type": "User",
+                "id": policy["main"]["merge_users"].index(login) + 1,
+            }
+        if path.endswith("/protection"):
+            return protection
+        if path.endswith("/rulesets?per_page=100"):
+            return [{"id": 1, "name": queue["name"]}]
+        if path.endswith("/rulesets/1"):
+            return queue
+        raise AssertionError(path)
+
+    with (
+        patch.object(module, "gh_json", side_effect=read),
+        patch.object(
+            module,
+            "reconcile_owner_admin_ruleset",
+            side_effect=lambda *a, **k: calls.append("guard_verified"),
+        ),
+        patch.object(
+            prepared_branch_governance, "_write", side_effect=lambda *a: calls.append(a)
+        ),
+    ):
+        assert module.reconcile_main_merge_policy(policy, apply=True)
+    assert calls[0] == "guard_verified" and len(calls) == 2
+    assert {a["actor_id"] for a in calls[1][1]["bypass_actors"]} == {
+        policy["main"]["merge_users"].index(p) + 1
+        for p in policy["main"]["protected_pipeline_edit_users"]
+    }
+    with (
+        patch.object(module, "gh_json", side_effect=read),
+        patch.object(
+            module,
+            "reconcile_owner_admin_ruleset",
+            side_effect=SystemExit("missing strict guard"),
+        ),
+        patch.object(prepared_branch_governance, "_write") as write,
+    ):
+        try:
+            module.reconcile_main_merge_policy(policy, apply=True)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Missing strict guard accepted")
+        write.assert_not_called()
 
 if __name__ == "__main__":
     raise SystemExit(main())

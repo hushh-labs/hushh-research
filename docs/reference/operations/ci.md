@@ -791,9 +791,9 @@ does not grant protected-edit approval.
   review routing. CLI access and generic autonomous permission are not human
   approval of an unrelated policy change.
 - Ordinary review and owner self-approval are defined once in Admin SOP. Kushal
-  or Ankit explicitly queuing their own captured PR head supplies owner approval.
-  The same queue gate verifies that identity and rechecks it at completion.
-  Neither route grants a CI, queue or deployment bypass.
+  or Ankit use the explicit Admin PR command for their own captured head. It
+  verifies the current successful attempt and exact merge tree. The native owner
+  route has strict CI and PR-only guards; it never authorizes a deployment.
 
 ### PKM rollout blocker
 
@@ -1043,7 +1043,7 @@ or superseded evidence refuses clearance. Final admission repeats membership,
 review, destination and validation checks before publishing `CI Status Gate`.
 
 Rollout order matters: land the trusted helper first, then activate the workflow,
-qualify the combined path, and reconcile branch protection. Remove queue bypass
+qualify the combined path, and reconcile branch protection. Remove ordinary-user queue bypass
 before relaxing strict age checks; partial rollout must retain the stricter
 boundary. Main merger restrictions and required review remain independent.
 The existing governance reconciler handles Main explicitly and Dev/UAT/the legacy
@@ -2005,3 +2005,18 @@ and native macOS WebKit from the same `document` decision. Styling and unrelated
 application changes do not select that macOS job. Parameterized browser identities
 are partitioned by engine, so adding a fixture parameter cannot move a WebKit case
 onto Linux. Release qualification retains both engines.
+
+### Owner Admin merges and ordinary contributor access
+
+| Person/action | Expected route | What still blocks |
+| --- | --- | --- |
+| Ordinary contributor to Dev/UAT | PR, independent review, combined-result queue | Relevant CI, conflicts, unresolved conversations |
+| Six governed Main operators | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
+| Kushal/Ankit approving their own Main PR | `./bin/hushh codex admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
+| Dev/UAT deployment operator | Explicit matching-branch deployment | Environment/source authority, CI, protected release security and rollback |
+| Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
+
+A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority)
+for the canonical commands and live-policy activation. Do not ask a self-approving
+owner for another person just to satisfy GitHub's native self-review restriction.
+Do not grant ordinary contributors broader bypass to solve an owner-only problem.
