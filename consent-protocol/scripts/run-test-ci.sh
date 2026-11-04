@@ -127,6 +127,7 @@ cleanup_offline_db() {
   fi
 }
 trap cleanup_offline_db EXIT
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/ci/validation-results.sh"
 
 run_pytest() {
   # One argument per line preserves the complete manifest without exceeding
@@ -136,6 +137,7 @@ run_pytest() {
   if command -v cygpath >/dev/null 2>&1; then
     args_file="$(cygpath -m "$args_file")"
   fi
+  local result=0
   TESTING="${TESTING:-true}" \
   GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
   DB_OFFLINE="${DB_OFFLINE:-1}" \
@@ -144,7 +146,15 @@ run_pytest() {
   VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
   HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \
   PYTHONPATH=. \
-  "$PYTHON_BIN" -m pytest -q "@$args_file"
+  "$PYTHON_BIN" -m pytest -q "@$args_file" || result=$?
+  # pytest 1 is failed assertions; 2 is interruption/collection, 3-5 are
+  # internal/usage/no-collection errors. Only ordinary failures can continue.
+  if [ "$result" -eq 2 ]; then exit 130; fi
+  if [ "$result" -gt 1 ]; then
+    echo "pytest could not complete (exit $result)." >&2
+    exit 126
+  fi
+  validation_record "Backend test partition" "$result"
 }
 
 if [ "$PROTOCOL_TEST_PARTITION" != "database" ] && [ "${#PARALLEL_TESTS[@]}" -gt 0 ]; then
@@ -168,5 +178,7 @@ fi
 # that was correct, tracked, and had never run.
 if [ "$PROTOCOL_TEST_PARTITION" != "database" ]; then
   echo "== Verifying every test file still imports =="
-  PYTHONPATH=. "$PYTHON_BIN" -m pytest --collect-only -q tests/ >/dev/null
+  PYTHONPATH=. validation_check "Backend import collection" "$PYTHON_BIN" -m pytest --collect-only -q tests/ >/dev/null
 fi
+
+validation_finish

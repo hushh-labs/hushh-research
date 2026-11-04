@@ -21,7 +21,6 @@ IMPLEMENTATIONS = {
     for name in ("dev", "uat")
 }
 CALLERS = {
-    "deploy-uat-one-chat.yml", "resume-ios-testflight.yml", "ios-voice-device.yml",
     "deploy-dev.yml",
     "deploy-uat.yml",
     "deploy-production.yml",

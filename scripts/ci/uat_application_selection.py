@@ -30,7 +30,7 @@ CHAT_WORKFLOW = ".github/workflows/deploy-uat-one-chat.yml"
 READ_ONLY_WORKFLOWS = {
     ".github/workflows/verify-protected-lists.yml",
     ".github/workflows/ship-ios-testflight.yml",
-    ".github/workflows/resume-ios-testflight.yml",
+    ".github/workflows/resume-ios-testflight.yml",  # Read-only historical runs.
     ".github/workflows/ios-voice-device.yml",
     ".github/workflows/ship-android-playstore-v1.yml",
 }

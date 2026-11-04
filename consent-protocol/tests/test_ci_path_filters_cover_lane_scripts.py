@@ -42,7 +42,7 @@ AUTH_HEALTH_PATHS = frozenset(
 )
 WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
-LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend)\s*==\s*'true'")
+LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend|document)\s*==\s*'true'")
 STAGE_ARM_RE = re.compile(r"^    ([\w|-]+)\)\n(.*?)^      ;;", re.MULTILINE | re.DOTALL)
 ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 # The jobs this guard must find; if the `if:` shape changes and discovery
@@ -52,12 +52,12 @@ EXPECTED_JOBS = {
     "web-targeted-check": {"frontend"},
     "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
-    "document-webkit-check": {"frontend", "backend"},
+    "document-webkit-check": {"document"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
     "protocol-database-check-two": {"backend"},
     "mcp-package-check": {"backend"},
-    "integration-check": {"frontend", "backend"},
+    "integration-check": {"frontend", "backend", "document"},
 }
 
 # Actual shared runtime/image inputs used by the governed environment releases.
@@ -411,7 +411,6 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
         "pr-base-policy",
         "repo-governance",
         "paths",
-        "main-freshness-gate",
     ]
 
 

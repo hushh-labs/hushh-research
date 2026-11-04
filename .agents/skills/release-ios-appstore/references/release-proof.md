@@ -166,7 +166,7 @@ is not authority. ASC receipt fields are read back from Apple, not inferred from
 
 - UAT-backed TestFlight distribution uses the `ship-ios-testflight` sibling. For a
   production-backed build, distribute the exact upload from this workflow with
-  `resume-ios-testflight.yml`; do not rebuild a UAT binary.
+  `ship-ios-testflight.yml` with only `upload_run_id` set; do not rebuild a UAT binary.
 - iOS native/Capacitor/entitlement/plist issues: `mobile-native`.
 - UAT Cloud Run + web deploy scope: `uat-scoped-deploy`; production Cloud Run authority: `repo-operations` and the canonical Admin release SOP.
 - Publish-safety, consent, or secret-boundary findings: `security-audit`.

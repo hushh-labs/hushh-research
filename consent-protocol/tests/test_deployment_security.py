@@ -380,7 +380,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                 "write" if name in ("deploy-dev.yml", "deploy-uat.yml") else "read",
                 name,
             )
-        for name in ("deployment-security.yml",):
+        for name in ("deployment-security.yml", "ios-voice-device.yml"):
             internal = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 set(internal.get("on", internal.get(True))),
@@ -389,6 +389,11 @@ class DeploymentSecurityTest(unittest.TestCase):
                 else {"workflow_call"},
             )
             self.assertNotIn(name, gate.CALLERS)
+        hardware = yaml.safe_load((root / ".github/workflows/ios-voice-device.yml").read_text())
+        self.assertEqual(set(hardware["jobs"]), {"hardware-capture"})
+        check = hardware["jobs"]["hardware-capture"]["steps"][0]
+        self.assertEqual(check["env"]["SECURITY_ATTEMPT"], "${{ inputs.security_attempt }}")
+        self.assertIn('"$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT"', check["run"])
         self.assertIn("environment: ci-security", reusable)
         self.assertIn("ref: ${{ github.sha }}", reusable)
         self.assertNotIn("application_ref }}\n          persist", reusable)

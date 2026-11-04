@@ -47,7 +47,6 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = "hushh-labs/hushh-research"
@@ -80,6 +79,7 @@ MANAGED_TEAMS: tuple[dict, ...] = (
         ),
         "is_maintainer_set": True,
     },
+
     {
         "slug": "pipeline-editors",
         "purpose": "may edit protected pipeline paths",
@@ -331,13 +331,460 @@ def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
+def main_owner_admin_ruleset(policy: dict, *, read=gh_json) -> dict:
+    """Native PR-only and strict CI guard for the two explicit Admin operators.
+
+    Other Main mergers bypass only this additional freshness layer. They still
+    require the queue, baseline CI and GitHub's independent review controls.
+    """
+    main = policy["main"]
+    owners = sorted(main.get("merge_queue_bypass_users", []))
+    mergers = sorted(main.get("merge_users", []))
+    if (
+        not main.get("owner_admin_ruleset_name")
+        or not owners
+        or owners != sorted(main["protected_pipeline_edit_users"])
+        or owners != sorted(main["review_bypass_users"])
+        or not set(owners) <= set(mergers)
+        or main.get("merge_queue_bypass_team_slug")
+    ):
+        raise SystemExit(
+            "Owner Admin route requires only the two explicit protected owners"
+        )
+    actors = []
+    for login in sorted(set(mergers) - set(owners)):
+        user = read(["api", f"users/{login}"])
+        if (
+            user.get("login") != login
+            or user.get("type") != "User"
+            or type(user.get("id")) is not int
+        ):
+            raise SystemExit("Owner freshness exception identity could not be verified")
+        actors.append(
+            {
+                "actor_id": user["id"],
+                "actor_type": "User",
+                "bypass_mode": "pull_request",
+            }
+        )
+    return {
+        "name": main["owner_admin_ruleset_name"],
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        "bypass_actors": actors,
+        "rules": [
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "do_not_enforce_on_create": False,
+                    "required_status_checks": [
+                        {
+                            "context": main["required_status_check"],
+                            "integration_id": 15368,
+                        }
+                    ],
+                },
+            },
+            {
+                "type": "pull_request",
+                "parameters": {
+                    "required_approving_review_count": 0,
+                    "require_code_owner_review": False,
+                    "require_last_push_approval": False,
+                    "dismiss_stale_reviews_on_push": False,
+                    "required_review_thread_resolution": True,
+                    "require_extra_approval_for_unattributed_changes": False,
+                    "allowed_merge_methods": ["merge"],
+                },
+            },
+        ],
+    }
+
+
+def same_owner_admin_ruleset(observed: dict, desired: dict) -> bool:
+    for key in ("name", "target", "enforcement", "conditions"):
+        if observed.get(key) != desired[key]:
+            return False
+    if sorted(
+        observed.get("bypass_actors", []), key=lambda x: json.dumps(x, sort_keys=True)
+    ) != sorted(desired["bypass_actors"], key=lambda x: json.dumps(x, sort_keys=True)):
+        return False
+    actual = observed.get("rules", [])
+    if len(actual) != 2 or {r.get("type") for r in actual} != {
+        "pull_request",
+        "required_status_checks",
+    }:
+        return False
+    defaults = {
+        "required_reviewers": [],
+        "allowed_merge_methods": ["merge", "squash", "rebase"],
+        "dismissal_restriction": {"enabled": False, "allowed_actors": []},
+        "require_extra_approval_for_unattributed_changes": False,
+    }
+    for wanted in desired["rules"]:
+        params = next(r for r in actual if r["type"] == wanted["type"]).get(
+            "parameters", {}
+        )
+        if any(params.get(k) != v for k, v in wanted["parameters"].items()):
+            return False
+        if any(
+            k not in defaults or defaults[k] != v
+            for k, v in params.items()
+            if k not in wanted["parameters"]
+        ):
+            return False
+    return True
+
+
+def reconcile_owner_admin_ruleset(
+    policy: dict, *, apply=False, verify_only=False, read=gh_json, repo=REPO
+) -> bool:
+    desired = main_owner_admin_ruleset(policy, read=read)
+    rows = read(["api", f"repos/{repo}/rulesets?per_page=100"])
+    if not isinstance(rows, list) or len(rows) >= 100:
+        raise SystemExit("Owner Admin ruleset inventory is incomplete")
+    matches = [r for r in rows if r.get("name") == desired["name"]]
+    if len(matches) > 1:
+        raise SystemExit("Owner Admin strict CI authority is ambiguous")
+    if matches:
+        current = read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"])
+        if not same_owner_admin_ruleset(current, desired):
+            raise SystemExit(
+                "Owner Admin strict CI/PR-only authority differs; refusing replacement"
+            )
+        return False
+    if verify_only:
+        raise SystemExit("Owner Admin strict CI/PR-only authority is missing")
+    print(
+        "  Owner Admin guard: create strict CI and PR-only boundary before admitting owner direct merges"
+    )
+    if apply:
+        from prepared_branch_governance import _write
+
+        _write(f"repos/{repo}/rulesets", desired, "POST")
+        reconcile_owner_admin_ruleset(policy, verify_only=True, read=read, repo=repo)
+    return True
+
+
+def main_review_ruleset(policy: dict, *, read=gh_json) -> dict:
+    """Resolve only explicitly authored Main review authority, never inherited lanes."""
+    name = policy.get("branch_flow", {}).get("review_rulesets", {}).get("main")
+    main = policy["main"]
+    owners = sorted(main["protected_pipeline_edit_users"])
+    if not name or sorted(main["review_bypass_users"]) != owners or main.get("review_bypass_team_slug"):
+        raise SystemExit("Main review ruleset must name only the protected owners")
+    actors = []
+    for login in owners:
+        user = read(["api", f"users/{login}"])
+        if user.get("login") != login or user.get("type") != "User" or not isinstance(user.get("id"), int):
+            raise SystemExit("Main review owner identity could not be verified")
+        actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
+    return {
+        "name": name, "target": "branch", "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        "bypass_actors": actors,
+        "rules": [{"type": "pull_request", "parameters": {
+            "dismiss_stale_reviews_on_push": False,
+            "require_code_owner_review": bool(main["require_code_owner_reviews"]),
+            "require_last_push_approval": bool(main["require_last_push_approval"]),
+            "require_extra_approval_for_unattributed_changes": True,
+            "required_approving_review_count": main["required_approving_reviews"],
+            # Conversation resolution remains independently enforced in classic protection.
+            "required_review_thread_resolution": False,
+        }}],
+    }
+
+
+def verify_main_review_ruleset(policy: dict, *, read=gh_json, repo: str = REPO) -> dict:
+    desired = main_review_ruleset(policy, read=read)
+    rows = read(["api", f"repos/{repo}/rulesets?per_page=100"])
+    if not isinstance(rows, list) or len(rows) >= 100:
+        raise SystemExit("Main review ruleset inventory is incomplete")
+    matches = [r for r in rows if r.get("name") == desired["name"]]
+    if len(matches) != 1:
+        raise SystemExit("Main review ruleset is missing or ambiguous")
+    observed = read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"])
+    if not same_review_ruleset(observed, desired):
+        raise SystemExit("Main review ruleset differs from authored owner authority")
+    return observed
+
+
+def same_review_ruleset(observed: dict, desired: dict) -> bool:
+    for key in ("name", "target", "enforcement", "conditions"):
+        if observed.get(key) != desired[key]:
+            return False
+    actors = observed.get("bypass_actors", [])
+    if sorted(actors, key=lambda a: json.dumps(a, sort_keys=True)) != sorted(
+            desired["bypass_actors"], key=lambda a: json.dumps(a, sort_keys=True)):
+        return False
+    rules = observed.get("rules", [])
+    if len(rules) != 1 or rules[0].get("type") != "pull_request":
+        return False
+    actual = rules[0].get("parameters", {})
+    wanted = desired["rules"][0]["parameters"]
+    # Refuse unowned review controls; GitHub may serialize empty optional defaults.
+    extras = {k: v for k, v in actual.items() if k not in wanted}
+    defaults = {"required_reviewers": [], "allowed_merge_methods": ["merge", "squash", "rebase"],
+                "dismissal_restriction": {"enabled": False, "allowed_actors": []}}
+    return all(actual.get(k) == v for k, v in wanted.items()) and all(
+        k in defaults and v == defaults[k] for k, v in extras.items())
+
+
+def reconcile_main_review_ruleset(policy: dict, *, apply: bool) -> bool:
+    """Install/read back replacement before retiring only classic review controls."""
+    from prepared_branch_governance import _write
+
+    desired = main_review_ruleset(policy, read=gh_json)
+    endpoint = f"repos/{REPO}/branches/main/protection"
+    protection = gh_json(["api", endpoint])
+    classic = protection.get("required_pull_request_reviews")
+    checks = protection.get("required_status_checks") or {}
+    if (
+        not protection.get("enforce_admins", {}).get("enabled")
+        or not protection.get("required_conversation_resolution", {}).get("enabled")
+        or not any(
+            c.get("context") == policy["main"]["required_status_check"]
+            and c.get("app_id") == 15368
+            for c in checks.get("checks", [])
+        )
+    ):
+        raise SystemExit(
+            "Independent Main CI/admin/conversation protections must remain enabled"
+        )
+    if classic and (
+        classic.get("dismiss_stale_reviews")
+        or classic.get("dismissal_restrictions")
+        or classic.get("required_approving_review_count", 0)
+        > policy["main"]["required_approving_reviews"]
+    ):
+        raise SystemExit(
+            "Stronger classic review controls require explicit reconciliation"
+        )
+    rows = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
+    if not isinstance(rows, list) or len(rows) >= 100:
+        raise SystemExit("Main review ruleset inventory is incomplete")
+    queues = [
+        r for r in rows if r.get("name") == policy["main"]["merge_queue_ruleset_name"]
+    ]
+    matches = [r for r in rows if r.get("name") == desired["name"]]
+    if len(queues) != 1 or len(matches) > 1:
+        raise SystemExit("Main review/queue inventory is ambiguous")
+    queue = gh_json(["api", f"repos/{REPO}/rulesets/{queues[0]['id']}"])
+    if (
+        queue.get("bypass_actors")
+        and not policy["main"].get("owner_admin_ruleset_name")
+        or queue.get("enforcement") != "active"
+        or queue.get("conditions") != desired["conditions"]
+        or not any(r.get("type") == "merge_queue" for r in queue.get("rules", []))
+    ):
+        raise SystemExit(
+            "Remove and verify Main queue bypass before migrating review enforcement"
+        )
+    if queue.get("bypass_actors"):
+        if sorted(queue["bypass_actors"], key=lambda a: a.get("actor_id", 0)) != sorted(
+                desired["bypass_actors"], key=lambda a: a.get("actor_id", 0)):
+            raise SystemExit("Main queue bypass must name only the approved protected owners")
+        reconcile_owner_admin_ruleset(policy, verify_only=True, read=gh_json)
+    existing = (
+        gh_json(["api", f"repos/{REPO}/rulesets/{matches[0]['id']}"])
+        if matches
+        else None
+    )
+    if existing and not same_review_ruleset(existing, desired):
+        raise SystemExit(
+            "Existing Main review ruleset differs; refusing unreviewed replacement"
+        )
+    changed = existing is None or classic is not None
+    print(
+        f"  Main review ruleset: create={existing is None}, retire_classic={classic is not None}"
+    )
+    if not apply:
+        return changed
+    if existing is None:
+        _write(f"repos/{REPO}/rulesets", desired, "POST")
+    verify_main_review_ruleset(policy, read=gh_json)
+    if classic is not None:
+        # Recheck independent boundaries and concurrent classic edits before deletion.
+        if (
+            gh_json(["api", endpoint]) != protection
+            or gh_json(["api", f"repos/{REPO}/rulesets/{queues[0]['id']}"]) != queue
+        ):
+            raise SystemExit(
+                "Main protection changed during review migration; classic review retained"
+            )
+        verify_main_review_ruleset(policy, read=gh_json)
+        gh(["api", "--method", "DELETE", f"{endpoint}/required_pull_request_reviews"])
+        verify_main_review_ruleset(policy, read=gh_json)
+        after = gh_json(["api", endpoint])
+        if after.get("required_pull_request_reviews") is not None or any(
+            after.get(k) != v
+            for k, v in protection.items()
+            if k != "required_pull_request_reviews"
+        ):
+            raise SystemExit(
+                "Main review migration readback differs; inspect before continuing"
+            )
+    return changed
+
+
+def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
+    """Narrow Main merger authority with explicit owner self-approval and required CI.
+
+    This is an explicit rollout operation, after combined-result validation is
+    qualified. Keep unrelated branch checks and ruleset rules verbatim.
+    """
+    main = policy["main"]
+    users = sorted(main.get("merge_users", []))
+    owner_reviews = sorted(main.get("protected_pipeline_edit_users", []))
+    if (
+        not users
+        or not owner_reviews
+        or sorted(main["review_bypass_users"]) != owner_reviews
+        or main.get("review_bypass_team_slug")
+    ):
+        raise SystemExit("Main review exception must name only the protected owners")
+    if users != sorted(policy["production"]["manual_dispatch_users"]):
+        raise SystemExit("Main merge users must match the approved production cohort")
+    endpoint = f"repos/{REPO}/branches/main/protection"
+    protection = gh_json(["api", endpoint])
+    reviews = protection.get("required_pull_request_reviews") or {}
+    review_bypass = reviews.get("bypass_pull_request_allowances") or {}
+    if protection.get("required_pull_request_reviews") is None and policy.get(
+        "branch_flow", {}
+    ).get("review_rulesets", {}).get("main"):
+        verify_main_review_ruleset(policy, read=gh_json)
+        reviews = {
+            "require_code_owner_reviews": True,
+            "require_last_push_approval": True,
+            "required_approving_review_count": main["required_approving_reviews"],
+        }
+        review_bypass = {"users": [{"login": owner} for owner in owner_reviews]}
+    if (
+        sorted(row.get("login", "") for row in review_bypass.get("users", []))
+        != owner_reviews
+        or any(review_bypass.get(key) for key in ("teams", "apps"))
+        or not reviews.get("require_code_owner_reviews")
+        or not reviews.get("require_last_push_approval")
+        or reviews.get("required_approving_review_count", 0) < 1
+        or not protection.get("enforce_admins", {}).get("enabled")
+    ):
+        raise SystemExit(
+            "Reconcile required Main review and admin enforcement before queue rollout"
+        )
+    checks = protection.get("required_status_checks") or {}
+    if not any(
+        row.get("context") == main["required_status_check"]
+        for row in checks.get("checks", [])
+    ):
+        raise SystemExit("Main's required combined-result check is missing")
+    rulesets = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
+    if not isinstance(rulesets, list) or len(rulesets) >= 100:
+        raise SystemExit("Main ruleset inventory is incomplete")
+    matches = [
+        row for row in rulesets if row.get("name") == main["merge_queue_ruleset_name"]
+    ]
+    if len(matches) != 1:
+        raise SystemExit("Main merge queue ruleset is ambiguous")
+    queue_endpoint = f"repos/{REPO}/rulesets/{matches[0]['id']}"
+    queue = gh_json(["api", queue_endpoint])
+    main_scope = {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+    observed_scope = queue.get("conditions", {})
+    # Older rulesets use GitHub's default-branch alias. Resolve it before
+    # narrowing to Main; never reinterpret an alias pointing at another branch.
+    default_scope = {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}}
+    if observed_scope == default_scope:
+        repository = gh_json(["api", f"repos/{REPO}"])
+        if (
+            not isinstance(repository, dict)
+            or repository.get("default_branch") != "main"
+        ):
+            raise SystemExit("Main queue default-branch alias does not resolve to Main")
+    if (
+        queue.get("enforcement") != "active"
+        or observed_scope not in (main_scope, default_scope)
+        or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))
+    ):
+        raise SystemExit("Main queue configuration is not the reviewed active boundary")
+    desired = {"users": users, "teams": [], "apps": []}
+    current = protection.get("restrictions") or {}
+    restricted = {
+        key: sorted(row[field] for row in current.get(key, []))
+        for key, field in (("users", "login"), ("teams", "slug"), ("apps", "slug"))
+    }
+    print(
+        f"  Main: merger restrictions={restricted} -> {desired}; strict={checks.get('strict')} -> false"
+    )
+    bypass = []
+    if main.get("merge_queue_bypass_users"):
+        # Install and read back the native strict CI/PR-only guard BEFORE granting
+        # direct merge authority. Ordinary queue users never inherit this exception.
+        reconcile_owner_admin_ruleset(policy, apply=apply, read=gh_json)
+        for login in sorted(main["merge_queue_bypass_users"]):
+            user = gh_json(["api", f"users/{login}"])
+            if (
+                user.get("login") != login
+                or user.get("type") != "User"
+                or type(user.get("id")) is not int
+            ):
+                raise SystemExit("Owner Admin identity could not be verified")
+            bypass.append(
+                {
+                    "actor_id": user["id"],
+                    "actor_type": "User",
+                    "bypass_mode": "pull_request",
+                }
+            )
+    elif main.get("merge_queue_bypass_team_slug"):
+        raise SystemExit("Combined-result enforcement forbids team queue bypass")
+    changed = (
+        restricted != desired
+        or checks.get("strict") is not False
+        or queue.get("bypass_actors") != bypass
+        or observed_scope != main_scope
+    )
+    if not apply:
+        print(
+            "  Main uses queue validation; named owner Admin merges additionally require strict CI and a PR."
+            if bypass
+            else "  Main merges require the verified queue result; no direct queue bypass is enabled."
+        )
+        return changed
+    from prepared_branch_governance import _write
+
+    if restricted != desired:
+        for key in ("users", "teams", "apps"):
+            if restricted[key] != desired[key]:
+                _write(f"{endpoint}/restrictions/{key}", {key: desired[key]}, "PUT")
+    if queue.get("bypass_actors") != bypass or observed_scope != main_scope:
+        body = {
+            key: queue[key]
+            for key in ("name", "target", "enforcement", "conditions", "rules")
+        }
+        body["conditions"] = main_scope
+        body["bypass_actors"] = bypass
+        _write(queue_endpoint, body, "PUT")
+    if checks.get("strict") is not False:
+        _write(
+            f"{endpoint}/required_status_checks",
+            {"strict": False, "checks": checks["checks"]},
+            "PATCH",
+        )
+    return changed
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true",
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
-    ap.add_argument("--branch", action="append", choices=("dev", "uat"),
+    ap.add_argument("--branch", action="append", choices=("dev", "uat", "integration/pr-train"),
                     help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
+    ap.add_argument("--main-review-policy", action="store_true",
+                    help="Migrate Main review authority after the queue has no bypass actors.")
+    ap.add_argument("--main-merge-policy", action="store_true",
+                    help="Reconcile Main merger/queue restrictions after combined-result qualification.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
@@ -346,6 +793,18 @@ def main() -> int:
 
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
+
+    if args.main_review_policy:
+        if args.branch or args.main_merge_policy:
+            raise SystemExit("Select one Main policy operation at a time")
+        reconcile_main_review_ruleset(policy, apply=args.apply)
+        return 0
+
+    if args.main_merge_policy:
+        if args.branch:
+            raise SystemExit("Main merge policy and prepared-branch reconciliation are separate operations")
+        reconcile_main_merge_policy(policy, apply=args.apply)
+        return 0
 
     if args.branch:
         from prepared_branch_governance import reconcile
@@ -359,11 +818,14 @@ def main() -> int:
 
     train_branch = policy["branch_flow"]["train_branch"]
     print("\n2. governed branch protection review_bypass_users")
-    changed_main = apply_review_bypass(
-        "main", desired_review_bypass(policy, "main"),
-        team_slug=policy["main"].get("review_bypass_team_slug"), apply=args.apply,
-        require_code_owner_reviews=policy["main"].get("require_code_owner_reviews"),
-    )
+    if policy.get("branch_flow", {}).get("review_rulesets", {}).get("main"):
+        changed_main = reconcile_main_review_ruleset(policy, apply=args.apply)
+    else:
+        changed_main = apply_review_bypass(
+            "main", desired_review_bypass(policy, "main"),
+            team_slug=policy["main"].get("review_bypass_team_slug"), apply=args.apply,
+            require_code_owner_reviews=policy["main"].get("require_code_owner_reviews"),
+        )
     changed_train = apply_review_bypass(
         train_branch, desired_review_bypass(policy, "pr_train"),
         team_slug=policy["pr_train"].get("review_bypass_team_slug"), apply=args.apply,

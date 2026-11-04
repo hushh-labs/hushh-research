@@ -255,13 +255,13 @@ test("document CI modes install and check only their assigned browser", () => {
     assert.match(linux, /npx playwright install --with-deps chromium\n/);
     assert.match(linux, /; chromium\n/);
     assert.doesNotMatch(linux, /install --with-deps[^\n]*webkit|; chromium webkit\n/);
-    assert.match(linux, /python .*--deselect .*\[webkit\]/);
+    assert.match(linux, /python .*test_account_phone_browser\.py -k not webkit/);
 
     const mac = run("--ci-macos-webkit", "true", "macOS");
     assert.doesNotMatch(mac, /npx .*playwright install/);
     assert.match(mac, /; webkit\n/);
     assert.doesNotMatch(mac, /; chromium webkit\n/);
-    assert.match(mac, /python .*test_protected_document_browser_payment_preview_download_revoke\[webkit\]/);
+    assert.match(mac, /python .*test_account_phone_browser\.py -k webkit/);
 
     const local = run("all", "", "");
     assert.doesNotMatch(local, /npx .*playwright install/);
@@ -507,16 +507,27 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
   const mixed = buildImportGraphFixture({
     [`hushh-webapp/${DIRECT_TEST}`]: "import { expect, test } from 'vitest'; test('selected', () => expect(true).toBe(true));\n",
     [`hushh-webapp/${registered}`]: "{}\n",
+    "hushh-webapp/app/one/setup/finance/import/page.voice-action-contract.json": "{}\n",
+    "hushh-webapp/cache-coherence-screen-manifest.generated.json": "{}\n",
+    "hushh-webapp/contracts/kai/one-route-orchestration-index.v1.json": "{}\n",
   }, [
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
     "scripts/testing/phone-conflict-flow.mjs",
     registered,
+    "app/one/setup/finance/import/page.voice-action-contract.json",
+    "cache-coherence-screen-manifest.generated.json",
+    "contracts/kai/one-route-orchestration-index.v1.json",
     DIRECT_TEST,
   ]);
   assert.equal(mixed.effectiveLevel, "focused");
   assert.deepEqual(mixed.directFiles, [DIRECT_TEST]);
-  assert.deepEqual(mixed.relatedFiles, [registered]);
+  assert.deepEqual(mixed.relatedFiles, [
+    "app/one/setup/finance/import/page.voice-action-contract.json",
+    "cache-coherence-screen-manifest.generated.json",
+    registered,
+    "contracts/kai/one-route-orchestration-index.v1.json",
+  ]);
 
   for (const path of [
     "hushh-webapp/lib/vault/passkey-domain-aliases.json",
@@ -558,4 +569,12 @@ test("dynamic import scanning retains a finite 64 MiB fail-closed limit", () => 
     process.env.PATH = originalPath;
     rmSync(tmp, { recursive: true, force: true });
   }
+});
+
+
+test("styling-only changes have no unit execution while runtime modules remain selected", () => {
+  const style = buildPlan({ env: { CI_VALIDATION_LEVEL: "focused", CI_CHANGED_FILES: "hushh-webapp/app/globals.css" } });
+  assert.equal(style.effectiveLevel, "focused");
+  assert.equal(style.noUnitImpact, true);
+  assert.equal(style.fallbackReason, null);
 });

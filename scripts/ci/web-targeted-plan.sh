@@ -91,7 +91,10 @@ web_targeted_plan_check() {
 web_targeted_non_browser_owner() {
   case "$1" in
     .agents/*|.github/*|docs/*|scripts/*|deploy/*|config/*|AGENTS.md|README.md|LICENSE*|NOTICE*) return 0 ;;
-    consent-protocol/tests/*|consent-protocol/contracts/*|contracts/*|packages/*) return 0 ;;
+    # Backend changes retain Protocol/Integration ownership. Explicit browser
+    # boundary matches above still win; an unrelated Python path is not an
+    # unknown frontend dependency and must not expand every browser pack.
+    consent-protocol/*|contracts/*|packages/*) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
     *.md) return 0 ;;
     *) return 1 ;;
