@@ -8,6 +8,7 @@ the PR author nor a queue-ref suffix establishes that authority.
 from __future__ import annotations
 
 import importlib.util
+import base64
 import json
 import os
 from pathlib import Path
@@ -127,8 +128,32 @@ def _module(filename, name):
     return module
 
 
-def authorize(repository, branch, base, included):
-    policy = json.loads(git("show", f"{base}:config/ci-governance.json"))
+def authority_policy(repository, branch, base):
+    """Use current protected Main authority for Dev/UAT, not candidate policy."""
+    if branch not in {"dev", "uat"}:
+        return base, json.loads(git("show", f"{base}:config/ci-governance.json"))
+    ref = api(f"repos/{repository}/git/ref/heads/main")
+    authority = ref.get("object", {})
+    revision = authority.get("sha", "")
+    require(authority.get("type") == "commit" and SHA.fullmatch(str(revision)),
+            "Protected Main authority could not be verified")
+    content = api(f"repos/{repository}/contents/config/ci-governance.json?ref={revision}")
+    encoded = content.get("content")
+    require(content.get("path") == "config/ci-governance.json"
+            and content.get("encoding") == "base64" and isinstance(encoded, str)
+            and len(encoded) <= 350_000, "Protected Main policy is unavailable")
+    try:
+        raw = base64.b64decode("".join(encoded.split()), validate=True)
+        policy = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as error:
+        raise Refused("Protected Main policy is malformed") from error
+    require(isinstance(policy, dict), "Protected Main policy is malformed")
+    return revision, policy
+
+
+def authorize(repository, branch, base, included, *, policy=None):
+    if policy is None:
+        policy = json.loads(git("show", f"{base}:config/ci-governance.json"))
     main = policy["main"]
     # Explicit merger authority is separate from authorship and deployment.
     allowed = main.get("merge_users", policy["production"]["manual_dispatch_users"])
@@ -143,11 +168,21 @@ def authorize(repository, branch, base, included):
             author=member["author"], requester=member["requester"],
             review=member["review"], main_policy=main,
         )
-        require(member["review"] == "APPROVED" or owner_approval,
+        lane = None
+        if branch in {"dev", "uat"}:
+            lane = (policy.get("branch_flow", {}).get("prepared_branches", {})
+                    .get(branch, {}).get("policy_key"))
+            require(lane in {"pr_train", "uat_merge"}, "Destination maintainer policy is unavailable")
+        maintainers = policy.get(lane, {}).get("review_bypass_users", []) if lane else []
+        require(isinstance(maintainers, list), "Maintainer cohort is malformed")
+        maintainer_self = (bool(lane) and member["author"] == member["requester"]
+                           and member["requester"] in maintainers)
+        require(member["review"] == "APPROVED" or owner_approval or maintainer_self,
                 "Queued PR needs current review or its owner's explicit self-approval")
-        if owner_approval:
+        if owner_approval or maintainer_self:
             guard.require_uncontested_owner_approval(repository, member["number"], member["head"], read=api)
-        member["approval_source"] = "owner_queue_request" if owner_approval else "github_review"
+        member["approval_source"] = ("owner_queue_request" if owner_approval else
+                                     "maintainer_queue_request" if maintainer_self else "github_review")
         # Compare the actual contribution at its merge parent, including renames
         # as deletion/addition, so a protected file cannot evade approval.
         changed = git("diff", "--no-renames", "--name-only", f"{member['combined']}^1", member["combined"]).splitlines()
@@ -163,7 +198,8 @@ def authorize(repository, branch, base, included):
 def snapshot():
     repository, branch, group = event_context()
     included = members(group["base_sha"], group["head_sha"], queue_entries(repository, branch), branch)
-    authorize(repository, branch, group["base_sha"], included)
+    policy_revision, policy = authority_policy(repository, branch, group["base_sha"])
+    authorize(repository, branch, group["base_sha"], included, policy=policy)
     # A replaced queue ref must not retain this run's authority.
     head_ref = str(group.get("head_ref", ""))
     require(head_ref.startswith(f"refs/heads/gh-readonly-queue/{branch}/"), "Unexpected queue ref")
@@ -173,6 +209,7 @@ def snapshot():
     require(destination == [group["base_sha"], f"refs/heads/{branch}"],
             "Destination advanced; validate the rebuilt merge group")
     return {"repository": repository, "branch": branch, "base": group["base_sha"],
+            "policy_revision": policy_revision,
             "head": group["head_sha"], "tree": git("rev-parse", "HEAD^{tree}"),
             "members": included}
 
