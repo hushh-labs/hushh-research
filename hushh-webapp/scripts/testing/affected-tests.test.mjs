@@ -255,13 +255,13 @@ test("document CI modes install and check only their assigned browser", () => {
     assert.match(linux, /npx playwright install --with-deps chromium\n/);
     assert.match(linux, /; chromium\n/);
     assert.doesNotMatch(linux, /install --with-deps[^\n]*webkit|; chromium webkit\n/);
-    assert.match(linux, /python .*--deselect .*\[webkit\]/);
+    assert.match(linux, /python .*test_account_phone_browser\.py -k not webkit/);
 
     const mac = run("--ci-macos-webkit", "true", "macOS");
     assert.doesNotMatch(mac, /npx .*playwright install/);
     assert.match(mac, /; webkit\n/);
     assert.doesNotMatch(mac, /; chromium webkit\n/);
-    assert.match(mac, /python .*test_protected_document_browser_payment_preview_download_revoke\[webkit\]/);
+    assert.match(mac, /python .*test_account_phone_browser\.py -k webkit/);
 
     const local = run("all", "", "");
     assert.doesNotMatch(local, /npx .*playwright install/);
