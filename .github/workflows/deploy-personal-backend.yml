@@ -16,6 +16,10 @@ on:
         description: SHA-256 of the archive created from that commit
         required: true
         type: string
+      reuse_build_id:
+        description: Successful sandbox Cloud Build ID for the same source (optional)
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -54,6 +58,7 @@ jobs:
           SOURCE_SHA: ${{ inputs.sha }}
           SOURCE_OBJECT: ${{ inputs.source }}
           SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          REUSE_BUILD_ID: ${{ inputs.reuse_build_id }}
         run: bash scripts/ops/deploy-ankit-sandbox.sh
       - uses: actions/upload-artifact@v7
         with:

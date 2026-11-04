@@ -639,7 +639,6 @@ def prior_healthy_uat_backend_release(
     runs = candidate_runs
     if runs is None:
         runs = bounded_uat_runs(repository, standard, "completed")
-        runs += successful_uat_runs(repository, ONE_CHAT_WORKFLOW)
     for run in sorted(
         {run.get("id"): run for run in runs}.values(),
         key=lambda item: int(item.get("id") or 0),
@@ -949,7 +948,6 @@ def find_release(
     else:
         if environment == "uat":
             runs = bounded_uat_runs(repository, lane_config["workflow"], "completed")
-            runs += bounded_uat_runs(repository, ONE_CHAT_WORKFLOW, "completed")
             runs = list({run["id"]: run for run in runs}.values())
             runs.sort(key=lambda run: int(run["id"]), reverse=True)
         else:
@@ -1397,8 +1395,9 @@ def latest_deploy_observation(repository: str, environment: str) -> int:
     """A completed run triggers inspection, never grants deletion authority."""
     workflow = LANES[environment]["workflow"]
     workflows = {workflow}
-    if environment == "uat":
-        workflows.add(ONE_CHAT_WORKFLOW)
+    # The retired One-chat producer has no retained runs (2026-11-04 audit).
+    # Explicit historical run/artifact readers remain; deleted workflow indexes
+    # cannot participate in discovery. Unexpected active API failures still refuse.
     runs = []
     for name in sorted(workflows):
         result = api(
