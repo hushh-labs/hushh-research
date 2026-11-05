@@ -264,7 +264,7 @@ def test_candidate_recovery_uses_pinned_unserved_revision_and_existing_policy():
         )
 
 
-def test_isolated_traffic_requires_candidate_verification_and_recovery():
+def test_guarded_traffic_requires_candidate_verification_and_recovery():
     workflow = yaml.safe_load(
         (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
     )
@@ -273,10 +273,17 @@ def test_isolated_traffic_requires_candidate_verification_and_recovery():
     candidate = "verify-isolated-uat-candidates"
     recovery = "recover-isolated-uat-text-requests"
     promotion = "promote-uat-traffic"
+    guard = "env.PREPROMOTION_UAT_GATES"
+    assert workflow["env"]["PREPROMOTION_UAT_GATES"] == (
+        "${{ inputs.source_branch == 'uat-isolated' || inputs.verify_candidate_before_promotion }}"
+    )
     assert order.index(candidate) < order.index(recovery) < order.index(promotion)
+    assert f"{guard} == 'true'" in steps[candidate]["if"]
+    assert f"{guard} == 'true'" in steps[recovery]["if"]
+    assert f"{guard} != 'true'" in steps[promotion]["if"]
     assert f"steps.{candidate}.outcome == 'success'" in steps[promotion]["if"]
     assert f"steps.{recovery}.outcome == 'success'" in steps[promotion]["if"]
-    assert "inputs.source_branch != 'uat-isolated'" in steps["recover-uat-text-requests"]["if"]
+    assert f"{guard} != 'true'" in steps["recover-uat-text-requests"]["if"]
 
 
 @pytest.mark.parametrize(("status", "expected"), [("200", 0), ("302", 1), ("404", 1)])
@@ -303,3 +310,74 @@ def test_candidate_http_probe_refuses_redirects_and_errors(status, expected):
         check=False,
     )
     assert result.returncode == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expires_while_opening", [False, True])
+async def test_recovery_observes_committed_retry_before_failing_its_deadline(
+    monkeypatch, capsys, expires_while_opening
+):
+    from hushh_mcp.runtime_providers import managed_text
+    from hushh_mcp.services import drive_owner_allowed, drive_owner_search_store
+
+    spec = importlib.util.spec_from_file_location(
+        "recovery_application", REPO_ROOT / "consent-protocol/scripts/recover_uat_text_requests.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    clock = [0]
+    calls = []
+    policy = {"approval_generation": "current"}
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(managed_text, "managed_text_policy", lambda: policy)
+    monkeypatch.setattr(managed_text, "managed_text_binding", lambda: policy)
+    monkeypatch.setattr(drive_owner_allowed, "semantic_search_request", lambda _: True)
+
+    def read(statement, parameters):
+        calls.append("scan")
+        assert "r.request_envelope" in str(statement)
+        assert parameters == {"limit": 200}
+        return SimpleNamespace(
+            mappings=lambda: SimpleNamespace(
+                all=lambda: [
+                    {
+                        "user_id": "fixture-owner",
+                        "client_request_id": "fixture-request",
+                        "status": "failed",
+                        "revision": 4,
+                        "request_envelope": "fixture-envelope",
+                    }
+                ]
+            )
+        )
+
+    async def transaction(operation):
+        return operation(SimpleNamespace(execute=read))
+
+    async def retry(**kwargs):
+        assert kwargs["request_revision"] == 4
+        assert kwargs["authority_mode"] == "trusted_auto"
+        clock[0] = 91
+        calls.append("committed")
+        return {}, True
+
+    def open_envelope(*args, **kwargs):
+        if expires_while_opening:
+            clock[0] = 91
+        return {"semantic_model_binding": policy}
+
+    monkeypatch.setattr(
+        drive_owner_search_store,
+        "DriveOwnerSearchStore",
+        lambda: SimpleNamespace(
+            _transaction=transaction,
+            search_cipher=SimpleNamespace(open=open_envelope),
+            retry_failed_request=retry,
+        ),
+    )
+    with pytest.raises(TimeoutError, match="application budget"):
+        await module.recover(apply=True, limit=20, deadline=90)
+    assert calls == (["scan"] if expires_while_opening else ["scan", "committed"])
+    progress = json.loads(capsys.readouterr().out)
+    assert progress["uat_processor_recovery"] == "incomplete"
+    assert progress["counts"]["resumed"] == int(not expires_while_opening)
