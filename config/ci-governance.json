@@ -104,10 +104,7 @@
     "require_code_owner_reviews": true,
     "merge_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
       "ankitkumarsingh1702",
-      "DamriaNeelesh",
       "imsharukhan"
     ],
     "owner_admin_ruleset_name": "main owner validated merge"
@@ -191,10 +188,7 @@
     ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
       "ankitkumarsingh1702",
-      "DamriaNeelesh",
       "imsharukhan"
     ],
     "owner_environment": "production"

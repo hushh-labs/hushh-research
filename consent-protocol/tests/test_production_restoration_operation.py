@@ -406,6 +406,70 @@ def test_recovery_reserves_only_its_real_candidate(tmp_path, restoration, fallba
     ]
 
 
+@pytest.mark.parametrize(
+    "changed", [None, "run", "attempt", "active", "head", "repository", "actor", "trigger"]
+)
+def test_fixed_restoration_observation_preserves_only_its_historical_dispatch(monkeypatch, changed):
+    monkeypatch.syspath_prepend(str(ROOT / "deploy/phone"))
+    import restoration_workos_observation as historical
+
+    historical._authorities()
+    import process_group
+    import production_restoration_continuation as continuation
+
+    run = {
+        "id": historical.RUN,
+        "run_attempt": historical.ATTEMPT,
+        "head_sha": historical.WORKFLOW_SHA,
+        "status": "completed",
+        "conclusion": "success",
+        "path": ".github/workflows/deploy-production.yml",
+        "head_branch": "main",
+        "event": "workflow_dispatch",
+        "repository": {"full_name": historical.REPOSITORY},
+        "head_repository": {"full_name": historical.REPOSITORY},
+        "actor": {"login": "DamriaNeelesh"},
+        "triggering_actor": {"login": "DamriaNeelesh"},
+    }
+
+    def captured_policy(command, **_kwargs):
+        assert command[-1] == f"{historical.WORKFLOW_SHA}:config/ci-governance.json"
+        return json.dumps({"production": {"manual_dispatch_users": ["DamriaNeelesh"]}}).encode()
+
+    def ancestor(command, **_kwargs):
+        assert command == [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            historical.WORKFLOW_SHA,
+            "origin/main",
+        ]
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(process_group, "bounded_stdout", captured_policy)
+    monkeypatch.setattr(historical.subprocess, "run", ancestor)
+    if changed == "run":
+        run["id"] += 1
+    elif changed == "attempt":
+        run["run_attempt"] += 1
+    elif changed == "active":
+        run["status"] = "in_progress"
+    elif changed == "head":
+        run["head_sha"] = "f" * 40
+    elif changed == "repository":
+        run["repository"]["full_name"] = "another/repo"
+    elif changed in {"actor", "trigger"}:
+        run["actor" if changed == "actor" else "triggering_actor"]["login"] = "unapproved"
+    if changed:
+        with pytest.raises((ValueError, continuation.owner.receipts.retention.UnsafeState)):
+            historical.historical_manual(run)
+    else:
+        historical.historical_manual(run)
+        # Evidence-only acceptance never restores the removed actor's current authority.
+        with pytest.raises(continuation.owner.receipts.retention.UnsafeState):
+            continuation.manual(run)
+
+
 def _history_authority(monkeypatch, tmp_path):
     authority = runpy.run_path(str(ROOT / "deploy/account-deletion/compatibility_restoration.py"))
     record = json.loads((ROOT / "deploy/account-deletion/production-restoration.json").read_text())
