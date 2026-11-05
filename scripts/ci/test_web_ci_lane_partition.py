@@ -44,6 +44,24 @@ PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
 BROWSER_CORE = runpy.run_path(str(ROOT / "scripts/ci/web-browser-core.py"))
 
 
+def test_presentation_filter_preserves_interaction_and_lifecycle_cases() -> None:
+    presentation = re.compile(BROWSER_CORE["PRESENTATION"])
+    for name in ("@presentation Calendar account portraits and fallback initials",
+                 "explicit Feed typography survives outside the page shell",
+                 "Reset icon colors only its arrowhead and keeps native geometry in the account pane",
+                 "shows four distinct activity portraits while animations load at 390px",
+                 "retains painted artwork through delayed loads and interrupted transitions",
+                 "keeps brief activities perceptible in both locations and recovers from an animation load failure",
+                 "keeps header and profile presence in sync through all four native Rive states",
+                 "One profile keeps its header and tabs stationary while switching at 390px"):
+        assert presentation.search(name), name
+    for name in ("keeps hover, press and tap clear",
+                 "keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes",
+                 "History preserves full long titles at 320px",
+                 "cancelling the Calendar card while Google is open ends quietly and ignores the late callback"):
+        assert not presentation.search(name), name
+
+
 def _one_matching_file_per_pack() -> str:
     """A changed-file list that schedules every pack whose paths exist today."""
 
@@ -681,6 +699,7 @@ def collect_browser_shards() -> None:
 
 def main() -> int:
     tests = (
+        test_presentation_filter_preserves_interaction_and_lifecycle_cases,
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_functional_browser_plans_keep_chromium_from_multi_project_packs,

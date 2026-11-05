@@ -23,12 +23,12 @@ from pathlib import Path
 
 from github_security_authority import GitHub, Refused, verify_source
 from process_group import BoundedReadError, bounded_stdout
-from repo_governance_plan import RELEASE_CONTROLLER_TESTS
 
 REPOSITORY = "hushh-labs/hushh-research"
 SOURCE_BRANCHES = ("uat", "uat-isolated")
 SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
+BACKEND_TEST_MANIFEST = "consent-protocol/scripts/test-ci.manifest.txt"
 
 # Fail closed when a UAT candidate changes CI or release execution authority.
 # The Main-owned UAT workflow consumes Cloud Build recipes under deploy/ and
@@ -60,25 +60,28 @@ AUTHORITY_PATHS = (
 ISOLATED_CI_PATHS = (
     ".agents", ".github", "bin", "scripts/ci", "scripts/git", "scripts/ops",
     "consent-protocol/.github", "consent-protocol/scripts/ci",
+    "consent-protocol/ops/monorepo/pre-push.sh",
     "consent-protocol/scripts/run-test-ci.sh",
     "consent-protocol/scripts/generate_capability_graph.py",
     "hushh-webapp/scripts", "hushh-webapp/playwright.config.ts",
     "hushh-webapp/vitest.config.ts", "hushh-webapp/__tests__/setup.ts",
     "packages/hushh-mcp/scripts", "deploy/mail-api/test", "config/ci-governance.json",
     "consent-protocol/config/database_connection_limits.json",
-    # Workflow tests and their fixtures must describe the Main workflows
-    # restored above. Candidate application tests remain in the exact tree.
-    *RELEASE_CONTROLLER_TESTS,
-    "consent-protocol/tests/helpers/document_delivery_ci.py",
+    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+    "consent-protocol/tests/test_deployment_security.py",
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
+    "consent-protocol/tests/test_production_restoration_operation.py",
+    "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+    "consent-protocol/tests/test_uat_deploy_parallelism.py",
+    "consent-protocol/tests/test_uat_application_selection.py",
+    "consent-protocol/tests/test_uat_paused_drive_maintenance.py",
+    "consent-protocol/tests/test_protected_document_release_contract.py",
     "consent-protocol/tests/test_account_deletion_release_workflow.py",
     "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
-    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
-    "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
-    "consent-protocol/tests/test_production_restoration_operation.py",
-    "consent-protocol/tests/test_uat_application_selection.py",
-    "consent-protocol/tests/test_uat_deploy_parallelism.py",
-    "consent-protocol/tests/test_uat_paused_drive_maintenance.py",
+    "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/helpers/document_delivery_ci.py",
+    "consent-protocol/tests/helpers/predecessor_acceptance.py",
     "deploy/iam/setup_nonproduction_github_wif.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
@@ -153,6 +156,18 @@ def verify_invocation_authority(candidate: str, authority: str) -> None:
             return json.loads(raw).get("scripts", {})
         require(invocation(candidate) == invocation(authority),
                 "UAT test invocation differs from reviewed Main authority")
+    # Test identities belong to the selected application, while their executor
+    # remains byte-identical Main authority. Preserve branch-owned regressions.
+    entry = git("ls-tree", candidate, "--", BACKEND_TEST_MANIFEST)
+    require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
+            "UAT backend test manifest must be a regular tracked file")
+    parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]
+    try:
+        selected = parser(git("show", f"{candidate}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
+        required = parser(git("show", f"{authority}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise Refused("UAT backend test manifest contains invalid test identities") from None
+    require(required <= selected, "UAT backend manifest omits required Main test identities")
 
 
 def verify_git_authority(candidate: str, base: str, authority: str, *, current: bool = True, branch: str = "uat") -> str:
@@ -176,11 +191,14 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
     if branch == "uat-isolated":
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
-    expected = git("ls-tree", "-r", "--full-tree", authority, "--", *AUTHORITY_PATHS)
-    observed = git("ls-tree", "-r", "--full-tree", candidate, "--", *AUTHORITY_PATHS)
+    def execution_tree(revision):
+        entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
+        return [entry for entry in entries if entry.partition(b"\t")[2] != BACKEND_TEST_MANIFEST.encode()]
+    expected = execution_tree(authority)
+    observed = execution_tree(candidate)
     require(
         bool(expected) and observed == expected,
-        "UAT CI authority differs from reviewed Main",
+        "UAT CI authority differs from reviewed Main; synchronize reviewed CI/release tooling into UAT before qualification",
     )
     verify_invocation_authority(candidate, authority)
     return application_tree(candidate)
@@ -200,6 +218,8 @@ def verify_isolated_release_authority(candidate: str, authority: str) -> None:
 
 
 def prepare_isolated_checkout(candidate: str, base: str, authority: str, tree: str) -> None:
+    from repo_governance_plan import RELEASE_CONTROLLER_TESTS
+
     require(os.environ.get("GITHUB_REF") == "refs/heads/main"
             and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
             and os.environ.get("GITHUB_SHA") == authority,
@@ -216,8 +236,11 @@ def prepare_isolated_checkout(candidate: str, base: str, authority: str, tree: s
     git("checkout", "--detach", candidate)
     # HEAD stays at the exact application commit; the staged test overlay
     # is disposable and never becomes a deployment commit.
-    git("restore", f"--source={authority}", "--staged", "--worktree", "--", *ISOLATED_CI_PATHS)
-    require(not git("diff", "--cached", "--name-only", authority, "--", *ISOLATED_CI_PATHS),
+    # The release contracts test the Main workflows overlaid above. Keep those
+    # tests with their controller while product tests stay at the candidate SHA.
+    control_paths = (*ISOLATED_CI_PATHS, *RELEASE_CONTROLLER_TESTS)
+    git("restore", f"--source={authority}", "--staged", "--worktree", "--", *control_paths)
+    require(not git("diff", "--cached", "--name-only", authority, "--", *control_paths),
             "CI working copy differs from reviewed Main authority")
 
 

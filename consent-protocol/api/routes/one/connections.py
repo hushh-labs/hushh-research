@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, StrictBool, validator
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, get_rate_limit_key, limiter
@@ -14,6 +14,7 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityService,
     ActorIdentitySyncUnavailableError,
 )
+from hushh_mcp.services.connection_network_service import ConnectionNetworkService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 from hushh_mcp.services.ria_iam_service import (
@@ -75,6 +76,10 @@ class LinkCircleInviteBody(BaseModel):
 
 class UpdateVoicePreferencesBody(BaseModel):
     share_scopes_from_last_request: bool
+
+
+class UpdateNetworkVisibilityBody(BaseModel):
+    share_connection_list: StrictBool
 
 
 class ContactSyncLookup(BaseModel):
@@ -164,6 +169,76 @@ def list_mutual_connections(
             page=page,
             limit=limit,
         )
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/network/visibility")
+def network_visibility(response: Response, firebase_uid: str = Depends(require_firebase_auth)):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        with ConnectionNetworkService(_service()) as network:
+            return network.preference(firebase_uid)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.patch("/connections/network/visibility")
+def update_network_visibility(
+    body: UpdateNetworkVisibilityBody,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        with ConnectionNetworkService(_service()) as network:
+            return network.set_preference(firebase_uid, body.share_connection_list)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/network/summary")
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
+def network_summary(
+    request: Request,
+    response: Response,
+    person_ref: UUID = Query(...),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    del request
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        with ConnectionNetworkService(_service()) as network:
+            return network.summary(firebase_uid, str(person_ref))
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
+@router.get("/connections/network")
+@limiter.limit(_directory_daily_limit, key_func=_directory_daily_budget_key)
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
+def browse_network(
+    request: Request,
+    response: Response,
+    person_ref: UUID | None = Query(None),
+    degree: int | None = Query(None, ge=1, le=3),
+    query: str = Query("", max_length=160),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=50),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    del request
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        with ConnectionNetworkService(_service()) as network:
+            return network.browse(
+                firebase_uid,
+                person_ref=str(person_ref) if person_ref else None,
+                degree=degree,
+                query=query,
+                page=page,
+                limit=limit,
+            )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc
 

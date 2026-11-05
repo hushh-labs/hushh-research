@@ -90,6 +90,9 @@ def test_preview_substitutions_preserve_single_delimiter_and_namespace(model_pro
     assert pairs["_CLOUD_RUN_MIN_INSTANCES"] == "1"
     assert pairs["_GMAIL_OAUTH_CLIENT_ID_SECRET"] == ""
     assert pairs["_GENAI_PROJECT_ID"] == "hushh-vertex-personal54"
+    assert pairs["_PKM_ANSWER_PAYMENTS_ENABLED"] == "false"
+    assert pairs["_ANSWER_WORK_DRAIN_ENABLED"] == "false"
+    assert pairs["_ANSWER_WORK_DRAIN_AUDIENCE"] == ""
     assert module["TARGET"]["PROJECT"] == "hushh-pda-dev"
     assert pairs["_RUNTIME_SERVICE_ACCOUNT"] == (
         "commerce-sandbox-runtime@hushh-pda-dev.iam.gserviceaccount.com"

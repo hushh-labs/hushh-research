@@ -33,6 +33,82 @@ def _module():
     return module
 
 
+def test_queue_timeout_preserves_all_other_parameters(module=None):
+    import copy
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from prepared_branch_governance import queue_rules
+    original = [{"type": "merge_queue", "parameters": {
+        "check_response_timeout_minutes": 30, "merge_method": "MERGE",
+        "max_entries_to_build": 5, "max_entries_to_merge": 1,
+        "grouping_strategy": "ALLGREEN"}}]
+    before = copy.deepcopy(original)
+    expected = copy.deepcopy(original)
+    expected[0]["parameters"]["check_response_timeout_minutes"] = 120
+    assert queue_rules({"repository": {"merge_queue_check_timeout_minutes": 120}}, original) == expected
+    assert original == before
+    assert queue_rules({}, original) == before
+    for bad in (False, 0, 361, "120"):
+        try:
+            queue_rules({"repository": {"merge_queue_check_timeout_minutes": bad}}, original)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Invalid queue ceiling was accepted")
+
+
+def test_queue_timeout_repair_preserves_authority_and_refuses_concurrent_change(module):
+    import copy
+    from unittest.mock import patch
+    import prepared_branch_governance
+    policy = _policy()
+    rows = [{"id": index, "name": f"{branch} merge queue"} for index, branch in enumerate(("main", "dev", "uat"), 1)]
+    records = {row["id"]: {**row, "target": "branch", "enforcement": "active",
+        "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+        "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30,
+                  "merge_method": "MERGE", "max_entries_to_build": 5}}],
+        "bypass_actors": [{"actor_id": 40542375, "actor_type": "User", "bypass_mode": "pull_request"}]}
+        for row, branch in zip(rows, ("main", "dev", "uat"))}
+    writes = []
+    def read(args):
+        if args[1].endswith("?per_page=100"): return rows
+        return copy.deepcopy(records[int(args[1].rsplit("/", 1)[1])])
+    def write(endpoint, body, method):
+        assert method == "PUT"
+        index = int(endpoint.rsplit("/", 1)[1])
+        original = records[index]
+        assert all(body[k] == original[k] for k in original if k not in ("rules", "id"))
+        assert body["rules"][0]["parameters"] == {**original["rules"][0]["parameters"], "check_response_timeout_minutes": 120}
+        records[index] = {**body, "id": index}
+        writes.append(endpoint)
+    with patch.object(module, "gh_json", side_effect=read), patch.object(prepared_branch_governance, "_write", side_effect=write):
+        assert module.reconcile_queue_timeouts(policy, apply=False)
+        assert not writes
+        assert module.reconcile_queue_timeouts(policy, apply=True)
+        assert len(writes) == 3
+        assert not module.reconcile_queue_timeouts(policy, apply=True)
+    records[1]["rules"][0]["parameters"]["check_response_timeout_minutes"] = 30
+    observed = [rows, *[copy.deepcopy(records[i]) for i in (1,2,3)], {"changed": True}]
+    with patch.object(module, "gh_json", side_effect=observed), patch.object(prepared_branch_governance, "_write") as mutation:
+        try:
+            module.reconcile_queue_timeouts(policy, apply=True)
+        except SystemExit as error:
+            assert "changed before repair" in str(error)
+        else:
+            raise AssertionError("Concurrent ruleset change was overwritten")
+        mutation.assert_not_called()
+
+
+def test_codeowners_use_the_protected_team_for_every_protected_path(module):
+    content = (REPO_ROOT / ".github/CODEOWNERS").read_text()
+    entries = {line.split()[0]: line.split()[1:] for line in content.splitlines()
+               if line.strip() and not line.startswith("#")}
+    assert entries["*"] == ["@hushh-labs/allowed-maintainers-to-approve"]
+    for rule in _policy()["main"]["protected_pipeline_paths"]:
+        assert entries[f"/{rule}"] == ["@hushh-labs/pipeline-editors"]
+    assert "@kushaltrivedi5" not in content and "@ankitkumarsingh1702" not in content
+
+
 def _policy() -> dict:
     return json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
 
@@ -384,6 +460,7 @@ def test_prepared_branch_reconciliation_is_scoped_and_fail_closed(module) -> Non
 
     prepared = importlib.import_module("prepared_branch_governance")
     policy = _policy()
+    policy["branch_flow"]["prepared_branches"]["dev"].pop("owner_admin_ruleset_name", None)
     rulesets = [{"name": policy["pr_train"]["merge_queue_ruleset_name"], "id": 1}]
     template = {"enforcement": "active", "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
     reads, writes = [], []
@@ -533,7 +610,7 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     }
     queue = {"name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
              "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-             "rules": [{"type": "merge_queue"}],
+             "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30}}],
              "bypass_actors": [{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}]}
     for scope in ("refs/heads/main", "~DEFAULT_BRANCH"):
         queue["conditions"]["ref_name"]["include"] = [scope]
@@ -567,6 +644,7 @@ def test_prepared_rollout_rejects_bypass_with_non_strict_checks(module) -> None:
     from unittest.mock import patch
 
     policy = _policy()
+    policy["branch_flow"]["prepared_branches"]["dev"].pop("owner_admin_ruleset_name", None)
     policy["pr_train"]["merge_queue_bypass_team_slug"] = "unsafe-team"
     template = {"enforcement": "active", "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
     with patch.object(prepared_branch_governance, "_write") as write:
@@ -782,7 +860,7 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
         "target": "branch",
         "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-        "rules": [{"type": "merge_queue"}],
+        "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30}}],
         "bypass_actors": [],
     }
     calls = []
@@ -837,6 +915,503 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
         else:
             raise AssertionError("Missing strict guard accepted")
         write.assert_not_called()
+
+def _native_review_fixture(module):
+    import copy
+    from types import SimpleNamespace
+
+    policy = _policy()
+    owners = policy["main"]["protected_pipeline_edit_users"]
+    state = {
+        "actor": owners[0], "admins": set(owners), "grant": None, "writes": [],
+        "members": [{"login": owner, "type": "User"} for owner in owners],
+        "rules": {1: {"id": 1, "name": "retained queue", "target": "branch", "rules": [{"type": "merge_queue"}]}},
+        "protections": {branch: {"strict": True, "required_review_count": 1} for branch in ("main", "dev", "uat")},
+        "fault": None, "grant_reads": 0, "rollback_inventory_reads": 0, "posts": 0, "readback_failed": False,
+    }
+    grant_path = f"orgs/{module.ORG}/teams/pipeline-editors/repos/{module.REPO}"
+    endpoint = f"repos/{module.REPO}/rulesets"
+
+    def read(args):
+        path = args[1]
+        if path == "user":
+            return {"login": state["actor"], "type": "User"}
+        if path.startswith("users/"):
+            login = path.split("/")[-1]
+            return {"login": login, "type": "User", "id": owners.index(login) + 10}
+        if path.endswith("/permission"):
+            login = path.split("/")[-2]
+            return {"permission": "admin" if login in state["admins"] else "push", "user": {"login": login}}
+        if path == f"orgs/{module.ORG}/teams/pipeline-editors":
+            return {"slug": "pipeline-editors", "id": 42}
+        if path.endswith("/members?per_page=100"):
+            return copy.deepcopy(state["members"])
+        if path == f"repos/{module.REPO}/teams?per_page=100":
+            state["grant_reads"] += 1
+            if state["fault"] == "grant_drift" and state["grant_reads"] == 2:
+                state["grant"] = "admin"
+            return [] if state["grant"] is None else [{"id": 42, "slug": "pipeline-editors", "permission": state["grant"]}]
+        if path == f"{endpoint}?per_page=100":
+            if state["fault"] == "rollback_grant_drift" and any(item[0] == endpoint + "/10" for item in state["writes"]):
+                state["rollback_inventory_reads"] += 1
+                if state["rollback_inventory_reads"] == 2:
+                    state["grant"] = "admin"
+            return copy.deepcopy(list(state["rules"].values()))
+        if path.startswith(endpoint + "/"):
+            rule_id = int(path.split("/")[-1])
+            if state["fault"] == "second_readback" and rule_id == 11 and not state["readback_failed"]:
+                state["readback_failed"] = True
+                raise RuntimeError("readback unavailable")
+            return copy.deepcopy(state["rules"][rule_id])
+        if path.endswith("/protection"):
+            return copy.deepcopy(state["protections"][path.split("/")[-2]])
+        raise AssertionError(path)
+
+    def write(path, payload, method):
+        state["writes"].append((path, copy.deepcopy(payload), method))
+        if path == grant_path:
+            state["grant"] = payload["permission"] if method == "PUT" else None
+            if method == "PUT" and state["fault"] == "grant_lost_response":
+                raise SystemExit("provider grant response lost")
+        else:
+            assert method == "DELETE" and path in {f"{endpoint}/{i}" for i in range(10, 16)}
+            del state["rules"][int(path.split("/")[-1])]
+
+    def create(argv, **kwargs):
+        assert argv == ["gh", "api", "--method", "POST", endpoint, "--input", "-"]
+        body = json.loads(kwargs["input"])
+        state["writes"].append((endpoint, copy.deepcopy(body), "POST"))
+        state["posts"] += 1
+        rule_id = 9 + state["posts"]
+        if state["fault"] == "second_rejected" and state["posts"] == 2:
+            return SimpleNamespace(returncode=1, stdout="", stderr="422 rejected")
+        state["rules"][rule_id] = {**body, "id": rule_id}
+        if state["fault"] in {"changed_guard", "rollback_grant_drift"}:
+            state["rules"][1]["peer_change"] = True
+        if state["fault"] == "revoked_admin":
+            state["admins"].clear()
+        if state["fault"] == "lost_response" or (state["fault"] == "second_lost_response" and state["posts"] == 2):
+            return SimpleNamespace(returncode=1, stdout="", stderr="provider response lost")
+        if state["fault"] == "first_partition_drift" and state["posts"] == 2:
+            state["rules"][10]["enforcement"] = "disabled"
+        if state["fault"] == "second_malformed" and state["posts"] == 2:
+            return SimpleNamespace(returncode=0, stdout="{}", stderr="")
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"id": rule_id, "name": body["name"]}), stderr="")
+
+    return policy, state, read, write, create
+
+
+def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
+    import os
+    import subprocess
+    import tempfile
+
+    policy, _, read, _, _ = _native_review_fixture(module)
+    desired_rules = module.protected_pipeline_review_rulesets(policy, read=read)
+    desired = desired_rules[0]
+    assert [item["name"] for item in desired_rules] == ["protected pipeline review 1", "protected pipeline review 2", "protected pipeline review 3", "protected pipeline review inherited 1", "protected pipeline review inherited 2", "protected pipeline review inherited 3"]
+    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, 7, 15, 15, 7]
+    patterns = [pattern for item in desired_rules[:2] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]]
+    assert patterns == sorted({"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][:30]})
+    assert len(patterns) == len(set(patterns)) == 30
+    supplemental = desired_rules[2]["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]
+    assert set(supplemental) == {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][30:]}
+    assert [pattern for item in desired_rules[3:5] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]] == patterns
+    assert desired_rules[5]["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"] == supplemental
+    assert desired_rules[3]["conditions"]["ref_name"]["include"] == ["refs/heads/integration/pr-train", "refs/heads/uat-isolated"]
+    assert desired["conditions"]["ref_name"]["include"] == ["refs/heads/main", "refs/heads/dev", "refs/heads/uat"]
+    assert desired["bypass_actors"] == [
+        {"actor_id": policy["main"]["protected_pipeline_edit_users"].index(owner) + 10,
+         "actor_type": "User", "bypass_mode": "pull_request"}
+        for owner in sorted(policy["main"]["protected_pipeline_edit_users"])
+    ]
+    rule = desired["rules"][0]["parameters"]
+    assert rule["dismiss_stale_reviews_on_push"] is True
+    assert rule["required_approving_review_count"] == 0 and rule["require_code_owner_review"] is False
+    reviewer = rule["required_reviewers"][0]
+    assert reviewer["minimum_approvals"] == 1 and reviewer["reviewer"] == {"id": 42, "type": "Team"}
+    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md"]
+    negative = [".GITHUB/workflows/check.yml", "scripts/CI/guard.py", "unrelated/scripts/ci/guard.py", "agents.md", "hushh-webapp/app/page.tsx"]
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    with tempfile.TemporaryDirectory(prefix="native-review-patterns-") as scratch:
+        subprocess.run(["git", "init", "-q", scratch], check=True, env=env)
+        subprocess.run(["git", "config", "core.ignorecase", "false"], cwd=scratch, env=env, check=True)
+        Path(scratch, ".gitignore").write_text("\n".join(patterns + supplemental) + "\n", encoding="utf-8")
+        matches = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"],
+                                 input="\n".join(positive + negative) + "\n", capture_output=True,
+                                 text=True, cwd=scratch, env=env, check=True)
+        assert matches.stdout.splitlines() == positive
+
+
+def test_native_review_stage_a_is_additive_idempotent_and_recovers_own_changes(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    for fault in (None, "changed_guard", "revoked_admin", "lost_response", "grant_lost_response"):
+        policy, state, read, write, create = _native_review_fixture(module)
+        state["fault"] = fault
+        with patch.object(prepared_branch_governance, "_write", side_effect=write), \
+             patch.object(module.subprocess, "run", side_effect=create):
+            assert module.reconcile_protected_pipeline_review(policy, apply=False, read=read)
+            assert state["writes"] == [] and state["grant"] is None and set(state["rules"]) == {1}
+            if fault is None:
+                assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+                assert state["grant"] == "push" and set(state["rules"]) == {1, 10, 11, 12, 13, 14, 15}
+                before = list(state["writes"])
+                assert not module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+                assert state["writes"] == before
+            else:
+                try:
+                    module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+                except SystemExit as error:
+                    assert "Stage A failed" in str(error)
+                    if fault in {"changed_guard", "revoked_admin"}:
+                        assert state["grant"] is None and set(state["rules"]) == {1}
+                        if fault == "changed_guard":
+                            assert state["rules"][1]["peer_change"] is True
+                    elif fault == "lost_response":
+                        assert "uncertain" in str(error) and state["grant"] == "push"
+                        assert set(state["rules"]) == {1, 10}
+                        before = list(state["writes"])
+                        state["fault"] = None
+                        assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+                        assert len(state["writes"]) == len(before) + 5
+                        assert set(state["rules"]) == {1, 10, 11, 12, 13, 14, 15}
+                    else:
+                        assert "uncertain" in str(error) and state["grant"] == "push"
+                        assert set(state["rules"]) == {1}
+                        state["fault"] = None
+                        assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+                        assert set(state["rules"]) == {1, 10, 11, 12, 13, 14, 15}
+                else:
+                    raise AssertionError(f"Native review accepted failed provider/readback outcome: {fault}")
+            assert all(value == {"strict": True, "required_review_count": 1} for value in state["protections"].values())
+
+
+def test_native_review_refuses_authority_drift_before_writes(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    for change in ("member", "actor", "admin", "wildcard", "authority_path", "wrong_rule", "wrong_partition", "duplicate_path"):
+        policy, state, read, _, _ = _native_review_fixture(module)
+        if change == "member":
+            state["members"].append({"login": "ordinary-maintainer", "type": "User"})
+        elif change == "actor":
+            state["actor"] = "ordinary-maintainer"
+        elif change == "admin":
+            state["admins"].clear()
+        elif change == "wildcard":
+            policy["main"]["protected_pipeline_paths"].append("!scripts/ci/**")
+        elif change == "authority_path":
+            policy["main"]["protected_pipeline_paths"].remove(".github/workflows/")
+        elif change == "duplicate_path":
+            policy["main"]["protected_pipeline_paths"].append("scripts/ci/")
+        else:
+            name = policy["branch_flow"]["protected_pipeline_review_ruleset_name"]
+            state["rules"][2] = {"id": 2, "name": name + (" 2" if change == "wrong_partition" else ""), "target": "branch", "rules": []}
+        with patch.object(prepared_branch_governance, "_write") as write, patch.object(module.subprocess, "run") as create:
+            try:
+                module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+            except SystemExit:
+                pass
+            else:
+                raise AssertionError(f"Native review accepted unproven authority: {change}")
+            write.assert_not_called()
+            create.assert_not_called()
+
+
+def test_native_review_preserves_peer_grant_changes_before_write_and_rollback(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    for fault in ("grant_drift", "rollback_grant_drift"):
+        policy, state, read, write, create = _native_review_fixture(module)
+        state["fault"] = fault
+        with patch.object(prepared_branch_governance, "_write", side_effect=write), \
+             patch.object(module.subprocess, "run", side_effect=create):
+            try:
+                module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+            except SystemExit as error:
+                assert "concurrent permission retained" in str(error)
+            else:
+                raise AssertionError(f"Native review overwrote a concurrent grant: {fault}")
+        assert state["grant"] == "admin" and set(state["rules"]) == {1}
+        grant_writes = [item for item in state["writes"] if "/teams/pipeline-editors/repos/" in item[0]]
+        if fault == "grant_drift":
+            assert grant_writes == []
+        else:
+            assert len(grant_writes) == 1 and grant_writes[0][2] == "PUT"
+
+
+def test_native_review_partition_failure_resumes_without_duplicate_or_foreign_rollback(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    for fault in ("second_rejected", "second_lost_response", "second_malformed", "second_readback"):
+        policy, state, read, write, create = _native_review_fixture(module)
+        state["grant"] = "push"  # retained grant from the prior rejected Stage A apply
+        state["fault"] = fault
+        with patch.object(prepared_branch_governance, "_write", side_effect=write), \
+             patch.object(module.subprocess, "run", side_effect=create):
+            try:
+                module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+            except SystemExit as error:
+                assert "Stage A failed" in str(error)
+            else:
+                raise AssertionError(f"Accepted failed partition: {fault}")
+            assert state["grant"] == "push"
+            assert not any("/teams/pipeline-editors/repos/" in row[0] for row in state["writes"])
+            if fault == "second_readback":
+                assert set(state["rules"]) == {1}  # only this invocation's two creations removed
+            else:
+                assert 10 in state["rules"]  # uncertain creation retains known first partition
+            state["fault"] = None
+            # IDs may advance after a rollback; preserve uniqueness in the fake provider.
+            state["posts"] = max(state["rules"]) - 9 if len(state["rules"]) > 1 else 0
+            missing_before = len(state["rules"]) < 7
+            assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read) == missing_before
+            assert len(state["rules"]) == 7
+            before = list(state["writes"])
+            assert not module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+            assert state["writes"] == before
+
+
+def test_native_review_rechecks_both_partitions_and_preserves_changed_rule(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy, state, read, write, create = _native_review_fixture(module)
+    state["grant"] = "push"
+    state["fault"] = "first_partition_drift"
+    with patch.object(prepared_branch_governance, "_write", side_effect=write), \
+         patch.object(module.subprocess, "run", side_effect=create):
+        try:
+            module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+        except SystemExit as error:
+            assert "pair changed" in str(error) and "refusing to delete" in str(error)
+        else:
+            raise AssertionError("Partition one drift during second creation was accepted")
+    assert state["grant"] == "push" and set(state["rules"]) == {1, 10}
+    assert state["rules"][10]["enforcement"] == "disabled"
+
+
+def test_native_review_partial_resume_rolls_back_only_new_partition(module) -> None:
+    from unittest.mock import patch
+    import prepared_branch_governance
+
+    policy, state, read, write, create = _native_review_fixture(module)
+    desired = module.protected_pipeline_review_rulesets(policy, read=read)
+    state["rules"][10] = {**desired[0], "id": 10}
+    state["posts"] = 1
+    state["grant"] = "push"
+    state["fault"] = "second_readback"
+    with patch.object(prepared_branch_governance, "_write", side_effect=write), \
+         patch.object(module.subprocess, "run", side_effect=create):
+        try:
+            module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+        except SystemExit as error:
+            assert "task-owned changes restored" in str(error)
+        else:
+            raise AssertionError("Failed partial resume was accepted")
+    assert state["grant"] == "push" and set(state["rules"]) == {1, 10}
+    assert module.same_review_ruleset(state["rules"][10], desired[0])
+    deletes = [path for path, _, method in state["writes"] if method == "DELETE"]
+    assert deletes == [f"repos/{module.REPO}/rulesets/11"]
+
+
+def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module) -> None:
+    import copy
+    import prepared_branch_governance as prepared
+    from unittest.mock import patch
+
+    for branch in ("dev", "uat"):
+        for fault in (None, "reordered", "duplicate_actor", "bad_actor_mode", "missing_native", "changed_queue", "changed_protection", "bad_guard", "unknown_bypass", "stale_authority", "main_advanced"):
+            policy, state, base_read, _, _ = _native_review_fixture(module)
+            state["grant"] = "push"
+            owners = policy["main"]["protected_pipeline_edit_users"]
+            source_key = policy["branch_flow"]["prepared_branches"][branch]["policy_key"]
+            cohort = policy[source_key]["review_bypass_users"]
+            for i, desired in enumerate(module.protected_pipeline_review_rulesets(policy, read=base_read)):
+                state["rules"][10 + i] = {**desired, "id": 10 + i}
+            if fault == "missing_native":
+                del state["rules"][13]
+            template_name = policy[source_key]["merge_queue_ruleset_name"]
+            state["rules"][2] = {"id": 2, "name": template_name, "target": "branch", "enforcement": "active",
+                "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]}
+            state["rules"][20] = {"id": 20, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
+                "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+                "bypass_actors": [{"actor_id": 60, "actor_type": "Team", "bypass_mode": "pull_request"}],
+                "rules": copy.deepcopy(state["rules"][2]["rules"])}
+            if fault == "unknown_bypass":
+                state["rules"][20]["bypass_actors"] = [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
+
+            def observed(payload):
+                value = copy.deepcopy(payload)
+                for key in ("enforce_admins", "required_linear_history", "allow_force_pushes", "allow_deletions", "required_conversation_resolution"):
+                    value[key] = {"enabled": value[key]}
+                bypass = value["required_pull_request_reviews"]["bypass_pull_request_allowances"]
+                bypass["users"] = [{"login": login} for login in bypass["users"]]
+                bypass["teams"] = [{"slug": slug} for slug in bypass["teams"]]
+                return value
+
+            current = observed(prepared.protection_payload(policy[source_key]))
+            current["required_status_checks"]["strict"] = True
+            state["protections"][branch] = current
+            baseline = copy.deepcopy(current)
+            guard_created = False
+
+            def read(args):
+                path = args[1]
+                if path.startswith("users/"):
+                    login = path.split("/")[-1]
+                    return {"id": owners.index(login) + 10 if login in owners else cohort.index(login) + 100,
+                            "login": login, "type": "User"}
+                if path.endswith("teams/allowed-maintainers-to-approve"):
+                    return {"id": 60}
+                if "/git/ref/heads/" in path:
+                    main_ref = path.endswith("/main")
+                    sha = ("c" if fault == "main_advanced" and guard_created else "a") if main_ref else "b"
+                    return {"object": {"type": "commit", "sha": sha * 40}}
+                if "/contents/" in path:
+                    filename = path.split("/contents/", 1)[1].split("?ref=", 1)[0]
+                    stale = fault == "stale_authority" and path.endswith("b" * 40)
+                    return {"path": filename, "type": "file", "sha": ("e" if stale else "d") * 40}
+                return base_read(args)
+
+            def raw(args, *, check):
+                assert not check
+                return 0, json.dumps(state["protections"][branch]), ""
+
+            def write(path, payload, method):
+                nonlocal guard_created
+                state["writes"].append((path, copy.deepcopy(payload), method))
+                if path.endswith("/rulesets"):
+                    guard_created = True
+                    state["rules"][30] = {**copy.deepcopy(payload), "id": 30}
+                    if fault == "bad_guard":
+                        state["rules"][30]["enforcement"] = "disabled"
+                    if fault == "changed_queue":
+                        state["rules"][20]["peer_change"] = True
+                    if fault == "changed_protection":
+                        state["protections"][branch]["peer_change"] = True
+                elif path.endswith("/rulesets/20"):
+                    assert guard_created and state["rules"][30]["enforcement"] == "active"
+                    state["rules"][20] = {**copy.deepcopy(payload), "id": 20}
+                    if fault == "reordered":
+                        state["rules"][20]["bypass_actors"].reverse()
+                    if fault == "duplicate_actor":
+                        state["rules"][20]["bypass_actors"].append(copy.deepcopy(payload["bypass_actors"][0]))
+                    if fault == "bad_actor_mode":
+                        state["rules"][20]["bypass_actors"][0]["bypass_mode"] = "always"
+                elif path.endswith(f"/branches/{branch}/protection"):
+                    assert guard_created
+                    assert all(actor["actor_type"] == "User" for actor in state["rules"][20]["bypass_actors"])
+                    assert {actor["actor_id"] for actor in state["rules"][20]["bypass_actors"]} == {10, 11}
+                    state["protections"][branch] = observed(payload)
+                else:
+                    raise AssertionError(path)
+
+            with patch.object(prepared, "_write", side_effect=write):
+                prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=False, governance=module) if fault not in {"missing_native", "unknown_bypass", "stale_authority"} else None
+                assert state["writes"] == []
+                if fault in (None, "reordered"):
+                    prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
+                    assert prepared._same_protection(state["protections"][branch], prepared.protection_payload(prepared.branch_policy(policy, branch)))
+                    assert [method for _, _, method in state["writes"]] == ["POST", "PUT", "PUT"]
+                    if fault == "reordered":
+                        state["writes"].clear()
+                        prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
+                        assert state["writes"] == []
+                else:
+                    try:
+                        prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
+                    except SystemExit:
+                        pass
+                    else:
+                        raise AssertionError(f"Prepared native review accepted {fault}")
+                    assert not any(path.endswith(f"/branches/{branch}/protection") for path, _, _ in state["writes"])
+                    assert state["protections"][branch]["required_status_checks"] == baseline["required_status_checks"]
+
+
+
+def test_prepared_native_live_verifier_requires_every_independent_boundary(module) -> None:
+    import copy
+    import os
+    import subprocess
+    import tempfile
+    import prepared_branch_governance as prepared
+
+    for branch in ("dev", "uat"):
+        policy, _, _, _, _ = _native_review_fixture(module)
+        owners = policy["main"]["protected_pipeline_edit_users"]
+        cohort = policy["pr_train"]["review_bypass_users"]
+        responses = {"user": {"login": owners[0], "type": "User"},
+            f"orgs/{module.ORG}/teams/pipeline-editors": {"id": 42, "slug": "pipeline-editors"},
+            f"orgs/{module.ORG}/teams/pipeline-editors/members?per_page=100": [{"login": owner, "type": "User"} for owner in owners],
+            f"repos/{module.REPO}/teams?per_page=100": [{"id": 42, "slug": "pipeline-editors", "permission": "push"}],
+            f"repos/{module.REPO}": {"allow_auto_merge": True}}
+        for login in cohort:
+            responses[f"users/{login}"] = {"id": owners.index(login) + 10 if login in owners else cohort.index(login) + 100,
+                                          "login": login, "type": "User"}
+        for owner in owners:
+            responses[f"repos/{module.REPO}/collaborators/{owner}/permission"] = {"permission": "admin", "user": {"login": owner}}
+        def read(args):
+            return responses[args[1]]
+        rules = [{**rule, "id": 10 + i} for i, rule in enumerate(module.protected_pipeline_review_rulesets(policy, read=read))]
+        rules.append({**module.main_owner_admin_ruleset(policy, branch=branch, read=read), "id": 30})
+        rules.append({"id": 20, "name": f"{branch} merge queue", "target": "branch", "enforcement": "active",
+            "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+            "bypass_actors": [{"actor_id": owners.index(owner) + 10, "actor_type": "User", "bypass_mode": "pull_request"} for owner in sorted(owners)],
+            "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]})
+        for rule in rules:
+            responses[f"repos/{module.REPO}/rulesets/{rule['id']}"] = rule
+        responses[f"repos/{module.REPO}/rulesets?per_page=100"] = rules
+        responses[f"repos/{module.REPO}/rulesets?includes_parents=true"] = rules
+        responses[f"repos/{module.REPO}/rules/branches/{branch}"] = rules[-1]["rules"]
+        protection = prepared.protection_payload(prepared.branch_policy(policy, branch))
+        for key in ("enforce_admins", "required_linear_history", "allow_force_pushes", "allow_deletions", "required_conversation_resolution"):
+            protection[key] = {"enabled": protection[key]}
+        protection["required_pull_request_reviews"]["bypass_pull_request_allowances"]["users"] = [{"login": owner} for owner in sorted(owners)]
+        for target in ("main", "dev", "uat"):
+            responses[f"repos/{module.REPO}/branches/{target}/protection"] = copy.deepcopy(protection)
+        for target, revision in (("main", "a" * 40), (branch, "b" * 40)):
+            responses[f"repos/{module.REPO}/git/ref/heads/{target}"] = {"object": {"type": "commit", "sha": revision}}
+            for path in prepared.STAGE_B_AUTHORITY_PATHS:
+                responses[f"repos/{module.REPO}/contents/{path}?ref={revision}"] = {"path": path, "type": "file", "sha": "d" * 40}
+        with tempfile.TemporaryDirectory(prefix="prepared-native-verifier-") as scratch:
+            directory = Path(scratch)
+            _write_github_fixture(directory)
+            policy_file = directory / "policy.json"
+            policy_file.write_text(json.dumps(policy))
+            environment = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ["PATH"],
+                GITHUB_BRANCH=branch, GITHUB_REPO=module.REPO, GITHUB_CI_GOVERNANCE_FILE=str(policy_file))
+            for fault in (None, "missing_native", "guard_disabled", "unknown_actor", "blanket_review", "stale_authority"):
+                sample = copy.deepcopy(responses)
+                if fault == "missing_native":
+                    sample[f"repos/{module.REPO}/rulesets?per_page=100"] = [rule for rule in sample[f"repos/{module.REPO}/rulesets?per_page=100"] if rule["id"] != 13]
+                elif fault == "guard_disabled":
+                    sample[f"repos/{module.REPO}/rulesets/30"]["enforcement"] = "disabled"
+                elif fault == "unknown_actor":
+                    sample[f"repos/{module.REPO}/rulesets/20"]["bypass_actors"].append({"actor_id": 1, "actor_type": "RepositoryRole", "bypass_mode": "always"})
+                elif fault == "stale_authority":
+                    sample[f"repos/{module.REPO}/contents/scripts/ci/queue_combined_result.py?ref={"b" * 40}"]["sha"] = "e" * 40
+                    # Source equality still gates review-policy activation, not
+                    # an already-protected branch's authority-sync PR.
+                    try:
+                        prepared.verify_destination_authority(branch, repo=module.REPO,
+                                                              read=lambda args: sample[args[1]])
+                    except SystemExit as error:
+                        assert "source-sync before Stage B" in str(error)
+                    else:
+                        raise AssertionError("Stale authority permitted review activation")
+                elif fault == "blanket_review":
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["require_code_owner_reviews"] = True
+                environment["SYNTHETIC_GITHUB_RESPONSES"] = json.dumps(sample)
+                result = subprocess.run(["bash", str(Path(__file__).parent / "verify-main-branch-protection.sh")],
+                                        env=environment, text=True, capture_output=True, timeout=60)
+                assert (result.returncode == 0) == (fault in (None, "stale_authority")), (branch, fault, result.stdout, result.stderr)
+
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

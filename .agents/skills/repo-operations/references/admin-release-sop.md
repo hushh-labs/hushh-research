@@ -12,11 +12,11 @@ deployment, rollback, or environment-promotion decision must route here through
 2. The ordinary path is PR validation followed by the GitHub merge queue.
 3. Admin SOP coordinates an authorized landing. Required CI and combined-result
    validation always apply. An owner may explicitly approve their own captured PR
-   head through the owner self-approval path below; ordinary reviews remain required
-   for everyone else. Review exception and queue bypass are distinct.
-4. A direct `git push` to `main` is a separate emergency path governed by the
-   Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
-   that push preflight for the Admin PR landing gate below.
+   head through the owner self-approval path below; ordinary Main reviews remain required
+   for other authors; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
+4. Main source changes require a PR. Use the queue or the named-owner PR route
+   below; organization-admin credentials do not create a direct-push route.
+   An emergency deployment does not waive source-merge requirements.
 5. Merge, post-merge smoke, UAT, production, and native release are separate
    authority transitions. Do not infer or dispatch a later transition unless
    the user requested it.
@@ -66,7 +66,13 @@ Required pre-merge proof:
    path below. Do not ask an authorized owner for another person merely because
    GitHub cannot count their self-review. Confirm actual queue entry.
 
-### 3B. Admin landing and queue authority
+### 3B. Ordinary Dev/UAT maintainer landing
+
+Eligible maintainers may land their own verified product PRs without personal
+Kushal/Ankit review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
+CI/core authorization and required CI remain mandatory; merging never deploys.
+
+### 3C. Main merger policy and the named-owner Admin route
 
 Main merging is restricted to `main.merge_users`, independently of deployment
 permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's approval.
@@ -76,18 +82,19 @@ execute its reviewed implementation; generic admin credentials alone are not.
 **Owner self-approval:** GitHub's native queue admission does not reliably honor
 its review-bypass allowance for an author. Do not request another owner merely
 because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
-Kushal and Ankit have a separate, explicitly approved **Main-only owner Admin PR route**.
-It does not change Dev/UAT review or queue admission.
-Ordinary contributors retain GitHub's independent/latest-push/CODEOWNER reviews
-and the combined-result merge queue.
+Kushal and Ankit have a separate, explicitly approved owner Admin PR route on
+Main, Dev and UAT. Ordinary Main PRs retain independent/latest-push/CODEOWNER
+review and the combined-result queue. Eligible Dev/UAT authors use ordinary
+maintainer self-approval through the queue as described in §3B.
 
 The named-owner route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the six-person Main merger restriction remain active.
-- `main owner validated merge` requires a PR and strict current-base CI for the
-  two owners. Only the other four Main mergers bypass this *additional* freshness
-  layer; they cannot bypass the ordinary queue or baseline CI.
+- Each destination's `<branch> owner validated merge` guard requires a PR and
+  strict current-base CI for the two owners. Other authorized mergers bypass
+  this additional freshness layer only; they cannot bypass the ordinary queue
+  or baseline CI. Main retains its six-person merger restriction.
 - Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
   general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
@@ -106,17 +113,19 @@ requires the authenticated named owner to be the PR author, live policy parity,
 resolved conversations, no outstanding/withdrawn review objection, the current
 successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain
-response is reconciled, never automatically replayed. Main smoke remains required.
+response is reconciled, never automatically replayed. Main merges additionally
+require landed Main smoke. Merging any destination never dispatches deployment.
 
-For this direct route only, reconcile current Main into the PR if the tested base
-changed; ordinary reviewed contributors can use the queue without this ancestry
-requirement. A changed source needs its own validation. Missing or failed evidence
+For this direct route only, reconcile the PR's actual current destination if its
+tested base changed. Ordinary eligible contributors can use the queue without
+this ancestry requirement. A changed source needs its own validation. Missing or failed evidence
 is a refusal, not permission to run `gh --admin` directly.
 
-Activate through `apply-governance.py --main-merge-policy` after landing this
-foundation. It installs and verifies strict CI/PR protection **before** granting
-owner queue exceptions. The existing parity verifier checks both layers. Do not
-remove the strict owner guard while a queue exception remains enabled.
+Main activation uses `apply-governance.py --main-merge-policy`. Dev/UAT use
+`--branch dev` or `--branch uat` only after native protected review and exact Main
+authority sources are verified on the destination. Reconcile live changes serially
+and read back the result. Each path installs the strict owner CI/PR guard before
+granting owner queue exceptions; retain that guard while an exception is enabled.
 
 The bootstrap of PR #8825 was a separately authorized one-time Admin exception:
 the exact merge tree was proven by CI, server-side strict CI was enabled, only the
@@ -207,9 +216,11 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    push. Never collapse those labels.
 2. Report PR, workflow, run, and artifact links; exact PR head and landed/deployed
    SHAs; environment; scope; revisions; traffic; and remaining risk.
-3. Restore the preserved developer branch, back-sync landed `main` when needed,
-   remove only temporary branches created by this session, and leave the tree
-   clean.
+3. Complete the [agent-owned downstream source syncs](maintainer-branch-freshness.md#agent-owned-downstream-completion)
+   in this merge task: Main → UAT/Dev; UAT → Dev. Record landed syncs or the exact
+   unresolved reconciliation; source propagation never authorizes deployment.
+4. Restore the preserved developer branch and remove only completed task-owned
+   temporary resources after preserving their work and evidence. Preserve peer edits.
 
 ### Lessons from the 2026-09-02 Wallet release
 

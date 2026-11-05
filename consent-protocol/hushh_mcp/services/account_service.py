@@ -1879,6 +1879,7 @@ class AccountService:
                             last_active_persona = 'investor',
                             investor_marketplace_opt_in = FALSE,
                             contact_discoverable = FALSE,
+                            connection_list_shared = FALSE,
                             contact_sync_consent_enabled_at = NULL,
                             contact_sync_consent_rule_version =
                                 contact_sync_consent_rule_version + 1,

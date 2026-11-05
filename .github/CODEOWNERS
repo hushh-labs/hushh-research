@@ -2,7 +2,7 @@
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 #
 # Ordinary product review belongs to the maintainer team. Protected pipeline
-# and fundamental agent guidance entries below belong only to Kushal and Ankit.
+# and fundamental agent guidance entries below belong to the pipeline-editors team.
 # CI verifies current-head authorization; branch protection requires code-owner
 # review. The policy and this file are themselves protected.
 #
@@ -23,30 +23,40 @@
 # Protected CI, authority and fundamental engineering guidance.
 # Only these owners authorize changes. Ordinary product review stays with the
 # maintainer team above; proposing a protected change does not grant authority.
-/.github/workflows/ @kushaltrivedi5 @ankitkumarsingh1702
-/.github/actions/ @kushaltrivedi5 @ankitkumarsingh1702
-/scripts/ci/ @kushaltrivedi5 @ankitkumarsingh1702
-/scripts/git/check-main-sync.sh @kushaltrivedi5 @ankitkumarsingh1702
-/deploy/ @kushaltrivedi5 @ankitkumarsingh1702
-/config/ci-governance.json @kushaltrivedi5 @ankitkumarsingh1702
-/config/protected-behaviors.json @kushaltrivedi5 @ankitkumarsingh1702
-/config/runtime-capacity.json @kushaltrivedi5 @ankitkumarsingh1702
-/config/release-cadence.json @kushaltrivedi5 @ankitkumarsingh1702
-/.github/CODEOWNERS @kushaltrivedi5 @ankitkumarsingh1702
-/AGENTS.md @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/instructions.md @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/README.md @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/config.toml @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/routing/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/subagents/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/workflows/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/repo-context/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/repo-operations/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/quality-contracts/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/security-audit/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/iam-consent-governance/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/agent-orchestration-governance/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/codex-skill-authoring/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/verify-before-claim/ @kushaltrivedi5 @ankitkumarsingh1702
-/.agents/skills/docs-governance/ @kushaltrivedi5 @ankitkumarsingh1702
-/docs/vision/agent-ontology.md @kushaltrivedi5 @ankitkumarsingh1702
+/.github/workflows/ @hushh-labs/pipeline-editors
+/.github/actions/ @hushh-labs/pipeline-editors
+/scripts/ci/ @hushh-labs/pipeline-editors
+/hushh-webapp/scripts/testing/affected-tests.mjs @hushh-labs/pipeline-editors
+/hushh-webapp/scripts/testing/affected-tests.test.mjs @hushh-labs/pipeline-editors
+/hushh-webapp/scripts/testing/playwright-shard.cjs @hushh-labs/pipeline-editors
+/scripts/git/check-main-sync.sh @hushh-labs/pipeline-editors
+/deploy/ @hushh-labs/pipeline-editors
+/config/ci-governance.json @hushh-labs/pipeline-editors
+/config/protected-behaviors.json @hushh-labs/pipeline-editors
+/config/runtime-capacity.json @hushh-labs/pipeline-editors
+/config/release-cadence.json @hushh-labs/pipeline-editors
+/.github/CODEOWNERS @hushh-labs/pipeline-editors
+/AGENTS.md @hushh-labs/pipeline-editors
+/.agents/instructions.md @hushh-labs/pipeline-editors
+/.agents/README.md @hushh-labs/pipeline-editors
+/.agents/config.toml @hushh-labs/pipeline-editors
+/.agents/routing/ @hushh-labs/pipeline-editors
+/.agents/subagents/ @hushh-labs/pipeline-editors
+/.agents/workflows/ @hushh-labs/pipeline-editors
+/.agents/skills/repo-context/ @hushh-labs/pipeline-editors
+/.agents/skills/repo-operations/ @hushh-labs/pipeline-editors
+/.agents/skills/quality-contracts/ @hushh-labs/pipeline-editors
+/.agents/skills/security-audit/ @hushh-labs/pipeline-editors
+/.agents/skills/iam-consent-governance/ @hushh-labs/pipeline-editors
+/.agents/skills/agent-orchestration-governance/ @hushh-labs/pipeline-editors
+/.agents/skills/codex-skill-authoring/ @hushh-labs/pipeline-editors
+/.agents/skills/verify-before-claim/ @hushh-labs/pipeline-editors
+/.agents/skills/docs-governance/ @hushh-labs/pipeline-editors
+/docs/vision/agent-ontology.md @hushh-labs/pipeline-editors
+/bin/hushh @hushh-labs/pipeline-editors
+/consent-protocol/.github/actions/setup-python-uv/ @hushh-labs/pipeline-editors
+/consent-protocol/scripts/ci/ @hushh-labs/pipeline-editors
+/consent-protocol/scripts/run-test-ci.sh @hushh-labs/pipeline-editors
+/consent-protocol/scripts/sync_runtime_requirements.sh @hushh-labs/pipeline-editors
+/hushh-webapp/playwright.config.ts @hushh-labs/pipeline-editors
+/hushh-webapp/vitest.config.ts @hushh-labs/pipeline-editors

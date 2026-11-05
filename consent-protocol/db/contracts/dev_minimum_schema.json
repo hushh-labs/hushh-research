@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 449,
+  "expected_migration_version": 450,
   "migration_version_policy": "minimum",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -509,6 +509,7 @@
       "phone_binding_revision"
     ],
     "actor_profiles": [
+      "connection_list_shared",
       "contact_discoverable",
       "contact_sync_consent_contract_version",
       "contact_sync_consent_enabled_at",
@@ -4395,5 +4396,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 449
+  "expected_schema_head": 450
 }

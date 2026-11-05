@@ -200,14 +200,15 @@ it does not establish Dev/UAT acceptance or authorize a deployment. Keep
 
 ### Carry stable fixes back to development
 
-A reviewed UAT or production hotfix creates a follow-up for Dev containing the
-source change, required dependencies and a link to the destination PR. Reconcile
-that fix by behavior against the current Dev base, verify its destination CI and
-record the merged Dev commit before closing the follow-up. A selective cherry-pick
-or equivalent reviewed change is appropriate; do not merge all of UAT into Dev or
-all of Dev into UAT. This is currently an operator procedure, not an automated
-back-sync guarantee. An automated reminder must preserve those same review and
-freshness boundaries before it is enabled.
+The coding agent completing each merge also completes its reviewed downstream
+source syncs: **Main → UAT and Dev; UAT → Dev**. Follow the canonical
+[agent-owned completion procedure](../../../.agents/skills/repo-operations/references/maintainer-branch-freshness.md#agent-owned-downstream-completion)
+for dependency preservation, equivalent-change detection, verification and conflict
+handoff. Carry the reviewed change rather than replacing a destination's complete
+tree; selected Dev promotion upward remains a separate review.
+
+No bot, recurring sync workflow or unattended merge is introduced. A source merge
+on any branch deploys nothing; deployments retain explicit authorization.
 
 ## Working Rules
 
@@ -410,7 +411,9 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 Every ring above has a real GitHub team, created and kept in sync by
 `apply-governance.py` from `config/ci-governance.json`. The teams exist so people
 can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
-The gate never reads them.
+Deployment actor gates read committed policy. Native protected-path review uses
+the verified owner-team mirror; the reconciler verifies its exact membership
+against the same committed policy.
 
 The direction is a security property, not a preference:
 
@@ -428,8 +431,8 @@ The direction is a security property, not a preference:
    read teams live, adding someone to a team would silently grant production
    deploy, routing straight around the control that exists to limit exactly that.
 
-So: **teams own nothing, the config owns everything, and widening access always
-costs a reviewed protected-path PR.**
+Access cohorts are authored in config. Widening them requires a reviewed
+protected-path PR; native team mirrors must match that approved policy.
 
 #### Team members are `member`, never `maintainer`
 
@@ -453,11 +456,15 @@ have.
 ## Admin landing
 
 Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
-Ordinary merges require applicable independent review and combined-result queue
-validation. The Main-only owner Admin route lets Kushal or Ankit explicitly
-approve their own exact-head PR without a second owner. Its native strict CI/PR
+Ordinary Main merges require applicable independent review and combined-result
+queue validation. Eligible Dev/UAT authors may request their own ordinary PR's
+queue entry without blanket review. Protected CI and fundamental guidance still
+require Kushal/Ankit authority on every destination.
+
+The named-owner Admin route lets Kushal or Ankit explicitly approve their own
+exact-head PR on Main, Dev or UAT without a second owner. Its native strict CI/PR
 guard and canonical command preserve current-base evidence, resolved conversations
-and landed-tree verification. This does not enable an Admin route on Dev/UAT.
+and landed-tree verification. Other maintainers use the ordinary queue.
 Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 

@@ -243,6 +243,36 @@ class GitHub:
         require(isinstance(previous, dict), "UAT has no dev receipt for this service")
         self.accept(previous, "dev", sha, service)
 
+    def accept_testflight_backend(
+        self, *, sha: str, run_id: int, revision: str, image_digest: str,
+        source_branch: str = "uat-isolated",
+    ) -> dict:
+        """Bind an exact UAT release receipt to the backend currently serving TestFlight."""
+        require(source_branch in {"uat", "uat-isolated"}, "Unknown protected UAT source")
+        run = self.read(f"runs/{run_id}")
+        attempt = run.get("run_attempt")
+        require(
+            run.get("id") == run_id and type(attempt) is int and attempt > 0
+            and run.get("status") == "completed" and run.get("conclusion") == "success",
+            "Current UAT deployment attempt is not successful",
+        )
+        pin = next((pin for pin in self.attempt_pins("uat", run_id) if pin["run_attempt"] == attempt), None)
+        require(pin is not None, "Current UAT acceptance artifact is missing")
+        _, _, receipt = self._receipt(pin, "uat")
+        prior = receipt.get("predecessor", {})
+        require(
+            prior.get("kind") == "uat-exact-ci" and prior.get("source_branch", "uat") == source_branch,
+            "TestFlight requires acceptance for the requested protected UAT source",
+        )
+        accepted = self.accept(pin, "uat", sha, "backend")
+        require(
+            bool(revision) and receipt["release"]["final"]["backend_revision"] == revision
+            and bool(accepted.get("image_reference"))
+            and accepted["image_reference"].rsplit("@", 1)[-1] == image_digest,
+            "Serving UAT backend does not match the accepted revision and image",
+        )
+        return {**accepted, "base_sha": prior["base_sha"], "authority_sha": prior["authority_sha"]}
+
     def accepted_application(self, pin: dict, environment: str) -> dict:
         """Inspect a pinned receipt without conflating its Main workflow SHA.
 
@@ -448,7 +478,7 @@ def pinned_backend_image(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat"))
+    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat", "testflight-uat"))
     parser.add_argument("--environment", choices=tuple(LANES), required=True)
     parser.add_argument("--sha")
     parser.add_argument("--scope")
@@ -456,11 +486,14 @@ def main() -> int:
     parser.add_argument("--predecessor", type=Path)
     parser.add_argument("--base-sha")
     parser.add_argument("--authority-sha")
-    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"), default="uat")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"))
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--ci-run-id", type=int)
     parser.add_argument("--ci-attempt", type=int)
+    parser.add_argument("--deployment-run-id", type=int)
+    parser.add_argument("--serving-revision")
+    parser.add_argument("--serving-image")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
@@ -472,11 +505,21 @@ def main() -> int:
                 args.sha is not None and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
                 "Full SHA is required",
             )
-            receipt = (
-                direct_uat(args) if args.command == "direct-uat" else pinned_backend_image(args)
-                if args.command in {"direct-uat", "backend-image"}
-                else GitHub().find(args.environment, args.sha, args.scope)
-            )
+            if args.command == "testflight-uat":
+                require(args.environment == "uat" and (args.deployment_run_id or 0) > 0,
+                        "TestFlight requires the live UAT deployment run")
+                receipt = GitHub().accept_testflight_backend(
+                    sha=args.sha, run_id=args.deployment_run_id,
+                    revision=args.serving_revision, image_digest=args.serving_image,
+                    source_branch=args.source_branch or "uat-isolated",
+                )
+            elif args.command == "direct-uat":
+                args.source_branch = args.source_branch or "uat"
+                receipt = direct_uat(args)
+            elif args.command == "backend-image":
+                receipt = pinned_backend_image(args)
+            else:
+                receipt = GitHub().find(args.environment, args.sha, args.scope)
             args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     except (
         Refused,
