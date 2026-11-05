@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "hushh-webapp"
 # Named presentation contracts, not a permissive exclusion of failing behavior.
 PRESENTATION = (
-    r"@motion-performance|100 KB paste|provider icons share the Google scale|"
+    r"@presentation|@motion-performance|100 KB paste|provider icons share the Google scale|"
     r"welcome starters keep foreground text|starter suggestions retain compact spacing|"
     r"pointerdown grows a clipped ripple|wallet workspace.*(?:geometry|typography)|"
     r"the agent mark stays visible in the header|"
