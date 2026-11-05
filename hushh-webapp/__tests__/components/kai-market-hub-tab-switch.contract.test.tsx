@@ -273,10 +273,13 @@ describe("Finance tab switch — URL echo lags the pane", () => {
   it("still commits a finger swipe to the URL exactly once", () => {
     render(<KaiMarketHubPage />);
 
-    // The finger lands on Portfolio: Embla selects it and later settles.
+    // Model the real gesture lifecycle, including release before the first
+    // compositor frame. A bare select is also emitted by layout repairs.
     act(() => {
+      emit("pointerDown");
       embla.target = -SLIDE_WIDTH;
       emit("select");
+      emit("pointerUp");
     });
     expect(selectedTab()).toBe("Portfolio");
     finishPaneMotion();
