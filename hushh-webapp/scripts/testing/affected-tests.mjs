@@ -868,8 +868,23 @@ function executePlan(plan, {
   return full.status ?? 1;
 }
 
+function unitShardMatrix(plan) {
+  return { shard: ["focused", "release"].includes(plan?.effectiveLevel)
+    ? ["1/1"] : ["1/3", "2/3", "3/3"] };
+}
+
 function main(argv) {
   const [command, planPath, ...options] = argv;
+  if (command === "unit-matrix") {
+    let plan;
+    try {
+      plan = buildPlan();
+    } catch {
+      console.error("Unit planning unavailable; retaining every diagnostic shard.");
+    }
+    process.stdout.write(`${JSON.stringify(unitShardMatrix(plan))}\n`);
+    return 0;
+  }
   if (command === "plan") {
     process.stdout.write(`${JSON.stringify(buildPlan())}\n`);
     return 0;
@@ -889,7 +904,7 @@ function main(argv) {
       shard: optionArgs["--shard"] || process.env.WEB_FULL_SUITE_SHARD || "",
     });
   }
-  console.error("Usage: affected-tests.mjs plan | run <plan-file> [--max-workers=N] [--shard=I/T]");
+  console.error("Usage: affected-tests.mjs plan | unit-matrix | run <plan-file> [--max-workers=N] [--shard=I/T]");
   return 2;
 }
 
@@ -907,4 +922,5 @@ export {
   readRelatedReport,
   readChangedFiles,
   scriptTestFiles,
+  unitShardMatrix,
 };

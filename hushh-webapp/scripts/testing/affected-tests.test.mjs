@@ -9,7 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildPlan, dynamicImportRisk, executePlan } from "./affected-tests.mjs";
+import { buildPlan, dynamicImportRisk, executePlan, unitShardMatrix } from "./affected-tests.mjs";
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const REPO_ROOT = path.resolve(WEB_ROOT, "..");
@@ -660,4 +660,19 @@ test("ordinary related failures still run independent direct cases and remain fa
     assert.notEqual(interrupted, 0);
     assert.equal(runs, 1);
   }
+});
+
+
+test("unit concurrency preserves focused ownership and complete diagnostic fallback", () => {
+  for (const level of ["focused", "release"]) {
+    assert.deepEqual(unitShardMatrix({ effectiveLevel: level }), { shard: ["1/1"] });
+  }
+  for (const plan of [undefined, null, {}, { effectiveLevel: "diagnostic" }, { effectiveLevel: "unknown" }]) {
+    assert.deepEqual(unitShardMatrix(plan), { shard: ["1/3", "2/3", "3/3"] });
+  }
+  const result = spawnSync(process.execPath,
+    [path.join(WEB_ROOT, "scripts/testing/affected-tests.mjs"), "unit-matrix"],
+    { encoding: "utf8", env: { ...process.env, CI_VALIDATION_LEVEL: "unknown" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { shard: ["1/3", "2/3", "3/3"] });
 });

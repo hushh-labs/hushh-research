@@ -17,7 +17,7 @@ flowchart TB
     ops["Governed operations / hotfix"]
     prdev["Pull request to dev"]
     prmain["Pull request to main"]
-    prci["PR Validation<br/>medium-depth, path-filtered"]
+    prci["PR Validation<br/>core + affected contracts"]
   end
 
   subgraph integration["Integration lane"]
@@ -30,7 +30,7 @@ flowchart TB
   end
 
   subgraph release["Environment deployment lanes"]
-    devdeploy["Deploy to Dev<br/>main-owned workflow + CI-green branch SHA"]
+    devdeploy["Deploy to Dev<br/>explicit Dev dispatch + trusted release tooling"]
     green["Green main SHA"]
     smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
     uat["Deploy to UAT<br/>manual exact-SHA dispatch"]
@@ -44,12 +44,11 @@ flowchart TB
   freshness -.-> queue
   status --> queue
   queue --> queueci
-  queueci --> devbranch -->|"exact CI-green SHA"| devdeploy
+  queueci --> devbranch -->|"explicit request; qualified SHA"| devdeploy
   queueci --> main --> smoke --> green
   devdeploy -.->|"legacy accepted-image path"| uat
   feat -->|"UAT-focused reviewed changes"| uatbranch["Protected uat"]
   uatbranch --> exactuat["Exact UAT commit CI"] --> uat
-  green -->|"Main smoke; separate authorization"| uat
   uat -->|"UAT acceptance; separate approval"| prod
   green -.->|"qualified emergency; separate authorization"| prod
 ```
@@ -188,9 +187,8 @@ GitHub deployment record and makes no Cloud Run changes. The existing
 Production WIF principal remains deployment-capable; this mode constrains its
 commands to fixed Cloud Run reads and public HTTP GETs.
 
-Stable fixes move downward through manual reviewed Main → UAT/Dev and UAT → Dev
-sync PRs. No sync bot, scheduled release cadence or automatic production dispatch
-is installed. The standalone CI Security Alerts workflow is retired; source secret
+The coding agent completes reviewed Main → UAT/Dev and UAT → Dev source syncs
+as part of each merge task, following the [downstream completion procedure](../../../.agents/skills/repo-operations/references/maintainer-branch-freshness.md). No sync bot, scheduled release cadence or automatic application dispatch is installed. The standalone CI Security Alerts workflow is retired; source secret
 scanning remains in PR validation and privileged unresolved-secret clearance runs
 only in an explicit Main-owned deployment's protected job.
 
@@ -711,8 +709,13 @@ jobs.
    replace an earlier selection; unknown projects and unresolved specs refuse.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
-   validation level retain historical full-suite behavior. Explicit diagnostic
-   shards remain available through `WEB_FULL_SUITE_SHARD`.
+   validation level retain historical full-suite behavior. Governance uses that
+   same exact-source plan to select one focused/release leg or three native
+   Vitest legs for diagnostic fallback, with two workers per runner. Verifiers
+   run once on the first leg. Release admission requires the complete successful
+   shard set; historical unstamped evidence is accepted only from its verified
+   pre-matrix workflow. Late execution fallbacks remain serial. Explicit local
+   diagnostic shards remain available through `WEB_FULL_SUITE_SHARD`.
    The selector sends registered JSON contract inputs through Vitest's related
    dependency graph, keeps unknown runtime JSON fail-closed, and leaves the exact
    iOS XCTest and phone-flow browser harness to their platform/browser owners.
@@ -745,6 +748,17 @@ selecting unrelated runtime/database suites; account-deletion release tests
 retain their dedicated owner exactly once. Runtime modules, schemas, migrations
 and unregistered test paths still select the existing backend lanes. The path
 contract checks both focused coverage and those conservative controls.
+
+The inert PLG qualification helper and its four consumer suites also use that
+controller owner. Fixture-only edits do not schedule the full backend. Changes
+to shared PLG runtime fixtures, application code or unknown helpers retain
+backend coverage, and release qualification retains both database partitions.
+
+Manual `scope=auto` uses the dispatched commit's real merge-base against the
+repository's default branch. This development comparison does not grant UI
+review inheritance or replace a serving-base release receipt. Unavailable or unrelated history refuses selection; an explicit `uat_base_sha`
+can supply the intended comparison. UAT release qualification still requires
+its verified serving base rather than a development comparison.
 
 The affected unit selector does not own standalone Node verifiers: analytics'
 Android-scope verifier and Node failure tests remain in the targeted Node job.
@@ -1064,14 +1078,14 @@ The default was `all` until 2026-10-15, which put iOS on one of the org's five m
 
 A dispatch publishes **Branch Validation Gate**, while a pull request retains **CI Status Gate**. Both use the same fail-closed aggregate and selected contract owners. The separate name prevents a manual run from satisfying PR branch protection or replacing its verdict. PR Base Policy and merge-queue reuse still require the PR's own evidence. A branch may therefore qualify for dev even when its PR cannot be merged into the current base.
 
-Only `deploy-dev.yml` accepts the branch gate. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. UAT, production, queue selectors and branch-protection configuration do not accept this label. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
+`deploy-dev.yml` accepts a qualified Dev branch gate. Exact full-scope UAT qualification also verifies its Branch Validation Gate through `uat_exact_ci.py`; partial diagnostics cannot qualify a release. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. Production does not accept an arbitrary manual branch check; its predecessor must be the corresponding accepted UAT release. Queue and PR branch protection do not substitute a manual branch check for PR evidence. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
 
 Queue admission reads its authority helpers from the protected destination. Git
 parents and the complete queue inventory establish every included PR and actual
-queue requester. Each PR needs current approval and its latest successful
-validation attempt. Protected changes additionally need current Kushal/Ankit
+queue requester. Each PR needs its applicable review or qualified maintainer
+self-service authority and its latest successful validation attempt. Protected changes additionally need current Kushal/Ankit
 approval; the author alone is not the queue requester.
 
 A single PR may reuse its immutable CI receipt only when source, base, tested
@@ -1080,6 +1094,14 @@ the existing affected-contract CI runs on the combined tree. Multi-PR groups
 always validate the combined selection. Missing, failed, cancelled, incomplete
 or superseded evidence refuses clearance. Final admission repeats membership,
 review, destination and validation checks before publishing `CI Status Gate`.
+
+For Dev/UAT, a newer Main commit is provenance, not by itself a changed queue
+policy. Fresh snapshots fingerprint the complete canonical policy, excluding
+only Main's native-writer switch outside Main. Changed cohorts, protected owners,
+other policy fields, source, approvals and validation attempts still refuse.
+Main retains that writer switch in its fingerprint. Legacy receipts keep exact
+revision matching. Fresh authorization always runs again before clearance; PR
+receipt reuse still requires the same tested source, base and tree.
 
 Rollout order matters: land the trusted helper first, then activate the workflow,
 qualify the combined path, and reconcile branch protection. Remove ordinary-user queue bypass
@@ -1093,7 +1115,7 @@ train through their declared branch policies. Read back each selected policy.
 
 | Gate | Purpose | Behavior |
 |------|---------|----------|
-| Secret Scan | Detect leaked credentials/tokens early | `gitleaks` OSS CLI scans the event commit range, blocks on open GitHub secret-scanning alerts, and reports Dependabot backlog through the GitHub API |
+| Secret Scan | Detect leaked credentials/tokens early | Gitleaks scans the event commit range. Privileged unresolved-secret clearance belongs to protected security execution within an explicit deployment, never PR-controlled code. |
 | Destination sync guidance | Show drift against the actual PR destination | Advisory summary; no branch-age rejection. Queue validation proves the current combined result before merge |
 | CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`); skipped or unknown selected work fails closed. Frontend requires Web Core, targeted Node, targeted browser, affected Web Unit Contracts and Integration. Backend requires Protocol, both Database jobs, MCP Package and Integration. Selected iOS/Android lanes also must succeed. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO remain required on every run; pull requests also require PR Base Policy. Optional local Safari/performance diagnostics are not CI jobs. A dispatch publishes the separate `Branch Validation Gate`; partial or unknown scopes fail. Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py` |
 
@@ -1954,9 +1976,9 @@ saving: 3.5-4.5 minutes per backend + frontend release. `frontend_image_wait` in
 the release status artifact records how long the lane still blocked on the web
 build; near zero means it was fully hidden. Frontend-only and backend-only scopes
 build only their own image. A deployment SHA older than this split has no
-build-only config and keeps the combined serial build-and-deploy. The dev
-auto-deploy Cloud Build trigger also keeps the combined path, which remains the
-default of `frontend.cloudbuild.yaml`.
+build-only config and keeps the combined serial build-and-deploy. Retained
+combined Cloud Build recipes support historical releases; their filenames do not
+authorize an automatic deployment. Current environment dispatch remains explicit.
 
 **Production backend promotion.** `deploy-production.yml` input
 `backend_image_source` chooses the backend image:
@@ -2084,12 +2106,13 @@ WebKit case onto Linux. Release qualification retains both engines.
 | Person/action | Expected route | What still blocks |
 | --- | --- | --- |
 | Ordinary contributor to Dev/UAT | PR, independent review, combined-result queue | Relevant CI, conflicts, unresolved conversations |
-| Six governed Main operators | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
+| Eligible Dev/UAT maintainer | Governed self-service after destination activation and readback | Required CI, protected-owner approval, objections and combined-result evidence |
+| Governed Main operators (`main.merge_users`) | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
 | Kushal/Ankit approving their own Main PR | `./bin/hushh codex admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
 | Dev/UAT deployment operator | Explicit matching-branch deployment | Environment/source authority, CI, protected release security and rollback |
 | Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
 
-A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority)
+A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md)
 for the canonical commands and live-policy activation. Do not ask a self-approving
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
