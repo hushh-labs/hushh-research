@@ -3578,6 +3578,7 @@ export function PersonRow({
               effect="fade"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
+              disableHoverRipple
               disabled={!shareReady && !onShareUnavailable}
               aria-haspopup={!shareReady && onShareUnavailable ? "dialog" : undefined}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
@@ -3599,6 +3600,7 @@ export function PersonRow({
               size="compact"
               onClick={onAsk}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
+              disableHoverRipple
               aria-label={`Ask ${name} for their location`}
             >
               <span data-location-type-role="compact-action"
@@ -6623,50 +6625,48 @@ export function InviteFlow({ vm }: { vm: LocationHubViewModel }) {
   }
 
   return (
-    <div className="space-y-5">
-      <TaskFlowHeader
-        eyebrow="Invite to One / Circle"
-        title="Invite before sharing"
-      />
-      <SettingsGroup
-        title="Invite"
-        description="They sign in, verify phone, and approve."
-        separatorInset
-      >
-        <SettingsRow
-          title="Expires after"
-          description="How long the link stays usable."
-          stackTrailingOnMobile
-          className="[&_[data-slot=settings-row-trailing]]:justify-end [&_[data-slot=settings-row-trailing]]:pl-0 [&_[role=radiogroup]]:justify-end"
-          trailing={
-            <DurationSelector
-              value={vm.durationHours}
-              onChange={vm.setDurationHours}
-              label=""
-              maxWidthClassName="w-max max-w-full"
-              // 24 hours is the ceiling, not a preference. The API rejects
-              // anything above it (`duration_hours … le=24` on
-              // CreateCircleInviteRequest) and `normalize_duration_hours` raises
-              // "between 15 minutes and 24 hours", so the "7 days" option that
-              // used to sit here could only ever return HTTP 422 — an invite the
-              // owner watched fail with no idea why.
-              options={[
-                { value: "1", label: "1 hour" },
-                { value: "24", label: "24 hours" },
-              ]}
-            />
-          }
-        />
-      </SettingsGroup>
-      <Button
-        size="prominent"
-        onClick={vm.onCreateCircleInvite}
-        isLoading={vm.busy === "circleInvite"}
-        className="w-full text-[color:var(--app-accent-fg)]"
-      >
-        Create invite
-      </Button>
-    </div>
+    <>
+      <h1 className="sr-only">Invite to Circle</h1>
+      <div className="space-y-5">
+        <SettingsGroup
+          description="They sign in, verify phone, and approve."
+          headingClassName="mt-0"
+          separatorInset
+        >
+          <SettingsRow
+            title="Expires after"
+            stackTrailingOnMobile
+            className="[&_[data-slot=settings-row-trailing]]:justify-end [&_[data-slot=settings-row-trailing]]:pl-0 [&_[role=radiogroup]]:justify-end"
+            trailing={
+              <DurationSelector
+                value={vm.durationHours}
+                onChange={vm.setDurationHours}
+                label=""
+                maxWidthClassName="w-max max-w-full"
+                // 24 hours is the ceiling, not a preference. The API rejects
+                // anything above it (`duration_hours … le=24` on
+                // CreateCircleInviteRequest) and `normalize_duration_hours` raises
+                // "between 15 minutes and 24 hours", so the "7 days" option that
+                // used to sit here could only ever return HTTP 422 — an invite the
+                // owner watched fail with no idea why.
+                options={[
+                  { value: "1", label: "1 hour" },
+                  { value: "24", label: "24 hours" },
+                ]}
+              />
+            }
+          />
+        </SettingsGroup>
+        <Button
+          size="prominent"
+          onClick={vm.onCreateCircleInvite}
+          isLoading={vm.busy === "circleInvite"}
+          className="w-full text-[color:var(--app-accent-fg)]"
+        >
+          Create invite
+        </Button>
+      </div>
+    </>
   );
 }
 
