@@ -167,9 +167,15 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // The same isolated proof owner serves both journeys; deletion entrypoints
-    // remain compatibility facades. This path always requires manual SMS entry.
-    @objc func startPhoneVerificationProof(_ call: CAPPluginCall) { startPhoneDeletionVerification(call) }
+    @objc func startPhoneVerificationProof(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let proof = self.deletionPhoneProof else {
+                call.reject("Phone verification is unavailable.", "phone_verification_failed"); return
+            }
+            proof.start(call, primaryLink: true)
+        }
+    }
+
     @objc func confirmPhoneVerificationProof(_ call: CAPPluginCall) { confirmPhoneDeletionVerification(call) }
     @objc func cancelPhoneVerificationProof(_ call: CAPPluginCall) { cancelPhoneDeletionVerification(call) }
 
