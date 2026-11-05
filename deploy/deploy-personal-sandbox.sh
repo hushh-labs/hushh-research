@@ -23,9 +23,9 @@ case "$owner/${GITHUB_ACTOR:-}/${GITHUB_TRIGGERING_ACTOR:-}" in
     auth_project=hushh-akshat-sandbox-auth
     adc_project=$auth_project
     baseline=d884959b5b1dc666b01998b24bdd8138be93161e
-    approved_sha=5f4dcb772a66a303fb925f267246bc2e17b0ba9f
+    approved_sha=f8978e282da23b97a14614eddc54082db5a6800e
     # Hash the Git tar before compression so gzip implementation is immaterial.
-    approved_tar=8ca26e5c906f28acce2ce6e3c5caeacb60853d9c059da15c190939225d5184c5
+    approved_tar=0a4a25c2b2ef63b27ce4956ab0d5e1b561a255a17ea2642bf71b7a5edb29060e
     ;;
   *) die "The actor and rerun actor are not authorized for this sandbox." ;;
 esac
@@ -190,6 +190,7 @@ if [[ "$reuse_revision" == false ]]; then
   else
     # The approved source resolves Firebase's issuer through Google ADC.
     env_vars+=",WEB_CONCURRENCY=1,OTEL_EXPORTER_GCP_TRACE_PROJECT_ID=$project"
+    env_vars+=",HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai"
   fi
   env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
   secrets="APP_SIGNING_KEY=${secret_prefix}_APP_SIGNING_KEY:1,VAULT_DATA_KEY=${secret_prefix}_VAULT_DATA_KEY:1"
@@ -214,7 +215,8 @@ gcloud run revisions describe "$revision" "${flags[@]}" --format=json |
     .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == ("sandbox-" + $owner) and
     ($owner == "ankit" or
       (.metadata.labels["sandbox-build-id"] == $build and
-       any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth))) and
+       any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth) and
+       any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_MANAGED_AI_PROVIDER" and .value == "azure_openai"))) and
     .metadata.annotations["run.googleapis.com/cloudsql-instances"] == $sql and
     .spec.serviceAccountName == $runtime and
     (.status.imageDigest | split("@")[-1]) == $digest and

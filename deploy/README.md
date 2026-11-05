@@ -414,8 +414,15 @@ direct human builds or traffic changes.
 The Main-owned personal backend workflow binds `RGlodAkshat` to
 `hushh-pda-uat/us-central1/backend-dev-akshat` and grants
 `i-akshat@hush1one.com` invoker and viewer access on that service. The
-initial approval is for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f`.
+approved source is `f8978e282da23b97a14614eddc54082db5a6800e`.
 A different source requires an updated approval.
+
+This revision selects Azure OpenAI with
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai`. The dedicated runtime identity
+must be trusted by the configured Azure Entra application. The deployment and
+localhost launcher both verify this provider setting on the exact revision.
+The new source receives its own immutable commit tag; the previous revision
+retains its original configuration.
 
 Land the UAT capacity entry before creating the Cloud Run service. Provision
 the dedicated `backend-dev-akshat-pg` Cloud SQL instance, initialize the
@@ -440,7 +447,7 @@ bucket under `personal-backend/`, and dispatch the workflow on Main with
 compressed SHA-256.
 
 ```bash
-git -c tar.umask=0000 archive --format=tar 5f4dcb772a66a303fb925f267246bc2e17b0ba9f \
+git -c tar.umask=0000 archive --format=tar f8978e282da23b97a14614eddc54082db5a6800e \
   consent-protocol contracts | gzip -n > akshat-source.tar.gz
 shasum -a 256 akshat-source.tar.gz
 ```
