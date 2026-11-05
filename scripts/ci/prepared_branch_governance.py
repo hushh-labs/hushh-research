@@ -18,17 +18,26 @@ from urllib.parse import quote
 
 
 def queue_rules(policy: dict, rules: list[dict]) -> list[dict]:
-    """Change only the queue response ceiling, preserving scheduling semantics."""
-    ceiling = policy.get("repository", {}).get("merge_queue_check_timeout_minutes")
+    """Apply reviewed queue limits without changing merge or review authority."""
+    repository = policy.get("repository", {})
+    ceiling = repository.get("merge_queue_check_timeout_minutes")
+    builds = repository.get("merge_queue_max_entries_to_build")
     result = copy.deepcopy(rules)
-    if ceiling is None:  # Historical policy remains readable.
+    if ceiling is None and builds is None:  # Historical policy remains readable.
         return result
-    if type(ceiling) is not int or not 1 <= ceiling <= 360:
+    if ceiling is not None and (type(ceiling) is not int or not 1 <= ceiling <= 360):
         raise SystemExit("Invalid merge queue response ceiling")
+    # Admission currently roots every group at the landed destination. Parallel
+    # speculative bases require predecessor-chain authority and settlement proof.
+    if builds is not None and (type(builds) is not int or builds != 1):
+        raise SystemExit("Only one destination-rooted queue build is qualified")
     queues = [rule for rule in result if rule.get("type") == "merge_queue"]
     if len(queues) != 1 or not isinstance(queues[0].get("parameters"), dict):
-        raise SystemExit("Queue response ceiling requires one complete queue rule")
-    queues[0]["parameters"]["check_response_timeout_minutes"] = ceiling
+        raise SystemExit("Queue limits require one complete queue rule")
+    if ceiling is not None:
+        queues[0]["parameters"]["check_response_timeout_minutes"] = ceiling
+    if builds is not None:
+        queues[0]["parameters"]["max_entries_to_build"] = builds
     return result
 
 
