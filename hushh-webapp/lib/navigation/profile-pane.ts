@@ -404,8 +404,8 @@ export function openProfilePane(
     /**
      * Set by an in-app entry point that opens the pane directly on a panel or
      * detail. Back from that entry then returns to the calling screen instead
-     * of the location's parent. Left unset by the shell's own resume, where a
-     * restored child still steps back through its parent.
+     * of the location's parent. Left unset for ordinary Profile opens and
+     * retained URL entries, where Back follows Profile's authored parents.
      */
     returnsToOrigin?: boolean;
     /** Authored origin retained by the existing shell; never persisted. */
@@ -472,7 +472,7 @@ export function popProfilePaneLocation(
     window.history.back();
     return;
   }
-  // A resumed or directly linked child may be the first pane entry. Browser
+  // A retained or directly linked child may be the first pane entry. Browser
   // Back would leave the sheet, whereas its own Back must visit the parent.
   if (canGoBackProfilePane(current.location) && getProfilePaneHistoryDepth() <= 1) {
     replaceProfilePaneLocation(pathname, searchParams, profilePaneParentLocation(current.location));
@@ -564,6 +564,8 @@ export type ProfilePaneOpenDetail = {
  * Ask the app shell to present Profile as a transient pane. The shell owns the
  * pane lifecycle so the top bar, native edge gesture, and future entry points
  * share one surface without adding another navigation stack.
+ * Ordinary requests start at Profile home; only an authored destination opens
+ * a nested setting. Reopening does not resume the previous pane session.
  *
  * Returns the shell's answer, or null when no shell listener is mounted.
  * dispatchEvent is synchronous, so the listener has answered by return.
@@ -580,7 +582,7 @@ export function requestProfilePaneOpen(
       detail: {
         source,
         returnFocus,
-        destination,
+        destination: destination ?? { location: PROFILE_PANE_ROOT_LOCATION },
         onResult: (value) => {
           result = value;
         },
