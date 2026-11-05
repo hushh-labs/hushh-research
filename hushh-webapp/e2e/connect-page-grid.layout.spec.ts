@@ -68,6 +68,7 @@ test.beforeAll(async () => {
     resolve: {
       alias: [
         ...STUBBED.map((find) => ({ find, replacement: boundaries })),
+        { find: /^\.\/person-profile-page$/, replacement: boundaries },
         { find: "@", replacement: root },
       ],
     },
@@ -178,6 +179,21 @@ async function settle(page: Page, _width: number) {
     .toBe(0);
 }
 
+for (const destination of ["mutual-list", "discovery"] as const) {
+  test(`late single-mutual lookup cannot replace a newer ${destination} visit`, async ({ page }) => {
+    await open(page, 393, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => { document.documentElement.dataset.delayedSingleMutual = "1"; });
+    await page.getByRole("button", { name: "Open mutual connection Hussh member's profile", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualPending)).toBe("1");
+    if (destination === "mutual-list") await page.getByRole("button", { name: "View all 2 mutual connections with Avery Stone" }).click();
+    else await page.getByRole("button", { name: "Explore your network", exact: true }).click();
+    await page.evaluate(() => window.dispatchEvent(new Event("fixture-resolve-single-mutual")));
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.singleMutualSettled)).toBe("1");
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await expect(page.getByTestId("fixture-person-profile")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: destination === "mutual-list" ? "25 mutual connections" : "Explore your network", exact: true })).toBeVisible();
+  });
+}
+
 for (const width of [393, 1440]) {
   test(`Connect retains the latest tab through delayed navigation and resize at ${width}px`, async ({ page }, testInfo) => {
     const errors: string[] = [];
@@ -274,7 +290,7 @@ for (const width of [393, 1440]) {
     expect(scrollTop).toBeGreaterThan(0);
     await last.click();
     await expect(page.getByTestId("fixture-person-profile")).toBeVisible();
-    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await page.locator("[data-person-profile-preview]").getByRole("button", { name: "Back to previous screen", exact: true }).click();
     await expect(page.getByTestId("mutual-connections-list")).toBeVisible();
     await expect(last).toBeVisible();
     await expect.poll(() => page.locator('[data-app-scroll-root="true"]').evaluate((root) => root.scrollTop)).toBe(scrollTop);
