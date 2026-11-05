@@ -15,9 +15,9 @@ deployment, rollback, or environment-promotion decision must route here through
    head through the validated direct path below; explicitly configured Main direct
    operators may use the same route for their own PRs. Other Main authors retain
    ordinary reviews; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
-4. A direct `git push` to `main` is a separate emergency path governed by the
-   Direct Main Admin Push Preflight in `branch-runtime-ops.md`. Never substitute
-   that push preflight for the Admin PR landing gate below.
+4. Main source changes require a PR. Use the queue or the validated direct PR route
+   below; organization-admin credentials do not create a direct-push route.
+   An emergency deployment does not waive source-merge requirements.
 5. Merge, post-merge smoke, UAT, production, and native release are separate
    authority transitions. Do not infer or dispatch a later transition unless
    the user requested it.
@@ -76,7 +76,7 @@ Kushal and Ankit retain the validated direct route for their own Dev/UAT PRs aft
 the destination's owner guard is installed and verified. Other maintainers use
 the queue; Main's additional direct operators do not inherit Dev/UAT bypass.
 
-### 3C. Main Admin landing and queue authority
+### 3C. Main merger policy and validated Admin routes
 
 Main merging is restricted to `main.merge_users`, independently of deployment
 permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's approval.
@@ -91,15 +91,19 @@ This additional operator exception is Main-only. Dev/UAT retain their existing
 protected-owner direct route and ordinary maintainer queue admission. Protected
 CI, release and fundamental `.agents` changes still require current-head approval
 from Kushal or Ankit; review/direct membership does not grant pipeline editing.
-Other contributors retain independent/latest-push/CODEOWNER reviews and the queue.
+Other Main contributors retain independent/latest-push/CODEOWNER reviews and the queue.
+GitHub's native queue admission does not reliably honor its review-bypass allowance
+for an author. Do not request another owner merely because GitHub cannot count
+an authorized owner's self-review; use the validated route above.
 
 The validated direct route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the six-person Main merger restriction remain active.
 - `main owner validated merge` requires a PR and strict current-base CI for every
-  configured direct operator. Other Main mergers bypass this *additional* freshness
-  layer; they cannot bypass the ordinary queue or baseline CI.
+  configured Main direct operator. Dev/UAT's corresponding guards apply to the
+  two protected owners. Other authorized mergers bypass this additional freshness
+  layer only; they cannot bypass the ordinary queue or baseline CI.
 - Review and queue exceptions name their own explicit governed users. No team,
   GitHub App or general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
@@ -118,11 +122,12 @@ requires the authenticated configured operator to be the PR author, live policy 
 resolved conversations, no outstanding/withdrawn review objection, the current
 successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain
-response is reconciled, never automatically replayed. Main smoke remains required.
+response is reconciled, never automatically replayed. Main merges additionally
+require landed Main smoke. Merging any destination never dispatches deployment.
 
-For this direct route only, reconcile the current destination into the PR if the tested base
-changed; ordinary reviewed contributors can use the queue without this ancestry
-requirement. A changed source needs its own validation. Missing or failed evidence
+For this direct route only, reconcile the PR's actual current destination if its
+tested base changed. Ordinary eligible contributors can use the queue without
+this ancestry requirement. A changed source needs its own validation. Missing or failed evidence
 is a refusal, not permission to run `gh --admin` directly.
 
 Land the reviewed policy first, then dry-run/apply the existing scoped
@@ -133,6 +138,12 @@ queue exceptions last. It rechecks concurrent changes and preserves every other
 rule. The parity verifier checks each cohort separately. Never use a proposed
 policy to authorize its own protected change, or remove the strict guard while
 queue exceptions remain enabled.
+
+Dev/UAT activation uses `apply-governance.py --branch dev` or
+`--branch uat` only after native protected review and exact Main
+authority sources are verified on the destination. Reconcile live changes serially
+and read back the result. Each path installs the strict owner CI/PR guard before
+granting owner queue exceptions; retain that guard while an exception is enabled.
 
 The bootstrap of PR #8825 was a separately authorized one-time Admin exception:
 the exact merge tree was proven by CI, server-side strict CI was enabled, only the

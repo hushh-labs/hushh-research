@@ -59,6 +59,10 @@ Non-owned surfaces:
 3. Use `admin-release-sop.md` for the queue-first path and any explicitly authorized Admin PR landing; do not duplicate or reinterpret its exact-head authority gate here.
 4. Dispatch `deploy-uat.yml` from `uat`; its thin caller uses the reviewed Main implementation. Select application source only from protected `uat` history. For direct UAT, qualify the protected UAT tip with full-scope CI against the observed serving base, then supply its exact SHA, run, attempt, and base to the release workflow. Main smoke or a Main-only SHA does not authorize a new UAT application selection.
 
+   A refusal that UAT CI authority differs from Main requires a reviewed
+   operations-source sync, not another personal approval. Preserve UAT application
+   code and additional canonical test identities; requalify the new commit.
+
    See the [deploy proof reference](references/deploy-proof.md) for exact commands.
 
 5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.

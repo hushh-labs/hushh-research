@@ -345,9 +345,9 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    surface. It requires `GH_TOKEN` in the governance job to resolve the PR's
    changed files; if it cannot resolve them it **fails closed** (blocks), never
    open. A `--self-test` runs in CI so the guard can never silently regress.
-3. **Review and owner approval.** Ordinary PRs require one independent latest-push
+3. **Review and owner approval.** Ordinary Main PRs require one independent latest-push
    approval. Configured direct operators may explicitly land their own application
-   PR under the [validated direct procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-admin-landing-and-queue-authority).
+   PR under the [validated direct procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-merger-policy-and-validated-admin-routes).
    Protected changes retain their separate current-head Kushal/Ankit approval.
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
@@ -411,7 +411,9 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 Every ring above has a real GitHub team, created and kept in sync by
 `apply-governance.py` from `config/ci-governance.json`. The teams exist so people
 can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
-The gate never reads them.
+Deployment actor gates read committed policy. Native protected-path review uses
+the verified owner-team mirror; the reconciler verifies its exact membership
+against the same committed policy.
 
 The direction is a security property, not a preference:
 
@@ -429,8 +431,8 @@ The direction is a security property, not a preference:
    read teams live, adding someone to a team would silently grant production
    deploy, routing straight around the control that exists to limit exactly that.
 
-So: **teams own nothing, the config owns everything, and widening access always
-costs a reviewed protected-path PR.**
+Access cohorts are authored in config. Widening them requires a reviewed
+protected-path PR; native team mirrors must match that approved policy.
 
 #### Team members are `member`, never `maintainer`
 
@@ -454,8 +456,12 @@ have.
 ## Admin landing
 
 Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
-Ordinary merges require applicable independent review and combined-result queue
-validation. Main's validated direct route uses the explicit review/direct
+Ordinary Main merges require applicable independent review and combined-result
+queue validation. Eligible Dev/UAT authors may request their own ordinary PR's
+queue entry without blanket review. Protected CI and fundamental guidance still
+require Kushal/Ankit authority on every destination.
+
+Main's validated direct route uses the explicit review/direct
 cohorts in policy for self-authored application PRs. Its native strict CI/PR guard
 and canonical command preserve current-base evidence, resolved conversations and
 landed-tree verification. Protected changes still require Kushal/Ankit approval;
