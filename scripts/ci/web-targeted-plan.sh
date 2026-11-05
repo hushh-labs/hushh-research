@@ -95,6 +95,8 @@ web_targeted_non_browser_owner() {
     # boundary matches above still win; an unrelated Python path is not an
     # unknown frontend dependency and must not expand every browser pack.
     consent-protocol/*|contracts/*|packages/*) return 0 ;;
+    # These exact CI selectors are exercised by the existing Node governance owner.
+    hushh-webapp/scripts/testing/affected-tests.mjs|hushh-webapp/scripts/testing/affected-tests.test.mjs) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
     # These exact compiler outputs retain UI Contracts and their affected unit
     # owners. Unknown JSON and generated runtime code remain conservative.

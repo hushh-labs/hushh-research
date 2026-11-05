@@ -227,7 +227,9 @@ jobs:
   repo-governance:
     name: "Governance"
     needs: [paths]
-    if: always()
+    # Keep independent failure collection, but release superseded/cancelled work.
+    # The final required status gate still runs always and refuses cancellation.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
