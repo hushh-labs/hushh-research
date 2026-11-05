@@ -250,9 +250,16 @@ Before deleting a local backup branch, classify its unique commits as:
 
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
 2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
-3. Manual dispatch is limited to the maintainer cohort in `config/ci-governance.json` (`uat.manual_dispatch_users`) — see that file for the live list (do not hardcode names here; they drift). This list is held equal to the merge cohort (`main.review_bypass_users`) by design — anyone trusted to land code on `main` may validate it in the UAT sandbox — and `scripts/ci/verify-deployment-environment-governance.py` fails if the two drift apart. To change the cohort, edit the JSON then run `python3 scripts/ci/apply-governance.py --apply` (see "Adding or removing a maintainer" below).
-4. Preflight requires reachability from Main or the protected UAT branch. Direct UAT candidates require exact current-branch CI and the observed serving base; Main candidates retain exact-SHA Dev acceptance for each selected service.
-5. Main candidates require `Main Post-Merge Smoke Gate`. UAT-only candidates require an authenticated canonical PR, queue or full branch gate; diagnostics never qualify.
+3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
+   authority. Preserve the existing Dev/UAT cohorts. Main's approved merge operators
+   match its production operators, while protected edits require Kushal/Ankit.
+   Changing one capability does not silently grant another.
+4. Preflight requires reachability from protected UAT. Direct UAT candidates
+   require exact current-branch CI and the observed serving base; source selection
+   alone is not admission.
+5. UAT candidates require an authenticated canonical PR, queue or full branch
+   gate; diagnostics never qualify. Historical Main-backed release receipts keep
+   their Main smoke and exact-SHA Dev-acceptance checks when read later.
 6. The canonical GitHub deployment environment for this lane is `uat`.
 7. Cloud Run traffic changes must be made only by the GitHub UAT workflow service account. Human `gcloud run deploy` or `gcloud run services update-traffic` against UAT is deploy-authority drift, even for maintainers.
 8. Every UAT backend/frontend revision must carry `HUSHH_DEPLOY_ENV`, `HUSHH_DEPLOY_SOURCE`, `HUSHH_DEPLOY_SHA`, and `HUSHH_DEPLOY_RUN_ID` from the workflow. UAT release classification treats missing or mismatched provenance as `deploy_authority_drift` and rolls back the affected service.
@@ -307,14 +314,16 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    surface. It requires `GH_TOKEN` in the governance job to resolve the PR's
    changed files; if it cannot resolve them it **fails closed** (blocks), never
    open. A `--self-test` runs in CI so the guard can never silently regress.
-3. **Branch-protection approval.** The standard 1 independent approval plus
-   approval-of-most-recent-push still applies underneath the two layers above.
+3. **Review and owner approval.** Ordinary PRs require one independent latest-push
+   approval. Kushal or Ankit may explicitly land their own exact PR head under the
+   [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-merger-policy-and-the-named-owner-admin-route).
+   The Admin command verifies authenticated author identity, current validation
+   and the exact tested merge tree; unresolved objections still block.
 
 ### Production access administration
 
-Production dispatch and protected pipeline edits are limited to the six actors
-in the committed policy: `kushaltrivedi5`, `msainani`,
-`RGlodAkshat`, `ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged.
+Production dispatch and Main merging are limited to Kushal (`kushaltrivedi5`),
+Ankit (`ankitkumarsingh1702`) and Sharukhan (`imsharukhan`) in the committed policy. Dev/UAT dispatch lists are unchanged. Protected pipeline edits require Kushal or Ankit.
 The managed teams mirror these lists; changing a team alone does not change
 workflow authority. Policy changes take effect after landing on Main.
 
