@@ -404,6 +404,8 @@ for (const width of [320, 390, 1440]) {
     await page.getByTestId("calendar-fixture-proposal").evaluate((element: HTMLButtonElement) => element.click());
     const card = page.getByTestId("agent-calendar-proposal-card");
     const confirm = page.getByRole("button", { name: "Schedule meeting" });
+    await expect(card.getByText("Calendar account: Primary Google account", { exact: true })).toBeVisible();
+    await expect(confirm).toBeEnabled();
     await confirm.scrollIntoViewIfNeeded();
     const bounds = (await confirm.boundingBox())!;
     expect(bounds.y + bounds.height).toBeLessThanOrEqual((await page.getByTestId("reserved-bottom-chrome").boundingBox())!.y);
@@ -415,6 +417,7 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("combobox", { name: "Choose a start inside your free window" }).click();
     await page.getByRole("option").nth(1).click();
     await expect(page.getByTestId("calendar-action")).toHaveText("change-time:2030-01-17T08:45:00Z");
+    await expect(confirm).toBeEnabled();
     await expect(card).toContainText("long-calendar-attendee-for-responsive-verification@example.test");
     await page.getByRole("button", { name: "Not now" }).click();
     await expect(page.getByTestId("calendar-action")).toHaveText("cancelled-without-event");
