@@ -1166,11 +1166,9 @@ Rerunning PR validation does not create another workflow. Historical receipt rea
 remain for retained evidence; they do not establish new deployment clearance.
 Synchronize an old feature branch with its destination before retrying legacy CI.
 Keep PR validation on `pull_request`; do not execute untrusted source in a privileged
-`pull_request_target` event to avoid visible workflow entries. The one sanctioned
-privileged `pull_request_target` workflow is `readiness-exam.yml`: it checks out
-only Main, reads PR files as data through the contents API and never installs or
-runs them. `scripts/ci/test_readiness_exam_workflow.py` pins that boundary and
-refuses deploy environments in every PR-triggered workflow.
+`pull_request_target` event to avoid visible workflow entries. Automatic AI review, including the Readiness Exam, is removed. Product/provider
+qualification remains an explicitly selected release operation, not a PR reviewer.
+Retained probe identities remain constrained until their credentials are retired.
 
 
 ## Advisory Checks (Non-Blocking By Default)
