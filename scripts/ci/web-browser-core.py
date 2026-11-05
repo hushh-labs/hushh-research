@@ -20,7 +20,11 @@ PRESENTATION = (
     r"@motion-performance|100 KB paste|provider icons share the Google scale|"
     r"welcome starters keep foreground text|starter suggestions retain compact spacing|"
     r"pointerdown grows a clipped ripple|wallet workspace.*(?:geometry|typography)|"
-    r"the agent mark stays visible in the header"
+    r"the agent mark stays visible in the header|"
+    r"explicit Feed typography survives outside the page shell|"
+    r"Reset icon colors only its arrowhead and keeps native geometry in the account pane|"
+    r"shows four distinct activity portraits|"
+    r"resizes the same native canvas across phone and desktop widths"
 )
 SUPPORTED_PROJECTS = {"chromium", "mobile-chrome"}
 KNOWN_PROJECTS = {*SUPPORTED_PROJECTS, "webkit", "firefox"}
