@@ -564,7 +564,7 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production` | Governed production deploy lane for the six operators in `production.manual_dispatch_users`; policy is the authoritative list |
+| `production` | Governed production deploy lane for the operators in `production.manual_dispatch_users`; policy is the authoritative list |
 
 The UAT workflow uses one active GitHub environment name:
 
