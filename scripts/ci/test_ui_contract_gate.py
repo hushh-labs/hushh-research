@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -178,6 +179,57 @@ class UiGateTests(unittest.TestCase):
             uat["inputs"]["uat_base_sha"] = old
             env["GITHUB_SHA"] = merge
             self.assertNotEqual(run(uat).returncode, 0)
+
+    def test_manual_changed_selection_uses_real_history_without_ui_inheritance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+            git("init", "-b", "main")
+            git("config", "user.name", "Synthetic CI")
+            git("config", "user.email", "ci@example.invalid")
+            (root / "feature.txt").write_text("before")
+            git("add", "feature.txt")
+            git("commit", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            git("update-ref", "refs/remotes/origin/main", base)
+            git("checkout", "-b", "feature")
+            (root / "feature.txt").write_text("after")
+            git("commit", "-am", "feature")
+            head = git("rev-parse", "HEAD")
+            tools = root / "scripts/ci"
+            tools.mkdir(parents=True)
+            for name in ("resolve-ci-changed-files.sh", "resolve-ui-contract-base.py"):
+                shutil.copyfile(ROOT / "scripts/ci" / name, tools / name)
+            event, output = root / "event.json", root / "environment"
+            event.write_text(json.dumps({"repository": {"default_branch": "main"}, "inputs": {"scope": "auto"}}))
+            env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "CI_IMPACT_"))}
+            env.update(GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_EVENT_PATH=str(event), GITHUB_SHA=head,
+                       GITHUB_REF="refs/heads/feature", GITHUB_ENV=str(output), RUNNER_TEMP=str(root))
+            command = ["bash", str(tools / "resolve-ci-changed-files.sh")]
+            result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            changed = Path(output.read_text().strip().split("=", 1)[1])
+            self.assertEqual(changed.read_text(), "feature.txt\n")
+            ui = subprocess.run(["python3", str(tools / "resolve-ui-contract-base.py")], cwd=root, env=env, text=True, capture_output=True)
+            self.assertEqual(ui.returncode, 0, ui.stderr)
+            self.assertEqual(ui.stdout.strip(), "")
+            for inputs in ({"scope": "all"}, {"scope": "auto", "uat_candidate_sha": head}):
+                event.write_text(json.dumps({"repository": {"default_branch": "main"}, "inputs": inputs}))
+                self.assertNotEqual(subprocess.run(command, cwd=root, env=env, capture_output=True).returncode, 0)
+            event.write_text(json.dumps({"repository": {"default_branch": "main"}, "inputs": {"scope": "auto"}}))
+            wrong_head = subprocess.run(command, cwd=root, env={**env, "GITHUB_SHA": base}, capture_output=True)
+            self.assertNotEqual(wrong_head.returncode, 0)
+            git("update-ref", "-d", "refs/remotes/origin/main")
+            result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("supply uat_base_sha", result.stderr)
+            env["CI_IMPACT_BASE_SHA"] = base
+            self.assertEqual(subprocess.run(command, cwd=root, env=env, capture_output=True).returncode, 0)
+            env["CI_IMPACT_BASE_SHA"] = head
+            result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("No changes", result.stderr)
 
     def test_web_core_uses_the_same_verified_review_base(self):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()
