@@ -34,7 +34,7 @@ IFS=$'\t' read -r sha project region service baseline digest extra < "$receipt"
 auth_project=hushh-akshat-sandbox-auth
 account=i-akshat@hush1one.com
 [[ "$project/$region/$service" == hushh-pda-uat/us-central1/backend-dev-akshat &&
-   "$sha" == 5f4dcb772a66a303fb925f267246bc2e17b0ba9f &&
+   "$sha" == f8978e282da23b97a14614eddc54082db5a6800e &&
    "$baseline" == d884959b5b1dc666b01998b24bdd8138be93161e &&
    "$digest" =~ ^sha256:[0-9a-f]{64}$ && -z "$extra" ]] ||
   die "The deployment receipt is outside the approved Akshat sandbox."
@@ -73,7 +73,8 @@ gcloud run revisions describe "$revision" "${flags[@]}" \
     .spec.serviceAccountName == ($service + "@" + $project + ".iam.gserviceaccount.com") and
     (.status.imageDigest | split("@")[-1]) == $digest and
     any(.status.conditions[]; .type == "Ready" and .status == "True") and
-    any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth_project)
+    any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth_project) and
+    any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_MANAGED_AI_PROVIDER" and .value == "azure_openai")
   ' >/dev/null || die "The running revision did not match the Akshat deployment receipt."
 printf 'Verified %s/%s/%s revision=%s commit=%s image=%s\n' "$project" "$region" "$service" "$revision" "$sha" "$digest"
 
