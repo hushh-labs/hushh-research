@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 450,
+  "expected_migration_version": 451,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -4960,5 +4960,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 450
+  "expected_schema_head": 451
 }

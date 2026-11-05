@@ -414,8 +414,8 @@ direct human builds or traffic changes.
 The Main-owned personal backend workflow binds `RGlodAkshat` to
 `hushh-pda-uat/us-central1/backend-dev-akshat` and grants
 `i-akshat@hush1one.com` invoker and viewer access on that service. The
-initial approval is for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f`.
-A different source requires an updated approval.
+initial approval for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f` remains
+available through the pinned archive path.
 
 Land the UAT capacity entry before creating the Cloud Run service. Provision
 the dedicated `backend-dev-akshat-pg` Cloud SQL instance, initialize the
@@ -434,16 +434,27 @@ source resolves its Firebase project through Google ADC. Verify that a
 sandbox Firebase token works and a shared-project token is refused. Use
 sandbox test accounts and fixtures.
 
-Create the archive with the pinned tar mode, upload it to the dedicated
-bucket under `personal-backend/`, and dispatch the workflow on Main with
-`sandbox=akshat`, the full SHA, the generation-qualified object, and its
-compressed SHA-256.
+For a new source, run the canonical CI workflow on `New_memory_architecutre`
+and wait for its Branch Validation Gate. The branch must keep Main's CI and
+release tooling and contain the original sandbox baseline. CI tests the actual
+branch SHA with the usual change selection against Main. Each dispatch accepts
+the exact, current, green branch tip without a per-commit owner review.
 
 ```bash
-git -c tar.umask=0000 archive --format=tar 5f4dcb772a66a303fb925f267246bc2e17b0ba9f \
-  consent-protocol contracts | gzip -n > akshat-source.tar.gz
-shasum -a 256 akshat-source.tar.gz
+gh workflow run ci.yml --ref New_memory_architecutre -f scope=auto
+# After Branch Validation Gate succeeds on the intended branch SHA:
+gh workflow run deploy-personal-backend.yml --ref main -f sandbox=akshat -f "sha=$sha"
 ```
+
+The Main checkout creates the archive, then the deployer writes an immutable
+generation to the dedicated bucket. The sandbox build publishes an immutable
+image digest. The revision uses the dedicated Azure Entra client with
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` and a revision tag bound to the
+source, deploy recipe and workflow attempt.
+
+The original approved source still requires the pinned Git tar mode and its
+generation-qualified object and compressed SHA-256. This path does not enable
+Azure.
 
 Download the `backend-dev-akshat-receipt` artifact to the exact source
 worktree's Git metadata directory. Run the launcher from a checkout of the
@@ -462,7 +473,11 @@ The launcher uses Akshat's gcloud login for the Cloud Run tunnel. For the
 frontend, supply `HUSHH_SANDBOX_FIREBASE_WEB_CONFIG` from the dedicated
 Firebase web app and `GOOGLE_APPLICATION_CREDENTIALS` for its impersonated
 `localhost-sandbox-auth` service account. Verify the frontend on
-`http://localhost:3000` after the proxy reaches the pinned backend.
+`http://localhost:3000` after the proxy reaches the pinned backend. Set
+`HUSHH_SANDBOX_PHONE_TESTS=1` when using the registered fictional numbers
+with a source that supports this test setting. Test codes belong only in the
+dedicated Firebase project's Auth configuration. Do not enable real SMS billing
+for this fixture flow.
 
 ## Environment and secret contracts
 

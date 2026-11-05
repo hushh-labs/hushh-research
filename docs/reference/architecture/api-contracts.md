@@ -2623,18 +2623,23 @@ revocation/reauthorization ordering is not proven by local transaction tests.
 
 New Calendar connections, including additional accounts, do not request
 `contacts.readonly` solely for guest photos. Calendar account and booking
-surfaces retain their existing verified Connection and signed-in owner photo
-context. Invitations keep the signed-in owner's verified primary/linked email
-photo and match the fetched event's organizer and
+surfaces use the current visible Hussh profile matched to each verified account
+email, including accounts with no events. Connecting a Google account does not
+assign that address the signed-in owner's Hussh identity or portrait. The owner
+photo applies only to the owner's verified primary/linked email. Invitations
+match the fetched event's organizer and
 attendee emails to the Connect directory's active, visible profiles, including
 people in Find People who are not Connections. This server-side lookup requires
 a unique exact verified email from both the identity cache and the target's
 current Firebase account, plus contact listing eligibility; it returns only
 the matching user ID and the profile name and photo Connect shows (either may
-be absent, never both), keyed by an email already in the event.
+be absent, never both), keyed by an email already in the event or a connected
+account whose current Google userinfo email is verified. Board cards, account
+pickers and booking share that same current profile projection.
 Invitation peers use only that fresh result, so a stale Connection email cannot
 override a changed Firebase identity.
-It is bounded to 100 event emails and fails to initials if lookup is unavailable.
+It is bounded to 100 emails, prioritizes verified account addresses before event
+participants, and fails to initials if lookup is unavailable.
 Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
 The Connections list adds `emailVerified` from the authoritative actor profile;
 an absent field is unverified. An account card also requires
@@ -5805,7 +5810,7 @@ signatures and unsubscribe links bind only to the Dev backend
 Manual-only controls cannot be submitted by an agent. The setting is operational
 permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
 
-Migration 449 atomically queues the first accepted correlated client terminal
+Migration 450 atomically queues the first accepted correlated client terminal
 report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
 SDK/tool reports and uncorrelated observations do not enqueue. This inherits
 best-effort observation coverage and its existing collection limits. It does not
@@ -5826,7 +5831,7 @@ for reset/erased rows without recreating state. Matrix durably retains bounded
 opaque receipts before acknowledgement and replays them after restart before new
 provider work; no owner identity or message content is needed in that queue.
 
-Migration 450 adds actual provider-message binding and durable bounce suppression.
+Migration 451 adds actual provider-message binding and durable bounce suppression.
 Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
 provider references, RFC message IDs and recipient hashes. A matched hard-failure
 report disables future activity emails, including re-enrollment; reports cannot
