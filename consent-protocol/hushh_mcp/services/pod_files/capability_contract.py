@@ -48,6 +48,13 @@ async def schema_ready(repo, version: int, *, join_on_cancel: bool = False) -> b
 
 async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
     """Require the complete durable executor family before managed Files is offered."""
+    from db.hosted_custody_qualification import hosted_custody_profile_from_environment
+
+    try:
+        profile = hosted_custody_profile_from_environment()
+    except ValueError:
+        return False
+
     from db.hosted_custody_adoption import (
         HOSTED_FILES_NEW_SIGNATURES,
         HOSTED_FILES_QUALIFIED,
@@ -69,6 +76,7 @@ async def hosted_schema_ready(repo, *, join_on_cancel: bool = False) -> bool:
         hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
         native_contract_new_signatures=frozenset(),
         require_family=True,
+        profile=profile,
     )
     return await _hosted_schema_readiness.read_hosted_family_ready(
         repo, qualification_sql=qualification_sql, join_on_cancel=join_on_cancel

@@ -23,6 +23,12 @@
 
 set -euo pipefail
 
+# The pinned Cloud SDK image bundles Python outside its default shell PATH.
+# Keep this inside the entrypoint because the build step already uses 100 env entries.
+if ! command -v python3 >/dev/null && [[ -x /usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin/python3 ]]; then
+  export PATH="/usr/lib/google-cloud-sdk/platform/bundledpythonunix/bin:$PATH"
+fi
+
 # Image selection travels together to remain within Cloud Build's env-entry cap.
 IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _BUILD_POD_IMAGE _SECRET_PREFIX _PHONE_ROLLBACK_SHA _PHONE_ROLLBACK_IMAGE_REFERENCE _PHONE_DEPLOY_PHASE _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
 _PHONE_DEPLOY_PHASE="${_PHONE_DEPLOY_PHASE:-standard}"

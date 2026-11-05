@@ -418,3 +418,19 @@ def test_explicit_deploy_cannot_claim_an_unrecorded_base_from_static_ci(monkeypa
     job["name"] = "Exact UAT Candidate"
     with pytest.raises(subject.Refused):
         subject.validate_deployment(api, SHA, "123", "1", "d" * 40)
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_branch_acceptance_producer_authenticates_main_authority_lookup(environment):
+    workflow = yaml.safe_load(
+        (ROOT / f".github/workflows/deploy-{environment}-implementation.yml").read_text()
+    )
+    producers = [
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name", "").startswith("Produce exact-SHA")
+    ]
+    assert len(producers) == 1
+    producer = producers[0]
+    assert 'verify-predecessor-acceptance.py" create' in producer["run"]
+    assert producer.get("env", {}).get("GH_TOKEN") == "${{ github.token }}"

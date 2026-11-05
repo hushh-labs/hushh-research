@@ -54,11 +54,17 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
         "scripts/ci/integration-check.sh",
+        "scripts/ci/account-deletion-check.sh",
+        "scripts/ci/backend-check.sh",
         "scripts/ci/validation-results.sh",
         "scripts/ci/check-dco-signoff.sh",
+        "scripts/ci/verify-pr-base-policy.py",
+        "scripts/ci/runtime-contract-check.sh",
         "scripts/ci/secret-scan.sh",
         "scripts/ci/test_secret_scan_ranges.py",
         "scripts/ci/tag-last-known-good.sh",
+        "scripts/ci/verify-predecessor-acceptance.py",
+        "scripts/ops/audit_env_toggles.py",
         "scripts/ops/sync_backend_runtime_secrets.py",
     ):
         selection = build_selection(

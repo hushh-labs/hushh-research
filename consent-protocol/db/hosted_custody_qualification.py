@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping, Set
+from dataclasses import dataclass
 
 from db.hosted_custody_acl import (
     NATIVE_ACL_PROFILE_SETTING,
@@ -82,6 +84,86 @@ _ALTERNATE_FAMILY_HASHES = {
     ),
 }
 
+CUSTODY_PROFILE_ENV = "HUSHH_HOSTED_CUSTODY_PROFILE"
+STRICT_CUSTODY_PROFILE = "strict"
+DEV_CONTROL_PLANE_OWNER_PROFILE = "dev_control_plane_owner"
+DEV_CUSTODY_PROJECT_ID = "hushh-pda-dev"
+DEV_CUSTODY_INSTANCE = "hushh-pda-dev:us-central1:hushh-dev-pg"
+DEV_CUSTODY_DATABASE = "postgres"
+DEV_CUSTODY_PRINCIPAL = "hushh_uat_app"
+DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256 = (
+    "320fe60c039c7a44aa11e7b670de5e3576d9c4ab7e95de76657719b6c56810b0"
+)
+
+
+@dataclass(frozen=True)
+class HostedCustodyProfile:
+    """One explicit profile used by runtime readiness and migration replay."""
+
+    name: str
+    system_identifier_sha256: str | None = None
+
+    @property
+    def is_dev_control_plane_owner(self) -> bool:
+        return self.name == DEV_CONTROL_PLANE_OWNER_PROFILE
+
+
+STRICT_PROFILE = HostedCustodyProfile(STRICT_CUSTODY_PROFILE)
+
+
+def hosted_custody_profile_from_environment(
+    environment: Mapping[str, str] | None = None,
+) -> HostedCustodyProfile:
+    """Resolve the explicit Dev profile from the same DB connection settings as runtime."""
+    values = os.environ if environment is None else environment
+    requested = str(values.get(CUSTODY_PROFILE_ENV) or "")
+    if requested in ("", STRICT_CUSTODY_PROFILE):
+        return STRICT_PROFILE
+    if requested != DEV_CONTROL_PLANE_OWNER_PROFILE:
+        raise ValueError("Unsupported hosted custody profile selection")
+
+    expected = {
+        "ENVIRONMENT": "dev",
+        "DEV_TARGET": "shared-dev",
+        "GCP_PROJECT_ID": DEV_CUSTODY_PROJECT_ID,
+        "GOOGLE_CLOUD_PROJECT": DEV_CUSTODY_PROJECT_ID,
+        "CLOUDSQL_INSTANCE_CONNECTION_NAME": DEV_CUSTODY_INSTANCE,
+        "DB_NAME": DEV_CUSTODY_DATABASE,
+        "DB_USER": DEV_CUSTODY_PRINCIPAL,
+    }
+    mismatches = [name for name, value in expected.items() if str(values.get(name) or "") != value]
+    if mismatches:
+        raise ValueError(
+            "Dev hosted custody profile requires exact shared-Dev configuration: "
+            + ", ".join(mismatches)
+        )
+    return HostedCustodyProfile(
+        DEV_CONTROL_PLANE_OWNER_PROFILE,
+        DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256,
+    )
+
+
+def _profile_identity_sql(profile: HostedCustodyProfile) -> str:
+    if not profile.is_dev_control_plane_owner:
+        return ""
+    system_identifier_hash = profile.system_identifier_sha256
+    if system_identifier_hash != DEV_CUSTODY_SYSTEM_IDENTIFIER_SHA256:
+        raise ValueError("Dev hosted custody profile has an unreviewed PostgreSQL identity")
+    return f"""
+ IF current_database() IS DISTINCT FROM '{DEV_CUSTODY_DATABASE}'
+  OR current_user IS DISTINCT FROM '{DEV_CUSTODY_PRINCIPAL}'
+  OR session_user IS DISTINCT FROM '{DEV_CUSTODY_PRINCIPAL}'
+  OR NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner
+   WHERE c.oid=to_regclass('public.personal_agent_registry') AND c.relkind='r'
+    AND r.rolname='{DEV_CUSTODY_PRINCIPAL}')
+  OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role')
+  OR (SELECT encode(sha256(convert_to(system_identifier::text,'UTF8')),'hex')
+      FROM pg_control_system()) IS DISTINCT FROM '{system_identifier_hash}' THEN
+  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: Dev database identity';
+ END IF;
+"""
+
+
 _FAMILY_SQL = r"""DO $hosted_custody_full_family$
 DECLARE family jsonb := convert_from(decode('@FAMILY_JSON_HEX@','hex'),'UTF8')::jsonb;
  preimages jsonb := convert_from(decode('@PREIMAGES_JSON_HEX@','hex'),'UTF8')::jsonb;
@@ -89,10 +171,12 @@ DECLARE family jsonb := convert_from(decode('@FAMILY_JSON_HEX@','hex'),'UTF8')::
  family_names text[]; family_footprint boolean; marker_oid oid; registry_owner oid;
  service_role_oid oid; marker record; marker_signature_attnum smallint;
  canonical_acl_profile boolean; native_acl_profile boolean;
+ owner_canonical_acl_profile boolean; owner_native_acl_profile boolean;
  expected_count integer := @FAMILY_COUNT@; actual_count integer;
 BEGIN
  PERFORM set_config('@SETTING@','false',true);
  PERFORM set_config('@NATIVE_SETTING@','',true);
+ @PROFILE_IDENTITY_SQL@
  SELECT array_agg(DISTINCT f.proname ORDER BY f.proname)
   INTO family_names FROM jsonb_to_recordset(family) AS f(
    signature text,proname text,expected_hash text,base_hash text,files_hash text,
@@ -139,7 +223,14 @@ BEGIN
  SELECT c.relowner INTO registry_owner FROM pg_class c
   WHERE c.oid=to_regclass('public.personal_agent_registry') AND c.relkind='r';
  SELECT r.oid INTO service_role_oid FROM pg_roles r WHERE r.rolname='service_role';
- IF registry_owner IS NULL OR service_role_oid IS NULL OR service_role_oid=registry_owner THEN
+ IF registry_owner IS NULL THEN
+  RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: owner roles';
+ END IF;
+ IF '@PROFILE@'='dev_control_plane_owner' THEN
+  IF service_role_oid IS NOT NULL THEN
+   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: Dev service role';
+  END IF;
+ ELSIF service_role_oid IS NULL OR service_role_oid=registry_owner THEN
   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: owner roles';
  END IF;
  IF marker.relowner<>registry_owner THEN
@@ -237,7 +328,11 @@ BEGIN
  END IF;
 
  @ACL_PROFILE_SQL@
- IF canonical_acl_profile IS NOT TRUE AND native_acl_profile IS NOT TRUE THEN
+ IF '@PROFILE@'='dev_control_plane_owner' THEN
+  IF owner_canonical_acl_profile IS NOT TRUE AND owner_native_acl_profile IS NOT TRUE THEN
+   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: owner-only function ACL';
+  END IF;
+ ELSIF canonical_acl_profile IS NOT TRUE AND native_acl_profile IS NOT TRUE THEN
   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: function ACL';
  END IF;
 
@@ -289,7 +384,9 @@ BEGIN
        ='@ERASURE_REGISTRY_TRIGGER_SHA@') THEN
   RAISE EXCEPTION 'Unqualified managed 979/980/981 custody family: erasure registry trigger';
  END IF;
- IF native_acl_profile IS TRUE THEN
+ IF native_acl_profile IS TRUE
+  OR ('@PROFILE@'='dev_control_plane_owner'
+      AND (owner_canonical_acl_profile IS TRUE OR owner_native_acl_profile IS TRUE)) THEN
   PERFORM set_config('@NATIVE_SETTING@','true',true);
  END IF;
  PERFORM set_config('@SETTING@','true',true);
@@ -355,6 +452,7 @@ def complete_family_qualification_sql(
     hosted_files_new_signatures: Set[str],
     native_contract_new_signatures: Set[str],
     require_family: bool = False,
+    profile: HostedCustodyProfile = STRICT_PROFILE,
 ) -> str:
     """Fail closed on partial family footprints and qualify exact installed metadata."""
     introduced_signatures = (
@@ -390,6 +488,8 @@ def complete_family_qualification_sql(
         "@SETTING@": QUALIFIED_FAMILY_SETTING,
         "@NATIVE_SETTING@": NATIVE_ACL_PROFILE_SETTING,
         "@ACL_PROFILE_SQL@": family_acl_profile_sql(),
+        "@PROFILE@": profile.name,
+        "@PROFILE_IDENTITY_SQL@": _profile_identity_sql(profile),
         "@MARKER@": ROLLBACK_SOURCE_TABLE,
         "@TRIGGER@": UPGRADE_HOST_TRIGGER,
         "@TRIGGER_SHA@": UPGRADE_HOST_TRIGGER_SHA256,
