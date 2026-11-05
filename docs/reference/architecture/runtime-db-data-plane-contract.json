@@ -2464,23 +2464,6 @@
       "trust_boundary": "Trusted hub and database administrator; runtime and migration credentials currently share a SQL role. Hash-only owner assignments and public cloud coordinates, no provider credentials. Allocation ceilings do not establish measured usage or enforce external provider spend. Billable activation remains disabled.",
       "plaintext_posture": "control_plane_metadata_only",
       "expected_row_growth": "at most one policy row, two distinct fixed owner/project assignments, total40000 cents work plus10000 cents cleanup, split equally and never replenished by a retry"
-    },
-    {
-      "id": "one_attempt_email",
-      "owner": "backend-runtime-governance",
-      "data_class": "personal_metadata",
-      "lifecycle_status": "current",
-      "exact_tables": [
-        "one_attempt_email_preferences",
-        "one_attempt_email_outbox"
-      ],
-      "primary_access_path": "Owner-authenticated manual GET/PUT attempt-email preference. Accepted correlated client terminal reports atomically enqueue with their current epoch and explicit choice. A separately keyed environment-bound worker selects 20 pending rows and claims each under owner lifecycle/epoch/permission locks before a single provider submission. Indexed state/time maintenance is bounded to 100 rows. Feedback binds at most 20 accepted provider references before advancing the mailbox cursor; actual RFC/recipient-hash hard failures stop future activity mail.",
-      "retention_policy": "One preference per owner. Per-epoch attempt deduplication and acceptance/uncertainty metadata remain until reset or account erasure; no silent time-based dedup eviction. Pending entries are ineligible after 24 hours and suppressed in bounded sweeps. Unsettled claims become uncertain after two minutes, never pending. Capture retains its existing 500 observations per owner/day bound. A future managed queue/Redis scheduler may replace selection only while retaining this SQL claim and dedup authority. Correlated bounce suppression survives reset/re-enrollment until full account erasure. Definite unsubmitted releases retain a three-claim ceiling; unknown submissions never release. Indexed oldest-claim and unresolved-binding reads avoid full scans.",
-      "deletion_behavior": "Reset rotates the activity epoch, disables the preference and deletes outbox entries. Full account tombstones erase preferences and outbox; actor/epoch cascades apply. Phone-orphan intents do not withdraw established choices. Old unsubscribe links cannot revoke a new permission generation.",
-      "plaintext_posture": "closed_metadata_and_hashes_only",
-      "expected_row_growth": "One preference per explicitly opted-in allowlisted owner and at most one outbox entry per accepted correlated client attempt; first terminal wins; bounded by activity admission.",
-      "utilization_policy": "No default enrollment, historical backfill or retries of uncertain provider submissions. API acceptance is not Inbox delivery. A missing observation is unknown.",
-      "trust_boundary": "Separate explicit attempt-email choice; marketing permission cannot authorize it. Environment/project/cohort gates, current verified recipient, lifecycle and epoch barriers, generation-bound unsubscribe. No raw email, prompt, result, tool arguments, private names or rendered content in these tables. SDK reports cannot create duplicate notifications. RLS denies browser roles. Worker sees a verified recipient only after claiming; no freeform/BCC request field. Preferences are manual-only and outside Live Memory/attr scopes."
     }
   ]
 }

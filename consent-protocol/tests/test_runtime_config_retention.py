@@ -270,53 +270,6 @@ def test_plg_activation_cannot_cross_environment_or_project(
         )
 
 
-@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
-@pytest.mark.parametrize("enabled", [True, False])
-def test_owner_activity_settings_survive_writer_and_hydration(
-    monkeypatch, plg_runtime_sync, environment, enabled
-):
-    keys = (
-        ("one_plg_owner_export_enabled",)
-        if environment == "production"
-        else (f"one_plg_{environment}_export_enabled", f"one_plg_activity_{environment}_enabled")
-    )
-    stored = {
-        **dict.fromkeys(keys, enabled),
-        "one_plg_activity_enabled": enabled,
-        "one_plg_attempt_email_enabled": enabled,
-    }
-    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
-    actual = json.loads(writes[target])
-    assert all(actual[key] is value for key, value in stored.items())
-    assert "one_plg_export_account_ids" not in actual
-    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
-    for key in stored:
-        monkeypatch.delenv(key.upper(), raising=False)
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
-    runtime_settings.hydrate_runtime_environment()
-    assert all(os.environ[key.upper()] == str(value).lower() for key, value in stored.items())
-
-
-@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
-def test_owner_activation_rejects_other_lane_and_retains_no_cohort(plg_runtime_sync, environment):
-    project = "hushh-pda" if environment == "production" else f"hushh-pda-{environment}"
-    base = {"environment": environment, "google_cloud_project": project}
-    foreign = "uat" if environment != "uat" else "dev"
-    with pytest.raises(ValueError):
-        plg_runtime_sync._retained_plg_config(
-            {**base, f"one_plg_{foreign}_export_enabled": True},
-            project=project,
-            environment=environment,
-        )
-    for value in [1, [], "True", None]:
-        with pytest.raises(ValueError, match="explicit boolean"):
-            plg_runtime_sync._retained_plg_config(
-                {**base, "one_plg_attempt_email_enabled": value},
-                project=project,
-                environment=environment,
-            )
-
-
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
     path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
     spec = importlib.util.spec_from_file_location("referral_runtime_sync", path)
@@ -507,25 +460,14 @@ def test_candidate_only_read_failures_never_create_or_update(
 def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
     monkeypatch, plg_runtime_sync
 ):
-    import ast
     import inspect
     from types import CodeType, FunctionType
 
     source = inspect.getsource(plg_runtime_sync.main)
-    tree = ast.parse(source)
-    function_tree = tree.body[0]
-    boundaries = [
-        node
-        for node in function_tree.body
-        if isinstance(node, ast.If)
-        and ast.dump(node.test)
-        == ast.dump(ast.parse("args.production_drive_candidate_only", mode="eval").body)
-    ]
-    assert len(boundaries) == 1
-    assert isinstance(boundaries[0].body[0], ast.Return)
-    function_tree.body.remove(boundaries[0])
+    boundary = '    if args.production_drive_candidate_only:\n        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)\n'
+    assert source.count(boundary) == 1
     # Negative control changes this isolated module in memory, never disk/runtime.
-    code = compile(tree, "candidate-only-negative-control", "exec")
+    code = compile(source.replace(boundary, ""), "candidate-only-negative-control", "exec")
     function = next(
         value for value in code.co_consts if isinstance(value, CodeType) and value.co_name == "main"
     )

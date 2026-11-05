@@ -212,8 +212,6 @@ POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
 [AUTHORITY]
 GET,PUT /api/one/plg/preferences
-GET,PUT /api/one/plg/attempt-email/preferences
-GET,POST /api/one/plg/attempt-email/unsubscribe
 POST /api/one/plg/subscriptions/check
 POST /api/one/plg/subscriptions/revoke
 POST /api/one/pod/browser-approval/issue
@@ -371,20 +369,6 @@ GET,POST /api/one/plg/activity
 POST /api/one/plg/snapshot
 POST /api/one/plg/audience
 POST /api/one/plg/customer-cohort
-POST /api/one/plg/owner
-POST /api/one/plg/owner-dev
-POST /api/one/plg/owner-uat
-POST /api/one/plg/permission-dev
-POST /api/one/plg/permission-owner
-POST /api/one/plg/permission-uat
-POST /api/one/plg/snapshot-dev
-POST /api/one/plg/snapshot-owner
-POST /api/one/plg/snapshot-uat
-POST /api/one/plg/attempt-email/pull
-POST /api/one/plg/attempt-email/claim
-POST /api/one/plg/attempt-email/settle
-POST /api/one/plg/attempt-email/feedback-state
-POST /api/one/plg/attempt-email/feedback-apply
 POST /api/one/runtime/byoc/attach/retry
 POST /api/kai/gmail/webhook
 GET /api/one/agent-prompt

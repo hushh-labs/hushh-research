@@ -8,7 +8,6 @@ from unittest import mock
 import pytest
 import yaml
 
-from tests.helpers.deployment_cli import read_deploy_source
 from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -275,7 +274,9 @@ def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, 
 
 
 def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
-    workflow = yaml.safe_load(read_deploy_source(ROOT, ".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
     assert inspector["environment"] == {"name": "uat", "deployment": False}
@@ -318,15 +319,6 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert step_names.index(
         "Verify exact serving base (${{ inputs.uat_base_sha }})"
     ) < step_names.index("Verify the exact UAT checkout")
-
-
-def test_deploy_config_reader_rejects_unreviewed_implementation(tmp_path):
-    relative = ".github/workflows/deploy-uat.yml"
-    wrapper = tmp_path / relative
-    wrapper.parent.mkdir(parents=True)
-    wrapper.write_text("jobs:\n  release:\n    uses: other/repository/workflow.yml@main\n")
-    with pytest.raises(AssertionError, match="reviewed Main implementation"):
-        read_deploy_source(tmp_path, relative)
 
 
 @pytest.mark.parametrize(

@@ -45,6 +45,9 @@ async function settle() { await act(async () => { await Promise.resolve(); await
 async function mountBlocked() {
   render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
   expect(await screen.findByText(connectCopy)).toBeInTheDocument();
+  // The return subscription is a passive effect of the blocked prompt.
+  // Flush it before simulating the organizer's next browser interaction.
+  await settle();
 }
 async function comeBack(kind: "focus" | "visibility" | "popstate" = "focus") {
   await act(async () => {

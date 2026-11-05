@@ -12,86 +12,6 @@ HELPER = ROOT / "deploy/plg/bind_secrets.sh"
 BACKEND_BINDINGS = ROOT / "scripts/deploy/commerce-preview-bindings.sh"
 
 
-@pytest.mark.parametrize("lane", ["dev", "uat", "production"])
-def test_owner_bindings_are_project_pinned_without_cross_lane_keys(lane):
-    project = "hushh-pda" if lane == "production" else f"hushh-pda-{lane}"
-    common = {"ONE_PLG_ATTEMPT_EMAIL_SECRET", "ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS"}
-    allowed = (
-        {
-            "ONE_PLG_EXPORT_SECRET",
-            "ONE_PLG_EXPORT_ACCOUNT_IDS",
-            "ONE_PLG_SUBSCRIPTION_SECRET",
-            "ONE_PLG_AUDIENCE_SECRET",
-            "ONE_PLG_REPORTING_POLICY_JSON",
-            "ONE_PLG_OWNER_EXPORT_SECRET",
-            "ONE_PLG_OWNER_ACCOUNT_IDS",
-        }
-        if lane == "production"
-        else {
-            f"ONE_PLG_{lane.upper()}_EXPORT_SECRET",
-            f"ONE_PLG_ACTIVITY_{lane.upper()}_ACCOUNT_IDS",
-        }
-    ) | common
-    script = r"""
-set -euo pipefail
-gcloud() { printf '%s\n' ENABLED; }
-append_optional_secret() { printf '%s\n' "$1"; }
-source "$1" "$2" "$3"
-"""
-    bash = "C:/Program Files/Git/bin/bash.exe" if os.name == "nt" else "bash"
-    result = subprocess.run(  # noqa: S603 -- fixed helper, finite lanes and mocked CLI; no cloud access
-        [bash, "-c", script, "plg-owned-bindings", HELPER.as_posix(), lane, project],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=True,
-    )
-    assert set(result.stdout.splitlines()) == allowed
-    wrong = subprocess.run(  # noqa: S603 -- fixed helper and explicit negative fixture project
-        [bash, "-c", script, "plg-owned-bindings", HELPER.as_posix(), lane, "foreign-project"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    assert wrong.returncode != 0 and not wrong.stdout.strip()
-    disabled = subprocess.run(  # noqa: S603 -- fixed mocked disabled-version response
-        [
-            bash,
-            "-c",
-            script.replace("ENABLED", "DISABLED"),
-            "plg-disabled-bindings",
-            HELPER.as_posix(),
-            lane,
-            project,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=True,
-    )
-    assert not disabled.stdout.strip()
-    preview_script = script.replace(
-        "gcloud() { printf '%s\\n' ENABLED; }", "gcloud() { echo unexpected-read >&2; return 75; }"
-    )
-    preview = subprocess.run(  # noqa: S603 -- fixed preview namespace and mocked CLI
-        [
-            bash,
-            "-c",
-            "_SECRET_PREFIX=ISOLATED_PREVIEW_\n" + preview_script,
-            "plg-preview-bindings",
-            HELPER.as_posix(),
-            lane,
-            project,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=True,
-    )
-    assert not preview.stdout.strip() and not preview.stderr.strip()
-
-
 @pytest.mark.parametrize(
     ("profile", "state", "audience", "policy", "expected"),
     [
@@ -120,11 +40,11 @@ def test_binding_requires_enabled_versions_in_production(
         pytest.skip("Bash is required for the production deploy helper")
     script = r"""
 set -euo pipefail
-PROJECT_ID="$4"
+PROJECT_ID=test-project
 _SECRET_PREFIX=""
 secrets=""
 gcloud() {
-  [[ "$*" == *"--project=$PROJECT_ID"* ]] || return 17
+  [[ "$*" == *'--project=test-project'* ]] || return 17
   if [[ "$1 $2" == "secrets describe" ]]; then return 0; fi
   if [[ "$*" == *'--secret=ONE_PLG_EXPORT_ACCOUNT_IDS'* ]]; then
     [[ "$PLG_TEST_SECOND_STATE" != error ]] || return 1
@@ -136,14 +56,12 @@ gcloud() {
     printf '%s\n' "$PLG_TEST_POLICY_STATE"
   elif [[ "$*" == *'--secret=ONE_PLG_SUBSCRIPTION_SECRET'* ]]; then
     printf '%s\n' "$PLG_TEST_SUBSCRIPTION_STATE"
-  elif [[ "$*" == *'--secret=ONE_PLG_EXPORT_SECRET'* ]]; then
-    printf '%s\n' ENABLED
   else
-    printf '%s\n' DISABLED
+    printf '%s\n' ENABLED
   fi
 }
 source "$1"
-source "$2" "$3" "$PROJECT_ID"
+source "$2" "$3" test-project
 printf '%s\n' "$secrets"
 """
     result = subprocess.run(  # noqa: S603 -- fixed helper and synthetic CLI, no cloud access
@@ -155,7 +73,6 @@ printf '%s\n' "$secrets"
             BACKEND_BINDINGS.as_posix(),
             HELPER.as_posix(),
             profile,
-            "hushh-pda" if profile == "production" else f"hushh-pda-{profile}",
         ],
         env={
             **os.environ,

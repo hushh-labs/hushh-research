@@ -458,10 +458,11 @@ describe("Profile pane navigation state", () => {
     // Voice settles on this answer; a silent drop must not read as an open.
     expect(requestProfilePaneOpen("tap")).toBeNull();
 
-    const listener = (event: Event) =>
-      (event as CustomEvent<ProfilePaneOpenDetail>).detail.onResult?.(
-        "unavailable",
-      );
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<ProfilePaneOpenDetail>).detail;
+      expect(detail.destination).toEqual({ location: { panel: null, detail: null } });
+      detail.onResult?.("unavailable");
+    };
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, listener);
     try {
       expect(requestProfilePaneOpen("tap")).toBe("unavailable");
