@@ -18,7 +18,7 @@ const { mockAuth, mockRecaptchaVerifierInstance, MockRecaptchaVerifier } =
     });
 
     return {
-      mockAuth: { settings: {} },
+      mockAuth: { settings: {} as { appVerificationDisabledForTesting?: boolean } },
       mockRecaptchaVerifierInstance: mockInstance,
       MockRecaptchaVerifier: MockCtor,
     };
@@ -35,7 +35,10 @@ vi.mock("@/lib/firebase/config", async () => {
 vi.mock("firebase/app", () => ({
   initializeApp: vi.fn(),
   getApps: vi.fn(() => [{ name: "test" }]),
-  getApp: vi.fn(() => ({ name: "test" })),
+  getApp: vi.fn(() => ({
+    name: "test",
+    options: { projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID },
+  })),
 }));
 
 vi.mock("firebase/auth", () => ({
@@ -85,6 +88,32 @@ function createContainer(id = "recaptcha-container"): HTMLDivElement {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+describe("isolated sandbox test phone app verification", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    delete mockAuth.settings.appVerificationDisabledForTesting;
+  });
+
+  it.each([
+    ["hushh-akshat-sandbox-auth", "http://localhost:3000", "development", true],
+    ["hushh-uat", "http://localhost:3000", "development", false],
+    ["hushh-akshat-sandbox-auth", "https://uat.one.hussh.ai", "development", false],
+    ["hushh-akshat-sandbox-auth", "http://localhost:3000", "production", false],
+  ])("uses test verification for %s at %s only in an isolated dev process", async (
+    projectId, origin, nodeEnv, allowed,
+  ) => {
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION", "true");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", projectId);
+    vi.stubEnv("NODE_ENV", nodeEnv as "development" | "production");
+    vi.stubGlobal("window", { location: { origin } });
+    vi.resetModules();
+    await vi.importActual("@/lib/firebase/config");
+    expect(mockAuth.settings.appVerificationDisabledForTesting === true).toBe(allowed);
+  });
+});
 
 describe("reCAPTCHA container lifecycle", () => {
   afterEach(() => {

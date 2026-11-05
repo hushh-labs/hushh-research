@@ -63,9 +63,16 @@ def test_personal_sandbox_selects_azure_transport_without_uat_information_grants
     monkeypatch.delenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", raising=False)
     assert ManagedAzureBinding.from_environment() is None
     monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", "fed12345-aaaa-4cde-8abc-123456789abc")
     assert sandbox_managed_azure_enabled()
     binding = ManagedAzureBinding.from_environment()
     assert binding is not None and binding.capabilities["one_text_root"]["model"] == "gpt-5.4-mini"
+    assert binding.client_id == "fed12345-aaaa-4cde-8abc-123456789abc"
+    shared_client = load_managed_azure_account()["client_id"]
+    with monkeypatch.context() as sandbox_env:
+        sandbox_env.setenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", shared_client)
+        with pytest.raises(ValueError, match="separate Entra client ID"):
+            ManagedAzureBinding.from_environment()
     assert load_managed_runtime_policy(environment="production") is None
     assert load_managed_runtime_policy(environment="dev") is None
     assert managed_text_policy() is None

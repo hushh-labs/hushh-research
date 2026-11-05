@@ -47,14 +47,15 @@ class ManagedAzureBinding:
         if policy is None or policy["provider"] != "azure_openai":
             return None
         config = load_pwm_policy(environment="uat", provider="azure_openai")["azure"]
+        client_id = policy.get("sandbox_azure_client_id", config["client_id"])
         return cls(
             endpoint=config["primary_endpoint"],
             tenant_id=config["tenant_id"],
-            client_id=config["client_id"],
+            client_id=client_id,
             policy_fingerprint=policy["config_fingerprint"],
             generation=policy["generation"],
             capabilities=policy["azure"],
-            token_supplier=_credential_supplier(config["tenant_id"], config["client_id"]),
+            token_supplier=_credential_supplier(config["tenant_id"], client_id),
         )
 
     def require_current(self) -> None:

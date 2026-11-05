@@ -347,8 +347,10 @@ managed transport uses the configured Azure account and deployment descriptors.
 It does not enable UAT's private-information approval policy. Chat, readiness and
 the model picker use `one_text_root`; the LTM Memory Manager uses the primary text
 deployment. Missing federation access fails rather than silently selecting Vertex.
-An operator must authorize the dedicated sandbox service identity in Entra and
-configure this flag through the approved personal deployment path. New source
+An operator must federate the sandbox service account to a dedicated Entra
+application and set its public application ID as `HUSHH_SANDBOX_AZURE_CLIENT_ID`
+through the approved personal deployment path. The sandbox rejects the UAT and
+readiness-exam client IDs. New source
 commits require updated approval; the existing ready-revision reuse path is not
 proof that a changed configuration was deployed. Do not relabel the sandbox as UAT
 or directly mutate a Cloud Run revision to bypass that release procedure.

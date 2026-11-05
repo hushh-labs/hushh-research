@@ -373,11 +373,23 @@ def load_managed_runtime_policy(
         raise ValueError("Invalid managed provider selection")
     azure = load_pwm_policy(path, environment="uat", provider="azure_openai", document=document)
     material = {"policy": value, "azure": azure["azure"]}
+    sandbox_binding = {}
     if sandbox:
+        client_id = os.getenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", "").strip()
+        accounts = _azure_accounts(document)
+        reserved = {azure["azure"]["client_id"]}
+        if accounts is not None:
+            for account in accounts["accounts"].values():
+                reserved.update((account["client_id"], account["readiness_exam_client_id"]))
+        if not _canonical_uuid(client_id) or client_id in reserved:
+            raise ValueError("Sandbox Azure requires a separate Entra client ID")
         material["sandbox_service"] = os.environ["K_SERVICE"]
+        material["azure"] = {**azure["azure"], "client_id": client_id}
+        sandbox_binding["sandbox_azure_client_id"] = client_id
     digest = profile_hash(material)
     return {
         **value,
+        **sandbox_binding,
         "provider": selected,
         "config_fingerprint": digest,
         "generation": str(uuid5(UUID(value["policy_id"]), value["version"] + digest + selected)),

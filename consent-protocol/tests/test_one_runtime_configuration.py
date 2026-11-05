@@ -64,6 +64,7 @@ async def test_personal_sandbox_readiness_proves_azure_and_preserves_failure(mon
     monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
     monkeypatch.setenv("HUSSH_POD_MODE", "false")
     monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", "fed12345-aaaa-4cde-8abc-123456789abc")
     monkeypatch.setattr(runtime, "_managed_readiness_cache", None)
     monkeypatch.setattr(runtime, "_managed_readiness_binding", None)
     adapter, client, _, _ = model([response(message("OK")), response(message(""))])
