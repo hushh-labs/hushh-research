@@ -4813,7 +4813,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "ed3a00a7a824d9e2d7332a756ccb7c38dc768e94e370d1e66d07427f5f50eca8",
+      "system_instruction_sha256": "5fa411e69c1b6428e490f26f23040c988986c2a5147589a82da8bd295f917b7d",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
