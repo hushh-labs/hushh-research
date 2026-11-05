@@ -63,7 +63,7 @@ diagnostics retain the actual compared ref and revision. This keeps an empty
 semantic transition deterministic without changing breaking-change checks,
 runtime workflow compatibility or exact mirror checks. Nonempty transitions
 retain base-specific comparison metadata and require separate validation for
-each target before selective promotion becomes automatic. Exact-tree promotion
+each target before selective promotion is qualified. Exact-tree promotion
 also needs the tested UAT candidate to incorporate the reviewed Main baseline;
 a later Main change may require a new UAT candidate.
 
@@ -227,7 +227,7 @@ on any branch deploys nothing; deployments retain explicit authorization.
     dispatch. UAT candidates also require canonical PR, queue, or full branch
     validation. Do not dispatch the direct path before its exact CI and admission
     proof pass.
-11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
+11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Automatic release cadence is retired.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
 ## Engineering Branch Preservation Gate
@@ -315,7 +315,7 @@ land a change to these surfaces.
 
 ### Protected surfaces
 
-These paths are owned by the maintainer team in `.github/CODEOWNERS` and are
+These paths are owned by `@hushh-labs/pipeline-editors` in `.github/CODEOWNERS` and are
 listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 
 - `.github/workflows/`
@@ -334,23 +334,29 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 
 ### The three enforcement layers
 
-1. **CODEOWNERS (GitHub-native, blocks merge).** Ownership is mapped to the
-   `@hushh-labs/allowed-maintainers-to-approve` team, not a single user, so it
-   auto-tracks membership and removes the single-owner bottleneck. For this to
-   *block* (not merely request review), `main` and `integration/pr-train` must
-   have **"Require review from Code Owners"** enabled, and the team must keep at
-   least write/maintain repo access or GitHub silently ignores team entries.
-2. **CI maintainer-actor guard (fails closed).**
+1. **Native protected review.** CODEOWNERS requests only
+   `@hushh-labs/pipeline-editors`. It has no blanket product/docs fallback, so a
+   mixed protected PR does not also request the ordinary maintainer team. Native
+   protected-path rules remain independent on Main, Dev and UAT. The owner team
+   must retain the repository access required by GitHub for its review rules.
+2. **CI protected-authority guard (fails closed).**
    `scripts/ci/verify-protected-pipeline-edits.py` runs in the required
-   `CI Status Gate` and fails the PR if a non-maintainer touches a protected
-   surface. It requires `GH_TOKEN` in the governance job to resolve the PR's
-   changed files; if it cannot resolve them it **fails closed** (blocks), never
-   open. A `--self-test` runs in CI so the guard can never silently regress.
-3. **Review and owner approval.** Ordinary PRs require one independent latest-push
-   approval. Kushal or Ankit may explicitly land their own exact PR head under the
+   `CI Status Gate` and requires current-head pipeline-owner authorization for
+   protected edits. Ordinary maintainer membership cannot satisfy this boundary.
+   Missing change or approval evidence refuses clearance. Semantic changes to
+   mixed-use files follow this same route, even without a CODEOWNERS request.
+3. **Queue review and owner approval.** Ordinary Main PRs require independent
+   current-head maintainer approval. Ordinary Dev/UAT authors may use governed
+   maintainer self-service after required checks. Review-request labels alone
+   authorize neither route. Kushal or Ankit may explicitly land their own exact PR head under the
    [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-merger-policy-and-the-named-owner-admin-route).
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
+
+For protected PRs, including mixed CI/product/docs changes, request only the
+pipeline-editor team. For an ordinary peer review, request the maintainer team
+when needed. Do not add individual reviewer names to compensate for a routing
+failure. Follow the canonical [review-routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
 
 ### Production access administration
 
@@ -398,8 +404,8 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
   remains derived from explicit policy. It cannot expand Main merge or protected
   edit authority through an inherited bypass team.
 - **Production == approved dispatch cohort.** `production.manual_dispatch_users`
-  must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
-  widening or narrowing fails the check.
+  must match the reviewed production operator cohort; any independent widening
+  or narrowing fails the check. The policy and live team readback identify its members.
 - **Deploy identity variables are present.** Each deployment environment must
   contain every name declared in its `required_environment_variables` policy.
   These are GitHub environment variables consumed through `vars.*`, not
@@ -407,8 +413,9 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
 ### Why GitHub teams mirror the config, and never the reverse
 
-Every ring above has a real GitHub team, created and kept in sync by
-`apply-governance.py` from `config/ci-governance.json`. The teams exist so people
+Every capability above has a GitHub team. The approved reconciler applies
+`config/ci-governance.json`; membership and role changes require live readback.
+Declarations alone do not prove activation. The teams exist so people
 can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
 Deployment actor gates read committed policy. Native protected-path review uses
 the verified owner-team mirror; the reconciler verifies its exact membership
@@ -532,7 +539,7 @@ age checks. Read back live branch and deployment policies after application.
 7. Block force-pushes.
 8. Block branch deletion.
 9. Require one independent PR approval, or the narrow owner self-approval path on `main`; CI and current combined-result proof remain required.
-10. Require the queue and approved Main user restrictions; no team bypass may skip combined-result verification.
+10. Require the queue and approved Main requester cohort; no human-only writer filter may block GitHub’s native queue writer, and no team bypass may skip combined-result verification.
 11. Keep non-maintainer contributor and agent development off `main`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`, while train work promotes from `integration/pr-train`.
 
 Current operating note:
@@ -546,8 +553,11 @@ Current operating note:
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - Author/admin status alone is not approval. An authorized owner must explicitly
   approve their captured head through Admin SOP; other PRs require ordinary review.
-- Verify Main's actual merger restrictions and queue requester against
-  `main.merge_users`; no shared maintainer-team bypass may widen it.
+- Verify every actual Main queue requester against `main.merge_users`; no shared
+  maintainer-team bypass may widen it. With `restrict_writes_to_merge_users=false`,
+  remove the classic human-only writer filter only after the reviewed Main policy
+  lands and native PR, review, CI, protected-change and owner guards pass readback.
+  GitHub's queue writer can then land the verified result. Raw pushes remain blocked.
 - Required CI, ordinary review or owner approval, and current combined-result proof apply. A merge is
   source-only and never authorizes deployment.
 

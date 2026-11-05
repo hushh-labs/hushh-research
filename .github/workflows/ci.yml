@@ -33,7 +33,7 @@ on:
           - backend
           - all
       uat_base_sha:
-        description: "Current UAT application SHA for exact-source qualification (optional)"
+        description: "Optional comparison SHA; serving UAT SHA required for UAT qualification"
         required: false
         default: ""
         type: string
@@ -232,6 +232,8 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -260,6 +262,14 @@ jobs:
           CI_IMPACT_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
           CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
+
+      - name: Plan unit concurrency
+        id: unit-plan
+        env:
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+        run: |
+          matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
@@ -407,6 +417,10 @@ jobs:
               - '!consent-protocol/tests/test_phone_schema_legacy_job.py'
               - '!consent-protocol/tests/test_pkm_v7_recovery_migration.py'
               - '!consent-protocol/tests/test_plg_qualification_producer.py'
+              - '!consent-protocol/tests/test_plg_qualification_bootstrap.py'
+              - '!consent-protocol/tests/test_plg_qualification_acceptance.py'
+              - '!consent-protocol/tests/test_plg_qualification_candidate.py'
+              - '!consent-protocol/tests/helpers/plg_qualification.py'
               - '!consent-protocol/tests/test_scheduled_mail_scheduler_contract.py'
               - '!consent-protocol/tests/test_uat_connector_rollout_contract.py'
               - '!consent-protocol/tests/test_uat_deploy_no_traffic_contract.py'
@@ -1092,14 +1106,17 @@ jobs:
 
   web-full-suite-check:
     name: "Web Unit Contracts"
-    needs: [preflight-gate]
+    needs: [preflight-gate, repo-governance]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Unknown change coverage runs the full unit suite on this job.
+    # Unknown impact retains all tests through native Vitest sharding.
     timeout-minutes: 45
-    # One affected/core unit owner; full historical shards remain a diagnostic command.
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.repo-governance.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1136,10 +1153,26 @@ jobs:
       - name: Run affected unit contracts
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
-          WEB_FULL_SUITE_SHARD: ""
+          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
           CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+
+      - name: Verify unit shard (1/1)
+        if: matrix.shard == '1/1'
+        run: echo 'Unit shard 1/1 completed successfully'
+
+      - name: Verify unit shard (1/3)
+        if: matrix.shard == '1/3'
+        run: echo 'Unit shard 1/3 completed successfully'
+
+      - name: Verify unit shard (2/3)
+        if: matrix.shard == '2/3'
+        run: echo 'Unit shard 2/3 completed successfully'
+
+      - name: Verify unit shard (3/3)
+        if: matrix.shard == '3/3'
+        run: echo 'Unit shard 3/3 completed successfully'
 
   ios-native-check:
     name: "iOS Native (Xcode)"
@@ -2119,6 +2152,19 @@ jobs:
             exit 1
           fi
           echo "All required CI jobs passed or were intentionally skipped."
+
+      - name: Verify Akshat sandbox CI inputs
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/New_memory_architecutre'
+        shell: bash
+        env:
+          CUSTOM_BASE: ${{ inputs.uat_base_sha }}
+          CUSTOM_SOURCE: ${{ inputs.uat_candidate_sha }}
+          CUSTOM_TREE: ${{ inputs.uat_candidate_tree }}
+        run: |
+          if [[ -n "${CUSTOM_BASE}${CUSTOM_SOURCE}${CUSTOM_TREE}" ]]; then
+            echo "::error::Validate the exact sandbox branch without UAT source overrides."
+            exit 1
+          fi
 
       # A manual branch verdict has its own name and cannot satisfy PR branch
       # protection. The same full selected lanes remain required for dev.

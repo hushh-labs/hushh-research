@@ -48,6 +48,9 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_phone_schema_legacy_job.py",
     "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
     "consent-protocol/tests/test_plg_qualification_producer.py",
+    "consent-protocol/tests/test_plg_qualification_bootstrap.py",
+    "consent-protocol/tests/test_plg_qualification_acceptance.py",
+    "consent-protocol/tests/test_plg_qualification_candidate.py",
     "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
     "consent-protocol/tests/test_uat_connector_rollout_contract.py",
     "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
@@ -112,7 +115,7 @@ CHECKS = (
     _check("github-security-authority", "python3", "scripts/ci/test_github_security_authority.py", groups=("operations",)),
     _check("github-security-receipt", "python3", "scripts/ci/test_github_security_receipt.py", groups=("operations",)),
     _check("pr-base-policy", "python3", "scripts/ci/verify-pr-base-policy.py", "--self-test", groups=("operations",)),
-    _check("queue-combined-authority", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "scripts/ci/test_queue_combined_result.py", groups=("controller",)),
+    _check("queue-combined-authority", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "-m", "pytest", "-q", "scripts/ci/test_queue_combined_result.py", "scripts/ci/test_qualify_akshat_sandbox_deploy_source.py", groups=("controller",)),
     _check("queue-entry-reuse", "python3", "scripts/ci/verify-queue-entry-reuses-pr-validation.py", "--self-test", groups=("operations",)),
     _check("branch-governance-docs", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", diagnostic=True),
     _check("branch-governance-docs-selftest", "python3", "scripts/ci/verify-branch-governance-doc-consistency.py", "--self-test", diagnostic=True),
@@ -306,6 +309,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_account_deletion_release_workflow.py",
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
+        "consent-protocol/tests/helpers/plg_qualification.py",
     }:
         return frozenset({"controller"}), None
     if root == ".agents":
