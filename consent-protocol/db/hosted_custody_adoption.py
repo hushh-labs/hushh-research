@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from db.hosted_custody_acl import preserve_native_family_acl
 from db.hosted_custody_qualification import (
     QUALIFIED_FAMILY_SETTING,
+    HostedCustodyProfile,
     complete_family_qualification_sql,
+    hosted_custody_profile_from_environment,
 )
 
 if TYPE_CHECKING:
@@ -241,6 +243,7 @@ REFINED = {
 def hosted_custody_adoption(sql: str) -> str:
     from db.migration_authority import MigrationAuthorityError
 
+    profile = hosted_custody_profile_from_environment()
     full_family = complete_family_qualification_sql(
         base_family=QUALIFIED,
         files_family=HOSTED_FILES_QUALIFIED,
@@ -249,8 +252,9 @@ def hosted_custody_adoption(sql: str) -> str:
         service_role_signatures=HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
         native_contract_new_signatures=frozenset(),
+        profile=profile,
     )
-    qualification = full_family + _successor_qualification()
+    qualification = full_family + _successor_qualification(profile=profile)
     for name, (predecessors, successor) in REFINED.items():
         successor_digests = [successor]
         successor_digests.extend(
@@ -327,7 +331,7 @@ $retain_managed_custody$;
 """
     adapted = sql[:start] + wrapped + sql[end:]
     # Reuse the same complete-vector check as immutable420, without its hash-list adaptation.
-    qualification = _successor_qualification()
+    qualification = _successor_qualification(profile=hosted_custody_profile_from_environment())
     return _qualified_transaction(adapted, qualification)
 
 
@@ -341,7 +345,8 @@ def _qualified_transaction(sql: str, qualification: str) -> str:
     return before_commit + qualification + "COMMIT;" + trailing
 
 
-def _successor_qualification() -> str:
+def _successor_qualification(profile: HostedCustodyProfile | None = None) -> str:
+    selected_profile = profile or hosted_custody_profile_from_environment()
     values = ",".join(
         f"('{signature}','{digest}',{'true' if signature.partition('(')[0] in REFINED else 'false'})"
         for signature, digest in QUALIFIED.items()
@@ -354,6 +359,7 @@ def _successor_qualification() -> str:
         service_role_signatures=HOSTED_FILES_SERVICE_ROLE_SIGNATURES,
         hosted_files_new_signatures=HOSTED_FILES_NEW_SIGNATURES,
         native_contract_new_signatures=frozenset(),
+        profile=selected_profile,
     )
     qualification = f"""DO $hosted_custody_successor$
 DECLARE spec record; definition text; client_role text; footprint boolean := false;
