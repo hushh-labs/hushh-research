@@ -40,7 +40,7 @@ STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
   printf '%s\\n' "$*" >> "$NPM_STUB_LOG"
   if [ -n "${NPM_STUB_FAIL:-}" ] && [ "${2:-}" = "$NPM_STUB_FAIL" ]; then
-    exit 23
+    exit "${NPM_STUB_EXIT:-23}"
   fi
 fi
 exit 0

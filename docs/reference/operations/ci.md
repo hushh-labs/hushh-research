@@ -1743,6 +1743,13 @@ Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
 builds each image once, pins it to an immutable `sha256` digest, and deploys that
 digest. Nothing downstream re-resolves a mutable tag.
 
+Cloud SDK build steps use the reviewed digest-pinned `google-cloud-cli` image
+and expose its bundled Python on `PATH`. The selected application checkout owns
+the Cloud Build recipes: updating Main's deployment workflow alone does not fix
+an older Dev recipe. A `python3: command not found` failure in secret resolution
+requires syncing the reviewed recipe and matching runtime checker into that
+source branch before retrying; do not change secrets or bypass the step.
+
 **Parallel web build.** A backend + frontend release used to run the web Cloud
 Build (p50 263s, p90 333s over the last 30 UAT deploys) serially after the backend
 image build, the migration fence, the migrations and the backend candidate

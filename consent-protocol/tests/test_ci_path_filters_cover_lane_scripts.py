@@ -177,6 +177,7 @@ def _resolve_path_outputs(
     env = {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
+        "CI_VALIDATION_LEVEL": "focused",
         "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
         "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
     }
@@ -427,7 +428,6 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
         "pr-base-policy",
         "repo-governance",
         "paths",
-        "main-freshness-gate",
     ]
 
 
@@ -479,6 +479,30 @@ def test_deploy_workflow_edits_select_controller_contract_without_backend_lane()
     assert promotion_plan["selection_error"] is None
     assert promotion_plan["selected_groups"] == ["controller"]
     assert "account-deletion-release-workflow" in {row["id"] for row in promotion_plan["commands"]}
+
+
+def test_push_hook_uses_its_governance_owner_without_backend_fanout(tmp_path: Path) -> None:
+    hook = "consent-protocol/ops/monorepo/pre-push.sh"
+    changed = (
+        hook,
+        "scripts/ci/test_check_main_sync.py",
+        ".agents/skills/repo-operations/references/maintainer-branch-freshness.md",
+    )
+    _, resolved = _auth_health_decision(changed, tmp_path)
+    assert all(resolved[lane] == "false" for lane in ("frontend", "backend", "ios", "android"))
+    plan = _governance_plan(changed)
+    assert plan["selection_error"] is None
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["main-sync"] == ["python3", "scripts/ci/test_check_main_sync.py"]
+
+    for runtime in (
+        "consent-protocol/ops/monorepo/unknown-runtime.sh",
+        "consent-protocol/hushh_mcp/runtime_settings.py",
+        "consent-protocol/db/schema.sql",
+        "consent-protocol/migrations/0001_example.sql",
+    ):
+        _, mixed = _auth_health_decision((*changed, runtime), tmp_path)
+        assert mixed["backend"] == "true", runtime
 
 
 def test_production_emergency_authority_test_is_controller_owned_not_backend() -> None:
