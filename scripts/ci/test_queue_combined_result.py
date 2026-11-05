@@ -280,6 +280,62 @@ def test_queue_finish_refuses_when_main_authority_changes(tmp_path):
             queue.main()
 
 
+@pytest.mark.parametrize("branch,change,allowed", [
+    ("uat", "main_commit", True), ("dev", "main_commit", True),
+    ("uat", "main_writer", True), ("dev", "main_writer", True),
+    ("main", "main_writer", False),
+    ("uat", "mergers", False), ("uat", "protected_owners", False),
+    ("uat", "maintainers", False), ("uat", "unknown_policy", False),
+    ("uat", "base", False), ("uat", "head", False), ("uat", "tree", False),
+    ("uat", "members", False), ("uat", "attempt", False),
+    ("uat", "missing_fingerprint", False), ("uat", "malformed_fingerprint", False),
+])
+def test_queue_finish_distinguishes_policy_inputs_from_main_provenance(tmp_path, monkeypatch, branch, change, allowed):
+    policy = {"main": {"restrict_writes_to_merge_users": True,
+                       "merge_users": ["merger"], "protected_pipeline_edit_users": ["owner"]},
+              "uat_merge": {"review_bypass_users": ["maintainer"]}}
+    original = {"branch": branch, "base": BASE, "head": HEAD1, "tree": FIRST,
+                "members": [{"requester": "maintainer", "protected_approvals": ["owner"]}],
+                "policy_revision": HEAD1, "policy_fingerprint": queue.policy_fingerprint(policy, branch)}
+    updated = copy.deepcopy(policy)
+    current = copy.deepcopy(original)
+    current["policy_revision"] = HEAD2
+    validations = [{"run": 1, "attempt": 1}]
+    if change == "main_writer":
+        updated["main"]["restrict_writes_to_merge_users"] = False
+    if change == "mergers":
+        updated["main"]["merge_users"] = ["replacement"]
+    if change == "protected_owners":
+        updated["main"]["protected_pipeline_edit_users"] = ["replacement"]
+    if change == "maintainers":
+        updated["uat_merge"]["review_bypass_users"] = []
+    if change == "unknown_policy":
+        updated["new_authority"] = True
+    current["policy_fingerprint"] = queue.policy_fingerprint(updated, branch)
+    if change in ("base", "head", "tree"):
+        current[change] = SECOND
+    if change == "members":
+        current["members"][0]["protected_approvals"] = []
+    if change == "attempt":
+        validations[0]["attempt"] = 2
+    if change == "missing_fingerprint":
+        original.pop("policy_fingerprint")
+    if change == "malformed_fingerprint":
+        original["policy_fingerprint"] = "invalid"
+    receipt = tmp_path / "queue.json"
+    receipt.write_text(json.dumps({"state": original, "validations": [{"run": 1, "attempt": 1}], "reuse": False}))
+    monkeypatch.setenv("COMBINED_RESULT", "success")
+    with patch.object(sys, "argv", ["queue_combined_result.py", "finish", "--receipt", str(receipt)]), \
+         patch.object(queue, "snapshot", return_value=current) as snapshot, \
+         patch.object(queue, "current_validations", return_value=validations):
+        if allowed:
+            queue.main()
+        else:
+            with pytest.raises(queue.Refused, match="changed"):
+                queue.main()
+        snapshot.assert_called_once()
+    assert policy["main"]["restrict_writes_to_merge_users"] is True
+
 @pytest.mark.parametrize("state", ["CHANGES_REQUESTED", "DISMISSED", "unknown"])
 def test_owner_queue_request_cannot_silently_override_review_history(state):
     guard = queue._module("verify-protected-pipeline-edits.py", "owner_review_history")

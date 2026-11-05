@@ -128,6 +128,66 @@ def _run_uat_step(temp: Path, name: str, env: dict[str, str], output: str) -> st
     return result.stdout + result.stderr
 
 
+def test_manual_branch_changed_files_use_the_frozen_head_and_default_merge_base() -> None:
+    with tempfile.TemporaryDirectory() as raw:
+        temp = Path(raw)
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        _, base, head = _uat_base_fixture(temp, env)
+        repo = temp / "candidate"
+
+        def git(*args: str) -> str:
+            return subprocess.check_output(
+                ["git", "-c", "user.name=ci", "-c", "user.email=ci@example.invalid", *args],
+                cwd=repo, env=env, text=True, stderr=subprocess.DEVNULL,
+            ).strip()
+
+        git("checkout", "-qb", "destination", base)
+        (repo / "main-only.txt").write_text("unrelated destination work\n")
+        git("add", "main-only.txt")
+        git("commit", "-qm", "destination advanced")
+        git("update-ref", "refs/remotes/origin/main", git("rev-parse", "HEAD"))
+        git("checkout", "-q", "--detach", head)
+        for name in (
+            "resolve-ci-changed-files.sh", "resolve-ui-contract-base.py",
+            "verify-protected-pipeline-edits.py", "process_group.py",
+        ):
+            shutil.copy(ROOT / "scripts/ci" / name, repo / "scripts/ci")
+        event = temp / "event.json"
+        event.write_text(json.dumps({"inputs": {"scope": "auto"}, "repository": {"default_branch": "main"}}))
+        output = temp / "environment"
+        env.update(
+            GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_EVENT_PATH=str(event),
+            GITHUB_SHA=head, CI_IMPACT_HEAD_SHA=head, CI_IMPACT_BASE_SHA="",
+            GITHUB_REF="refs/heads/New_memory_architecutre", GITHUB_ENV=str(output),
+            RUNNER_TEMP=str(temp / "runner"),
+        )
+
+        def run(**overrides: str) -> subprocess.CompletedProcess:
+            output.unlink(missing_ok=True)
+            return subprocess.run(
+                ["bash", "scripts/ci/resolve-ci-changed-files.sh"], cwd=repo,
+                env={**env, **overrides}, capture_output=True, text=True, check=False,
+            )
+
+        result = run()
+        assert result.returncode == 0, result.stderr
+        changed = Path(output.read_text().strip().split("=", 1)[1])
+        expected = {"hushh-webapp/lib/vault/vault-context.tsx", "consent-protocol/api/routes/vault_routes.py"}
+        assert set(changed.read_text().splitlines()) == expected
+        assert run(CI_IMPACT_BASE_SHA=base).returncode == 0
+        for overrides in ({"CI_IMPACT_HEAD_SHA": base}, {"GITHUB_SHA": base}):
+            assert run(**overrides).returncode != 0
+            assert not output.exists()
+        git("checkout", "-q", "--detach", base)
+        assert run().returncode != 0 and not output.exists()
+        git("checkout", "-q", "--detach", head)
+        orphan = git("commit-tree", git("rev-parse", f"{base}^{{tree}}"), "-m", "unrelated history")
+        git("update-ref", "refs/remotes/origin/main", orphan)
+        assert run().returncode != 0 and not output.exists()
+        git("update-ref", "-d", "refs/remotes/origin/main")
+        assert run().returncode != 0 and not output.exists()
+
+
 def _run_uat_plan(temp: Path, env: dict[str, str]) -> tuple[dict, str, list[str]]:
     """Run the trusted bases step, then the token-free plan step, as the workflow does."""
     shutil.rmtree(temp / "tmp", ignore_errors=True)
@@ -462,6 +522,7 @@ def main() -> int:
     tests = (
         test_ci_smoke_and_uat_share_the_selector,
         test_ci_passes_selector_decision_to_integration,
+        test_manual_branch_changed_files_use_the_frozen_head_and_default_merge_base,
         test_uat_plan_steps_bind_only_their_inputs,
         test_uat_plan_compares_only_from_accepted_serving_shas,
         test_smoke_receives_selector_decision_without_reclassification,

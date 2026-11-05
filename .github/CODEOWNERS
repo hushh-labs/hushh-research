@@ -1,28 +1,14 @@
-# CODEOWNERS - Automatic PR Review Assignment & Protected-Surface Gate
+# CODEOWNERS - Protected-Surface Review Assignment
 # See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 #
-# Ordinary product review belongs to the maintainer team. Protected pipeline
-# and fundamental agent guidance entries below belong to the pipeline-editors team.
-# CI verifies current-head authorization; branch protection requires code-owner
-# review. The policy and this file are themselves protected.
-#
-# ---------------------------------------------------------------------------
-# Global owner of record (fallback) -- any maintainer may satisfy review.
-# ---------------------------------------------------------------------------
-* @hushh-labs/allowed-maintainers-to-approve
-
-# Backend (Python/FastAPI) -- GIT SUBTREE: upstream at hushh-labs/consent-protocol
-/consent-protocol/ @hushh-labs/allowed-maintainers-to-approve
-
-# Frontend (Next.js/Capacitor)
-/hushh-webapp/ @hushh-labs/allowed-maintainers-to-approve
-
-# Documentation
-/docs/ @hushh-labs/allowed-maintainers-to-approve
+# Automatic requests are reserved for protected authority. A blanket product
+# owner would also be requested on mixed CI/docs/test PRs, obscuring the required
+# pipeline-editor route. Ordinary review uses the maintainer team when requested;
+# queue admission still enforces its governed reviewer and merger cohorts.
+# See .agents/skills/repo-operations/references/admin-release-sop.md.
 
 # Protected CI, authority and fundamental engineering guidance.
-# Only these owners authorize changes. Ordinary product review stays with the
-# maintainer team above; proposing a protected change does not grant authority.
+# Only these owners authorize changes; proposing one does not grant authority.
 /.github/workflows/ @hushh-labs/pipeline-editors
 /.github/actions/ @hushh-labs/pipeline-editors
 /scripts/ci/ @hushh-labs/pipeline-editors

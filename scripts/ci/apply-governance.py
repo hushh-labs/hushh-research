@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -873,6 +874,9 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     qualified. Keep unrelated branch checks and ruleset rules verbatim.
     """
     main = policy["main"]
+    restrict_writers = main.get("restrict_writes_to_merge_users", True)
+    if type(restrict_writers) is not bool:
+        raise SystemExit("Main writer policy must be an explicit boolean")
     users = sorted(main.get("merge_users", []))
     owner_reviews = sorted(main.get("protected_pipeline_edit_users", []))
     if (
@@ -944,15 +948,36 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))
     ):
         raise SystemExit("Main queue configuration is not the reviewed active boundary")
-    from prepared_branch_governance import queue_rules
+    from prepared_branch_governance import _same_actors, _same_queue, queue_rules
 
     desired_rules = queue_rules(policy, queue["rules"])
-    desired = {"users": users, "teams": [], "apps": []}
+    desired = {"users": users, "teams": [], "apps": []} if restrict_writers else None
     current = protection.get("restrictions") or {}
     restricted = {
         key: sorted(row[field] for row in current.get(key, []))
         for key, field in (("users", "login"), ("teams", "slug"), ("apps", "slug"))
     }
+    writer_authority = None
+    if not restrict_writers:
+        if apply:
+            import base64
+            writer_authority = gh_json(["api", f"repos/{REPO}/git/ref/heads/main"])
+            revision = writer_authority.get("object", {}).get("sha", "")
+            if not re.fullmatch(r"[0-9a-f]{40}", revision):
+                raise SystemExit("Main writer authority source is unavailable")
+            observed = gh_json(["api", f"repos/{REPO}/contents/config/ci-governance.json?ref={revision}"])
+            if json.loads(base64.b64decode(observed.get("content", ""))) != policy:
+                raise SystemExit("Reviewed Main policy must land before native writer activation")
+        # Native PR/CI/review boundaries remain independent of requester checks.
+        reconcile_protected_pipeline_review(policy, verify_only=True, read=gh_json)
+        reconcile_owner_admin_ruleset(policy, branch="main", verify_only=True, read=gh_json)
+        if not protection.get("required_conversation_resolution", {}).get("enabled") or not any(
+            row.get("context") == main["required_status_check"] and row.get("app_id") == 15368
+            for row in checks.get("checks", [])
+        ):
+            raise SystemExit("Main conversation or GitHub Actions check boundary differs")
+        if current and restricted != {"users": users, "teams": [], "apps": []}:
+            raise SystemExit("Main writer configuration has unreviewed changes; inspect before removal")
     print(
         f"  Main: merger restrictions={restricted} -> {desired}; strict={checks.get('strict')} -> false"
     )
@@ -960,7 +985,8 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     if main.get("merge_queue_bypass_users"):
         # Install and read back the native strict CI/PR-only guard BEFORE granting
         # direct merge authority. Ordinary queue users never inherit this exception.
-        reconcile_owner_admin_ruleset(policy, apply=apply, read=gh_json)
+        if restrict_writers:
+            reconcile_owner_admin_ruleset(policy, apply=apply, read=gh_json)
         for login in sorted(main["merge_queue_bypass_users"]):
             user = gh_json(["api", f"users/{login}"])
             if (
@@ -978,10 +1004,14 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             )
     elif main.get("merge_queue_bypass_team_slug"):
         raise SystemExit("Combined-result enforcement forbids team queue bypass")
+    if not restrict_writers and not _same_actors(queue.get("bypass_actors"), bypass):
+        raise SystemExit("Main queue exceptions differ; reconcile before writer activation")
+    writer_change = (restricted != desired if restrict_writers
+                     else protection.get("restrictions") is not None)
     changed = (
-        restricted != desired
+        writer_change
         or checks.get("strict") is not False
-        or queue.get("bypass_actors") != bypass
+        or not _same_actors(queue.get("bypass_actors"), bypass)
         or observed_scope != main_scope
         or queue["rules"] != desired_rules
     )
@@ -994,11 +1024,11 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         return changed
     from prepared_branch_governance import _write
 
-    if restricted != desired:
+    if restrict_writers and writer_change:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
                 _write(f"{endpoint}/restrictions/{key}", desired[key], "PUT")
-    if queue.get("bypass_actors") != bypass or observed_scope != main_scope or queue["rules"] != desired_rules:
+    if not _same_actors(queue.get("bypass_actors"), bypass) or observed_scope != main_scope or queue["rules"] != desired_rules:
         body = {
             key: queue[key]
             for key in ("name", "target", "enforcement", "conditions", "rules")
@@ -1013,6 +1043,28 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             {"strict": False, "checks": checks["checks"]},
             "PATCH",
         )
+    if not restrict_writers and writer_change:
+        # Remove the human-only writer filter LAST. It blocks GitHub's native
+        # queue writer; an empty user array is still a restrictive configuration.
+        expected = json.loads(json.dumps(protection))
+        expected["required_status_checks"]["strict"] = False
+        if gh_json(["api", endpoint]) != expected:
+            raise SystemExit("Main protection changed; writer restriction retained")
+        observed_queue = gh_json(["api", queue_endpoint])
+        expected_queue = dict(queue, conditions=main_scope, rules=desired_rules, bypass_actors=bypass)
+        if not _same_queue(observed_queue, expected_queue, snapshot=True):
+            raise SystemExit("Main queue changed; writer restriction retained")
+        reconcile_protected_pipeline_review(policy, verify_only=True, read=gh_json)
+        reconcile_owner_admin_ruleset(policy, branch="main", verify_only=True, read=gh_json)
+        if gh_json(["api", f"repos/{REPO}/git/ref/heads/main"]) != writer_authority:
+            raise SystemExit("Main authority advanced; writer restriction retained")
+        gh(["api", "--method", "DELETE", f"{endpoint}/restrictions"])
+        after = gh_json(["api", endpoint])
+        without_restrictions = {key: value for key, value in expected.items() if key != "restrictions"}
+        # GitHub omits the removed subresource; some API fixtures return null.
+        # Accept only those two representations, with every other field exact.
+        if after not in (without_restrictions, dict(expected, restrictions=None)):
+            raise SystemExit("Main writer readback differs; inspect before any further operation")
     return changed
 
 
