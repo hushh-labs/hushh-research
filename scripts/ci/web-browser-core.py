@@ -17,10 +17,18 @@ ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "hushh-webapp"
 # Named presentation contracts, not a permissive exclusion of failing behavior.
 PRESENTATION = (
-    r"@motion-performance|100 KB paste|provider icons share the Google scale|"
+    r"@presentation|@motion-performance|100 KB paste|provider icons share the Google scale|"
     r"welcome starters keep foreground text|starter suggestions retain compact spacing|"
     r"pointerdown grows a clipped ripple|wallet workspace.*(?:geometry|typography)|"
-    r"the agent mark stays visible in the header"
+    r"the agent mark stays visible in the header|"
+    r"explicit Feed typography survives outside the page shell|"
+    r"Reset icon colors only its arrowhead and keeps native geometry in the account pane|"
+    r"shows four distinct activity portraits|"
+    r"resizes the same native canvas across phone and desktop widths|"
+    r"retains painted artwork through delayed loads and interrupted transitions|"
+    r"keeps brief activities perceptible in both locations|"
+    r"keeps header and profile presence in sync through all four native Rive states|"
+    r"One profile keeps its header and tabs stationary while switching"
 )
 SUPPORTED_PROJECTS = {"chromium", "mobile-chrome"}
 KNOWN_PROJECTS = {*SUPPORTED_PROJECTS, "webkit", "firefox"}

@@ -98,6 +98,29 @@ report lists hosted browser, database and native checks still required; a local
 pass cannot satisfy exact-head hosted admission. Use `--diagnostic` for the
 retained full mirror, optionally with `--include-advisory`.
 
+The browser plan reports unclassified paths before installation. An unclassified
+application dependency retains conservative coverage; known helpers must attach
+to their existing functional browser, unit or compiler owner instead. Shared
+request timeouts retain their direct cancellation/timeout tests, and generated
+workflow cards retain compiler and behavior checks. Pure portrait/frame/geometry
+comparisons stay diagnostic; real interaction and renderer lifecycle checks remain.
+Mark appearance-only browser cases with `@presentation` so explicit diagnostic
+commands retain them while required functional runs exclude them. Do not apply
+that tag to interaction, accessibility, consent, identity or recovery contracts.
+
+## Queue response ceiling
+
+Main, Dev and UAT allow 120 minutes for required queue checks to return. This is
+an expiry ceiling, not a runtime target: GitHub previously removed valid entries
+at 30 minutes while their combined-result validation was still running. Inspect
+runner waiting and actual test execution separately. Never turn missing, failed
+or cancelled required checks into success to avoid expiry.
+
+The bounded repair command is `python3 scripts/ci/apply-governance.py --queue-timeouts`
+for inspection, followed by `--apply` for an approved policy change. It validates
+all three scopes first, preserves every other rule and actor, refuses intervening
+changes and verifies each write. It does not deploy or alter team membership.
+
 ## Manual deployment paths
 
 | Developer intent | Source | Required proof | Deployment |
@@ -177,6 +200,12 @@ with `sha`, `ci_run_id`, `ci_run_attempt`, `ci_base_sha` and the reviewed
 `approved_scope` PR chain. These identify the application, validation attempt,
 comparison base and approved change set separately. Do not substitute
 a PR merge-tree check, another attempt or a branch status for that exact run.
+List each approved PR and its reviewed head in order. For a landed tree that
+differs from its PR head, admission recomputes the clean merge from its approved
+parents. Queue merges require the successful GitHub Actions result from before
+landing. A regular UAT merge with no queue run can qualify its own exact SHA
+through full branch CI against the serving base if its release authority is
+unchanged. The final deployment candidate still requires separate exact CI.
 The complete same-SHA dispatch inventory must identify the selected current
 attempt. A sole matching run needs no chronological ordering, so inconsistent
 provider timestamps do not discard otherwise verified evidence. Multiple runs

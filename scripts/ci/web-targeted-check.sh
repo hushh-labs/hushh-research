@@ -158,7 +158,7 @@ layout_owner() {
   fi
 }
 if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != diagnostic ]; then
-  layout_owner '^hushh-webapp/(components/(onboarding|vault|auth)/|lib/(vault|firebase|auth)/|e2e/(setup-v10-vault|lost-vault-delete))' e2e/setup-v10-vault.layout.spec.ts e2e/lost-vault-delete.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/(onboarding|vault|auth)/|lib/(vault|firebase|auth)/|lib/services/pre-vault-sensitive-draft-service\.ts|e2e/(setup-v10-vault|lost-vault-delete))' e2e/setup-v10-vault.layout.spec.ts e2e/lost-vault-delete.layout.spec.ts
   layout_owner '^hushh-webapp/(components/(direct-messages|messages)/|e2e/(direct-chat|circle-chat))' e2e/direct-chat.layout.spec.ts e2e/circle-chat.layout.spec.ts
   layout_owner '^hushh-webapp/(components/(files|agent-files)/|e2e/files-explorer)' e2e/files-explorer.layout.spec.ts
   layout_owner '^hushh-webapp/(components/consent/|e2e/(requester-consent-card|consent-center-row|shared-with-you-card))' e2e/requester-consent-card.layout.spec.ts e2e/consent-center-row.layout.spec.ts e2e/shared-with-you-card.layout.spec.ts
@@ -166,6 +166,7 @@ if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != diagnostic ]; then
   layout_owner '^hushh-webapp/(components/(connect|connections)/|e2e/(connect-page|circle-discovery))' e2e/connect-page-grid.layout.spec.ts e2e/circle-discovery.layout.spec.ts
   layout_owner '^hushh-webapp/(components/feed/|e2e/feed-needs-you)' e2e/feed-needs-you-row.layout.spec.ts
   layout_owner '^hushh-webapp/(components/secrets/|e2e/secrets-card)' e2e/secrets-card.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/kai/|lib/(kai|finance-sharing|portfolio-share|advisor-review)/|lib/utils/portfolio-normalize\.ts|e2e/(finance-interactions|fixtures/(finance-|advisor-review)))' e2e/finance-interactions.layout.spec.ts
   location_specs="$(node -e 'const body=require(process.argv[1]).scripts["test:layout-contracts"]; console.log([...new Set(body.match(/e2e\/(?:one-location-[\w-]+|save-location-sheet|active-share-actions|location-[\w-]+)\.layout\.spec\.ts/g)||[])].join(" "))' "$WEB_DIR/package.json")"
   # Word splitting expands only the checked-in, whitespace-free spec paths.
   # shellcheck disable=SC2086
@@ -194,6 +195,19 @@ if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = diagnostic ] && has_match '(^|/)(REA
   elif [ "$WEB_TARGETED_PART" != "node" ] && [ "$browser_primary" = "1" ]; then
     (cd "$REPO_ROOT" && node scripts/verify-doc-diagrams.cjs && node scripts/render-doc-mermaid.mjs)
   fi
+  ran=1
+fi
+
+# These shared helpers have direct executable owners; they are not unknown
+# visual surfaces. Keep timeout/cancellation and generated-card behavior checked
+# without expanding unrelated browser packs.
+if has_match '^hushh-webapp/(lib/utils/request-timeouts\.ts|__tests__/utils/request-timeouts\.test\.ts)$'; then
+  run_check "request timeout policy" npm run test:ci -- __tests__/utils/request-timeouts.test.ts --maxWorkers=2
+  ran=1
+fi
+if has_match '^hushh-webapp/(lib/generated/one-location-workflow-card-catalog\.v1\.ts|__tests__/components/location-command-workflow\.test\.tsx)$'; then
+  run_check "workflow catalog compiler" npm run verify:capability-graph
+  run_check "workflow card behavior" npm run test:ci -- __tests__/components/location-command-workflow.test.tsx --maxWorkers=2
   ran=1
 fi
 
@@ -240,7 +254,7 @@ if [ "${CI_VALIDATION_LEVEL:-diagnostic}" = release ] || has_match '^hushh-webap
   ran=1
 fi
 
-if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-(actions|preview)\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports|-preview|-preview-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+if has_match '^hushh-webapp/(lib/connections/google-connect-in-place\.ts|components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|components/(app-ui/illustrated-request-dialog\.(tsx|module\.css)|consent/((document-file-request|document-request-button|request-scope-button|drive-packet-catalog)\.tsx|packets/)|wallet/request-cards-button\.tsx|connections/person-profile-(page\.tsx|page\.module\.css|hero\.tsx|packets\.tsx)|profile/profile-workspace-page\.tsx|ui/(alert-dialog|sheet)\.tsx|icons/ui/shortcut-(action-icons\.tsx|icon-motion\.module\.css))|lib/(navigation/(web-history-back|profile-pane)\.ts|morphy-ux/hooks/use-shortcut-icon-motion\.ts)|app/globals\.css|e2e/(helpers/drawer-geometry\.ts|connections-drawer\.layout\.spec\.ts|person-profile-(actions|preview)\.layout\.spec\.ts|financial-packets\.layout\.spec\.ts|profile-confirmation-back\.spec\.ts|shortcut-icons\.motion\.spec\.ts|fixtures/(connections-|person-profile(-requests|-request-ports|-preview|-preview-ports)?\.tsx|person-profile-browser\.ts|profile-confirmation-back\.tsx|shortcut-icon-motion\.tsx))|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
   run_full_suite_check "Connections web boundary" npm run test:connections-web
   # Drive runs the full first-connect spec without a grep filter in both browser
   # projects. Its selected cases therefore include Connections' filtered cases.

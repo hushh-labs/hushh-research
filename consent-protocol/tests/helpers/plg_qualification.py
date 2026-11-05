@@ -113,6 +113,8 @@ class HostedAcceptance:
 
     def __init__(self, monkeypatch):
         root = Path(__file__).resolve().parents[3]
+        policy = json.loads((root / "config/ci-governance.json").read_text(encoding="utf-8"))
+        self.dispatcher = policy["production"]["manual_dispatch_users"][0]
         monkeypatch.syspath_prepend(str(root / "deploy/plg"))
         self.module = importlib.import_module("qualification_acceptance")
         self.cache, self.responses, self.receipts, self.refreshes = {}, {}, {}, {}
@@ -157,8 +159,8 @@ class HostedAcceptance:
             "conclusion": "success",
             "repository": {"full_name": m.validation.transport.REPOSITORY},
             "head_repository": {"full_name": m.validation.transport.REPOSITORY},
-            "actor": {"login": "DamriaNeelesh"},
-            "triggering_actor": {"login": "DamriaNeelesh"},
+            "actor": {"login": self.dispatcher},
+            "triggering_actor": {"login": self.dispatcher},
             "updated_at": "2026-10-28T02:00:00Z",
         }
         job = {
@@ -300,6 +302,10 @@ class HostedAcceptance:
             ] = "skipped"
         elif case == "fork":
             self.responses["runs/17"]["head_repository"] = {"full_name": "synthetic/fork"}
+        elif case == "unapproved-trigger":
+            self.responses["runs/17"]["triggering_actor"] = {
+                "login": "synthetic-unlisted-dispatcher"
+            }
         elif case == "shared":
             receipt["kind"], receipt["target"] = "release-acceptance", "shared-dev"
         elif case == "source":

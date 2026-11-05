@@ -305,6 +305,13 @@ test("known native and browser harness inputs stay with their other owner", () =
       "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
       "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+      "hushh-webapp/scripts/architecture/ui-review-receipts.mjs",
+      "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs",
+      "hushh-webapp/scripts/architecture/back-navigation.test.mjs",
+      "hushh-webapp/scripts/voice/search-contracts.test.mjs",
+      "hushh-webapp/scripts/voice/sync-search-contracts.mjs",
     ].join("\n"),
   } });
   assert.equal(plan.effectiveLevel, "focused");
@@ -548,6 +555,8 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
     "scripts/testing/phone-conflict-flow.mjs",
+    "scripts/testing/affected-tests.mjs",
+    "scripts/testing/affected-tests.test.mjs",
     registered,
     "app/one/setup/finance/import/page.voice-action-contract.json",
     "cache-coherence-screen-manifest.generated.json",
@@ -611,4 +620,44 @@ test("styling-only changes have no unit execution while runtime modules remain s
   assert.equal(style.effectiveLevel, "focused");
   assert.equal(style.noUnitImpact, true);
   assert.equal(style.fallbackReason, null);
+});
+
+
+test("resolved runtime dynamic imports select their test owners without a full suite", () => {
+  const plan = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+    "hushh-webapp/components/runtime-loader.ts":
+      'const MODULE_PATH = "@/lib/changed"; export const load = () => import(MODULE_PATH);\n',
+    "hushh-webapp/__tests__/loader.test.ts":
+      'import { load } from "@/components/runtime-loader"; export { load };\n',
+  }, ["lib/changed.ts"]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.directFiles, ["__tests__/loader.test.ts"]);
+});
+
+test("ordinary related failures still run independent direct cases and remain failed", () => {
+  const plan = { effectiveLevel: "release", relatedFiles: ["lib/fixture.ts"],
+    directFiles: [DELETE_TEST], coreFiles: [DELETE_TEST], excludeFiles: [] };
+  const calls = [];
+  const status = executePlan(plan, {
+    runVitestCommand(args) {
+      calls.push(args);
+      if (args.includes("related")) {
+        const output = args.find(a => a.startsWith("--outputFile.json=")).slice("--outputFile.json=".length);
+        writeFileSync(output, JSON.stringify({ testResults: [{ name: path.join(WEB_ROOT, DIRECT_TEST) }] }));
+        return { status: 1 };
+      }
+      return { status: 0 };
+    },
+    runFullSuite() { throw Error("Must not repeat the full suite after a known test failure"); },
+  });
+  assert.equal(status, 1);
+  assert.equal(calls.length, 2);
+  for (const exit of [null, 124, 130, 137, 143]) {
+    let runs = 0;
+    const interrupted = executePlan(plan, { runVitestCommand() { runs++; return { status: exit }; } });
+    assert.notEqual(interrupted, 0);
+    assert.equal(runs, 1);
+  }
 });

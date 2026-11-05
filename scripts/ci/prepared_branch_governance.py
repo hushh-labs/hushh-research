@@ -17,6 +17,21 @@ import subprocess
 from urllib.parse import quote
 
 
+def queue_rules(policy: dict, rules: list[dict]) -> list[dict]:
+    """Change only the queue response ceiling, preserving scheduling semantics."""
+    ceiling = policy.get("repository", {}).get("merge_queue_check_timeout_minutes")
+    result = copy.deepcopy(rules)
+    if ceiling is None:  # Historical policy remains readable.
+        return result
+    if type(ceiling) is not int or not 1 <= ceiling <= 360:
+        raise SystemExit("Invalid merge queue response ceiling")
+    queues = [rule for rule in result if rule.get("type") == "merge_queue"]
+    if len(queues) != 1 or not isinstance(queues[0].get("parameters"), dict):
+        raise SystemExit("Queue response ceiling requires one complete queue rule")
+    queues[0]["parameters"]["check_response_timeout_minutes"] = ceiling
+    return result
+
+
 def branch_policy(policy: dict, branch: str) -> dict:
     """Project the authored Dev/UAT native-review transition without changing shared cohorts."""
     config = policy["branch_flow"]["prepared_branches"][branch]
@@ -65,7 +80,7 @@ def protection_payload(policy: dict) -> dict:
     }
 
 
-def _write(endpoint: str, payload: dict, method: str) -> None:
+def _write(endpoint: str, payload: dict | list[str], method: str) -> None:
     result = subprocess.run(
         ["gh", "api", "--method", method, endpoint, "--input", "-"],
         input=json.dumps(payload), capture_output=True, text=True,
@@ -205,7 +220,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
             "name": name, "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
             "bypass_actors": actors if native else ([{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}] if team else []),
-            "rules": copy.deepcopy(queue),
+            "rules": queue_rules(policy, queue),
         }
         current_queue = None
         if native and not matches:

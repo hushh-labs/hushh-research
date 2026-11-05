@@ -17,7 +17,10 @@ import re
 from pathlib import Path
 
 import uat_exact_ci as exact
-from github_security_authority import GitHub, Refused
+from github_security_authority import GitHub, Refused, positive
+
+
+SCOPE_DELTA_ERROR = "UAT candidate contains changes outside the approved PR delta against the serving base"
 
 
 def validate_inspection(inputs: dict) -> None:
@@ -66,6 +69,100 @@ def git_identity(*args: str) -> str:
     return value
 
 
+def require_combined_scope(
+    api, *, branch: str, number: str, base: str, prior: str, head: str, landed: str,
+    landed_tree: str, merged_at: str | None,
+) -> None:
+    """Verify the approved head's clean merge into the preceding approved commit."""
+    parents = exact.git("show", "-s", "--format=%P", landed).decode().split()
+    exact.require(parents == [prior, head], SCOPE_DELTA_ERROR)
+    exact.require(git_identity("merge-tree", "--write-tree", prior, head) == landed_tree,
+                  SCOPE_DELTA_ERROR)
+
+    repo = exact.REPOSITORY
+    actions = f"repos/{repo}/actions"
+    workflow = f"{actions}/workflows/queue-validation.yml"
+    path = ".github/workflows/queue-validation.yml"
+    exact.require(not exact.git("diff", "--name-only", prior, landed, "--", path),
+                  "Combined UAT merge changed its queue validation workflow")
+    definition = api.read(workflow)
+    exact.require(isinstance(definition, dict) and definition.get("path") == path,
+                  "Combined UAT queue workflow is unavailable")
+    workflow_id = positive(definition.get("id"), "queue workflow")
+    runs = api.read(f"{workflow}/runs?event=merge_group&head_sha={landed}&per_page=100")
+    rows = runs.get("workflow_runs") if isinstance(runs, dict) else None
+    exact.require(isinstance(rows, list) and type(runs.get("total_count")) is int
+                  and runs["total_count"] == len(rows) <= 1,
+                  "Combined UAT merge requires one exact queue validation run")
+    if not rows and branch == "uat":
+        # A non-queued merge can earn independent release-level proof of its
+        # own exact SHA. Focused PR checks never qualify this combined tree.
+        exact.require(not exact.git("diff", "--name-only", prior, landed, "--",
+                                    *exact.AUTHORITY_PATHS),
+                      "Combined UAT merge changed its release qualification authority")
+        run = latest_attempt(api, landed, branch)
+        exact.require(bool(run), "Combined UAT merge requires exact release qualification")
+        exact.verify_attempt(api, landed, base, positive(run.get("id"), "combined run"),
+                             positive(run.get("run_attempt"), "combined attempt"), branch=branch)
+        return
+    exact.require(len(rows) == 1, "Combined UAT merge requires one exact queue validation run")
+    run = rows[0]
+    exact.require(
+        isinstance(run, dict)
+        and run.get("workflow_id") == workflow_id and run.get("path") == path
+        and run.get("event") == "merge_group" and run.get("head_sha") == landed
+        and run.get("head_branch") == f"gh-readonly-queue/{branch}/pr-{number}-{prior}"
+        and (run.get("repository") or {}).get("full_name") == repo
+        and (run.get("head_repository") or {}).get("full_name") == repo
+        and run.get("status") == "completed" and run.get("conclusion") == "success",
+        "Combined UAT merge requires successful queue validation for the approved parents",
+    )
+    run_id = positive(run.get("id"), "queue run")
+    attempt = positive(run.get("run_attempt"), "queue attempt")
+    inventory = api.read(f"{actions}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
+    jobs = inventory.get("jobs") if isinstance(inventory, dict) else None
+    exact.require(isinstance(jobs, list) and len(jobs) <= 100
+                  and inventory.get("total_count") == len(jobs),
+                  "Combined UAT queue jobs are incomplete")
+    gates = [job for job in jobs if isinstance(job, dict) and job.get("name") == "CI Status Gate"]
+    exact.require(len(gates) == 1, "Combined UAT queue gate is unavailable")
+    gate = gates[0]
+    steps = gate.get("steps") or []
+    completed_at = gate.get("completed_at")
+    # GitHub supplies fixed-width UTC timestamps for the merge and the check.
+    timestamp = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z"
+    exact.require(
+        gate.get("run_id") == run_id and gate.get("run_attempt") == attempt
+        and gate.get("head_sha") == landed
+        and gate.get("status") == "completed" and gate.get("conclusion") == "success"
+        and isinstance(merged_at, str) and re.fullmatch(timestamp, merged_at)
+        and isinstance(completed_at, str) and re.fullmatch(timestamp, completed_at)
+        and completed_at <= merged_at
+        and isinstance(steps, list) and sum(
+            isinstance(step, dict) and step.get("name") == "Recheck membership, review and validation attempts"
+            and step.get("conclusion") == "success" for step in steps
+        ) == 1,
+        "Combined UAT queue gate did not verify the reviewed merge",
+    )
+    check_url = gate.get("check_run_url") or ""
+    match = re.fullmatch(rf"https://api\.github\.com/repos/{re.escape(repo)}/check-runs/([1-9][0-9]*)", check_url)
+    exact.require(match is not None, "Combined UAT queue check identity is unavailable")
+    check = api.read(f"repos/{repo}/check-runs/{match[1]}")
+    exact.require(
+        isinstance(check, dict) and check.get("name") == "CI Status Gate"
+        and check.get("head_sha") == landed and check.get("status") == "completed"
+        and check.get("conclusion") == "success"
+        and (check.get("app") or {}).get("id") == 15368
+        and (check.get("app") or {}).get("slug") == "github-actions"
+        and (check.get("check_suite") or {}).get("id") == positive(run.get("check_suite_id"), "queue suite"),
+        "Combined UAT queue check does not match the successful GitHub Actions attempt",
+    )
+    latest = api.read(f"{actions}/runs/{run_id}")
+    keys = ("id", "run_attempt", "workflow_id", "head_sha", "check_suite_id", "status", "conclusion")
+    exact.require(isinstance(latest, dict) and all(latest.get(key) == run.get(key) for key in keys),
+                  "Combined UAT queue attempt changed during scope verification")
+
+
 def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=None, branch="uat") -> None:
     """Bind the governed dispatch to an ordered PR chain and both serving bases."""
     if branch not in exact.SOURCE_BRANCHES:
@@ -110,9 +207,10 @@ def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=
         comparison = git_identity("merge-base", "--all", parent, head)
         # Compare complete trees, including modes, generated files and removals.
         tree = git_identity("rev-parse", f"{prior}^{{tree}}")
-        if (git_identity("rev-parse", f"{comparison}^{{tree}}") != tree
-                or head_tree != git_identity("rev-parse", f"{landed}^{{tree}}")):
-            raise Refused("UAT candidate contains changes outside the approved PR delta against the serving base")
+        landed_tree = git_identity("rev-parse", f"{landed}^{{tree}}")
+        if git_identity("rev-parse", f"{comparison}^{{tree}}") != tree or head_tree != landed_tree:
+            require_combined_scope(api, branch=branch, number=number, base=base, prior=prior, head=head,
+                                   landed=landed, landed_tree=landed_tree, merged_at=pr.get("merged_at"))
         prior = landed
     if prior != sha:
         raise Refused("UAT candidate is not the last approved PR merge")
