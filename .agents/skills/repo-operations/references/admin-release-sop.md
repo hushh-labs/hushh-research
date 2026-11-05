@@ -28,6 +28,25 @@ deployment, rollback, or environment-promotion decision must route here through
 
 ## State machine
 
+### Review routing on every destination
+
+Review requests identify whom to ask; they do not grant merge or deployment
+authority. Apply the same precedence on Main, Dev and UAT:
+
+| Change | Review route |
+|---|---|
+| CI, release authority or protected core guidance, including mixed product/docs PRs | `@hushh-labs/pipeline-editors` only |
+| Ordinary Dev/UAT product work | Eligible maintainer self-service after required checks; request `@hushh-labs/allowed-maintainers-to-approve` only when a peer review is needed |
+| Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
+
+CODEOWNERS auto-requests only protected owners. Do not add the ordinary team to
+a protected PR or request individual people merely to route it. Semantic
+protected edits still follow the pipeline-editor route when their containing file
+also allows ordinary changes. The existing classifier and native protected-path
+rules enforce that authority independently of the reviewer labels. Explicit
+owner-authored approval follows the bounded Admin procedure below; it does not
+waive CI. No review or merge implies permission to deploy.
+
 ### 1. Preserve and refresh
 
 1. Record `git branch --show-current` and `git status --short --branch`.

@@ -1060,7 +1060,10 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             raise SystemExit("Main authority advanced; writer restriction retained")
         gh(["api", "--method", "DELETE", f"{endpoint}/restrictions"])
         after = gh_json(["api", endpoint])
-        if after != dict(expected, restrictions=None):
+        without_restrictions = {key: value for key, value in expected.items() if key != "restrictions"}
+        # GitHub omits the removed subresource; some API fixtures return null.
+        # Accept only those two representations, with every other field exact.
+        if after not in (without_restrictions, dict(expected, restrictions=None)):
             raise SystemExit("Main writer readback differs; inspect before any further operation")
     return changed
 
