@@ -94,7 +94,10 @@ The named-owner route preserves these independent protections:
 - Each destination's `<branch> owner validated merge` guard requires a PR and
   strict current-base CI for the two owners. Other authorized mergers bypass
   this additional freshness layer only; they cannot bypass the ordinary queue
-  or baseline CI. Main retains its approved merger restriction.
+  or baseline CI. Main's trusted queue restricts the actual requester to the
+  approved merger cohort. Its native queue writer must not inherit a human-only
+  push filter; the reviewed writer-policy rollout preserves native PR/review/CI
+  and protected-change guards before removing that filter.
 - Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
   general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
