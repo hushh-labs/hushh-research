@@ -17,6 +17,32 @@ DIAGNOSTICS = importlib.import_module("retention_pass_diagnostics")
 
 
 class RetentionErrorDiagnosticTest(unittest.TestCase):
+    def test_checkpoint_refusal_summary_is_fixed_and_preserves_the_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            summary = Path(temporary) / "summary"
+            args = SimpleNamespace(environment="production")
+            error = MAINTENANCE.retention.UnsafeState(
+                "Maintenance exited without publishing its checkpoint; operator reconciliation required"
+            )
+            with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}):
+                with self.assertRaises(MAINTENANCE.retention.UnsafeState) as caught:
+                    DIAGNOSTICS.checkpoint_guard(
+                        mock.Mock(side_effect=error), "org/repo", args
+                    )
+                self.assertIs(caught.exception, error)
+                self.assertEqual(
+                    summary.read_text(),
+                    "\nMaintenance stopped before mutation: `checkpoint_unpublished`.\n",
+                )
+                previous = summary.read_text()
+                with self.assertRaises(ValueError):
+                    DIAGNOSTICS.checkpoint_guard(
+                        mock.Mock(side_effect=ValueError("private provider payload")),
+                        "org/repo",
+                        args,
+                    )
+                self.assertEqual(summary.read_text(), previous)
+
     def test_release_context_stage_and_due_skip_output_are_preserved(self):
         args = SimpleNamespace(
             verify_source_only=True,

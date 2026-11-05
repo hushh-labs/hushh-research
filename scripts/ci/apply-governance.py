@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = "hushh-labs/hushh-research"
@@ -331,13 +332,249 @@ def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
-def main_owner_admin_ruleset(policy: dict, *, read=gh_json) -> dict:
+def protected_pipeline_review_rulesets(policy: dict, *, read=gh_json) -> list[dict]:
+    """Native approval protects candidate-modified queue workflows independently."""
+    main = policy["main"]
+    owners = main["protected_pipeline_edit_users"]
+    name = policy["branch_flow"].get("protected_pipeline_review_ruleset_name")
+    if (not isinstance(name, str) or not name or name != name.strip()
+            or name == policy["branch_flow"].get("review_rulesets", {}).get("main")
+            or not isinstance(owners, list) or not owners
+            or any(not isinstance(login, str) or not login for login in owners)
+            or len(set(owners)) != len(owners)
+            or sorted(owners) != sorted(main["review_bypass_users"])):
+        raise SystemExit("Protected path review requires its own name and exact owner authority")
+    paths = main.get("protected_pipeline_paths")
+    if not isinstance(paths, list) or not paths or any(
+        not isinstance(path, str) or not path or path.startswith("/")
+        or any(c in path for c in "!*?[]\\\n\r")
+        or any(part in {"", ".", ".."} for part in path.rstrip("/").split("/"))
+        for path in paths
+    ):
+        raise SystemExit("Protected path review requires canonical literal paths")
+    if not {".github/workflows/", "scripts/ci/", "config/ci-governance.json"} <= set(paths):
+        raise SystemExit("Protected path review must protect workflow and policy authority")
+    team = read(["api", f"orgs/{ORG}/teams/pipeline-editors"])
+    if team.get("slug") != "pipeline-editors" or type(team.get("id")) is not int or team["id"] <= 0:
+        raise SystemExit("Protected reviewer team identity is unavailable")
+    actors = []
+    for login in sorted(owners):
+        user = read(["api", f"users/{login}"])
+        if (user.get("login") != login or user.get("type") != "User"
+                or type(user.get("id")) is not int or user["id"] <= 0):
+            raise SystemExit("Protected review bypass requires a verified named user")
+        actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
+    # The installed original pair keeps its exact 30-path assignment. Append
+    # supplemental entrypoints; never shift an installed partition while adding one.
+    if len(paths) < 30 or len(paths) != len(set(paths)):
+        raise SystemExit("Protected review requires the original 30 distinct paths")
+    def pattern(path):
+        return "/" + path + ("**" if path.endswith("/") else "")
+    original = sorted(pattern(path) for path in paths[:30])
+    supplemental = sorted(pattern(path) for path in paths[30:])
+    chunks = [original[:15], original[15:]] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
+    return [{
+        "name": f"{name}{suffix} {index + 1}", "target": "branch", "enforcement": "active",
+        "conditions": {"ref_name": {"include": refs, "exclude": []}},
+        "bypass_actors": actors,
+        "rules": [{"type": "pull_request", "parameters": {
+            "required_approving_review_count": 0,
+            "dismiss_stale_reviews_on_push": True,
+            "require_code_owner_review": False,
+            "require_last_push_approval": False,
+            "required_review_thread_resolution": False,
+            "require_extra_approval_for_unattributed_changes": False,
+            "required_reviewers": [{
+                "file_patterns": patterns,
+                "minimum_approvals": 1,
+                "reviewer": {"id": team["id"], "type": "Team"},
+            }],
+        }}],
+    } for suffix, refs in (
+        ("", ["refs/heads/main", "refs/heads/dev", "refs/heads/uat"]),
+        (" inherited", ["refs/heads/integration/pr-train", "refs/heads/uat-isolated"]),
+    ) for index, patterns in enumerate(chunks)]
+
+
+def reconcile_protected_pipeline_review(policy: dict, *, apply: bool = False, verify_only: bool = False, read=gh_json) -> bool:
+    """Stage A adds protection; it never retires native reviews or queue rules."""
+    from prepared_branch_governance import _write
+
+    desired_rules = protected_pipeline_review_rulesets(policy, read=read)
+    owners = sorted(policy["main"]["protected_pipeline_edit_users"])
+    actor = read(["api", "user"])
+    if apply and verify_only:
+        raise SystemExit("Native review verification cannot mutate settings")
+    if not verify_only and (actor.get("type") != "User" or actor.get("login") not in owners):
+        raise SystemExit("Only a protected owner may install native pipeline review")
+    def verify_admins():
+        for owner in owners:
+            permission = read(["api", f"repos/{REPO}/collaborators/{owner}/permission"])
+            if permission.get("permission") != "admin" or permission.get("user", {}).get("login") != owner:
+                raise SystemExit("Reviewer team grants require both existing owners to be repository admins")
+
+    verify_admins()
+    team_id = desired_rules[0]["rules"][0]["parameters"]["required_reviewers"][0]["reviewer"]["id"]
+    team_path = f"orgs/{ORG}/teams/pipeline-editors"
+    grant_path = f"{team_path}/repos/{REPO}"
+
+    def verify_members():
+        members = read(["api", f"{team_path}/members?per_page=100"])
+        if (not isinstance(members, list) or len(members) >= 100
+                or any(not isinstance(row, dict) or row.get("type") != "User" for row in members)
+                or sorted(row.get("login", "") for row in members) != owners):
+            raise SystemExit("Protected reviewer team membership differs from exact owners")
+
+    def grant():
+        rows = read(["api", f"repos/{REPO}/teams?per_page=100"])
+        if not isinstance(rows, list) or len(rows) >= 100 or any(not isinstance(row, dict) for row in rows):
+            raise SystemExit("Repository team inventory is unavailable or incomplete")
+        matches = [row for row in rows if row.get("id") == team_id or row.get("slug") == "pipeline-editors"]
+        if len(matches) > 1 or any(row.get("id") != team_id or row.get("slug") != "pipeline-editors" for row in matches):
+            raise SystemExit("Protected reviewer repository grant has conflicting identity")
+        return matches[0].get("permission") if matches else None
+
+    verify_members()
+    previous_grant = grant()
+    if previous_grant not in {None, "pull", "triage", "push", "maintain", "admin"}:
+        raise SystemExit("Protected reviewer repository permission is unrecognized")
+    needs_grant = previous_grant not in {"push", "maintain", "admin"}
+    endpoint = f"repos/{REPO}/rulesets"
+    inventory = read(["api", f"{endpoint}?per_page=100"])
+    if not isinstance(inventory, list) or len(inventory) >= 100:
+        raise SystemExit("Native review ruleset inventory is unavailable or incomplete")
+    if any(row.get("name") == policy["branch_flow"]["protected_pipeline_review_ruleset_name"] for row in inventory):
+        raise SystemExit("Legacy unpartitioned protected review requires explicit reconciliation")
+    existing_rules = {}
+    for desired in desired_rules:
+        matches = [row for row in inventory if row.get("name") == desired["name"]]
+        if len(matches) > 1:
+            raise SystemExit("Native protected review ruleset is ambiguous")
+        existing = read(["api", f"{endpoint}/{matches[0]['id']}"]) if matches else None
+        if existing and not same_review_ruleset(existing, desired):
+            raise SystemExit("Existing protected review differs; explicit reconciliation is required")
+        if existing:
+            existing_rules[desired["name"]] = existing
+    protections = {branch: read(["api", f"repos/{REPO}/branches/{branch}/protection"])
+                   for branch in ("main", "dev", "uat")}
+    guards = {row["id"]: read(["api", f"{endpoint}/{row['id']}"])
+              for row in inventory if row.get("target") == "branch"}
+    missing = len(desired_rules) - len(existing_rules)
+    print(f"Stage A: native protected review create={missing}; owner-team write={needs_grant}. Existing safeguards retained.")
+    if verify_only and (missing or needs_grant):
+        raise SystemExit("Exact native protected review and owner-team write must be installed first")
+    if not apply:
+        return bool(missing or needs_grant)
+    created_rules = {}
+    installed_ids = {}
+    uncertain_creation = None
+    grant_attempted = False
+    grant_confirmed = False
+    try:
+        if needs_grant:
+            if grant() != previous_grant:
+                raise SystemExit("Reviewer-team grant changed before mutation; concurrent permission retained")
+            # GitHub uses an unconditional PUT, not compare-and-swap. Recheck
+            # observed drift, and serialize operator applies across machines.
+            grant_attempted = True
+            _write(grant_path, {"permission": "push"}, "PUT")
+            grant_confirmed = True
+        verify_members()
+        verify_admins()
+        if grant() not in {"push", "maintain", "admin"}:
+            raise SystemExit("Protected reviewer team write access was not confirmed")
+        for desired in desired_rules:
+            existing = existing_rules.get(desired["name"])
+            if existing is None:
+                uncertain_creation = desired["name"]
+                result = subprocess.run(
+                    ["gh", "api", "--method", "POST", endpoint, "--input", "-"],
+                    input=json.dumps(desired), capture_output=True, text=True,
+                )
+                if result.returncode:
+                    raise SystemExit(f"Native review creation failed: {result.stderr.strip()}")
+                created = json.loads(result.stdout)
+                if (type(created.get("id")) is not int or created["id"] <= 0
+                        or created.get("name") != desired["name"]
+                        or created["id"] in created_rules
+                        or any(row.get("id") == created["id"] for row in inventory)):
+                    raise SystemExit("Native review creation returned no verified rule ID")
+                created_rules[created["id"]] = desired
+                uncertain_creation = None
+            rule_id = existing["id"] if existing else created["id"]
+            installed_ids[desired["name"]] = rule_id
+            installed = read(["api", f"{endpoint}/{rule_id}"])
+            if not same_review_ruleset(installed, desired):
+                raise SystemExit("Native protected review readback differs from approved policy")
+            final_inventory = read(["api", f"{endpoint}?per_page=100"])
+            if (not isinstance(final_inventory, list) or len(final_inventory) >= 100
+                    or [row.get("id") for row in final_inventory if row.get("name") == desired["name"]] != [rule_id]):
+                raise SystemExit("Native protected review inventory became ambiguous")
+        # Recheck the whole installed pair: a peer can change partition one
+        # while partition two is being created or read back.
+        final_inventory = read(["api", f"{endpoint}?per_page=100"])
+        if not isinstance(final_inventory, list) or len(final_inventory) >= 100:
+            raise SystemExit("Native protected review final inventory is incomplete")
+        for desired in desired_rules:
+            rule_id = installed_ids[desired["name"]]
+            if ([row.get("id") for row in final_inventory if row.get("name") == desired["name"]] != [rule_id]
+                    or not same_review_ruleset(read(["api", f"{endpoint}/{rule_id}"]), desired)):
+                raise SystemExit("Native protected review pair changed during installation")
+        verify_members()
+        verify_admins()
+        if grant() not in {"push", "maintain", "admin"}:
+            raise SystemExit("Protected reviewer team write access changed")
+        if any(read(["api", f"repos/{REPO}/branches/{branch}/protection"]) != before
+               for branch, before in protections.items()) or any(
+            read(["api", f"{endpoint}/{rule_id}"]) != before for rule_id, before in guards.items()
+        ):
+            raise SystemExit("Existing native safeguards changed during Stage A")
+    except (Exception, SystemExit) as error:
+        repair = []
+        rule_absent = not uncertain_creation
+        try:
+            if uncertain_creation:
+                raise SystemExit(f"Rule creation outcome uncertain ({uncertain_creation}); retained for inspection and resume")
+            for created_id, desired in reversed(list(created_rules.items())):
+                if not same_review_ruleset(read(["api", f"{endpoint}/{created_id}"]), desired):
+                    raise SystemExit("New rule changed; refusing to delete another operation's work")
+                _write(f"{endpoint}/{created_id}", {}, "DELETE")
+                after = read(["api", f"{endpoint}?per_page=100"])
+                if not isinstance(after, list) or len(after) >= 100 or any(row.get("id") == created_id for row in after):
+                    raise SystemExit("New rule absence is unconfirmed")
+            if grant_attempted and rule_absent and grant() == "push":
+                if not grant_confirmed:
+                    raise SystemExit("Reviewer-team grant outcome uncertain; retained for inspection")
+                after = read(["api", f"{endpoint}?per_page=100"])
+                if (not isinstance(after, list) or len(after) >= 100
+                        or any(row.get("id") not in {item.get("id") for item in inventory} for row in after)):
+                    raise SystemExit("Ruleset inventory changed; owner-team grant retained for inspection")
+                if grant() != "push":
+                    raise SystemExit("Reviewer-team grant changed before rollback; concurrent permission retained")
+                _write(grant_path, {"permission": previous_grant} if previous_grant else {},
+                       "PUT" if previous_grant else "DELETE")
+                if grant() != previous_grant:
+                    raise SystemExit("Original reviewer-team access was not restored")
+            elif grant_attempted and rule_absent and grant() != previous_grant:
+                repair.append("reviewer-team grant changed; concurrent permission retained for inspection")
+        except (Exception, SystemExit) as rollback_error:
+            repair.append(str(rollback_error))
+        raise SystemExit(f"Stage A failed: {error}. Rollback: {'; '.join(repair) if repair else 'task-owned changes restored'}. This operation did not write existing safeguards.") from error
+    print("Verified native protected review rulesets for all governed branches; existing safeguards retained.")
+    return bool(missing or needs_grant)
+
+
+def main_owner_admin_ruleset(policy: dict, *, read=gh_json, branch="main") -> dict:
     """Native PR-only and strict CI guard for the two explicit Admin operators.
 
     Other Main mergers bypass only this additional freshness layer. They still
     require the queue, baseline CI and GitHub's independent review controls.
     """
-    main = policy["main"]
+    if branch == "main":
+        main = policy["main"]
+    else:
+        from prepared_branch_governance import branch_policy
+        main = branch_policy(policy, branch)
     owners = sorted(main.get("merge_queue_bypass_users", []))
     mergers = sorted(main.get("merge_users", []))
     if (
@@ -371,7 +608,7 @@ def main_owner_admin_ruleset(policy: dict, *, read=gh_json) -> dict:
         "name": main["owner_admin_ruleset_name"],
         "target": "branch",
         "enforcement": "active",
-        "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+        "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
         "bypass_actors": actors,
         "rules": [
             {
@@ -439,9 +676,9 @@ def same_owner_admin_ruleset(observed: dict, desired: dict) -> bool:
 
 
 def reconcile_owner_admin_ruleset(
-    policy: dict, *, apply=False, verify_only=False, read=gh_json, repo=REPO
+    policy: dict, *, apply=False, verify_only=False, read=gh_json, repo=REPO, branch="main"
 ) -> bool:
-    desired = main_owner_admin_ruleset(policy, read=read)
+    desired = main_owner_admin_ruleset(policy, read=read, branch=branch)
     rows = read(["api", f"repos/{repo}/rulesets?per_page=100"])
     if not isinstance(rows, list) or len(rows) >= 100:
         raise SystemExit("Owner Admin ruleset inventory is incomplete")
@@ -464,7 +701,7 @@ def reconcile_owner_admin_ruleset(
         from prepared_branch_governance import _write
 
         _write(f"repos/{repo}/rulesets", desired, "POST")
-        reconcile_owner_admin_ruleset(policy, verify_only=True, read=read, repo=repo)
+        reconcile_owner_admin_ruleset(policy, verify_only=True, read=read, repo=repo, branch=branch)
     return True
 
 
@@ -707,6 +944,9 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))
     ):
         raise SystemExit("Main queue configuration is not the reviewed active boundary")
+    from prepared_branch_governance import queue_rules
+
+    desired_rules = queue_rules(policy, queue["rules"])
     desired = {"users": users, "teams": [], "apps": []}
     current = protection.get("restrictions") or {}
     restricted = {
@@ -743,6 +983,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or checks.get("strict") is not False
         or queue.get("bypass_actors") != bypass
         or observed_scope != main_scope
+        or queue["rules"] != desired_rules
     )
     if not apply:
         print(
@@ -757,12 +998,13 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
                 _write(f"{endpoint}/restrictions/{key}", {key: desired[key]}, "PUT")
-    if queue.get("bypass_actors") != bypass or observed_scope != main_scope:
+    if queue.get("bypass_actors") != bypass or observed_scope != main_scope or queue["rules"] != desired_rules:
         body = {
             key: queue[key]
             for key in ("name", "target", "enforcement", "conditions", "rules")
         }
         body["conditions"] = main_scope
+        body["rules"] = desired_rules
         body["bypass_actors"] = bypass
         _write(queue_endpoint, body, "PUT")
     if checks.get("strict") is not False:
@@ -774,25 +1016,80 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
+def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
+    """Repair response ceilings without changing membership or merge protections."""
+    from prepared_branch_governance import _write, queue_rules
+
+    index = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
+    if not isinstance(index, list) or len(index) >= 100:
+        raise SystemExit("Queue ruleset inventory is incomplete")
+    plans = []
+    for branch in ("main", "dev", "uat"):
+        name = (policy["main"]["merge_queue_ruleset_name"] if branch == "main" else
+                policy["branch_flow"]["prepared_branches"][branch]["merge_queue_ruleset_name"])
+        matches = [row for row in index if row.get("name") == name]
+        if len(matches) != 1:
+            raise SystemExit(f"Queue ruleset is ambiguous for {branch}")
+        endpoint = f"repos/{REPO}/rulesets/{matches[0]['id']}"
+        current = gh_json(["api", endpoint])
+        refs = current.get("conditions", {}).get("ref_name", {})
+        if (current.get("target") != "branch" or current.get("enforcement") != "active"
+                or refs != {"include": [f"refs/heads/{branch}"], "exclude": []}):
+            raise SystemExit(f"Queue scope differs for {branch}; inspect before repair")
+        desired = {key: current[key] for key in
+                   ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")}
+        desired["rules"] = queue_rules(policy, current["rules"])
+        plans.append((branch, endpoint, current, desired))
+    changed = False
+    for branch, endpoint, before, desired in plans:
+        differs = before["rules"] != desired["rules"]
+        changed |= differs
+        print(f"  {branch}: queue response ceiling change={differs}")
+        if apply and differs:
+            # Never replace another operator's intervening policy change.
+            if gh_json(["api", endpoint]) != before:
+                raise SystemExit("Queue changed before repair; no replacement performed")
+            _write(endpoint, desired, "PUT")
+            after = gh_json(["api", endpoint])
+            if any(after.get(key) != value for key, value in desired.items()):
+                raise SystemExit("Queue repair readback differs; reconcile before retry")
+    return changed
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true",
                     help="Push changes to GitHub. Without this, runs dry (plan only).")
-    ap.add_argument("--branch", action="append", choices=("dev", "uat", "integration/pr-train"),
-                    help="Reconcile only this prepared branch; repeat for both. Does not create refs or deploy.")
+    ap.add_argument("--branch", action="append", choices=("dev", "uat", "uat-isolated", "integration/pr-train"),
+                    help="Reconcile only this prepared branch; repeat for multiple branches. Does not create refs or deploy.")
     ap.add_argument("--main-review-policy", action="store_true",
                     help="Migrate Main review authority after the queue has no bypass actors.")
     ap.add_argument("--main-merge-policy", action="store_true",
                     help="Reconcile Main merger/queue restrictions after combined-result qualification.")
+    ap.add_argument("--protected-pipeline-review-policy", action="store_true",
+                    help="Stage A: add independent native path review while retaining all existing safeguards.")
+    ap.add_argument("--queue-timeouts", action="store_true",
+                    help="Reconcile only Main/Dev/UAT queue response ceilings; preserve every other control.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
         raise SystemExit(f"Policy file not found: {POLICY_PATH}")
     policy = load_policy()
+    if args.queue_timeouts:
+        if args.branch or args.main_review_policy or args.main_merge_policy or args.protected_pipeline_review_policy:
+            raise SystemExit("Queue timeout repair cannot be combined with another governance operation")
+        reconcile_queue_timeouts(policy, apply=args.apply)
+        return 0
 
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
+
+    if args.protected_pipeline_review_policy:
+        if args.branch or args.main_review_policy or args.main_merge_policy:
+            raise SystemExit("Native protected review installation is a separate Stage A operation")
+        reconcile_protected_pipeline_review(policy, apply=args.apply)
+        return 0
 
     if args.main_review_policy:
         if args.branch or args.main_merge_policy:
@@ -809,7 +1106,7 @@ def main() -> int:
     if args.branch:
         from prepared_branch_governance import reconcile
 
-        reconcile(policy, args.branch, repo=REPO, read=gh_json, raw=gh, apply=args.apply)
+        reconcile(policy, args.branch, repo=REPO, read=gh_json, raw=gh, apply=args.apply, governance=sys.modules[__name__])
         print("Verify each selected branch with GITHUB_BRANCH=<branch> verify-main-branch-protection.sh.")
         return 0
 

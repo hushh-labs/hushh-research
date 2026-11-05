@@ -76,7 +76,17 @@ function isRegisteredContractInput(file) {
   // All authored route action contracts share the UI compiler owner. Keep
   // these as graph inputs (not exclusions), so their consumers are tested.
   return REGISTERED_CONTRACT_INPUTS.has(file) ||
-    /^app\/.+\/page\.voice-action-contract\.json$/.test(file);
+    /^app\/.+\/page\.voice-action-contract\.json$/.test(file) ||
+    /^components\/.+\/[^/]+\.voice-action-contract\.json$/.test(file);
+}
+
+function isTestFixtureInput(file) {
+  // Keep test helpers as related-test seeds: their importing tests still run.
+  // Unknown runtime JSON retains conservative diagnostic coverage.
+  return !isVitestFile(file) && (
+    /^__tests__\/.+\.[jt]sx?$/.test(file) ||
+    /^__tests__\/(?:.+\/)?fixtures\/.+\.json$/.test(file)
+  );
 }
 
 function isOtherOwnerFile(file) {
@@ -561,6 +571,7 @@ function dynamicImportRisk(repoRoot, changedFiles) {
   }
 
   const runtimeReachable = new Set();
+  const dynamicTriggers = new Set();
   const runtimeQueue = [...runtimeRoots];
   while (runtimeQueue.length > 0) {
     const repoPath = runtimeQueue.pop();
@@ -572,14 +583,17 @@ function dynamicImportRisk(repoRoot, changedFiles) {
     }
     for (const edge of node.edges) {
       if (edge.dynamic && edge.changed) {
-        return { reason: "dynamic_import_dependency", directTests: [] };
+        // A resolved dynamic edge has a bounded reverse graph just like a
+        // static import. Explicitly schedule its test owners; do not assume
+        // Vitest's related selection follows runtime import expressions.
+        dynamicTriggers.add(repoPath);
       }
       if (edge.source) runtimeQueue.push(edge.repoPath);
     }
   }
 
   const unitRootSet = new Set(unitRoots);
-  const triggers = new Set();
+  const triggers = new Set(dynamicTriggers);
   for (const [repoPath, node] of scan.nodes) {
     if (runtimeReachable.has(repoPath)) continue;
     if (node.unresolvedComputed || node.edges.some((edge) => edge.dynamic && edge.changed)) {
@@ -596,6 +610,20 @@ function dynamicImportRisk(repoRoot, changedFiles) {
     if (unitRootSet.has(repoPath)) directTests.add(relativeWebPath(repoPath));
     for (const parent of reverseEdges.get(repoPath) ?? []) ownerQueue.push(parent);
   }
+  // Ownerless runtime dynamic imports still need diagnostic coverage. A
+  // different owned import must not conceal an unowned changed edge.
+  for (const trigger of dynamicTriggers) {
+    const pending = [trigger], visited = new Set();
+    let owned = false;
+    while (pending.length > 0) {
+      const current = pending.pop();
+      if (visited.has(current)) continue;
+      visited.add(current);
+      if (unitRootSet.has(current)) owned = true;
+      for (const parent of reverseEdges.get(current) ?? []) pending.push(parent);
+    }
+    if (!owned) return { reason: "dynamic_import_dependency", directTests: [] };
+  }
   return { reason: null, directTests: [...directTests].sort() };
 }
 
@@ -609,7 +637,7 @@ function sourceRisk(repoRoot, files, level) {
       }
       continue;
     }
-    if (isRegisteredContractInput(file)) {
+    if (isRegisteredContractInput(file) || isTestFixtureInput(file)) {
       const fullPath = path.join(repoRoot, "hushh-webapp", file);
       if (!existsSync(fullPath) || !statSync(fullPath).isFile()) {
         return { reason: "missing_changed_source", directTests: [] };
@@ -623,7 +651,7 @@ function sourceRisk(repoRoot, files, level) {
     }
   }
   const sourceFiles = files.filter((file) =>
-    isRuntimeModule(file) || isRegisteredContractInput(file));
+    isRuntimeModule(file) || isRegisteredContractInput(file) || isTestFixtureInput(file));
   if (sourceFiles.length === 0) return { reason: null, directTests: [] };
   if (level === "focused" || level === "release") {
     return dynamicImportRisk(repoRoot, sourceFiles);
@@ -673,7 +701,7 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
     ...risk.directTests,
   ])].sort();
   const relatedFiles = unitFiles.filter(
-    (file) => isRuntimeModule(file) || isRegisteredContractInput(file),
+    (file) => isRuntimeModule(file) || isRegisteredContractInput(file) || isTestFixtureInput(file),
   );
   if (requestedLevel === "focused" && relatedFiles.length === 0 && directTests.length === 0) {
     return { ...base, changedFiles: changed.files, fallbackReason: "no_related_test_inputs" };
@@ -777,6 +805,7 @@ function executePlan(plan, {
   const excludes = plan.excludeFiles.flatMap((file) => ["--exclude", `**/${file}`]);
   let relatedTestsRan = false;
   let relatedTestFiles = [];
+  let failureStatus = 0;
   if (plan.relatedFiles.length > 0) {
     const tempDir = mkdtempSync(path.join(os.tmpdir(), "hushh-vitest-related-"));
     const reportPath = path.join(tempDir, "related.json");
@@ -789,9 +818,13 @@ function executePlan(plan, {
         ...excludes,
         ...plan.relatedFiles,
       ], { cwd: WEB_ROOT });
-      if (result.status !== 0) return result.status ?? 1;
+      // Continue after ordinary test failures so independently selected direct
+      // and release-core cases still report. Infrastructure/interruptions stop.
+      if (result.error || result.signal || ![0, 1].includes(result.status)) return result.status ?? 1;
+      failureStatus = result.status;
       const report = readRelatedReport(reportPath);
       if (!report?.hasTests) {
+        if (failureStatus) return failureStatus;
         console.log("Vitest related selected no test files; running the full diagnostic suite.");
         const full = runFullSuite({ maxWorkers, shard: "" });
         return full.status ?? 1;
@@ -818,9 +851,9 @@ function executePlan(plan, {
     const result = runVitestCommand([
       "run", "test:ci", "--", `--maxWorkers=${maxWorkers}`, ...selectedFiles,
     ], { cwd: WEB_ROOT });
-    return result.status ?? 1;
+    return failureStatus || (result.status ?? 1);
   }
-  if (relatedTestsRan) return 0;
+  if (relatedTestsRan) return failureStatus;
   console.log("Affected Vitest selection was empty; running the full diagnostic suite.");
   const full = runFullSuite({ maxWorkers, shard: "" });
   return full.status ?? 1;

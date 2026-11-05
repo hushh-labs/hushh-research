@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextvars import ContextVar
 from pathlib import Path
+import os
 import subprocess
+import sys
 from typing import Any
 
 DIAGNOSTIC_STAGES = frozenset(
@@ -117,7 +119,26 @@ def reconcile_pending(operation: Callable[..., Any], repository: str, args: Any)
 
 
 def checkpoint_guard(operation: Callable[..., Any], repository: str, args: Any) -> Any:
-    return run_stage("publication_guard", operation, repository, args.environment)
+    try:
+        return run_stage("publication_guard", operation, repository, args.environment)
+    except Exception as error:
+        # Keep the transcript used by historical custody proofs unchanged.
+        # Fixed summary codes expose the cause without provider/error payloads.
+        codes = {
+            "Maintenance exited without publishing its checkpoint; operator reconciliation required": "checkpoint_unpublished",
+            "Maintenance publication proof is unavailable or invalid": "publication_unverified",
+            "production source ancestry is not bounded and exact": "source_ancestry_unproved",
+            "capacity clock source tuple has no unique approved profile for its workflow family": "source_profile_unapproved",
+        }
+        code = codes.get(str(error))
+        summary = os.getenv("GITHUB_STEP_SUMMARY")
+        if code and summary:
+            try:
+                with Path(summary).open("a") as stream:
+                    stream.write(f"\nMaintenance stopped before mutation: `{code}`.\n")
+            except OSError:
+                print("Maintenance diagnostic summary unavailable.", file=sys.stderr)
+        raise
 
 
 def restore_checkpoint(

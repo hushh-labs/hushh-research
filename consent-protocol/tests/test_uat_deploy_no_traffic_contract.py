@@ -663,6 +663,7 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         "contents": "read",
         "checks": "read",
         "deployments": "read",
+        "pull-requests": "read",
         "actions": "read",
     }
     assert wait["needs"] == ["select-target", "deployment-security"]
@@ -673,7 +674,7 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
     assert deploy["environment"] == "uat"
 
     resolver = next(step for step in selection["steps"] if step.get("id") == "resolve-sha")
-    assert "--allow-no-op" in resolver["run"]
+    assert "--allow-no-op --no-op-only" in resolver["run"]
     assert "continue-on-error" not in resolver
     summary = next(
         step for step in selection["steps"] if step["name"] == "Summarize unchanged UAT target"
@@ -687,7 +688,9 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
         for step in deploy["steps"]
         if step["name"] == "Validate deployment SHA in selected protected history"
     )
-    assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
+    assert validator["env"]["REQUIRE_CI_SUCCESS"] == (
+        "${{ inputs.source_branch == 'uat-isolated' && '0' || '1' }}"
+    )
     assert (
         validator["env"]["REQUIRED_BRANCH"] == "${{ steps.application-authority.outputs.branch }}"
     )

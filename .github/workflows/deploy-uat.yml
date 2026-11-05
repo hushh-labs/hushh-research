@@ -1,5 +1,5 @@
 name: Deploy to UAT
-run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
+run-name: UAT · app ${{ inputs.sha || 'unselected' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
 
 on:
   workflow_dispatch:
@@ -32,6 +32,21 @@ on:
           - frontend
       sha:
         description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
+        required: false
+        type: string
+      source_branch:
+        description: "Protected application branch"
+        type: choice
+        default: uat
+        options:
+          - uat
+          - uat-isolated
+      verify_candidate_before_promotion:
+        description: "Require candidate health and text recovery before changing UAT traffic"
+        default: false
+        type: boolean
+      approved_scope:
+        description: "Required for deploy: approved release PR and full SHAs (BACKEND:FRONTEND:PR=HEAD[,PR=HEAD])"
         required: false
         type: string
       ci_run_id:
@@ -99,6 +114,7 @@ on:
 permissions:
   contents: write
   deployments: read
+  pull-requests: read
   checks: read
   actions: write
   id-token: write
@@ -112,6 +128,9 @@ jobs:
       target: ${{ inputs.target }}
       scope: ${{ inputs.scope }}
       sha: ${{ inputs.sha }}
+      source_branch: ${{ inputs.source_branch }}
+      verify_candidate_before_promotion: ${{ inputs.verify_candidate_before_promotion }}
+      approved_scope: ${{ inputs.approved_scope }}
       ci_run_id: ${{ inputs.ci_run_id }}
       ci_run_attempt: ${{ inputs.ci_run_attempt }}
       ci_base_sha: ${{ inputs.ci_base_sha }}
