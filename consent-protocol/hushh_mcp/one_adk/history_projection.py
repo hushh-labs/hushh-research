@@ -207,6 +207,8 @@ _ACTIVITY_TOOLS = frozenset(
         "calendar_events",
         "calendar_availability",
         "calendar_free_slots",
+        "calendar_shared_free_slots",
+        "calendar_opening_detail",
         "propose_calendar_event",
         "propose_calendar_reschedule",
         "propose_calendar_cancellation",

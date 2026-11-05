@@ -41,6 +41,10 @@ from google.genai import types as genai_types
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.adk_bridge.dispatch import dispatch
+from hushh_mcp.agents.calendar.opening_tools import (
+    calendar_opening_detail,
+    calendar_shared_free_slots,
+)
 from hushh_mcp.agents.calendar.tools import (
     calendar_availability,
     calendar_calendars,
@@ -844,8 +848,11 @@ def _one_runtime_instruction(context: Any) -> str:
     started_at = time.perf_counter()
     try:
         state_getter = getattr(getattr(context, "state", None), "get", None)
+        from hushh_mcp.agents.calendar.read_projection import turn_clock
+
         return (
             _compose_one_runtime_instruction(context)
+            + str(turn_clock(context))
             + follow_up_instruction(state_getter)
             + reaction_instruction(state_getter)
         )
@@ -2573,6 +2580,8 @@ def _one_roster_tools(
         calendar_event_detail,
         calendar_availability,
         calendar_free_slots,
+        calendar_shared_free_slots,
+        calendar_opening_detail,
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,
@@ -2721,6 +2730,7 @@ def build_one_text_agent(
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     google_search_model = search_model_for_text_head(text_model, google_search_model)
+    from hushh_mcp.agents.calendar.guest_clarification import guest_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
 
@@ -2756,6 +2766,7 @@ def build_one_text_agent(
             finance_before_model,
             receipt_before_model,
             document_period_before_model,
+            guest_before_model,
             timed_one_before_model,
             club_queued_input,
         ],

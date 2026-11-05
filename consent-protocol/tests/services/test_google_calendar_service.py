@@ -685,11 +685,19 @@ def test_find_openings_merges_overlapping_busy_intervals(
             "available_until": "2026-08-11T05:30:00Z",
         },
         {
+            "start_at": "2026-08-11T05:00:00Z",
+            "end_at": "2026-08-11T05:30:00Z",
+            "available_until": "2026-08-11T05:30:00Z",
+        },
+        {
             "start_at": "2026-08-11T06:30:00Z",
             "end_at": "2026-08-11T07:00:00Z",
             "available_until": "2026-08-11T09:30:00Z",
         },
     ]
+
+    assert result["available_slot_count"] == 8
+    assert result["suggestion_limit"] == 3 and result["suggestions_limited"] is True
 
 
 def test_calendar_execute_rejects_conflicts_that_changed_after_review(

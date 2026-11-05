@@ -1,6 +1,6 @@
 # One Calendar Knowledge Graph
 
-Status: current-code graph updated by the second read-reliability audit on 2026-10-09; release evidence is tracked in the implementation plan. This graph describes the owner's Google Calendar connection and One surfaces. It is context for people and agents, not a permission grant or alternate runtime router. The [Email graph](./one-email-knowledge-graph.md) describes the parallel Gmail boundary. The [implementation plan](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md) tracks repairs and remaining scope.
+Status: current-code graph, including cross-account Chat availability source qualification on 2026-11-04. Live Google and deployed acceptance remain separate. This graph describes the owner's Google Calendar connection and One surfaces. It is context for people and agents, not a permission grant or alternate runtime router. The [Email graph](./one-email-knowledge-graph.md) describes the parallel Gmail boundary. The [implementation plan](../../superpowers/plans/2026-10-09-one-email-calendar-read-voice-plan.md) tracks repairs and remaining scope.
 
 ## Visual Map
 
@@ -139,6 +139,45 @@ not a claim about provider latency or live speech interpretation.
 
 - Schedule compares absolute event instants for Happening now and Ended. Displaying another timezone does not change those states; Ended describes elapsed scheduled time, not verified attendance.
 
+
+## Cross-account free time in Chat
+
+`calendar_shared_free_slots` uses the Account Board's availability-only service:
+the same included-calendar policy, per-account free/busy calculation and shared
+intersection, without event-detail or portrait scans. It checks all one-to-three
+verified identities for a requested civil date, timezone and 15/30/60-minute
+duration. Missing details require clarification. Failed or unreadable coverage
+returns no shared openings; it never means the account is free. The bounded
+result contains one exact-duration candidate per fitting free interval, with
+one-based ordinals. It does not establish any guest's availability.
+
+The existing encrypted ADK opening-offer key holds owner/chat identity, original
+creation time, exact UTC intervals, zone, and every account's full opaque grant
+and selected calendars. Grants never enter the model response or public state.
+Refresh restores the original five-minute lookup expiry. `calendar_opening_detail`
+shows a saved option without proposing or executing anything. A later booking
+uses `propose_calendar_event(slot_ordinal=...)`; multiple accounts require an
+explicit verified hosting account, never a primary-account fallback. The existing
+Board booking authority compares all original grants and calendar coverage and
+rechecks availability before issuing review and before confirmed dispatch.
+Changing the caller's timezone cannot move the selected slot.
+
+A valid lookup is consumed when preparing a proposal. The existing proposal's
+advertised ten-minute expiry then controls confirmation, with live authority and
+availability rechecks. No new preference, reminder, scanner, PKM record or action
+store is introduced. Shared cross-account inventory is unavailable through
+owner-cloud/data-door ports; existing single-account owner-local reads remain.
+Both new reads use the existing external-content barrier, durable-history
+redaction and content-free tool timing.
+
+`tests/agents/test_calendar_shared_opening_tools.py` covers reference substitution,
+account ambiguity, reconnect races, changed coverage, busy slots, timezone/DST,
+and confirmed execution. `tests/services/test_calendar_chat_availability_postgres.py`
+uses actual OAuth account/grant storage, encrypted ADK session recovery and SQL
+proposal claims in an attested disposable PostgreSQL service. Only Google HTTP
+and unrelated product-value receipt ports are synthetic. These prove source
+contracts, not live model routing or deployed Google acceptance. UAT remains
+unverified; release blockers do not block this independent source qualification.
 
 ## Decline email and exact proposed times
 

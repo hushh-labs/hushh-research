@@ -758,6 +758,16 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Finding free time on your calendar.",
     activity: "Finding free time",
   },
+  calendar_shared_free_slots: {
+    label: "Google Calendar",
+    message: "Checking free time across your Calendar accounts.",
+    activity: "Finding shared free time",
+  },
+  calendar_opening_detail: {
+    label: "Google Calendar",
+    message: "Reading a saved free-time option.",
+    activity: "Showing a free-time option",
+  },
   propose_calendar_event: {
     label: "Google Calendar",
     message: "Preparing an event for your confirmation.",

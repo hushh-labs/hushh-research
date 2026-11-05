@@ -2722,12 +2722,67 @@ requires its existing sending grant to prove the same Google subject as the
 selected Calendar grant. A different sender requires a new matching-account
 review; Calendar never changes Mail's selected account automatically.
 
+Before Calendar provider reads, the existing Calendar manifest independently
+assesses authenticated current-turn messages through a tool-free, history-free
+call on the owner's admitted model. Its exact-quote-validated action ceiling is
+bound to owner, conversation, invocation and message digest. Read-only, ambiguous,
+failed or expired assessments authorize no booking or invitation review; proposal
+tools enforce this before staging, account lookup or manage-permission controls.
+This ceiling does not grant OAuth access or replace explicit browser confirmation.
+Provider content and earlier assistant messages cannot widen it. The private
+receipt is omitted from public and durable session projections. Create,
+reschedule and cancellation converge at `_propose`; non-view invitation decisions
+check `respond` before source/account lookup. Shared Agent Chat, private pod Chat,
+private text turns and `AgentChatService.stream_one_turn` use the same One head.
+Read-only rejection leaves successful read results available for the answer;
+existing post-read restrictions remain. Read offers and context-only slot/email
+attachments establish source identity, never booking authority.
+
+An explicit booking that needs a guest uses the existing proposal tool's
+`clarification="guests"` mode before asking. This mode stages no proposal. Its
+typed pending question lives privately in the existing owner-encrypted ADK
+session for five minutes, bound to owner, app, conversation, session, originating
+invocation, authenticated message digest and exact account/grant. Only the next
+authenticated reply may complete that create review, after the same model assesses
+both owner messages. Read-only, unrelated, expired or source-changed replies fail
+closed; prose questions, provider text and attachments cannot mint this context.
+Reasking does not renew expiry, and the issuing turn cannot bypass its question.
+The root model receives request-only bounded origin words, ISO clock, local dates
+and separate requested/browser zones after restoration; the new turn's clock is
+unchanged. Grant binding stays pinned through review staging, and normal explicit
+confirmation still precedes execution. Stateless text turns cannot recover this
+authority from browser-carried history and require the booking to be restated.
+Expiry or grant loss yields one specific recovery explanation. The content-free,
+invocation-bound recovery hint stays private and grants no authority; retries do
+not repeat grant lookups. Complete requests go directly to review, and personal
+blocks require no guest. Only genuinely missing or ambiguous details need one
+grouped question; verified details are retained.
+
+Calendar event reads expose additive `local_start_at`/`local_end_at` fields in
+`display_time_zone`, preserving provider instants and all-day dates. Explicit
+`time_zone` on summary, events, event detail, busy intervals, windows and invitation
+reads/reviews overrides the current turn's display zone. Slot detail defaults to
+its saved offer zone; an explicit redisplay does not alter the private reference.
+The projection covers local and data-door reads, opening details and busy intervals.
+Relative
+dates use one server-captured user-turn timestamp, retained across regional
+failover, independently of Mail admission; explicit dates stay unchanged.
+
 `calendar_free_slots` retains completed openings in the existing encrypted ADK
 session as a private five-minute offer. It records the selected account,
 destination, exact checked calendar coverage, query window, elapsed duration,
 canonical IANA zone and ordered UTC intervals. Current typed opening searches
-check that account's primary calendar only; they do not claim invitee or
-all-account coverage. `propose_calendar_event(slot_ordinal=...)` resolves a
+check that account's Board-included subscribed calendars and expand each free
+interval into duration-sized, non-overlapping options. `coverage_complete`
+describes successful provider coverage; `suggestion_limit`, `suggestions_limited`
+and `available_slot_count` separately describe bounded options. Unreadable included
+calendars yield no verified suggestions. These are neither invitee nor all-account
+checks. One pure `opening_options` calculation also expands legacy/Voice service
+openings, batched invitation/date availability and all-account Chat suggestions.
+Board free windows remain continuous intervals; their intersections compare
+absolute instants, including fractional seconds. Shared suggestions expose
+`future_only=true`; no future options is not proof a past interval was busy.
+`propose_calendar_event(slot_ordinal=...)` resolves a
 one-based choice from this offer and rejects replacement times or a different
 target. Session recovery retains the original creation time, without renewing
 expiry. Failed or empty replacement searches retire previous offers. Public

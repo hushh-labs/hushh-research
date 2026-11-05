@@ -1019,6 +1019,7 @@ class GoogleCalendarService:
         duration_minutes: int,
         limit: int = 3,
         calendar_ids: list[str] | None = None,
+        include_subscribed_calendars: bool = False,
         expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return the earliest free slots of a requested duration.
@@ -1048,6 +1049,17 @@ class GoogleCalendarService:
                 "Choose between one and twenty Calendar openings", status_code=422
             )
 
+        if include_subscribed_calendars:
+            from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+            return await CalendarScheduleService(calendar=self).openings_in_window(
+                user_id=user_id,
+                start_at=start_at,
+                end_at=end_at,
+                duration_minutes=duration,
+                limit=max_slots,
+                expected_binding=expected_binding,
+            )
         availability = await self.freebusy(
             user_id=user_id,
             start_at=start_at,
@@ -1062,30 +1074,20 @@ class GoogleCalendarService:
             range_start=range_start,
             range_end=range_end,
         )
-        minimum = timedelta(minutes=duration)
-        openings: list[dict[str, str]] = []
-        cursor = range_start
-        for busy_start, busy_end in [*busy, (range_end, range_end)]:
-            if busy_start - cursor >= minimum:
-                opening_end = cursor + minimum
-                openings.append(
-                    {
-                        "start_at": self._utc_iso(cursor),
-                        "end_at": self._utc_iso(opening_end),
-                        "available_until": self._utc_iso(busy_start),
-                    }
-                )
-                if len(openings) == max_slots:
-                    break
-            if busy_end > cursor:
-                cursor = busy_end
+        from hushh_mcp.services.calendar_opening_selection import opening_options
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
 
         return {
             "time_min": availability["time_min"],
             "time_max": availability["time_max"],
             "time_zone": availability.get("time_zone"),
             "duration_minutes": duration,
-            "openings": openings,
+            "coverage_complete": True,
+            **opening_options(
+                CalendarScheduleService._free_gaps(range_start, range_end, busy),
+                duration,
+                max_slots,
+            ),
         }
 
     @classmethod
@@ -1281,7 +1283,11 @@ class GoogleCalendarService:
             plan["current_event"] = self._event_summary(event)
             if action == "reschedule":
                 self._stage_reschedule(plan, event)
-        if action in {"create", "reschedule"} and plan.get("booking_source") != "board":
+        if (
+            action in {"create", "reschedule"}
+            and plan.get("booking_source") != "board"
+            and not plan.get("shared_opening_selection")
+        ):
             plan["conflicts"] = await self._find_conflicts(
                 user_id=user_id,
                 start_at=plan["start_at"],
@@ -1301,7 +1307,7 @@ class GoogleCalendarService:
                 )
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
-        if plan.get("opening_selection"):
+        if plan.get("opening_selection") or plan.get("shared_opening_selection"):
             await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
             if plan.get("conflicts"):
                 raise GoogleConnectionError(
@@ -1534,7 +1540,7 @@ class GoogleCalendarService:
                     ),
                 )
             if action == "create":
-                if plan.get("opening_selection"):
+                if plan.get("opening_selection") or plan.get("shared_opening_selection"):
                     await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
                 response = await booking.execute_create(
                     self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
