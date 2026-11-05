@@ -29,6 +29,8 @@ export interface ButtonProps
     MorphyButtonBaseProps {
   asChild?: boolean;
   size?: MorphyButtonSize;
+  /** Keep press feedback without painting a hover state layer. */
+  disableHoverRipple?: boolean;
   icon?: {
     icon: React.ComponentType<{ className?: string; weight?: IconWeight }>;
     title?: string;
@@ -75,6 +77,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size = "default",
       asChild = false,
       showRipple = true,
+      disableHoverRipple = false,
       icon,
       fullWidth,
       loading = false,
@@ -154,6 +157,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           <MaterialRipple
             variant={variant}
             effect={effect}
+            disableHover={disableHoverRipple}
             disabled={isDisabled}
             className="z-10"
           />

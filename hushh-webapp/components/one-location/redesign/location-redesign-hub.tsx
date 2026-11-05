@@ -3578,6 +3578,7 @@ export function PersonRow({
               effect="fade"
               size="compact"
               onClick={shareReady ? onShare : onShareUnavailable}
+              disableHoverRipple
               disabled={!shareReady && !onShareUnavailable}
               aria-haspopup={!shareReady && onShareUnavailable ? "dialog" : undefined}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
@@ -3599,6 +3600,7 @@ export function PersonRow({
               size="compact"
               onClick={onAsk}
               className={LOCATION_PEOPLE_ACTION_TARGET_CLASSNAME}
+              disableHoverRipple
               aria-label={`Ask ${name} for their location`}
             >
               <span data-location-type-role="compact-action"
