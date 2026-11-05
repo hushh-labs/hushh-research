@@ -281,11 +281,12 @@ def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
             )
             if key != secret_name
         )
-        or not 1 <= len(allowed) <= 100
-        or any(len(uid) > 128 for uid in allowed)
+        or (environment == "dev" and not 1 <= len(allowed) <= 100)
+        or (environment == "dev" and any(len(uid) > 128 for uid in allowed))
     ):
         raise HTTPException(404, "Own activity export unavailable", headers=NO_STORE)
-    return secret, allowed
+    # None is UAT's registered-owner admission, not an unbounded snapshot grant.
+    return secret, None if environment == "uat" else allowed
 
 
 def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
@@ -334,7 +335,7 @@ async def _check_owner_permission(
     )
     try:
         payload = OwnerReadCheck.model_validate_json(body)
-        if payload.accountId not in allowed:
+        if allowed is not None and payload.accountId not in allowed:
             raise ValueError("Outside UAT cohort")
         result = await asyncio.wait_for(
             owner_read_authority(
@@ -383,7 +384,7 @@ async def _export_owner_snapshot(
     try:
         payload = OwnerSnapshotRequest.model_validate_json(body)
         account = payload.accounts[0]
-        if account.accountId not in allowed:
+        if allowed is not None and account.accountId not in allowed:
             raise ValueError("Invalid UAT evidence scope")
         check = (account.accountId, account.emailHash, account.ownerEpoch)
         before = await owner_read_authority(*check, environment=environment)
@@ -398,7 +399,9 @@ async def _export_owner_snapshot(
             ],
         )
         result = await asyncio.wait_for(
-            snapshot(projection, allowed, datetime.now(timezone.utc), environment=environment),
+            snapshot(
+                projection, {account.accountId}, datetime.now(timezone.utc), environment=environment
+            ),
             timeout=25,
         )
         after = await owner_read_authority(*check, environment=environment)

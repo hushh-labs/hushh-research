@@ -311,12 +311,15 @@ def summarize_attempts(
     }
 
 
+def _identity_matches(identity: dict, query: str) -> bool:
+    return not query or any(
+        query in str(identity.get(k) or "").casefold() for k in ("name", "email", "phoneNumber")
+    )
+
+
 def _matches(row: dict, request: AudienceRequest) -> bool:
     identity, activity = row["identity"], row["activity"]
-    query = request.query.strip().casefold()
-    if query and not any(
-        query in str(identity.get(k) or "").casefold() for k in ("name", "email", "phoneNumber")
-    ):
+    if not _identity_matches(identity, request.query.strip().casefold()):
         return False
     if request.segment == "all":
         return True
@@ -367,7 +370,18 @@ async def _registered_customers(conn, eligible, policy):
 async def _audience_rows(conn, eligible, active, identities, phones, request, at):
     result = []
     since = at - timedelta(days=7)
-    ids = sorted(active)
+    query = request.query.strip().casefold()
+    matched = {}
+    for uid in eligible:
+        if uid in active:
+            identity = _identity(eligible[uid], identities.get(uid), phones.get(uid))
+            if _identity_matches(identity, query):
+                matched[uid] = identity
+    # Search canonical identity before reading seven days of activity/value
+    # ledgers. Traversal counts/cursors still describe the original source page.
+    if not matched:
+        return []
+    ids = sorted(matched)
     epochs = {
         r["user_id"]: r
         for r in await conn.fetch(
@@ -394,12 +408,12 @@ async def _audience_rows(conn, eligible, active, identities, phones, request, at
     }
     verified = await value_summaries(conn, ids, request.agentId, since, at)
     for uid in eligible:
-        if uid not in active:
+        if uid not in matched:
             continue
         row = {
             "accountId": uid,
             "agentId": request.agentId,
-            "identity": _identity(eligible[uid], identities.get(uid), phones.get(uid)),
+            "identity": matched[uid],
             "activity": summarize_attempts(
                 [r for r in observations if r["user_id"] == uid],
                 agent_id=request.agentId,

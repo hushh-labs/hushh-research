@@ -16,6 +16,19 @@ PHASES = frozenset({"started", "returned", "failed", "cancelled", "blocked"})
 DAILY_LIMIT = 500
 
 
+def registered_uat_enabled() -> bool:
+    """UAT enrollment follows registered identity, not a manually maintained cohort."""
+    from api.utils.firebase_auth import current_auth_lane
+
+    return (
+        current_auth_lane() == "uat"
+        and os.getenv("GOOGLE_CLOUD_PROJECT") == "hushh-pda-uat"
+        and os.getenv("ONE_PLG_ACTIVITY_ENABLED") == "true"
+        and os.getenv("ONE_PLG_ACTIVITY_UAT_ENABLED") == "true"
+        and os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") != "true"
+    )
+
+
 def _registered_profile(conn, user_id: str) -> bool:
     """A UID or anonymous auth spine alone never admits expanded collection.
 
@@ -23,7 +36,7 @@ def _registered_profile(conn, user_id: str) -> bool:
     accounts remain visible in the audience directory, with no activity baseline
     until normal identity warmup has recorded a registered contact.
     """
-    if os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") != "true":
+    if os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") != "true" and not registered_uat_enabled():
         return True
     return bool(
         conn.execute(
@@ -45,9 +58,12 @@ def enabled_for(user_id: str) -> bool:
     from api.utils.firebase_auth import current_auth_lane
 
     lane = current_auth_lane()
-    if lane in {"dev", "uat"}:
-        # Each nonproduction lane is a separate, explicitly enrolled cohort. Never reuse the
-        # production export allowlist or the all-registered collection flag.
+    if lane == "uat":
+        # The lifecycle-locked identity check in admission/observe still rejects
+        # anonymous identities. This switch grants neither reads nor email delivery.
+        return registered_uat_enabled()
+    if lane == "dev":
+        # Dev retains its explicit cohort. Never reuse production enrollment.
         allowed = {
             uid.strip()
             for uid in os.getenv(f"ONE_PLG_ACTIVITY_{lane.upper()}_ACCOUNT_IDS", "").split(",")

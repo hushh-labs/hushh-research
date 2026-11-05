@@ -312,6 +312,14 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             )
         monkeypatch.setenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", "true")
         assert activity.admission("other") is None
+        with monkeypatch.context() as uat_patch:
+            uat_patch.setenv("ENVIRONMENT", "uat")
+            uat_patch.delenv("APP_RUNTIME_PROFILE", raising=False)
+            uat_patch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+            uat_patch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+            uat_patch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+            uat_patch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")
+            assert activity.admission("other") is None
         assert not activity.observe(
             "other",
             other_generation,
@@ -326,6 +334,8 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             )
         assert activity.admission("other") is not None
         monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")
+        with monkeypatch.context() as uat_patch:
+            asyncio.run(_assert_registered_uat_owner_lookup(url.set(database=database), uat_patch))
         assert values._calendar_receipt("owner", "proposal", "before-account-deletion", current)
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM actor_profiles WHERE user_id='owner'"))
@@ -367,6 +377,64 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             conn.exec_driver_sql(f'DROP DATABASE "{database}"')
             conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{browser_role}"')
         admin.dispose()
+
+
+async def _assert_registered_uat_owner_lookup(url, monkeypatch):
+    import asyncpg
+
+    from hushh_mcp.services import plg_evidence as evidence
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+    pool = await asyncpg.create_pool(
+        url.set(drivername="postgresql").render_as_string(hide_password=False),
+        min_size=1,
+        max_size=2,
+    )
+    current_email = "registered@hushhtech.com"
+    requested_hash = marketing._email_hash(current_email)
+
+    async def get_pool():
+        return pool
+
+    async def verified(uid):
+        assert uid == "other"
+        return {"email": current_email, "email_hash": marketing._email_hash(current_email)}
+
+    monkeypatch.setattr(evidence, "get_pool", get_pool)
+    monkeypatch.setattr(marketing, "verified_recipient", verified)
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE actor_identity_cache SET email=$1 WHERE user_id='other'",
+                " Registered@hushhtech.com ",
+            )
+        scope = await evidence.session_owner_scope(None, requested_hash, datetime.now(timezone.utc))
+        assert (
+            scope and scope["accountId"] == "other" and scope["readAuthority"] == "verified_owner"
+        )
+        current_email = "changed@hushhtech.com"
+        assert (
+            await evidence.session_owner_scope(None, requested_hash, datetime.now(timezone.utc))
+            is None
+        )
+        current_email = "registered@hushhtech.com"
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO actor_identity_cache(user_id,email) VALUES('duplicate-alias',$1)",
+                current_email,
+            )
+        assert (
+            await evidence.session_owner_scope(None, requested_hash, datetime.now(timezone.utc))
+            is None
+        )
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM actor_identity_cache WHERE user_id='duplicate-alias'")
+    finally:
+        await pool.close()
 
 
 async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
@@ -461,6 +529,13 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
         jobs = await emails.pending()
         assert len(jobs) == 1
         delivery = UUID(jobs[0]["id"])
+        monkeypatch.setattr(emails, "allowed_accounts", lambda: set())
+        assert await emails.pending() == []
+        assert await emails.claim(owner, delivery, uuid4()) is None
+        # All-UAT admission still uses the same durable preference, claim,
+        # duplicate, revocation and uncertain-submission checks below.
+        monkeypatch.setattr(emails, "allowed_accounts", lambda: None)
+        assert await emails.pending() == jobs
         claims = await asyncio.gather(*(emails.claim(owner, delivery, uuid4()) for _ in range(2)))
         assert sum(item is not None for item in claims) == 1
         claim = next(item for item in claims if item)

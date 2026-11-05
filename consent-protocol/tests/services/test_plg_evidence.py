@@ -126,6 +126,9 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     monkeypatch.setenv("ENVIRONMENT", "uat")
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+    monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
     assert call().status_code == 401
     assert call(purpose="attempt-emails.uat.pull").status_code == 200
     body = {"id": str(uuid.uuid4()), "claimId": str(uuid.uuid4()), "accountId": "owner"}
@@ -144,6 +147,8 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
     monkeypatch.delenv("ONE_PLG_AUDIENCE_SECRET")
     monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "")
+    assert call(purpose="attempt-emails.uat.pull").status_code == 200
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ENABLED", "false")
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
     # Stopping enrollment does not discard acknowledgements or bounce evidence.
     ack = AsyncMock(return_value=True)
@@ -186,6 +191,7 @@ def test_attempt_worker_requires_distinct_key_project_lane_purpose_and_closed_bo
         "complete"
     ]
     monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS", "owner")
+    monkeypatch.setenv("ONE_PLG_ATTEMPT_EMAIL_ENABLED", "true")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-dev")
     # A historical Dev revision labelled UAT cannot borrow UAT authority.
     assert call(purpose="attempt-emails.uat.pull").status_code == 404
@@ -531,7 +537,8 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(
     )
     assert owner_response.status_code == 200
     assert owner_response.json()["deliveryAuthorized"] is False
-    assert owner_scope.await_args.args[:2] == ({ACCOUNT["accountId"], "team-owner"}, "a" * 64)
+    cohort = None if environment == "uat" else {ACCOUNT["accountId"], "team-owner"}
+    assert owner_scope.await_args.args[:2] == (cohort, "a" * 64)
     assert (
         post(
             client,
@@ -560,18 +567,23 @@ def test_uat_snapshot_is_separately_signed_scoped_and_never_customer_reporting(
         ).status_code
         == 400
     )
+    # A valid signature cannot substitute for this owner's current authority.
+    authority.return_value = {"allowed": False, "erased": False, "ownerEpoch": None}
+    projection.reset_mock()
     assert (
         call(
             purpose=f"snapshot-{environment}",
             secret=uat_secret,
-            payload={
-                "version": 2,
-                "customerReporting": False,
-                "accounts": [{**scoped_account, "accountId": "other"}],
-            },
+            payload={**payload, "accounts": [{**scoped_account, "accountId": "other"}]},
         ).status_code
         == 400
     )
+    projection.assert_not_awaited()
+    authority.return_value = {"allowed": True, "erased": False, "ownerEpoch": epoch}
+    if environment == "uat":
+        monkeypatch.delenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS")
+        assert call(purpose="snapshot-uat", secret=uat_secret).status_code == 200
+        assert projection.await_args.args[1] == {ACCOUNT["accountId"]}
     authority.side_effect = [
         {"allowed": True, "erased": False, "ownerEpoch": epoch},
         {"allowed": False, "erased": False, "ownerEpoch": None},
@@ -645,6 +657,62 @@ async def test_uat_team_resolution_rejects_ambiguous_stale_or_unenrolled_owner(m
     barrier.reset_mock()
     await evidence.session_owner_scope({f"owner-{i:03}" for i in range(100)}, email_hash, NOW)
     assert [len(call.kwargs["user_ids"]) for call in barrier.await_args_list] == [50, 50]
+
+
+@pytest.mark.asyncio
+async def test_registered_uat_session_lookup_rechecks_current_owner_and_rejects_ambiguity(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+    monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", raising=False)
+    email_hash = hashlib.sha256(b"member@hushhtech.com").hexdigest()
+    rows = [{"user_id": "not-in-a-tester-list"}]
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            pass
+
+        async def fetch(self, sql, requested_hash, **kwargs):
+            assert requested_hash == email_hash and kwargs["timeout"] == 5
+            assert "LIMIT 2" in sql and "SELECT user_id FROM actor_identity_cache" in sql
+            return rows
+
+    class Pool:
+        def acquire(self, **_):
+            return Connection()
+
+    pool = AsyncMock(return_value=Pool())
+    current = AsyncMock(return_value={"accountId": rows[0]["user_id"], "emailHash": email_hash})
+    monkeypatch.setattr(evidence, "get_pool", pool)
+    monkeypatch.setattr(evidence, "owner_scope", current)
+    assert (await evidence.session_owner_scope(None, email_hash, NOW))["accountId"] == rows[0][
+        "user_id"
+    ]
+    current.assert_awaited_once_with(rows[0]["user_id"], NOW, environment="uat")
+    for unavailable in (None, {"accountId": rows[0]["user_id"], "emailHash": "a" * 64}):
+        current.return_value = unavailable
+        assert await evidence.session_owner_scope(None, email_hash, NOW) is None
+    current.reset_mock()
+    rows.append({"user_id": "same-email-alias"})
+    assert await evidence.session_owner_scope(None, email_hash, NOW) is None
+    rows.clear()
+    assert await evidence.session_owner_scope(None, email_hash, NOW) is None
+    current.assert_not_awaited()
+    pool.reset_mock()
+    for environment in ("dev", "production"):
+        with pytest.raises(ValueError):
+            await evidence.session_owner_scope(None, email_hash, NOW, environment=environment)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
+    with pytest.raises(ValueError):
+        await evidence.session_owner_scope(None, email_hash, NOW)
+    pool.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1331,6 +1399,51 @@ def test_audience_requires_separate_purpose_key_production_and_activation(client
     assert response.headers["cache-control"] == "private, no-store"
 
 
+@pytest.mark.asyncio
+async def test_audience_search_filters_current_identity_before_loading_activity(monkeypatch):
+    eligible = {
+        uid: SimpleNamespace(
+            uid=uid,
+            display_name="Target old alias",
+            email="target-old@example.test",
+            email_verified=True,
+            provider_data=[],
+        )
+        for uid in ("match", "cleared-alias", "inactive")
+    }
+    identities = {
+        "match": {"display_name": "Target Member", "email": "member@example.test"},
+        "cleared-alias": {"display_name": None, "email": None},
+        "inactive": {"display_name": "Target Inactive"},
+    }
+    conn = SimpleNamespace(fetch=AsyncMock(return_value=[]))
+    summaries = AsyncMock(return_value={"match": {"count": 0}})
+    monkeypatch.setattr(audience, "value_summaries", summaries)
+    request = audience.AudienceRequest(query=" TARGET ")
+    rows = await audience._audience_rows(
+        conn, eligible, {"match", "cleared-alias"}, identities, {}, request, NOW
+    )
+    assert [row["accountId"] for row in rows] == ["match"]
+    assert all(call.args[1] == ["match"] for call in conn.fetch.await_args_list)
+    assert summaries.await_args.args[1] == ["match"]
+    conn.fetch.reset_mock()
+    summaries.reset_mock()
+    assert (
+        await audience._audience_rows(
+            conn,
+            eligible,
+            {"match", "cleared-alias"},
+            identities,
+            {},
+            request.model_copy(update={"query": "no match"}),
+            NOW,
+        )
+        == []
+    )
+    conn.fetch.assert_not_awaited()
+    summaries.assert_not_awaited()
+
+
 def test_audience_cursor_binds_filters_window_project_and_signature():
     request = audience.AudienceRequest(agentId="agent_one", query="Test", graceMinutes=60)
     cursor = audience._next_cursor("provider-page", request, SECRET, NOW)
@@ -1617,7 +1730,7 @@ def test_all_registered_collection_remains_explicit_and_production_only(monkeypa
 
 
 @pytest.mark.parametrize("environment", ["uat", "dev"])
-def test_uat_activity_requires_isolated_project_flag_and_explicit_owner(monkeypatch, environment):
+def test_uat_activity_admits_registered_users_but_dev_keeps_its_cohort(monkeypatch, environment):
     monkeypatch.setenv("ENVIRONMENT", environment)
     monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", f"hushh-pda-{environment}")
@@ -1627,7 +1740,17 @@ def test_uat_activity_requires_isolated_project_flag_and_explicit_owner(monkeypa
     monkeypatch.delenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", raising=False)
     assert not sink.enabled_for("uat-owner")
     monkeypatch.setenv(f"ONE_PLG_ACTIVITY_{environment.upper()}_ENABLED", "true")
-    assert sink.enabled_for("uat-owner") and not sink.enabled_for("other-owner")
+    assert sink.enabled_for("uat-owner")
+    assert sink.enabled_for("other-owner") is (environment == "uat")
+    if environment == "uat":
+        monkeypatch.delenv("ONE_PLG_ACTIVITY_UAT_ACCOUNT_IDS")
+        assert sink.enabled_for("other-owner")
+        identity = MagicMock()
+        identity.execute.return_value.scalar.return_value = False
+        assert not sink._registered_profile(identity, "anonymous-owner")
+        identity.execute.return_value.scalar.return_value = True
+        assert sink._registered_profile(identity, "other-owner")
+        assert not sink.enabled_for("") and not sink.enabled_for("x" * 129)
     monkeypatch.setenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", "true")
     assert not sink.enabled_for("uat-owner")
     monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")

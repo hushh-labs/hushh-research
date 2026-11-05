@@ -24,7 +24,7 @@ from hushh_mcp.services.plg_outcomes import (
     value_effects,
 )
 from hushh_mcp.services.plg_reporting import current_reporting_identifiers, reporting_policy
-from hushh_mcp.services.product_activity import enabled_for
+from hushh_mcp.services.product_activity import enabled_for, registered_uat_enabled
 
 
 class PilotAccount(BaseModel):
@@ -127,18 +127,37 @@ async def owner_read_authority(
 
 
 async def session_owner_scope(
-    allowed: set[str],
+    allowed: set[str] | None,
     email_hash: str,
     now: datetime,
     *,
     environment: Literal["dev", "uat", "production"] = "uat",
 ) -> dict | None:
-    """Resolve one verified session within an explicit cohort, never by UID input.
+    """Resolve one verified session, never by a browser-supplied UID.
 
     Identity shadow email is only a candidate selector. The current verified
     identity and lifecycle/epoch checks in owner_scope remain authoritative.
     Ambiguous aliases fail closed rather than selecting another team member.
     """
+    if allowed is None:
+        if environment != "uat" or not registered_uat_enabled():
+            raise ValueError("Registered owner lookup requires isolated UAT")
+        pool = await get_pool()
+        async with pool.acquire(timeout=5) as conn:
+            # Return at most two opaque candidate IDs; never export an identity
+            # directory. Current provider identity/epoch remains authoritative.
+            rows = await conn.fetch(
+                """SELECT user_id FROM actor_identity_cache
+                   WHERE NULLIF(BTRIM(email),'') IS NOT NULL
+                   AND encode(sha256(convert_to(lower(btrim(email)),'UTF8')),'hex')=$1
+                   ORDER BY user_id LIMIT 2""",
+                email_hash,
+                timeout=5,
+            )
+        if len(rows) != 1:
+            return None
+        scope = await owner_scope(rows[0]["user_id"], now, environment=environment)
+        return scope if scope and scope["emailHash"] == email_hash else None
     if not 1 <= len(allowed) <= 100:
         raise ValueError("Invalid owner cohort")
     pool = await get_pool()

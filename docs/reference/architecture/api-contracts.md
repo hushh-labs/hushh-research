@@ -5604,9 +5604,11 @@ Web, iOS and Android share this service-layer transport and its exact route allo
 
 The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
 are read-only and require the exact UAT project, runtime lane, collection/export
-flags, separate credential and explicit bounded account cohort. The Matrix
+flags and separate credential. UAT admits all registered owners without an
+account-ID tester list; anonymous identities cannot enter activity collection.
+The production all-registered flag remains off in UAT. The Matrix
 session supplies only its verified email hash; cached identity data selects a
-candidate but current Firebase verified identity and lifecycle/epoch checks
+candidate through a bounded two-row hash lookup, but current Firebase verified identity and lifecycle/epoch checks
 authorize the result. Ambiguous candidates fail closed. Owner reads require no
 marketing subscription and carry `readAuthority=verified_owner` plus the hashed
 `ownerEpoch`; they never carry delivery authority. Identity changes and account
@@ -5638,8 +5640,12 @@ default and this contract does not establish a deployed source or complete captu
 The account screen owns an explicit, default-off activity-email choice at
 `GET/PUT /api/one/plg/attempt-email/preferences`. It is separate from marketing
 permission and accepts no recipient or account override. A fresh verified owner
-email, current activity epoch, bounded configured cohort and environment/project
+email, current activity epoch and environment/project
 admission are required to enable it. Opt-out remains available when rollout is off.
+UAT permits every registered owner to make that choice; Dev and Production keep
+their configured recipient cohorts. Removing the UAT list never enables a
+preference automatically. Selection remains bounded to 20 pending deliveries,
+and every claim rechecks the current preference, recipient and lifecycle.
 The worker accepts exact Dev, UAT or Production project/lane pairs. Dev responses,
 signatures and unsubscribe links bind only to the Dev backend
 `https://consent-protocol-aqahj4iyha-uc.a.run.app`; it cannot borrow UAT authority.
@@ -5705,8 +5711,12 @@ the structured runtime configuration. Dev mounts only its DEV read/cohort
 names, UAT only UAT, and Production retains its existing campaign mounts plus
 independent OWNER names. Each project may mount its own
 `ONE_PLG_ATTEMPT_EMAIL_SECRET` and `ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS` only when
-the versions are enabled. Preview secret namespaces cannot borrow canonical
-PLG credentials. A mount cannot enroll an owner or activate delivery; current
+the versions are enabled. UAT no longer requires or uses its activity/attempt account-ID
+cohort mounts; Dev/Production retain those restrictions. Existing deployment
+preflight may still require the older cohort setup until its owner reconciles
+that separately; no CI/CD changes are included in this application change.
+Preview secret namespaces cannot borrow canonical PLG credentials.
+A mount cannot enroll an owner or activate delivery; current
 verified identity, owner epoch, explicit per-attempt choice and the separately
 qualified Matrix worker remain required. Keep the attempt key available for
 generation-bound unsubscribe even when new delivery is disabled.

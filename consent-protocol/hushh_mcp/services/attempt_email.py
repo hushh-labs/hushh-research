@@ -89,7 +89,8 @@ async def unsubscribe(token: str):
             )
 
 
-def allowed_accounts() -> set[str]:
+def allowed_accounts() -> set[str] | None:
+    """None means isolated UAT; claims still require current per-owner permission."""
     from api.utils.firebase_auth import current_auth_lane
 
     lane = current_auth_lane()
@@ -103,11 +104,18 @@ def allowed_accounts() -> set[str]:
         not expected
         or os.getenv("GOOGLE_CLOUD_PROJECT") != expected
         or os.getenv("ONE_PLG_ATTEMPT_EMAIL_ENABLED") != "true"
-        or not 1 <= len(accounts) <= 100
-        or any(len(uid) > 128 for uid in accounts)
     ):
         return set()
+    if lane == "uat":
+        return None if product_activity.registered_uat_enabled() else set()
+    if not 1 <= len(accounts) <= 100 or any(len(uid) > 128 for uid in accounts):
+        return set()
     return accounts
+
+
+def account_allowed(uid: str) -> bool:
+    accounts = allowed_accounts()
+    return bool(uid) and len(uid) <= 128 and (accounts is None or uid in accounts)
 
 
 async def _owner_lock(conn, uid: str):
@@ -136,7 +144,7 @@ async def preference(uid: str):
         )
     return {
         **_public(row),
-        "available": uid in allowed_accounts()
+        "available": account_allowed(uid)
         and product_activity.enabled_for(uid)
         and not (row and row["delivery_blocked"]),
     }
@@ -145,7 +153,7 @@ async def preference(uid: str):
 async def choose(uid: str, *, enabled: bool, expected_revision: int, disclosure: str):
     if disclosure != DISCLOSURE or type(enabled) is not bool or expected_revision < 0:
         raise ValueError("Invalid attempt email preference")
-    if enabled and (uid not in allowed_accounts() or not product_activity.enabled_for(uid)):
+    if enabled and (not account_allowed(uid) or not product_activity.enabled_for(uid)):
         raise PermissionError("Attempt email unavailable")
     pool = await get_pool()
     if enabled:
@@ -210,8 +218,8 @@ async def choose(uid: str, *, enabled: bool, expected_revision: int, disclosure:
 
 
 async def pending():
-    accounts = sorted(allowed_accounts())
-    if not accounts:
+    accounts = allowed_accounts()
+    if accounts is not None and not accounts:
         return []
     pool = await get_pool()
     async with pool.acquire(timeout=5) as conn:
@@ -231,9 +239,11 @@ async def pending():
         )
         rows = await conn.fetch(
             """SELECT id,user_id FROM one_attempt_email_outbox
-            WHERE status='pending' AND submission_attempts<3 AND expires_at>NOW() AND user_id=ANY($1::text[])
+            WHERE status='pending' AND submission_attempts<3 AND expires_at>NOW()
+              AND ($2::boolean OR user_id=ANY($1::text[]))
             ORDER BY created_at,id LIMIT 20""",
-            accounts,
+            sorted(accounts or []),
+            accounts is None,
             timeout=5,
         )
     # No address or activity content is needed for worker selection.
@@ -242,7 +252,7 @@ async def pending():
 
 async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
     """One successful claim only; a repeated claim never repeats its send grant."""
-    if uid not in allowed_accounts() or not product_activity.enabled_for(uid):
+    if not account_allowed(uid) or not product_activity.enabled_for(uid):
         return None
     recipient = await marketing_preferences.verified_recipient(uid)
     lane, _ = worker_authority()

@@ -57,7 +57,8 @@ async def _worker_body(request: Request, purpose: str, *, delivery: bool = True)
         lane, secret = service.worker_authority()
     except PermissionError:
         raise HTTPException(404, "Attempt email worker unavailable", headers=NO_STORE) from None
-    if delivery and not service.allowed_accounts():
+    accounts = service.allowed_accounts()
+    if delivery and accounts is not None and not accounts:
         raise HTTPException(404, "Attempt email worker unavailable", headers=NO_STORE)
     raw = await _signed_body(request, secret=secret, purpose=f"attempt-emails.{lane}.{purpose}")
     return raw, lane
