@@ -33,7 +33,7 @@ on:
           - backend
           - all
       uat_base_sha:
-        description: "Current UAT application SHA for exact-source qualification (optional)"
+        description: "Comparison SHA for scoped/all validation; serving UAT SHA for UAT qualification"
         required: false
         default: ""
         type: string
