@@ -692,13 +692,16 @@ def test_native_main_queue_writer_removal_preserves_guards_and_refuses_races(mod
              "bypass_actors": [{"actor_id": identities[login]["id"], "actor_type": "User", "bypass_mode": "pull_request"} for login in sorted(owners)]}
     endpoint = f"repos/{module.REPO}/branches/main/protection"
     queue_endpoint = f"repos/{module.REPO}/rulesets/1"
-    for fault in (None, "already_active", "protection_race", "queue_race", "foreign_writer", "missing_review", "missing_check", "missing_native_guard", "unlanded_policy", "main_race", "after_only_field"):
+    for fault in (None, "reordered", "duplicate_actor", "bad_actor_mode", "already_active", "protection_race", "queue_race", "foreign_writer", "missing_review", "missing_check", "missing_native_guard", "unlanded_policy", "main_race", "after_only_field"):
         protection, observed_queue = copy.deepcopy(base), copy.deepcopy(queue)
         writes, verified, reads = [], [], {"protection": 0, "queue": 0, "main": 0}
         if fault == "already_active": protection["restrictions"] = None
         if fault == "foreign_writer": protection["restrictions"]["teams"] = [{"slug": "unreviewed"}]
         if fault == "missing_review": protection["required_pull_request_reviews"]["required_approving_review_count"] = 0
         if fault == "missing_check": protection["required_status_checks"]["checks"][0]["app_id"] = None
+        if fault == "reordered": observed_queue["bypass_actors"].reverse()
+        if fault == "duplicate_actor": observed_queue["bypass_actors"].append(copy.deepcopy(observed_queue["bypass_actors"][0]))
+        if fault == "bad_actor_mode": observed_queue["bypass_actors"][0]["bypass_mode"] = "always"
 
         def read(args):
             path = args[1]
@@ -737,12 +740,13 @@ def test_native_main_queue_writer_removal_preserves_guards_and_refuses_races(mod
 
         with patch.object(module, "gh_json", side_effect=read), patch.object(module, "gh", side_effect=write), \
              patch.object(module, "reconcile_protected_pipeline_review", side_effect=guard), \
-             patch.object(module, "reconcile_owner_admin_ruleset", side_effect=guard):
-            if fault in (None, "already_active"):
-                assert module.reconcile_main_merge_policy(policy, apply=True) is (fault is None)
-                assert len(writes) == (1 if fault is None else 0)
+             patch.object(module, "reconcile_owner_admin_ruleset", side_effect=guard), \
+             patch("prepared_branch_governance._write", side_effect=AssertionError("Unexpected queue mutation")):
+            if fault in (None, "reordered", "already_active"):
+                assert module.reconcile_main_merge_policy(policy, apply=True) is (fault != "already_active")
+                assert len(writes) == (0 if fault == "already_active" else 1)
                 assert protection == dict(base, restrictions=None)
-                assert len(verified) == (4 if fault is None else 2)
+                assert len(verified) == (2 if fault == "already_active" else 4)
             else:
                 try: module.reconcile_main_merge_policy(policy, apply=True)
                 except SystemExit: pass
