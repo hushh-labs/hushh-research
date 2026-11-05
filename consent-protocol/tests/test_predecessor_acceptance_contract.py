@@ -64,7 +64,8 @@ def test_matching_branch_receipt_binds_caller_and_main_implementation(environmen
         client.accept(pins[environment], environment, SHA, "frontend")
 
 
-def test_testflight_requires_exact_isolated_backend_receipt(monkeypatch):
+@pytest.mark.parametrize("branch", ["uat", "uat-isolated"])
+def test_testflight_requires_matching_exact_uat_backend_receipt(monkeypatch, branch):
     module, client, receipts, responses, _ = _acceptance_fixture()
     run = responses["runs/20/attempts/2"]
     responses["runs/20"] = dict(run)
@@ -73,10 +74,11 @@ def test_testflight_requires_exact_isolated_backend_receipt(monkeypatch):
     receipt = receipts["uat"]
     receipt["predecessor"] = {
         "kind": "uat-exact-ci",
-        "source_branch": "uat-isolated",
         "authority_sha": run["head_sha"],
         "base_sha": "b" * 40,
     }
+    if branch == "uat-isolated":
+        receipt["predecessor"]["source_branch"] = branch
     digest = "sha256:" + "a" * 64
     reference = f"gcr.io/hushh-pda-uat/consent-protocol@{digest}"
     receipt["provenance"]["backend"]["checked_revisions"][0].update(
@@ -102,6 +104,7 @@ def test_testflight_requires_exact_isolated_backend_receipt(monkeypatch):
         run_id=20,
         revision="consent-protocol-00042-abc",
         image_digest=digest,
+        source_branch=branch,
     )
     accepted = client.accept_testflight_backend(**options)
     assert accepted["image_reference"] == reference
@@ -114,10 +117,9 @@ def test_testflight_requires_exact_isolated_backend_receipt(monkeypatch):
     ):
         with pytest.raises(ValueError, match="does not match"):
             client.accept_testflight_backend(**{**options, field: value})
-    receipt["predecessor"]["source_branch"] = "uat"
-    repack()
-    with pytest.raises(ValueError, match="isolated source"):
-        client.accept_testflight_backend(**options)
+    other_branch = "uat" if branch == "uat-isolated" else "uat-isolated"
+    with pytest.raises(ValueError, match="requested protected UAT source"):
+        client.accept_testflight_backend(**{**options, "source_branch": other_branch})
     responses["runs/20"]["run_attempt"] = 3
     with pytest.raises(ValueError, match="artifact is missing"):
         client.accept_testflight_backend(**options)
