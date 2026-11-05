@@ -165,7 +165,7 @@ for (const [width, height] of [[320, 568], [390, 844]]) {
     await page.locator('[data-id="review"]').click();
     const dialog = page.getByRole("dialog", { name: "Request information from Aarav Sharma" });
     await expect(dialog).toBeVisible();
-    await expect.poll(() => dialog.evaluate((node) => node.getBoundingClientRect().width / node.offsetWidth)).toBeGreaterThan(0.999);
+    await expect.poll(() => dialog.evaluate((node) => node.getBoundingClientRect().width / node.offsetWidth)).toBe(1);
     await expect(dialog.getByRole("group", { name: "Access duration" })).toBeVisible();
     const selected = dialog.getByRole("radio", { name: "7 days" });
     await expect(selected).toBeChecked();
@@ -219,8 +219,13 @@ test("long mixed-direction details, sparse actions and focus remain usable at 32
   })).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   // WebKit's macOS full keyboard access uses Option+Tab to include buttons.
-  for (let i = 0; i < 6; i++) await page.keyboard.press(browserName === "webkit" ? "Alt+Tab" : "Tab");
+  const tabKey = browserName === "webkit" && process.platform === "darwin" ? "Alt+Tab" : "Tab";
   const question = page.getByRole("button", { name: "Ask a question", exact: true });
+  // Native tab settings can omit links; the action must remain reachable within six presses.
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press(tabKey);
+    if (await question.evaluate((node) => document.activeElement === node)) break;
+  }
   await expect(question).toBeFocused();
   expect(await question.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe("none");
   await page.locator('[data-id="share"]').evaluate(el => {

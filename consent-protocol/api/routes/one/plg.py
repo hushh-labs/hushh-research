@@ -1,4 +1,4 @@
-"""Signed metadata exports, manual preferences and separately keyed attempt-email worker."""
+"""Server-only signed PLG evidence export; no customer content or send authority."""
 
 from __future__ import annotations
 
@@ -26,20 +26,12 @@ from hushh_mcp.services.plg_customer_cohort import (
     CohortRequest,
     customer_cohort_page,
 )
-from hushh_mcp.services.plg_evidence import (
-    PilotAccount,
-    PilotRequest,
-    owner_read_authority,
-    session_owner_scope,
-    snapshot,
-)
+from hushh_mcp.services.plg_evidence import PilotRequest, snapshot
 
-from .attempt_email import router as attempt_email_router
 from .marketing_preferences import router as marketing_preferences_router
 
 router = APIRouter(prefix="/api/one/plg", tags=["One PLG integration"])
 router.include_router(marketing_preferences_router)
-router.include_router(attempt_email_router)
 NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
 
 
@@ -66,30 +58,6 @@ class SubscriptionCheck(BaseModel):
     generation: UUID
     emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
     revision: int = Field(ge=1, le=9_007_199_254_740_991)
-
-
-class OwnerSnapshotAccount(PilotAccount):
-    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    ownerEpoch: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-
-class OwnerReadCheck(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    accountId: str = Field(min_length=1, max_length=128)
-    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    ownerEpoch: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-
-class OwnerRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    emailHash: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-
-class OwnerSnapshotRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    version: Literal[2]
-    customerReporting: Literal[False]
-    accounts: list[OwnerSnapshotAccount] = Field(min_length=1, max_length=1)
 
 
 async def _subscription_request(request: Request, purpose: str):
@@ -249,217 +217,6 @@ async def export_snapshot(request: Request):
     except Exception:
         raise HTTPException(503, "Task evidence unavailable", headers=NO_STORE) from None
     return JSONResponse(result, headers=NO_STORE)
-
-
-def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
-    prefix = environment.upper()
-    secret_name = f"ONE_PLG_{prefix}_EXPORT_SECRET"
-    secret = os.getenv(secret_name, "")
-    allowed = {
-        uid.strip()
-        for uid in os.getenv(f"ONE_PLG_ACTIVITY_{prefix}_ACCOUNT_IDS", "").split(",")
-        if uid.strip()
-    }
-    if (
-        os.getenv(f"ONE_PLG_{prefix}_EXPORT_ENABLED") != "true"
-        or os.getenv("ONE_PLG_ACTIVITY_ENABLED") != "true"
-        or os.getenv(f"ONE_PLG_ACTIVITY_{prefix}_ENABLED") != "true"
-        or os.getenv("ONE_PLG_ACTIVITY_ALL_REGISTERED") == "true"
-        or os.getenv("GOOGLE_CLOUD_PROJECT") != f"hushh-pda-{environment}"
-        or current_auth_lane() != environment
-        or len(secret) < 32
-        or any(
-            secret == os.getenv(key)
-            for key in (
-                "ONE_PLG_EXPORT_SECRET",
-                "ONE_PLG_OWNER_EXPORT_SECRET",
-                "ONE_PLG_UAT_EXPORT_SECRET",
-                "ONE_PLG_DEV_EXPORT_SECRET",
-                "ONE_PLG_ATTEMPT_EMAIL_SECRET",
-                "ONE_PLG_AUDIENCE_SECRET",
-                "ONE_PLG_SUBSCRIPTION_SECRET",
-            )
-            if key != secret_name
-        )
-        or not 1 <= len(allowed) <= 100
-        or any(len(uid) > 128 for uid in allowed)
-    ):
-        raise HTTPException(404, "Own activity export unavailable", headers=NO_STORE)
-    return secret, allowed
-
-
-def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
-    if environment == "dev" or environment == "uat":
-        return _nonproduction_export_scope(environment)
-    secret = os.getenv("ONE_PLG_OWNER_EXPORT_SECRET", "")
-    allowed = {
-        uid.strip() for uid in os.getenv("ONE_PLG_OWNER_ACCOUNT_IDS", "").split(",") if uid.strip()
-    }
-    if (
-        environment != "production"
-        or current_auth_lane() != "production"
-        or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda"
-        or os.getenv("ONE_PLG_OWNER_EXPORT_ENABLED") != "true"
-        or os.getenv("ONE_PLG_ACTIVITY_ENABLED") != "true"
-        or len(secret) < 32
-        or not 1 <= len(allowed) <= 100
-        or any(
-            secret == os.getenv(key)
-            for key in (
-                "ONE_PLG_EXPORT_SECRET",
-                "ONE_PLG_UAT_EXPORT_SECRET",
-                "ONE_PLG_DEV_EXPORT_SECRET",
-                "ONE_PLG_AUDIENCE_SECRET",
-                "ONE_PLG_SUBSCRIPTION_SECRET",
-                "ONE_PLG_ATTEMPT_EMAIL_SECRET",
-            )
-        )
-    ):
-        raise HTTPException(404, "Own activity export unavailable", headers=NO_STORE)
-    return secret, allowed
-
-
-def _owner_purpose(action: str, environment: str):
-    return (
-        f"{action}-{environment}" if environment in {"dev", "uat"} else f"owner.production.{action}"
-    )
-
-
-async def _check_owner_permission(
-    request: Request, environment: Literal["dev", "uat", "production"]
-):
-    secret, allowed = _owner_export_scope(environment)
-    body = await _signed_body(
-        request, secret=secret, purpose=_owner_purpose("permission", environment)
-    )
-    try:
-        payload = OwnerReadCheck.model_validate_json(body)
-        if payload.accountId not in allowed:
-            raise ValueError("Outside UAT cohort")
-        result = await asyncio.wait_for(
-            owner_read_authority(
-                payload.accountId, payload.emailHash, payload.ownerEpoch, environment=environment
-            ),
-            timeout=30,
-        )
-    except (ValueError, ValidationError):
-        raise HTTPException(400, "Invalid UAT permission request", headers=NO_STORE) from None
-    except Exception:
-        raise HTTPException(503, "UAT permission unavailable", headers=NO_STORE) from None
-    return JSONResponse(
-        {"environment": environment, "deliveryAuthorized": False, **result}, headers=NO_STORE
-    )
-
-
-async def _export_owner_scope(request: Request, environment: Literal["dev", "uat", "production"]):
-    """Session-bound team read; this projection grants no send authority."""
-    secret, allowed = _owner_export_scope(environment)
-    body = await _signed_body(request, secret=secret, purpose=_owner_purpose("owner", environment))
-    try:
-        payload = OwnerRequest.model_validate_json(body)
-        result = await asyncio.wait_for(
-            session_owner_scope(
-                allowed, payload.emailHash, datetime.now(timezone.utc), environment=environment
-            ),
-            timeout=30,
-        )
-    except (ValueError, ValidationError):
-        raise HTTPException(400, "Invalid UAT owner request", headers=NO_STORE) from None
-    except Exception:
-        raise HTTPException(503, "UAT owner unavailable", headers=NO_STORE) from None
-    return JSONResponse(
-        {"environment": environment, "deliveryAuthorized": False, "scope": result}, headers=NO_STORE
-    )
-
-
-async def _export_owner_snapshot(
-    request: Request, environment: Literal["dev", "uat", "production"]
-):
-    """Separate signed owner projection; never claim customer reporting."""
-    secret, allowed = _owner_export_scope(environment)
-    body = await _signed_body(
-        request, secret=secret, purpose=_owner_purpose("snapshot", environment)
-    )
-    try:
-        payload = OwnerSnapshotRequest.model_validate_json(body)
-        account = payload.accounts[0]
-        if account.accountId not in allowed:
-            raise ValueError("Invalid UAT evidence scope")
-        check = (account.accountId, account.emailHash, account.ownerEpoch)
-        before = await owner_read_authority(*check, environment=environment)
-        if not before["allowed"] or before["ownerEpoch"] != account.ownerEpoch:
-            raise ValueError("UAT authority changed")
-        projection = PilotRequest(
-            version=2,
-            accounts=[
-                PilotAccount(
-                    accountId=account.accountId, journey=account.journey, since=account.since
-                )
-            ],
-        )
-        result = await asyncio.wait_for(
-            snapshot(projection, allowed, datetime.now(timezone.utc), environment=environment),
-            timeout=25,
-        )
-        after = await owner_read_authority(*check, environment=environment)
-        row = result["accounts"][0]
-        if (
-            after != before
-            or row.get("deleted") is not False
-            or not row.get("activity")
-            or row["activity"].get("epoch") != account.ownerEpoch
-        ):
-            raise ValueError("UAT authority changed")
-    except (ValueError, ValidationError):
-        raise HTTPException(400, "Invalid UAT evidence request", headers=NO_STORE) from None
-    except Exception:
-        raise HTTPException(503, "UAT task evidence unavailable", headers=NO_STORE) from None
-    return JSONResponse(result, headers=NO_STORE)
-
-
-@router.post("/permission-dev", include_in_schema=False)
-async def check_dev_read_permission(request: Request):
-    return await _check_owner_permission(request, "dev")
-
-
-@router.post("/owner-dev", include_in_schema=False)
-async def export_dev_owner_scope(request: Request):
-    return await _export_owner_scope(request, "dev")
-
-
-@router.post("/snapshot-dev", include_in_schema=False)
-async def export_dev_snapshot(request: Request):
-    return await _export_owner_snapshot(request, "dev")
-
-
-@router.post("/permission-uat", include_in_schema=False)
-async def check_uat_read_permission(request: Request):
-    return await _check_owner_permission(request, "uat")
-
-
-@router.post("/owner-uat", include_in_schema=False)
-async def export_uat_owner_scope(request: Request):
-    return await _export_owner_scope(request, "uat")
-
-
-@router.post("/snapshot-uat", include_in_schema=False)
-async def export_uat_snapshot(request: Request):
-    return await _export_owner_snapshot(request, "uat")
-
-
-@router.post("/permission-owner", include_in_schema=False)
-async def check_production_owner_permission(request: Request):
-    return await _check_owner_permission(request, "production")
-
-
-@router.post("/owner", include_in_schema=False)
-async def export_production_owner(request: Request):
-    return await _export_owner_scope(request, "production")
-
-
-@router.post("/snapshot-owner", include_in_schema=False)
-async def export_production_owner_snapshot(request: Request):
-    return await _export_owner_snapshot(request, "production")
 
 
 @router.post("/audience", include_in_schema=False)

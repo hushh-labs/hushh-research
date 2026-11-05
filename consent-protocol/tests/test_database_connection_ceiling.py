@@ -44,8 +44,6 @@ from runpy import run_path
 import pytest
 import yaml
 
-from tests.helpers.deployment_cli import read_deploy_source
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = REPO_ROOT / "consent-protocol"
 LIMITS = json.loads(
@@ -97,7 +95,7 @@ class Fleet:
 
 
 def _read(relative: str) -> str:
-    return read_deploy_source(REPO_ROOT, relative)
+    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 def _template_defaults() -> dict[str, str]:

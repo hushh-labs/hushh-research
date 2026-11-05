@@ -40,18 +40,6 @@ Use this as the canonical map for Kai observability decisions. The system is spl
 
 Shared auth is allowed. Shared analytics is not.
 
-## Private product observations
-
-The separate `hushh-webapp/lib/observability/product-activity-client.ts` collector
-sends declared action IDs and phases to `/api/one/plg/activity`, with the current
-owner and original capture generation. It does not send action payloads or email.
-Four requests may be in flight; a volatile buffer holds at most 64 additional
-observations and discards reports older than one minute before dispatch. Owner
-changes and account resets invalidate queued reports before dispatch. Product execution never
-waits for collection. Network failures, buffer overflow, expiry and page exit can
-still lose observations: this is not durable or complete activity capture, and
-missing observations must not be interpreted as inactivity or task failure.
-
 ## Collection Flow
 
 ```mermaid

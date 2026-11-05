@@ -45,23 +45,6 @@ def activity_catalog() -> dict:
                 "outcome": outcome_coverage(agent_id, public=public),
             }
         )
-        # Closed measurement identities for the existing One chat entrypoints.
-        # They do not register chat executors or infer a delegated effect.
-        if agent_id in {
-            "agent_one",
-            "agent_email",
-            "agent_location",
-            "agent_personal_information",
-            "agent_kai",
-        }:
-            key = f"chat:{agent_id}"
-            actions[key] = {
-                "id": key,
-                "agentId": agent_id,
-                "label": f"{agent['name']} conversation",
-                "kind": "action",
-                "proof": "client_reported",
-            }
 
         def add_execution(node, agent_id=agent_id, exposure=exposure):
             node_id = node["id"]

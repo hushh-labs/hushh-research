@@ -199,34 +199,23 @@ def _canonical_passkey_allowed_rp_ids(app_frontend_origin: str) -> str:
 
 def _cors_with_frontend_aliases(app_frontend_origin: str, configured: str) -> str:
     policy = run_path(str(Path(__file__).with_name("passkey_domain_policy.py")))
-    return policy["cors_with_aliases"](
-        _frontend_origin_host(app_frontend_origin), configured
-    )
+    return policy["cors_with_aliases"](_frontend_origin_host(app_frontend_origin), configured)
 
 
 def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
-    return tuple(
-        sorted({item.strip().lower() for item in value.split(",") if item.strip()})
-    )
+    return tuple(sorted({item.strip().lower() for item in value.split(",") if item.strip()}))
 
 
 def _validate_connector_rollout(args: argparse.Namespace) -> None:
     """Fail before touching Secret Manager on an unsafe hosted rollout."""
     _production_drive_candidate["validate_candidate_only"](args)
-    if (
-        getattr(args, "drive_period_packets", "false") == "true"
-        and args.environment != "uat"
-    ):
+    if getattr(args, "drive_period_packets", "false") == "true" and args.environment != "uat":
         raise ValueError("Drive period packets rollout is limited to UAT")
-    enabled = any(
-        getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS
-    )
+    enabled = any(getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS)
     uat_cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
     prod_cohort = str(getattr(args, "connector_production_owner_cohort", "") or "")
     uat_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
-    prod_value = (
-        str(getattr(args, "connector_production_all_users", "false")).strip().lower()
-    )
+    prod_value = str(getattr(args, "connector_production_all_users", "false")).strip().lower()
     if uat_value not in {"true", "false"}:
         raise ValueError("UAT connector all-users mode must be true or false")
     if prod_value not in {"true", "false"}:
@@ -238,36 +227,24 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
     if (prod_cohort or all_prod_users) and args.environment != "production":
         raise ValueError("Production connector audience is limited to production")
     if all_uat_users and uat_cohort:
-        raise ValueError(
-            "UAT connector all-users mode cannot be combined with a cohort"
-        )
+        raise ValueError("UAT connector all-users mode cannot be combined with a cohort")
     if all_prod_users and prod_cohort:
-        raise ValueError(
-            "Production connector all-users mode cannot be combined with a cohort"
-        )
+        raise ValueError("Production connector all-users mode cannot be combined with a cohort")
     if enabled and args.environment not in {"uat", "production"}:
         raise ValueError("Mail/Drive connector rollout requires a reviewed hosted lane")
     if args.environment == "production" and enabled and args.project != "hushh-pda":
         raise ValueError("Production Drive rollout requires the production project")
-    if (
-        args.environment == "production"
-        and (prod_cohort or all_prod_users)
-        and not enabled
-    ):
+    if args.environment == "production" and (prod_cohort or all_prod_users) and not enabled:
         raise ValueError("Production connector audience requires enabled rollout flags")
     candidate_secret = str(getattr(args, "production_drive_candidate_secret", "") or "")
     if args.environment == "production" and (
         (enabled and not candidate_secret)
         or (
             candidate_secret
-            and not _production_drive_candidate["valid_candidate_secret"](
-                candidate_secret
-            )
+            and not _production_drive_candidate["valid_candidate_secret"](candidate_secret)
         )
     ):
-        raise ValueError(
-            "Production Drive rollout requires a per-release candidate secret"
-        )
+        raise ValueError("Production Drive rollout requires a per-release candidate secret")
     if candidate_secret and args.environment != "production":
         raise ValueError("Production Drive candidate secret is production-only")
     cohort = uat_cohort if args.environment == "uat" else prod_cohort
@@ -290,60 +267,37 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
             for member in members
         )
     ):
-        raise ValueError(
-            "Connector cohort must contain at most 25 distinct exact Firebase UIDs"
-        )
+        raise ValueError("Connector cohort must contain at most 25 distinct exact Firebase UIDs")
 
 
-_runtime_config_retention = run_path(
-    str(Path(__file__).with_name("runtime_config_retention.py"))
-)
+_runtime_config_retention = run_path(str(Path(__file__).with_name("runtime_config_retention.py")))
 # Existing operator tests/callers retain their file-relative entrypoints.
 _retained_referral_config = _runtime_config_retention["_retained_referral_config"]
 _retained_plg_config = _runtime_config_retention["_retained_plg_config"]
-_retained_dev_inference_bridge = _runtime_config_retention[
-    "_retained_dev_inference_bridge"
-]
+_retained_dev_inference_bridge = _runtime_config_retention["_retained_dev_inference_bridge"]
 
 
 def _connector_rollout_config(args: argparse.Namespace) -> dict[str, str]:
     return {
         **{name: getattr(args, name, "false") for name in CONNECTOR_ROLLOUT_FLAGS},
-        "connector_internal_owner_cohort": getattr(
-            args, "connector_internal_owner_cohort", ""
-        ),
+        "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
         "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
-        "connector_production_owner_cohort": getattr(
-            args, "connector_production_owner_cohort", ""
-        ),
-        "connector_production_all_users": getattr(
-            args, "connector_production_all_users", "false"
-        ),
+        "connector_production_owner_cohort": getattr(args, "connector_production_owner_cohort", ""),
+        "connector_production_all_users": getattr(args, "connector_production_all_users", "false"),
     }
 
 
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
-    if (
-        getattr(args, "one_magic_intelligence_phase", "0") == "5"
-        and args.environment != "uat"
-    ):
+    if getattr(args, "one_magic_intelligence_phase", "0") == "5" and args.environment != "uat":
         raise ValueError("Magic Intelligence phase 5 is only admitted for UAT")
     config: dict[str, Any] = {
         "environment": args.environment,
-        "auth_db_listener_isolation_enabled": getattr(
-            args, "auth_db_listener_isolation_enabled", "true"
-        ),
+        "auth_db_listener_isolation_enabled": getattr(args, "auth_db_listener_isolation_enabled", "true"),
         "one_plg_export_enabled": False,
         "one_plg_activity_enabled": False,
         "one_plg_activity_all_registered": False,
         "one_plg_audience_enabled": False,
         "one_plg_subscription_enabled": False,
-        "one_plg_dev_export_enabled": False,
-        "one_plg_activity_dev_enabled": False,
-        "one_plg_uat_export_enabled": False,
-        "one_plg_activity_uat_enabled": False,
-        "one_plg_owner_export_enabled": False,
-        "one_plg_attempt_email_enabled": False,
         "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
         "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
         "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
@@ -379,43 +333,27 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
-        "hushh_tech_client_enabled": getattr(
-            args, "hushh_tech_client_enabled", "false"
-        ),
+        "hushh_tech_client_enabled": getattr(args, "hushh_tech_client_enabled", "false"),
         # One Voice reply-in-thread. A new capability, so absent means off and
         # each lane opts in explicitly (UAT first; production passes false).
-        "one_voice_mail_reply_enabled": getattr(
-            args, "one_voice_mail_reply_enabled", "false"
-        ),
+        "one_voice_mail_reply_enabled": getattr(args, "one_voice_mail_reply_enabled", "false"),
         # Voice scheduled send, voice Gmail drafts, and the server-side drain
         # that delivers scheduled mail with no device present. New capability,
         # so each is off unless a lane opts in (UAT first; production false).
         "one_voice_mail_schedule_send_enabled": getattr(
             args, "one_voice_mail_schedule_send_enabled", "false"
         ),
-        "one_voice_mail_drafts_enabled": getattr(
-            args, "one_voice_mail_drafts_enabled", "false"
-        ),
-        "mail_scheduled_drain_enabled": getattr(
-            args, "mail_scheduled_drain_enabled", "false"
-        ),
+        "one_voice_mail_drafts_enabled": getattr(args, "one_voice_mail_drafts_enabled", "false"),
+        "mail_scheduled_drain_enabled": getattr(args, "mail_scheduled_drain_enabled", "false"),
         "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
         "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
-        "hushh_tech_allowed_redirect_uris": getattr(
-            args, "hushh_tech_allowed_redirect_uris", ""
-        ),
-        "hushh_tech_allowed_consent_scopes": getattr(
-            args, "hushh_tech_allowed_consent_scopes", ""
-        ),
+        "hushh_tech_allowed_redirect_uris": getattr(args, "hushh_tech_allowed_redirect_uris", ""),
+        "hushh_tech_allowed_consent_scopes": getattr(args, "hushh_tech_allowed_consent_scopes", ""),
         "hushh_tech_uat_firebase_uid_allowlist": getattr(
             args, "hushh_tech_uat_firebase_uid_allowlist", ""
         ),
-        "hushh_tech_shadow_max_age_ms": getattr(
-            args, "hushh_tech_shadow_max_age_ms", "604800000"
-        ),
-        "hushh_tech_trusted_proxy_hops": getattr(
-            args, "hushh_tech_trusted_proxy_hops", "0"
-        ),
+        "hushh_tech_shadow_max_age_ms": getattr(args, "hushh_tech_shadow_max_age_ms", "604800000"),
+        "hushh_tech_trusted_proxy_hops": getattr(args, "hushh_tech_trusted_proxy_hops", "0"),
         "hushh_tech_proxy_audience": getattr(args, "hushh_tech_proxy_audience", ""),
         "hushh_tech_trusted_proxy_service_accounts": getattr(
             args, "hushh_tech_trusted_proxy_service_accounts", ""
@@ -431,39 +369,25 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
-        **_azure_owner_cloud_config(
-            args.project, getattr(args, "app_frontend_origin", "")
-        ),
-        "one_business_directory_enabled": getattr(
-            args, "one_business_directory_enabled", "false"
-        ),
-        "one_profile_research_enabled": getattr(
-            args, "one_profile_research_enabled", "false"
-        ),
-        "one_magic_intelligence_phase": getattr(
-            args, "one_magic_intelligence_phase", "0"
-        ),
+        **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
+        "one_business_directory_enabled": getattr(args, "one_business_directory_enabled", "false"),
+        "one_profile_research_enabled": getattr(args, "one_profile_research_enabled", "false"),
+        "one_magic_intelligence_phase": getattr(args, "one_magic_intelligence_phase", "0"),
         "one_magic_intelligence_inner_team_emails": getattr(
             args, "one_magic_intelligence_inner_team_emails", ""
         ),
         "one_magic_intelligence_senior_team_emails": getattr(
             args, "one_magic_intelligence_senior_team_emails", ""
         ),
-        "one_magic_intelligence_qa_emails": getattr(
-            args, "one_magic_intelligence_qa_emails", ""
-        ),
+        "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
     return _scope_commerce_runtime_policy()["apply_policy"](
         _drop_empty(config), getattr(args, "scope_commerce_policy", {})
     )
 
 
-_production_drive_candidate = run_path(
-    str(Path(__file__).with_name("production_drive_candidate_config.py"))
-)
-_split_production_drive_candidate_config = _production_drive_candidate[
-    "split_candidate_config"
-]
+_production_drive_candidate = run_path(str(Path(__file__).with_name("production_drive_candidate_config.py")))
+_split_production_drive_candidate_config = _production_drive_candidate["split_candidate_config"]
 
 # One NWS v4 credential per lane, because the upstream registry binds each key
 # to exactly one consumer and one project. An unlisted lane resolves to blank,
@@ -493,10 +417,7 @@ def _azure_owner_cloud_config(project: str, app_frontend_origin: str) -> dict[st
     if not lane:
         return {}
     origin = _canonical_frontend_origin(app_frontend_origin)
-    return {
-        **lane,
-        "hussh_azure_oauth_redirect_uri": f"{origin}{AZURE_OAUTH_RETURN_PATH}",
-    }
+    return {**lane, "hussh_azure_oauth_redirect_uri": f"{origin}{AZURE_OAUTH_RETURN_PATH}"}
 
 
 def _mirror_directory_key(
@@ -556,14 +477,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--environment", required=True)
-    parser.add_argument(
-        "--auth-db-listener-isolation-enabled",
-        default="true",
-        choices=["true", "false"],
-    )
-    parser.add_argument(
-        "--email-auth-enabled", default="false", choices=["true", "false"]
-    )
+    parser.add_argument("--auth-db-listener-isolation-enabled", default="true", choices=["true", "false"])
+    parser.add_argument("--email-auth-enabled", default="false", choices=["true", "false"])
     parser.add_argument("--app-frontend-origin", required=True)
     parser.add_argument("--db-host", required=True)
     parser.add_argument("--db-port", required=True)
@@ -597,59 +512,29 @@ def main() -> int:
     # rollout default, not a change to application behavior when the env is
     # absent.
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    parser.add_argument("--connections-panel-v2", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-connection", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-live", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-four-group-index", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-agent-packages-enabled", default="false", choices=["true", "false"])
     parser.add_argument(
-        "--connections-panel-v2", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--google-drive-connection", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--google-drive-live", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--google-drive-picker", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--drive-document-indexing", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--drive-four-group-index", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--drive-document-sharing", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--drive-agent-packages-enabled", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--drive-period-packets-enabled",
-        dest="drive_period_packets",
-        default="false",
+        "--drive-period-packets-enabled", dest="drive_period_packets", default="false",
         choices=["true", "false"],
     )
-    parser.add_argument(
-        "--gmail-chat-reads", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--google-drive-chat-reads", default="false", choices=["true", "false"]
-    )
-    parser.add_argument(
-        "--curated-mcp-connectors", default="false", choices=["true", "false"]
-    )
+    parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])
     parser.add_argument("--connector-internal-owner-cohort", default="")
-    parser.add_argument(
-        "--connector-uat-all-users", default="false", choices=["true", "false"]
-    )
+    parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
     parser.add_argument("--connector-production-owner-cohort", default="")
     parser.add_argument(
         "--connector-production-all-users", default="false", choices=["true", "false"]
     )
     parser.add_argument("--production-drive-candidate-secret", default="")
-    parser.add_argument(
-        "--production-drive-candidate-only",
-        action="store_true",
-        help="Create or reuse only the production per-release config; leave canonical/provider secrets unchanged.",
-    )
+    parser.add_argument("--production-drive-candidate-only", action="store_true", help="Create or reuse only the production per-release config; leave canonical/provider secrets unchanged.")
     _scope_commerce_runtime_policy()["register_arguments"](parser)
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
@@ -666,9 +551,7 @@ def main() -> int:
         "--one-voice-mail-reply-enabled", default="false", choices=["true", "false"]
     )
     parser.add_argument(
-        "--one-voice-mail-schedule-send-enabled",
-        default="false",
-        choices=["true", "false"],
+        "--one-voice-mail-schedule-send-enabled", default="false", choices=["true", "false"]
     )
     parser.add_argument(
         "--one-voice-mail-drafts-enabled", default="false", choices=["true", "false"]
@@ -693,9 +576,7 @@ def main() -> int:
     # The directory key is owned by one project and consumed by several, so it
     # is mirrored rather than copied by hand — see _sync_advisors_api_key.
     parser.add_argument("--advisors-api-key-source-project", default="hushh-tech-prod")
-    parser.add_argument(
-        "--advisors-api-key-source-secret", default="brokercheck-api-key"
-    )
+    parser.add_argument("--advisors-api-key-source-secret", default="brokercheck-api-key")
     # Insurance agent directory. Same split as the advisor directory directly
     # above: a non-secret base URL in the generated runtime config, and a bearer
     # key mirrored from the project that owns it.
@@ -707,15 +588,11 @@ def main() -> int:
     parser.add_argument(
         "--one-profile-research-enabled", default="false", choices=["true", "false"]
     )
-    parser.add_argument(
-        "--one-magic-intelligence-phase", default="0", choices=list("012345")
-    )
+    parser.add_argument("--one-magic-intelligence-phase", default="0", choices=list("012345"))
     parser.add_argument("--one-magic-intelligence-inner-team-emails", default="")
     parser.add_argument("--one-magic-intelligence-senior-team-emails", default="")
     parser.add_argument("--one-magic-intelligence-qa-emails", default="")
-    parser.add_argument(
-        "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
-    )
+    parser.add_argument("--insurance-agents-api-key-source-project", default="hushh-tech-prod")
     parser.add_argument(
         "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
     )
@@ -729,12 +606,8 @@ def main() -> int:
         "--nws-nearby-api-base-url",
         default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
     )
-    parser.add_argument(
-        "--nws-nearby-api-key-source-project", default="hushh-tech-prod"
-    )
-    parser.add_argument(
-        "--nws-nearby-api-key-source-secret", default="nws-nearby-api-key"
-    )
+    parser.add_argument("--nws-nearby-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument("--nws-nearby-api-key-source-secret", default="nws-nearby-api-key")
     # NWS v4 net-worth contract. Same single deployed service, so the base URL
     # carries a real default for the same reason as the v2 one above. The v4
     # credential is a per-consumer key rather than the shared service key, so it
@@ -746,9 +619,7 @@ def main() -> int:
         "--nws-nearby-v4-api-base-url",
         default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
     )
-    parser.add_argument(
-        "--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod"
-    )
+    parser.add_argument("--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod")
     # Blank by default and resolved from the lane below. Unlike the v2 key,
     # which is one shared service credential every lane may use, a v4 key is
     # bound in the upstream registry to a single consumer with a single
@@ -758,19 +629,14 @@ def main() -> int:
     args = parser.parse_args()
     try:
         _validate_connector_rollout(args)
-        retained_runtime_config = _scope_commerce_runtime_policy()[
-            "_read_existing_runtime_config"
-        ](args.project, _run, _secret_exists)
+        retained_runtime_config = _scope_commerce_runtime_policy()["_read_existing_runtime_config"](
+            args.project, _run, _secret_exists
+        )
         retained_settings = _runtime_config_retention["retained_settings"](
             retained_runtime_config, project=args.project, environment=args.environment
         )
-        args.scope_commerce_policy = _scope_commerce_runtime_policy()[
-            "policy_for_args"
-        ](
-            args,
-            _run,
-            _secret_exists,
-            _canonical_frontend_origin,
+        args.scope_commerce_policy = _scope_commerce_runtime_policy()["policy_for_args"](
+            args, _run, _secret_exists, _canonical_frontend_origin,
             existing_runtime_config=retained_runtime_config,
         )
     except ValueError as exc:
@@ -794,9 +660,7 @@ def main() -> int:
         "apply_policy"
     ](config, retained_runtime_config if args.environment == "dev" else {})
     if args.production_drive_candidate_only:
-        return _production_drive_candidate["sync_candidate_only"](
-            args, config, _run, _upsert_secret
-        )
+        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)
 
     sync_summary: list[str] = []
 
@@ -843,15 +707,13 @@ def main() -> int:
         _upsert_secret(args.project, canonical_name, value)
         sync_summary.append(canonical_name)
 
-    _upsert_secret(
-        args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip()
-    )
+    _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
     sync_summary.extend(_sync_oauth_redirects(args.project, args.app_frontend_origin))
 
-    backend_runtime_config, candidate_runtime_config = (
-        _split_production_drive_candidate_config(args, config)
+    backend_runtime_config, candidate_runtime_config = _split_production_drive_candidate_config(
+        args, config
     )
     if candidate_runtime_config is None:
         _upsert_secret(
@@ -874,9 +736,7 @@ def main() -> int:
     runtime_config_for_summary = candidate_runtime_config or backend_runtime_config
     if runtime_config_for_summary is None:
         raise ValueError("Backend runtime config target is unavailable")
-    _production_drive_candidate["print_sync_summary"](
-        args.project, sync_summary, runtime_config_for_summary
-    )
+    _production_drive_candidate["print_sync_summary"](args.project, sync_summary, runtime_config_for_summary)
     return 0
 
 

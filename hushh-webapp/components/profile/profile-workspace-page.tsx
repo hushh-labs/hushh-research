@@ -2,7 +2,6 @@
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
-import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
@@ -3642,7 +3641,6 @@ function ProfilePageContent({
     >
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
       <MarketingPreferencePanel model={emailPreference} />
-      <AttemptEmailPanel owner={activePanel === "account" ? applicationOwnerId ?? null : null} />
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={PROFILE_ICONS.name}

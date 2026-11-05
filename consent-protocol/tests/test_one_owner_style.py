@@ -184,18 +184,14 @@ async def test_route_admits_style_as_an_opaque_turn_reference(
         }
     )
     run = _input()
-    # A full synthetic name cannot coincide with characters in a random opaque
-    # reference. The privacy assertion must grade plaintext, not random bytes.
-    run.forwarded_props = {
-        "communicationPreferences": {"preferred_name": "Kay Fixture", "tone": "warm"}
-    }
+    run.forwarded_props = {"communicationPreferences": {"preferred_name": "Kay", "tone": "warm"}}
     with bound_request_chat_key("owner"):
         state = await agent_chat._extract_state(request, run)
     assert "communicationPreferences" not in run.forwarded_props
-    assert "Kay Fixture" not in json.dumps(state)
+    assert "Kay" not in json.dumps(state)
     if unlocked:
         assert state[STATE_OWNER_STYLE].startswith("one_secret_ref:")
-        assert '"Kay Fixture"' in owner_style_instruction(state.get)
+        assert '"Kay"' in owner_style_instruction(state.get)
     else:
         assert state[STATE_OWNER_STYLE] == ""
 

@@ -140,23 +140,7 @@ class ProductActivityPlugin(BasePlugin):
         return None
 
     async def on_model_error_callback(self, *, callback_context, llm_request, error):
-        # A model call may recover through SDK error handling. It is not a
-        # terminal agent outcome and must not supply failed-run evidence.
-        return None
-
-    async def on_run_error_callback(self, *, invocation_context, error):
-        # ADK notifies this only for an unhandled runner error and re-raises
-        # the original exception. Never inspect its payload or change recovery.
-        try:
-            context = SimpleNamespace(
-                user_id=invocation_context.user_id,
-                state=invocation_context.session.state,
-                agent_name=invocation_context.agent.name,
-                invocation_id=invocation_context.invocation_id,
-            )
-            await self._emit(context, "failed")
-        finally:
-            await self.after_run_callback(invocation_context=invocation_context)
+        await self._emit(callback_context, "failed")
         return None
 
 
