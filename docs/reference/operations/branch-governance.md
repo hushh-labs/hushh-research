@@ -63,7 +63,7 @@ diagnostics retain the actual compared ref and revision. This keeps an empty
 semantic transition deterministic without changing breaking-change checks,
 runtime workflow compatibility or exact mirror checks. Nonempty transitions
 retain base-specific comparison metadata and require separate validation for
-each target before selective promotion becomes automatic. Exact-tree promotion
+each target before selective promotion is qualified. Exact-tree promotion
 also needs the tested UAT candidate to incorporate the reviewed Main baseline;
 a later Main change may require a new UAT candidate.
 
@@ -227,7 +227,7 @@ on any branch deploys nothing; deployments retain explicit authorization.
     dispatch. UAT candidates also require canonical PR, queue, or full branch
     validation. Do not dispatch the direct path before its exact CI and admission
     proof pass.
-11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Cadence remains disabled until it understands the same mapping.
+11. Production deploys only the explicitly approved application through its Main approval or separately governed emergency admission. Automatic release cadence is retired.
 12. Prepared-branch baseline and curated-selection PRs preserve history. Their merge does not deploy an environment; release tooling remains Main-owned.
 
 ## Engineering Branch Preservation Gate
@@ -413,8 +413,9 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
 ### Why GitHub teams mirror the config, and never the reverse
 
-Every ring above has a real GitHub team, created and kept in sync by
-`apply-governance.py` from `config/ci-governance.json`. The teams exist so people
+Every capability above has a GitHub team. The approved reconciler applies
+`config/ci-governance.json`; membership and role changes require live readback.
+Declarations alone do not prove activation. The teams exist so people
 can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
 Deployment actor gates read committed policy. Native protected-path review uses
 the verified owner-team mirror; the reconciler verifies its exact membership
@@ -538,7 +539,7 @@ age checks. Read back live branch and deployment policies after application.
 7. Block force-pushes.
 8. Block branch deletion.
 9. Require one independent PR approval, or the narrow owner self-approval path on `main`; CI and current combined-result proof remain required.
-10. Require the queue and approved Main user restrictions; no team bypass may skip combined-result verification.
+10. Require the queue and approved Main requester cohort; no human-only writer filter may block GitHub’s native queue writer, and no team bypass may skip combined-result verification.
 11. Keep non-maintainer contributor and agent development off `main`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`, while train work promotes from `integration/pr-train`.
 
 Current operating note:

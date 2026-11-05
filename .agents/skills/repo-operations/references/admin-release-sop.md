@@ -102,8 +102,8 @@ execute its reviewed implementation; generic admin credentials alone are not.
 its review-bypass allowance for an author. Do not request another owner merely
 because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
 Kushal and Ankit have a separate, explicitly approved owner Admin PR route on
-Main, Dev and UAT. Ordinary Main PRs retain independent/latest-push/CODEOWNER
-review and the combined-result queue. Eligible Dev/UAT authors use ordinary
+Main, Dev and UAT. Ordinary Main PRs retain independent/latest-push review,
+CODEOWNER review where protected paths require it, and the combined-result queue. Eligible Dev/UAT authors use ordinary
 maintainer self-approval through the queue as described in §3B.
 
 The named-owner route preserves these independent protections:
