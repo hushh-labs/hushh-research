@@ -4157,6 +4157,8 @@ jobs:
 
       - name: Produce exact-SHA UAT acceptance
         if: always() && steps.begin-uat-mutation.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
             --environment uat --status /tmp/uat-release-status.json \
