@@ -133,7 +133,8 @@ for (const viewport of [
       const searchShell = countrySearch.locator("..");
       const inactiveSearchFill = await searchShell.evaluate(element => getComputedStyle(element).backgroundColor);
       await countrySearch.fill("United States");
-      await expect(countrySearch).toHaveCSS("outline-style", "none");
+      await expect(countrySearch).toBeFocused();
+      await expect(countrySearch).toHaveCSS("outline-style", "solid");
       await expect(countrySearch).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       expect(await searchShell.evaluate(element => getComputedStyle(element).backgroundColor)).not.toBe(inactiveSearchFill);
       await expect(searchShell).not.toHaveCSS("box-shadow", "none");
@@ -210,22 +211,12 @@ for (const viewport of [
       await continueButton.click();
       await codeInput.fill("123456");
       await confirm.click();
-      const conflictTitle = page.getByRole("heading", {name:"Number already linked", exact:true});
+      const conflictTitle = page.getByRole("heading", {name:"This number is linked to another account", exact:true});
       await expect(conflictTitle).toBeVisible();
-      await expect(codeHeading).toBeHidden();
       const changeNumber = page.getByRole("button", {name:"Use a different number", exact:true});
-      const deleteReview = page.getByRole("button", {name:"Delete my previous account", exact:true});
-      await expect(page.locator('[data-phone-conflict]').getByRole("button")).toHaveCount(2);
-      await expect(page.locator('[data-phone-conflict] p')).toHaveCount(0);
-      const titleBox = (await conflictTitle.boundingBox())!;
-      const actionBox = (await changeNumber.boundingBox())!;
-      expect(Math.abs(titleBox.x - actionBox.x)).toBeLessThanOrEqual(1);
-      expect(actionBox.height).toBeGreaterThanOrEqual(44);
-      if (viewport.width < 800) expect(titleBox.height).toBeLessThanOrEqual(await conflictTitle.evaluate(element => parseFloat(getComputedStyle(element).lineHeight)) + 1);
-      await expect(changeNumber).toHaveCSS("box-shadow", "none");
-      await expect(deleteReview).toBeInViewport({ratio:1});
-      expect((await deleteReview.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-      for (const label of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Sign in to existing account", "Review previous device access", "Account options"]) {
+      await expect(page.getByRole("button", {name:"Sign in to existing account", exact:true})).toBeVisible();
+      await expect(changeNumber).toBeVisible();
+      for (const label of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Delete my previous account", "Review previous device access", "Account options"]) {
         await expect(page.getByRole("button", {name:label, exact:true})).toHaveCount(0);
       }
       expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);

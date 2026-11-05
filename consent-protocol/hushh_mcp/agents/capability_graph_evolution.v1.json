@@ -2506,6 +2506,14 @@
       "from_version": 1,
       "to_version": null,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:phone_mandate.review_previous_deletion",
+      "from_revision": "9ea5b914a24b6f47",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
     }
   ]
 }

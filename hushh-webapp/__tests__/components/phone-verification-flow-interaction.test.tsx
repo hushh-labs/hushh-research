@@ -818,38 +818,43 @@ describe("onboarding code presentation", () => {
 
 describe("phone conflict recovery", () => {
   it.each(["PHONE_ALREADY_VERIFIED", "PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "credential-already-in-use", "auth/phone-number-already-exists"])("keeps an occupied phone on its existing email account: %s", async code => {
-    const transfer = vi.fn(); const remove = vi.fn(); const recover = vi.fn(); const reviewDeletion = vi.fn();
+    const transfer = vi.fn(); const remove = vi.fn(); const recover = vi.fn();
     const flow = renderPhoneVerificationFlow({ confirmTransfer: transfer, confirmLinkedDeletion: remove, recoverPreviousAccount: recover,
-      deletePreviousAccount: reviewDeletion,
       confirmVerification: vi.fn().mockRejectedValue(code.startsWith("PHONE_") ? new ApiError("Conflict", 409, { detail: { code } }) : Object.assign(new Error("Occupied"), { code })) });
     const otp = await reachCodeStep(flow.startVerification);
     fireEvent.change(otp, { target: { value: "123456" } }); fireEvent.submit(otp.closest("form")!);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
-    expect(reviewDeletion).toHaveBeenCalledWith("+16505550101");
-    expect(recover).not.toHaveBeenCalled();
-    for (const label of ["Use this number on this account", "Send a real SMS code", "Recover my previous account", "Sign in to existing account", "Review previous device access", "Account options"]) {
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in to existing account" }));
+    expect(recover).toHaveBeenCalledWith("+16505550101");
+    for (const label of ["Use this number on this account", "Send a real SMS code", "Delete my previous account", "Review previous device access"]) {
       expect(screen.queryByRole("button", { name: label })).toBeNull();
     }
     expect(transfer).not.toHaveBeenCalled(); expect(remove).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
   });
-  it("admits deletion review once and refuses a callback retained after its owner retires", async () => {
+  it("admits recovery only for an allowed current owner, once while busy", async () => {
     let finish!: () => void;
     let ownerCurrent = true;
-    const review = vi.fn().mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    let operationAllowed = true;
+    const recover = vi.fn().mockImplementation(() => operationAllowed
+      ? new Promise<void>(resolve => { finish = resolve; }) : Promise.resolve());
     const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "link", isCurrent: () => ownerCurrent,
-      startVerification: vi.fn().mockResolvedValue({ autoVerified: false }), deletePreviousAccount: review,
+      operationAllowed: () => operationAllowed,
+      startVerification: vi.fn().mockResolvedValue({ autoVerified: false }), recoverPreviousAccount: recover,
       confirmVerification: vi.fn().mockRejectedValue(new ApiError("Conflict", 409, { code: "PHONE_ALREADY_VERIFIED" })), onCompleted: vi.fn() }));
     await act(async () => { await result.current.handleStartVerification(false, "+16505550101"); });
     await act(async () => { await result.current.submitVerificationCode("123456", { notify: false }); });
-    const retained = result.current.reviewPreviousDeletion;
+    const retained = result.current.recoverPrevious;
+    operationAllowed = false;
+    await act(async () => { await retained(); });
+    expect(recover).not.toHaveBeenCalled();
+    operationAllowed = true;
     let pending!: Promise<void>;
     act(() => { pending = retained(); void retained(); });
-    expect(review).toHaveBeenCalledExactlyOnceWith("+16505550101");
+    expect(recover).toHaveBeenCalledExactlyOnceWith("+16505550101");
     expect(result.current.busy).toBe(true);
     await act(async () => { finish(); await pending; });
     ownerCurrent = false;
     await act(async () => { await retained(); });
-    expect(review).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
   });
   it("returns from an occupied number to phone entry through Back", async () => {
     const { result } = renderHook(() => usePhoneVerificationFlow({ mode: "replace", currentPhoneNumber: "+16505550101",

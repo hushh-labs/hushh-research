@@ -23485,19 +23485,18 @@
       }
     },
     {
-      "action_id": "phone_mandate.review_previous_deletion",
+      "action_id": "phone_mandate.recover",
       "surface_id": "phone_mandate",
-      "label": "Delete my previous account",
+      "label": "Sign in to existing account",
       "aliases": [
-        "delete my previous account",
-        "review previous account deletion"
+        "sign in to existing account",
+        "recover my previous account"
       ],
       "search_keywords": [
         "phone",
-        "previous account",
-        "deletion review"
+        "recovery"
       ],
-      "meaning": "Starts a server-bound deletion review requiring independent sign-in to the previous account and a separate confirmation. This action never deletes an account.",
+      "meaning": "Signs out and requires independent sign-in to the existing email account linked to this number; phone proof never transfers its ownership.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -23513,7 +23512,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "The occupied-number conflict must be visible; previous-account sign-in and confirmation are required before deletion."
+          "The matching phone conflict choice or review must be visible."
         ],
         "active_personas": [
           "investor",
@@ -23525,7 +23524,7 @@
         "auth_signed_in",
         "manual_user_execution"
       ],
-      "risk_level": "high",
+      "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
       "siri_mode": "unsupported",
@@ -23537,10 +23536,10 @@
         "intended_handler": "PhoneVerificationFlow"
       },
       "control_ids": [
-        "phone-flow-delete-review"
+        "phone-flow-recover"
       ],
       "state_exposure": [
-        "deletion review step only"
+        "phone recovery step only"
       ],
       "docs_references": [
         "docs/reference/kai/kai-action-gateway-vnext.md",
@@ -23565,15 +23564,15 @@
         ]
       },
       "goal": {
-        "goal_id": "goal.phone_mandate.review_previous_deletion",
+        "goal_id": "goal.phone_mandate.recover",
         "required_inputs": [],
         "input_resolvers": [],
         "slot_schema": {},
         "workflow_steps": [
           {
             "type": "action",
-            "action_id": "phone_mandate.review_previous_deletion",
-            "label": "Delete my previous account",
+            "action_id": "phone_mandate.recover",
+            "label": "Sign in to existing account",
             "failure_behavior": "stop"
           }
         ],
