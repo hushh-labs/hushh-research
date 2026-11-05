@@ -148,6 +148,55 @@ async function mount(
 const pane = (page: Page) => page.getByTestId("profile-pane");
 const paneTitle = (page: Page) => pane(page).locator("h2").first();
 
+test("Plaid Link receives exit dialog clicks above the open Profile pane", async ({ page }) => {
+  await mount(page, { width: 1440, at: "/?profile_pane=1" });
+  await expect(paneTitle(page)).toHaveText("Profile");
+  await page.route("http://plaid-link.test/confirmation", route => route.fulfill({
+    contentType: "text/html",
+    body: `<button type="button" id="open">Ask to exit</button>
+      <div id="confirm" hidden>
+        <button type="button" id="stay">No, go back</button>
+        <button type="button" id="exit">Yes, exit</button>
+      </div>
+      <script>
+        const confirm = document.getElementById("confirm");
+        document.getElementById("open").onclick = () => { confirm.hidden = false; };
+        document.getElementById("stay").onclick = () => { confirm.hidden = true; };
+        document.getElementById("exit").onclick = () => parent.postMessage("fixture-link-exit", "http://localhost");
+      </script>`,
+  }));
+  await page.evaluate(() => {
+    const frame = document.createElement("iframe");
+    frame.id = "plaid-link-iframe-fixture";
+    frame.title = "Plaid Link";
+    frame.src = "http://plaid-link.test/confirmation";
+    frame.style.cssText = "position:fixed;inset:0;width:100%;height:100%;z-index:2147483647";
+    window.addEventListener("message", function onExit(event) {
+      if (event.source !== frame.contentWindow || event.data !== "fixture-link-exit") return;
+      window.removeEventListener("message", onExit);
+      frame.remove();
+    });
+    document.body.append(frame);
+  });
+
+  const frame = page.locator('iframe[title="Plaid Link"]');
+  const dialog = page.frameLocator('iframe[title="Plaid Link"]');
+  const open = dialog.getByRole("button", { name: "Ask to exit" });
+  const stay = dialog.getByRole("button", { name: "No, go back" });
+  const exit = dialog.getByRole("button", { name: "Yes, exit" });
+  await expect(page.locator("body")).toHaveCSS("pointer-events", "none");
+  await expect(frame).toHaveCSS("pointer-events", "auto", { timeout: 3_000 });
+  await open.click();
+  await stay.click();
+  await expect(exit).toBeHidden();
+  await open.click();
+  await exit.click();
+  await expect(frame).toHaveCount(0);
+  await expect(paneTitle(page)).toHaveText("Profile");
+  await pane(page).getByRole("button", { name: "Close Profile", exact: true }).click();
+  await expect(pane(page)).not.toBeVisible();
+});
+
 for (const theme of ["light", "dark"] as const) for (const width of [390, 1440]) {
   test(`Profile header has one smaller round surface per control at ${width}px ${theme}`, async ({ page }) => {
     const errors = await mount(page, { width, theme, at: "/one?profile_pane=1&profile_panel=account" });
