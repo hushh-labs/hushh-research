@@ -26,11 +26,14 @@ import { agentPkmCaptureJobKey, aggregateAgentPkmCaptures, createAgentPkmCapture
 import {
   applyOwnerConfirmedSave,
   describeOwnerMemoryReview,
+  formatPkmSaveReceiptForAgent,
   pkmSaveReceiptWrote,
   saveOwnerConfirmedCards,
   type PkmSaveReceipt,
 } from "@/lib/agent/agent-pkm-explicit-save";
 import { explicitSaveReceiptPhase } from "@/lib/agent/pkm-save-receipt";
+import { composeAgentPkmContext } from "@/lib/pkm/live-activity/live-activity-agent-context";
+import { peekLiveActivity } from "@/lib/pkm/live-activity/live-activity-journal";
 import {
   resumeExplicitPkmSaveJob,
   type ExplicitPkmSaveJobResult,
@@ -6707,7 +6710,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultKey: vaultKeyRef.current ?? "",
         loadConnectorConfigurations,
         // Receipt, Soul.md (or the memory-unavailable status), today's activity, then the Live Mirror block, last.
-        pkmContext: agentPkmContext.text || undefined,
+        pkmContext: composeAgentPkmContext({
+          receipt: latestPkmSaveReceiptRef.current ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current) : "",
+          memory: agentPkmContext.text || "", events: peekLiveActivity(userId), now: Date.now(),
+        }),
         // Settings style choices ride beside the packet, never inside it.
         communicationPreferences: agentPkmContext.communicationPreferences,
         // Soul.md is the only saved memory supplied by chat. Connector tools
