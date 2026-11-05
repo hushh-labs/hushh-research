@@ -54819,25 +54819,14 @@
     }
   ],
   "semantic_diff": {
-    "added": [
-      "actions:phone_mandate.review_previous_deletion",
-      "actions:route.profile_net_worth_score"
-    ],
+    "added": [],
     "breaking": [],
-    "changed": [
-      "screens:screen:/one/profile",
-      "screens:screen:/one/profile/account",
-      "screens:screen:/one/profile/account/phone"
-    ],
+    "changed": [],
     "compatible": [],
-    "deprecated": [
-      "actions:phone_mandate.recover"
-    ],
-    "from_revision": "22cf4ef00a31d756",
+    "deprecated": [],
+    "from_revision": null,
     "migrated": [],
-    "removed": [
-      "actions:phone_mandate.recover"
-    ]
+    "removed": []
   },
   "services": [
     {
