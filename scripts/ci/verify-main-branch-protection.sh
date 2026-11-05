@@ -73,7 +73,7 @@ from prepared_branch_governance import queue_response_timeout, queue_timeout_pay
 expected_queue_timeout = queue_response_timeout(policy)
 native_prepared = bool(prepared.get("owner_admin_ruleset_name"))
 if native_prepared:
-    from prepared_branch_governance import branch_policy as prepared_policy, verify_destination_authority
+    from prepared_branch_governance import branch_policy as prepared_policy
     branch_policy = prepared_policy(policy, branch)
 if prepared:
     branch_policy["merge_queue_ruleset_name"] = prepared["merge_queue_ruleset_name"]
@@ -150,7 +150,8 @@ if native_prepared:
                                         capture_output=True, text=True).stdout)
     module.reconcile_protected_pipeline_review(policy, verify_only=True, read=read_prepared)
     module.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read_prepared, repo=repo)
-    verify_destination_authority(branch, repo=repo, read=read_prepared)
+    # Source equality gates Stage B activation in the mutation owner. Requiring
+    # it here would prevent the verified source-sync PR from landing.
     expected_owner_actors = [
         {"actor_id": read_prepared(["api", f"users/{login}"])["id"], "actor_type": "User", "bypass_mode": "pull_request"}
         for login in sorted(branch_policy["merge_queue_bypass_users"])

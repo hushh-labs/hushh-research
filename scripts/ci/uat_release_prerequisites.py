@@ -72,7 +72,7 @@ def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=
         raise Refused("Unrecognized protected UAT branch")
     match = re.fullmatch(
         r"([0-9a-f]{40}):([0-9a-f]{40}):"
-        r"([1-9][0-9]{0,9}=[0-9a-f]{40}(?:,[1-9][0-9]{0,9}=[0-9a-f]{40}){0,9})",
+        r"([1-9][0-9]{0,9}=[0-9a-f]{40}(?:,[1-9][0-9]{0,9}=[0-9a-f]{40}){0,19})",
         approval,
     )
     if not match or not exact.SHA.fullmatch(sha) or not exact.SHA.fullmatch(base):

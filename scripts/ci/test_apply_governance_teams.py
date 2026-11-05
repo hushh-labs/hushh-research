@@ -1421,6 +1421,15 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
                     sample[f"repos/{module.REPO}/rulesets/20"]["bypass_actors"].append({"actor_id": 1, "actor_type": "RepositoryRole", "bypass_mode": "always"})
                 elif fault == "stale_authority":
                     sample[f"repos/{module.REPO}/contents/scripts/ci/queue_combined_result.py?ref={"b" * 40}"]["sha"] = "e" * 40
+                    # Source equality still gates review-policy activation, not
+                    # an already-protected branch's authority-sync PR.
+                    try:
+                        prepared.verify_destination_authority(branch, repo=module.REPO,
+                                                              read=lambda args: sample[args[1]])
+                    except SystemExit as error:
+                        assert "source-sync before Stage B" in str(error)
+                    else:
+                        raise AssertionError("Stale authority permitted review activation")
                 elif fault == "blanket_review":
                     sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["require_code_owner_reviews"] = True
                 elif fault == "queue_timeout":
@@ -1428,7 +1437,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
                 environment["SYNTHETIC_GITHUB_RESPONSES"] = json.dumps(sample)
                 result = subprocess.run(["bash", str(Path(__file__).parent / "verify-main-branch-protection.sh")],
                                         env=environment, text=True, capture_output=True, timeout=60)
-                assert (result.returncode == 0) == (fault is None), (branch, fault, result.stdout, result.stderr)
+                assert (result.returncode == 0) == (fault in (None, "stale_authority")), (branch, fault, result.stdout, result.stderr)
 
 
 
