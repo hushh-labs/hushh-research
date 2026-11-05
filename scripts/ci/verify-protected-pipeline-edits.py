@@ -181,6 +181,24 @@ def resolve_allowed_users(main_policy: dict) -> list[str]:
 SEMANTIC_PIPELINE_PATHS = ("hushh-webapp/package.json", "consent-protocol/scripts/test-ci.manifest.txt")
 
 
+def authored_change_base(target: str, head: str, *, repository_root: Path) -> str:
+    """Attribute a PR's edits without treating newer destination work as removal."""
+    from process_group import BoundedReadError, bounded_stdout
+
+    if not all(isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (target, head)):
+        raise GuardResolutionError("Authored comparison requires pinned target and head commits")
+    try:
+        bases = bounded_stdout(
+            ["git", "-C", str(repository_root), "merge-base", "--all", target, head],
+            max_bytes=256, timeout=30,
+        ).decode("ascii").splitlines()
+    except (BoundedReadError, OSError, UnicodeDecodeError) as error:
+        raise GuardResolutionError("Authored merge base is unavailable; reconcile the destination history") from error
+    if len(bases) != 1 or not re.fullmatch(r"[0-9a-f]{40}", bases[0]):
+        raise GuardResolutionError("Authored merge base is ambiguous or invalid")
+    return bases[0]
+
+
 def backend_test_identities(raw: str) -> set[str]:
     """Parse test identities, never pytest options or executable shell input."""
     if not isinstance(raw, str) or not 0 < len(raw.encode("utf-8")) <= 1024 * 1024:
@@ -487,10 +505,14 @@ def main() -> int:
     semantic = []
     if any(path in changed_files for path in SEMANTIC_PIPELINE_PATHS):
         base, head = args.base_sha, args.head_sha
+        authority = None
         if event_name in {"pull_request", "pull_request_target"} and not args.files:
             event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
             base, head = event["pull_request"]["base"]["sha"], event["pull_request"]["head"]["sha"]
-        semantic = semantic_pipeline_changes(changed_files, base=base, head=head, repository_root=Path.cwd())
+            authority = base
+            base = authored_change_base(base, head, repository_root=Path.cwd())
+        semantic = semantic_pipeline_changes(changed_files, base=base, head=head, authority=authority,
+                                             repository_root=Path.cwd())
         protected_paths = [*protected_paths, *semantic]
     approvals: list[str] = []
     if event_name in {"pull_request", "pull_request_target"} and not args.files:

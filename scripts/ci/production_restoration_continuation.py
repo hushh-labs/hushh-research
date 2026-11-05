@@ -174,14 +174,14 @@ def validation_receipt(run_id, sha):
     return validation["verify"](run_id, sha)
 
 
-def load_original(run_id, attempt, sha, **arguments):
+def load_original(run_id, attempt, sha, *, manual_validator=None, **arguments):
     require(re.fullmatch(r"[1-9][0-9]*", str(run_id)) and type(attempt) is int
             and attempt > 0, "exact original run and attempt required")
     run = fresh_run(arguments, run_id)
     require(run.get("id") == int(run_id) and run.get("run_attempt") == attempt
             and run.get("status") == "completed", "original attempt changed")
     require(arguments["governed"](run, REPOSITORY, "production"), "original completed dispatch is not governed")
-    manual(run)
+    (manual_validator or manual)(run)
     artifact, job, content, lane = archive(run, arguments)
     release = owner.phone._document(content, "prod-release-status.json")
     record, digest = owner.source_record(sha)
@@ -350,14 +350,15 @@ def fresh_provenance(read, original):
         require(image == original["images"][lane], "fresh immutable image differs")
 
 
-def serving_context(run, release, job, content, **arguments):
+def serving_context(run, release, job, content, *, manual_validator=None, **arguments):
     require(arguments["governed"](run, REPOSITORY, "production"), "verifier completed dispatch is not governed")
-    manual(run)
+    (manual_validator or manual)(run)
     require(run.get("conclusion") == "success", "verifier did not succeed")
     origin = owner.phone._document(content, ORIGIN)
     original = origin["original"]
     require(original == load_original(original["run_id"], original["run_attempt"],
-                                      release["sha"], **arguments), "original archive binding changed")
+                                      release["sha"], manual_validator=manual_validator,
+                                      **arguments), "original archive binding changed")
     require(run["id"] != original["run_id"] and origin.get("kind") == "production-restoration-activation-origin"
             and origin.get("schema_version") == 1, "verifier and runtime identity are not distinct")
     require(origin.get("verifier") == verifier_identity(run), "verifier attempt or actors changed")
