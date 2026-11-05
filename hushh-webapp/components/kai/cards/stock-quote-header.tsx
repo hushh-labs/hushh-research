@@ -68,7 +68,7 @@ export function StockQuoteHeader({ row, loadQuote }: {
     <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
       <p className={styles.value}>{usable(price) ? formatCurrency(price) : loading ? "Loading quote…" : "Unavailable"}</p>
       {usable(price) && typeof change === "number" && Number.isFinite(change) ? (
-        <p className={cn("text-base font-semibold tabular-nums", change >= 0
+        <p className={cn("ui-text-row-label-emphasized tabular-nums", change >= 0
           ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400")}>
           {change >= 0 ? "+" : ""}{change.toFixed(2)}%
         </p>

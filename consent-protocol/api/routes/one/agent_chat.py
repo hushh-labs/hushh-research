@@ -348,6 +348,9 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
     if any(message.role == "system" for message in input_data.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
     from hushh_mcp.one_adk.receipt_client_tools import (
@@ -538,6 +541,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_EXECUTION_SURFACE: "typed_chat",
         "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
         and forwarded.get("emailAgentContract") == 1,
+        "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,

@@ -26,7 +26,7 @@ export function IndexSparkline({ tone, series, height = 40, expanded = false }: 
   height?: number;
   expanded?: boolean;
 }) {
-  const fillId = `index-${useId().replace(/:/g, "")}`;
+  const chartId = `index-${useId().replace(/:/g, "")}`;
   const first = series?.[0];
   if (!series || series.length < 2 || first === undefined) {
     return <svg className="mt-2 block w-full text-muted-foreground opacity-50" viewBox="0 0 100 20"
@@ -35,17 +35,33 @@ export function IndexSparkline({ tone, series, height = 40, expanded = false }: 
     </svg>;
   }
 
-  return <div className={cn("mt-2 w-full", returnColor(tone))} aria-hidden={expanded ? undefined : true}
+  const high = Math.max(...series);
+  const low = Math.min(...series);
+  const flat = high === low;
+  // A linear curve and its baseline-filled area share the same vertical bounds.
+  const split = flat ? 0 : (high - first) / (high - low);
+  const up = "var(--index-chart-up)";
+  const down = "var(--index-chart-down)";
+
+  return <div className={cn("mt-2 w-full", marketStyles.indexChart)} aria-hidden={expanded ? undefined : true}
     role={expanded ? "region" : undefined} aria-label={expanded ? "Intraday index history" : undefined}
     data-no-route-swipe={expanded ? true : undefined} data-index-chart-tone={tone}>
     <ChartContainer config={{ value: { label: "Index level", color: "currentColor" } }}
       className="aspect-auto w-full" style={{ height }}>
       <AreaChart data={series.map((value, index) => ({ index, value }))} accessibilityLayer={expanded}
         margin={{ top: 6, right: 2, left: 2, bottom: 2 }}>
-        <defs><linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity={0.28} />
-          <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
-        </linearGradient></defs>
+        {!flat && <defs>
+          <linearGradient id={`${chartId}-line`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset={split} stopColor={split === 0 ? down : up} />
+            <stop offset={split} stopColor={split === 1 ? up : down} />
+          </linearGradient>
+          <linearGradient id={`${chartId}-area`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={up} stopOpacity={0.28} />
+            <stop offset={split} stopColor={up} stopOpacity={0} />
+            <stop offset={split} stopColor={down} stopOpacity={0} />
+            <stop offset="100%" stopColor={down} stopOpacity={0.28} />
+          </linearGradient>
+        </defs>}
         {expanded ? <CartesianGrid vertical={false} strokeOpacity={0.3} /> : null}
         <XAxis dataKey="index" hide />
         <YAxis hide={!expanded} orientation="right" width={expanded ? 62 : 0} tickCount={4} tickLine={false} axisLine={false}
@@ -54,13 +70,15 @@ export function IndexSparkline({ tone, series, height = 40, expanded = false }: 
             const padding = Math.max((max - min) * 0.12, max * 0.0001);
             return [Math.max(0, min - padding), max + padding];
           }} />
-        <ReferenceLine y={first} stroke="currentColor" strokeOpacity={0.45} strokeDasharray="3 4" />
+        <ReferenceLine y={first} stroke="var(--muted-foreground)" strokeOpacity={0.45} strokeDasharray="3 4" />
         {expanded ? <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
           cursor={{ stroke: "var(--muted-foreground)", strokeDasharray: "3 4" }}
           content={<ChartTooltipContent hideIndicator labelFormatter={index => `Observed point ${Number(index) + 1}`}
             formatter={value => `${indexLevel(Number(value))} points`} />} /> : null}
-        <Area type="linear" dataKey="value" stroke="currentColor" strokeWidth={2} fill={`url(#${fillId})`}
-          fillOpacity={1} dot={false} activeDot={expanded ? { r: 3, stroke: "var(--background)", strokeWidth: 2 } : false} isAnimationActive={false} />
+        <Area type="linear" dataKey="value" baseValue={first} strokeWidth={2}
+          stroke={flat ? "var(--muted-foreground)" : `url(#${chartId}-line)`}
+          fill={flat ? "none" : `url(#${chartId}-area)`} fillOpacity={1} dot={false}
+          activeDot={expanded ? { r: 3, fill: "var(--foreground)", stroke: "var(--background)", strokeWidth: 2 } : false} isAnimationActive={false} />
       </AreaChart>
     </ChartContainer>
     {expanded ? <p className="mt-2 text-xs leading-[18px] text-muted-foreground">

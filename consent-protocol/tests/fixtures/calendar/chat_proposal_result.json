@@ -30,7 +30,9 @@
     ],
     "included_conflicts": [],
     "conflicts": [],
-    "primary_conflicts": []
+    "primary_conflicts": [],
+    "account_id": "default",
+    "calendar_id": "primary"
   },
   "conflicts": [],
   "directive": {
@@ -55,7 +57,13 @@
       "googleMeet": true,
       "sendUpdates": true,
       "conflicts": [],
-      "description": null
+      "description": null,
+      "accountId": "default",
+      "calendarId": "primary",
+      "recurringEventId": null,
+      "originalStartTime": null,
+      "locationCleared": false,
+      "descriptionCleared": false
     }
   },
   "message": "The app is showing the meeting details for owner confirmation. A Google Meet link will be added after scheduling."
