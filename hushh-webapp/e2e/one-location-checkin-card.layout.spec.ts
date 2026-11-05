@@ -15,7 +15,6 @@ test("the artwork is not positioned from the viewport", async ({ page }) => {
   for (const height of [667, 812, 844, 932]) {
     await page.setViewportSize({ width: 390, height });
     await openFixture(page);
-    await page.getByRole("button", { name: "Use my location" }).click();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
     const map = page.locator("[data-location-picker-surface]");
     const measured = await map.evaluate(node => {
@@ -47,8 +46,6 @@ for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport);
     await openFixture(page, { dark: viewport.width === 430 });
     await expect(page.getByRole("heading", { name: "Your place." })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Use my location" })).toBeInViewport({ ratio: 1 });
-    await page.getByRole("button", { name: "Use my location" }).click();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
     await expect(page.getByRole("button", { name: "Save & continue" })).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("button", { name: "Set up later" })).toBeInViewport({ ratio: 1 });
@@ -119,7 +116,7 @@ for (const width of [320, 390, 1440]) {
 test("keeps actions reachable in a short landscape or zoomed viewport", async ({ page }) => {
   await page.setViewportSize({ width: 667, height: 375 });
   await openFixture(page);
-  await page.getByRole("button", { name: "Use my location" }).click();
+  await expect(page.getByRole("button", { name: "Save & continue" })).toBeEnabled();
   await page.getByRole("button", { name: "Save & continue" }).click();
   await expect(page.getByRole("heading", { name: "Your people." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open One Location" })).toBeInViewport({ ratio: 1 });

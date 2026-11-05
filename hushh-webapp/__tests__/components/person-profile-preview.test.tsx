@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -9,10 +9,19 @@ const state = vi.hoisted(() => ({
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useSearchParams: () => new URLSearchParams(state.search) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
-vi.mock("@/lib/auth/session-owner", () => ({ getAuthSessionGeneration: () => state.generation }));
+vi.mock("@/lib/auth/session-owner", () => ({ getAuthSessionGeneration: () => state.generation, subscribeAuthSessionGeneration: () => () => {} }));
 vi.mock("@/lib/services/connections-service", () => ({ ConnectionsService: { getPersonContext: state.resolve } }));
 vi.mock("@/lib/capacitor/native-navigation", () => ({ useNativeNavigationOverlayRef: (ref: unknown) => ref }));
-vi.mock("@/components/connections/person-profile-page", () => ({ PersonProfilePage: ({ personRef }: { personRef: string }) => <h2>Profile {personRef}</h2> }));
+vi.mock("@/components/connections/person-profile-page", () => ({ PersonProfilePage: ({ personRef, onNetworkReady }: { personRef: string; onNetworkReady?: () => void }) => {
+  const [request, setRequest] = useState(false);
+  useEffect(() => { onNetworkReady?.(); }, [onNetworkReady]);
+  return <><h2>Profile {personRef}</h2><button data-voice-control-id="person-network-connections" type="button" onClick={() => openPersonProfilePreview({ personRef, networkList: "connections" })}>View connections</button><button type="button" onClick={() => setRequest(true)}>Request information</button>
+    <Dialog open={request} onOpenChange={setRequest}><DialogContent><DialogTitle>Review request</DialogTitle></DialogContent></Dialog></>;
+} }));
+vi.mock("@/components/connect/network-people-list", () => ({ NetworkPeopleList: ({ mode, onReady }: { mode: string; onReady?: () => void }) => {
+  useEffect(() => { onReady?.(); }, [onReady]);
+  return <h2>Network {mode}</h2>;
+} }));
 
 import { PersonProfilePreview } from "@/components/connections/person-profile-preview";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -20,6 +29,8 @@ import { PersonSelectionSurface } from "@/components/connections/person-selectio
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
 import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 function Source({ settings = false }: { settings?: boolean }) {
   const [selected, setSelected] = useState(false);
@@ -87,6 +98,81 @@ describe("person profile return memory @feature_connected_profiles @trace_loop",
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       expect(screen.getByRole("button", { name: "Select Aarav" })).toHaveAttribute("aria-pressed", "true");
     } finally { back.mockRestore(); }
+  });
+
+  it("unwinds repeated profile/list visits in one dialog and restores known Forward visits without growing the URL", async () => {
+    render(<Source />);
+    const avatar = screen.getByRole("button", { name: "View Aarav's profile" });
+    avatar.focus(); fireEvent.click(avatar);
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    const originalUrl = window.location.href;
+    for (const identity of [{ personRef: "public-peer", networkList: "connections" as const }, { personRef: "second" }, { personRef: "second", networkList: "mutuals" as const }, { personRef: "public-peer" }]) {
+      act(() => { expect(openPersonProfilePreview(identity)).toBe(true); });
+      expect(screen.getAllByRole("dialog")).toHaveLength(1);
+      expect(window.location.href).toBe(originalUrl);
+    }
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    act(() => { dismissTopmostOverlay(); });
+    await screen.findByRole("heading", { name: "Network mutuals" });
+    act(() => { window.history.forward(); });
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    for (const title of ["Network mutuals", "Profile second", "Network connections", "Profile public-peer"]) {
+      fireEvent.click(screen.getByRole("button", { name: "Back to previous screen" }));
+      await screen.findByRole("heading", { name: title });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Back to previous screen" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(avatar).toHaveFocus();
+  });
+
+  it("retires known Forward visits across same-account reauthentication", async () => {
+    const { rerender } = render(<Source />);
+    fireEvent.click(screen.getByRole("button", { name: "View Aarav's profile" }));
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    fireEvent.click(screen.getByRole("button", { name: "Back to previous screen" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    state.generation++;
+    rerender(<Source />);
+    act(() => { window.history.forward(); });
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("resets a new visit and restores profile scroll and the authored network control on Back", async () => {
+    render(<Source />);
+    fireEvent.click(screen.getByRole("button", { name: "View Aarav's profile" }));
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    const scroller = document.querySelector<HTMLElement>("[data-network-scroll-owner]")!;
+    scroller.scrollTop = 240;
+    const control = screen.getByRole("button", { name: "View connections" });
+    control.focus(); fireEvent.click(control);
+    await screen.findByRole("heading", { name: "Network connections" });
+    expect(scroller.scrollTop).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Back to previous screen" }));
+    await screen.findByRole("heading", { name: "Profile public-peer" });
+    expect(scroller.scrollTop).toBe(240);
+    expect(screen.getByRole("button", { name: "View connections" })).toHaveFocus();
+  });
+
+  it("dismisses the deepest request overlay before unwinding a route-origin network visit", async () => {
+    state.pathname = "/people/route-origin"; state.search = "";
+    render(<Source />);
+    const source = screen.getByRole("button", { name: "View Aarav's profile" });
+    source.focus();
+    act(() => { openPersonProfilePreview({ personRef: "route-origin", networkList: "connections" }, source); });
+    await screen.findByRole("heading", { name: "Network connections" });
+    act(() => { openPersonProfilePreview({ personRef: "second" }); });
+    await screen.findByRole("heading", { name: "Profile second" });
+    fireEvent.click(screen.getByRole("button", { name: "Request information" }));
+    await screen.findByRole("heading", { name: "Review request" });
+    act(() => { dismissTopmostOverlay(); });
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Review request" })).toBeNull());
+    expect(screen.getByRole("heading", { name: "Profile second" })).toBeVisible();
+    act(() => { dismissTopmostOverlay(); });
+    await screen.findByRole("heading", { name: "Network connections" });
+    act(() => { dismissTopmostOverlay(); });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(source).toHaveFocus();
   });
 
   it("ignores a late identity response after closing or changing the account", async () => {
