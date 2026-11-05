@@ -243,7 +243,11 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
     bypass_actors = merge_queue_ruleset.get("bypass_actors") or []
     queue_bypass_team = next((actor_info for actor_info in bypass_actors if actor_info.get("actor_type") == "Team"), None)
     queue_bypass_team_id = int(queue_bypass_team.get("actor_id")) if queue_bypass_team and queue_bypass_team.get("actor_id") else None
-    queue_bypass_team_slug = policy["main"].get("merge_queue_bypass_team_slug")
+    policy_key = "main" if base_branch == "main" else (
+        policy["branch_flow"].get("prepared_branches", {}).get(base_branch, {}).get("policy_key", "pr_train")
+    )
+    branch_policy = policy[policy_key]
+    queue_bypass_team_slug = branch_policy.get("merge_queue_bypass_team_slug")
     actor_can_bypass_queue = False
     if queue_bypass_team_id:
       actor_can_bypass_queue = _team_membership(140115870, queue_bypass_team_id, actor)
@@ -254,7 +258,7 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
         current_actor_can_bypass_review=actor in review_bypass_users,
         merge_queue_required=merge_queue_required,
         merge_queue_bypass_team_slug=queue_bypass_team_slug,
-        merge_queue_bypass_users=policy["main"]["merge_queue_bypass_users"],
+        merge_queue_bypass_users=branch_policy["merge_queue_bypass_users"],
         current_actor_can_bypass_queue=actor_can_bypass_queue,
         uat_manual_dispatch_users=policy["uat"]["manual_dispatch_users"],
         current_actor_can_dispatch_uat=actor in policy["uat"]["manual_dispatch_users"],
@@ -263,7 +267,7 @@ def _review_policy(base_branch: str = "main") -> OrderedDict[str, Any]:
         notes=[
             "A PR author still cannot self-approve through GitHub.",
             "Review bypass and merge-queue policy are separate gates.",
-            "The sanctioned main owner-bypass cohort may waive review on main and bypass merge queue through the dedicated team-backed owner path.",
+            "Only a protected owner explicitly queuing their own exact head may use owner self-approval; CI and the merge queue remain required.",
         ],
     )
 
@@ -327,12 +331,12 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     next_actions["impact"] = "./bin/hushh codex impact ci-watch-and-heal"
     next_actions["completion_gate"] = completion_gate["reason"]
     if review_policy["current_actor_can_bypass_review"]:
-        next_actions["review_gate"] = "Current actor may waive the review gate on main; this is not the same as self-approval."
+        next_actions["review_gate"] = "Live GitHub grants a review exception. Policy permits only the protected owner explicitly queuing their own exact head; CI and combined-result validation remain required."
     else:
         next_actions["review_gate"] = "Current actor is not in the PR-review bypass allowlist."
     if review_policy["merge_queue_required"]:
         if review_policy["current_actor_can_bypass_queue"]:
-            next_actions["merge_queue"] = "Current actor may bypass merge queue through the dedicated owner team-backed path."
+            next_actions["merge_queue"] = "Legacy queue bypass is still configured; this is observed access, not authorization to skip combined-result validation."
         else:
             next_actions["merge_queue"] = "main still has an active merge-queue rule; current actor is not in the queue-bypass path."
     next_actions["deploy_uat"] = (

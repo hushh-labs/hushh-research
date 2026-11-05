@@ -335,6 +335,7 @@ jobs:
       contents: read
       actions: read
       checks: read
+      pull-requests: read
       id-token: write
     environment:
       name: uat
@@ -379,6 +380,10 @@ jobs:
           TARGET_SHA: ${{ needs.select-target.outputs.sha }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          CI_ATTEMPT: ${{ inputs.ci_run_attempt }}
+          CI_BASE_SHA: ${{ inputs.ci_base_sha }}
+          APPROVED_SCOPE: ${{ inputs.approved_scope }}
         run: |
           python3 scripts/ci/wait-uat-capacity.py \
             --mode full --target-sha "$TARGET_SHA" \
@@ -495,7 +500,7 @@ jobs:
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/uat_release_prerequisites.py scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_release_prerequisites.py scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py scripts/ci/verify-protected-pipeline-edits.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -513,6 +518,9 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools/calendar"
           cp deploy/calendar/setup_followup_scheduler.sh deploy/calendar/verify_followup_release.py \
             "${RUNNER_TEMP}/release-tools/calendar/"
+          mkdir -p "${RUNNER_TEMP}/release-tools/answers"
+          cp deploy/answers/setup_answer_work_drain_scheduler.sh deploy/answers/verify_settlement_release.py \
+            "${RUNNER_TEMP}/release-tools/answers/"
           cp scripts/ci/account-deletion-fence-decision.py \
             "${RUNNER_TEMP}/release-tools/account-deletion-fence-decision.py"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
@@ -1253,6 +1261,22 @@ jobs:
           python3 "${RUNNER_TEMP}/release-tools/uat_release_prerequisites.py" validate-scope-live \
             --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH"
 
+      - name: Verify answer settlement before runtime mutation
+        id: answer-settlement-admission
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}
+          ANSWER_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --release-admission \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_DRAIN_ENABLED" \
+            --revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --tools-dir "${RUNNER_TEMP}/release-tools" \
+            --output /tmp/uat-answer-settlement-admission.json
+
       # A skipped boundary plus skipped mutators can prove a failed attempt
       # never changed runtime state. Any attempted boundary remains conservative.
       - name: Begin UAT runtime mutation
@@ -1961,7 +1985,7 @@ jobs:
           set -euo pipefail
           started_at="$(date +%s)"
           source deploy/drive/uat_stripe_bindings.sh
-          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
+          SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}##_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
             SUBSTITUTIONS="${SUBSTITUTIONS}##_PROTECTED_DOCUMENT_DELIVERY_ENABLED=${{ steps.document-mode.outputs.enabled || 'false' }}"
           fi
@@ -2538,6 +2562,98 @@ jobs:
             npm run smoke:analytics:uat 2>&1 | tee -a /tmp/uat-analytics-smoke.log
           fi
 
+      - name: Bootstrap isolated UAT files before candidate verification
+        if: inputs.source_branch == 'uat-isolated'
+        shell: bash
+        run: &bootstrap-uat-semantic-files |
+          set -euo pipefail
+          BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
+          bash scripts/env/use_profile.sh uat
+
+      - name: Load isolated UAT maintainer smoke overlay
+        if: inputs.source_branch == 'uat-isolated'
+        shell: bash
+        run: &load-uat-maintainer-smoke |
+          set -euo pipefail
+          smoke_user_id="$(gcloud secrets versions access latest \
+            --secret=UAT_SMOKE_USER_ID \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          smoke_passphrase="$(gcloud secrets versions access latest \
+            --secret=UAT_SMOKE_PASSPHRASE \
+            --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::$smoke_user_id"
+          echo "::add-mask::$smoke_passphrase"
+          {
+            echo "UAT_SMOKE_USER_ID<<EOF"
+            printf '%s\n' "$smoke_user_id"
+            echo "EOF"
+            echo "UAT_SMOKE_PASSPHRASE<<EOF"
+            printf '%s\n' "$smoke_passphrase"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify isolated UAT candidates before promotion
+        id: verify-isolated-uat-candidates
+        if: inputs.source_branch == 'uat-isolated' && (steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
+        shell: bash
+        env:
+          DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
+          DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
+          BACKEND_REVISION: ${{ steps.candidate-state.outputs.backend_revision }}
+          FRONTEND_REVISION: ${{ steps.candidate-state.outputs.frontend_revision }}
+          CANDIDATE_BACKEND_URL: ${{ steps.backend-candidate-state.outputs.backend_candidate_url || env.CONSENT_API_RUNTIME_ORIGIN }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_BACKEND" != true || -n "$BACKEND_REVISION" ]]
+          [[ "$DEPLOY_FRONTEND" != true || -n "$FRONTEND_REVISION" ]]
+          CANDIDATE_FRONTEND_URL="$APP_FRONTEND_ORIGIN"
+          require_candidate_http() {
+            local code
+            code="$(curl -q --proto '=https' --silent --show-error --max-time 45 --output /dev/null \
+              --write-out '%{http_code}' "$1")"
+            [[ "$code" == 2[0-9][0-9] ]]
+          }
+          if [[ "$DEPLOY_BACKEND" == true ]]; then
+            require_candidate_http "${CANDIDATE_BACKEND_URL%/}/health"
+          fi
+          python3 scripts/ops/verify_secret_list_invariants.py --project "$GCP_PROJECT_ID"
+          "$PROTOCOL_PYTHON" scripts/ops/verify-env-secrets-parity.py \
+            --project "$GCP_PROJECT_ID" --region "$GCP_REGION" \
+            --expected-firebase-project "$UAT_FIREBASE_PROJECT_ID" \
+            --backend-service "$BACKEND_SERVICE" --backend-revision "$BACKEND_REVISION" \
+            --frontend-service "$FRONTEND_SERVICE" --frontend-revision "$FRONTEND_REVISION" \
+            --require-plaid --require-market-data --require-gmail --require-calendar \
+            --require-one-email --require-reviewer-smoke --assert-runtime-env-contract \
+            --report-path /tmp/uat-candidate-runtime-parity.json
+          if [[ -n "$FRONTEND_REVISION" ]]; then
+            # Analytics has finished with its paired smoke clone. Reuse the
+            # tag for the immutable frontend that promotion will actually use.
+            gcloud run services update-traffic "$FRONTEND_SERVICE" --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" --update-tags="analytics-candidate=$FRONTEND_REVISION"
+            CANDIDATE_FRONTEND_URL="$(gcloud run services describe "$FRONTEND_SERVICE" \
+              --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format=json \
+              | jq -er --arg revision "$FRONTEND_REVISION" \
+                '.status.traffic[] | select(.tag == "analytics-candidate" and .revisionName == $revision)
+                  | .url | select(startswith("https://"))')"
+            require_candidate_http "${CANDIDATE_FRONTEND_URL%/}/login"
+            python3 scripts/ops/verify_passkey_domain_associations.py \
+              --project "$GCP_PROJECT_ID" --origin "$CANDIDATE_FRONTEND_URL" \
+              --credentials-only-origin "https://one.hushh.ai"
+          fi
+          # The serving checks below still verify the canonical domain and routing.
+          # Probe the candidate URLs here without repeating optional paid calls.
+          umask 077
+          if ! "$PROTOCOL_PYTHON" scripts/ops/verify_uat_release.py \
+            --backend-url "$CANDIDATE_BACKEND_URL" --frontend-url "$CANDIDATE_FRONTEND_URL" \
+            --protocol-env consent-protocol/.env --web-env hushh-webapp/.env.local \
+            --report-path /tmp/uat-candidate-semantic.json > /tmp/uat-candidate-semantic.log; then
+            echo "::error::The zero-traffic UAT candidate failed semantic verification."
+            if [[ -s /tmp/uat-candidate-semantic.json ]]; then
+              jq -c '{status, checks: [.checks[] | {name, ok}]}' /tmp/uat-candidate-semantic.json
+            fi
+            exit 1
+          fi
+
       - name: Remove zero-traffic frontend analytics candidate tag
         if: always() && steps.scope.outputs.deploy_frontend == 'true' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
@@ -2603,16 +2719,107 @@ jobs:
                   raise SystemExit(f"Canonical secret binding missing: {name}")
           '
 
-      - name: Promote deployed revisions to UAT traffic
-        id: promote-uat-traffic
+      - name: Verify installed answer candidate settings
+        if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
+          python3 "${{ runner.temp }}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --candidate \
+            --payments-enabled "${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}" \
+            --drain-enabled "${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}" \
+            --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --output /tmp/uat-answer-settlement-candidate.json
+
+      - name: Recheck answer settlement before traffic promotion
+        id: recheck-answer-settlement
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}
+          ANSWER_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --release-admission \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_DRAIN_ENABLED" \
+            --revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --tools-dir "${RUNNER_TEMP}/release-tools" \
+            --baseline /tmp/uat-answer-settlement-admission.json \
+            --output /tmp/uat-answer-settlement-recheck.json
+
+      - name: Recover eligible pending UAT text requests before promotion
+        id: recover-isolated-uat-text-requests
+        if: inputs.source_branch == 'uat-isolated' && steps.verify-isolated-uat-candidates.outcome == 'success' && inputs.preserve_paused_drive_worker != true && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          SERVING_SHA: ${{ steps.predeploy-state.outputs.backend_sha }}
+          SERVING_REVISION: ${{ steps.predeploy-state.outputs.backend_revision }}
+        run: |
+          set -euo pipefail
+          # Before cutover the recovery job may only use the policy already
+          # active for the serving application.
+          processor_paths=(
+            consent-protocol/config/managed-ai-runtime.json
+            consent-protocol/hushh_mcp/constants.py
+            consent-protocol/hushh_mcp/managed_ai_config.py
+            consent-protocol/hushh_mcp/runtime_settings.py
+            consent-protocol/hushh_mcp/runtime_providers
+            consent-protocol/hushh_mcp/services/private_gcp_deployment.py
+          )
+          git diff --exit-code --quiet "$SERVING_SHA" "$CANDIDATE_SHA" -- "${processor_paths[@]}"
+          umask 077
+          gcloud run services describe "$BACKEND_SERVICE" --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" --format=json > /tmp/uat-text-recovery-service.json
+          gcloud run revisions describe "$SERVING_REVISION" --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" --format=json > /tmp/uat-text-recovery-predecessor.json
+          worker_revision="$(gcloud run services describe consent-protocol-drive-worker \
+            --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | jq -er '.revision')"
+          gcloud run revisions describe "$worker_revision" --project="$GCP_PROJECT_ID" \
+            --region="$GCP_REGION" --format=json > /tmp/uat-text-recovery-worker.json
+          worker_sha="$(jq -er '.metadata.labels["deploy-sha"]' /tmp/uat-text-recovery-worker.json)"
+          [[ "$worker_sha" =~ ^[0-9a-f]{40}$ ]]
+          git diff --exit-code --quiet "$worker_sha" "$CANDIDATE_SHA" -- "${processor_paths[@]}"
+          python3 scripts/ops/run_uat_text_recovery_job.py \
+            --service-json /tmp/uat-text-recovery-service.json \
+            --candidate-revision-json /tmp/uat-backend-candidate.json \
+            --serving-revision-json /tmp/uat-text-recovery-predecessor.json \
+            --serving-worker-revision-json /tmp/uat-text-recovery-worker.json \
+            --sha "$CANDIDATE_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+
+      - name: Promote deployed revisions to UAT traffic
+        id: promote-uat-traffic
+        if: success() && (inputs.source_branch != 'uat-isolated' || (steps.verify-isolated-uat-candidates.outcome == 'success' && (inputs.preserve_paused_drive_worker == true || steps.scope.outputs.deploy_backend != 'true' || steps.recover-isolated-uat-text-requests.outcome == 'success')))
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          BACKEND_BASE_REVISION: ${{ steps.predeploy-state.outputs.backend_revision }}
+          FRONTEND_BASE_REVISION: ${{ steps.predeploy-state.outputs.frontend_revision }}
+        run: |
+          set -euo pipefail
+          echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
             && [ "${{ steps.verify-analytics-uat.outcome }}" != "success" ]; then
             echo "Analytics smoke failed; both zero-traffic candidates stay unpromoted."
             exit 0
+          fi
+
+          if [[ "$UAT_SOURCE_BRANCH" == uat-isolated ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/branches/uat-isolated" \
+              | jq -e --arg sha "$APPLICATION_SHA" '.protected and .commit.sha == $sha' >/dev/null
+            check_serving() {
+              gcloud run services describe "$1" --project="$GCP_PROJECT_ID" \
+                --region="$GCP_REGION" --format=json \
+                | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+                | jq -e --arg revision "$2" '.revision == $revision' >/dev/null
+            }
+            check_serving "$BACKEND_SERVICE" "$BACKEND_BASE_REVISION"
+            check_serving "$FRONTEND_SERVICE" "$FRONTEND_BASE_REVISION"
           fi
 
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
@@ -2858,36 +3065,14 @@ jobs:
             --report-path /tmp/uat-db-migration-guard-postdeploy.json
 
       - name: Bootstrap UAT runtime files for semantic verification
-        if: steps.postdeploy-db-gate.outcome != 'failure'
+        if: inputs.source_branch != 'uat-isolated' && steps.postdeploy-db-gate.outcome != 'failure'
         shell: bash
-        run: |
-          set -euo pipefail
-          BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
-          bash scripts/env/use_profile.sh uat
+        run: *bootstrap-uat-semantic-files
 
       - name: Load maintainer smoke overlay
-        if: steps.postdeploy-db-gate.outcome != 'failure'
+        if: inputs.source_branch != 'uat-isolated' && steps.postdeploy-db-gate.outcome != 'failure'
         shell: bash
-        run: |
-          set -euo pipefail
-          smoke_user_id="$(gcloud secrets versions access latest \
-            --secret=UAT_SMOKE_USER_ID \
-            --project="${{ env.GCP_PROJECT_ID }}")"
-          smoke_passphrase="$(gcloud secrets versions access latest \
-            --secret=UAT_SMOKE_PASSPHRASE \
-            --project="${{ env.GCP_PROJECT_ID }}")"
-          echo "::add-mask::$smoke_user_id"
-          echo "::add-mask::$smoke_passphrase"
-          {
-            echo "UAT_SMOKE_USER_ID<<EOF"
-            printf '%s\n' "$smoke_user_id"
-            echo "EOF"
-            echo "UAT_SMOKE_PASSPHRASE<<EOF"
-            printf '%s\n' "$smoke_passphrase"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
-
-
+        run: *load-uat-maintainer-smoke
 
       - name: Semantic UAT verification
         id: verify-uat-1
@@ -3269,7 +3454,7 @@ jobs:
 
       - name: Roll back backend revision
         id: rollback-backend
-        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.backend_failure == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3365,7 +3550,7 @@ jobs:
 
       - name: Roll back frontend revision
         id: rollback-frontend
-        if: always() && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed == 'true' && steps.classify-uat-release.outputs.frontend_failure == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != '' && steps.begin-uat-mutation.outcome != 'skipped'
         shell: bash
         run: |
           set -euo pipefail
@@ -3460,6 +3645,79 @@ jobs:
       # deploy/uat-surface-gates.txt in the deployed commit is the single source of truth: the same
       # file set the backend flags and key binding, and here it sets the job and proves the serving
       # revisions match. It runs only with a backend deploy so flags and job always change together.
+      - name: Reconcile paid-answer settlement schedulers
+        id: activate-answer-work-drain
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          ENVIRONMENT: uat
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: answer-work-drain-sched
+          ANSWER_WORK_DRAIN_ENABLED: ${{ vars.ANSWER_WORK_DRAIN_UAT_ENABLED || 'false' }}
+          ANSWER_PAYMENTS_ENABLED: ${{ vars.PKM_ANSWER_PAYMENTS_UAT_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+            --environment uat --candidate \
+            --payments-enabled "$ANSWER_PAYMENTS_ENABLED" --drain-enabled "$ANSWER_WORK_DRAIN_ENABLED" \
+            --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --output /tmp/uat-answer-settlement-installed.json
+          if [ "$ANSWER_PAYMENTS_ENABLED" == true ]; then
+            # Paid admission can use only previously qualified settlement.
+            # Do not create, update or resume financial jobs in this phase.
+            for attempt in $(seq 1 84); do
+              if python3 "${RUNNER_TEMP}/release-tools/answers/verify_settlement_release.py" \
+                --environment uat --paid-admission \
+                --revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+                --tools-dir "${RUNNER_TEMP}/release-tools" \
+                --not-before "${{ steps.promote-uat-traffic.outputs.started_at }}" \
+                --output /tmp/uat-answer-settlement-serving.json; then
+                echo "mode=verified-existing" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "answer_candidate_settlement_not_observed" >&2
+            exit 1
+          fi
+          for stage in timeouts refunds payouts; do
+            STAGE="$stage" JOB_NAME="answer-work-${stage}-uat" \
+              bash "${RUNNER_TEMP}/release-tools/answers/setup_answer_work_drain_scheduler.sh"
+          done
+          if [ "$ANSWER_WORK_DRAIN_ENABLED" != true ]; then
+            echo "mode=reconciled-disabled" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          logs="$(mktemp)"
+          trap 'rm -f "$logs"' EXIT
+          for stage in timeouts refunds payouts; do
+            job="answer-work-${stage}-uat"
+            uri="${BACKEND_URL%/}/api/internal/answer-work/drain?stage=${stage}"
+            triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            gcloud scheduler jobs run "$job" --project="$PROJECT_ID" --location="$SCHEDULER_LOCATION"
+            verified=false
+            for attempt in $(seq 1 48); do
+              gcloud logging read \
+                "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${job}\" AND timestamp>=\"${triggered_at}\"" \
+                --project="$PROJECT_ID" --freshness=10m --order=desc --limit=20 --format=json > "$logs"
+              if python3 "${RUNNER_TEMP}/release-tools/verify-cloud-scheduler-attempt.py" \
+                --logs-json "$logs" --triggered-at "$triggered_at" \
+                --expected-job "projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${job}" \
+                --expected-uri "$uri" --evidence-path "/tmp/uat-answer-work-${stage}.json"; then
+                verified=true
+                break
+              fi
+              sleep 5
+            done
+            if [ "$verified" != true ]; then
+              echo "answer_scheduler_no_fresh_http_completion stage=${stage}" >&2
+              exit 1
+            fi
+          done
+          echo "mode=authenticated-execution" >> "$GITHUB_OUTPUT"
+
       - name: Activate Calendar follow-ups drain
         id: activate-calendar-followups
         if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
@@ -3576,7 +3834,7 @@ jobs:
 
       - name: Recover eligible pending UAT text requests
         id: recover-uat-text-requests
-        if: success() && inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome == 'success' && steps.scope.outputs.deploy_backend == 'true'
+        if: success() && inputs.source_branch != 'uat-isolated' && inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome == 'success' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -3762,6 +4020,38 @@ jobs:
             exit 1
           fi
 
+      - name: Restore backend after answer settlement refusal
+        id: rollback-backend-after-answer
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped' && steps.activate-answer-work-drain.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true' && steps.predeploy-state.outputs.backend_revision != ''
+        shell: bash
+        env:
+          PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
+        run: |
+          set -euo pipefail
+          # Restore the captured predecessor; retain all financial jobs for owed work.
+          bash deploy/drive/rollback_after_worker_failure.sh "${{ env.BACKEND_SERVICE }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+          actual="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          test "$actual" = "${{ steps.predeploy-state.outputs.backend_revision }}"
+
+      - name: Restore frontend after answer settlement refusal
+        id: rollback-frontend-after-answer
+        if: always() && steps.begin-uat-mutation.outcome != 'skipped' && steps.activate-answer-work-drain.outcome == 'failure' && steps.scope.outputs.deploy_frontend == 'true' && steps.predeploy-state.outputs.frontend_revision != ''
+        shell: bash
+        env:
+          PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
+        run: |
+          set -euo pipefail
+          # Restore the captured predecessor; retain all financial jobs for owed work.
+          bash deploy/drive/rollback_after_worker_failure.sh "${{ env.FRONTEND_SERVICE }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+          actual="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" --format=json \
+            | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
@@ -3886,6 +4176,7 @@ jobs:
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
                  || [ "${{ steps.activate-pwm-notifications.outcome }}" != "success" ] \
+                 || [ "${{ steps.activate-answer-work-drain.outcome }}" != "success" ] \
                  || [ "$DRIVE_WORKER_GATE_SUCCESS" != true ]; }; then
               STATUS="blocked"
             else
@@ -3915,7 +4206,7 @@ jobs:
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
              && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
              && [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ] \
-             && [ "${{ steps.recover-uat-text-requests.outcome }}" != "success" ]; then
+             && [ "${{ inputs.source_branch == 'uat-isolated' && steps.recover-isolated-uat-text-requests.outcome || steps.recover-uat-text-requests.outcome }}" != "success" ]; then
             STATUS="blocked"
           fi
 
@@ -3977,8 +4268,11 @@ jobs:
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
+                  "answer_work_drain_mode": "${{ steps.activate-answer-work-drain.outputs.mode }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
-                  "text_processor_recovery": "${{ steps.recover-uat-text-requests.outcome }}",
+                  "text_processor_recovery": "${{ inputs.source_branch == 'uat-isolated' && steps.recover-isolated-uat-text-requests.outcome || steps.recover-uat-text-requests.outcome }}",
+                  "isolated_candidate_checks": "${{ steps.verify-isolated-uat-candidates.outcome }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
                   "drive_v1_worker": "${{ steps.deploy-drive-v1-worker.outcome }}",
                   "drive_v1_worker_revision": "${{ steps.deploy-drive-v1-worker.outputs.revision }}",
@@ -4100,6 +4394,8 @@ jobs:
             /tmp/uat-account-deletion-scheduler-config.json
             /tmp/uat-account-deletion-scheduler-finished-logs.json
             /tmp/uat-account-deletion-activation.json
+            /tmp/uat-answer-work-*.json
+            /tmp/uat-answer-settlement-*.json
             /tmp/uat-account-deletion-scheduler-evidence.json
             /tmp/uat-account-deletion-cleanup-health.json
             /tmp/uat-account-deletion-revision-retirement.json

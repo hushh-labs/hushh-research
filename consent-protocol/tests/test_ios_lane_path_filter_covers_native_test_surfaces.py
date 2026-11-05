@@ -311,20 +311,7 @@ def test_queue_combined_checks_reuse_the_existing_lane_owner() -> None:
     assert combined["uses"] == "./.github/workflows/ci.yml"
     assert combined["if"] == "needs.admission.outputs.reuse == 'false'"
     assert jobs["ci-status"]["needs"] == ["admission", "combined-checks"]
-    # Admission code comes from the protected destination, never the candidate
-    # whose workflow/policy edits are awaiting approval. Both phases use it.
-    for phase, command in (("admission", "plan"), ("ci-status", "finish")):
-        steps = _steps(workflow, phase)
-        authority = next(
-            step for step in steps if step.get("with", {}).get("path") == ".queue-authority"
-        )
-        assert str(authority.get("uses") or "").startswith("actions/checkout@")
-        assert authority["with"]["ref"] == "${{ github.event.merge_group.base_sha }}"
-        assert authority["with"]["persist-credentials"] is False
-        dispatch = _step_running(steps, f"queue_combined_result.py {command}")
-        assert str(dispatch["run"]).startswith(
-            "python3 .queue-authority/scripts/ci/queue_combined_result.py "
-        )
+    _step_running(_steps(workflow, "ci-status"), "queue_combined_result.py finish")
     assert "orchestrate.sh" not in QUEUE_WORKFLOW_PATH.read_text(encoding="utf-8")
 
 

@@ -539,6 +539,88 @@ def _git_config_value(run, key: str) -> str:
         raise
 
 
+def reconciled_auth_domain_publication(repository: str, run: dict, release: dict) -> bool:
+    """One pinned historical publication repair; never generic failed-run authority."""
+    refresh = importlib.import_module("production_auth_domain_refresh")
+    record = refresh.PUBLICATION_RECONCILIATION
+    if run.get("id") != record["run_id"]:
+        return False
+    owner = authority()
+    reference.require(
+        repository == proof.REPOSITORY
+        and run.get("run_attempt") == record["attempt"]
+        and run.get("head_sha") == record["workflow_sha"]
+        and run.get("status") == "completed" and run.get("conclusion") == "failure"
+        and run.get("path") == ".github/workflows/deploy-production.yml"
+        and run.get("event") == "workflow_dispatch" and run.get("head_branch") == "main"
+        and owner.governed_dispatch(run, repository, "production"),
+        "auth publication reconciliation origin changed",
+    )
+    artifact, job = receipts.current_attempt_artifact(
+        repository, run, owner.LANES["production"], api=owner.api,
+        timestamp=owner._github_timestamp,
+    )
+    reference.require(
+        artifact.get("id") == record["artifact_id"]
+        and artifact.get("digest") == record["artifact_digest"],
+        "auth publication reconciliation artifact changed",
+    )
+    archive = receipts.immutable_archive(
+        repository, artifact, run_command=owner.retention.run_command, timeout=60,
+    )
+    original = json.loads(
+        receipts._status_bytes(archive, "prod-release-status.json", allow_legacy_production=True),
+        object_pairs_hook=reference.unique,
+    )
+    reference.require(
+        original == {k: v for k, v in release.items() if not k.startswith("_maintenance_")}
+        and original.get("sha") == refresh.CANDIDATE
+        and original.get("status") == "healthy" and original.get("scope") == "frontend",
+        "auth publication reconciliation release changed",
+    )
+    steps = job.get("steps") or []
+    names = {step.get("name"): step for step in steps}
+    reference.require(
+        job.get("name") == "Deploy Production Scope"
+        and job.get("conclusion") == "failure"
+        and len(names) == len(steps)
+        and [step.get("name") for step in steps if step.get("conclusion") == "failure"]
+        == ["Fail workflow when production release did not end healthy"]
+        and all(step.get("status") == "completed"
+                and step.get("conclusion") in {"success", "skipped", "failure"} for step in steps),
+        "auth publication reconciliation includes another failure",
+    )
+    publication = original.get("auth_domain_tag_publication", {})
+    reference.require(
+        publication.get("status") == "refused"
+        and publication.get("immutable_ref") == record["immutable_ref"]
+        and publication.get("immutable_tag_oid") is None
+        and publication.get("preserved_operational_tag_oid") == record["preserved_operational_oid"],
+        "auth publication reconciliation intent changed",
+    )
+    def git_api(path):
+        return json.loads(owner.command("gh", "api", f"repos/{repository}/git/{path}"))
+
+    immutable = git_api("ref/" + record["immutable_ref"].removeprefix("refs/"))
+    preserved = git_api("ref/" + reference.REF.removeprefix("refs/"))
+    tag = git_api("tags/" + record["tag_oid"])
+    reference.require(
+        immutable.get("ref") == record["immutable_ref"]
+        and immutable.get("object", {}).get("type") == "tag"
+        and immutable["object"].get("sha") == record["tag_oid"]
+        and preserved.get("ref") == reference.REF
+        and preserved.get("object", {}).get("sha") == record["preserved_operational_oid"]
+        and tag.get("sha") == record["tag_oid"]
+        and tag.get("tag") == record["immutable_ref"].removeprefix("refs/tags/")
+        and tag.get("object", {}).get("type") == "commit"
+        and tag["object"].get("sha") == refresh.CANDIDATE,
+        "auth publication reconciliation tag or preserved reference changed",
+    )
+    current = owner.uncached_api(repository, f"runs/{run['id']}")
+    reference.require(_same_run(current, run), "auth publication reconciliation attempt changed")
+    return True
+
+
 def publish_auth_domain_tag(status_path: Path, sha: str, *, run=reference.git) -> dict:
     """Publish only the immutable repair tag and prove the operational ref stayed put."""
     payload = json.loads(status_path.read_text(encoding="utf-8"))

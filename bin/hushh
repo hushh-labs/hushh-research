@@ -34,6 +34,7 @@ Local runtime uses three separate terminals (one component each):
   codex <subcommand>
 
 Operational commands:
+  diagnose uat-vertex --build-id <Cloud-Build-UUID>
   docs verify
   env bootstrap
   env use --mode <local|uat|dev|prod> [--dry-run]
@@ -124,6 +125,7 @@ Usage:
   ./bin/hushh codex pre-pr (--base-ref <target> [--body-file <path>] | --pr <number>) [--report-path <path>] [--json|--text]
   ./bin/hushh codex pre-pr --diagnostic [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
+  ./bin/hushh codex admin-merge --pr <number> --sha <head> --receipt <path> [--apply]
   ./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
   ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
@@ -560,6 +562,9 @@ run_codex() {
       fi
       exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
       ;;
+    admin-merge)
+      exec python3 "$REPO_ROOT/scripts/ci/queue_combined_result.py" owner-merge "${args[@]}"
+      ;;
     ci-rerun)
       exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_rerun.py" "${args[@]}" "$format_flag"
       ;;
@@ -923,6 +928,11 @@ EOF
     ;;
   sync)
     run_sync "$@"
+    ;;
+  diagnose)
+    [ "${1:-}" = "uat-vertex" ] || die "Expected: diagnose uat-vertex --build-id <Cloud-Build-UUID>"
+    shift
+    exec python3 "$REPO_ROOT/scripts/ci/summarize_uat_managed_vertex_logs.py" "$@"
     ;;
   rollback)
     run_rollback "$@"
