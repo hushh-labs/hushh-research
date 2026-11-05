@@ -149,6 +149,7 @@ import { relationshipCta } from "@/lib/connections/relationship-label";
 import { connectPersonName } from "@/lib/connections/person-label";
 import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
+import { beginRouteTransition } from "@/lib/morphy-ux/hooks/use-route-transition";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
@@ -590,13 +591,19 @@ export default function ConnectPageClient() {
   // the tab pill pushes, so swiping and tapping stay one navigation.
   const commitSurface = useCallback(
     (value: string) => {
-      if (value === surface) return;
       const target = CONNECT_SURFACE_TAB_DEFINITION.tabs.find(
         (tab) => tab.value === value,
       );
-      if (target) router.push(target.href, { scroll: false });
+      // A swipe can reverse a pending tab tap before its query arrives. Even
+      // when the URL still names this value, supersede the older navigation.
+      if (target) beginRouteTransition(
+        target.href,
+        () => router.push(target.href, { scroll: false }),
+        "programmatic",
+        "contextual",
+      );
     },
-    [router, surface],
+    [router],
   );
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
