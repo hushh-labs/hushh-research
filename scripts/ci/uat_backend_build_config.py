@@ -26,6 +26,7 @@ SHARED_SUBSTITUTIONS = {
     "_DEPLOY_SOURCE",
     "_DEPLOY_SHA",
     "_GITHUB_RUN_ID",
+    "_GITHUB_RUN_ATTEMPT",
 }
 CUSTOM_SUBSTITUTION = re.compile(r"(?<!\$)\$\{(_[A-Z0-9_]+)\}")
 

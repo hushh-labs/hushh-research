@@ -52,16 +52,14 @@ def _event_pr_actor(event_path: str | None) -> str:
 
 
 def _governed_maintainers(policy: dict[str, Any]) -> set[str]:
-    """Maintainers empowered to merge directly into main.
-
-    Anyone who can already bypass main review/merge-queue governance is, by
-    definition, trusted to open a direct PR into main. We union both bypass
-    lists so a maintainer added to either is covered.
-    """
+    """Direct Main intake is explicit; it grants neither merge nor bypass."""
     main_policy = policy.get("main") or {}
-    review_bypass = main_policy.get("review_bypass_users") or []
-    queue_bypass = main_policy.get("merge_queue_bypass_users") or []
-    return {str(login) for login in (*review_bypass, *queue_bypass) if login}
+    if "merge_users" in main_policy:
+        users = main_policy["merge_users"]
+        return {login for login in users if isinstance(login, str) and login} if isinstance(users, list) else set()
+    # Compatibility for already-published policies during the staged rollout.
+    return {str(login) for key in ("review_bypass_users", "merge_queue_bypass_users")
+            for login in main_policy.get(key, []) if login}
 
 
 def evaluate(
@@ -88,7 +86,7 @@ def evaluate(
         if actor and actor in maintainers:
             return (
                 True,
-                f"PR base policy passed: governed maintainer '{actor}' may merge "
+                f"PR base policy passed: governed maintainer '{actor}' may propose "
                 f"head={head_ref or '<unknown>'} directly into {main_branch}.",
             )
         allowed = ", ".join(sorted(allowed_main_heads))
@@ -125,6 +123,12 @@ def self_test(policy: dict[str, Any]) -> int:
             failures.append(
                 f"expected {expected} for head={head_ref} base={base_ref} actor={actor!r}, got {ok}"
             )
+    explicit = {**policy, "main": {"merge_users": ["allowed"],
+                "review_bypass_users": ["legacy"], "merge_queue_bypass_users": ["legacy"]}}
+    for actor, expected in (("allowed", True), ("legacy", False)):
+        ok, _ = evaluate(explicit, base_ref=main_branch, head_ref="ops/example", actor=actor)
+        if ok != expected:
+            failures.append("Explicit Main intake must be independent of bypass lists")
     if failures:
         for failure in failures:
             print(f"ERROR: {failure}", file=sys.stderr)

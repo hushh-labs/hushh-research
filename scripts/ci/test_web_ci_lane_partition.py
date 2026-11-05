@@ -167,6 +167,35 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         assert calls == expected, (part, calls)
 
 
+def test_targeted_pack_stops_after_interruption() -> None:
+    code, calls, output = _run(TARGETED, {
+        "WEB_TARGETED_CHANGED_FILES": "hushh-webapp/app/globals.css",
+        "WEB_TARGETED_PART": "browser",
+        "NPM_STUB_FAIL": "test:layout-contracts",
+        "NPM_STUB_EXIT": "130",
+    })
+    assert code == 130, output
+    assert calls[-1] == "run test:layout-contracts", calls
+
+
+def test_browser_commands_report_all_failures_but_stop_on_cancellation() -> None:
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    selected = [["first"], ["second"], ["third"]]
+    execute = BROWSER_CORE["run_selected"]
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=1), SimpleNamespace(returncode=2),
+        SimpleNamespace(returncode=0),
+    ]) as runner:
+        assert execute(selected, {}) == 1
+        assert [call.args[0][-1] for call in runner.call_args_list] == ["first", "second", "third"]
+    for status in (-15, 130, 143, 124):
+        with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=status)) as runner:
+            assert execute(selected, {}) >= 124
+            assert runner.call_count == 1
+
+
 def test_functional_browser_plans_keep_chromium_from_multi_project_packs() -> None:
     scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
     plan = BROWSER_CORE["plan"]
@@ -655,6 +684,8 @@ def main() -> int:
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_functional_browser_plans_keep_chromium_from_multi_project_packs,
+        test_browser_commands_report_all_failures_but_stop_on_cancellation,
+        test_targeted_pack_stops_after_interruption,
         test_functional_browser_plan_accumulates_project_syntax_and_fails_closed,
         test_browser_plan_skips_only_known_no_browser_selection,
         test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,

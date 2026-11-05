@@ -281,8 +281,16 @@ def no_shared_uat_release(run: dict, jobs: dict, actors: list[str]) -> bool:
     names = {row["name"]: row for row in rows}
     if len(names) != len(rows):
         return False
-    return names.get("Deploy UAT Scope", {}).get("conclusion") == "skipped" and any(
+    deploy_name, select_name = "Deploy UAT Scope", "Select UAT target"
+    if run.get("head_branch") == "uat":
+        from release_acceptance_provenance import deployment_job_name
+        try:
+            deploy_name = deployment_job_name(run, "uat", deploy_name)
+            select_name = deployment_job_name(run, "uat", select_name)
+        except ValueError:
+            return False
+    return names.get(deploy_name, {}).get("conclusion") == "skipped" and any(
         step.get("name") == "Summarize unchanged UAT target"
         and step.get("conclusion") == "success"
-        for step in names.get("Select UAT target", {}).get("steps", [])
+        for step in names.get(select_name, {}).get("steps", [])
     )

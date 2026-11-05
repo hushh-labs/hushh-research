@@ -206,3 +206,27 @@ sets the environment variable `GCP_BACKUP_SERVICE_ACCOUNT`. It cannot connect
 to the database, create/delete backups, deploy services or access runtime secrets.
 Run `Verify Production Backups` after configuration and inspect its JSON report;
 identity setup alone does not prove backup freshness or a successful restore drill.
+
+## Dev/UAT matching-branch admission
+
+`setup_nonproduction_github_wif.py` owns a narrow update to the existing Dev/UAT
+provider conditions. It uses verified `kushal@hushh.ai` ADC; it does not create
+identities, grant roles, copy secrets or dispatch application deployments.
+
+```bash
+python3 deploy/iam/setup_nonproduction_github_wif.py --environment dev
+python3 deploy/iam/setup_nonproduction_github_wif.py --environment uat
+```
+
+Inspection is the default. After the reviewed Main implementations and matching
+branch wrappers are present, add `--apply` for the selected environment. The
+updater preserves the observed Main maintenance/native authority, admitting only
+the canonical manual environment-branch caller of its Main reusable implementation.
+Unexpected issuer, mapping or condition drift refuses mutation. A lost response
+requires inspection before retry; successful application requires provider readback.
+Production has no input to this updater and retains its existing setup owner above.
+
+GitHub environment branch policy must also admit the intended caller. Keep
+`ci-security` Main-only. Verify the resolved reusable revision, effective job
+permissions, cloud authorization and receipt binding before describing the new
+route as active. Source tests alone are not hosted qualification.
