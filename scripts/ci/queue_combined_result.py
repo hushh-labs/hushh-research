@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -155,6 +156,32 @@ def authority_policy(repository, branch, base):
     return revision, policy
 
 
+def policy_fingerprint(policy, branch):
+    material = dict(policy)
+    if branch != "main":
+        # This switch controls only Main's native writer restriction. It is
+        # not read by queue authorization for any other destination.
+        material["main"] = {key: value for key, value in policy["main"].items()
+                            if key != "restrict_writes_to_merge_users"}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def same_queue_state(recorded, observed):
+    if not all(SHA.fullmatch(str(state.get("policy_revision", ""))) for state in (recorded, observed)):
+        return False
+    if "policy_fingerprint" not in recorded:
+        # Historical receipts retain their exact revision requirement.
+        return recorded == {key: value for key, value in observed.items()
+                            if key != "policy_fingerprint"}
+    fingerprint = recorded["policy_fingerprint"]
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        return False
+    return {key: value for key, value in recorded.items() if key != "policy_revision"} == {
+        key: value for key, value in observed.items() if key != "policy_revision"
+    }
+
+
 def current_head_reviewers(repository, member, policy, guard):
     """Prove approval against the current head and canonical maintainer authority.
 
@@ -247,6 +274,7 @@ def snapshot():
             "Destination advanced; validate the rebuilt merge group")
     return {"repository": repository, "branch": branch, "base": group["base_sha"],
             "policy_revision": policy_revision,
+            "policy_fingerprint": policy_fingerprint(policy, branch),
             "head": group["head_sha"], "tree": git("rev-parse", "HEAD^{tree}"),
             "members": included}
 
@@ -531,10 +559,14 @@ def main():
             )
         else:
             value = json.loads(args.receipt.read_text())
-            require(
-                value["state"] == state and value["validations"] == validations,
-                "Queue membership, approval or validation changed; rebuild the group",
-            )
+            changed = sorted(key for key in value["state"].keys() | state.keys()
+                             if value["state"].get(key) != state.get(key))
+            require(same_queue_state(value["state"], state),
+                    f"Queue inputs changed ({', '.join(changed)}); rebuild the group")
+            require(value["validations"] == validations,
+                    "Latest PR validation run or attempt changed; rebuild the group")
+            if value["state"]["policy_revision"] != state["policy_revision"]:
+                print(f"Main advanced to {state['policy_revision']}; queue policy inputs are unchanged.")
             if value["reuse"]:
                 require(reusable(state, validations), "Combined-input proof changed")
             else:
