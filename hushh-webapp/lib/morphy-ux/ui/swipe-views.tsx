@@ -381,7 +381,7 @@ interface SwipeViewsProps {
   /** Emits immediately when Embla selects a pane; route state remains authoritative. */
   onSelectionChange?: (value: string) => void;
   /**
-   * Emits after the compositor has settled on a pane. Query-backed workspaces
+   * Emits after a user swipe has settled on a pane. Query-backed workspaces
    * use this boundary to update the URL without putting Next navigation in
    * the pointer/scroll hot path.
    */
@@ -508,6 +508,13 @@ export function SwipeViews({
   const isAnimatingRef = useRef(false);
   const hasMovedSincePointerDownRef = useRef(false);
   const lastReportedValueRef = useRef(activeValue);
+  // A tab press or swipe can precede its route echo. Geometry repair must
+  // retain that intent rather than restoring the previous URL's selection.
+  const selectionValueRef = useRef(activeValue);
+  const gestureStartValueRef = useRef(activeValue);
+  useLayoutEffect(() => {
+    selectionValueRef.current = activeValue;
+  }, [activeValue]);
   const resizeFrameRef = useRef<number | null>(null);
   // The height the viewport is currently rendering. Read when a transition
   // begins so the outgoing pane is never clipped on its way out; see the
@@ -674,7 +681,7 @@ export function SwipeViews({
         containerChildCount !== engineSnapCount;
 
       const targetIdx = optionsRef.current.findIndex(
-        (opt) => opt.value === activeValueRef.current,
+        (opt) => opt.value === selectionValueRef.current,
       );
 
       // Where the pane is trying to go, against where the selected pane belongs.
@@ -807,6 +814,7 @@ export function SwipeViews({
       // The tab/route owner already commits this choice. Embla's synchronous
       // select and later settle are presentation receipts, not another intent.
       programmaticSelectionRef.current = true;
+      selectionValueRef.current = optionsRef.current[index]?.value ?? activeValueRef.current;
       if (prefersReducedMotion()) {
         if (viaRoute) return;
         isAnimatingRef.current = false;
@@ -864,9 +872,15 @@ export function SwipeViews({
   // Publish selection at Embla's `select` point. Waiting for `settle` made
   // query-backed tabs look stale on iOS and delayed the visible panel state.
   const onSelect = useCallback(() => {
-    if (!emblaApi || programmaticSelectionRef.current) return;
+    if (!emblaApi || programmaticSelectionRef.current || !isDraggingRef.current) return;
     const currentIdx = resolveSelectedIndex(emblaApi, options.length);
     const newValue = options[currentIdx]?.value;
+    if (newValue) {
+      selectionValueRef.current = newValue;
+      // A fast flick selects its snap on pointer-up before the first scroll
+      // frame. Keep that gesture alive until its compositor motion settles.
+      hasMovedSincePointerDownRef.current = true;
+    }
     if (newValue && newValue !== activeValueRef.current) {
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
@@ -878,6 +892,7 @@ export function SwipeViews({
   const onSettle = useCallback(() => {
     if (!emblaApi) return;
     const programmatic = programmaticSelectionRef.current;
+    const userSwipe = !programmatic && isDraggingRef.current && hasMovedSincePointerDownRef.current;
     programmaticSelectionRef.current = false;
     const currentIdx = resolveVisualIndex(emblaApi, options.length);
     alignSettledSwipePosition(emblaApi, currentIdx);
@@ -891,11 +906,12 @@ export function SwipeViews({
     setTopShellTabSwipeState(tabSetId, currentIdx, false);
     releaseHeightFloor();
     const newValue = options[currentIdx]?.value;
-    if (!programmatic && newValue && newValue !== lastReportedValueRef.current) {
+    if (userSwipe && newValue && newValue !== lastReportedValueRef.current) {
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
-    if (newValue) {
+    if (userSwipe && newValue && newValue !== gestureStartValueRef.current) {
+      selectionValueRef.current = newValue;
       onSelectionCommit?.(newValue);
     }
   }, [
@@ -962,6 +978,7 @@ export function SwipeViews({
       const targetIndex = options.findIndex(
         (option) => option.value === selection.value,
       );
+      if (targetIndex >= 0) selectionValueRef.current = selection.value;
       if (
         targetIndex < 0 ||
         isSelectionTargeted(emblaApi, targetIndex, options.length)
@@ -1012,6 +1029,7 @@ export function SwipeViews({
       }
     };
     const onPointerDown = () => {
+      gestureStartValueRef.current = selectionValueRef.current;
       programmaticSelectionRef.current = false;
       isDraggingRef.current = true;
       // A finger landing mid-flight takes over from the tap that started it.

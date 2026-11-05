@@ -11,6 +11,11 @@ finds and manages relationships. Circles groups people, manages membership,
 and hosts eligible group conversations. The six optional circle ideas are templates;
 saved circles and joined memberships come from the current account.
 
+Tab presses and horizontal swipes share the same route-backed selection. The
+latest choice survives a pager resize while navigation is pending. Completing
+a tab animation or repairing layout does not create another navigation; a
+settled user swipe commits its destination once.
+
 Mail reuses this product's shared header, 728px reading frame, compact semantic
 roles and neutral accent-pill action treatment. The current mounted Mail
 state/action and optimized-cascade evidence lives in the
