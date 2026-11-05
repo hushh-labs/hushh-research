@@ -73,6 +73,9 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         assert selection.error is None
         assert selection.groups == ("controller",)
         assert "ci-path-ownership" in selection.check_ids
+        assert {
+            "runtime-config-contract", "deploy-secret-coverage", "protected-pipeline-edits"
+        } <= set(selection.check_ids)
 
 
 def test_production_emergency_authority_test_selects_controller_owner() -> None:
