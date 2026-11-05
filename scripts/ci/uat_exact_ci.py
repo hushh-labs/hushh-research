@@ -82,6 +82,8 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
+    "consent-protocol/tests/helpers/plg_qualification.py",
+    "consent-protocol/tests/helpers/plg_runtime.py",
     "deploy/iam/setup_nonproduction_github_wif.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
