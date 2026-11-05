@@ -34,7 +34,7 @@ export async function verifyUiContracts(root, started = performance.now(), { bac
       ['Siri action contract', () => checkScript(root, 'scripts/native/verify-siri-action-contract.mjs')],
       ['Route orchestration', () => checkScript(root, 'scripts/voice/generate-route-orchestration-index.mjs')],
     ]),
-    ['Validator mutation regressions', () => checkScript(root, '--test', ['scripts/architecture/back-navigation.test.mjs', ...(backOnly ? [] : ['scripts/voice/search-contracts.test.mjs'])])],
+    ['Validator mutation regressions', () => checkScript(root, '--test', ['scripts/architecture/back-navigation.test.mjs', 'scripts/voice/search-contracts.test.mjs'])],
   ]);
   console.log(`UI contract validation: ${((performance.now() - started) / 1000).toFixed(2)}s (execution target: 5–10s; install and runner startup excluded).`);
   if (!ok) console.error(backOnly
