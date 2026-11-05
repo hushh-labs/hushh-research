@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail closed when direct-UAT evidence changes or belongs to another source."""
 
+import copy
 import json
 import os
 import subprocess
@@ -373,6 +374,65 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
 
 
 class ExactUatAttemptTest(unittest.TestCase):
+    def test_unit_coverage_requires_complete_exact_shards_and_keeps_historical_receipts(self):
+        candidate, base = "a" * 40, "b" * 40
+        run = _attempt_run(candidate)
+        original = _attempt_jobs(candidate, base)
+        unit = next(job for job in original if job["name"] == "Web Unit Contracts")
+        others = [job for job in original if job is not unit]
+
+        def verify(legs, *, current=True, isolated=""):
+            jobs = others + legs
+            api = _AttemptAPI(run, jobs, [run], _attempt_check(candidate))
+            subject._verify_run_jobs(api, run, candidate, base, 123, 1,
+                                     current=current, isolated_candidate=isolated)
+
+        def leg(shard):
+            result = copy.deepcopy(unit)
+            result["steps"][-1]["name"] = f"Verify unit shard ({shard})"
+            return result
+
+        verify([unit])
+        complete = [leg(shard) for shard in ("1/3", "2/3", "3/3")]
+        verify(complete)
+        old = copy.deepcopy(unit)
+        old["steps"] = []
+        historical_workflow = ('  web-full-suite-check:\n    name: "Web Unit Contracts"\n'
+                               '    steps:\n      - env:\n          WEB_FULL_SUITE_SHARD: ""\n')
+        with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
+            verify([old], current=False)
+            observed.assert_called_once_with("show", f"{candidate}:.github/workflows/ci.yml")
+        with patch.object(subject, "git", return_value=(historical_workflow + "    strategy: {}\n").encode()):
+            with self.assertRaises(subject.Refused):
+                verify([old], current=False)
+        cases = [[], [old], complete[:2], [leg("1/3")] * 3,
+                 [leg("1/1"), leg("2/3"), leg("3/3")], [leg("4/4")]]
+        for field, value in (("run_id", 999), ("head_sha", "c" * 40),
+                             ("status", "in_progress"), ("conclusion", "cancelled")):
+            bad = copy.deepcopy(complete)
+            bad[1][field] = value
+            cases.append(bad)
+        for steps in (
+            [{"name": "Verify unit shard (1/1)", "conclusion": "success"}],
+            [{"name": "Run affected unit contracts", "conclusion": "failure"},
+             {"name": "Verify unit shard (1/1)", "conclusion": "success"}],
+            unit["steps"] + [unit["steps"][-1]],
+        ):
+            bad = copy.deepcopy(unit)
+            bad["steps"] = steps
+            cases.append([bad])
+        for legs in cases:
+            with self.subTest(legs=legs), self.assertRaises(subject.Refused):
+                verify(legs)
+        # Each isolated shard must prepare the same exact application, too.
+        with self.assertRaises(subject.Refused):
+            subject._verify_unit_jobs(complete, candidate, 123, current=True,
+                                      isolated_candidate="d" * 40)
+        for job in complete:
+            job["steps"].insert(0, {"name": "Prepare isolated UAT source", "conclusion": "success"})
+        subject._verify_unit_jobs(complete, candidate, 123, current=True,
+                                  isolated_candidate="d" * 40)
+
     def test_exact_attempt_requires_complete_current_run_and_canonical_gates(self):
         candidate, base = "a" * 40, "b" * 40
         run = _attempt_run(candidate)
