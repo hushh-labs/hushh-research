@@ -232,6 +232,8 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -260,6 +262,14 @@ jobs:
           CI_IMPACT_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
           CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
+
+      - name: Plan unit concurrency
+        id: unit-plan
+        env:
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+        run: |
+          matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
@@ -1092,14 +1102,17 @@ jobs:
 
   web-full-suite-check:
     name: "Web Unit Contracts"
-    needs: [preflight-gate]
+    needs: [preflight-gate, repo-governance]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Unknown change coverage runs the full unit suite on this job.
+    # Unknown impact retains all tests through native Vitest sharding.
     timeout-minutes: 45
-    # One affected/core unit owner; full historical shards remain a diagnostic command.
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.repo-governance.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1136,10 +1149,26 @@ jobs:
       - name: Run affected unit contracts
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
-          WEB_FULL_SUITE_SHARD: ""
+          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
           CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+
+      - name: Verify unit shard (1/1)
+        if: matrix.shard == '1/1'
+        run: echo 'Unit shard 1/1 completed successfully'
+
+      - name: Verify unit shard (1/3)
+        if: matrix.shard == '1/3'
+        run: echo 'Unit shard 1/3 completed successfully'
+
+      - name: Verify unit shard (2/3)
+        if: matrix.shard == '2/3'
+        run: echo 'Unit shard 2/3 completed successfully'
+
+      - name: Verify unit shard (3/3)
+        if: matrix.shard == '3/3'
+        run: echo 'Unit shard 3/3 completed successfully'
 
   ios-native-check:
     name: "iOS Native (Xcode)"

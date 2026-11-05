@@ -398,8 +398,8 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
   remains derived from explicit policy. It cannot expand Main merge or protected
   edit authority through an inherited bypass team.
 - **Production == approved dispatch cohort.** `production.manual_dispatch_users`
-  must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
-  widening or narrowing fails the check.
+  must match the reviewed production operator cohort; any independent widening
+  or narrowing fails the check. The policy and live team readback identify its members.
 - **Deploy identity variables are present.** Each deployment environment must
   contain every name declared in its `required_environment_variables` policy.
   These are GitHub environment variables consumed through `vars.*`, not
