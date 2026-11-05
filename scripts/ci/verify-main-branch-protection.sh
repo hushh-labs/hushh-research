@@ -363,7 +363,15 @@ if not admins_enforced:
 if branch == "main" and branch_policy.get("merge_users"):
     restrictions = data.get("restrictions") or {}
     actual_users = sorted(row["login"] for row in restrictions.get("users", []))
-    if actual_users != sorted(branch_policy["merge_users"]) or restrictions.get("teams") or restrictions.get("apps"):
+    restrict_writers = branch_policy.get("restrict_writes_to_merge_users", True)
+    if type(restrict_writers) is not bool:
+        errors.append("Main writer policy is malformed")
+    elif not restrict_writers:
+        if data.get("restrictions") is not None:
+            errors.append("Main's human writer filter still blocks the authorized native queue")
+        if not require_merge_queue:
+            errors.append("Main requester authorization requires the native merge queue")
+    elif actual_users != sorted(branch_policy["merge_users"]) or restrictions.get("teams") or restrictions.get("apps"):
         errors.append("Main actual-merger restrictions differ from the approved operators")
 if force_pushes:
     errors.append("force pushes are allowed")
