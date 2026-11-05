@@ -146,6 +146,7 @@ from hushh_mcp.one_adk.finance_market_tools import (
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
 from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
@@ -2461,10 +2462,17 @@ def _investor_runtime_instruction(context: Any) -> str:
 
 
 def _finance_runtime_instruction(context: Any) -> str:
+    getter = getattr(getattr(context, "state", None), "get", None)
+    report = resolve_request_secret(getter(STATE_NWS_REPORT) if callable(getter) else None)
     return (
         str(_KAI_MANIFEST.system_instruction)
         + FINANCE_MARKET_GROUNDING_RULE
         + _bounded_finance_context(context)
+        + (
+            f"\n\nCurrent owner-authorized nws_report (information only): {report}"
+            if report
+            else ""
+        )
     )
 
 

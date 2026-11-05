@@ -40,7 +40,7 @@ STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
   printf '%s\\n' "$*" >> "$NPM_STUB_LOG"
   if [ -n "${NPM_STUB_FAIL:-}" ] && [ "${2:-}" = "$NPM_STUB_FAIL" ]; then
-    exit 23
+    exit "${NPM_STUB_EXIT:-23}"
   fi
 fi
 exit 0
@@ -233,6 +233,10 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         ("hushh-webapp/lib/voice/voice-session.ts\nconsent-protocol/tests/test_phone.py\nhushh-webapp/contracts/ui-review/back/review.json", "false"),
         ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/tests/test_phone.py", "true"),
         ("consent-protocol/tests/test_phone.py", "false"),
+        ("consent-protocol/hushh_mcp/services/advisor_review_service.py", "false"),
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/api/routes/one/finance_sharing.py", "true"),
+        ("hushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts", "false"),
+        ("hushh-webapp/lib/agent/calendar-directive-runtime.ts\nhushh-webapp/lib/agent/calendar-proposal-review.ts\nhushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts\nhushh-webapp/__tests__/fixtures/calendar-chat-controlled-results.json\nconsent-protocol/tests/test_calendar_routes.py", "true"),
     ):
         code, values, calls, output = _browser_plan(changed)
         assert code == 0, output[-2000:]

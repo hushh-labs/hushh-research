@@ -24,6 +24,105 @@ from tests.helpers.predecessor_acceptance import _serving_receipt as _serving_re
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("environment,run_id", [("dev", 10), ("uat", 20)])
+def test_matching_branch_receipt_binds_caller_and_main_implementation(environment, run_id):
+    module, client, receipts, responses, pins = _acceptance_fixture()
+    run = responses[f"runs/{run_id}/attempts/2"]
+    run["head_branch"] = environment
+    implementation = f".github/workflows/deploy-{environment}-implementation.yml"
+    run["referenced_workflows"] = [
+        {
+            "path": f"{module.REPOSITORY}/{implementation}@{'d' * 40}",
+            "ref": "refs/heads/main",
+            "sha": "d" * 40,
+        }
+    ]
+    receipt = receipts[environment]
+    receipt["workflow_authority"] = module._provenance.deployment_authority(run, environment)
+    archive = BytesIO()
+    with ZipFile(archive, "w") as bundle:
+        bundle.writestr("acceptance.json", json.dumps(receipt))
+    raw = archive.getvalue()
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    responses[f"artifacts/{run_id + 1}/zip"] = raw
+    responses[f"artifacts/{run_id + 1}"].update(digest=digest, size_in_bytes=len(raw))
+    pins[environment]["artifact_digest"] = digest
+    assert client.accept(pins[environment], environment, SHA, "frontend")["run_id"] == run_id
+    reference = run["referenced_workflows"][0]
+    for field, invalid in (
+        ("ref", f"refs/heads/{environment}"),
+        ("sha", "e" * 40),
+        ("path", f"other/repo/{implementation}@main"),
+    ):
+        original = reference[field]
+        reference[field] = invalid
+        with pytest.raises(ValueError):
+            client.accept(pins[environment], environment, SHA, "frontend")
+        reference[field] = original
+    run["head_sha"] = "f" * 40
+    with pytest.raises(ValueError, match="provenance"):
+        client.accept(pins[environment], environment, SHA, "frontend")
+
+
+def test_testflight_requires_exact_isolated_backend_receipt(monkeypatch):
+    module, client, receipts, responses, _ = _acceptance_fixture()
+    run = responses["runs/20/attempts/2"]
+    responses["runs/20"] = dict(run)
+    artifact = responses["artifacts/21"]
+    responses["runs/20/artifacts?per_page=100"] = {"total_count": 1, "artifacts": [artifact]}
+    receipt = receipts["uat"]
+    receipt["predecessor"] = {
+        "kind": "uat-exact-ci",
+        "source_branch": "uat-isolated",
+        "authority_sha": run["head_sha"],
+        "base_sha": "b" * 40,
+    }
+    digest = "sha256:" + "a" * 64
+    reference = f"gcr.io/hushh-pda-uat/consent-protocol@{digest}"
+    receipt["provenance"]["backend"]["checked_revisions"][0].update(
+        image_verified=True,
+        image_reference=reference,
+        image_digest=digest,
+    )
+
+    def repack():
+        archive = BytesIO()
+        with ZipFile(archive, "w") as bundle:
+            bundle.writestr("acceptance.json", json.dumps(receipt))
+        raw = archive.getvalue()
+        responses["artifacts/21/zip"] = raw
+        artifact.update(digest="sha256:" + hashlib.sha256(raw).hexdigest(), size_in_bytes=len(raw))
+
+    # Existing tests exercise the typed predecessor's GitHub and Git checks.
+    predecessor = mock.Mock()
+    monkeypatch.setattr(module, "_verify_direct_uat", predecessor)
+    repack()
+    options = dict(
+        sha=SHA,
+        run_id=20,
+        revision="consent-protocol-00042-abc",
+        image_digest=digest,
+    )
+    accepted = client.accept_testflight_backend(**options)
+    assert accepted["image_reference"] == reference
+    assert accepted["base_sha"] == receipt["predecessor"]["base_sha"]
+    assert accepted["authority_sha"] == receipt["predecessor"]["authority_sha"]
+    predecessor.assert_called_once_with(receipt["predecessor"], SHA, {"backend"}, current=False)
+    for field, value in (
+        ("revision", "consent-protocol-00043-abc"),
+        ("image_digest", "sha256:" + "b" * 64),
+    ):
+        with pytest.raises(ValueError, match="does not match"):
+            client.accept_testflight_backend(**{**options, field: value})
+    receipt["predecessor"]["source_branch"] = "uat"
+    repack()
+    with pytest.raises(ValueError, match="isolated source"):
+        client.accept_testflight_backend(**options)
+    responses["runs/20"]["run_attempt"] = 3
+    with pytest.raises(ValueError, match="artifact is missing"):
+        client.accept_testflight_backend(**options)
+
+
 def test_distinct_main_approval_requires_identical_uat_content_and_incorporation(
     tmp_path, monkeypatch
 ):
@@ -186,7 +285,7 @@ def test_backend_image_is_bound_to_the_selected_accepted_attempt(case, tmp_path,
 
 def test_discovery_keeps_qualified_attempt_after_a_failed_rerun():
     module, client, _, responses, pins = _acceptance_fixture()
-    query = "workflows/deploy-dev.yml/runs?branch=main&event=workflow_dispatch&per_page=50&page=1"
+    query = "workflows/deploy-dev.yml/runs?event=workflow_dispatch&per_page=50&page=1"
     responses[query] = {
         "workflow_runs": [{"id": 10, "run_attempt": 3, "conclusion": "failure"}],
     }
@@ -298,9 +397,15 @@ def test_predecessor_refuses_untrusted_or_changed_github_artifacts(failure):
         client.accept(pins["dev"], "dev", SHA, "backend")
 
 
-@pytest.mark.parametrize("environment", ["uat", "production", "uat-one-chat"])
+@pytest.mark.parametrize("environment", ["uat", "production"])
 def test_every_release_image_mode_requires_predecessor_before_mutation(environment):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    source = (
+        "deploy-"
+        + environment
+        + ("-implementation" if environment in {"dev", "uat"} else "")
+        + ".yml"
+    )
+    workflow = yaml.safe_load((ROOT / ".github/workflows" / source).read_text())
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "predecessor-acceptance")
     if environment == "production":
@@ -372,7 +477,13 @@ def test_every_release_image_mode_requires_predecessor_before_mutation(environme
 def test_release_status_never_treats_a_missing_classifier_as_healthy(
     environment, classified, tmp_path
 ):
-    workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{environment}.yml").read_text())
+    source = (
+        "deploy-"
+        + environment
+        + ("-implementation" if environment in {"dev", "uat"} else "")
+        + ".yml"
+    )
+    workflow = yaml.safe_load((ROOT / ".github/workflows" / source).read_text())
     steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
     step = next(step for step in steps if "release status artifact" in step.get("name", ""))
     script = str(step["run"]).split("export STATUS", 1)[0]

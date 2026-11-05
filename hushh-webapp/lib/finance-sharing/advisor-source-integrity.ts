@@ -8,12 +8,6 @@ const record = (value: unknown): RecordValue | null => value && typeof value ===
 const currency = (value: unknown): string | null => typeof value === "string" && value.trim() ? value.trim().toUpperCase() : null;
 const currencies = (value: RecordValue | null | undefined): string[] => value ? [value.currency, value.iso_currency_code, value.unofficial_currency_code].map(currency).filter((item): item is string => Boolean(item)) : [];
 
-function hasUnsupportedExposure(holding: RecordValue): boolean {
-  const side = String(holding.position_side || "").trim().toLowerCase();
-  return Boolean(holding.is_short || holding.is_short_position || holding.is_liability_position ||
-    (side && side !== "long"));
-}
-
 function assertLinkedAdvisorSource(financial: RecordValue, portfolio: PortfolioData): void {
   const holdings = record(financial.holdings_v1);
   const accounts = record(financial.accounts_v1) || {};
@@ -35,7 +29,6 @@ function assertLinkedAdvisorSource(financial: RecordValue, portfolio: PortfolioD
     const security = record(securities[String(holding?.security_id || "")]);
     const units = [...currencies(holding), ...currencies(account), ...currencies(balances), ...currencies(security)];
     if (!match || seen.has(match[0]) || !holding || !account || unit !== "USD" || units.some(item => item !== "USD")
-      || hasUnsupportedExposure(holding)
       || typeof holding.quantity !== "number" || !Number.isFinite(holding.quantity) || holding.quantity <= 0
       || typeof holding.institution_value !== "number" || !Number.isFinite(holding.institution_value) || holding.institution_value <= 0
       || holding.quantity !== position.quantity || holding.institution_value !== position.market_value
@@ -98,7 +91,6 @@ export function assertAdvisorSourceIntegrity(financial: RecordValue, source: Fin
     const price = row?.price ?? row?.price_per_unit;
     const projected = normalized[index];
     if (!row || !projected || !String(row.symbol || "").trim() || typeof row.market_value !== "number" || !Number.isFinite(row.market_value)
-      || row.market_value < 0 || hasUnsupportedExposure(row)
       || typeof row.quantity !== "number" || !Number.isFinite(row.quantity) || typeof price !== "number" || !Number.isFinite(price)
       || projected.market_value !== row.market_value || projected.quantity !== row.quantity || projected.price !== price
       || [row.cost_basis, row.unrealized_gain_loss, row.unrealized_gain_loss_pct].some(item => item != null && (typeof item !== "number" || !Number.isFinite(item)))

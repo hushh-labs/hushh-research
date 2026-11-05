@@ -185,7 +185,7 @@ class GitHub:
             run.get("id") == run_id
             and run.get("run_attempt") == attempt
             and run.get("path") == f".github/workflows/deploy-{environment}.yml"
-            and run.get("head_branch") == "main"
+            and run.get("head_branch") in {"main", environment}
             and run.get("event") == "workflow_dispatch"
             and run.get("status") == "completed"
             and run.get("conclusion") == "success"
@@ -196,6 +196,10 @@ class GitHub:
         artifact = self.read(f"artifacts/{artifact_id}")
         _provenance.validate_artifact(artifact, pin, environment, MAX_BYTES)
         receipt = unpack(self.read(f"artifacts/{artifact_id}/zip", binary=True), artifact["digest"])
+        authority = _provenance.deployment_authority(run, environment)
+        if authority["caller_branch"] != "main":
+            require(receipt.get("workflow_authority") == authority,
+                    "Acceptance implementation provenance does not match GitHub")
         require(
             receipt.get("run_id") == run_id and receipt.get("run_attempt") == attempt,
             "Receipt belongs to another attempt",
@@ -218,7 +222,8 @@ class GitHub:
         if environment == "uat":
             predecessor = receipt.get("predecessor", {})
             if predecessor.get("kind") == "uat-exact-ci":
-                require(predecessor.get("authority_sha") == run.get("head_sha"), "UAT workflow authority changed")
+                authority = _provenance.deployment_authority(run, environment)
+                require(predecessor.get("authority_sha") == authority["tooling_sha"], "UAT workflow authority changed")
                 _verify_direct_uat(predecessor, sha, {service}, current=False)
             else:
                 self._accept_dev_predecessor(predecessor, sha, service)
@@ -237,6 +242,34 @@ class GitHub:
         previous = predecessor.get("services", {}).get(service)
         require(isinstance(previous, dict), "UAT has no dev receipt for this service")
         self.accept(previous, "dev", sha, service)
+
+    def accept_testflight_backend(
+        self, *, sha: str, run_id: int, revision: str, image_digest: str
+    ) -> dict:
+        """Bind an isolated release receipt to the backend currently serving TestFlight."""
+        run = self.read(f"runs/{run_id}")
+        attempt = run.get("run_attempt")
+        require(
+            run.get("id") == run_id and type(attempt) is int and attempt > 0
+            and run.get("status") == "completed" and run.get("conclusion") == "success",
+            "Current UAT deployment attempt is not successful",
+        )
+        pin = next((pin for pin in self.attempt_pins("uat", run_id) if pin["run_attempt"] == attempt), None)
+        require(pin is not None, "Current UAT acceptance artifact is missing")
+        _, _, receipt = self._receipt(pin, "uat")
+        prior = receipt.get("predecessor", {})
+        require(
+            prior.get("kind") == "uat-exact-ci" and prior.get("source_branch") == "uat-isolated",
+            "TestFlight requires acceptance for the protected isolated source",
+        )
+        accepted = self.accept(pin, "uat", sha, "backend")
+        require(
+            bool(revision) and receipt["release"]["final"]["backend_revision"] == revision
+            and bool(accepted.get("image_reference"))
+            and accepted["image_reference"].rsplit("@", 1)[-1] == image_digest,
+            "Serving UAT backend does not match the accepted revision and image",
+        )
+        return {**accepted, "base_sha": prior["base_sha"], "authority_sha": prior["authority_sha"]}
 
     def accepted_application(self, pin: dict, environment: str) -> dict:
         """Inspect a pinned receipt without conflating its Main workflow SHA.
@@ -261,7 +294,7 @@ class GitHub:
         # an exemption. Re-run acceptance on the exact SHA when history is absent.
         for page in range(1, 4):
             runs = self.read(
-                f"workflows/deploy-{environment}.yml/runs?branch=main&event=workflow_dispatch"
+                f"workflows/deploy-{environment}.yml/runs?event=workflow_dispatch"
                 f"&per_page=50&page={page}"
             ).get("workflow_runs", [])
             for run in runs:
@@ -359,10 +392,18 @@ def create(args) -> None:
         "provenance": {},
     }
     try:
-        require(
-            os.environ.get("GITHUB_REF") == "refs/heads/main",
-            "Acceptance must use the main-owned workflow",
-        )
+        if os.environ.get("GITHUB_REF") != "refs/heads/main":
+            run = GitHub().read(f"runs/{receipt['run_id']}")
+            authority = _provenance.deployment_authority(run, args.environment)
+            require(
+                os.environ.get("GITHUB_REF") == f"refs/heads/{args.environment}"
+                and run.get("run_attempt") == receipt["run_attempt"]
+                and run.get("status") == "in_progress"
+                and authority["caller_sha"] == os.environ.get("GITHUB_SHA")
+                and authority["tooling_sha"] == os.environ.get("RELEASE_TOOLING_SHA"),
+                "Acceptance must use the current Main implementation and caller attempt",
+            )
+            receipt["workflow_authority"] = authority
         receipt["required_checks"] = _required_checks(release, args.environment)
         receipt["classification"] = json.loads(
             (args.status.parent / f"{args.environment}-release-classification.json").read_text()
@@ -435,7 +476,7 @@ def pinned_backend_image(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat"))
+    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat", "testflight-uat"))
     parser.add_argument("--environment", choices=tuple(LANES), required=True)
     parser.add_argument("--sha")
     parser.add_argument("--scope")
@@ -448,6 +489,9 @@ def main() -> int:
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--ci-run-id", type=int)
     parser.add_argument("--ci-attempt", type=int)
+    parser.add_argument("--deployment-run-id", type=int)
+    parser.add_argument("--serving-revision")
+    parser.add_argument("--serving-image")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
@@ -459,11 +503,19 @@ def main() -> int:
                 args.sha is not None and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
                 "Full SHA is required",
             )
-            receipt = (
-                direct_uat(args) if args.command == "direct-uat" else pinned_backend_image(args)
-                if args.command in {"direct-uat", "backend-image"}
-                else GitHub().find(args.environment, args.sha, args.scope)
-            )
+            if args.command == "testflight-uat":
+                require(args.environment == "uat" and (args.deployment_run_id or 0) > 0,
+                        "TestFlight requires the live UAT deployment run")
+                receipt = GitHub().accept_testflight_backend(
+                    sha=args.sha, run_id=args.deployment_run_id,
+                    revision=args.serving_revision, image_digest=args.serving_image,
+                )
+            elif args.command == "direct-uat":
+                receipt = direct_uat(args)
+            elif args.command == "backend-image":
+                receipt = pinned_backend_image(args)
+            else:
+                receipt = GitHub().find(args.environment, args.sha, args.scope)
             args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     except (
         Refused,

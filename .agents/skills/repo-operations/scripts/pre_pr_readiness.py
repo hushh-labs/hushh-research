@@ -167,7 +167,7 @@ def _workflow_filters() -> dict[str, list[str]]:
             current = text[:-1]; filters[current] = []
         elif spaces == indent + 4 and text.startswith("- ") and current:
             raw = text[2:].strip()
-            if not re.fullmatch(r"'[A-Za-z0-9_./!*+-]+'", raw): raise ValueError("unsupported path-filter syntax")
+            if not re.fullmatch(r"'[A-Za-z0-9_./!*+{},?\[\]-]+'", raw): raise ValueError("unsupported path-filter syntax")
             pattern = raw[1:-1]
             plain = pattern.removeprefix("!")
             if current in {"frontend", "backend"} and any(char in plain.removesuffix("/**") for char in "*?[]{}"):

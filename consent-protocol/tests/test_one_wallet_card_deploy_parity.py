@@ -130,7 +130,7 @@ def test_temporary_card_sharing_flag_reaches_runtime_and_defaults_off() -> None:
 
 
 def test_uat_enables_temporary_card_sharing_with_its_encryption_key() -> None:
-    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml")
     assert (
         "##_WALLET_CARD_ACCESS_ENABLED=${{ vars.WALLET_CARD_ACCESS_UAT_ENABLED || 'true' }}"
         in workflow
@@ -157,7 +157,7 @@ def test_uat_enables_temporary_card_sharing_with_its_encryption_key() -> None:
 def test_uat_flag_substitutions_preserve_historical_deploys(
     tmp_path: Path, substitution: str, variable: str, supports_flag: bool, flag_value: str
 ) -> None:
-    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml")
     guard = re.search(
         rf"(?m)^          if grep -q [^\n]*{substitution}[^\n]*\n"
         r"(?:^          .*\n)*?^          fi$",

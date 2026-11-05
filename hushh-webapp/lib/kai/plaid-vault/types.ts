@@ -20,182 +20,8 @@
 // Wire contract
 // ---------------------------------------------------------------------------
 
-export type PlaidVaultPlatform = "web" | "ios" | "android";
-
-export interface PlaidVaultLinkTokenRequest {
-  platform: PlaidVaultPlatform;
-  redirect_uri?: string | null;
-  /** Local native proof only; never selects a provider environment. */
-  sandbox_proof?: boolean;
-  /** Update mode (relink): the sealed token of the Item being repaired. */
-  access_token?: string | null;
-}
-
-export interface PlaidVaultLinkTokenResponse {
-  link_token: string;
-  expiration: string;
-}
-
-export interface PlaidVaultInstitution {
-  id: string;
-  name: string;
-}
-
-export interface PlaidVaultExchangeResponse {
-  access_token: string;
-  item_id: string;
-  institution: PlaidVaultInstitution | null;
-  products: string[];
-  consented_products?: string[];
-}
-
-export interface PlaidBalances {
-  available?: number | null;
-  current?: number | null;
-  limit?: number | null;
-  iso_currency_code?: string | null;
-  unofficial_currency_code?: string | null;
-}
-
-export interface PlaidAccount {
-  account_id: string;
-  persistent_account_id?: string | null;
-  name: string;
-  official_name?: string | null;
-  mask?: string | null;
-  type: string;
-  subtype?: string | null;
-  balances: PlaidBalances;
-}
-
-export interface PlaidHolding {
-  account_id: string;
-  security_id: string;
-  quantity: number;
-  institution_price?: number | null;
-  institution_price_as_of?: string | null;
-  institution_value?: number | null;
-  cost_basis?: number | null;
-  iso_currency_code?: string | null;
-}
-
-export interface PlaidSecurity {
-  security_id: string;
-  ticker_symbol?: string | null;
-  name?: string | null;
-  type?: string | null;
-  subtype?: string | null;
-  cusip?: string | null;
-  isin?: string | null;
-  close_price?: number | null;
-  close_price_as_of?: string | null;
-  is_cash_equivalent?: boolean | null;
-  sector?: string | null;
-  industry?: string | null;
-}
-
-export interface PlaidPersonalFinanceCategory {
-  primary: string;
-  detailed?: string | null;
-  confidence_level?: string | null;
-}
-
-export interface PlaidLocation {
-  address?: string | null;
-  city?: string | null;
-  region?: string | null;
-  postal_code?: string | null;
-  country?: string | null;
-  lat?: number | null;
-  lon?: number | null;
-  store_number?: string | null;
-}
-
-export interface PlaidCounterparty {
-  name?: string | null;
-  type?: string | null;
-  entity_id?: string | null;
-  website?: string | null;
-  logo_url?: string | null;
-}
-
-export interface PlaidTx {
-  transaction_id: string;
-  account_id: string;
-  amount: number;
-  iso_currency_code?: string | null;
-  date: string;
-  authorized_date?: string | null;
-  name?: string | null;
-  merchant_name?: string | null;
-  merchant_entity_id?: string | null;
-  pending?: boolean;
-  pending_transaction_id?: string | null;
-  payment_channel?: string | null;
-  personal_finance_category?: PlaidPersonalFinanceCategory | null;
-  category?: string[] | null;
-  location?: PlaidLocation | null;
-  counterparties?: PlaidCounterparty[] | null;
-  logo_url?: string | null;
-  website?: string | null;
-}
-
-export interface PlaidUnavailable {
-  unavailable: string;
-}
-
-export interface PlaidInvestmentsSnapshot {
-  holdings: PlaidHolding[];
-  securities: PlaidSecurity[];
-}
-
-export interface PlaidTransactionsSnapshot {
-  added: PlaidTx[];
-  modified: PlaidTx[];
-  removed: { transaction_id: string }[];
-  next_cursor: string;
-  /** More pages remain after this snapshot's page cap; follow with next_cursor. */
-  has_more?: boolean;
-  pages: number;
-}
-
-export interface PlaidItemError {
-  code: string;
-  message: string;
-}
-
-export interface PlaidSnapshotItem {
-  /** Null when Plaid refused the sealed token before naming the Item. */
-  item_id: string | null;
-  institution_id: string | null;
-  products: string[];
-  consented_products: string[];
-  error: PlaidItemError | null;
-}
-
-export interface PlaidVaultSnapshotRequest {
-  access_token: string;
-  transactions_cursor?: string | null;
-}
-
-export interface PlaidVaultSnapshot {
-  item: PlaidSnapshotItem;
-  accounts: PlaidAccount[];
-  investments: PlaidInvestmentsSnapshot | PlaidUnavailable;
-  transactions: PlaidTransactionsSnapshot | PlaidUnavailable;
-}
-
-export interface PlaidVaultRemoveResponse {
-  removed: true;
-}
-
-export function isUnavailable(value: unknown): value is PlaidUnavailable {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      typeof (value as PlaidUnavailable).unavailable === "string"
-  );
-}
+export * from "./vault-wire-types";
+import type { PlaidVaultInstitution } from "./vault-wire-types";
 
 // ---------------------------------------------------------------------------
 // Memory records (financial domain)
@@ -213,6 +39,12 @@ export interface ConnectionRecord {
   transactions_cursor: string | null;
   last_refreshed_at: string | null;
   status: ConnectionStatus;
+  nws_holdings_complete?: boolean;
+  nws_history_complete?: boolean;
+  nws_credit_apr?: Record<string, number>;
+  nws_consent?: string[];
+  nws_debt_details_available?: boolean;
+  nws_investments_available?: boolean;
 }
 
 export interface AccountBalancesRecord {
@@ -220,6 +52,7 @@ export interface AccountBalancesRecord {
   current: number | null;
   limit: number | null;
   iso_currency_code: string | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Tier A: `financial.accounts_v1[`${item_id}:${account_id}`]`. */
@@ -249,6 +82,8 @@ export interface HoldingRecord {
   institution_value: number;
   cost_basis: number | null;
   iso_currency_code: string | null;
+  nws_value?: number | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Tier A: `financial.securities_v1[security_id]`. CUSIP stays private here. */
@@ -297,6 +132,8 @@ export interface TransactionRecord {
   counterparties: TransactionCounterpartyRecord[] | null;
   /** True once the 90-day retention rule replaced merchant detail with the category. */
   reduced: boolean;
+  nws_amount?: number | null;
+  unofficial_currency_code?: string | null;
 }
 
 /** Every Tier B fact carries where it came from and when. */

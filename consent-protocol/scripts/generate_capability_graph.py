@@ -876,14 +876,17 @@ def _uat_pr_payload(
     serving_payload: dict[str, Any], base_ref: str, predecessor_refs: tuple[str, ...]
 ) -> dict[str, Any] | None:
     """Replay the landed PR comparison after validating the exact serving comparison."""
+    ref = os.environ.get("GITHUB_REF")
+    isolated = os.environ.get("UAT_CI_CANDIDATE") if ref == "refs/heads/main" else None
+    source = isolated or os.environ.get("GITHUB_SHA")
     if (
         os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-        or os.environ.get("GITHUB_REF") not in {"refs/heads/uat", "refs/heads/uat-isolated"}
+        or (not isolated and ref not in {"refs/heads/uat", "refs/heads/uat-isolated"})
         or os.environ.get("CI_VALIDATION_LEVEL") != "release"
         or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
         or _resolve_base_commit(base_ref) != base_ref
-        or not os.environ.get("GITHUB_SHA")
-        or _resolve_base_commit("HEAD") != os.environ["GITHUB_SHA"]
+        or not source
+        or _resolve_base_commit("HEAD") != source
         or _resolve_base_commit("HEAD^2") is None
     ):
         return None

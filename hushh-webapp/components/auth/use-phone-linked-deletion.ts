@@ -6,7 +6,7 @@ import { apiErrorCode } from "@/lib/services/api-client";
 import type { LinkedDeletionPreparation } from "@/lib/services/phone-recovery-service";
 import { linkedDeletionMessage, linkedDeletionNeedsFreshProof, type LinkedDeletionInput } from "@/lib/auth/phone-linked-deletion";
 
-type Conflict = "choices" | "delete" | null;
+type Conflict = "choices" | "review" | "delete" | null;
 type Params = {
   phone: string; conflict: Conflict; busy: boolean; guard: { pending: boolean };
   current: () => boolean; inFlight: { current: boolean };

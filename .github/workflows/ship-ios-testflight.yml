@@ -1,6 +1,7 @@
 name: Ship iOS to TestFlight
 
-# This workflow creates a normal UAT-backed TestFlight build only. It never
+# New builds use UAT. upload_run_id resumes the exact existing binary, preserving
+# its original backend. This workflow never
 # creates an App Store version or submits the app for public App Store review.
 # The one valid build is assigned to the configured internal and external
 # TestFlight groups. External availability remains pending until Apple grants
@@ -9,10 +10,21 @@ name: Ship iOS to TestFlight
 on:
   workflow_dispatch:
     inputs:
-      sha:
-        description: Exact green main SHA to ship. Blank selects latest main.
+      upload_run_id:
+        description: Resume distribution of this existing upload instead of building again; leave blank for a new build.
         required: false
         type: string
+      sha:
+        description: Exact application SHA. Required in isolated mode.
+        required: false
+        type: string
+      source_branch:
+        description: Select the ordinary Main build or the exact accepted isolated UAT candidate.
+        type: choice
+        default: main
+        options:
+          - main
+          - uat-isolated
       marketing_version:
         description: Optional packaging version (x.y.z); does not change the release source or public App Store version.
         required: false
@@ -64,11 +76,12 @@ jobs:
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
-      application_ref: ${{ inputs.sha || github.sha }}
+      application_ref: ${{ inputs.upload_run_id != '' && github.sha || inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    if: inputs.upload_run_id == ''
     needs: deployment-security
     name: Resolve green UAT release source
     runs-on: ubuntu-latest
@@ -79,6 +92,12 @@ jobs:
     outputs:
       release_sha: ${{ steps.resolve.outputs.sha }}
       marketing_version: ${{ steps.packaging.outputs.marketing_version }}
+      isolated_revision: ${{ steps.backend.outputs.isolated_revision }}
+      isolated_image: ${{ steps.backend.outputs.isolated_image }}
+      isolated_run: ${{ steps.backend.outputs.isolated_run }}
+      isolated_attempt: ${{ steps.backend.outputs.isolated_attempt }}
+      isolated_base: ${{ steps.backend.outputs.isolated_base }}
+      isolated_authority: ${{ steps.backend.outputs.isolated_authority }}
     steps:
       - name: Require current-attempt deployment security
         shell: bash
@@ -103,7 +122,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Authorize dispatching actor
         shell: bash
@@ -120,16 +139,45 @@ jobs:
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: "1"
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
-          REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
+          SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          REQUESTED_SHA: ${{ inputs.sha }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          REQUIRE_HARDWARE: ${{ inputs.require_hardware }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          if [ -n "$REQUESTED_SHA" ]; then
-            SHA="$(git rev-parse "$REQUESTED_SHA^{commit}")"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+            if [[ "$REQUESTED_SHA" != "$SHA" || "$REQUIRE_HARDWARE" == true ]]; then
+              echo "Isolated TestFlight requires a full SHA and supports the standard hardware=false release." >&2
+              exit 1
+            fi
+            bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
+            git fetch --no-tags origin uat-isolated
+            gh api "repos/$GITHUB_REPOSITORY/branches/uat-isolated" \
+              | jq -e --arg sha "$SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+            # Exact isolated CI overlays these release controls from Main. Only
+            # run the candidate copies with signing credentials when they agree.
+            git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
+              consent-protocol/.github/actions/setup-python-uv \
+              .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
+              hushh-webapp/vitest.config.ts hushh-webapp/__tests__/setup.ts \
+              hushh-webapp/scripts scripts/native \
+              ':(glob)hushh-webapp/next.config.*' ':(glob)hushh-webapp/capacitor.config.*' \
+              hushh-webapp/ios/App/App.xcodeproj/project.pbxproj \
+              hushh-webapp/ios/App/CapApp-SPM/Package.swift hushh-webapp/ios/ExportOptions \
+              ':(glob)hushh-webapp/ios/**/Package.resolved' \
+              ':(glob)hushh-webapp/ios/**/*.sh' \
+              ':(glob)scripts/ci/*ios*' ':(glob)scripts/ci/*testflight*' \
+              ':(glob)scripts/ci/*appstore*' \
+              ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
+              ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' || {
+                echo "Isolated native release tooling differs from the Main dispatch revision." >&2
+                exit 1
+              }
           else
-            SHA="$(git rev-parse origin/main)"
+            test "$SOURCE_BRANCH" = main
+            bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
           fi
-          bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
       # The UAT backend provenance check lives here, on ubuntu, rather than in
@@ -165,14 +213,20 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Verify matching UAT backend revision
+        id: backend
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.resolve.outputs.sha }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
-          git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
+          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+            cp scripts/ci/resolve-cloud-run-serving-state.py "$resolver"
+          else
+            git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
+          fi
           service_json="$RUNNER_TEMP/one-voice-uat-backend-service.json"
           gcloud run services describe "$BACKEND_SERVICE" \
             --project="$GCP_PROJECT_ID" \
@@ -181,11 +235,33 @@ jobs:
           revision="$(python3 "$resolver" \
             --service-json "$service_json" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
-          actual_sha="$(gcloud run revisions describe "$revision" \
+          revision_json="$RUNNER_TEMP/testflight-backend-revision.json"
+          gcloud run revisions describe "$revision" \
             --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" \
-            --format='value(metadata.labels.deploy-sha)')"
-          if test "$actual_sha" = "$EXPECTED_SHA"; then
+            --format='json(metadata.labels,status.imageDigest)' > "$revision_json"
+          actual_sha="$(jq -er '.metadata.labels["deploy-sha"]' "$revision_json")"
+          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+            test "$actual_sha" = "$EXPECTED_SHA"
+            run_id="$(jq -er '.metadata.labels["github-run-id"]' "$revision_json")"
+            image="$(jq -er '.status.imageDigest' "$revision_json")"
+            image="${image##*@}"
+            python3 scripts/ci/verify-predecessor-acceptance.py testflight-uat \
+              --environment uat --sha "$EXPECTED_SHA" --deployment-run-id "$run_id" \
+              --serving-revision "$revision" --serving-image "$image" \
+              --output "$RUNNER_TEMP/testflight-uat-acceptance.json"
+            echo "isolated_revision=$revision" >> "$GITHUB_OUTPUT"
+            echo "isolated_image=$image" >> "$GITHUB_OUTPUT"
+            echo "isolated_run=$run_id" >> "$GITHUB_OUTPUT"
+            attempt="$(jq -er '.run_attempt' "$RUNNER_TEMP/testflight-uat-acceptance.json")"
+            echo "isolated_attempt=$attempt" >> "$GITHUB_OUTPUT"
+            base="$(jq -er '.base_sha' "$RUNNER_TEMP/testflight-uat-acceptance.json")"
+            [[ "$base" =~ ^[0-9a-f]{40}$ ]]
+            echo "isolated_base=$base" >> "$GITHUB_OUTPUT"
+            authority="$(jq -er '.authority_sha' "$RUNNER_TEMP/testflight-uat-acceptance.json")"
+            [[ "$authority" =~ ^[0-9a-f]{40}$ ]]
+            echo "isolated_authority=$authority" >> "$GITHUB_OUTPUT"
+          elif test "$actual_sha" = "$EXPECTED_SHA"; then
             echo "UAT backend revision matches the TestFlight source SHA ($actual_sha)."
           else
             git fetch --no-tags origin uat
@@ -232,7 +308,7 @@ jobs:
   hardware-capture:
     name: Prove physical iPhone capture gate
     needs: [preflight, deployment-security]
-    if: ${{ inputs.require_hardware == true }}
+    if: ${{ needs.preflight.result == 'success' && inputs.require_hardware == true }}
     uses: ./.github/workflows/ios-voice-device.yml
     with:
       release_sha: ${{ needs.preflight.outputs.release_sha }}
@@ -255,6 +331,8 @@ jobs:
       name: uat
       deployment: false
     timeout-minutes: 90
+    env:
+      CAPABILITY_GRAPH_BASE_REF: ${{ needs.preflight.outputs.isolated_base }}
     outputs:
       build_number: ${{ steps.build_number.outputs.next_build }}
       marketing_version: ${{ steps.identity.outputs.marketing_version }}
@@ -272,18 +350,22 @@ jobs:
       - name: Check out current release authority
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Authorize build actor including individual job reruns
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+      - name: Preserve trusted serving revision verifier
+        if: inputs.source_branch == 'uat-isolated'
+        run: cp scripts/ci/resolve-cloud-run-serving-state.py "$RUNNER_TEMP/testflight-serving-state.py"
       - name: Check out exact release SHA
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ needs.preflight.outputs.release_sha }}
+          persist-credentials: false
 
       - name: Assert source SHA
         shell: bash
@@ -403,8 +485,19 @@ jobs:
 
       - name: Run local One Voice safety and native contract gates
         shell: bash
+        env:
+          ISOLATED_AUTHORITY: ${{ needs.preflight.outputs.isolated_authority }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
         run: |
           set -euo pipefail
+          if [[ -n "$ISOLATED_AUTHORITY" ]]; then
+            # Isolated CI used this verifier with the exact candidate. Use it
+            # for the same checks, then restore the candidate before packaging.
+            graph=consent-protocol/scripts/generate_capability_graph.py
+            trap 'git restore --worktree -- "$graph"' EXIT
+            git show "$ISOLATED_AUTHORITY:$graph" > "$graph"
+            export UAT_CI_CANDIDATE="$RELEASE_SHA" CI_VALIDATION_LEVEL=release
+          fi
           npm run --prefix hushh-webapp verify:one-voice
           npm run --prefix hushh-webapp verify:capacitor:static
           npm run --prefix hushh-webapp verify:capacitor:plugins
@@ -536,8 +629,33 @@ jobs:
       - name: Export and upload TestFlight build
         id: upload
         shell: bash
+        env:
+          ISOLATED_REVISION: ${{ needs.preflight.outputs.isolated_revision }}
+          ISOLATED_IMAGE: ${{ needs.preflight.outputs.isolated_image }}
+          ISOLATED_RUN: ${{ needs.preflight.outputs.isolated_run }}
+          ISOLATED_ATTEMPT: ${{ needs.preflight.outputs.isolated_attempt }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+            test -n "$ISOLATED_REVISION"
+            service_json="$RUNNER_TEMP/testflight-live-service.json"
+            gcloud run services describe "$BACKEND_SERVICE" --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" --format='json(status)' > "$service_json"
+            python3 "$RUNNER_TEMP/testflight-serving-state.py" \
+              --service-json "$service_json" --expected-revision "$ISOLATED_REVISION"
+            gcloud run revisions describe "$ISOLATED_REVISION" --project="$GCP_PROJECT_ID" \
+              --region="$GCP_REGION" --format='json(metadata.labels,status.imageDigest)' \
+              | jq -e --arg sha "$RELEASE_SHA" --arg run "$ISOLATED_RUN" --arg image "$ISOLATED_IMAGE" \
+                  '.metadata.labels["deploy-sha"] == $sha and
+                   .metadata.labels["github-run-id"] == $run and
+                   (.status.imageDigest | split("@") | last) == $image' >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ISOLATED_RUN" \
+              | jq -e --argjson attempt "$ISOLATED_ATTEMPT" \
+                  '.run_attempt == $attempt and .status == "completed" and .conclusion == "success"' >/dev/null
+          fi
           python3 scripts/ci/export-ios-distribution.py \
             --archive "$RUNNER_TEMP/App.xcarchive" \
             --export-path "$RUNNER_TEMP/export" \
@@ -584,6 +702,9 @@ jobs:
         env:
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          ISOLATED_REVISION: ${{ needs.preflight.outputs.isolated_revision }}
+          ISOLATED_RUN: ${{ needs.preflight.outputs.isolated_run }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, plistlib
@@ -591,6 +712,13 @@ jobs:
           with archive_info.open('rb') as handle:
               version = plistlib.load(handle)['CFBundleShortVersionString']
           receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
+          if os.environ.get('SOURCE_BRANCH') == 'uat-isolated':
+              receipt.update(
+                  source_branch='uat-isolated',
+                  upload_attempt=int(os.environ['GITHUB_RUN_ATTEMPT']),
+                  uat_backend_revision=os.environ['ISOLATED_REVISION'],
+                  uat_deployment_run_id=int(os.environ['ISOLATED_RUN']),
+              )
           pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
           PY
 
@@ -666,7 +794,7 @@ jobs:
           fi
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Authorize distribution actor including individual job reruns
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
@@ -738,3 +866,156 @@ jobs:
       - name: Remove protected distribution files
         if: always()
         run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"
+
+  resume:
+    if: inputs.upload_run_id != ''
+    needs: deployment-security
+    runs-on: ubuntu-latest
+    environment:
+      name: uat
+      deployment: false
+    timeout-minutes: 35
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      UPLOAD_RUN_ID: ${{ inputs.upload_run_id }}
+    steps:
+      - name: Require current-attempt deployment security
+        shell: bash
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: |
+          set -euo pipefail
+          if [[ "$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT" ]]; then
+            echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Validate dispatch and original upload provenance
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.sha }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
+          REQUESTED_VERSION: ${{ inputs.marketing_version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REQUIRE_HARDWARE: ${{ inputs.require_hardware }}
+          RUN_CORE_TESTS: ${{ inputs.run_core_tests }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          [[ "$UPLOAD_RUN_ID" =~ ^[0-9]+$ ]]
+          if [[ "$SOURCE_BRANCH" != main || -n "$REQUESTED_SHA" || -n "$REQUESTED_VERSION" || "$DRY_RUN" == true || "$REQUIRE_HARDWARE" == true || "$RUN_CORE_TESTS" == true ]]; then
+            echo "Existing-upload recovery cannot change source/version or accept build-only options. Supply upload_run_id only." >&2
+            exit 1
+          fi
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+          gh api "repos/$GH_REPO/actions/runs/$UPLOAD_RUN_ID" > "$RUNNER_TEMP/upload-run.json"
+          # A Release iOS to App Store run uploads the same kind of build (for
+          # example a production-backed one) and writes the same receipt.
+          jq -e '(.path == ".github/workflows/ship-ios-testflight.yml" or .path == ".github/workflows/release-ios-appstore.yml") and .head_branch == "main" and .event == "workflow_dispatch"' "$RUNNER_TEMP/upload-run.json" >/dev/null
+          gh run download "$UPLOAD_RUN_ID" --name testflight-upload-receipt --dir "$RUNNER_TEMP/receipt"
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+          receipt = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'receipt/testflight-upload-receipt.json').read_text())
+          assert receipt['bundle_id'] == 'com.hushh.app'
+          assert re.fullmatch(r'[0-9a-f]{40}', receipt['source_sha'])
+          assert re.fullmatch(r'[0-9]+', receipt['build_number'])
+          assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', receipt['marketing_version'])
+          source = receipt.get('source_branch', 'main')
+          if source == 'uat-isolated':
+              original_run = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'upload-run.json').read_text())
+              assert original_run['path'] == '.github/workflows/ship-ios-testflight.yml'
+              assert original_run['head_repository']['full_name'] == os.environ['GH_REPO']
+              attempt = receipt['upload_attempt']
+              assert type(attempt) is int and 0 < attempt <= original_run['run_attempt']
+              assert re.fullmatch(r'consent-protocol-[a-z0-9-]+', receipt['uat_backend_revision'])
+              assert type(receipt['uat_deployment_run_id']) is int and receipt['uat_deployment_run_id'] > 0
+              jobs = json.loads(subprocess.check_output([
+                  'gh', 'api', f"repos/{os.environ['GH_REPO']}/actions/runs/{original_run['id']}/attempts/{attempt}/jobs?per_page=100"
+              ]))
+              assert jobs['total_count'] == len(jobs['jobs'])
+              for name, required_step in (
+                  ('Resolve green UAT release source', 'Verify matching UAT backend revision'),
+                  ('Build and distribute normal UAT TestFlight build', 'Export and upload TestFlight build'),
+              ):
+                  assert sum(
+                      step['name'] == required_step and step['conclusion'] == 'success'
+                      for job in jobs['jobs'] if job['name'] == name
+                      for step in job['steps']
+                  ) == 1
+              subprocess.run(['git', 'fetch', '--no-tags', 'origin', source], check=True)
+          else:
+              assert source == 'main'
+          subprocess.run(['git', 'merge-base', '--is-ancestor', receipt['source_sha'], f'origin/{source}'], check=True)
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              for field in ('source_sha', 'build_number', 'marketing_version'):
+                  out.write(f'{field.upper()}={receipt[field]}\n')
+          PY
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pyjwt cryptography
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Materialize protected TestFlight configuration
+        run: bash scripts/ci/materialize-ios-testflight-release-config.sh
+      - name: Reconcile the existing uploaded build
+        id: processing
+        run: |
+          python scripts/ci/wait_for_testflight_build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id com.hushh.app --marketing-version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER" \
+            --timeout-seconds 1200 --poll-interval-seconds 30 --output-json "$RUNNER_TEMP/testflight-build.json"
+      - name: Resume idempotent group distribution
+        id: distribution
+        run: |
+          python scripts/ci/distribute-testflight-build.py \
+            --p8-path "$RUNNER_TEMP/asc.p8" --key-id "$ASC_KEY_ID" --issuer-id "$ASC_ISSUER_ID" \
+            --bundle-id com.hushh.app --marketing-version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER" \
+            --build-id-file "$RUNNER_TEMP/testflight-build.json" \
+            --internal-group-id "$ASC_INTERNAL_GROUP_ID" --external-group-id "$ASC_EXTERNAL_GROUP_ID" \
+            --beta-review-contact-file "$ASC_BETA_REVIEW_CONTACT_PATH" --beta-review-notes-file "$ASC_BETA_REVIEW_NOTES_PATH" \
+            --output-json "$RUNNER_TEMP/testflight-distribution.json"
+      - name: Bind recovery evidence to the original upload
+        run: |
+          PYTHONPATH=scripts/ci python - <<'PY'
+          import json, os, pathlib
+          from release_cadence_native import bind_recovery
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          path = root / 'testflight-distribution.json'
+          value = bind_recovery(json.loads((root / 'upload-run.json').read_text()),
+                                json.loads((root / 'receipt/testflight-upload-receipt.json').read_text()),
+                                int(os.environ['GITHUB_RUN_ID']), int(os.environ['GITHUB_RUN_ATTEMPT']),
+                                json.loads(path.read_text()))
+          path.write_text(json.dumps(value, sort_keys=True) + '\n')
+          PY
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: testflight-resumed-distribution
+          path: ${{ runner.temp }}/testflight-distribution.json
+          if-no-files-found: warn
+      - name: Recovery summary
+        if: always()
+        env:
+          PROCESSING: ${{ steps.processing.outcome }}
+          DISTRIBUTION: ${{ steps.distribution.outcome }}
+        run: |
+          echo "Existing upload run: $UPLOAD_RUN_ID; build: ${BUILD_NUMBER:-unresolved}; source: ${SOURCE_SHA:-unresolved}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Apple processing: $PROCESSING; distribution: $DISTRIBUTION. No archive, upload, or App Intent tests executed." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove protected files
+        if: always()
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          for name in ('asc.p8', 'asc-beta-review-contact.json', 'asc-beta-review-notes.txt'):
+              pathlib.Path(os.environ['RUNNER_TEMP'], name).unlink(missing_ok=True)
+          PY

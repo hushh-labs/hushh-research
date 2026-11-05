@@ -30,9 +30,9 @@ FRONTEND_BUILD = ROOT / "deploy" / "frontend.cloudbuild.yaml"
 FRONTEND_IMAGE_BUILD = ROOT / "deploy" / "frontend-image.cloudbuild.yaml"
 AWAIT_SCRIPT = ROOT / "scripts" / "ci" / "await-prebuilt-image.sh"
 LANES = {
-    "uat": (".github/workflows/deploy-uat.yml", "hushh-pda-uat"),
+    "uat": (".github/workflows/deploy-uat-implementation.yml", "hushh-pda-uat"),
     "production": (".github/workflows/deploy-production.yml", "hushh-pda"),
-    "dev": (".github/workflows/deploy-dev.yml", "hushh-pda-dev"),
+    "dev": (".github/workflows/deploy-dev-implementation.yml", "hushh-pda-dev"),
 }
 DIGEST = "sha256:" + "a" * 64
 BUILD_ID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"

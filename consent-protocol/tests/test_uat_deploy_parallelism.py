@@ -86,6 +86,7 @@ def test_ready_frontend_overlaps_providers_without_replacing_any_gate_or_backend
         ("_FRONTEND_RUNTIME_SERVICE_ACCOUNT", "another@hushh-pda-uat.iam.gserviceaccount.com"),
         ("_IMAGE_REFERENCE", "gcr.io/hushh-pda-uat/hushh-webapp:latest"),
         ("_GITHUB_RUN_ATTEMPT", ""),
+        ("_GITHUB_RUN_ATTEMPT", "2"),
         ("_SECRET_PREFIX", "FOREIGN_"),
         ("_MAIL_API_ENDPOINT", "${_OTHER}"),
     ],
@@ -147,7 +148,9 @@ def _read(path: str) -> str:
 def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
     tmp_path, backend, status, pin_status, parallel
 ):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     script = next(step["run"] for step in steps if step.get("id") == "prepare-frontend-rollout")
     release = _frontend_release()
     expressions = {
@@ -207,14 +210,27 @@ def test_frontend_overlap_pins_ready_images_and_joins_an_exact_inflight_build(
         else:
             assert outputs["image_reference"] == release["_IMAGE_REFERENCE"]
         module = _uat_build_module()
-        # Validate the actual workflow's assembled values, not another fixture
-        # copy of its service identity, zero-traffic or exact-release settings.
+        # Validate both callers' actual release stamps; a fixture-only backend
+        # can hide a missing attempt binding and refuse every real combined build.
+        backend_script = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
+        backend_assignment = next(
+            line for line in backend_script.splitlines() if line.startswith('SUBSTITUTIONS="')
+        )
+        backend_raw = backend_assignment.removeprefix('SUBSTITUTIONS="').removesuffix('"')
+        backend_values = module.substitutions(
+            re.sub(
+                r"\$\{\{\s*(.*?)\s*\}\}",
+                lambda match: expressions.get(match[1], "fixture"),
+                backend_raw,
+            ),
+            "##",
+        )
         module.frontend_parallel_config(
             module.candidate_parallel_config(
                 yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
             ),
             yaml.safe_load(_read("deploy/frontend.cloudbuild.yaml")),
-            {key: release[key] for key in module.SHARED_SUBSTITUTIONS},
+            backend_values,
             module.substitutions(
                 outputs["substitutions"]
                 + ",_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE="
@@ -384,7 +400,9 @@ def test_parallel_build_keeps_release_and_readiness_before_deployment():
     ],
 )
 def test_uat_browser_consumers_share_one_required_install(frontend, protected, pwm):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     installs = [step for step in steps if "npm ci" in step.get("run", "")]
     assert len(installs) == 1, "Analytics and protected verification must reuse one install"
     install = installs[0]
@@ -422,7 +440,9 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
 def test_uat_browser_install_retries_and_blocks_on_failure(
     tmp_path, npm_status, failures, expected
 ):
-    steps = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))["jobs"]["deploy"]["steps"]
+    steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
+        "deploy"
+    ]["steps"]
     install = next(step for step in steps if step.get("id") == "install-browser-dependencies")
     (tmp_path / "hushh-webapp").mkdir()
     mirrors = tmp_path / "apt-mirrors.txt"
@@ -493,3 +513,12 @@ def test_document_crypto_runs_native_webkit_on_required_macos_job():
 )
 def test_integration_document_mode_is_explicit_and_validated(tmp_path, mode, runner, expected):
     document_delivery_ci.assert_integration_mode(tmp_path, mode, runner, expected)
+
+
+@pytest.mark.parametrize("selection,expected", [("false", 0), ("unknown", 64)])
+def test_integration_document_selection_keeps_default_and_refuses_malformed(
+    tmp_path, selection, expected
+):
+    document_delivery_ci.assert_integration_mode(
+        tmp_path, ("--ci-linux-document",), "Linux", expected, selection
+    )
