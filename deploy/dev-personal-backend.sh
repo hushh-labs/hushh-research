@@ -30,11 +30,11 @@ mode="${2:-}"
 root="$(git -C "$1" rev-parse --show-toplevel)"
 receipt="$(git -C "$root" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
 [[ -f "$receipt" ]] || die "Download the Akshat deployment receipt to $receipt."
-IFS=$'\t' read -r sha project region service baseline digest extra < "$receipt"
+IFS=$'\t' read -r sha project region service baseline digest tag azure_client extra < "$receipt"
 auth_project=hushh-akshat-sandbox-auth
 account=i-akshat@hush1one.com
 [[ "$project/$region/$service" == hushh-pda-uat/us-central1/backend-dev-akshat &&
-   "$sha" == 5f4dcb772a66a303fb925f267246bc2e17b0ba9f &&
+   "$sha" =~ ^[a-f0-9]{40}$ &&
    "$baseline" == d884959b5b1dc666b01998b24bdd8138be93161e &&
    "$digest" =~ ^sha256:[0-9a-f]{64}$ && -z "$extra" ]] ||
   die "The deployment receipt is outside the approved Akshat sandbox."
@@ -43,7 +43,14 @@ account=i-akshat@hush1one.com
 git -C "$root" merge-base --is-ancestor "$baseline" "$sha" ||
   die "The source worktree must include the approved baseline. Fetch history if it is shallow."
 
-tag="iso-${sha:0:12}"
+if [[ -z "$tag" && -z "$azure_client" ]]; then
+  [[ "$sha" == 5f4dcb772a66a303fb925f267246bc2e17b0ba9f ]] || die "Expected the qualified revision tag."
+  tag="iso-${sha:0:12}"
+else
+  [[ "$tag" =~ ^iso-${sha:0:12}-[a-f0-9]{8}-[0-9]+-[0-9]+$ &&
+     "$azure_client" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]] ||
+    die "Invalid qualified revision tag or Azure workload identity."
+fi
 flags=(--project="$project" --region="$region" --account="$account" --quiet)
 for property in auth/impersonate_service_account auth/access_token_file auth/credential_file_override; do
   value="$(gcloud config get-value "$property" --quiet 2>/dev/null)" ||
@@ -62,18 +69,24 @@ revision="$(gcloud run services describe "$service" "${flags[@]}" \
     | select(length == 2 and .[0] == .[1])
     | .[0] | select(test("^backend-dev-akshat-[a-z0-9-]+$"))
   ')" || die "The private commit tag did not resolve to one explicit revision."
+[[ -z "$azure_client" || "$revision" == "$service-$tag" ]] ||
+  die "The qualified tag did not resolve to its exact revision."
+
 
 gcloud run revisions describe "$revision" "${flags[@]}" \
   --format='json(metadata.labels,metadata.annotations,spec.serviceAccountName,spec.containers,status.conditions,status.imageDigest)' |
   jq -e --arg sha "$sha" --arg digest "$digest" --arg project "$project" \
-    --arg service "$service" --arg auth_project "$auth_project" '
+    --arg service "$service" --arg auth_project "$auth_project" --arg client "$azure_client" '
     .metadata.labels["serving.knative.dev/service"] == $service and
     .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == "sandbox-akshat" and
     .metadata.annotations["run.googleapis.com/cloudsql-instances"] == ($project + ":us-central1:" + $service + "-pg") and
     .spec.serviceAccountName == ($service + "@" + $project + ".iam.gserviceaccount.com") and
     (.status.imageDigest | split("@")[-1]) == $digest and
     any(.status.conditions[]; .type == "Ready" and .status == "True") and
-    any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth_project)
+    any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth_project) and
+    ($client == "" or
+      (any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_MANAGED_AI_PROVIDER" and .value == "azure_openai") and
+       any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_AZURE_CLIENT_ID" and .value == $client)))
   ' >/dev/null || die "The running revision did not match the Akshat deployment receipt."
 printf 'Verified %s/%s/%s revision=%s commit=%s image=%s\n' "$project" "$region" "$service" "$revision" "$sha" "$digest"
 
@@ -119,6 +132,10 @@ export PYTHON_API_URL="$backend" BACKEND_URL="$backend" DEVELOPER_API_URL="$back
 export NEXT_PUBLIC_BACKEND_URL="$backend" NEXT_PUBLIC_DEVELOPER_API_URL="$backend"
 export NEXT_PUBLIC_DEVELOPER_MCP_URL="$backend/mcp/"
 export NEXT_PUBLIC_APP_URL=http://localhost:3000 NEXT_PUBLIC_APP_ENV=uat NEXT_DIST_DIR=.next-isolated
+export NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION=false
+if [[ "${HUSHH_SANDBOX_PHONE_TESTS:-0}" == 1 ]]; then
+  export NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION=true
+fi
 unset K_SERVICE K_REVISION GOOGLE_CLOUD_PROJECT NODE_ENV CAPACITOR_BUILD HUSHH_DEPLOY_ENV
 
 exec python3 -c '
