@@ -97,7 +97,7 @@ export default function KaiPlaidOauthReturnPage() {
     const session = loadPlaidOAuthResumeSession();
     if (!session) {
       setStage("error");
-      setError("This bank login has expired or was already used. Start the connection again from Finance.");
+      setError("This bank login has expired or was already used. Start again from Profile or AgentOne.");
       return;
     }
     setReturnPath(session.returnPath || ROUTES.KAI_DASHBOARD);
@@ -130,7 +130,10 @@ export default function KaiPlaidOauthReturnPage() {
           toast.success("Plaid connection updated.");
         }
         setStage("redirecting");
-        router.replace(session.returnPath || ROUTES.KAI_DASHBOARD);
+        router.replace(
+          (result.status === "connected" ? session.successReturnPath : undefined) ||
+            session.returnPath || ROUTES.KAI_DASHBOARD,
+        );
       } catch (resumeError) {
         await settleOnboardingPlaidAttempt({
           userId,
