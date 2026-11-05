@@ -28,6 +28,7 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
     test(`Messages shares People and Circle geometry at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: "reduce" });
+      const compactActions = await touchMessageActions(page);
       const sample = async (kind: "people" | "circles") => {
         const errors = await mount(page, dark, false, true);
         if (kind === "circles") await page.getByRole("tab", { name: "Circles 3" }).click();
@@ -125,7 +126,7 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
         expect(result.transcript.avatar.width).toBe(32);
         expect(result.transcript.avatar.height).toBe(32);
         expect(result.transcript.inset).toBe("16px");
-        expect(result.transcript.bubble.padding).toEqual(["10px", width < 768 ? "14px" : "44px", "10px", "14px"]);
+        expect(result.transcript.bubble.padding).toEqual(["10px", compactActions ? "14px" : "44px", "10px", "14px"]);
         expect(result.transcript.metadata.font.slice(1, 3)).toEqual(["10px", "12px"]);
         expect(Math.abs(result.transcript.avatar.bottom - result.transcript.bubble.bottom)).toBeLessThanOrEqual(1);
         expect(result.reactions.target.width).toBeGreaterThanOrEqual(44);
