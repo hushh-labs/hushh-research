@@ -47,6 +47,9 @@ async function mountBlocked() {
   render(<DocumentRequestReviewRouter requestId={requestId} onChanged={mocks.onChanged} />);
   fireEvent.click(await screen.findByRole("button", { name: "Give access" }));
   expect(await screen.findByText(connectCopy)).toBeInTheDocument();
+  // The return subscription is a passive effect of the blocked prompt.
+  // Flush it before simulating the organizer's next browser interaction.
+  await settle();
 }
 async function comeBack(kind: "focus" | "visibility" | "popstate" = "focus") {
   await act(async () => {
