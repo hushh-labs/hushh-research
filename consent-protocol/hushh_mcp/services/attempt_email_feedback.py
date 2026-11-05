@@ -51,6 +51,7 @@ async def apply(*, submissions: list[dict], bounces: list[dict]):
         # Serialize the final completeness decision with claims/settlements.
         # A send beginning while history is in flight must keep that page replayable.
         await conn.execute("SELECT pg_advisory_xact_lock(448,1)", timeout=5)
+        complete = True
         for submission in submissions:
             row = await conn.fetchrow(
                 "SELECT user_id FROM one_attempt_email_outbox WHERE provider_id=$1 AND recipient_hash=$2",
@@ -65,7 +66,8 @@ async def apply(*, submissions: list[dict], bounces: list[dict]):
             except PermissionError:
                 # A cleanup barrier may be temporary (for example phone-orphan).
                 # Keep the report replayable while its retained owner is blocked.
-                return False
+                complete = False
+                continue
             changed = await conn.fetchval(
                 """UPDATE one_attempt_email_outbox SET rfc_message_id=$3
                 WHERE provider_id=$1 AND recipient_hash=$2 AND status='accepted'
@@ -77,10 +79,8 @@ async def apply(*, submissions: list[dict], bounces: list[dict]):
             )
             if not changed:
                 raise ValueError("Provider metadata conflict")
-        # Do not consume a report while any earlier/current acceptance is unbound.
-        snapshot = await _snapshot(conn)
-        if snapshot["unsettled"] or snapshot["unbound"]:
-            return False
+        # Apply positively correlated failures even if another owner's report
+        # cannot settle yet. Completeness controls replay, not known suppression.
         for report in bounces:
             row = await conn.fetchrow(
                 """SELECT user_id,id FROM one_attempt_email_outbox
@@ -94,7 +94,8 @@ async def apply(*, submissions: list[dict], bounces: list[dict]):
             try:
                 await _owner_lock(conn, row["user_id"])
             except PermissionError:
-                return False
+                complete = False
+                continue
             await conn.execute(
                 "UPDATE one_attempt_email_outbox SET bounced_at=COALESCE(bounced_at,NOW()) WHERE id=$1",
                 row["id"],
@@ -106,4 +107,6 @@ async def apply(*, submissions: list[dict], bounces: list[dict]):
                 row["user_id"],
                 timeout=5,
             )
-        return True
+        # Do not consume a page while any earlier/current acceptance is unbound.
+        snapshot = await _snapshot(conn)
+        return complete and not snapshot["unsettled"] and not snapshot["unbound"]

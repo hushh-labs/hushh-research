@@ -5718,7 +5718,10 @@ Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
 provider references, RFC message IDs and recipient hashes. A matched hard-failure
 report disables future activity emails, including re-enrollment; reports cannot
 enroll anyone or assert positive Inbox delivery. A sending/uncertain reservation
-without a durable acceptance holds feedback progression. Exact acceptance binding
+without a durable acceptance holds feedback progression. Positively correlated
+hard failures still suppress their current owners while unrelated unsettled,
+unbound or lifecycle-blocked reports keep the page replayable. Replaying that
+page cannot increment an already-blocked preference again. Exact acceptance binding
 precedes history processing so out-of-order reports remain replayable. The worker
 may acknowledge receipts and stop reports after new enrollment is disabled.
 

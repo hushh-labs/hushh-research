@@ -446,6 +446,9 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
     from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
     from hushh_mcp.services.plg_catalog import activity_catalog
     from tests.services.plg_attempt_adoption_cases import assert_attempt_erasure_qualification
+    from tests.services.plg_attempt_feedback_cases import (
+        assert_bounce_survives_unrelated_feedback_gap,
+    )
 
     pool = await asyncpg.create_pool(
         url.set(drivername="postgresql").render_as_string(hide_password=False),
@@ -725,6 +728,7 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
             )
         assert await feedback.apply(submissions=[], bounces=[{**report, "recipientHash": "f" * 64}])
         assert (await emails.preference(owner))["enabled"]
+        await assert_bounce_survives_unrelated_feedback_gap(pool, monkeypatch, owner, report)
         assert await feedback.apply(submissions=[], bounces=[report])
         assert not (await emails.preference(owner))["enabled"]
         revision = (await emails.preference(owner))["revision"]
