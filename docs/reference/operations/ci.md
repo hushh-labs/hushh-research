@@ -98,6 +98,19 @@ report lists hosted browser, database and native checks still required; a local
 pass cannot satisfy exact-head hosted admission. Use `--diagnostic` for the
 retained full mirror, optionally with `--include-advisory`.
 
+## Queue response ceiling
+
+Main, Dev and UAT allow 120 minutes for required queue checks to return. This is
+an expiry ceiling, not a runtime target: GitHub previously removed valid entries
+at 30 minutes while their combined-result validation was still running. Inspect
+runner waiting and actual test execution separately. Never turn missing, failed
+or cancelled required checks into success to avoid expiry.
+
+The bounded repair command is `python3 scripts/ci/apply-governance.py --queue-timeouts`
+for inspection, followed by `--apply` for an approved policy change. It validates
+all three scopes first, preserves every other rule and actor, refuses intervening
+changes and verifies each write. It does not deploy or alter team membership.
+
 ## Manual deployment paths
 
 | Developer intent | Source | Required proof | Deployment |
