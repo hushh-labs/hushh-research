@@ -603,11 +603,12 @@ def test_shared_work_and_real_leave_block_in_every_zone(monkeypatch, zone, durat
         ("Europe/London", "2026-10-25", 25),
         ("Asia/Kathmandu", "2026-03-08", 24),
         ("America/Santiago", "2026-09-06", 23),
-        ("America/Havana", "2026-11-01", 25),
+        # Use the historical midnight fold; tzdb 2026f cancelled Cuba's 2026 fallback.
+        ("America/Havana", "2025-11-02", 25),
     ],
 )
 def test_full_day_defaults_query_civil_boundaries_in_worldwide_zones(monkeypatch, zone, day, hours):
-    _freeze_clock(monkeypatch)
+    _freeze_clock(monkeypatch, "2025-01-01T00:00:00+00:00")
     calendar = _WindowsCalendar({"personal": {"busy": []}, "shared": {"busy": []}})
     result = asyncio.run(
         CalendarScheduleService(calendar=calendar, db=_Db(), mail=object()).free_windows(

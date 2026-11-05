@@ -305,6 +305,7 @@ async def read_vault_snapshot(
     *,
     continuation: bool = False,
     include_country_on_file: bool = False,
+    allow_sandbox_identity_without_consent: bool = False,
 ) -> dict[str, Any]:
     try:
         item_response = await client.post("/item/get", {"access_token": access_token})
@@ -366,7 +367,10 @@ async def read_vault_snapshot(
         # Sandbox can omit consent metadata for an initialized Identity product.
         identity_allowed = "identity" in consented or (
             "identity" in item["products"]
-            and ("contact_info" in scopes or not (consented or scopes))
+            and (
+                "contact_info" in scopes
+                or (allow_sandbox_identity_without_consent and not (consented or scopes))
+            )
         )
         if item["error"] is None and identity_allowed:
             try:
