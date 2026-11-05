@@ -305,6 +305,13 @@ test("known native and browser harness inputs stay with their other owner", () =
       "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
       "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+      "hushh-webapp/scripts/architecture/ui-review-receipts.mjs",
+      "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs",
+      "hushh-webapp/scripts/architecture/back-navigation.test.mjs",
+      "hushh-webapp/scripts/voice/search-contracts.test.mjs",
+      "hushh-webapp/scripts/voice/sync-search-contracts.mjs",
     ].join("\n"),
   } });
   assert.equal(plan.effectiveLevel, "focused");
@@ -548,6 +555,8 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
     "scripts/testing/phone-conflict-flow.mjs",
+    "scripts/testing/affected-tests.mjs",
+    "scripts/testing/affected-tests.test.mjs",
     registered,
     "app/one/setup/finance/import/page.voice-action-contract.json",
     "cache-coherence-screen-manifest.generated.json",
