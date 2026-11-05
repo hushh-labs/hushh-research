@@ -28,7 +28,8 @@ test.beforeAll(async () => {
     "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
   ].map(file => {
     const source = fs.readFileSync(path.join(root, file), "utf8");
-    return source.match(/<FullscreenFlowShell\b[^>]*className="([^"]+)"/)![1];
+    const shell = source.match(/<FullscreenFlowShell\b[^>]*className=(?:"([^"]+)"|\{`\$\{styles\.setupFlowShell\} ([^`]+)`\})/);
+    return shell![1] ?? shell![2];
   });
   const shellFixtureClasses = ["h-full min-h-0 flex flex-col w-full pb-4", saveActionClass, ...importShellClasses];
   for (const candidate of scanner.scanFiles([{ content: shellFixtureClasses.join(" "), extension: "html" }])) candidates.add(candidate);

@@ -1,6 +1,6 @@
 /* The fullscreen shell already reserves the fixed chrome. Use the same
    clearance to size the intro, including when the measured bar grows. */
-:global([data-finance-setup-flow][data-fullscreen-flow-shell]) {
+.setupFlowShell:global([data-fullscreen-flow-shell]) {
   --finance-setup-bottom-clearance: max(
     var(--app-scroll-bottom-pad, var(--onboarding-agent-bar-clearance, 0px)),
     var(--bottom-chrome-stack-height, 0px)

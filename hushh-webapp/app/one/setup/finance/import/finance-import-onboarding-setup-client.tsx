@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import styles from "@/components/kai/onboarding/finance-onboarding.module.css";
+
 import { FinanceOnboardingPages } from "@/components/kai/onboarding/finance-onboarding-pages";
 import { FinancePersonaForm } from "@/components/kai/onboarding/finance-persona-form";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
@@ -223,7 +225,7 @@ function OwnedFinanceImportSetup({
       as="div"
       width="agent"
       data-finance-setup-flow
-      className="relative shrink-0 px-[var(--page-inline-gutter-standard)]"
+      className={`${styles.setupFlowShell} relative shrink-0 px-[var(--page-inline-gutter-standard)]`}
     >
       <NativeTestBeacon
         routeId={
