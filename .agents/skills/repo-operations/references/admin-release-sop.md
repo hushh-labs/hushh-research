@@ -216,9 +216,11 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    push. Never collapse those labels.
 2. Report PR, workflow, run, and artifact links; exact PR head and landed/deployed
    SHAs; environment; scope; revisions; traffic; and remaining risk.
-3. Restore the preserved developer branch, back-sync landed `main` when needed,
-   remove only temporary branches created by this session, and leave the tree
-   clean.
+3. Complete the [agent-owned downstream source syncs](maintainer-branch-freshness.md#agent-owned-downstream-completion)
+   in this merge task: Main → UAT/Dev; UAT → Dev. Record landed syncs or the exact
+   unresolved reconciliation; source propagation never authorizes deployment.
+4. Restore the preserved developer branch and remove only completed task-owned
+   temporary resources after preserving their work and evidence. Preserve peer edits.
 
 ### Lessons from the 2026-09-02 Wallet release
 
