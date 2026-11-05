@@ -638,6 +638,29 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
                 raise AssertionError("Unverified default branch authorized a Main ruleset mutation")
             write.assert_not_called()
 
+    # The individual restriction endpoints accept arrays, unlike /protection.
+    # Exercise real serialization so a dict-shaped stub cannot conceal HTTP 422.
+    from types import SimpleNamespace
+
+    queue["conditions"] = {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+    queue["bypass_actors"] = []
+    queue["rules"][0]["parameters"]["check_response_timeout_minutes"] = 120
+    protection["required_status_checks"]["strict"] = False
+    protection["restrictions"]["users"] = [{"login": "retired-operator"}]
+    requests = []
+
+    def put(command, **kwargs):
+        assert command[:4] == ["gh", "api", "--method", "PUT"]
+        assert command[4].endswith("/restrictions/users")
+        assert json.loads(kwargs["input"]) == sorted(policy["main"]["merge_users"])
+        requests.append(command)
+        return SimpleNamespace(returncode=0, stderr="")
+
+    with patch.object(module, "gh_json", side_effect=[protection, [{"id": 1, "name": queue["name"]}], queue]), \
+         patch.object(prepared_branch_governance.subprocess, "run", side_effect=put):
+        assert module.reconcile_main_merge_policy(policy, apply=True)
+    assert len(requests) == 1
+
 
 def test_prepared_rollout_rejects_bypass_with_non_strict_checks(module) -> None:
     import prepared_branch_governance
