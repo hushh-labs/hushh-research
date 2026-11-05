@@ -12,7 +12,7 @@ flowchart TD
   edit --> search[Review Search actions and screen context]
   back --> generate[Generate Back then Search and mirrors]
   search --> generate
-  generate --> fast[UI Contracts: coverage, freshness and mutation checks]
+  generate --> fast[UI Contracts: structural coverage and mutation checks]
   fast --> behavior[Required frontend behavior tests]
   fast -->|Failure| repair[Repair the owning code or authored contract]
   repair --> generate
@@ -104,6 +104,13 @@ capability graph and runtime topology generation. Full app/backend tooling is
 required for generation and behavioral tests; the tiny parser install is only
 for fast validation. Review and commit authored changes and generated mirrors
 together. Verification and the pre-push hook never stamp or repair files.
+
+Content-addressed Back/Search source snapshots are optional review diagnostics.
+A new combined source hash alone does not block a merge or prove human approval.
+Missing snapshots never cause checks to write a record; an existing altered or
+malformed record still refuses. Route hierarchy, authored Back cases, raw-history
+bypass detection, Search action/control coverage and generated contracts remain
+required. Run the affected behavior tests when navigation or actions change.
 
 Web browser history correction uses the authored Back owner only for a verified
 backward traversal. Forward or unknown direction stays native; browsers without
