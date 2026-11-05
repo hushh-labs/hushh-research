@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 450,
+  "expected_migration_version": 451,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -659,7 +659,8 @@
       "lease_id",
       "lease_until",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "consecutive_failures"
     ],
     "calendar_email_followup_mutations": [
       "request_id",
@@ -701,7 +702,15 @@
       "reminder_lease_until",
       "reminder_retry_at",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "relevance",
+      "category",
+      "urgency",
+      "meeting_state",
+      "assessment_version",
+      "suppressed_at",
+      "suppression_reason",
+      "linked_event_ciphertext"
     ],
     "calendar_email_followup_scanned_messages": [
       "user_id",
@@ -710,7 +719,9 @@
       "thread_hmac",
       "body_digest",
       "internal_date_ms",
-      "processed_at"
+      "processed_at",
+      "assessment_version",
+      "outcome"
     ],
     "chat_push_device_deliveries": [
       "accepted_at",
@@ -4906,5 +4917,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 450
+  "expected_schema_head": 451
 }

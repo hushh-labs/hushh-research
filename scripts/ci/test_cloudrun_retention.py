@@ -2024,6 +2024,19 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             with self.subTest(event=event), mock.patch.object(MAINTENANCE, "api", return_value=jobs):
                 self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production", artifact), trusted)
 
+    def test_static_maintenance_label_requires_explicit_cleanup_for_checkpoint(self):
+        run = {**self.trusted_source(123, "capacity-maintenance.yml"), "conclusion": "failure"}
+        names = ("Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
+                 "Authenticate to production", "Save production cleanup checkpoint")
+        for modes, expected in ((["cleanup"], True), (["inspection"], False),
+                                ([], False), (["inspection", "cleanup"], False)):
+            job = {"name": "Production revision maintenance", "status": "completed", "steps": [
+                {"name": name, "conclusion": "success"} for name in names] + [
+                {"name": f"Maintenance mode: {mode}", "conclusion": "success" if mode in modes else "skipped"}
+                                                for mode in ("inspection", "cleanup")]}
+            with self.subTest(modes=modes), mock.patch.object(MAINTENANCE, "api", return_value={"jobs": [job], "total_count": 1}):
+                self.assertIs(MAINTENANCE.trusted_checkpoint_run("org/repo", run, "production"), expected)
+
     def test_maintenance_is_hourly_and_independent_of_deployments(self):
         workflows = pathlib.Path(__file__).resolve().parents[2] / ".github/workflows"
         source = (workflows / "capacity-maintenance.yml").read_text()

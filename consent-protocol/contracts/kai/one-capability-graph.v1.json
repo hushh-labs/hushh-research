@@ -18417,6 +18417,153 @@
     },
     {
       "aliases": [
+        "Net Worth Score",
+        "open my net worth score",
+        "connect bank for score"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_net_worth_score",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the owner\u2019s private Net Worth Score in Profile for bank connections and score coverage.",
+      "execution": {
+        "binding_ref": "route:/one/profile?panel=net-worth-score",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile?panel=net-worth-score"
+        }
+      },
+      "goal_id": "goal.route.profile_net_worth_score",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Net Worth Score",
+      "navigation": {
+        "fallback": "/one/profile?panel=net-worth-score",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "net worth",
+        "financial score",
+        "Plaid bank"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Payouts",
         "link my bank",
         "set up payouts",
@@ -52311,7 +52458,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "46d9e3f854bccd9a922e38ff9145b6fd927e7346502aaa9f8e3f70de121622e2",
+      "projection_digest": "73a767cba711ff8ecfad48f628804a8c896f707295689ec23cc897c77034d4c3",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -52330,7 +52477,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "5131dac7d5ab2776",
+      "source_revision": "c67a1e4d82ad4f24",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -53848,7 +53995,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "5131dac7d5ab2776",
+    "source_revision": "c67a1e4d82ad4f24",
     "web": {
       "actions": [
         {
@@ -53891,7 +54038,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "0682dc1933d1c0b0ec717cb50ad5460d06f5990ca5278aa3327df95942e96358",
+      "projection_digest": "43cc69432261628f0e5b35e2a3304c4e5639820a5b00cbca13e5b1c1b95097da",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53910,7 +54057,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "5131dac7d5ab2776",
+      "source_revision": "c67a1e4d82ad4f24",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -55467,7 +55614,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "5131dac7d5ab2776",
+  "revision": "c67a1e4d82ad4f24",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -56466,6 +56613,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -56520,6 +56668,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -56556,6 +56705,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -57464,10 +57614,15 @@
     "added": [
       "actions:profile.attempt_email.choose",
       "actions:profile.attempt_email.retry",
-      "actions:profile.attempt_email.save"
+      "actions:profile.attempt_email.save",
+      "actions:route.profile_net_worth_score"
     ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone"
+    ],
     "compatible": [],
     "deprecated": [],
     "from_revision": "dc6ce006c8528745",
@@ -59829,18 +59984,18 @@
     "capability_graph_evolution": "0e8fc04e32c99de1026488d5566430c6a1941aa709bc7981822e36503cf3effc",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "036ab59b4c23caf1997956ea01c5e640018e548cdd402c9ccb817ab151a086de",
+    "kai_action_gateway": "de5b7a67aee9990419216b04750f562f2bf1e9315b789ecafbf686fa5cd70a8c",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "30061f8d855f401f5bc0b084146ca97fa9f53a0046d1de74ee955de2e67adb54",
-    "route_orchestration_index": "712937cbad6ea121e1e308f66973c5c5f66420a4425aa80dcc0b8b5e52ea2f37",
+    "product_agent_registry": "aa4d3b71c5bc62096bde5b9b59a87143e3320bf449b9750403619e2267b27751",
+    "route_orchestration_index": "6fa03e0e1eaf08e87e69a5a01920e6e8ece8de5e394c63689985dc33238736aa",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "5131dac7d5ab2776",
+  "source_revision": "c67a1e4d82ad4f24",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "5131dac7d5ab2776",
+    "current_graph_revision": "c67a1e4d82ad4f24",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

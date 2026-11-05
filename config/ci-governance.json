@@ -37,7 +37,8 @@
   },
   "repository": {
     "allow_auto_merge": true,
-    "merge_queue_check_timeout_minutes": 120
+    "merge_queue_check_timeout_minutes": 120,
+    "merge_queue_max_entries_to_build": 1
   },
   "main": {
     "required_status_check": "CI Status Gate",
@@ -102,6 +103,7 @@
       "hushh-webapp/vitest.config.ts"
     ],
     "require_code_owner_reviews": true,
+    "restrict_writes_to_merge_users": false,
     "merge_users": [
       "kushaltrivedi5",
       "ankitkumarsingh1702",

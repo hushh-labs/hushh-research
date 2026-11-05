@@ -131,3 +131,23 @@ async def selected_mail_status(*, user_id: str, account_id: str) -> bool:
     except SelectedMailAccessError:
         return False
     return True
+
+
+async def selected_mail_epoch_digest(*, user_id: str, account_id: str) -> str | None:
+    """Digest of the selected account's current grants, or None if mail is not granted.
+
+    Lets a status check compare the live grant to a stored monitor without
+    opening a token or contacting Gmail.
+    """
+    try:
+        subject, calendar_binding, mail_binding = await _bindings(user_id, account_id)
+    except SelectedMailAccessError:
+        return None
+    return SelectedMailGrant(
+        user_id=user_id,
+        account_id=account_id,
+        provider_subject=subject,
+        calendar_binding=calendar_binding,
+        mail_binding=mail_binding,
+        token="",  # noqa: S106 - no credential is opened here
+    ).epoch_digest

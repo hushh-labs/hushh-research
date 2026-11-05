@@ -123,7 +123,7 @@ WITH keyed AS (
         AND r.user_id=f.user_id AND r.account_id=f.metadata->>'account_id'
         AND r.revision::text=split_part(f.source_row_id, ':', 2)
         AND r.reminder_sent_revision=r.revision
-        AND r.state IN ('pending','snoozed')
+        AND r.state IN ('pending','snoozed') AND r.suppressed_at IS NULL
         AND fm.enabled=TRUE AND fm.notifications_enabled=TRUE
         AND calendar_email_followup_grant_current(fm)
     ))

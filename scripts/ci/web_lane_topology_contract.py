@@ -57,10 +57,18 @@ def _assert_targeted_pair(workflow: str, playwright: str) -> None:
 def _assert_unit_job(workflow: str) -> None:
     unit = _job_block(workflow, "web-full-suite-check")
     _assert_job_name(unit, "Web Unit Contracts")
-    assert "strategy:" not in unit
-    assert "WEB_FULL_SUITE_SHARD: \"\"" in unit
+    assert "fail-fast: false" in unit and "max-parallel: 3" in unit
+    assert "needs: [preflight-gate, repo-governance]" in unit
+    assert "fromJSON(needs.repo-governance.outputs.unit_matrix" in unit
+    assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" in unit
     assert "run: bash scripts/ci/orchestrate.sh web-full-suite" in unit
-    assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" not in unit
+    for shard in ("1/1", "1/3", "2/3", "3/3"):
+        assert f"name: Verify unit shard ({shard})" in unit
+        assert f"if: matrix.shard == '{shard}'" in unit
+    governance = _job_block(workflow, "repo-governance")
+    assert "unit_matrix: ${{ steps.unit-plan.outputs.matrix }}" in governance
+    assert "affected-tests.mjs unit-matrix" in governance
+    assert 'CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"' in governance
 
 
 def _assert_database_pair(workflow: str) -> None:

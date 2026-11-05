@@ -5756,7 +5756,7 @@ signatures and unsubscribe links bind only to the Dev backend
 Manual-only controls cannot be submitted by an agent. The setting is operational
 permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
 
-Migration 449 atomically queues the first accepted correlated client terminal
+Migration 450 atomically queues the first accepted correlated client terminal
 report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
 SDK/tool reports and uncorrelated observations do not enqueue. This inherits
 best-effort observation coverage and its existing collection limits. It does not
@@ -5777,7 +5777,7 @@ for reset/erased rows without recreating state. Matrix durably retains bounded
 opaque receipts before acknowledgement and replays them after restart before new
 provider work; no owner identity or message content is needed in that queue.
 
-Migration 450 adds actual provider-message binding and durable bounce suppression.
+Migration 451 adds actual provider-message binding and durable bounce suppression.
 Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
 provider references, RFC message IDs and recipient hashes. A matched hard-failure
 report disables future activity emails, including re-enrollment; reports cannot

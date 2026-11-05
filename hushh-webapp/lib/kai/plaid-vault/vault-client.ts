@@ -123,6 +123,9 @@ export async function createVaultLinkToken(params: {
   if (params.request.sandbox_proof === true) body.sandbox_proof = true;
   // Update mode: the sealed token travels for this one call only.
   if (params.request.access_token) body.access_token = params.request.access_token;
+  if (params.request.origin_surface) body.origin_surface = params.request.origin_surface;
+  if (params.request.additional_product) body.additional_product = params.request.additional_product;
+  if (params.request.select_accounts) body.select_accounts = true;
   return post<PlaidVaultLinkTokenResponse>("link-token", params.vaultOwnerToken, body);
 }
 
@@ -141,11 +144,13 @@ export async function fetchVaultSnapshot(params: {
   vaultOwnerToken: string;
   accessToken: string;
   transactionsCursor?: string | null;
+  transactionsContinuation?: boolean;
 }): Promise<PlaidVaultSnapshot> {
   const accessToken = requireToken(params.accessToken, "A Plaid access token");
   return post<PlaidVaultSnapshot>("snapshot", params.vaultOwnerToken, {
     access_token: accessToken,
     transactions_cursor: params.transactionsCursor ?? null,
+    ...(params.transactionsContinuation ? { transactions_continuation: true } : {}),
   });
 }
 

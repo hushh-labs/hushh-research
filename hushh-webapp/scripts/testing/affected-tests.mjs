@@ -35,6 +35,10 @@ const OTHER_OWNER_FILES = new Set([
   // Governance executes the selector contracts even inside mixed frontend PRs.
   "scripts/testing/affected-tests.mjs",
   "scripts/testing/affected-tests.test.mjs",
+  // Governance runs executable scanner regressions; Web Core owns the checks.
+  "scripts/architecture/verify-design-system.mjs",
+  "scripts/architecture/verify-render-performance.mjs",
+  "scripts/design/verify-apple-hierarchy.mjs",
   // This browser-flow harness is covered by the hosted browser contract lane.
   "scripts/testing/phone-conflict-flow.mjs",
   // Required UI Contracts executes these Node validators on every CI run.
@@ -868,8 +872,23 @@ function executePlan(plan, {
   return full.status ?? 1;
 }
 
+function unitShardMatrix(plan) {
+  return { shard: ["focused", "release"].includes(plan?.effectiveLevel)
+    ? ["1/1"] : ["1/3", "2/3", "3/3"] };
+}
+
 function main(argv) {
   const [command, planPath, ...options] = argv;
+  if (command === "unit-matrix") {
+    let plan;
+    try {
+      plan = buildPlan();
+    } catch {
+      console.error("Unit planning unavailable; retaining every diagnostic shard.");
+    }
+    process.stdout.write(`${JSON.stringify(unitShardMatrix(plan))}\n`);
+    return 0;
+  }
   if (command === "plan") {
     process.stdout.write(`${JSON.stringify(buildPlan())}\n`);
     return 0;
@@ -889,7 +908,7 @@ function main(argv) {
       shard: optionArgs["--shard"] || process.env.WEB_FULL_SUITE_SHARD || "",
     });
   }
-  console.error("Usage: affected-tests.mjs plan | run <plan-file> [--max-workers=N] [--shard=I/T]");
+  console.error("Usage: affected-tests.mjs plan | unit-matrix | run <plan-file> [--max-workers=N] [--shard=I/T]");
   return 2;
 }
 
@@ -907,4 +926,5 @@ export {
   readRelatedReport,
   readChangedFiles,
   scriptTestFiles,
+  unitShardMatrix,
 };

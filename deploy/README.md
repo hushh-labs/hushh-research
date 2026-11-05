@@ -389,6 +389,76 @@ remain responsible for application rollout.
 Cloud Build files are implementation inputs. Their presence does not authorize
 direct human builds or traffic changes.
 
+### Akshat's personal backend
+
+The Main-owned personal backend workflow binds `RGlodAkshat` to
+`hushh-pda-uat/us-central1/backend-dev-akshat` and grants
+`i-akshat@hush1one.com` invoker and viewer access on that service. The
+initial approval for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f` remains
+available through the pinned archive path.
+
+Land the UAT capacity entry before creating the Cloud Run service. Provision
+the dedicated `backend-dev-akshat-pg` Cloud SQL instance, initialize the
+`backend_dev_akshat` database from the approved source, and verify startup
+under its own database role. Provision the same-name Artifact Registry
+repository, the `hushh-pda-uat-backend-dev-akshat-builds` source bucket,
+separate `backend-dev-akshat` and `backend-dev-akshat-build` service
+accounts, and the four `BACKEND_DEV_AKSHAT_*` secrets. Scope runtime and
+builder access to their own resources. The existing UAT WIF deployer
+submits the build and deploys the image.
+
+Configure the isolated Firebase project `hushh-akshat-sandbox-auth` for
+the sandbox runtime and localhost session signer. Enable the Google sign-in
+provider for sandbox test accounts and authorize `localhost`. The approved backend
+source resolves its Firebase project through Google ADC. Verify that a
+sandbox Firebase token works and a shared-project token is refused. Use
+sandbox test accounts and fixtures.
+
+For a new source, run the canonical CI workflow on `New_memory_architecutre`
+and wait for its Branch Validation Gate. The branch must keep Main's CI and
+release tooling and contain the original sandbox baseline. CI tests the actual
+branch SHA with the usual change selection against Main. Each dispatch accepts
+the exact, current, green branch tip without a per-commit owner review.
+
+```bash
+gh workflow run ci.yml --ref New_memory_architecutre -f scope=auto
+# After Branch Validation Gate succeeds on the intended branch SHA:
+gh workflow run deploy-personal-backend.yml --ref main -f sandbox=akshat -f "sha=$sha"
+```
+
+The Main checkout creates the archive, then the deployer writes an immutable
+generation to the dedicated bucket. The sandbox build publishes an immutable
+image digest. The revision uses the dedicated Azure Entra client with
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` and a revision tag bound to the
+source, deploy recipe and workflow attempt.
+
+The original approved source still requires the pinned Git tar mode and its
+generation-qualified object and compressed SHA-256. This path does not enable
+Azure.
+
+Download the `backend-dev-akshat-receipt` artifact to the exact source
+worktree's Git metadata directory. Run the launcher from a checkout of the
+Main tooling and pass the path to the exact source worktree.
+
+```bash
+source_tree=/path/to/akshat-source
+receipt="$(git -C "$source_tree" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
+gh run download "$run_id" -R hushh-labs/hushh-research \
+  --name backend-dev-akshat-receipt --dir "$(dirname "$receipt")"
+deploy/dev-personal-backend.sh "$source_tree" --check
+deploy/dev-personal-backend.sh "$source_tree"
+```
+
+The launcher uses Akshat's gcloud login for the Cloud Run tunnel. For the
+frontend, supply `HUSHH_SANDBOX_FIREBASE_WEB_CONFIG` from the dedicated
+Firebase web app and `GOOGLE_APPLICATION_CREDENTIALS` for its impersonated
+`localhost-sandbox-auth` service account. Verify the frontend on
+`http://localhost:3000` after the proxy reaches the pinned backend. Set
+`HUSHH_SANDBOX_PHONE_TESTS=1` when using the registered fictional numbers
+with a source that supports this test setting. Test codes belong only in the
+dedicated Firebase project's Auth configuration. Do not enable real SMS billing
+for this fixture flow.
+
 ## Environment and secret contracts
 
 Canonical owners:

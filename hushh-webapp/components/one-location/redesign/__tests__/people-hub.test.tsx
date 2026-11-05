@@ -249,6 +249,10 @@ describe("PeopleHub requests sent manage surface", () => {
     });
     expect(within(group).getAllByRole("button").map((button) => button.textContent?.trim()))
       .toEqual(["Share", "Ask"]);
+    for (const button of within(group).getAllByRole("button")) {
+      expect(button.querySelector<HTMLElement>(".morphy-ripple-host")
+        ?.style.getPropertyValue("--md-ripple-hover-opacity")).toBe("0");
+    }
     fireEvent.click(within(group).getByRole("button", {
       name: "Ask Roopmann V for their location",
     }));

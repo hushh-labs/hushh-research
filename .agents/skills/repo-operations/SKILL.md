@@ -80,7 +80,7 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 13. Resolve expensive PKM and reviewer-browser verification through `scripts/ci/resolve-uat-verification-plan.py`; it is the only changed-SHA selector for PR, queue, post-merge, and UAT. Preserve non-skippable authority, migration, provenance, health, and changed-surface gates. Do not add a second path classifier or run the PKM upgrade rehearsal for ordinary UI, consent, or MCP changes.
 14. When production GitHub WIF configuration is absent or drifted, use `deploy/iam/setup_production_github_wif.sh`; do not create a parallel provider, reuse UAT authority, or restore a JSON service-account key. Detect the drift with `python3 scripts/ci/verify-deploy-identity-provenance.py`, which compares that script's own literals — attribute mapping, attribute condition, deploy-account project roles — against live GCP. Its `--record-only` half needs no cloud and runs in `repo-governance-check.sh`; a refused live read reports `deploy_identity_unverifiable` and never a pass. Never restate the condition anywhere else: the setup script is the record, and a second copy is a second thing to drift.
 15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/reference/operations/ci.md`.
-16. Use `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one governed exact-attempt retry. It never dispatches an additional security workflow. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
+16. Use `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one exact-source validation retry. The authenticated user needs live repository write access, not pipeline-editor approval. The helper observes attempt `n+1` and never dispatches another workflow. Retry authority grants no merge, protected-edit or deployment permission. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
 
 The five governed destinations are `main`, `dev`, `uat`, `uat-isolated` and
 `integration/pr-train`. Ordinary maintainers use the merge queue: its trusted
@@ -138,7 +138,7 @@ source extraction alone does not activate branch routing. No merge implies deplo
 Use focused or release governance with the exact changed files. The diagnostic
 profile runs the historical full set. Missing inputs stay conservative. Run the
 core mirror for cross-stage changes and `codex pre-pr` for PR impact and affected
-owners. Hosted CI owns browser proof. Use a governed same-attempt retry after a
+owners. Hosted CI owns browser proof. Use an exact-source, next-attempt retry after a
 diagnosed failure, and keep live authority and security gates blocking.
 
 ```bash

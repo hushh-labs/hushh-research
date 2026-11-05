@@ -9,7 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildPlan, dynamicImportRisk, executePlan } from "./affected-tests.mjs";
+import { buildPlan, dynamicImportRisk, executePlan, unitShardMatrix } from "./affected-tests.mjs";
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const REPO_ROOT = path.resolve(WEB_ROOT, "..");
@@ -307,6 +307,9 @@ test("known native and browser harness inputs stay with their other owner", () =
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
       "hushh-webapp/scripts/testing/affected-tests.mjs",
       "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+      "hushh-webapp/scripts/architecture/verify-design-system.mjs",
+      "hushh-webapp/scripts/architecture/verify-render-performance.mjs",
+      "hushh-webapp/scripts/design/verify-apple-hierarchy.mjs",
       "hushh-webapp/scripts/architecture/ui-review-receipts.mjs",
       "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs",
       "hushh-webapp/scripts/architecture/back-navigation.test.mjs",
@@ -660,4 +663,19 @@ test("ordinary related failures still run independent direct cases and remain fa
     assert.notEqual(interrupted, 0);
     assert.equal(runs, 1);
   }
+});
+
+
+test("unit concurrency preserves focused ownership and complete diagnostic fallback", () => {
+  for (const level of ["focused", "release"]) {
+    assert.deepEqual(unitShardMatrix({ effectiveLevel: level }), { shard: ["1/1"] });
+  }
+  for (const plan of [undefined, null, {}, { effectiveLevel: "diagnostic" }, { effectiveLevel: "unknown" }]) {
+    assert.deepEqual(unitShardMatrix(plan), { shard: ["1/3", "2/3", "3/3"] });
+  }
+  const result = spawnSync(process.execPath,
+    [path.join(WEB_ROOT, "scripts/testing/affected-tests.mjs"), "unit-matrix"],
+    { encoding: "utf8", env: { ...process.env, CI_VALIDATION_LEVEL: "unknown" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { shard: ["1/3", "2/3", "3/3"] });
 });

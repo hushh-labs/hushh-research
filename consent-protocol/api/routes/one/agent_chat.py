@@ -119,6 +119,7 @@ from hushh_mcp.one_adk.history_projection import (
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
@@ -346,6 +347,9 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
     if any(message.role == "system" for message in input_data.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
     from hushh_mcp.one_adk.receipt_client_tools import (
@@ -531,6 +535,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
@@ -556,6 +561,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,

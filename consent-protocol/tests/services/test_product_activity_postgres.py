@@ -460,13 +460,13 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
         "email": "attempt@example.invalid",
         "email_hash": marketing._email_hash("attempt@example.invalid"),
     }
-    migration = (ROOT / "db/migrations/449_one_attempt_email_outbox.sql").read_text()
+    migration = (ROOT / "db/migrations/450_one_attempt_email_outbox.sql").read_text()
     rollback = (
-        ROOT / "db/migrations/rollback/449_one_attempt_email_outbox.rollback.sql"
+        ROOT / "db/migrations/rollback/450_one_attempt_email_outbox.rollback.sql"
     ).read_text()
-    feedback_migration = (ROOT / "db/migrations/450_one_attempt_email_feedback.sql").read_text()
+    feedback_migration = (ROOT / "db/migrations/451_one_attempt_email_feedback.sql").read_text()
     feedback_rollback = (
-        ROOT / "db/migrations/rollback/450_one_attempt_email_feedback.rollback.sql"
+        ROOT / "db/migrations/rollback/451_one_attempt_email_feedback.rollback.sql"
     ).read_text()
 
     async def get_pool():

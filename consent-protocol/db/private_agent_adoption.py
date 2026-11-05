@@ -495,7 +495,15 @@ def execution_sql(
     replay: Callable[[MigrationManifestEntryV2], str] | None = None,
 ) -> str:
     """Adapt pending420 in either executing mode; caller keeps observe/skip gates."""
+    from db.legacy_cloud_removal_adoption import installation_sql, preserve_successor
+
+    if entry.migration_id == "985":
+        return installation_sql(entry)
     if entry.migration_id == "420":
-        return private_agent_adoption_sql(entry)
+        return preserve_successor(entry, private_agent_adoption_sql(entry))
     sql = replay(entry) if replay is not None else entry.sql
-    return hosted_custody_recovery_replay(entry, sql) if entry.migration_id == "421" else sql
+    return (
+        preserve_successor(entry, hosted_custody_recovery_replay(entry, sql))
+        if entry.migration_id == "421"
+        else sql
+    )

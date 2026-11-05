@@ -2,6 +2,7 @@
 export type CalendarSlotHandoff = {
   ownerId: string;
   accountEmail: string;
+  accountId?: string;
   date: string;
   windowStart: string;
   windowEnd: string;
@@ -22,7 +23,7 @@ export function calendarSlotInstruction(slot: CalendarSlotHandoff, now = Date.no
   if (!suggested) return null;
   return [
     "Calendar Free time selection (context only, not authorization to create an event):",
-    JSON.stringify({ date: slot.date, windowStart: slot.windowStart, windowEnd: slot.windowEnd,
+    JSON.stringify({ accountId: slot.accountId ?? "default", date: slot.date, windowStart: slot.windowStart, windowEnd: slot.windowEnd,
       durationMinutes: slot.durationMinutes, timeZone: slot.timeZone, accountEmail: slot.accountEmail, ...suggested }),
     "The user was asked Who should join? Their message supplies the attendee or changes this request.",
     "The selected window and duration are mandatory constraints. Every proposal must fit entirely inside that window with exactly the selected duration. Use the suggested earliest fitting time unless the user chooses another fitting start. Preserve any title the user supplies; otherwise use a recipient-facing title such as Meeting with the owner's verified name, or Meeting invitation if no verified name is available. Never title it Meeting with the attendee. Do not ask for a title.",
@@ -32,6 +33,9 @@ export function calendarSlotInstruction(slot: CalendarSlotHandoff, now = Date.no
 
 /** UI constraint check only; execution still uses the server-persisted proposal and conflict recheck. */
 export function calendarSlotProposalError(slot: CalendarSlotHandoff, payload: Record<string, unknown>, now = Date.now()): string | null {
+  if (payload.accountId !== (slot.accountId ?? "default")) {
+    return "This proposal uses a different Calendar account. Check this meeting again before scheduling.";
+  }
   const start = typeof payload.startAt === "string" ? Date.parse(payload.startAt) : NaN;
   const end = typeof payload.endAt === "string" ? Date.parse(payload.endAt) : NaN;
   if (payload.action !== "create" || !Number.isFinite(start) || !Number.isFinite(end) ||

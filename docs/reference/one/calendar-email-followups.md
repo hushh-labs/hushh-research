@@ -1,6 +1,45 @@
 # Calendar email follow-ups contract
 
-Status: implementation contract for the `codex/calendar-email-followups` feature branch. This document describes the intended feature until its route, worker, and UI checks pass. It is not evidence of a deployed mailbox scan or notification delivery.
+Status: source implementation contract for the existing Follow-ups ledger. The Dev prerequisite reconciliation restores its relevance/producer/read contract; it does not activate a monitor or expose Follow-ups Chat tools. Source tests do not establish a deployed mailbox scan or notification delivery.
+
+## Dev prerequisite and Stage B boundary
+
+The accepted Follow-ups source is PR #8736 (`eee300e006`, `db4b0afe26`,
+`b468428e06`), reconciled into Dev's existing owners and entrypoints. Retained
+requests carry recorded relevance/category, proposed-versus-confirmed meeting
+state, responsibility, date-only deadlines, zoned proposed instants, original
+due wording, ambiguity and revision. Suppression is checked by list/detail,
+reminder, Feed and push readers. Reassessment preserves the owner's completion,
+dismissal, snooze and manual/delivered-reminder decisions. Coverage distinguishes
+complete, catching-up and needs-attention; an empty retained list with incomplete
+coverage cannot establish that nothing is pending.
+
+Migration 445 remains byte-identical to its accepted Calendar source. The
+separate notification source is registered at 449 after a read-only Dev ledger
+check; accepted parked 976 remains unchanged. See the migration-governance
+lineage record. Disposable PostgreSQL checks exercise additive schema,
+producer/read behavior and old INSERT shapes on the expanded schema. Legacy
+partial checkpoints restart only the current message's assessment under the
+current extraction version, preserving mailbox/thread cursors and coverage gaps.
+They cannot stamp a legacy partial candidate with a current relevance verdict. Old scanner/read revisions must be drained before a separately approved relevance
+activation; they cannot interpret suppression metadata. The historical SQL down
+path is not a zero-loss rollback after real assessment history exists.
+
+Stage B1 will add a bounded request-level discovery query over these existing
+rows, not filter the three conversation previews. Stage B2's ledger tools and
+registration still require the reviewed exact Dev safety SHA and serial
+shared-file handoff. The current prerequisite adds no discovery tool, scanner,
+task store, reminder action, Mail send, booking automation or PKM writer.
+
+The Calendar safety source is #8888 (`54e52e7f`) and the account/target contracts
+from #8839/#8843, also accepted in #8921 source `40722b7382`. Only required
+account/reference, current-request review ceiling, admission-clock, local-time
+and confirmation caller changes are reconciled. Dev's private-pod/data-door
+admission and existing Mail/permission behavior remain authoritative. Opening
+ordinal, all-account availability, guest continuation and Finance code are not
+prerequisites for this ledger work. Scripted SDK tests prove enforcement;
+actual-model interpretation and live provider/UAT behavior remain separate
+qualification. UAT deployment is not a development prerequisite.
 
 ## Visual Context
 

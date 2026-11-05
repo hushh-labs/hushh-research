@@ -58,6 +58,28 @@ class CloudRemovalStore(AzureTeardownStore):
         return value
 
     async def approve(self, owner: str, plan_digest: str, group_confirmation: str) -> dict:
+        operation = await self.operation(owner)
+        if isinstance(operation.get("recovery"), dict):
+            from hushh_mcp.services.legacy_cloud_removal import append_recovery_event
+
+            recovery = operation["recovery"]
+            if recovery.get("planSha256") != plan_digest:
+                raise AzureTeardownRefused("CLOUD_REMOVAL_APPROVAL_CHANGED")
+            await append_recovery_event(
+                self,
+                owner,
+                recovery,
+                {
+                    "resource": "$approval",
+                    "stage": "approval",
+                    "receipt": {
+                        "ownerId": owner,
+                        "planSha256": plan_digest,
+                        "confirmation": group_confirmation,
+                    },
+                },
+            )
+            return await self.view(owner)
         reservation = await self.reservation(owner)
         value = await self._value(
             "SELECT public.approve_personal_agent_cloud_removal(:owner,:attempt,:digest,:confirmation) AS value",
@@ -79,7 +101,7 @@ class CloudRemovalStore(AzureTeardownStore):
             "'review',public.personal_agent_cloud_removal_review(p.backend_metadata->'erasure'),"
             "'reviewDigest',encode(sha256(convert_to(public.personal_agent_cloud_removal_review(p.backend_metadata->'erasure')::text,'UTF8')),'hex'),"
             "'executionStarted',c.execution_started_at IS NOT NULL,'canCancel',public.cloud_removal_cancel_ready(:owner,c.attempt_id),"
-            "'complete',public.personal_agent_erasure_complete(:owner)) AS value "
+            "'complete',public.personal_agent_erasure_complete(:owner),'recovery',to_jsonb(c)->'recovery') AS value "
             "FROM public.personal_agent_cloud_removals c JOIN public.personal_agent_registry p ON p.user_id=c.user_id "
             "AND p.backend_metadata->'erasure'->>'attemptId'=c.attempt_id WHERE c.user_id=:owner AND c.completed_at IS NULL AND c.cancelled_at IS NULL",
             {"owner": owner},
@@ -101,6 +123,8 @@ class CloudRemovalStore(AzureTeardownStore):
         return value
 
     async def require_execution(self, owner: str, attempt: str, digest: str) -> None:
+        if isinstance((await self.operation(owner)).get("recovery"), dict):
+            raise AzureTeardownRefused("CLOUD_REMOVAL_RECOVERY_OPERATOR_REQUIRED")
         admitted = await self._value(
             "SELECT public.begin_personal_agent_cloud_removal(:owner,:attempt,:digest) AS value",
             {"owner": owner, "attempt": attempt, "digest": digest},
@@ -137,6 +161,15 @@ class CloudRemovalStore(AzureTeardownStore):
                 "keepAccount": True,
                 "cleanupPurpose": "remove_cloud",
             }
+        recovery = operation.get("recovery")
+        if isinstance(recovery, dict):
+            from hushh_mcp.services.legacy_cloud_removal import recovery_view
+
+            qualified = await self._value(
+                "SELECT public.legacy_cloud_removal_complete(:owner,:attempt) AS value",
+                {"owner": owner, "attempt": operation["attempt"]},
+            )
+            return recovery_view({**recovery, "qualifiedComplete": qualified is True})
         review = operation.get("review") or {}
         row = await self.registry.get(owner) or {}
         snapshot = (
@@ -239,6 +272,18 @@ async def inspect_gcp(store: CloudRemovalStore, owner: str, row: dict) -> dict:
             or target.get("podUrl") != str(metadata.get("url") or "").rstrip("/")
         ):
             raise AzureTeardownRefused("CLOUD_REMOVAL_PLACEMENT_CHANGED")
+        from hushh_mcp.services.personal_agent_erasure_fence import preflight_erasure_runtime
+        from hushh_mcp.services.pod_migration_transport import PodMigrationTransportError
+
+        try:
+            await preflight_erasure_runtime(
+                user_id=owner, row=row, backend=backend, spec=spec, target=target
+            )
+        except RuntimeError:
+            raise PodMigrationTransportError(
+                "POD_ERASURE_COMPATIBILITY_REQUIRED",
+                "Your agent needs a cleanup compatibility repair. Nothing has been removed.",
+            ) from None
         await asyncio.to_thread(
             verify_erasure_compatibility,
             pod_url=target["podUrl"],

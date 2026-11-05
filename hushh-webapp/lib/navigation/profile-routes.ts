@@ -13,6 +13,7 @@ export type ProfilePanel =
   | "software-updates"
   | "my-data"
   | "payouts"
+  | "net-worth-score"
   | "world-model"
   | "request-pricing"
   | "connected-systems"
@@ -77,6 +78,7 @@ export function normalizeProfilePanel(
     value === "account" ||
     value === "my-data" ||
     value === "payouts" ||
+    value === "net-worth-score" ||
     value === "world-model" ||
     value === "request-pricing" ||
     value === "connected-systems" ||
@@ -400,6 +402,10 @@ export function buildProfileRoute(params?: {
   // Legal has no section route of its own. The Profile address carries it,
   // and that address opens the Profile pane on the document. The public
   // /terms and /privacy pages stay the signed-out and store-listing addresses.
+  if (panel === "net-worth-score") {
+    return appendQuery(ROUTES.PROFILE, { panel }, params?.searchParams);
+  }
+
   if (panel === "legal") {
     return appendQuery(
       ROUTES.PROFILE,
