@@ -80,7 +80,7 @@ def protection_payload(policy: dict) -> dict:
     }
 
 
-def _write(endpoint: str, payload: dict, method: str) -> None:
+def _write(endpoint: str, payload: dict | list[str], method: str) -> None:
     result = subprocess.run(
         ["gh", "api", "--method", method, endpoint, "--input", "-"],
         input=json.dumps(payload), capture_output=True, text=True,

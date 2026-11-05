@@ -13,6 +13,7 @@ import pytest
 
 from tests.helpers.deploy_gate import (
     ACCEPTED,
+    BRANCH,
     GATE,
     MAX_ARG_STRLEN,
     PRODUCERS,
@@ -135,6 +136,41 @@ def test_dev_explicitly_accepts_authenticated_full_branch_verdict(tmp_path: Path
     )
     assert result.returncode == 0, result.stderr
     assert "Branch Validation Gate" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("head_branch", "repository", "guard", "passes"),
+    [
+        (BRANCH, "hushh-labs/hushh-research", "success", True),
+        ("another-branch", "hushh-labs/hushh-research", "success", False),
+        (BRANCH, "different-owner/hushh-research", "success", False),
+        (BRANCH, "hushh-labs/hushh-research", "skipped", False),
+        (BRANCH, "hushh-labs/hushh-research", None, False),
+    ],
+)
+def test_sandbox_requires_branch_validation_from_the_exact_repository_and_ref(
+    tmp_path: Path,
+    monkeypatch,
+    head_branch: str,
+    repository: str,
+    guard: str | None,
+    passes: bool,
+) -> None:
+    check, workflow = _branch_receipt()
+    workflow["head_branch"] = head_branch
+    workflow["head_repository"] = {"full_name": repository}
+    step = "Verify Akshat sandbox CI inputs"
+    if guard:
+        workflow["jobs"][0]["steps"].append({"name": step, "conclusion": guard})
+    monkeypatch.setenv("REQUIRE_CI_HEAD_BRANCH", "1")
+    monkeypatch.setenv("REQUIRED_CI_JOB_STEP", step)
+    result = _run_gate(
+        tmp_path,
+        {"check_runs": [check]},
+        accepted="Branch Validation Gate",
+        workflow_runs=[workflow],
+    )
+    assert (result.returncode == 0) is passes, result.stderr
 
 
 @pytest.mark.parametrize(

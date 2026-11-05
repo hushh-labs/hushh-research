@@ -23,9 +23,9 @@ case "$owner/${GITHUB_ACTOR:-}/${GITHUB_TRIGGERING_ACTOR:-}" in
     auth_project=hushh-akshat-sandbox-auth
     adc_project=$auth_project
     baseline=d884959b5b1dc666b01998b24bdd8138be93161e
-    approved_sha=f8978e282da23b97a14614eddc54082db5a6800e
+    approved_sha=5f4dcb772a66a303fb925f267246bc2e17b0ba9f
     # Hash the Git tar before compression so gzip implementation is immaterial.
-    approved_tar=0a4a25c2b2ef63b27ce4956ab0d5e1b561a255a17ea2642bf71b7a5edb29060e
+    approved_tar=8ca26e5c906f28acce2ce6e3c5caeacb60853d9c059da15c190939225d5184c5
     ;;
   *) die "The actor and rerun actor are not authorized for this sandbox." ;;
 esac
@@ -39,22 +39,47 @@ database="backend_dev_$owner"
 secret_prefix="BACKEND_DEV_$(printf '%s' "$owner" | tr '[:lower:]' '[:upper:]')"
 
 [[ ${SOURCE_SHA:-} =~ ^[0-9a-f]{40}$ ]] || die "Supply the full source commit SHA."
-[[ "$SOURCE_SHA" == "${approved_sha:-$SOURCE_SHA}" ]] || die "Source commit is not approved for this sandbox."
+source_mode=legacy
+azure_client=
+if [[ "$owner" == akshat && "$SOURCE_SHA" != "$approved_sha" ]]; then
+  [[ -z "${SOURCE_OBJECT:-}${SOURCE_SHA256:-}${REUSE_BUILD_ID:-}" ]] ||
+    die "Supply only the SHA for a new Akshat source; Main prepares the qualified archive."
+  source_mode=qualified
+  azure_client=afd2feb2-fd0f-422c-bdfe-0b7c7e14b5ed
+fi
 if [[ "$owner" == akshat && -n "${REUSE_BUILD_ID:-}" ]]; then
   die "Akshat recovery uses the build ID recorded on the ready revision."
 fi
 if [[ "${1:-}" == --authorize && $# == 1 ]]; then
+  printf '%s\n' "$source_mode"
   exit 0
 fi
 [[ $# == 0 ]] || die "Unexpected arguments."
-[[ ${SOURCE_SHA256:-} =~ ^[0-9a-f]{64}$ ]] || die "Supply the archive's SHA-256."
-[[ ${SOURCE_OBJECT:-} =~ ^personal-backend/[a-zA-Z0-9._-]+#[1-9][0-9]{0,18}$ ]] ||
-  die "Supply a generation-qualified object in the personal-backend prefix."
 [[ ${GITHUB_RUN_ID:-} =~ ^[0-9]+$ && ${GITHUB_RUN_ATTEMPT:-} =~ ^[0-9]+$ ]] ||
   die "Expected a GitHub workflow run and attempt."
 
 tag="iso-${SOURCE_SHA:0:12}"
 suffix="$tag-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+if [[ "$source_mode" == qualified ]]; then
+  local_source="${RUNNER_TEMP:?Expected the runner temporary directory}/hushh-sandbox-qualified-source.tar.gz"
+  [[ -s "$local_source" && -f "$local_source" && ! -L "$local_source" ]] ||
+    die "The trusted qualification step did not prepare a source archive."
+  # Bind the revision tag to the deploy recipe, as well as the exact application SHA.
+  config_hash="$(sha256sum deploy/deploy-personal-sandbox.sh deploy/personal-backend-image.cloudbuild.yaml | sha256sum)"
+  tag+="-${config_hash:0:8}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+  suffix="$tag"
+  SOURCE_SHA256="$(sha256sum "$local_source")"
+  SOURCE_SHA256="${SOURCE_SHA256%% *}"
+  SOURCE_OBJECT="personal-backend/$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.tar.gz"
+  source_url="gs://$bucket/$SOURCE_OBJECT"
+  gcloud storage cp "$local_source" "$source_url" --if-generation-match=0 --project="$project" --quiet
+  generation="$(gcloud storage objects describe "$source_url" --project="$project" --format='value(generation)')"
+  SOURCE_OBJECT+="#$generation"
+  approved_tar=
+fi
+[[ ${SOURCE_SHA256:-} =~ ^[0-9a-f]{64}$ ]] || die "Supply the archive's SHA-256."
+[[ ${SOURCE_OBJECT:-} =~ ^personal-backend/[a-zA-Z0-9._-]+#[1-9][0-9]{0,18}$ ]] ||
+  die "Supply a generation-qualified object in the personal-backend prefix."
 revision="$service-$suffix"
 attempt="$SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 flags=(--project="$project" --region="$region" --quiet)
@@ -190,7 +215,9 @@ if [[ "$reuse_revision" == false ]]; then
   else
     # The approved source resolves Firebase's issuer through Google ADC.
     env_vars+=",WEB_CONCURRENCY=1,OTEL_EXPORTER_GCP_TRACE_PROJECT_ID=$project"
-    env_vars+=",HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai"
+    if [[ -n "$azure_client" ]]; then
+      env_vars+=",HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai,HUSHH_SANDBOX_AZURE_CLIENT_ID=$azure_client"
+    fi
   fi
   env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
   secrets="APP_SIGNING_KEY=${secret_prefix}_APP_SIGNING_KEY:1,VAULT_DATA_KEY=${secret_prefix}_VAULT_DATA_KEY:1"
@@ -211,12 +238,14 @@ fi
 
 gcloud run revisions describe "$revision" "${flags[@]}" --format=json |
   jq -e --arg sha "$SOURCE_SHA" --arg digest "$digest" --arg runtime "$runtime" \
-    --arg sql "$sql" --arg owner "$owner" --arg auth "$auth_project" --arg build "$build_id" '
+    --arg sql "$sql" --arg owner "$owner" --arg auth "$auth_project" --arg build "$build_id" --arg client "$azure_client" '
     .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == ("sandbox-" + $owner) and
     ($owner == "ankit" or
       (.metadata.labels["sandbox-build-id"] == $build and
-       any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth) and
-       any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_MANAGED_AI_PROVIDER" and .value == "azure_openai"))) and
+       any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth))) and
+    ($client == "" or
+      (any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_MANAGED_AI_PROVIDER" and .value == "azure_openai") and
+       any(.spec.containers[].env[]; .name == "HUSHH_SANDBOX_AZURE_CLIENT_ID" and .value == $client))) and
     .metadata.annotations["run.googleapis.com/cloudsql-instances"] == $sql and
     .spec.serviceAccountName == $runtime and
     (.status.imageDigest | split("@")[-1]) == $digest and
@@ -240,7 +269,12 @@ gcloud run services describe "$service" "${flags[@]}" --format=json |
     ([.spec.traffic[], .status.traffic[]] | map(select(.tag == $tag)) |
       length == 2 and all(.revisionName == $revision and .latestRevision != true))
   ' >/dev/null || die "The private commit tag did not resolve to the new revision."
-printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$SOURCE_SHA" "$project" "$region" "$service" "$baseline" "$digest" \
-  > "${RUNNER_TEMP:?Expected the GitHub runner temporary directory}/hushh-personal-backend"
+receipt="${RUNNER_TEMP:?Expected the GitHub runner temporary directory}/hushh-personal-backend"
+if [[ -n "$azure_client" ]]; then
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$SOURCE_SHA" "$project" "$region" "$service" "$baseline" "$digest" "$tag" "$azure_client" > "$receipt"
+else
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$SOURCE_SHA" "$project" "$region" "$service" "$baseline" "$digest" > "$receipt"
+fi
 printf 'Cloud Build: %s\nRevision: %s\nCommit: %s\nImage: %s@%s\n' \
   "$build_id" "$revision" "$SOURCE_SHA" "$image" "$digest" | tee -a "${GITHUB_STEP_SUMMARY:?}"

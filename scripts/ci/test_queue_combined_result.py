@@ -545,6 +545,73 @@ def test_trusted_queue_requires_owner_only_for_ci_manifest_script_changes(script
                 queue.authorize("hushh-labs/hushh-research", "dev", BASE, included, policy=null_review_policy())
 
 
+def test_pr_semantic_guard_attributes_authored_manifest_changes_not_destination_additions(tmp_path, monkeypatch):
+    import subprocess
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "authored_semantic_guard")
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repository, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Synthetic reviewer")
+    git("config", "user.email", "synthetic@example.invalid")
+    manifest = "consent-protocol/scripts/test-ci.manifest.txt"
+    (repository / "consent-protocol/scripts").mkdir(parents=True)
+    (repository / "config").mkdir()
+    (repository / "config/ci-governance.json").write_text(json.dumps({"main": {
+        "protected_pipeline_edit_users": ["kushaltrivedi5"], "protected_pipeline_paths": ["scripts/ci/"]}}))
+
+    def commit(tests):
+        (repository / manifest).write_text(tests)
+        git("add", ".")
+        git("-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
+        return git("rev-parse", "HEAD")
+
+    seed = commit("tests/a.py\n")
+    target = commit("tests/a.py\ntests/b.py\n")
+    git("checkout", "-qb", "feature", seed)
+    head = commit("tests/a.py\ntests/c.py\n")
+    monkeypatch.chdir(repository)
+    monkeypatch.setattr(guard, "REPO_ROOT", repository)
+    monkeypatch.setattr(guard, "_files_from_event", lambda _args: [manifest])
+    with patch.object(guard, "_owner_approvals", return_value=[]) as approvals:
+        event = tmp_path / "event.json"
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hushh-labs/hushh-research")
+        monkeypatch.setattr(sys, "argv", ["verify-protected-pipeline-edits.py"])
+
+        def request(candidate):
+            event.write_text(json.dumps({"pull_request": {
+                "number": 1, "user": {"login": "imsharukhan"},
+                "base": {"sha": target}, "head": {"sha": candidate}}}))
+            return guard.main()
+
+        # The prior direct-tip comparison mistakes B's absence for a deletion.
+        assert guard.semantic_pipeline_changes([manifest], base=target, head=head) == [manifest]
+        semantic = guard.semantic_pipeline_changes
+        with patch.object(guard, "semantic_pipeline_changes", wraps=semantic) as classification:
+            assert request(head) == 0
+        assert classification.call_args.kwargs["base"] == seed
+        assert classification.call_args.kwargs["authority"] == target
+        approvals.assert_not_called()
+        removed = commit("tests/c.py\n")
+        assert request(removed) == 1
+        assert approvals.call_count == 1
+        with pytest.raises(guard.GuardResolutionError, match="unavailable"):
+            request("f" * 40)
+
+
+def test_authored_manifest_comparison_refuses_ambiguous_history(tmp_path):
+    guard = queue._module("verify-protected-pipeline-edits.py", "ambiguous_semantic_guard")
+    with patch("process_group.bounded_stdout", return_value=f"{BASE}\n{HEAD1}\n".encode()):
+        with pytest.raises(guard.GuardResolutionError, match="ambiguous"):
+            guard.authored_change_base(BASE, HEAD1, repository_root=tmp_path)
+
+
 def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(tmp_path):
     import importlib.util
     import os
