@@ -181,6 +181,18 @@ def resolve_allowed_users(main_policy: dict) -> list[str]:
 SEMANTIC_PIPELINE_PATHS = ("hushh-webapp/package.json", "consent-protocol/scripts/test-ci.manifest.txt")
 
 
+def backend_test_identities(raw: str) -> set[str]:
+    """Parse test identities, never pytest options or executable shell input."""
+    if not isinstance(raw, str) or not 0 < len(raw.encode("utf-8")) <= 1024 * 1024:
+        raise ValueError("unbounded test manifest")
+    identities = [line for line in raw.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    if not identities or len(identities) != len(set(identities)) or any(
+        not re.fullmatch(r"tests/[A-Za-z0-9_./-]+\.py", item) or ".." in item.split("/") for item in identities
+    ):
+        raise ValueError("malformed test identities")
+    return set(identities)
+
+
 def _ci_npm_roots(revision: str, *, repository_root=None) -> set[str]:
     """Read literal npm entrypoints from the pinned, already-protected pipeline callers."""
     repository_root = Path(repository_root) if repository_root is not None else REPO_ROOT
@@ -259,12 +271,7 @@ def semantic_pipeline_changes(changed_files, *, base, head, authority=None, read
                     if not isinstance(value, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in value.items()):
                         raise ValueError("missing or malformed scripts")
                 else:
-                    identities = [line for line in raw.splitlines() if line.strip() and not line.lstrip().startswith("#")]
-                    if not identities or len(identities) != len(set(identities)) or any(
-                        not re.fullmatch(r"tests/[A-Za-z0-9_./-]+\.py", item) or ".." in item.split("/") for item in identities
-                    ):
-                        raise ValueError("malformed test identities")
-                    value = set(identities)
+                    value = backend_test_identities(raw)
             except (OSError, ValueError, subprocess.SubprocessError) as error:
                 raise GuardResolutionError("Pinned manifest is missing or malformed; CI authority is unproven") from error
             values.append(value)

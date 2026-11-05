@@ -26,6 +26,7 @@ SHARED_SUBSTITUTIONS = {
     "_DEPLOY_SOURCE",
     "_DEPLOY_SHA",
     "_GITHUB_RUN_ID",
+    "_GITHUB_RUN_ATTEMPT",
 }
 CUSTOM_SUBSTITUTION = re.compile(r"(?<!\$)\$\{(_[A-Z0-9_]+)\}")
 
@@ -256,6 +257,7 @@ docker buildx imagetools inspect --raw "$image_reference" > /workspace/.uat-fron
         {
             "id": "await-frontend-image",
             "name": frontend["steps"][0]["name"],
+            "env": frontend["steps"][0].get("env", []),
             "entrypoint": "python3",
             "args": [module, "wait", *arguments],
             "waitFor": ["build-backend-image", "verify-runtime-iam"],
@@ -270,6 +272,7 @@ docker buildx imagetools inspect --raw "$image_reference" > /workspace/.uat-fron
         {
             "id": "pin-frontend-image",
             "name": frontend["steps"][0]["name"],
+            "env": frontend["steps"][0].get("env", []),
             "entrypoint": "python3",
             "args": [module, "pin", *arguments],
             "waitFor": ["inspect-frontend-image-manifest"],
