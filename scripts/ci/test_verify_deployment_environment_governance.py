@@ -238,7 +238,8 @@ def test_production_tripwire_matches_committed_policy() -> None:
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
                                workflow: str = "capacity-maintenance.yml",
-                               step: str = "Require main and governed manual actor") -> subprocess.CompletedProcess[str]:
+                               step: str = "Require main and governed manual actor",
+                               github: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Execute the actual shell authority gate, including the real actor policy."""
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows" / workflow).read_text()
@@ -248,14 +249,17 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     )
     assert match is not None, f"{workflow} authority gate is missing"
     inputs = event.get("inputs") or {}
+    # Only the context this call describes: the runner's own re-run attempt and
+    # triggering actor must not decide the outcome (see test_deployment_environment_governance_rerun.py).
+    inherited = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
     return subprocess.run(
         ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
-        env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
+        env={**inherited, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+             "GITHUB_ACTOR": actor, "GITHUB_RUN_ATTEMPT": "1", "RELEASE_ENV": inputs.get("environment", ""),
              "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
              "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
              "APPLY": inputs.get("apply", ""),
-             "CLOCK_EVENT_TYPE": action},
+             "CLOCK_EVENT_TYPE": action, **(github or {})},
         capture_output=True, text=True, check=False,
     )
 
