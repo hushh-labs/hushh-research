@@ -711,8 +711,13 @@ jobs.
    replace an earlier selection; unknown projects and unresolved specs refuse.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
-   validation level retain historical full-suite behavior. Explicit diagnostic
-   shards remain available through `WEB_FULL_SUITE_SHARD`.
+   validation level retain historical full-suite behavior. Governance uses that
+   same exact-source plan to select one focused/release leg or three native
+   Vitest legs for diagnostic fallback, with two workers per runner. Verifiers
+   run once on the first leg. Release admission requires the complete successful
+   shard set; historical unstamped evidence is accepted only from its verified
+   pre-matrix workflow. Late execution fallbacks remain serial. Explicit local
+   diagnostic shards remain available through `WEB_FULL_SUITE_SHARD`.
    The selector sends registered JSON contract inputs through Vitest's related
    dependency graph, keeps unknown runtime JSON fail-closed, and leaves the exact
    iOS XCTest and phone-flow browser harness to their platform/browser owners.

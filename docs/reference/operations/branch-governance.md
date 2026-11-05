@@ -398,8 +398,8 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
   remains derived from explicit policy. It cannot expand Main merge or protected
   edit authority through an inherited bypass team.
 - **Production == approved dispatch cohort.** `production.manual_dispatch_users`
-  must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
-  widening or narrowing fails the check.
+  must match the reviewed production operator cohort; any independent widening
+  or narrowing fails the check. The policy and live team readback identify its members.
 - **Deploy identity variables are present.** Each deployment environment must
   contain every name declared in its `required_environment_variables` policy.
   These are GitHub environment variables consumed through `vars.*`, not
@@ -546,8 +546,11 @@ Current operating note:
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - Author/admin status alone is not approval. An authorized owner must explicitly
   approve their captured head through Admin SOP; other PRs require ordinary review.
-- Verify Main's actual merger restrictions and queue requester against
-  `main.merge_users`; no shared maintainer-team bypass may widen it.
+- Verify every actual Main queue requester against `main.merge_users`; no shared
+  maintainer-team bypass may widen it. With `restrict_writes_to_merge_users=false`,
+  remove the classic human-only writer filter only after the reviewed Main policy
+  lands and native PR, review, CI, protected-change and owner guards pass readback.
+  GitHub's queue writer can then land the verified result. Raw pushes remain blocked.
 - Required CI, ordinary review or owner approval, and current combined-result proof apply. A merge is
   source-only and never authorizes deployment.
 
