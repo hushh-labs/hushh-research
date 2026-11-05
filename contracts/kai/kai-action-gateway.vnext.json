@@ -15805,6 +15805,112 @@
       }
     },
     {
+      "action_id": "route.profile_net_worth_score",
+      "surface_id": "profile_account",
+      "label": "Net Worth Score",
+      "aliases": [
+        "open my net worth score",
+        "connect bank for score"
+      ],
+      "search_keywords": [
+        "net worth",
+        "financial score",
+        "Plaid bank"
+      ],
+      "meaning": "Opens the owner’s private Net Worth Score in Profile for bank connections and score coverage.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile?panel=net-worth-score"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "hushh-webapp/app/register-phone/page.voice-action-contract.json",
+        "components/profile/net-worth-score-card.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile?panel=net-worth-score"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_net_worth_score",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_net_worth_score",
+            "label": "Net Worth Score",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile?panel=net-worth-score",
+              "screen": "profile_account"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_payouts",
       "surface_id": "profile_account",
       "label": "Open Payouts",

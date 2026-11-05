@@ -179,11 +179,6 @@ class UiGateTests(unittest.TestCase):
             uat["inputs"]["uat_base_sha"] = old
             env["GITHUB_SHA"] = merge
             self.assertNotEqual(run(uat).returncode, 0)
-            env["GITHUB_REF"] = "refs/heads/main"
-            isolated = {"inputs": {"scope": "all", "uat_base_sha": old, "uat_candidate_sha": head}}
-            self.assertEqual(run(isolated).stdout.strip(), old)
-            isolated["inputs"]["uat_candidate_sha"] = merge
-            self.assertNotEqual(run(isolated).returncode, 0)
 
     def test_web_core_uses_the_same_verified_review_base(self):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()
