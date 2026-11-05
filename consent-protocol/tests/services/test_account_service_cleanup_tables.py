@@ -1059,6 +1059,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert "UPDATE vault_keys" in executed_sql
     assert "setup_completed = NULL" in executed_sql
     assert "contact_discoverable = FALSE" in executed_sql
+    assert "connection_list_shared = FALSE" in executed_sql
     assert "contact_sync_consent_enabled_at = NULL" in executed_sql
     assert "contact_sync_consent_rule_version + 1" in executed_sql
     assert "contact_sync_consent_contract_version = NULL" in executed_sql

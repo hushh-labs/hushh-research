@@ -23,7 +23,7 @@ export function saveConnectListMemory<T>(owner: string | null | undefined, key: 
   }
   entries.delete(key);
   entries.set(key, { owner, generation: getAuthSessionGeneration(), savedAt: Date.now(), value });
-  if (entries.size > 8) entries.delete(entries.keys().next().value!);
+  if (entries.size > 64) entries.delete(entries.keys().next().value!);
 }
 
 export function connectListScrollTop(): number {

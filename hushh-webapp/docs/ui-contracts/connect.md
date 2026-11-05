@@ -890,3 +890,37 @@ clears that quote without inferring deletion merely from an unloaded history pag
 Source: [Messages](../../components/direct-messages/direct-messages-page.tsx),
 [voice recorder](../../components/direct-messages/direct-message-voice-recorder.tsx),
 [layout](../../components/direct-messages/direct-messages-page.module.css).
+
+## Network discovery and profile journeys
+
+Find people includes **Explore your network**, a shared list with exact viewer-relative
+1st, 2nd and 3rd degree filters and paginated name search. A missing degree is not
+proof that someone is outside the network. Mutuals always mean active direct
+neighbors shared by the viewer and the target: zero has no control, one opens the
+available profile (resolving a missing preview through one mutual page), and more
+than one opens a list. An unavailable single profile explains that state.
+
+Signed-in profiles show network details beside the profile hero. **View connections**
+appears only after the server confirms that the target opted in and the viewer is
+an active direct connection. The privacy setting **Share my connection list** starts
+off, discloses anonymous extended-network degree contribution, and confirms only
+server-acknowledged changes. It grants no access to private contacts or information.
+Anonymous public profile projections do not fetch network information.
+
+Every profile or list may open the next profile or list inside the same shared
+preview dialog. Back first dismisses a request overlay, then unwinds one visited
+network view. The same callback serves Escape, shell, iOS gesture and Android Back.
+Browser Forward restores known visits without adding identities to URLs. Final
+dismissal restores the original control and preserves the mounted source picker.
+
+The existing history owner stores opaque counters only. Visit identities and list
+query/filter/page/scroll/focus snapshots are bounded to 64 memory entries and are
+cleared by owner/authentication-generation changes. List snapshots expire after
+15 minutes; list people are re-fetched before display on return, focus, visibility
+or graph changes. Denied lists clear people immediately. Cold reload or evicted
+visit memory returns to the authored route, without reconstructing private history.
+
+Behavioral evidence: `person-profile-preview.test.tsx`, `network-people-list.test.tsx`
+and `connections-service.test.ts` in the nearest frontend suites. These prove the
+shared callbacks in jsdom; shipped browser/native gesture acceptance remains a
+separate runtime check.

@@ -13,6 +13,22 @@
   "deprecations": [
     {
       "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "9ea5b914a24b6f47",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "ac971edb713a113d",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "actions:location.review_notifications",
       "from_revision": "09508ecac56d001c",
       "from_version": 1,
@@ -2649,6 +2665,54 @@
       "from_revision": "3adc9c7720dda6e7",
       "from_version": 1,
       "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "458153bdfb331613",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "bab8cfa1aa259f7c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "eb1373a534d44b22",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "076c05cd70ea69d7",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "366da54ed07dd315",
+      "from_version": 1,
+      "to_version": 1,
       "active_run_policy": "reject"
     }
   ]
