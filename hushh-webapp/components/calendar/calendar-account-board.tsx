@@ -335,7 +335,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               const scrollEvents = meetings.length + otherItems.length > 3;
               const [accountName, accountDomain] = accountEmailParts(account.google_email);
               const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
-              const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, calendarPeople);
+              const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, people);
               const renderEvent = (event: CalendarEventSummary) => {
                 const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
                 const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;
@@ -389,14 +389,14 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
           </SurfaceCard>
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
-        <CalendarAccountPicker accounts={status.accounts || []} value={invitationAccount} onChange={setInvitationAccount} people={calendarPeople} />
+        <CalendarAccountPicker accounts={status.accounts || []} value={invitationAccount} onChange={setInvitationAccount} people={people} />
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
-        <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={calendarPeople} />
+        <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={people} />
         {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
-      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
         const request = booking.followupRequest;
         const selectedAccount = booking.accountId;
         closeBooking();

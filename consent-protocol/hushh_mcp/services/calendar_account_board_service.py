@@ -305,6 +305,11 @@ class CalendarAccountBoardService:
             "people": await calendar_directory_portraits(
                 owner_user_id=user_id,
                 events=[event for account in accounts for event in account["events"]],
+                account_emails=[
+                    identity["google_email"]
+                    for identity in latest["accounts"]
+                    if identity.get("connected") and identity.get("google_email_verified") is True
+                ],
             ),
             "shared_free_windows": shared,
             "checked_at": datetime.now(UTC).isoformat(),
