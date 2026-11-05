@@ -283,7 +283,7 @@ Before deleting a local backup branch, classify its unique commits as:
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
 2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
 3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
-   authority. Preserve the existing Dev/UAT cohorts. Main's six merge operators
+   authority. Preserve the existing Dev/UAT cohorts. Main's approved merge operators
    match its production operators, while protected edits require Kushal/Ankit.
    Changing one capability does not silently grant another.
 4. Preflight requires reachability from protected UAT. Direct UAT candidates
@@ -348,15 +348,14 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
    open. A `--self-test` runs in CI so the guard can never silently regress.
 3. **Review and owner approval.** Ordinary PRs require one independent latest-push
    approval. Kushal or Ankit may explicitly land their own exact PR head under the
-   [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3b-admin-landing-and-queue-authority).
+   [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-merger-policy-and-the-named-owner-admin-route).
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
 
 ### Production access administration
 
-Production dispatch and Main merging are limited to the six actors
-in the committed policy: `kushaltrivedi5`, `msainani`,
-`RGlodAkshat`, `ankitkumarsingh1702`, `DamriaNeelesh`, and `imsharukhan`. Dev/UAT dispatch lists are unchanged. Protected pipeline edits require Kushal or Ankit.
+Production dispatch and Main merging are limited to Kushal (`kushaltrivedi5`),
+Ankit (`ankitkumarsingh1702`) and Sharukhan (`imsharukhan`) in the committed policy. Dev/UAT dispatch lists are unchanged. Protected pipeline edits require Kushal or Ankit.
 The managed teams mirror these lists; changing a team alone does not change
 workflow authority. Policy changes take effect after landing on Main.
 
