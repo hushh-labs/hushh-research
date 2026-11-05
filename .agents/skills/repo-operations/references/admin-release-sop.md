@@ -90,11 +90,11 @@ maintainer self-approval through the queue as described in §3B.
 The named-owner route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
-  resolution and the six-person Main merger restriction remain active.
+  resolution and the approved Main merger restriction remain active.
 - Each destination's `<branch> owner validated merge` guard requires a PR and
   strict current-base CI for the two owners. Other authorized mergers bypass
   this additional freshness layer only; they cannot bypass the ordinary queue
-  or baseline CI. Main retains its six-person merger restriction.
+  or baseline CI. Main retains its approved merger restriction.
 - Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
   general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below

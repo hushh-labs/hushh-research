@@ -997,7 +997,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     if restricted != desired:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
-                _write(f"{endpoint}/restrictions/{key}", {key: desired[key]}, "PUT")
+                _write(f"{endpoint}/restrictions/{key}", desired[key], "PUT")
     if queue.get("bypass_actors") != bypass or observed_scope != main_scope or queue["rules"] != desired_rules:
         body = {
             key: queue[key]
