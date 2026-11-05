@@ -156,8 +156,8 @@ The root checkout and unrelated work remain untouched throughout the landing.
 
 ### 3D. Queue check-response budget
 
-The shared `branch_flow.merge_queue_check_response_timeout_minutes` policy is
-120 minutes for Main, Dev, UAT, UAT-isolated and the integration train. On
+The canonical `repository.merge_queue_check_timeout_minutes` policy is
+120 minutes for Main, Dev and UAT. On
 2026-11-05, GitHub removed PR #8848's queue entry with `checks_timed_out` while
 run `41938357317` was still validating. Its application checks subsequently
 passed; the final membership guard correctly refused the removed entry.
@@ -174,20 +174,21 @@ does not require Stage B destination source parity, so source-sync PRs can finis
 before those later operations:
 
 ```bash
-python3 scripts/ci/apply-governance.py --queue-response-timeout-policy main dev uat uat-isolated integration/pr-train
-python3 scripts/ci/apply-governance.py --queue-response-timeout-policy main dev uat uat-isolated integration/pr-train --apply
+python3 scripts/ci/apply-governance.py --queue-timeouts
+python3 scripts/ci/apply-governance.py --queue-timeouts --apply
 ```
 
 The first command is a dry-run. The second requires existing repository ruleset
-administration access, validates every selected exact-ref queue before writing,
+administration access, validates all three exact-ref queues before writing,
 and preserves its actors, other parameters and unrelated rules. It rechecks the
 snapshot before each write and verifies the readback. If a later branch fails,
 inspect the completed changes before resuming; it does not roll back peer edits.
-Branches may be selected separately, but repair all shared queue templates before
-subsequent branch-policy reconciliation. No branch protection, authority, refs,
+The existing [queue response ceiling](../../../../docs/reference/operations/ci.md#queue-response-ceiling)
+owns this repair; the isolated UAT and legacy train budgets remain unchanged.
+No branch protection, authority, refs,
 reviews, CI results or application deployments change in this operation.
 
-Run the existing branch-protection verifier for each selected branch. It rejects
+Run the existing branch-protection verifier for Main, Dev and UAT. It rejects
 stale/missing budgets and ambiguous queues as well as other policy drift. A
 successful budget-only readback does not prove Stage B or full policy parity;
 resolve those independent differences through their existing reviewed operations.

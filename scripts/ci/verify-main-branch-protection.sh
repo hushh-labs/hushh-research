@@ -69,8 +69,11 @@ branch_policy = dict(policy[policy_key])
 root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
                           check=True, capture_output=True, text=True).stdout.strip())
 sys.path.insert(0, str(root / "scripts/ci"))
-from prepared_branch_governance import queue_response_timeout, queue_timeout_payload
-expected_queue_timeout = queue_response_timeout(policy)
+from prepared_branch_governance import queue_rules
+expected_queue_timeout = policy.get("repository", {}).get("merge_queue_check_timeout_minutes")
+check_queue_timeout = branch in ("main", "dev", "uat")
+if check_queue_timeout and expected_queue_timeout is None:
+    raise SystemExit("Queue check-response timeout policy is missing")
 native_prepared = bool(prepared.get("owner_admin_ruleset_name"))
 if native_prepared:
     from prepared_branch_governance import branch_policy as prepared_policy
@@ -222,15 +225,23 @@ for ruleset in ruleset_list:
     )
     if expected_queue_ruleset_name and detail.get("name") != expected_queue_ruleset_name:
         continue
-    try:
-        budget = queue_timeout_payload(detail, branch=branch, name=expected_queue_ruleset_name,
-                                       minutes=expected_queue_timeout)
-    except SystemExit as exc:
-        print(f"ERROR: {exc}")
+    rules = detail.get("rules")
+    if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+        raise SystemExit(f"Malformed queue rules for {branch}")
+    queues = [rule for rule in rules if rule.get("type") == "merge_queue"]
+    if (not expected_queue_ruleset_name or detail.get("target") != "branch"
+            or detail.get("enforcement") != "active"
+            or detail.get("conditions") != {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}}
+            or len(queues) != 1 or not isinstance(queues[0].get("parameters"), dict)
+            or not queues[0]["parameters"] or not isinstance(detail.get("bypass_actors"), list)):
+        print(f"ERROR: Expected one active exact-ref named merge queue for {branch}")
         sys.exit(1)
     named_queue_matches += 1
-    if budget["rules"] != detail["rules"]:
-        raise SystemExit(f"Queue check-response timeout drifted for {branch}: expected {expected_queue_timeout} minutes")
+    if check_queue_timeout:
+        budget = queue_rules(policy, rules)
+        observed_timeout = queues[0]["parameters"].get("check_response_timeout_minutes")
+        if type(observed_timeout) is not int or budget != rules:
+            raise SystemExit(f"Queue check-response timeout drifted for {branch}: expected {expected_queue_timeout} minutes")
     if branch == "main" and branch_policy.get("owner_admin_ruleset_name"):
         # Do not normalize away unknown actor types or unresolved account IDs.
         if (detail.get("conditions") != {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}

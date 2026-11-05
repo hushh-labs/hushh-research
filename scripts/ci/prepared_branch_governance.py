@@ -17,6 +17,21 @@ import subprocess
 from urllib.parse import quote
 
 
+def queue_rules(policy: dict, rules: list[dict]) -> list[dict]:
+    """Change only the queue response ceiling, preserving scheduling semantics."""
+    ceiling = policy.get("repository", {}).get("merge_queue_check_timeout_minutes")
+    result = copy.deepcopy(rules)
+    if ceiling is None:  # Historical policy remains readable.
+        return result
+    if type(ceiling) is not int or not 1 <= ceiling <= 360:
+        raise SystemExit("Invalid merge queue response ceiling")
+    queues = [rule for rule in result if rule.get("type") == "merge_queue"]
+    if len(queues) != 1 or not isinstance(queues[0].get("parameters"), dict):
+        raise SystemExit("Queue response ceiling requires one complete queue rule")
+    queues[0]["parameters"]["check_response_timeout_minutes"] = ceiling
+    return result
+
+
 def branch_policy(policy: dict, branch: str) -> dict:
     """Project the authored Dev/UAT native-review transition without changing shared cohorts."""
     config = policy["branch_flow"]["prepared_branches"][branch]
@@ -133,39 +148,6 @@ def _same_queue(actual, expected, *, snapshot=False):
     return all(actual.get(k) == v for k, v in expected.items() if k != "bypass_actors")
 
 
-def queue_response_timeout(policy: dict) -> int:
-    """One bounded check-response budget for the shared governed queue workflow."""
-    value = policy.get("branch_flow", {}).get("merge_queue_check_response_timeout_minutes")
-    if type(value) is not int or not 1 <= value <= 360:
-        raise SystemExit("Queue check-response timeout policy must be an integer from 1 to 360 minutes")
-    return value
-
-
-def queue_timeout_payload(current: dict, *, branch: str, name: str, minutes: int) -> dict:
-    """Change only the timeout of an existing, unambiguous exact-ref queue."""
-    if (not isinstance(current, dict) or not name or current.get("name") != name
-            or current.get("target") != "branch" or current.get("enforcement") != "active"
-            or current.get("conditions") != {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}}
-            or not isinstance(current.get("bypass_actors"), list)):
-        raise SystemExit(f"Expected one active exact-ref named merge queue for {branch}")
-    rules = current.get("rules")
-    if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
-        raise SystemExit(f"Malformed queue rules for {branch}")
-    queues = [rule for rule in rules if rule.get("type") == "merge_queue"]
-    if len(queues) != 1 or not isinstance(queues[0].get("parameters"), dict):
-        raise SystemExit(f"Expected one active exact-ref named merge queue for {branch}: missing or ambiguous rule")
-    observed = queues[0]["parameters"].get("check_response_timeout_minutes")
-    if type(observed) is not int or not 1 <= observed <= 360:
-        raise SystemExit(f"Malformed queue check-response timeout for {branch}")
-    payload = copy.deepcopy({key: current[key] for key in (
-        "name", "target", "enforcement", "conditions", "bypass_actors", "rules",
-    )})
-    next(rule for rule in payload["rules"] if rule["type"] == "merge_queue")["parameters"][
-        "check_response_timeout_minutes"
-    ] = minutes
-    return payload
-
-
 STAGE_B_AUTHORITY_PATHS = (
     ".github/workflows/ci.yml", ".github/workflows/queue-validation.yml",
     "scripts/ci/queue_combined_result.py", "scripts/ci/verify-protected-pipeline-edits.py",
@@ -238,7 +220,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
             "name": name, "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
             "bypass_actors": actors if native else ([{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}] if team else []),
-            "rules": copy.deepcopy(queue),
+            "rules": queue_rules(policy, queue),
         }
         current_queue = None
         if native and not matches:

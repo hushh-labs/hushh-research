@@ -33,6 +33,82 @@ def _module():
     return module
 
 
+def test_queue_timeout_preserves_all_other_parameters(module=None):
+    import copy
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from prepared_branch_governance import queue_rules
+    original = [{"type": "merge_queue", "parameters": {
+        "check_response_timeout_minutes": 30, "merge_method": "MERGE",
+        "max_entries_to_build": 5, "max_entries_to_merge": 1,
+        "grouping_strategy": "ALLGREEN"}}]
+    before = copy.deepcopy(original)
+    expected = copy.deepcopy(original)
+    expected[0]["parameters"]["check_response_timeout_minutes"] = 120
+    assert queue_rules({"repository": {"merge_queue_check_timeout_minutes": 120}}, original) == expected
+    assert original == before
+    assert queue_rules({}, original) == before
+    for bad in (False, 0, 361, "120"):
+        try:
+            queue_rules({"repository": {"merge_queue_check_timeout_minutes": bad}}, original)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Invalid queue ceiling was accepted")
+
+
+def test_queue_timeout_repair_preserves_authority_and_refuses_concurrent_change(module):
+    import copy
+    from unittest.mock import patch
+    import prepared_branch_governance
+    policy = _policy()
+    rows = [{"id": index, "name": f"{branch} merge queue"} for index, branch in enumerate(("main", "dev", "uat"), 1)]
+    records = {row["id"]: {**row, "target": "branch", "enforcement": "active",
+        "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+        "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30,
+                  "merge_method": "MERGE", "max_entries_to_build": 5}}],
+        "bypass_actors": [{"actor_id": 40542375, "actor_type": "User", "bypass_mode": "pull_request"}]}
+        for row, branch in zip(rows, ("main", "dev", "uat"))}
+    writes = []
+    def read(args):
+        if args[1].endswith("?per_page=100"): return rows
+        return copy.deepcopy(records[int(args[1].rsplit("/", 1)[1])])
+    def write(endpoint, body, method):
+        assert method == "PUT"
+        index = int(endpoint.rsplit("/", 1)[1])
+        original = records[index]
+        assert all(body[k] == original[k] for k in original if k not in ("rules", "id"))
+        assert body["rules"][0]["parameters"] == {**original["rules"][0]["parameters"], "check_response_timeout_minutes": 120}
+        records[index] = {**body, "id": index}
+        writes.append(endpoint)
+    with patch.object(module, "gh_json", side_effect=read), patch.object(prepared_branch_governance, "_write", side_effect=write):
+        assert module.reconcile_queue_timeouts(policy, apply=False)
+        assert not writes
+        assert module.reconcile_queue_timeouts(policy, apply=True)
+        assert len(writes) == 3
+        assert not module.reconcile_queue_timeouts(policy, apply=True)
+    records[1]["rules"][0]["parameters"]["check_response_timeout_minutes"] = 30
+    observed = [rows, *[copy.deepcopy(records[i]) for i in (1,2,3)], {"changed": True}]
+    with patch.object(module, "gh_json", side_effect=observed), patch.object(prepared_branch_governance, "_write") as mutation:
+        try:
+            module.reconcile_queue_timeouts(policy, apply=True)
+        except SystemExit as error:
+            assert "changed before repair" in str(error)
+        else:
+            raise AssertionError("Concurrent ruleset change was overwritten")
+        mutation.assert_not_called()
+
+
+def test_codeowners_use_the_protected_team_for_every_protected_path(module):
+    content = (REPO_ROOT / ".github/CODEOWNERS").read_text()
+    entries = {line.split()[0]: line.split()[1:] for line in content.splitlines()
+               if line.strip() and not line.startswith("#")}
+    assert entries["*"] == ["@hushh-labs/allowed-maintainers-to-approve"]
+    for rule in _policy()["main"]["protected_pipeline_paths"]:
+        assert entries[f"/{rule}"] == ["@hushh-labs/pipeline-editors"]
+    assert "@kushaltrivedi5" not in content and "@ankitkumarsingh1702" not in content
+
+
 def _policy() -> dict:
     return json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
 
@@ -221,9 +297,11 @@ else: print(json.dumps(response))
 
 def _check_prepared_branches(policy, policy_file, base, environment, run) -> None:
     import copy
+    from urllib.parse import quote
 
     # Prepared branches inherit authored protection policy, not deploy authority.
-    for branch, policy_key in (("dev", "pr_train"), ("uat", "main")):
+    for branch, policy_key in (("dev", "pr_train"), ("uat", "main"),
+                               ("uat-isolated", "main"), ("integration/pr-train", "pr_train")):
         prepared_policy = copy.deepcopy(policy)
         prepared_policy[policy_key] = copy.deepcopy(policy["main"])
         prepared_policy["branch_flow"]["prepared_branches"] = {
@@ -231,16 +309,17 @@ def _check_prepared_branches(policy, policy_file, base, environment, run) -> Non
         }
         policy_file.write_text(json.dumps(prepared_policy), encoding="utf-8")
         sample = copy.deepcopy(base)
+        encoded_branch = quote(branch, safe="")
         for suffix in ("protection",):
-            sample[f"repos/synthetic-org/repo/branches/{branch}/{suffix}"] = sample[
+            sample[f"repos/synthetic-org/repo/branches/{encoded_branch}/{suffix}"] = sample[
                 f"repos/synthetic-org/repo/branches/main/{suffix}"]
-        sample[f"repos/synthetic-org/repo/rules/branches/{branch}"] = sample[
+        sample[f"repos/synthetic-org/repo/rules/branches/{encoded_branch}"] = sample[
             "repos/synthetic-org/repo/rules/branches/main"]
         detail = sample["repos/synthetic-org/repo/rulesets/7"]
         detail.update(name=f"{branch} merge queue", target="branch", enforcement="active",
                       conditions={"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
                       rules=[{"type": "merge_queue", "parameters": {
-                          "group": 1, "check_response_timeout_minutes": 120}}])
+                          "group": 1, "check_response_timeout_minutes": 120 if branch in ("dev", "uat") else 30}}])
         environment["GITHUB_BRANCH"] = branch
         accepted = run(sample)
         assert accepted.returncode == 0, accepted.stdout + accepted.stderr
@@ -353,6 +432,14 @@ def test_live_verifier_distinguishes_pending_activation_without_granting_authori
         duplicate = copy.deepcopy(base)
         duplicate["repos/synthetic-org/repo/rulesets?includes_parents=true"] *= 2
         assert run(duplicate).returncode != 0, "Duplicate queue evidence must not verify"
+
+        for minutes in (None, "120", True, 0, 361):
+            invalid_policy = copy.deepcopy(policy)
+            invalid_policy["repository"]["merge_queue_check_timeout_minutes"] = minutes
+            policy_file.write_text(json.dumps(invalid_policy), encoding="utf-8")
+            rejected = run(base)
+            assert rejected.returncode != 0, "Invalid canonical queue budget must not verify"
+        policy_file.write_text(json.dumps(policy), encoding="utf-8")
 
         _check_prepared_branches(policy, policy_file, base, environment, run)
 
@@ -551,7 +638,7 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     }
     queue = {"name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
              "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-             "rules": [{"type": "merge_queue"}],
+             "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30}}],
              "bypass_actors": [{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}]}
     for scope in ("refs/heads/main", "~DEFAULT_BRANCH"):
         queue["conditions"]["ref_name"]["include"] = [scope]
@@ -802,7 +889,7 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
         "target": "branch",
         "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-        "rules": [{"type": "merge_queue"}],
+        "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30}}],
         "bypass_actors": [],
     }
     calls = []
@@ -878,7 +965,7 @@ def test_direct_operator_rollout_preserves_strict_ci_before_grants(module) -> No
         queue_path: {
             "name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
             "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-            "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}],
+            "rules": [{"type": "merge_queue", "parameters": {"merge_method": "MERGE", "check_response_timeout_minutes": 120}}],
             "bypass_actors": module.main_exception_actors(legacy["main"]["merge_queue_bypass_users"], read=person),
         },
         protection_path: {
@@ -1439,145 +1526,6 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
                                         env=environment, text=True, capture_output=True, timeout=60)
                 assert (result.returncode == 0) == (fault in (None, "stale_authority")), (branch, fault, result.stdout, result.stderr)
 
-
-
-def _queue_timeout_fixture(module):
-    """Existing queues deliberately retain different actors and other parameters."""
-    import copy
-
-    policy = _policy()
-    names = {"main": policy["main"]["merge_queue_ruleset_name"]}
-    names.update({branch: row["merge_queue_ruleset_name"]
-                  for branch, row in policy["branch_flow"]["prepared_branches"].items()})
-    state = {"queues": {}, "writes": [], "reads": []}
-    for index, (branch, name) in enumerate(names.items(), 1):
-        state["queues"][index] = {
-            "id": index, "name": name, "target": "branch", "enforcement": "active",
-            "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
-            "bypass_actors": [{"actor_id": index, "actor_type": "User", "bypass_mode": "pull_request"},
-                              {"actor_id": 42, "actor_type": "Team", "bypass_mode": "pull_request"}],
-            "rules": [{"type": "merge_queue", "parameters": {
-                "check_response_timeout_minutes": 30, "grouping_strategy": "ALLGREEN",
-                "max_entries_to_build": index, "max_entries_to_merge": 1, "merge_method": "MERGE",
-                "min_entries_to_merge": 1, "min_entries_to_merge_wait_minutes": 0}},
-                {"type": "required_signatures"}],
-        }
-    state["inventory"] = [{"id": i, "name": q["name"]} for i, q in state["queues"].items()]
-    inventory_endpoint = f"repos/{module.REPO}/rulesets?per_page=100&includes_parents=false"
-
-    def read(args):
-        # No review, guard, ref or source-parity reads are allowed in this bootstrap operation.
-        assert args[0] == "api" and len(args) == 2
-        endpoint = args[1]
-        state["reads"].append(endpoint)
-        if endpoint == inventory_endpoint:
-            return copy.deepcopy(state["inventory"])
-        assert endpoint.startswith(f"repos/{module.REPO}/rulesets/")
-        return copy.deepcopy(state["queues"][int(endpoint.rsplit("/", 1)[1])])
-
-    def write(endpoint, payload, method):
-        assert method == "PUT" and endpoint.startswith(f"repos/{module.REPO}/rulesets/")
-        ruleset_id = int(endpoint.rsplit("/", 1)[1])
-        state["writes"].append((endpoint, copy.deepcopy(payload)))
-        state["queues"][ruleset_id].update(copy.deepcopy(payload))
-        # The API may reorder actors in both snapshots and write readbacks.
-        state["queues"][ruleset_id]["bypass_actors"].reverse()
-
-    return policy, names, state, read, write
-
-
-def test_queue_timeout_only_preserves_authority_and_selected_destinations(module) -> None:
-    import copy
-    import prepared_branch_governance as prepared
-    from unittest.mock import patch
-
-    policy, names, state, read, write = _queue_timeout_fixture(module)
-    baseline = copy.deepcopy(state["queues"])
-    with patch.object(module, "gh_json", side_effect=read), patch.object(prepared, "_write", side_effect=write):
-        assert module.reconcile_queue_response_timeout(policy, list(names), apply=False)
-        assert state["queues"] == baseline and state["writes"] == []
-        assert module.reconcile_queue_response_timeout(policy, ["dev", "uat", "dev"], apply=True)
-        assert len(state["writes"]) == 2
-        assert state["queues"][1] == baseline[1], "Unselected Main must stay untouched"
-        assert module.reconcile_queue_response_timeout(policy, list(names), apply=True)
-        assert len(state["writes"]) == len(names)
-        assert not module.reconcile_queue_response_timeout(policy, list(names), apply=True)
-        assert len(state["writes"]) == len(names), "Repeated reconciliation must not write"
-    for ruleset_id, queue in state["queues"].items():
-        expected = copy.deepcopy(baseline[ruleset_id])
-        expected["rules"][0]["parameters"]["check_response_timeout_minutes"] = 120
-        assert prepared._same_queue(queue, expected, snapshot=True), "Only the timeout may change"
-
-
-def test_queue_timeout_refuses_bad_policy_and_unproven_queue_before_any_write(module) -> None:
-    import prepared_branch_governance as prepared
-    from unittest.mock import patch
-
-    faults = ("missing_policy", "string", "bool", "zero", "too_large", "empty", "unknown",
-              "missing_queue", "duplicate_queue", "wrong_scope", "disabled", "missing_rule",
-              "duplicate_rule", "missing_timeout", "bad_timeout", "wrong_identity", "incomplete_inventory")
-    for fault in faults:
-        policy, names, state, read, write = _queue_timeout_fixture(module)
-        branches = list(names)
-        queue = state["queues"][5]  # Invalid last destination must also stop all earlier writes.
-        values = {"string": "120", "bool": True, "zero": 0, "too_large": 361}
-        if fault == "missing_policy":
-            policy["branch_flow"].pop("merge_queue_check_response_timeout_minutes")
-        elif fault in values:
-            policy["branch_flow"]["merge_queue_check_response_timeout_minutes"] = values[fault]
-        elif fault == "empty": branches = []
-        elif fault == "unknown": branches = ["production"]
-        elif fault == "missing_queue": state["inventory"].pop()
-        elif fault == "duplicate_queue": state["inventory"].append(state["inventory"][-1])
-        elif fault == "wrong_scope": queue["conditions"]["ref_name"]["include"].append("refs/heads/other")
-        elif fault == "disabled": queue["enforcement"] = "disabled"
-        elif fault == "missing_rule": queue["rules"].pop(0)
-        elif fault == "duplicate_rule": queue["rules"].append(queue["rules"][0])
-        elif fault == "missing_timeout": queue["rules"][0]["parameters"].pop("check_response_timeout_minutes")
-        elif fault == "bad_timeout": queue["rules"][0]["parameters"]["check_response_timeout_minutes"] = True
-        elif fault == "wrong_identity": queue["id"] = 8
-        elif fault == "incomplete_inventory": state["inventory"] *= 20
-        with patch.object(module, "gh_json", side_effect=read), patch.object(prepared, "_write", side_effect=write):
-            try:
-                module.reconcile_queue_response_timeout(policy, branches, apply=True)
-            except SystemExit:
-                pass
-            else:
-                raise AssertionError(f"Queue timeout reconciliation accepted {fault}")
-        assert not state["writes"], fault
-
-
-def test_queue_timeout_refuses_concurrent_changes_and_bad_readback(module) -> None:
-    import prepared_branch_governance as prepared
-    from unittest.mock import patch
-
-    for fault in ("actors_reordered", "scope", "actors", "parameters", "duplicate", "readback"):
-        policy, _, state, read, write = _queue_timeout_fixture(module)
-        queue_endpoint = f"repos/{module.REPO}/rulesets/1"
-        detail_reads = 0
-        def concurrent_read(args):
-            nonlocal detail_reads
-            if args[1] == queue_endpoint:
-                detail_reads += 1
-                if detail_reads == 2:
-                    queue = state["queues"][1]
-                    if fault == "actors_reordered": queue["bypass_actors"].reverse()
-                    elif fault == "scope": queue["conditions"]["ref_name"]["exclude"] = ["refs/heads/main"]
-                    elif fault == "actors": queue["bypass_actors"].pop()
-                    elif fault == "parameters": queue["rules"][0]["parameters"]["max_entries_to_build"] = 8
-                if detail_reads == 3 and fault == "readback":
-                    state["queues"][1]["rules"][0]["parameters"]["check_response_timeout_minutes"] = 30
-            elif fault == "duplicate" and state["reads"]:
-                state["inventory"].append(state["inventory"][0])
-            return read(args)
-        with patch.object(module, "gh_json", side_effect=concurrent_read), patch.object(prepared, "_write", side_effect=write):
-            try:
-                module.reconcile_queue_response_timeout(policy, ["main"], apply=True)
-            except SystemExit as exc:
-                assert fault != "actors_reordered", str(exc)
-            else:
-                assert fault == "actors_reordered", f"Concurrent {fault} was accepted"
-        assert len(state["writes"]) == (1 if fault in {"actors_reordered", "readback"} else 0), fault
 
 
 if __name__ == "__main__":

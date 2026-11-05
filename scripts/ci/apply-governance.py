@@ -35,7 +35,7 @@ WHAT IT SYNCS (all idempotent — safe to re-run):
 USAGE:
   python3 scripts/ci/apply-governance.py            # dry-run: show the plan, change nothing
   python3 scripts/ci/apply-governance.py --apply    # actually push to GitHub
-  python3 scripts/ci/apply-governance.py --queue-response-timeout-policy main dev uat
+  python3 scripts/ci/apply-governance.py --queue-timeouts
       # separate budget-only dry-run; add --apply after reviewing the plan
 
 After --apply, verify both `main` and `integration/pr-train` branch protection.
@@ -925,61 +925,6 @@ def reconcile_main_review_ruleset(policy: dict, *, apply: bool) -> bool:
     return changed
 
 
-def reconcile_queue_response_timeout(policy: dict, branches: list[str], *, apply: bool) -> bool:
-    """Repair queue timing without changing review, bypass or source-parity policy.
-
-    This separate operation can precede Stage B: the longer queue budget must
-    allow application/source-sync PRs to validate before review migration.
-    """
-    from prepared_branch_governance import _same_queue, _write, queue_response_timeout, queue_timeout_payload
-
-    minutes = queue_response_timeout(policy)
-    names = {"main": policy["main"]["merge_queue_ruleset_name"]}
-    names.update({branch: item["merge_queue_ruleset_name"]
-                  for branch, item in policy["branch_flow"]["prepared_branches"].items()})
-    if not branches or any(branch not in names for branch in branches):
-        raise SystemExit("Select only authored branches for queue check-response timeout reconciliation")
-    inventory_endpoint = f"repos/{REPO}/rulesets?per_page=100&includes_parents=false"
-
-    def selected_id(inventory, name):
-        if (not isinstance(inventory, list) or len(inventory) >= 100
-                or any(not isinstance(row, dict) for row in inventory)):
-            raise SystemExit("Queue ruleset inventory is incomplete or malformed")
-        matches = [row for row in inventory if row.get("name") == name]
-        if len(matches) != 1 or type(matches[0].get("id")) is not int or matches[0]["id"] <= 0:
-            raise SystemExit(f"Missing or ambiguous named queue ruleset: {name}")
-        return matches[0]["id"]
-
-    inventory = gh_json(["api", inventory_endpoint])
-    plans = []
-    # Qualify every selected destination before making any write.
-    for branch in dict.fromkeys(branches):
-        name = names[branch]
-        ruleset_id = selected_id(inventory, name)
-        endpoint = f"repos/{REPO}/rulesets/{ruleset_id}"
-        current = gh_json(["api", endpoint])
-        if not isinstance(current, dict) or current.get("id") != ruleset_id:
-            raise SystemExit(f"Queue ruleset identity is unproven for {branch}")
-        desired = queue_timeout_payload(current, branch=branch, name=name, minutes=minutes)
-        before = next(rule for rule in current["rules"] if rule["type"] == "merge_queue")["parameters"][
-            "check_response_timeout_minutes"]
-        print(f"  {branch}: queue check-response timeout {before} -> {minutes} minutes")
-        if not _same_queue(current, desired):
-            plans.append((branch, ruleset_id, endpoint, current, desired))
-    if apply:
-        for branch, ruleset_id, endpoint, current, desired in plans:
-            if (selected_id(gh_json(["api", inventory_endpoint]), names[branch]) != ruleset_id
-                    or not _same_queue(gh_json(["api", endpoint]), current, snapshot=True)):
-                raise SystemExit(f"Queue rules changed for {branch}; replan before writing")
-            _write(endpoint, desired, "PUT")
-            after = gh_json(["api", endpoint])
-            if (not isinstance(after, dict) or after.get("id") != ruleset_id
-                    or not _same_queue(after, desired)):
-                raise SystemExit(f"Queue timeout readback differs for {branch}; inspect before continuing")
-        print("Queue timeout reconciliation verified; review and merge authority are unchanged.")
-    return bool(plans)
-
-
 def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     """Narrow Main merger authority with explicit owner self-approval and required CI.
 
@@ -1057,6 +1002,9 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))
     ):
         raise SystemExit("Main queue configuration is not the reviewed active boundary")
+    from prepared_branch_governance import queue_rules
+
+    desired_rules = queue_rules(policy, queue["rules"])
     desired = {"users": users, "teams": [], "apps": []}
     current = protection.get("restrictions") or {}
     restricted = {
@@ -1093,6 +1041,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or checks.get("strict") is not False
         or queue.get("bypass_actors") != bypass
         or observed_scope != main_scope
+        or queue["rules"] != desired_rules
     )
     if not apply:
         print(
@@ -1107,7 +1056,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
                 _write(f"{endpoint}/restrictions/{key}", {key: desired[key]}, "PUT")
-    if queue.get("bypass_actors") != bypass or observed_scope != main_scope:
+    if queue.get("bypass_actors") != bypass or observed_scope != main_scope or queue["rules"] != desired_rules:
         if gh_json(["api", queue_endpoint]) != queue:
             raise SystemExit("Main queue changed during reconciliation")
         if bypass:
@@ -1117,6 +1066,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             for key in ("name", "target", "enforcement", "conditions", "rules")
         }
         body["conditions"] = main_scope
+        body["rules"] = desired_rules
         body["bypass_actors"] = bypass
         _write(queue_endpoint, body, "PUT")
     if checks.get("strict") is not False:
@@ -1125,6 +1075,46 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             {"strict": False, "checks": checks["checks"]},
             "PATCH",
         )
+    return changed
+
+
+def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
+    """Repair response ceilings without changing membership or merge protections."""
+    from prepared_branch_governance import _write, queue_rules
+
+    index = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
+    if not isinstance(index, list) or len(index) >= 100:
+        raise SystemExit("Queue ruleset inventory is incomplete")
+    plans = []
+    for branch in ("main", "dev", "uat"):
+        name = (policy["main"]["merge_queue_ruleset_name"] if branch == "main" else
+                policy["branch_flow"]["prepared_branches"][branch]["merge_queue_ruleset_name"])
+        matches = [row for row in index if row.get("name") == name]
+        if len(matches) != 1:
+            raise SystemExit(f"Queue ruleset is ambiguous for {branch}")
+        endpoint = f"repos/{REPO}/rulesets/{matches[0]['id']}"
+        current = gh_json(["api", endpoint])
+        refs = current.get("conditions", {}).get("ref_name", {})
+        if (current.get("target") != "branch" or current.get("enforcement") != "active"
+                or refs != {"include": [f"refs/heads/{branch}"], "exclude": []}):
+            raise SystemExit(f"Queue scope differs for {branch}; inspect before repair")
+        desired = {key: current[key] for key in
+                   ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")}
+        desired["rules"] = queue_rules(policy, current["rules"])
+        plans.append((branch, endpoint, current, desired))
+    changed = False
+    for branch, endpoint, before, desired in plans:
+        differs = before["rules"] != desired["rules"]
+        changed |= differs
+        print(f"  {branch}: queue response ceiling change={differs}")
+        if apply and differs:
+            # Never replace another operator's intervening policy change.
+            if gh_json(["api", endpoint]) != before:
+                raise SystemExit("Queue changed before repair; no replacement performed")
+            _write(endpoint, desired, "PUT")
+            after = gh_json(["api", endpoint])
+            if any(after.get(key) != value for key, value in desired.items()):
+                raise SystemExit("Queue repair readback differs; reconcile before retry")
     return changed
 
 
@@ -1141,23 +1131,21 @@ def main() -> int:
                     help="Reconcile Main merger/queue restrictions after combined-result qualification.")
     ap.add_argument("--protected-pipeline-review-policy", action="store_true",
                     help="Stage A: add independent native path review while retaining all existing safeguards.")
-    ap.add_argument("--queue-response-timeout-policy", nargs="+",
-                    choices=["main", "dev", "uat", "uat-isolated", "integration/pr-train"],
-                    help="Reconcile only the queue timeout for selected existing governed branches.")
+    ap.add_argument("--queue-timeouts", action="store_true",
+                    help="Reconcile only Main/Dev/UAT queue response ceilings; preserve every other control.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
         raise SystemExit(f"Policy file not found: {POLICY_PATH}")
     policy = load_policy()
+    if args.queue_timeouts:
+        if args.branch or args.main_review_policy or args.main_merge_policy or args.protected_pipeline_review_policy:
+            raise SystemExit("Queue timeout repair cannot be combined with another governance operation")
+        reconcile_queue_timeouts(policy, apply=args.apply)
+        return 0
 
     mode = "APPLY" if args.apply else "DRY-RUN (no changes — pass --apply to push)"
     print(f"=== apply-governance [{mode}] — source: config/ci-governance.json ===\n")
-
-    if args.queue_response_timeout_policy:
-        if args.branch or args.main_review_policy or args.main_merge_policy or args.protected_pipeline_review_policy:
-            raise SystemExit("Queue timeout reconciliation is separate from review and merge policy changes")
-        reconcile_queue_response_timeout(policy, args.queue_response_timeout_policy, apply=args.apply)
-        return 0
 
     if args.protected_pipeline_review_policy:
         if args.branch or args.main_review_policy or args.main_merge_policy:

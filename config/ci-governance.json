@@ -3,7 +3,6 @@
     "intake_branch": "dev",
     "train_branch": "integration/pr-train",
     "promotion_branch": "main",
-    "merge_queue_check_response_timeout_minutes": 120,
     "main_allowed_head_branches": [
       "integration/pr-train",
       "maintainer/promote-damria-one-location-to-main",
@@ -37,7 +36,8 @@
     "protected_pipeline_review_ruleset_name": "protected pipeline review"
   },
   "repository": {
-    "allow_auto_merge": true
+    "allow_auto_merge": true,
+    "merge_queue_check_timeout_minutes": 120
   },
   "main": {
     "required_status_check": "CI Status Gate",
