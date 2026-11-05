@@ -8,7 +8,7 @@ import importlib
 import io
 import json
 from types import SimpleNamespace
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import pytest
 
@@ -139,8 +139,10 @@ def _archive_ports(state, identity, monkeypatch):
     def archive():
         stream = io.BytesIO()
         with ZipFile(stream, "w") as zipped:
+            # Rebuilt mock downloads must not change at ZIP timestamp boundaries.
             for name, document in docs.items():
-                zipped.writestr(name, json.dumps(document))
+                member = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                zipped.writestr(member, json.dumps(document))
         return stream.getvalue()
 
     content = archive()
