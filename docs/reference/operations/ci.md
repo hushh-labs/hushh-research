@@ -104,6 +104,9 @@ to their existing functional browser, unit or compiler owner instead. Shared
 request timeouts retain their direct cancellation/timeout tests, and generated
 workflow cards retain compiler and behavior checks. Pure portrait/frame/geometry
 comparisons stay diagnostic; real interaction and renderer lifecycle checks remain.
+Mark appearance-only browser cases with `@presentation` so explicit diagnostic
+commands retain them while required functional runs exclude them. Do not apply
+that tag to interaction, accessibility, consent, identity or recovery contracts.
 
 ## Queue response ceiling
 

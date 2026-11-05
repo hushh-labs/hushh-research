@@ -15,15 +15,16 @@ on:
         required: false
         type: string
       sha:
-        description: Exact application SHA. Required in isolated mode.
+        description: Exact application SHA. Required when selecting a protected UAT branch.
         required: false
         type: string
       source_branch:
-        description: Select the ordinary Main build or the exact accepted isolated UAT candidate.
+        description: Select a Main build or the exact accepted source of a protected UAT branch.
         type: choice
         default: main
         options:
           - main
+          - uat
           - uat-isolated
       marketing_version:
         description: Optional packaging version (x.y.z); does not change the release source or public App Store version.
@@ -42,6 +43,10 @@ on:
       run_core_tests:
         description: Run the focused simulator App Intent/action smoke gate (full AppTests remain in change-aware CI).
         required: false
+        default: false
+        type: boolean
+      verify_tester_access:
+        description: Verify the configured tester's access after normal distribution.
         default: false
         type: boolean
       notes:
@@ -146,17 +151,17 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
-          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+          if [[ "$SOURCE_BRANCH" == uat || "$SOURCE_BRANCH" == uat-isolated ]]; then
             if [[ "$REQUESTED_SHA" != "$SHA" || "$REQUIRE_HARDWARE" == true ]]; then
-              echo "Isolated TestFlight requires a full SHA and supports the standard hardware=false release." >&2
+              echo "Exact UAT TestFlight requires a full SHA and supports the standard hardware=false release." >&2
               exit 1
             fi
             bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
-            git fetch --no-tags origin uat-isolated
-            gh api "repos/$GITHUB_REPOSITORY/branches/uat-isolated" \
+            git fetch --no-tags origin "$SOURCE_BRANCH"
+            gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" \
               | jq -e --arg sha "$SHA" '.protected == true and .commit.sha == $sha' >/dev/null
-            # Exact isolated CI overlays these release controls from Main. Only
-            # run the candidate copies with signing credentials when they agree.
+            # Run the candidate release controls with signing credentials only
+            # when they agree with the Main dispatch revision.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
               .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
@@ -171,7 +176,7 @@ jobs:
               ':(glob)scripts/ci/*appstore*' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' || {
-                echo "Isolated native release tooling differs from the Main dispatch revision." >&2
+                echo "UAT native release tooling differs from the Main dispatch revision." >&2
                 exit 1
               }
           else
@@ -222,7 +227,7 @@ jobs:
         run: |
           set -euo pipefail
           resolver="$RUNNER_TEMP/resolve-cloud-run-serving-state.py"
-          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+          if [[ "$SOURCE_BRANCH" == uat || "$SOURCE_BRANCH" == uat-isolated ]]; then
             cp scripts/ci/resolve-cloud-run-serving-state.py "$resolver"
           else
             git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py" > "$resolver"
@@ -241,13 +246,13 @@ jobs:
             --region="$GCP_REGION" \
             --format='json(metadata.labels,status.imageDigest)' > "$revision_json"
           actual_sha="$(jq -er '.metadata.labels["deploy-sha"]' "$revision_json")"
-          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+          if [[ "$SOURCE_BRANCH" == uat || "$SOURCE_BRANCH" == uat-isolated ]]; then
             test "$actual_sha" = "$EXPECTED_SHA"
             run_id="$(jq -er '.metadata.labels["github-run-id"]' "$revision_json")"
             image="$(jq -er '.status.imageDigest' "$revision_json")"
             image="${image##*@}"
             python3 scripts/ci/verify-predecessor-acceptance.py testflight-uat \
-              --environment uat --sha "$EXPECTED_SHA" --deployment-run-id "$run_id" \
+              --environment uat --source-branch "$SOURCE_BRANCH" --sha "$EXPECTED_SHA" --deployment-run-id "$run_id" \
               --serving-revision "$revision" --serving-image "$image" \
               --output "$RUNNER_TEMP/testflight-uat-acceptance.json"
             echo "isolated_revision=$revision" >> "$GITHUB_OUTPUT"
@@ -358,7 +363,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - name: Preserve trusted serving revision verifier
-        if: inputs.source_branch == 'uat-isolated'
+        if: inputs.source_branch == 'uat' || inputs.source_branch == 'uat-isolated'
         run: cp scripts/ci/resolve-cloud-run-serving-state.py "$RUNNER_TEMP/testflight-serving-state.py"
       - name: Check out exact release SHA
         uses: actions/checkout@v6
@@ -491,7 +496,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$ISOLATED_AUTHORITY" ]]; then
-            # Isolated CI used this verifier with the exact candidate. Use it
+            # Exact UAT CI used this verifier with the candidate. Use it
             # for the same checks, then restore the candidate before packaging.
             graph=consent-protocol/scripts/generate_capability_graph.py
             trap 'git restore --worktree -- "$graph"' EXIT
@@ -639,7 +644,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "$SOURCE_BRANCH" == uat-isolated ]]; then
+          if [[ "$SOURCE_BRANCH" == uat || "$SOURCE_BRANCH" == uat-isolated ]]; then
             test -n "$ISOLATED_REVISION"
             service_json="$RUNNER_TEMP/testflight-live-service.json"
             gcloud run services describe "$BACKEND_SERVICE" --project="$GCP_PROJECT_ID" \
@@ -712,9 +717,10 @@ jobs:
           with archive_info.open('rb') as handle:
               version = plistlib.load(handle)['CFBundleShortVersionString']
           receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
-          if os.environ.get('SOURCE_BRANCH') == 'uat-isolated':
+          source_branch = os.environ.get('SOURCE_BRANCH', 'main')
+          if source_branch in {'uat', 'uat-isolated'}:
               receipt.update(
-                  source_branch='uat-isolated',
+                  source_branch=source_branch,
                   upload_attempt=int(os.environ['GITHUB_RUN_ATTEMPT']),
                   uat_backend_revision=os.environ['ISOLATED_REVISION'],
                   uat_deployment_run_id=int(os.environ['ISOLATED_RUN']),
@@ -832,6 +838,8 @@ jobs:
         id: distribution
         if: inputs.dry_run != true
         shell: bash
+        env:
+          TESTFLIGHT_TESTER_EMAIL: ${{ inputs.verify_tester_access && secrets.TESTFLIGHT_TESTER_EMAIL || '' }}
         run: |
           set -euo pipefail
           python3 scripts/ci/distribute-testflight-build.py \
@@ -926,7 +934,7 @@ jobs:
           assert re.fullmatch(r'[0-9]+', receipt['build_number'])
           assert re.fullmatch(r'[0-9]+(?:\.[0-9]+){1,2}', receipt['marketing_version'])
           source = receipt.get('source_branch', 'main')
-          if source == 'uat-isolated':
+          if source in {'uat', 'uat-isolated'}:
               original_run = json.loads(pathlib.Path(os.environ['RUNNER_TEMP'], 'upload-run.json').read_text())
               assert original_run['path'] == '.github/workflows/ship-ios-testflight.yml'
               assert original_run['head_repository']['full_name'] == os.environ['GH_REPO']
