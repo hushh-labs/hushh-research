@@ -98,6 +98,13 @@ report lists hosted browser, database and native checks still required; a local
 pass cannot satisfy exact-head hosted admission. Use `--diagnostic` for the
 retained full mirror, optionally with `--include-advisory`.
 
+The browser plan reports unclassified paths before installation. An unclassified
+application dependency retains conservative coverage; known helpers must attach
+to their existing functional browser, unit or compiler owner instead. Shared
+request timeouts retain their direct cancellation/timeout tests, and generated
+workflow cards retain compiler and behavior checks. Pure portrait/frame/geometry
+comparisons stay diagnostic; real interaction and renderer lifecycle checks remain.
+
 ## Queue response ceiling
 
 Main, Dev and UAT allow 120 minutes for required queue checks to return. This is
