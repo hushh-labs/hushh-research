@@ -20,6 +20,14 @@ def test_hosted_isolated_acceptance_has_distinct_type_and_source_consumer(monkey
     assert hosted.source_calls == [31] * (2 if environment == "uat" else 1)
 
 
+@pytest.mark.parametrize("field", ["actor", "triggering_actor"])
+def test_hosted_acceptance_rejects_a_removed_production_operator(monkeypatch, field):
+    hosted = HostedAcceptance(monkeypatch)
+    hosted.responses["runs/17"][field]["login"] = "DamriaNeelesh"
+    with pytest.raises(ValueError, match="qualification_run_identity_unverified"):
+        hosted.module.verify("dev", hosted.runs["dev"], github=hosted)
+
+
 @pytest.mark.parametrize(
     "case",
     [
