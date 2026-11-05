@@ -26,6 +26,7 @@ export function toAccountRecord(
   // official_name is intentionally dropped.
   return {
     account_id: account.account_id,
+    ...(account.holder_category !== undefined ? { holder_category: cleanText(account.holder_category) } : {}),
     persistent_account_id: cleanText(account.persistent_account_id),
     item_id: itemId,
     institution_id: connection.institution_id,

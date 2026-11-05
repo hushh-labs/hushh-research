@@ -6,22 +6,14 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { StockDetailContent, type StockHistoryLoader } from "@/components/kai/cards/stock-detail-content";
 import styles from "@/components/kai/shared/finance-workspace.module.css";
-import { StockListToolbar, StockRowsPerPage } from "@/components/kai/cards/stock-list-toolbar";
+import { StockListToolbar } from "@/components/kai/cards/stock-list-toolbar";
+import { CompactPaginationFooter } from "@/components/app-ui/compact-pagination-footer";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
-import { Button } from "@/lib/morphy-ux/button";
+import { Button } from "@/components/ui/button";
 import { SettingsGroup } from "@/components/profile/settings-ui";
 import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
-import {
-  Pagination,
-  PaginationContent,
-  PaginationEllipsis,
-  PaginationItem,
-  PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
-} from "@/components/ui/pagination";
 import type {
   KaiHomeNewsItem,
   KaiHomePickSource,
@@ -209,59 +201,6 @@ export function RiaPicksList({
   }, [loadCompanyFacts, visibleSymbolsKey, rows]);
   const selectedFacts = selectedRow ? factsBySymbol[selectedRow.quote_symbol || selectedRow.symbol] || selectedRow.company_facts : undefined;
 
-  const pageNumbers = useMemo(() => {
-    if (isMobile) {
-      if (totalPages <= 3) {
-        return Array.from({ length: totalPages }, (_, index) => index + 1);
-      }
-
-      if (page <= 2) {
-        return [1, 2, "ellipsis-end", totalPages] as const;
-      }
-
-      if (page >= totalPages - 1) {
-        return [1, "ellipsis-start", totalPages - 1, totalPages] as const;
-      }
-
-      return [1, "ellipsis-start", page, "ellipsis-end", totalPages] as const;
-    }
-
-    if (totalPages <= 7) {
-      return Array.from({ length: totalPages }, (_, index) => index + 1);
-    }
-
-    if (page <= 4) {
-      return [1, 2, 3, 4, 5, "ellipsis-end", totalPages] as const;
-    }
-
-    if (page >= totalPages - 3) {
-      return [
-        1,
-        "ellipsis-start",
-        totalPages - 4,
-        totalPages - 3,
-        totalPages - 2,
-        totalPages - 1,
-        totalPages,
-      ] as const;
-    }
-
-    return [
-      1,
-      "ellipsis-start",
-      page - 1,
-      page,
-      page + 1,
-      "ellipsis-end",
-      totalPages,
-    ] as const;
-  }, [isMobile, page, totalPages]);
-
-  const visibleStart =
-    filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const visibleEnd = Math.min(page * pageSize, filteredRows.length);
-
-
   const goToPage = (nextPage: number) => {
     setPage(Math.max(1, Math.min(totalPages, nextPage)));
   };
@@ -270,9 +209,8 @@ export function RiaPicksList({
     <div className={cn(styles.detail, "space-y-4")}>
       <StockListToolbar query={query} setQuery={setQuery} tier={tierFilter} setTier={setTierFilter}
         sector={sectorFilter} setSector={setSectorFilter} sectors={sectors}
-        pageSize={pageSize} setPageSize={setPageSize} pageSizes={pageSizeOptions}
         sources={availableSources} activeSource={activeSource?.id || "default"} onSourceChange={onSourceChange} actions={toolbarActions} />
-      <div className="flex items-baseline justify-between gap-3"><h2 className="text-sm font-semibold">Companies</h2><p className="text-xs text-muted-foreground">{filteredRows.length} results</p></div>
+      <h2 className="ui-text-section-label">Companies</h2>
       <SettingsGroup className={marketSettingsGroupClassName}>
         {filteredRows.length === 0 ? (
           <div className="px-4 py-4 text-sm text-muted-foreground">
@@ -292,16 +230,20 @@ export function RiaPicksList({
               const cap = factsBySymbol[row.quote_symbol || row.symbol]?.market_cap ?? row.company_facts?.market_cap ?? row.market_cap;
               const capLabel = typeof cap === "number" && cap > 0 ? `${formatCompactNumber(cap)} cap` : "Cap unavailable";
 
+              const selected = selectedRow?.symbol === row.symbol && selectedRow?.tier === row.tier;
               return (
                 <button
                   key={`${row.symbol}-${row.tier || "tierless"}`}
                   type="button"
                   data-testid="market-pick-row"
+                  data-finance-selected={selected || undefined}
+                  aria-haspopup="dialog"
+                  aria-expanded={selected}
                   data-no-route-swipe
                   onClick={() => setSelectedRow(row)}
                   className={cn(
-                    "group relative isolate flex w-full gap-3 text-left transition-colors",
-                    "items-center border-t border-border/60 px-4 py-4 hover:bg-muted/40 active:bg-muted/60 first:border-t-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                    styles.interactiveRow,
+                    "group relative isolate flex w-full items-center gap-3 border-t border-border/60 px-4 py-4 text-left first:border-t-0",
                   )}
                 >
                   <div className="shrink-0">
@@ -349,6 +291,7 @@ export function RiaPicksList({
                   <MaterialRipple
                     variant="none"
                     effect="fade"
+                    disableHover
                     className="z-10"
                   />
                 </button>
@@ -357,73 +300,17 @@ export function RiaPicksList({
           </div>
         )}
 
-        {filteredRows.length > pageSize ? (
-          <div
-            className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4"
-            data-no-route-swipe
-          >
-            <div className="space-y-1">
-              <p className="text-xs leading-5 text-muted-foreground">
-                Page {page} of {totalPages}
-              </p>
-            </div>
-            <Pagination className="mx-0 w-full sm:w-auto sm:justify-end">
-              <PaginationContent className="flex-nowrap justify-start sm:justify-end">
-                <PaginationItem>
-                  <PaginationPrevious
-                    href="#"
-                    className={cn(
-                      page === 1 && "pointer-events-none opacity-50",
-                    )}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      goToPage(page - 1);
-                    }}
-                  />
-                </PaginationItem>
-                {pageNumbers.map((pageNumber) => {
-                  if (typeof pageNumber !== "number") {
-                    return (
-                      <PaginationItem key={pageNumber}>
-                        <PaginationEllipsis />
-                      </PaginationItem>
-                    );
-                  }
-
-                  return (
-                    <PaginationItem key={pageNumber}>
-                      <PaginationLink
-                        href="#"
-                        isActive={pageNumber === page}
-                        size="icon"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          goToPage(pageNumber);
-                        }}
-                      >
-                        {pageNumber}
-                      </PaginationLink>
-                    </PaginationItem>
-                  );
-                })}
-                <PaginationItem>
-                  <PaginationNext
-                    href="#"
-                    className={cn(
-                      page === totalPages && "pointer-events-none opacity-50",
-                    )}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      goToPage(page + 1);
-                    }}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          </div>
-        ) : null}
+        <CompactPaginationFooter
+          total={filteredRows.length}
+          page={page}
+          pageSize={pageSize}
+          pageSizes={pageSizeOptions}
+          onPageChange={goToPage}
+          onPageSizeChange={setPageSize}
+          itemLabels={["company", "companies"]}
+          className="border-t border-border px-4 py-1"
+        />
       </SettingsGroup>
-      <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-xs leading-[18px] text-muted-foreground">{visibleStart}–{visibleEnd} of {filteredRows.length} companies</p><StockRowsPerPage value={pageSize} onChange={setPageSize} options={pageSizeOptions} /></div>
 
       <KaiControlSurface
         open={Boolean(selectedRow)}
@@ -457,11 +344,11 @@ export function RiaPicksList({
         }
         surfaceClassName={styles.detail}
         headerTextOverflow="wrap"
-        footer={selectedRow && onAnalyze ? <Button variant="none" effect="fade" data-voice-control-id="analysis_stock_details_preview" onClick={() => {
+        footer={selectedRow && onAnalyze ? <div className="flex w-full justify-center"><Button size="standard" data-voice-control-id="analysis_stock_details_preview" onClick={() => {
           const symbol = selectedRow.symbol;
           setSelectedRow(null);
           onAnalyze(symbol);
-        }}>Analyze {selectedRow.symbol}</Button> : undefined}
+        }}>Analyze {selectedRow.symbol}</Button></div> : undefined}
       >
         {selectedRow ? <StockDetailContent key={selectedRow.symbol} row={selectedRow} facts={selectedFacts} loadHistory={loadHistory} loadQuote={loadQuote} news={news} /> : null}
       </KaiControlSurface>

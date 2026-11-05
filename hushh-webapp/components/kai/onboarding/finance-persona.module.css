@@ -3,6 +3,13 @@
   gap: 1rem;
   padding-block: 1rem;
 }
+.onboarding {
+  width: min(100%, 36rem);
+  margin-inline: auto;
+}
+.onboarding .questions {
+  grid-template-columns: minmax(0, 1fr);
+}
 .form h1 {
   margin-block: 0.25rem;
 }
@@ -64,6 +71,9 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 0.5rem;
+}
+.onboarding .actions {
+  justify-content: center;
 }
 .form .primary,
 .reveal .primary {

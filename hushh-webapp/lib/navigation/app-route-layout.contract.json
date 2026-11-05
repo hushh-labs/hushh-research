@@ -3363,6 +3363,14 @@
           }
         },
         {
+          "href": "/one/kai/import?from=%2Fone%2Fkai%3Ftab%3Dportfolio&stage=reviewing",
+          "expected": {
+            "href": "/one/kai?tab=portfolio",
+            "mode": "push",
+            "transitionMode": "full"
+          }
+        },
+        {
           "href": "/one/kai/import?from=%2Fone%2Fkai%2Fportfolio%2Fsources",
           "expected": {
             "href": "/one/kai/portfolio/sources",
@@ -4674,7 +4682,7 @@
         }
       ],
       "kind": "parent",
-      "reason": "Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
+      "reason": "The requested portfolio review sheet dismisses before route navigation. Advisor request preview returns to advisor selection before closing. Advisor workspace closes before parent navigation; in-flight mutations consume Back. Opaque advisorReview query selects a participant-authorized workspace."
     }
   },
   {

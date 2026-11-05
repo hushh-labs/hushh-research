@@ -11,6 +11,7 @@ import {
 } from "@/lib/one-location/encryption";
 import { OneLocationService } from "@/lib/one-location/service";
 import { financeDigest } from "@/lib/finance-sharing/contract";
+import { PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS } from "@/lib/utils/request-timeouts";
 import {
   advisorSnapshotContext,
   advisorSnapshotSchema,
@@ -89,6 +90,7 @@ export async function advisorRequest<T>(
       method,
       cache: "no-store",
       signal,
+      ...(path === "/portfolio-analysis" ? { timeoutMs: PORTFOLIO_REVIEW_CLIENT_TIMEOUT_MS } : {}),
       isEffectCurrent: () => context.isCurrent() && !signal?.aborted,
       headers: {
         Authorization: `Bearer ${token}`,

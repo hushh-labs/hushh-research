@@ -12,7 +12,7 @@ let css: string;
 let script: string;
 let marketScript: string;
 let saveActionClass: string;
-let stickyOffsets: string[];
+let importShellClasses: string[];
 let fixtureOutDir: string | undefined;
 
 test.beforeAll(async () => {
@@ -21,15 +21,17 @@ test.beforeAll(async () => {
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
   const candidates = new Set<string>();
-  const providerSource = fs.readFileSync(path.join(root, "app/providers.tsx"), "utf8");
-  const offsets = providerSource.match(/"--app-sticky-bottom-offset"\s*:\s*shouldLockFullscreenRoot\s*&&\s*!hideGlobalChrome\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/);
-  if (!offsets) {
-    throw new Error("Could not extract --app-sticky-bottom-offset branch values from app/providers.tsx");
-  }
-  stickyOffsets = [offsets[1], offsets[2]];
   const reviewSource = fs.readFileSync(path.join(root, "components/kai/views/portfolio-review-view.tsx"), "utf8");
   saveActionClass = reviewSource.match(/data-portfolio-review-save\s+className="([^"]+)"/)![1];
-  for (const candidate of scanner.scanFiles([{ content: saveActionClass, extension: "html" }])) candidates.add(candidate);
+  importShellClasses = [
+    "app/one/kai/import/page.tsx",
+    "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+  ].map(file => {
+    const source = fs.readFileSync(path.join(root, file), "utf8");
+    return source.match(/<FullscreenFlowShell\b[^>]*className="([^"]+)"/)![1];
+  });
+  const shellFixtureClasses = ["h-full min-h-0 flex flex-col w-full pb-4", saveActionClass, ...importShellClasses];
+  for (const candidate of scanner.scanFiles([{ content: shellFixtureClasses.join(" "), extension: "html" }])) candidates.add(candidate);
 
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-markdown-"));
   fixtureOutDir = outDir;
@@ -50,6 +52,7 @@ test.beforeAll(async () => {
     oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
+        { find: /^\.\/portfolio-persona$/, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") },
         ...["@/lib/advisor-review/service", "@/lib/advisor-review/snapshot"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/advisor-review-boundaries.ts") })),
         ...["@/lib/finance-sharing/use-finance-share-context", "@/lib/finance-sharing/saved-source", "@/lib/services/finance-sharing-service"].map(find => ({ find, replacement: path.join(root, "e2e/fixtures/finance-sharing-boundaries.ts") })),
         { find: /^@\/lib\/kai\/ticker-universe-cache$/, replacement: path.join(root, "e2e/fixtures/finance-market-boundaries.ts") },
@@ -145,9 +148,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
     test.use({ locale: "en-US", timezoneId: theme === "light" ? "Asia/Kolkata" : "America/Los_Angeles" });
     test(`Market briefing stays readable and fits at ${width}px in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 932 });
-      await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
-        contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
-      }));
+
       await page.route("http://localhost/finance-market", route => route.fulfill({
         contentType: "text/html",
         body: `<!doctype html><html class="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -160,7 +161,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
       });
       await page.addScriptTag({ content: marketScript });
       await awaitProductFont(page);
-      await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
+
       await expectMarketMiniCharts(page);
       const action = page.getByRole("button", { name: "All news", exact: true });
       await expect(action).toBeVisible();
@@ -184,7 +185,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
           railOverflow: el.parentElement!.scrollWidth > el.parentElement!.clientWidth,
         };
       });
-      expect(measurements.font).toMatch(/Inter/);
+      expect(measurements.font).toMatch(/Plus Jakarta Sans/);
       expect(measurements.headline).toEqual(["15px", "22px", "600"]);
       expect(measurements.metadata).toEqual(["12px", "18px"]);
       expect(measurements.clamp).toBe("none");
@@ -203,21 +204,34 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
         expect(moverBounds!.y).toBeGreaterThan(sectorBounds!.y + sectorBounds!.height);
         expect(Math.abs(sectorBounds!.width - moverBounds!.width)).toBeLessThanOrEqual(1);
       }
-      const gainers = await movers.getByRole("heading", { name: "Movers", exact: true }).boundingBox();
-      const decliners = await movers.getByRole("heading", { name: "Losers", exact: true }).boundingBox();
-      expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
-      expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
-      expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-      await expectMarketLocalTimes(page, theme === "light" ? "7:30 PM" : "7:00 AM");
-      for (const pair of await movers.locator("[data-market-mover-pair]").all()) {
-        const cells = pair.getByRole("button");
-        if (await cells.count() === 2) {
-          const first = await cells.nth(0).boundingBox();
-          const second = await cells.nth(1).boundingBox();
-          expect(Math.abs(first!.y - second!.y)).toBeLessThanOrEqual(1);
-          expect(Math.abs(first!.height - second!.height)).toBeLessThanOrEqual(1);
+      const gainsHeading = movers.getByRole("heading", { name: "Gainers", exact: true });
+      const lossesHeading = movers.getByRole("heading", { name: "Losers", exact: true });
+      const headingPaint = (heading: typeof gainsHeading) => heading.evaluate(element => ({
+        background: getComputedStyle(element).backgroundColor,
+        text: getComputedStyle(element.querySelector("span")!).color,
+      }));
+      const gainsPaint = await headingPaint(gainsHeading);
+      const lossesPaint = await headingPaint(lossesHeading);
+      expect(gainsPaint.background).not.toBe("rgba(0, 0, 0, 0)");
+      expect(gainsPaint.background).not.toBe(lossesPaint.background);
+      expect(gainsPaint.text).not.toBe(lossesPaint.text);
+      const gainers = await gainsHeading.boundingBox();
+      const decliners = await lossesHeading.boundingBox();
+      if (width < 640) {
+        expect(decliners!.y).toBeGreaterThan(gainers!.y + gainers!.height);
+      } else {
+        expect(Math.abs(gainers!.y - decliners!.y)).toBeLessThanOrEqual(1);
+        expect(gainers!.x + gainers!.width).toBeLessThanOrEqual(decliners!.x);
+        for (const rank of [0, 1, 2]) {
+          const rows = movers.locator(`[data-market-mover-rank="${rank}"]`);
+          const first = (await rows.nth(0).boundingBox())!;
+          const second = (await rows.nth(1).boundingBox())!;
+          expect(Math.abs(first.y - second.y)).toBeLessThanOrEqual(1);
+          expect(Math.abs(first.height - second.height)).toBeLessThanOrEqual(1);
         }
       }
+      expect(await movers.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await expectMarketLocalTimes(page, theme === "light" ? "7:30 PM" : "7:00 AM");
 
       for (const mover of await movers.getByRole("button").all()) {
         await expect(mover).toBeVisible();
@@ -275,9 +289,7 @@ async function mount(page: Page, width = 393, onboarding = false) {
   const runtimeErrors: string[] = [];
   page.on("pageerror", error => runtimeErrors.push(error.message));
   await page.setViewportSize({ width, height: 852 });
-  await page.route("http://localhost/fonts/Inter/InterVariable.woff2", route => route.fulfill({
-    contentType: "font/woff2", body: fs.readFileSync(path.join(process.cwd(), "public/fonts/Inter/InterVariable.woff2")),
-  }));
+
   await page.route("http://localhost/finance-fixture", route => route.fulfill({
     contentType: "text/html",
     body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style><style>html,body{height:auto}</style></head><body><div id="root"></div></body></html>`,
@@ -290,7 +302,7 @@ async function mount(page: Page, width = 393, onboarding = false) {
   });
   expect(runtimeErrors).toEqual([]);
   await awaitProductFont(page);
-  await page.evaluate(async () => { await document.fonts.load('600 15px "Inter"'); await document.fonts.ready; });
+
 }
 
 for (const width of [375, 393, 430]) {
@@ -312,9 +324,9 @@ for (const width of [375, 393, 430]) {
       const style = getComputedStyle(element);
       return { family: style.fontFamily, weight: style.fontWeight, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
     });
-    expect(type.family).toMatch(/Inter/);
+    expect(type.family).toMatch(/Plus Jakarta Sans/);
     expect(Number(type.weight)).toBeGreaterThanOrEqual(600);
-    expect(type.size).toBeGreaterThanOrEqual(15);
+    expect(type.size).toBe(14);
     expect(type.clamp).toBe("none");
     expect(type.overflow).not.toBe("hidden");
     const stocks = page.getByTestId("market-iphone-fixture");
@@ -350,7 +362,7 @@ for (const width of [375, 393, 430]) {
         const style = getComputedStyle(element);
         return { font: style.fontFamily, size: parseFloat(style.fontSize), clamp: style.webkitLineClamp, overflow: style.overflow };
       });
-      expect(headingStyle.font).toMatch(/Inter/);
+      expect(headingStyle.font).toMatch(/Plus Jakarta Sans/);
       expect(headingStyle.size).toBeGreaterThanOrEqual(20);
       expect(headingStyle.clamp).toBe("none");
       expect(headingStyle.overflow).not.toBe("hidden");
@@ -364,20 +376,14 @@ for (const width of [375, 393, 430]) {
   });
 }
 
-test("import progress and stream updates retain their layout", async ({ page }) => {
+test("statement status keeps Cancel reachable while reading", async ({ page }) => {
   await mount(page);
-  const bar = page.getByRole("progressbar", { name: "Import progress" });
-  const footer = page.getByTestId("after-import");
-  const update = page.getByRole("button", { name: "Update progress" });
-  // The fixture includes other screens above this one. Settle browser scrolling
-  // before measuring so the assertion detects layout movement, not viewport movement.
-  await update.scrollIntoViewIfNeeded();
-  const initialBar = await bar.boundingBox();
-  const initialFooter = await footer.boundingBox();
-  await update.click();
-  await expect(bar).toHaveAttribute("aria-valuenow", "77");
-  expect((await bar.boundingBox())?.y).toBe(initialBar?.y);
-  expect((await footer.boundingBox())?.y).toBe(initialFooter?.y);
+  const importStatus = page.getByTestId("finance-import-status");
+  await expect(importStatus.getByText("Finding holdings")).toBeVisible();
+  await importStatus.getByRole("button", { name: "Finish reading statement" }).click();
+  await expect(importStatus.getByText("Checking holdings")).toBeVisible();
+  await importStatus.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByTestId("action-result")).toHaveText("Cancelled");
 });
 
 for (const width of [320, 393, 768]) {
@@ -426,25 +432,36 @@ test("holding actions dismiss on ancestor scroll without jumping back and still 
 });
 
 for (const width of [320, 393, 768]) {
-  test(`review save action clears the dock throughout scrolling at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 852 });
+  test(`review footer clears the last card and Talk to One at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 650 });
     for (const dockHeight of [86, 152]) {
-      for (const [host, offset] of stickyOffsets.entries()) {
-        const rootPad = host === 0 ? 0 : dockHeight;
+      for (const shellClass of importShellClasses) {
         await page.setContent(`<style>${css}</style><style>
-          html,body{height:100%;margin:0} #scroll{height:100%;overflow:auto;padding-bottom:${rootPad}px;--app-scroll-bottom-pad:${dockHeight}px;--bottom-chrome-stack-height:${dockHeight}px;--app-sticky-bottom-offset:${offset}}
-          #review{position:relative;width:100%} #flow{padding-bottom:${host === 0 ? dockHeight : 0}px} #holdings{height:1600px;overflow:hidden} #save{height:52px;width:100%}
-          #dock{position:fixed;bottom:0;height:${dockHeight}px;width:100%}
-        </style><div id="scroll"><div id="flow"><div id="review"><div id="holdings">Holdings</div>
-        <div class="${saveActionClass}"><button id="save">Save to Vault</button></div></div></div></div><div id="dock">Talk to One</div>`);
-        for (const scrollTop of [0, 400, 10000, 650, 500]) {
-          await page.locator("#scroll").evaluate((el, top) => { el.scrollTop = top; }, scrollTop);
-          const save = await page.locator("#save").boundingBox();
-          const dock = await page.locator("#dock").boundingBox();
-          expect(save!.y).toBeGreaterThanOrEqual(0);
-          expect(save!.y + save!.height).toBeLessThanOrEqual(dock!.y - 11);
-          expect(dock!.y - (save!.y + save!.height)).toBeLessThanOrEqual(25);
+          html,body{height:100%;margin:0}
+          #scroll{height:100%;overflow:auto;--app-scroll-bottom-pad:${dockHeight}px;--bottom-chrome-stack-height:${dockHeight}px}
+          #holdings{height:1200px} #details{height:76px}
+          #save{height:44px} #dock{position:fixed;bottom:0;height:${dockHeight}px;width:100%}
+        </style><div id="scroll"><div data-app-shell-content class="h-full min-h-0 flex flex-col">
+          <div class="fullscreen-flow-shell flex w-full flex-col ${shellClass}"><div class="flex w-full flex-col"><div class="pb-4">
+          <div id="holdings">Holdings</div><div id="details">Asset allocation</div>
+          <footer class="${saveActionClass}"><button id="save" onclick="this.textContent='Saved'">Save to Vault</button></footer>
+        </div></div></div></div></div><button id="dock" onclick="this.textContent='Listening'">Talk to One</button>`);
+        const scroll = page.locator("#scroll");
+        const save = page.locator("#save");
+        const details = page.locator("#details");
+        const dock = page.locator("#dock");
+        for (const scrollTop of [0, 650, 10_000]) {
+          await scroll.evaluate((el, top) => { el.scrollTop = top; }, scrollTop);
+          const lastCard = (await details.boundingBox())!;
+          expect((await save.boundingBox())!.y).toBeGreaterThanOrEqual(lastCard.y + lastCard.height + 8);
         }
+        const saveBounds = (await save.boundingBox())!;
+        expect(saveBounds.y).toBeGreaterThanOrEqual(0);
+        expect(saveBounds.y + saveBounds.height).toBeLessThanOrEqual((await dock.boundingBox())!.y - 12);
+        await save.click();
+        await expect(save).toHaveText("Saved");
+        await dock.click();
+        await expect(dock).toHaveText("Listening");
       }
     }
   });

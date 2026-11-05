@@ -49,6 +49,7 @@ import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-c
 import {
   buildKaiAnalysisPreviewRoute,
   buildKaiImportRoute,
+  buildKaiPortfolioSectionRoute,
   buildOneSetupRoute,
   resolveOneSetupReturnTo,
   ROUTES,
@@ -113,7 +114,6 @@ export type FlowState =
   | "checking"
   | "import_required"
   | "importing" // Streaming progress view
-  | "import_complete" // Stream complete, waits for explicit user action
   | "reviewing" // Review parsed data before saving
   | "dashboard" // Main view with KPIs and prime assets
   | "analysis"; // Stock analysis results
@@ -640,10 +640,7 @@ function normalizeHoldingsWithPct<
 
   return holdings.map((h) => {
     // If percentage is already present and valid, keep it
-    if (
-      h.unrealized_gain_loss_pct !== undefined &&
-      h.unrealized_gain_loss_pct !== 0
-    ) {
+    if (h.unrealized_gain_loss_pct !== undefined) {
       return h;
     }
 
@@ -654,7 +651,7 @@ function normalizeHoldingsWithPct<
       const costBasis = h.cost_basis;
       const marketValue = h.market_value || 0;
 
-      if (costBasis !== undefined && Math.abs(costBasis) > 1e-6) {
+      if (costBasis !== undefined) {
         basis = costBasis;
       } else if (marketValue !== 0) {
         basis = marketValue - unrealized;
@@ -729,7 +726,8 @@ export function KaiFlow({
   const { getPortfolioData, setPortfolioData, invalidateDomain } = useCache();
   const searchParams = useSearchParams();
   const [internalState, setInternalState] = useState<FlowState>("checking");
-  const urlStage = searchParams?.get("stage") as FlowState | null;
+  const requestedStage = searchParams?.get("stage");
+  const urlStage = requestedStage === "import_complete" ? "reviewing" : requestedStage as FlowState | null | undefined;
   const state = urlStage || internalState;
 
   const pathname = usePathname();
@@ -740,12 +738,17 @@ export function KaiFlow({
       if (
         newState === "import_required" ||
         newState === "reviewing" ||
-        newState === "importing" ||
-        newState === "import_complete"
+        newState === "importing"
       ) {
-        if (params.get("stage") === newState) return;
+        const previousStage = params.get("stage");
+        if (previousStage === newState) return;
         params.set("stage", newState);
-        router.push(pathname + "?" + params.toString(), { scroll: true });
+        const href = pathname + "?" + params.toString();
+        if (newState === "reviewing" && (previousStage === "importing" || previousStage === "import_complete")) {
+          router.replace(href, { scroll: true });
+        } else {
+          router.push(href, { scroll: true });
+        }
         return;
       }
       // The URL stage wins over internal state, so a terminal transition must
@@ -761,13 +764,14 @@ export function KaiFlow({
     [pathname, router, searchParams],
   );
 
-  // Listen for back button via search params changing and sync internal state
+  // Old links can still reopen a saved extraction through the review stage.
   useEffect(() => {
-    const stage = searchParams?.get("stage") as FlowState;
-    if (stage && stage !== internalState) {
-      setInternalState(stage);
-    }
-  }, [internalState, searchParams]);
+    if (requestedStage === "import_complete") setState("reviewing");
+  }, [requestedStage, setState]);
+
+  useEffect(() => {
+    if (urlStage && urlStage !== internalState) setInternalState(urlStage);
+  }, [internalState, urlStage]);
   const [flowData, setFlowData] = useState<FlowData>({
     hasFinancialData: false,
   });
@@ -779,17 +783,28 @@ export function KaiFlow({
       : null;
   const hasSetupContinuation = Boolean(setupReturnTo);
   const setupRecoveryRoute = buildOneSetupRoute({ returnTo: setupReturnTo });
+  const canStageFinanceSource = useCallback(() => {
+    if (!deferSensitiveActionsUntilSetupFinalized || mode !== "import") return false;
+    const journey = PreVaultUserStateService.getCachedBootstrapState?.(userId);
+    return isActiveFinanceSetupJourney(journey) && journey.hasVault === false;
+  }, [deferSensitiveActionsUntilSetupFinalized, mode, userId]);
   const stateRef = useRef<FlowState>("checking");
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [resumeImportAfterVault, setResumeImportAfterVault] = useState(false);
   const [pendingPlaidConnection, setPendingPlaidConnection] = useState(false);
+  const [plaidConnectionError, setPlaidConnectionError] = useState<string | null>(null);
+  const plaidConnectInFlight = useRef(false);
   const [pendingPlaidEnvironment, setPendingPlaidEnvironment] = useState<string | null>(null);
   const [resumePlaidAfterVault, setResumePlaidAfterVault] = useState(false);
   const [pendingSchemaPreload, setPendingSchemaPreload] = useState(false);
   const [resumePreloadAfterVault, setResumePreloadAfterVault] = useState(false);
   const [isPreloadingSchema, setIsPreloadingSchema] = useState(false);
   const [isConnectingPlaid, setIsConnectingPlaid] = useState(false);
+  const [isPreparingStatement, setIsPreparingStatement] = useState(false);
+  const statementPreparationInFlight = useRef(false);
+  const [isSkippingSource, setIsSkippingSource] = useState(false);
+  const skipSourceInFlight = useRef(false);
   const {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
@@ -877,7 +892,6 @@ export function KaiFlow({
   const portfolioImportSurfaceActive =
     state === "import_required" ||
     state === "importing" ||
-    state === "import_complete" ||
     state === "reviewing";
 
   useEffect(() => {
@@ -900,7 +914,6 @@ export function KaiFlow({
       checking: "kai_portfolio_bootstrap",
       import_required: "kai_portfolio_import",
       importing: "kai_portfolio_import_progress",
-      import_complete: "kai_portfolio_import_complete",
       reviewing: "kai_portfolio_review",
       dashboard: "kai_portfolio_dashboard",
       analysis: "kai_portfolio_analysis",
@@ -925,19 +938,10 @@ export function KaiFlow({
                 id: "import_progress",
                 title: "Import progress",
                 purpose:
-                  "Shows live import progress, holdings extraction, and stream status.",
+                  "Shows the current step while the statement is being read.",
               },
             ]
-          : state === "import_complete"
-            ? [
-                {
-                  id: "import_ready",
-                  title: "Import ready for review",
-                  purpose:
-                    "Shows the completed import and lets you continue into review.",
-                },
-              ]
-            : state === "reviewing"
+          : state === "reviewing"
               ? [
                   {
                     id: "portfolio_review",
@@ -970,10 +974,8 @@ export function KaiFlow({
       state === "import_required"
         ? ["Portfolio import"]
         : state === "importing"
-          ? ["Import progress", "Live holdings preview"]
-          : state === "import_complete"
-            ? ["Import ready for review"]
-            : state === "reviewing"
+          ? ["Import progress"]
+          : state === "reviewing"
               ? ["Review imported portfolio"]
               : state === "dashboard"
                 ? ["Portfolio dashboard"]
@@ -1008,9 +1010,7 @@ export function KaiFlow({
           ? "Portfolio import"
           : state === "importing"
             ? "Import progress"
-            : state === "import_complete"
-              ? "Import ready for review"
-              : state === "reviewing"
+            : state === "reviewing"
                 ? "Review imported portfolio"
                 : state === "dashboard"
                   ? "Portfolio dashboard"
@@ -1111,25 +1111,28 @@ export function KaiFlow({
     }
 
     if (snapshot.status === "completed" && snapshot.parsedPortfolio) {
+      if (requestedStage === "import_required") return;
       setFlowData((prev) => ({
         ...prev,
-        parsedPortfolio: snapshot.parsedPortfolio,
+        parsedPortfolio: stateRef.current === "reviewing" && prev.parsedPortfolio
+          ? prev.parsedPortfolio
+          : snapshot.parsedPortfolio,
       }));
       setError(null);
       if (stateRef.current !== "reviewing") {
-        setState("import_complete");
+        setState("reviewing");
       }
       return;
     }
 
     if (snapshot.status === "failed" && snapshot.errorMessage) {
       setError(snapshot.errorMessage);
-      if (stateRef.current !== "reviewing") {
+      if (stateRef.current !== "reviewing" && requestedStage !== "importing") {
         toast.error(snapshot.errorMessage);
         setState("import_required");
       }
     }
-  }, [mode, setState, userId]);
+  }, [mode, requestedStage, setState, userId]);
 
   useEffect(() => {
     if (mode !== "import") return;
@@ -1147,11 +1150,13 @@ export function KaiFlow({
       if (snapshot.status === "completed" && snapshot.parsedPortfolio) {
         setFlowData((prev) => ({
           ...prev,
-          parsedPortfolio: snapshot.parsedPortfolio,
+          parsedPortfolio: stateRef.current === "reviewing" && prev.parsedPortfolio
+            ? prev.parsedPortfolio
+            : snapshot.parsedPortfolio,
         }));
         setError(null);
         if (stateRef.current !== "reviewing") {
-          setState("import_complete");
+          setState("reviewing");
         }
         return;
       }
@@ -1160,7 +1165,7 @@ export function KaiFlow({
         const message =
           snapshot.errorMessage || "Import failed. Please try again.";
         setError(message);
-        if (stateRef.current !== "reviewing") {
+        if (stateRef.current !== "reviewing" && stateRef.current !== "importing") {
           toast.error(message);
           setState("import_required");
         }
@@ -1186,7 +1191,15 @@ export function KaiFlow({
 
     resumeImportStreamInFlightRef.current = true;
     setBusyOperation("portfolio_import_stream", true);
-    abortControllerRef.current = new AbortController();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    // Comment heartbeats keep the connection open but cannot extend recovery
+    // indefinitely when the run has stopped producing canonical events.
+    const deadline = window.setTimeout(
+      () => controller.abort(),
+      KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS,
+    );
+    let terminalReceived = false;
 
     const validStages = new Set<ImportStage>([
       "idle",
@@ -1249,6 +1262,7 @@ export function KaiFlow({
             await ApiService.getActivePortfolioImportRun({
               userId,
               vaultOwnerToken: effectiveVaultOwnerToken,
+              signal: controller.signal,
             });
           if (activeRunResponse.ok) {
             const activePayload = (await activeRunResponse.json()) as {
@@ -1277,9 +1291,7 @@ export function KaiFlow({
         }
 
         if (!snapshot.runId) {
-          resumeImportStreamInFlightRef.current = false;
-          setBusyOperation("portfolio_import_stream", false);
-          return;
+          throw new Error("Portfolio import has no active run");
         }
 
         const response = await ApiService.streamPortfolioImportRun({
@@ -1287,7 +1299,7 @@ export function KaiFlow({
           userId,
           vaultOwnerToken: effectiveVaultOwnerToken,
           cursor: snapshot.latestCursor,
-          signal: abortControllerRef.current?.signal,
+          signal: controller.signal,
         });
         if (!response.ok) {
           if (response.status === 404 || response.status === 410) {
@@ -1309,6 +1321,7 @@ export function KaiFlow({
         await consumeCanonicalKaiStream(
           response,
           (envelope: KaiStreamEnvelope) => {
+            terminalReceived ||= envelope.terminal;
             const payload = envelope.payload as Record<string, unknown>;
             const runIdFromPayload =
               typeof payload.run_id === "string" &&
@@ -1503,7 +1516,7 @@ export function KaiFlow({
                   );
                 }
                 setError(null);
-                setState("import_complete");
+                setState("reviewing");
                 break;
               }
               case "aborted":
@@ -1543,18 +1556,29 @@ export function KaiFlow({
             }
           },
           {
-            signal: abortControllerRef.current?.signal,
+            signal: controller.signal,
             idleTimeoutMs: KAI_PORTFOLIO_IMPORT_IDLE_TIMEOUT_MS,
             requireTerminal: true,
           },
         );
-      } catch (resumeError) {
-        if (resumeError instanceof Error && resumeError.name === "AbortError") {
-          return;
+      } catch {
+        if (
+          userRequestedImportCancelRef.current ||
+          abortControllerRef.current !== controller ||
+          terminalReceived ||
+          stateRef.current === "reviewing"
+        ) return;
+        const message = "Couldn’t resume reading your statement. Try importing it again.";
+        streamShadow = { ...streamShadow, stage: "error", errorMessage: message, statusMessage: message };
+        setStreaming(streamShadow);
+        setError(message);
+        persistSnapshot("failed", { errorMessage: message });
+        if (activeImportTaskIdRef.current) {
+          AppBackgroundTaskService.failTask(activeImportTaskIdRef.current, message, message);
         }
-        console.warn("[KaiFlow] Failed to resume import stream:", resumeError);
       } finally {
-        abortControllerRef.current = null;
+        window.clearTimeout(deadline);
+        if (abortControllerRef.current === controller) abortControllerRef.current = null;
         resumeImportStreamInFlightRef.current = false;
         setBusyOperation("portfolio_import_stream", false);
       }
@@ -1719,7 +1743,6 @@ export function KaiFlow({
     if (
       vaultDialogOpen ||
       stateRef.current === "importing" ||
-      stateRef.current === "import_complete" ||
       stateRef.current === "reviewing"
     ) {
       return;
@@ -1863,6 +1886,7 @@ export function KaiFlow({
   // Handle file upload with SSE streaming
   const handleFileUpload = useCallback(
     async (file: File) => {
+      if (statementPreparationInFlight.current || skipSourceInFlight.current) return;
       // Validate file size (max 25MB)
       if (file.size > MAX_IMPORT_FILE_BYTES) {
         setError(MAX_IMPORT_FILE_SIZE_MESSAGE);
@@ -1878,8 +1902,7 @@ export function KaiFlow({
       ];
       if (
         !validTypes.includes(file.type) &&
-        !file.name.endsWith(".csv") &&
-        !file.name.endsWith(".pdf")
+        !/\.(csv|pdf)$/i.test(file.name)
       ) {
         setError("Invalid file type. Please upload a PDF or CSV file.");
         toast.error("Invalid file type. Please upload a PDF or CSV file.");
@@ -1887,7 +1910,7 @@ export function KaiFlow({
       }
 
       if (!vaultKey || !effectiveVaultOwnerToken) {
-        if (deferSensitiveActionsUntilSetupFinalized && mode === "import") {
+        if (canStageFinanceSource()) {
           PreVaultSensitiveDraftService.stageFinanceIntent(userId, {
             kind: "statement",
             file,
@@ -1925,6 +1948,8 @@ export function KaiFlow({
       };
 
       let tokenForImport = effectiveVaultOwnerToken;
+      statementPreparationInFlight.current = true;
+      setIsPreparingStatement(true);
       try {
         tokenForImport = await forceRefreshVaultOwnerToken(tokenForImport);
       } catch (tokenError) {
@@ -1936,6 +1961,9 @@ export function KaiFlow({
         setError(message);
         toast.error(message);
         return;
+      } finally {
+        statementPreparationInFlight.current = false;
+        setIsPreparingStatement(false);
       }
       lastImportFileRef.current = file;
       // Hard reset visual import state before any snapshot/resume branching so
@@ -2984,14 +3012,11 @@ export function KaiFlow({
           );
         }
 
-        // Persist completion state until user explicitly continues to review.
-        setState("import_complete");
+        setState("reviewing");
         if (parsedPortfolioData.parse_fallback) {
           toast.warning(
             "Portfolio loaded with partial coverage. Please review before saving.",
           );
-        } else {
-          toast.success("Portfolio is ready for review.");
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
@@ -3121,9 +3146,8 @@ export function KaiFlow({
       userId,
       vaultKey,
       effectiveVaultOwnerToken,
-      deferSensitiveActionsUntilSetupFinalized,
+      canStageFinanceSource,
       setupRecoveryRoute,
-      mode,
       router,
       tokenExpiresAt,
       unlockVault,
@@ -3193,7 +3217,7 @@ export function KaiFlow({
 
   // Drop a finished (or abandoned) extraction: the stored snapshot, its
   // background task, and the parsed result. Without this the snapshot restore
-  // brings the same "import complete" card back on the next render or visit.
+  // reopens the same review on the next render or visit.
   const discardImportResult = useCallback(() => {
     const snapshot = loadImportBackgroundSnapshot(userId);
     if (snapshot?.taskId) {
@@ -3279,51 +3303,6 @@ export function KaiFlow({
     setState("import_required");
   }, [handleFileUpload, setState, userId]);
 
-  const handleReviewParsedPortfolio = useCallback(() => {
-    if (!flowData.parsedPortfolio) {
-      toast.error("Parsed portfolio not available. Please import again.");
-      setState("import_required");
-      return;
-    }
-    setState("reviewing");
-  }, [flowData.parsedPortfolio, setState]);
-
-  const handleBackToDashboardFromImport = useCallback(async () => {
-    if (mode === "import") {
-      // Cancel on the finished card discards the extraction and shows the
-      // source chooser at once. Finance setup keeps this flow mounted, so a
-      // settled "later" must leave the person there to upload again or finish
-      // setup from the footer; returning with the card still up was the bug.
-      discardImportResult();
-      setState("import_required");
-      const handledBySetup = await finishFinanceSetupIfActive("later").catch(
-        (settleError: unknown) => {
-          console.warn(
-            "[KaiFlow] Could not settle Finance setup after cancel:",
-            settleError,
-          );
-          return true;
-        },
-      );
-      if (handledBySetup) return;
-      setOnboardingFlowActiveCookie(false);
-      router.push(ROUTES.KAI_DASHBOARD);
-      return;
-    }
-    if (flowData.portfolioData) {
-      setState("dashboard");
-    } else {
-      setState("import_required");
-    }
-  }, [
-    discardImportResult,
-    finishFinanceSetupIfActive,
-    flowData.portfolioData,
-    mode,
-    router,
-    setState,
-  ]);
-
   // Handle save complete from review screen
   const handleSaveComplete = useCallback(
     async (savedData: ReviewPortfolioData) => {
@@ -3387,9 +3366,20 @@ export function KaiFlow({
   // Handle skip import - preserve existing data if available
   const handleSkipImport = useCallback(async () => {
     if (mode === "import") {
-      if (await finishFinanceSetupIfActive("later")) return;
-      setOnboardingFlowActiveCookie(false);
-      router.push(ROUTES.KAI_HOME);
+      if (statementPreparationInFlight.current || skipSourceInFlight.current) return;
+      skipSourceInFlight.current = true;
+      setIsSkippingSource(true);
+      PreVaultSensitiveDraftService.clearFinanceIntent(userId);
+      try {
+        if (await finishFinanceSetupIfActive("later")) return;
+        setOnboardingFlowActiveCookie(false);
+        router.push(ROUTES.KAI_HOME);
+      } catch {
+        toast.error("Could not continue Finance setup. Try again.");
+      } finally {
+        skipSourceInFlight.current = false;
+        setIsSkippingSource(false);
+      }
       return;
     }
 
@@ -3405,13 +3395,16 @@ export function KaiFlow({
     mode,
     router,
     setState,
+    userId,
   ]);
 
   const handleConnectPlaid = useCallback(
     async (environment?: string | null) => {
+      if (plaidConnectInFlight.current || statementPreparationInFlight.current || skipSourceInFlight.current) return;
+      setPlaidConnectionError(null);
       let onboardingAttemptId: string | undefined;
       if (!vaultKey || !effectiveVaultOwnerToken) {
-        if (deferSensitiveActionsUntilSetupFinalized && mode === "import") {
+        if (canStageFinanceSource()) {
           PreVaultSensitiveDraftService.stageFinanceIntent(userId, {
             kind: "plaid",
             environment: environment ?? null,
@@ -3429,25 +3422,17 @@ export function KaiFlow({
         toast.info("Set up your private vault to connect your portfolio.");
         return;
       }
+      plaidConnectInFlight.current = true;
       setIsConnectingPlaid(true);
+      let stage: "preparing" | "opening" | "saving" = "preparing";
       try {
         let shouldSettleSetupSource = false;
         // The connection is sealed in the person's vault: Hussh's server only
         // relays Plaid calls and stores nothing (founder decision 2026-09-23).
-        const vaultLink = await createVaultLink({
+        const vaultLink = await runKaiStepWithTimeout("Preparing bank connection", createVaultLink({
           vaultOwnerToken: effectiveVaultOwnerToken,
-        }).catch(() => null);
-        const linkToken = { link_token: vaultLink?.linkToken ?? null };
-
-        if (!vaultLink || !linkToken.link_token) {
-          if (mode === "import") {
-            toast.info(
-              "Bank linking is not available right now. You can link it later.",
-            );
-            return;
-          }
-          throw new Error("Plaid is not configured for this environment.");
-        }
+        }));
+        if (!vaultLink.linkToken) throw new Error("Plaid Link token missing.");
         if (onSetupSourceSettled) {
           const journey = await runKaiStepWithTimeout(
             "Preparing Plaid setup",
@@ -3482,20 +3467,32 @@ export function KaiFlow({
             // workspace. Do not mutate setup journey state, but do allow Plaid.
           }
         }
+        stage = "opening";
         const Plaid = await loadPlaidLink();
         // Web OAuth banks leave the page; the return page finishes from here.
         rememberVaultOAuthReturn({ userId, link: vaultLink, onboardingAttemptId });
         await new Promise<void>((resolve, reject) => {
           let settled = false;
+          let saving = false;
+          let openTimeout: ReturnType<typeof setTimeout> | undefined;
+          const clearOpenTimeout = () => clearTimeout(openTimeout);
           const finish = (callback: () => void) => {
             if (settled) return;
             settled = true;
+            clearOpenTimeout();
             callback();
           };
 
           const handler = Plaid.create({
-            token: linkToken.link_token,
+            token: vaultLink.linkToken,
+            onEvent: (eventName: string) => {
+              if (eventName === "OPEN") clearOpenTimeout();
+            },
             onSuccess: (publicToken: string) => {
+              if (settled || saving) return;
+              saving = true;
+              clearOpenTimeout();
+              stage = "saving";
               void sealVaultPlaidConnection({
                 userId,
                 vaultKey,
@@ -3541,7 +3538,8 @@ export function KaiFlow({
                     if (
                       onSetupSourceSettled &&
                       !shouldSettleSetupSource &&
-                      !hasSetupContinuation
+                      !hasSetupContinuation &&
+                      !setupSourcePicker
                     ) {
                       setOnboardingFlowActiveCookie(false);
                       router.push(ROUTES.KAI_DASHBOARD);
@@ -3553,6 +3551,8 @@ export function KaiFlow({
                         if (handled) return;
                         setOnboardingFlowActiveCookie(false);
                         router.push(ROUTES.KAI_DASHBOARD);
+                      }).catch(() => {
+                        toast.error("Your bank is connected. Finance setup could not finish.");
                       });
                     }
                   } else {
@@ -3574,41 +3574,45 @@ export function KaiFlow({
                 });
             },
             onExit: (exitError: Record<string, unknown> | null) => {
-              handler.destroy?.();
-              clearPlaidOAuthResumeSession();
-              if (onboardingAttemptId) {
-                const settledAttemptId = onboardingAttemptId;
-                void runKaiStepWithTimeout(
-                  "Settling Plaid setup attempt",
-                  Promise.resolve().then(() =>
-                    onSetupConnectorAttemptSettled?.(
-                      exitError && typeof exitError === "object"
-                        ? "failed"
-                        : "cancelled",
-                      settledAttemptId,
+              if (saving) return;
+              finish(() => {
+                handler.destroy?.();
+                clearPlaidOAuthResumeSession();
+                if (exitError) {
+                  reject(new Error("Plaid Link closed with an error."));
+                  return;
+                }
+                if (onboardingAttemptId) {
+                  const settledAttemptId = onboardingAttemptId;
+                  void runKaiStepWithTimeout(
+                    "Settling Plaid setup attempt",
+                    Promise.resolve().then(() =>
+                      onSetupConnectorAttemptSettled?.("cancelled", settledAttemptId),
                     ),
-                  ),
-                  KAI_AUXILIARY_STEP_TIMEOUT_MS,
-                ).catch((settleError) => {
-                  console.warn(
-                    "[KaiFlow] Could not settle Plaid setup attempt:",
-                    settleError,
-                  );
-                });
-              }
-              if (exitError && typeof exitError === "object") {
-                const detail =
-                  typeof exitError.error_message === "string"
-                    ? exitError.error_message
-                    : "Plaid Link closed with an error.";
-                finish(() => reject(new Error(detail)));
-                return;
-              }
-              finish(resolve);
+                    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+                  ).catch((settleError) => {
+                    console.warn("[KaiFlow] Could not settle Plaid setup attempt:", settleError);
+                  });
+                }
+                resolve();
+              });
             },
           });
 
-          handler.open();
+          if (vaultLink.platform === "web") {
+            openTimeout = setTimeout(() => finish(() => {
+              handler.destroy?.();
+              reject(new Error("Plaid Link did not open."));
+            }), KAI_AUXILIARY_STEP_TIMEOUT_MS);
+          }
+          try {
+            handler.open();
+          } catch (error) {
+            finish(() => {
+              handler.destroy?.();
+              reject(error);
+            });
+          }
         });
       } catch {
         clearPlaidOAuthResumeSession();
@@ -3624,8 +3628,15 @@ export function KaiFlow({
             console.warn("[KaiFlow] Could not settle Plaid setup attempt:", settleError);
           });
         }
-        toast.error("Could not connect Plaid.");
+        const message = stage === "preparing"
+          ? "Could not prepare the bank connection. Try again."
+          : stage === "opening"
+            ? "Plaid Link could not open or closed with an error. Try again."
+            : "Could not save the bank connection. Try again.";
+        if (setupSourcePicker) setPlaidConnectionError(message);
+        else toast.error(message);
       } finally {
+        plaidConnectInFlight.current = false;
         setIsConnectingPlaid(false);
         void loadPlaidStatusSnapshot().catch((statusError) => {
           console.warn("[KaiFlow] Could not refresh Plaid status after connection:", statusError);
@@ -3634,7 +3645,7 @@ export function KaiFlow({
     },
     [
       effectiveVaultOwnerToken,
-      deferSensitiveActionsUntilSetupFinalized,
+      canStageFinanceSource,
       hasSetupContinuation,
       setupRecoveryRoute,
       finishFinanceSetupIfActive,
@@ -3644,6 +3655,7 @@ export function KaiFlow({
       onSetupConnectorAttemptSettled,
       router,
       setState,
+      setupSourcePicker,
       userId,
       vaultKey,
     ],
@@ -3680,7 +3692,7 @@ export function KaiFlow({
   }, [discardImportResult, mode, pathname, router, setState]);
 
   const handlePreloadSchema = useCallback(async () => {
-    if (isPreloadingSchema) return;
+    if (isPreloadingSchema || statementPreparationInFlight.current || skipSourceInFlight.current) return;
 
     // Loading sample data is a deliberate switch away from any earlier real
     // import attempt. Discard its background snapshot up front so a stale
@@ -3690,6 +3702,7 @@ export function KaiFlow({
     // clobber yet -- because this hasn't set state to "reviewing" yet --
     // would otherwise still win the race).
     discardImportResult();
+    PreVaultSensitiveDraftService.clearFinanceIntent(userId);
     setIsPreloadingSchema(true);
     setError(null);
 
@@ -3721,6 +3734,7 @@ export function KaiFlow({
     effectiveVaultOwnerToken,
     isPreloadingSchema,
     setState,
+    userId,
     vaultKey,
   ]);
 
@@ -3839,9 +3853,11 @@ export function KaiFlow({
           onSkip={handleSkipImport}
           onPreloadSchema={() => void handlePreloadSchema()}
           onConnectPlaid={(environment) => void handleConnectPlaid(environment)}
-          isUploading={false}
+          isUploading={isPreparingStatement}
+          isSkippingSource={isSkippingSource}
           isPreloadingSchema={isPreloadingSchema}
           isConnectingPlaid={isConnectingPlaid}
+          plaidConnectionError={plaidConnectionError}
           plaidConfigured={plaidConfigured}
           plaidLocalDualEnvironmentEnabled={
             plaidStatus?.local_dual_environment_enabled ?? false
@@ -3852,46 +3868,10 @@ export function KaiFlow({
 
       {state === "importing" && (
         <ImportProgressView
-          stage={streaming.stage}
-          stageTrail={streaming.stageTrail}
-          rawStreamLines={streaming.rawStreamLines}
-          isStreaming={
-            streaming.stage === "uploading" ||
-            streaming.stage === "indexing" ||
-            streaming.stage === "scanning" ||
-            streaming.stage === "thinking" ||
-            streaming.stage === "extracting" ||
-            streaming.stage === "normalizing" ||
-            streaming.stage === "validating"
-          }
-          progressPct={streaming.progressPct}
-          statusMessage={streaming.statusMessage}
-          liveHoldings={streaming.liveHoldings}
-          holdingsExtracted={streaming.holdingsExtracted}
-          holdingsTotal={streaming.holdingsTotal}
-          thoughts={streaming.thoughts}
-          thoughtCount={streaming.thoughtCount}
+          stage={streaming.stage === "complete" ? "validating" : streaming.stage}
           errorMessage={streaming.errorMessage}
           onRetry={streaming.stage === "error" ? handleRetryImport : undefined}
           onCancel={handleCancelImport}
-        />
-      )}
-
-      {state === "import_complete" && (
-        <ImportProgressView
-          stage="complete"
-          stageTrail={streaming.stageTrail}
-          rawStreamLines={streaming.rawStreamLines}
-          isStreaming={false}
-          progressPct={streaming.progressPct}
-          statusMessage={streaming.statusMessage}
-          liveHoldings={streaming.liveHoldings}
-          holdingsExtracted={streaming.holdingsExtracted}
-          holdingsTotal={streaming.holdingsTotal}
-          thoughts={streaming.thoughts}
-          thoughtCount={streaming.thoughtCount}
-          onContinue={handleReviewParsedPortfolio}
-          onBackToDashboard={handleBackToDashboardFromImport}
         />
       )}
 
@@ -3903,9 +3883,7 @@ export function KaiFlow({
           vaultOwnerToken={effectiveVaultOwnerToken}
           onSaveComplete={handleSaveComplete}
           onStageForFinish={
-            deferSensitiveActionsUntilSetupFinalized &&
-            mode === "import" &&
-            !vaultKey
+            !vaultKey && canStageFinanceSource()
               ? async (portfolio) => {
                   await FinanceSetupDraftService.stage({
                     userId,
@@ -3945,13 +3923,13 @@ export function KaiFlow({
 
       {isDashboardMode &&
         state === "dashboard" &&
-        (Boolean(flowData.hasFinancialData) || Boolean(plaidPortfolioData)) && (
+        (Boolean(flowData.hasFinancialData) || Boolean(plaidPortfolioData) || dashboardSection === "analysis") && (
           <DashboardMasterView
             userId={userId}
             vaultOwnerToken={effectiveVaultOwnerToken ?? ""}
             portfolioData={
               (flowData.portfolioData ??
-                plaidPortfolioData ?? { holdings: [] }) as PortfolioData
+                plaidPortfolioData ?? null) as PortfolioData | null
             }
             onReupload={handleReimport}
             section={dashboardSection}
@@ -3960,16 +3938,18 @@ export function KaiFlow({
 
       {isDashboardMode &&
         state === "dashboard" &&
+        dashboardSection !== "analysis" &&
         !flowData.hasFinancialData &&
         !plaidPortfolioData && (
-          <PortfolioDashboardEmpty onOpenImport={handleReimport}
+          <PortfolioDashboardEmpty
+            onOpenAnalysis={() => router.push(buildKaiPortfolioSectionRoute("analysis"))}
             onFileSelect={handleFileUpload}
             onSkip={handleSkipImport}
             onPreloadSchema={() => void handlePreloadSchema()}
             onConnectPlaid={(environment) =>
               void handleConnectPlaid(environment)
             }
-            isUploading={false}
+            isUploading={isPreparingStatement}
             isPreloadingSchema={isPreloadingSchema}
             isConnectingPlaid={isConnectingPlaid}
             plaidConfigured={plaidConfigured}
@@ -4000,7 +3980,14 @@ export function KaiFlow({
         <VaultUnlockDialog
           user={user}
           open={vaultDialogOpen}
-          onOpenChange={setVaultDialogOpen}
+          onOpenChange={(open) => {
+            setVaultDialogOpen(open);
+            if (open) return;
+            setPendingImportFile(null);
+            setPendingPlaidConnection(false);
+            setPendingPlaidEnvironment(null);
+            setPendingSchemaPreload(false);
+          }}
           title={
             pendingPlaidConnection
               ? "Set up your private vault for Plaid"

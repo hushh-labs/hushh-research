@@ -22,6 +22,7 @@ import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import marketBriefingStyles from "@/components/kai/shared/market-briefing.module.css";
 import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
 import { ConnectPortfolioCta } from "@/components/kai/cards/connect-portfolio-cta";
@@ -316,10 +317,8 @@ function OneMarketSectionHeader({
 }
 
 /**
- * Honest, data-driven sparkline built on recharts. Renders the REAL series;
- * when no series exists it renders a flat dashed baseline instead of
- * inventing a chart shape. Stroke color follows the actual tone, never a
- * hardcoded "always up" green.
+ * Sparklines color the observed series relative to its first point.
+ * Missing series render a neutral dashed guide.
  */
 export function OneMarketIndexStrip({
   metrics,
@@ -335,12 +334,12 @@ export function OneMarketIndexStrip({
   return (
     <div className={marketBriefingStyles.typography}>
     <p className="mb-2 text-xs leading-[18px] text-muted-foreground">Index levels in points</p>
-    <div className="grid w-full divide-y divide-border/50 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+    <div className={cn(marketBriefingStyles.indexGrid, "grid w-full grid-cols-2 sm:grid-cols-4 sm:divide-x sm:divide-border/50")}>
       {metrics.map((metric) => (
         <button key={metric.id || metric.label} type="button"
           onClick={() => onMetricSelect(metric)}
           aria-label={`${[`${metric.label}: ${metric.value}`, metric.delta, metric.quoteStatus].filter(Boolean).join(", ")}. Open details`}
-          className="relative isolate grid min-h-[76px] min-w-0 grid-cols-[minmax(0,1fr)_40px_minmax(6rem,auto)] items-center gap-3 overflow-hidden rounded-sm py-3 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:flex sm:flex-col sm:items-stretch sm:gap-0 sm:px-4 sm:first:pl-0 sm:last:pr-0">
+          className={cn(financeStyles.interactiveRow, "relative isolate flex min-w-0 flex-col items-stretch overflow-hidden rounded-sm px-3 py-2 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:px-4 sm:first:pl-0 sm:last:pr-0")}>
           <span className="min-w-0">
             <span className={cn("block text-foreground", marketBriefingStyles.indexLabel)}>{metric.label}</span>
             <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -350,13 +349,13 @@ export function OneMarketIndexStrip({
               </time> : sharedStatus ? "Time unavailable" : null}
             </span>
           </span>
-          <span className="sm:order-last sm:mt-2"><IndexSparkline tone={metric.tone} series={metric.sparkline} /></span>
-          <span className="flex min-w-0 flex-col gap-1 text-right sm:mt-3 sm:text-left">
+          <span className="mt-auto flex min-w-0 flex-col gap-1 pt-2 sm:pt-3">
             <span className={cn("block text-foreground", marketBriefingStyles.indexValue)}>{metric.value}</span>
             <span className={cn("text-xs font-medium tabular-nums",
               metric.tone === "positive" ? "text-[color:var(--one-up)]" : metric.tone === "negative" ? "text-[color:var(--one-down)]" : "text-muted-foreground")}>{metric.delta}</span>
           </span>
-          <MaterialRipple variant="none" effect="fade" className="z-10" />
+          <span className="mt-2 block min-w-0"><IndexSparkline tone={metric.tone} series={metric.sparkline} /></span>
+          <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
         </button>
       ))}
     </div>
@@ -368,7 +367,7 @@ export function OneMarketIndexStrip({
 export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, OneMarketDisplayRow[]> }) {
   const id = useId();
   const columns = [
-    { key: "gain", title: "Movers", rows: groups.gain.slice(0, 3) },
+    { key: "gain", title: "Gainers", rows: groups.gain.slice(0, 3) },
     { key: "lose", title: "Losers", rows: groups.lose.slice(0, 3) },
   ] as const;
   const shown = columns.flatMap((column) => column.rows);
@@ -376,34 +375,40 @@ export function OneMarketMovers({ groups }: { groups: Record<OneMarketMoverTab, 
   const sharedTime = shown.length > 0 && shown.every((row) => row.asOf === commonAsOf);
   return (
     <div>
-      <div className="grid grid-cols-2 gap-4">
-        {columns.map(({ key, title }) => <h3 key={key} id={`${id}-${key}`} className={marketBriefingStyles.groupLabel}>{title}</h3>)}
-      </div>
-      <div className="divide-y divide-border/50">
-        {Array.from({ length: 3 }, (_, rank) => (
-          <div key={rank} className="grid grid-cols-2 items-stretch gap-4" data-market-mover-pair>
-            {columns.map(({ key, title, rows }) => {
-              const row = rows[rank];
-              if (!row) return <p key={key} data-market-mover-empty
-                aria-label={`${title} ${rank + 1}: Quote unavailable`}
-                className="flex min-h-12 items-center py-3 text-sm text-muted-foreground">Quote unavailable</p>;
-              return <button key={`${key}:${row.symbol}`} type="button" aria-describedby={`${id}-${key}`}
-                onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
-                className="relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-1 overflow-hidden rounded-sm py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                <span className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-1 gap-y-1">
-                  <span className="min-w-0 break-words text-sm font-semibold text-foreground">{row.symbol}</span>
-                  <span className={cn("shrink-0 text-right text-sm font-semibold tabular-nums", key === "gain" ? "text-[color:var(--one-up)]" : "text-[color:var(--one-down)]")}>{formatOneMarketPercent(row.changePct)}</span>
-                </span>
-                <span className="min-w-0 break-words text-xs leading-[18px] text-muted-foreground">
-                  <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="float-left mr-1 mt-px h-4 w-4 rounded-full [&_img]:h-4 [&_img]:w-4" />
-                  {row.companyName}
-                </span>
-                {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="block text-xs text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
-                <MaterialRipple variant="none" effect="fade" className="z-10" />
-              </button>;
-            })}
-          </div>
-        ))}
+      <div className={marketBriefingStyles.moverGroups}>
+        {columns.map(({ key, title, rows }) => {
+          const Direction = key === "gain" ? TrendingUp : TrendingDown;
+          return (
+            <section key={key} className={marketBriefingStyles.moverGroup} data-market-mover-group={key} aria-labelledby={id + "-" + key}>
+              <h3 id={id + "-" + key} className={cn("ui-text-section-label flex items-center gap-2 px-2 py-1.5", marketBriefingStyles.moverHeading)}>
+                <Direction className={cn("size-4 shrink-0", marketBriefingStyles.moverAccent)} aria-hidden="true" />
+                <span className={marketBriefingStyles.moverAccent}>{title}</span>
+              </h3>
+              {Array.from({ length: 3 }, (_, rank) => {
+                const row = rows[rank];
+                if (!row) return <p key={rank} data-market-mover-empty
+                  aria-label={title + " " + (rank + 1) + ": Quote unavailable"}
+                  className="ui-text-row-description flex min-h-12 items-center border-t border-border/50 px-2 py-2 text-muted-foreground">Quote unavailable</p>;
+                return (
+                  <button key={rank} type="button" data-market-mover-rank={rank} aria-describedby={id + "-" + key}
+                    onClick={() => openOneMarketHref(buildKaiMarketRoute("analysis", { ticker: row.symbol }))}
+                    className={cn(financeStyles.interactiveRow, "relative isolate flex min-h-12 min-w-0 w-full flex-col items-stretch gap-0.5 overflow-hidden rounded-lg border-t border-border/50 px-2 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary")}>
+                    <span className="flex min-w-0 items-baseline justify-between gap-2">
+                      <span className="ui-text-row-label-emphasized min-w-0 truncate text-foreground">{row.symbol}</span>
+                      <span className={cn("ui-text-row-label-emphasized shrink-0 text-right tabular-nums", marketBriefingStyles.moverAccent)}>{formatOneMarketPercent(row.changePct)}</span>
+                    </span>
+                    <span className={cn("ui-text-row-description flex min-w-0 items-center gap-1", marketBriefingStyles.moverCompany)}>
+                      <SymbolAvatar symbol={row.symbol} name={row.companyName} size="md" className="size-4 shrink-0 rounded-full [&_img]:size-4" />
+                      <span className="truncate" title={row.companyName}>{row.companyName}</span>
+                    </span>
+                    {!sharedTime && row.asOf && Number.isFinite(Date.parse(row.asOf)) ? <time dateTime={row.asOf} className="ui-text-row-description text-muted-foreground" title={formatOverviewAsOf(row.asOf)}>{formatMarketQuoteTime(row.asOf)}</time> : null}
+                    <MaterialRipple variant="none" effect="fade" disableHover className="z-10" />
+                  </button>
+                );
+              })}
+            </section>
+          );
+        })}
       </div>
       {sharedTime && commonAsOf && Number.isFinite(Date.parse(commonAsOf)) ? <p className="mt-1 border-t border-border/50 pt-3 text-xs leading-[18px] text-muted-foreground" data-market-mover-freshness>
         <time dateTime={commonAsOf}>{formatOverviewAsOf(commonAsOf)}</time>
@@ -851,11 +856,6 @@ export function KaiMarketPreviewView() {
           "Shows benchmark index levels, session changes, and quote freshness.",
       },
       {
-        id: "market_news",
-        title: "Market news",
-        purpose: "Presents the lead company story and recent market headlines.",
-      },
-      {
         id: "sector_rotation",
         title: "Sector rotation",
         purpose: "Compares sector returns over one day or five trading sessions.",
@@ -875,6 +875,11 @@ export function KaiMarketPreviewView() {
             },
           ]
         : []),
+      {
+        id: "market_news",
+        title: "Market news",
+        purpose: "Presents the lead company story and recent market headlines.",
+      },
     ];
     const actions = [
       {
@@ -1092,7 +1097,7 @@ export function KaiMarketPreviewView() {
 
           {displayLoading && !hasPayload ? (
             <div className="mt-9 w-full">
-              <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-5 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
+              <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 text-center text-[14px] text-[color:var(--one-fg2)] shadow-[var(--app-card-shadow-standard)]">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <p>Loading your market view.</p>
               </div>
@@ -1146,13 +1151,6 @@ export function KaiMarketPreviewView() {
 
           {hasPayload ? (
             <div className={marketBriefingStyles.sections}>
-              <section aria-label="Market news">
-                <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />
-                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
-                <OneMarketNewsBriefing rows={marketNewsRows} />
-                </SurfaceCardContent></SurfaceCard>
-              </section>
-
               <div className={sectorRotationRows.length ? marketBriefingStyles.activity : "grid"}>
                 {sectorRotationRows.length ? (
                   <section className="min-w-0" aria-label="Sector rotation">
@@ -1164,7 +1162,7 @@ export function KaiMarketPreviewView() {
                 ) : null}
                 <section className="min-w-0" aria-label="Market movers">
                   <OneMarketSectionHeader title="Market movers" />
-                  <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.moversBody}>
+                  <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
                   <OneMarketMovers groups={moverGroups} />
                   </SurfaceCardContent></SurfaceCard>
                 </section>
@@ -1173,6 +1171,13 @@ export function KaiMarketPreviewView() {
               {showConnectPortfolio ? (
                 <section><PermissionGate permission="portfolio_valuation"><ConnectPortfolioCta /></PermissionGate></section>
               ) : null}
+
+              <section aria-label="Market news">
+                <OneMarketSectionHeader title="Market news" actionLabel="All news" actionHref={ROUTES.KAI_NEWS} />
+                <SurfaceCard><SurfaceCardContent className={marketBriefingStyles.cardBody}>
+                <OneMarketNewsBriefing rows={marketNewsRows} />
+                </SurfaceCardContent></SurfaceCard>
+              </section>
             </div>
           ) : null}
         </AppPageContentRegion>

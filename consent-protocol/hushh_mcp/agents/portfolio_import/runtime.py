@@ -53,6 +53,9 @@ _HOLDING_ROW_SCHEMA: dict[str, Any] = {
         "asset_type": _TEXT,
         "sector": _TEXT,
         "industry": _TEXT,
+        "account_id": _TEXT,
+        "currency": _TEXT,
+        "acquisition_date": _TEXT,
     },
 }
 
@@ -62,6 +65,7 @@ _STATEMENT_DETAILS_SCHEMA: dict[str, Any] = {
         "institution_name": _TEXT,
         "account_number": _TEXT,
         "account_name": _TEXT,
+        "account_type": _TEXT,
         "statement_period_start": _TEXT,
         "statement_period_end": _TEXT,
         "client_address": _TEXT,
@@ -79,7 +83,12 @@ _PORTFOLIO_SUMMARY_KEYS = (
 )
 _PORTFOLIO_SUMMARY_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
-    "properties": {key: _NUMBER for key in _PORTFOLIO_SUMMARY_KEYS},
+    "properties": {
+        **{key: _NUMBER for key in _PORTFOLIO_SUMMARY_KEYS},
+        "declared_security_count": _NUMBER,
+        "securities_market_value": _NUMBER,
+        "pending_receivables": _NUMBER,
+    },
     "required": list(_PORTFOLIO_SUMMARY_KEYS),
 }
 

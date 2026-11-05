@@ -456,17 +456,20 @@ export function resolveCompletedSetupCapabilityEntry({
   capabilityId,
   completedCapabilityIds,
   rootSetupResolved,
+  allowCompletedFinanceEntry = false,
 }: {
   capabilityId: string;
   completedCapabilityIds: readonly string[];
   rootSetupResolved: boolean;
+  allowCompletedFinanceEntry?: boolean;
 }): CompletedSetupCapabilityEntry {
-  if (
-    capabilityId !== "location" ||
-    !completedCapabilityIds.includes(capabilityId)
-  ) {
-    return { kind: "continue" };
+  if (!completedCapabilityIds.includes(capabilityId)) return { kind: "continue" };
+  if (capabilityId === "finance" && allowCompletedFinanceEntry) {
+    return rootSetupResolved
+      ? { kind: "redirect", target: ROUTES.KAI_HOME }
+      : { kind: "redirect", target: ROUTES.ONE_SETUP };
   }
+  if (capabilityId !== "location") return { kind: "continue" };
 
   return rootSetupResolved
     ? { kind: "redirect", target: ROUTES.ONE_LOCATION }

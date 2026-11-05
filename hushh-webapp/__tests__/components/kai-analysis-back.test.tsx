@@ -49,6 +49,7 @@ vi.mock("@/lib/services/kai-history-service", () => ({
   getAnalysisHistoryEntryRouteId: () => "run:run-1",
 }));
 vi.mock("@/lib/kai/market-snapshot", () => ({
+  extractTickerMarketSnapshotFromKaiHome: () => null,
   getLatestMarketSnapshotFromCache: () => null, marketSnapshotForTicker: () => null,
   pickPreferredMarketSnapshot: () => null, fetchLatestMarketSnapshot: vi.fn().mockResolvedValue(null),
 }));

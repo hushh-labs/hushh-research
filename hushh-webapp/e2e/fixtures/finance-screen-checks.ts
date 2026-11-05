@@ -85,8 +85,8 @@ export function registerFinanceScreenChecks(
         expect(await overview.evaluate(el => getComputedStyle(el).getPropertyValue("--font-app-body").trim()))
           .toBe(await page.evaluate(() => getComputedStyle(document.body).getPropertyValue("--font-app-body").trim()));
         await expect(overview.getByText("$2,000.00", { exact: true })).toBeVisible();
-        await expect(overview.getByText("Dated balance history unavailable.")).toBeVisible();
-        await expect(overview.getByRole("img", { name: "Sample Company: 91.9% of portfolio" })).toBeVisible();
+        await expect(overview.getByText("Cash share")).toBeVisible();
+        await expect(overview.getByRole("img", { name: "Net Worth Score unavailable" })).toBeVisible();
         await expect(overview.getByText("Cash share").locator("..")).toContainText("8.1%");
         const performance = overview.getByTestId("portfolio-performance");
         await expect(performance.getByText("$680.42", { exact: true })).toBeVisible();
@@ -113,7 +113,7 @@ export function registerFinanceScreenChecks(
               return card.getBoundingClientRect().bottom - button.getBoundingClientRect().bottom;
             });
           });
-          for (const inset of buttonInsets) expect(Math.abs(inset - 24)).toBeLessThanOrEqual(2);
+          for (const inset of buttonInsets) expect(Math.abs(inset - 16)).toBeLessThanOrEqual(2);
         }
         await overview.screenshot({ path: test.info().outputPath(`overview-${width}-${theme}.png`) });
         await overview.getByRole("button", { name: "Share portfolio PDF" }).click();
@@ -191,7 +191,7 @@ export function registerFinanceScreenChecks(
         await history.screenshot({ path: test.info().outputPath(`history-${width}-${theme}.png`) });
         const subpages = page.getByTestId("finance-subpages-fixture");
         await expect(subpages.getByText(/Full investment thesis remains readable/)).toBeVisible();
-        await expect(subpages.getByText(/Quote as of/)).toBeVisible();
+        await expect(subpages.locator('time[datetime="2026-10-20T20:00:00Z"]')).toBeVisible();
         await expect(subpages.getByText("Tier KING", { exact: true })).toBeVisible();
         await expect(subpages.getByRole("button", { name: "Start analysis debate" })).toBeVisible();
         expect(await subpages.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
@@ -228,7 +228,7 @@ export function registerHoldingEntryChecks(mount: (page: Page, width?: number) =
         await editor.getByRole("button", { name: /save/i }).click();
         await expect(quantity).toBeFocused();
         await expect(quantity).toHaveAttribute("aria-invalid", "true");
-        await expect(quantity).toHaveAccessibleDescription("Enter a quantity other than 0.");
+        await expect(quantity).toHaveAccessibleDescription("Enter a quantity above 0.");
         expect(await quantity.evaluate(element => {
           const field = element.getBoundingClientRect();
           const viewport = element.closest(".overflow-y-auto")!.getBoundingClientRect();

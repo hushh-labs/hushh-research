@@ -256,12 +256,55 @@ def _blocked_snapshot(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _fetch_country_on_file(
+    client: PlaidHttpClient, access_token: str, accounts: list[Any]
+) -> str | None:
+    account_ids = {
+        account["account_id"]
+        for account in accounts
+        if isinstance(account, dict)
+        and isinstance(account.get("account_id"), str)
+        and account.get("holder_category") != "business"
+        and account.get("type") in ("depository", "investment", "brokerage", "credit", "loan")
+    }
+    if not account_ids:
+        return None
+    response = await client.post(
+        "/identity/get",
+        {"access_token": access_token, "options": {"account_ids": sorted(account_ids)}},
+    )
+    countries: set[str] = set()
+    identity_accounts = response.get("accounts")
+    for account in identity_accounts if isinstance(identity_accounts, list) else []:
+        identity_account_id = account.get("account_id") if isinstance(account, dict) else None
+        if not isinstance(identity_account_id, str) or identity_account_id not in account_ids:
+            continue
+        owners = account.get("owners")
+        if not isinstance(owners, list) or not owners:
+            continue
+        if len(owners) != 1 or not isinstance(owners[0], dict):
+            return None
+        addresses = owners[0].get("addresses")
+        for address in addresses if isinstance(addresses, list) else []:
+            data = address.get("data") if isinstance(address, dict) else None
+            country = data.get("country") if isinstance(data, dict) else None
+            if (
+                isinstance(country, str)
+                and len(country) == 2
+                and country.isascii()
+                and country.isalpha()
+            ):
+                countries.add(country.upper())
+    return next(iter(countries)) if len(countries) == 1 else None
+
+
 async def read_vault_snapshot(
     client: PlaidHttpClient,
     access_token: str,
     cursor: str | None,
     *,
     continuation: bool = False,
+    include_country_on_file: bool = False,
 ) -> dict[str, Any]:
     try:
         item_response = await client.post("/item/get", {"access_token": access_token})
@@ -315,9 +358,27 @@ async def read_vault_snapshot(
         cursor,
         continuation,
     )
+    country_fields: dict[str, str | None] = {}
+    if include_country_on_file and not continuation:
+        country_fields["country_on_file"] = None
+        consented = item["consented_products"]
+        scopes = string_list(item_raw.get("consented_data_scopes"))
+        # Sandbox can omit consent metadata for an initialized Identity product.
+        identity_allowed = "identity" in consented or (
+            "identity" in item["products"]
+            and ("contact_info" in scopes or not (consented or scopes))
+        )
+        if item["error"] is None and identity_allowed:
+            try:
+                country_fields["country_on_file"] = await _fetch_country_on_file(
+                    client, access_token, accounts
+                )
+            except PlaidApiError as exc:
+                log_plaid_failure("snapshot_identity", exc, 200)
     return {
         "item": item,
         "accounts": accounts,
+        **country_fields,
         "investments": investments,
         "transactions": transactions,
         **({"liabilities": liabilities} if liabilities is not None else {}),

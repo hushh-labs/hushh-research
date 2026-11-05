@@ -136,7 +136,7 @@ export function RoundTabsCard({
         className
       )}
     >
-      <MorphyCardHeader>
+      <MorphyCardHeader className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div
@@ -182,7 +182,7 @@ export function RoundTabsCard({
       </MorphyCardHeader>
 
       {!isCollapsed && (
-        <MorphyCardContent>
+        <MorphyCardContent className="px-4 pb-4 pt-0">
           <SegmentedTabs
             value={selectedAgent}
             onValueChange={handleTabChange}

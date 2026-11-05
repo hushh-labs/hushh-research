@@ -19,7 +19,6 @@ api.routes.kai.portfolio.import_portfolio -> POST /kai/portfolio/import
 """
 
 import asyncio
-import io
 import json
 import logging
 import math
@@ -154,8 +153,6 @@ async def _run_portfolio_import_extract_gene(
     content: bytes,
     is_csv_upload: bool,
     prompt: str,
-    context_excerpt: str,
-    context_confidence: float,
     user_id: str,
     consent_token: str,
     model_name: str,
@@ -166,24 +163,14 @@ async def _run_portfolio_import_extract_gene(
 
     gene = _portfolio_import_extract_gene()
 
-    parts: list[Any] = [types.Part.from_text(text=prompt)]
-    excerpt = str(context_excerpt or "").strip()
-    if excerpt:
-        parts.append(
-            types.Part.from_text(text="Statement excerpt (deterministic page filter):\n" + excerpt)
-        )
-    include_full_document = is_csv_upload or not excerpt or context_confidence < 0.35
-    if include_full_document:
-        parts.append(
-            types.Part.from_bytes(
-                data=content,
-                mime_type="text/csv" if is_csv_upload else "application/pdf",
-            )
-        )
+    document = types.Part.from_bytes(
+        data=content,
+        mime_type="text/csv" if is_csv_upload else "application/pdf",
+    )
     parsed, elapsed_ms = await run_portfolio_gene(
         gene_id=gene.id,
         prompt=prompt,
-        document_parts=parts[1:],
+        document_parts=[document],
         output_schema=_PORTFOLIO_EXTRACT_SCHEMA,
         user_id=user_id,
         consent_token=consent_token,
@@ -193,33 +180,7 @@ async def _run_portfolio_import_extract_gene(
     from hushh_mcp.kai_import.strict_json import parse_statement_extraction
 
     normalized = parse_statement_extraction(parsed)
-    source = "full_document" if include_full_document else "excerpt_only"
-    return normalized, source, elapsed_ms
-
-
-_POSITIONS_PAGE_KEYWORDS = (
-    "holdings",
-    "positions",
-    "symbol",
-    "ticker",
-    "cusip",
-    "market value",
-    "cost basis",
-    "unrealized",
-    "shares",
-    "quantity",
-)
-_SUMMARY_PAGE_KEYWORDS = (
-    "account summary",
-    "portfolio summary",
-    "allocation",
-    "asset allocation",
-    "ending value",
-    "beginning value",
-    "net change",
-    "cash balance",
-    "income",
-)
+    return normalized, "full_document", elapsed_ms
 
 
 def _looks_like_holding_row(value: Any) -> bool:
@@ -475,87 +436,6 @@ def _phase_progress_bounds(phase: str) -> tuple[float, float]:
     return ranges.get(phase, (0.0, 100.0))
 
 
-def _score_page_keywords(text: str, keywords: tuple[str, ...]) -> float:
-    haystack = text.lower()
-    score = 0.0
-    for keyword in keywords:
-        if keyword in haystack:
-            score += 1.0
-    return score
-
-
-def _extract_pdf_pass_contexts(content: bytes) -> dict[str, Any]:
-    """
-    Build deterministic text excerpts for positions and summary passes.
-    Falls back to full document bytes when snippet confidence is low.
-    """
-    try:
-        import pdfplumber
-
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            extracted_pages: list[tuple[int, str, float, float]] = []
-            for idx, page in enumerate(pdf.pages[:40]):
-                text = (page.extract_text() or "").strip()
-                if not text:
-                    continue
-                positions_score = _score_page_keywords(text, _POSITIONS_PAGE_KEYWORDS)
-                summary_score = _score_page_keywords(text, _SUMMARY_PAGE_KEYWORDS)
-                extracted_pages.append((idx + 1, text, positions_score, summary_score))
-
-        if not extracted_pages:
-            return {
-                "positions_text": "",
-                "summary_text": "",
-                "positions_confidence": 0.0,
-                "summary_confidence": 0.0,
-                "selected_pages": [],
-            }
-
-        positions_pages = sorted(
-            extracted_pages,
-            key=lambda row: (row[2], len(row[1])),
-            reverse=True,
-        )[:5]
-        summary_pages = sorted(
-            extracted_pages,
-            key=lambda row: (row[3], len(row[1])),
-            reverse=True,
-        )[:4]
-
-        def build_text(rows: list[tuple[int, str, float, float]]) -> str:
-            chunks: list[str] = []
-            for page_num, page_text, _p_score, _s_score in rows:
-                compact = re.sub(r"\s+", " ", page_text).strip()
-                if compact:
-                    chunks.append(f"[Page {page_num}] {compact[:7000]}")
-            return "\n\n".join(chunks)[:52000]
-
-        positions_conf = sum(row[2] for row in positions_pages) / max(
-            1.0, float(len(positions_pages) * 4.0)
-        )
-        summary_conf = sum(row[3] for row in summary_pages) / max(
-            1.0, float(len(summary_pages) * 4.0)
-        )
-        selected_pages = sorted({row[0] for row in positions_pages + summary_pages})
-        return {
-            "positions_text": build_text(positions_pages),
-            "summary_text": build_text(summary_pages),
-            "positions_confidence": round(max(0.0, min(1.0, positions_conf)), 4),
-            "summary_confidence": round(max(0.0, min(1.0, summary_conf)), 4),
-            "selected_pages": selected_pages,
-        }
-    except Exception as context_err:
-        logger.warning("[Portfolio Import] PDF context extraction failed: %s", context_err)
-        return {
-            "positions_text": "",
-            "summary_text": "",
-            "positions_confidence": 0.0,
-            "summary_confidence": 0.0,
-            "selected_pages": [],
-            "error": str(context_err),
-        }
-
-
 def _compute_positions_coverage(
     *,
     holdings: list[dict[str, Any]],
@@ -625,6 +505,14 @@ def _coerce_optional_number(value: Any) -> Optional[float]:
         return num if math.isfinite(num) else None
     except ValueError:
         return None
+
+
+def _first_optional_number(row: dict[str, Any], *keys: str) -> Optional[float]:
+    for key in keys:
+        number = _coerce_optional_number(row.get(key))
+        if number is not None:
+            return number
+    return None
 
 
 def _coerce_optional_bool(value: Any) -> Optional[bool]:
@@ -1053,6 +941,10 @@ def _normalize_portfolio_summary(parsed_data: dict[str, Any]) -> dict[str, Any]:
         normalized["total_income_ytd"] = total_income_ytd
     if total_fees is not None:
         normalized["total_fees"] = total_fees
+    for field in ("declared_security_count", "securities_market_value", "pending_receivables"):
+        control = _coerce_optional_number(summary.get(field))
+        if control is not None:
+            normalized[field] = control
 
     return normalized
 
@@ -1698,21 +1590,21 @@ def _normalize_raw_holding_row(row: dict[str, Any], idx: int) -> dict[str, Any]:
                 "value",
                 "position_value",
             ),
-            "cost_basis": _first_present(
+            "cost_basis": _first_optional_number(
                 row,
                 "cost_basis",
                 "book_value",
                 "cost",
                 "total_cost",
             ),
-            "unrealized_gain_loss": _first_present(
+            "unrealized_gain_loss": _first_optional_number(
                 row,
                 "unrealized_gain_loss",
                 "gain_loss",
                 "unrealized_pnl",
                 "pnl",
             ),
-            "unrealized_gain_loss_pct": _first_present(
+            "unrealized_gain_loss_pct": _first_optional_number(
                 row,
                 "unrealized_gain_loss_pct",
                 "gain_loss_pct",
@@ -2692,18 +2584,19 @@ def _normalize_import_holding_light(row: dict[str, Any], _idx: int) -> dict[str,
         or None,
         "name": name,
         "asset_type": asset_type or None,
+        "account_id": _normalize_optional_text(row.get("account_id")),
+        "currency": _normalize_optional_text(row.get("currency")),
+        "acquisition_date": _normalize_optional_text(row.get("acquisition_date")),
         "quantity": quantity,
         "price": price,
         "price_per_unit": price,
         "market_value": market_value,
-        "cost_basis": _coerce_optional_number(
-            _first_present(row, "cost_basis", "book_value", "cost", "total_cost")
+        "cost_basis": _first_optional_number(row, "cost_basis", "book_value", "cost", "total_cost"),
+        "unrealized_gain_loss": _first_optional_number(
+            row, "unrealized_gain_loss", "gain_loss", "unrealized_pnl", "pnl"
         ),
-        "unrealized_gain_loss": _coerce_optional_number(
-            _first_present(row, "unrealized_gain_loss", "gain_loss", "unrealized_pnl", "pnl")
-        ),
-        "unrealized_gain_loss_pct": _coerce_optional_number(
-            _first_present(row, "unrealized_gain_loss_pct", "gain_loss_pct", "return_pct")
+        "unrealized_gain_loss_pct": _first_optional_number(
+            row, "unrealized_gain_loss_pct", "gain_loss_pct", "unrealized_return_pct", "return_pct"
         ),
         "sector": _normalize_optional_text(
             _first_present(row, "sector", "gics_sector", "sector_name")
@@ -2779,23 +2672,11 @@ async def _portfolio_import_stream_generator(
             )
 
             full_extract_prompt = build_statement_extract_prompt_v2()
-            pdf_context = (
-                _extract_pdf_pass_contexts(content)
-                if not is_csv_upload
-                else {
-                    "positions_text": "",
-                    "summary_text": "",
-                    "positions_confidence": 0.0,
-                    "summary_confidence": 0.0,
-                    "selected_pages": [],
-                }
-            )
             run_started_at = time.perf_counter()
             parse_diagnostics: dict[str, Any] = {
                 "pass_timings_ms": {},
                 "pass_token_counts": {},
                 "pass_content_sources": {},
-                "pdf_context": pdf_context,
             }
 
             yield stream.event(
@@ -2805,18 +2686,6 @@ async def _portfolio_import_stream_generator(
                     "message": "Submitting statement for extraction...",
                     "phase": "extract_full",
                 },
-            )
-
-            full_context_parts = [
-                str(pdf_context.get("positions_text") or "").strip(),
-                str(pdf_context.get("summary_text") or "").strip(),
-            ]
-            full_context_excerpt = "\n\n".join(part for part in full_context_parts if part)
-            full_context_confidence = float(
-                max(
-                    float(pdf_context.get("positions_confidence") or 0.0),
-                    float(pdf_context.get("summary_confidence") or 0.0),
-                )
             )
 
             extract_full_result: dict[str, Any] = {}
@@ -2836,8 +2705,6 @@ async def _portfolio_import_stream_generator(
                 content=content,
                 is_csv_upload=is_csv_upload,
                 prompt=full_extract_prompt,
-                context_excerpt=full_context_excerpt,
-                context_confidence=full_context_confidence,
                 user_id=user_id,
                 consent_token=consent_token,
                 model_name=extraction_model,
@@ -3019,7 +2886,7 @@ async def _portfolio_import_stream_generator(
             account_info = {
                 "holder_name": statement_details.get("account_name"),
                 "account_number": statement_details.get("account_number"),
-                "account_type": None,
+                "account_type": _normalize_optional_text(statement_details.get("account_type")),
                 "brokerage_name": statement_details.get("institution_name"),
                 "institution_name": statement_details.get("institution_name"),
                 "statement_period_start": statement_details.get("statement_period_start"),
@@ -3052,6 +2919,13 @@ async def _portfolio_import_stream_generator(
                 ),
                 "total_fees": _coerce_optional_number(portfolio_summary.get("total_fees")),
             }
+            for field in (
+                "declared_security_count",
+                "securities_market_value",
+                "pending_receivables",
+            ):
+                if field in portfolio_summary:
+                    account_summary[field] = portfolio_summary[field]
 
             total_value = _coerce_optional_number(parsed_data.get("total_value")) or 0.0
             if not total_value and account_summary.get("ending_value"):
@@ -3143,11 +3017,20 @@ async def _portfolio_import_stream_generator(
                     else 0.0
                 ),
             )
+            declared_count = portfolio_summary.get("declared_security_count")
+            expected_position_count = (
+                int(declared_count)
+                if declared_count is not None
+                and declared_count >= 0
+                and declared_count.is_integer()
+                else None
+            )
             quality_gate_allows_continue, quality_gate = evaluate_import_quality_gate_v2(
                 holdings=validated_holdings,
                 placeholder_symbol_count=placeholder_symbol_count,
                 account_header_row_count=account_header_row_count,
-                expected_total_value=total_value,
+                expected_total_value=portfolio_summary.get("securities_market_value"),
+                expected_position_count=expected_position_count,
                 core_keys_present=core_keys_present,
                 rows_with_symbol_pct=rows_with_symbol_pct,
                 rows_with_market_value_pct=rows_with_market_value_pct,
@@ -3208,7 +3091,8 @@ async def _portfolio_import_stream_generator(
                 raw_extract_v2=raw_extract_v2,
                 account_info=account_info,
                 account_summary=account_summary,
-                holdings=holdings,
+                # The owner can review and edit individual statement entries.
+                holdings=[row for row in validated_holdings if row.get("symbol")],
                 asset_allocation=[],
                 total_value=total_value,
                 cash_balance=cash_balance,
@@ -3239,7 +3123,7 @@ async def _portfolio_import_stream_generator(
                 }
             )
             analytics_v2 = build_financial_analytics_v2(
-                canonical_portfolio_v2=portfolio_data_v2,
+                canonical_portfolio_v2={**portfolio_data_v2, "holdings": holdings},
                 raw_extract_v2=raw_extract_v2,
             )
 
