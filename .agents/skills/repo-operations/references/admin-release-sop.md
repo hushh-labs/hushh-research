@@ -143,6 +143,46 @@ approval or proof of ordinary queue behavior.
 No merge command grants deployment authority or starts an application deployment.
 The root checkout and unrelated work remain untouched throughout the landing.
 
+### 3D. Queue check-response budget
+
+The shared `branch_flow.merge_queue_check_response_timeout_minutes` policy is
+120 minutes for Main, Dev, UAT, UAT-isolated and the integration train. On
+2026-11-05, GitHub removed PR #8848's queue entry with `checks_timed_out` while
+run `41938357317` was still validating. Its application checks subsequently
+passed; the final membership guard correctly refused the removed entry.
+
+The authored critical path allows 100 minutes: admission (10), path selection
+(5), governance (15), preflight (5), the longest parallel affected lane (45),
+combined aggregation (10), and final queue authority (10). The 120-minute
+budget leaves 20 minutes for scheduling; it does not guarantee runner availability.
+Job timeouts, required checks, membership and exact-attempt authority are unchanged.
+
+After this policy is reviewed and landed, use its existing controller to repair
+only the timeout. This operation is independent of review/bypass migration and
+does not require Stage B destination source parity, so source-sync PRs can finish
+before those later operations:
+
+```bash
+python3 scripts/ci/apply-governance.py --queue-response-timeout-policy main dev uat uat-isolated integration/pr-train
+python3 scripts/ci/apply-governance.py --queue-response-timeout-policy main dev uat uat-isolated integration/pr-train --apply
+```
+
+The first command is a dry-run. The second requires existing repository ruleset
+administration access, validates every selected exact-ref queue before writing,
+and preserves its actors, other parameters and unrelated rules. It rechecks the
+snapshot before each write and verifies the readback. If a later branch fails,
+inspect the completed changes before resuming; it does not roll back peer edits.
+Branches may be selected separately, but repair all shared queue templates before
+subsequent branch-policy reconciliation. No branch protection, authority, refs,
+reviews, CI results or application deployments change in this operation.
+
+Run the existing branch-protection verifier for each selected branch. It rejects
+stale/missing budgets and ambiguous queues as well as other policy drift. A
+successful budget-only readback does not prove Stage B or full policy parity;
+resolve those independent differences through their existing reviewed operations.
+Requeue a removed PR only after the timeout readback succeeds and its current
+head/base/reviews/CI are qualified again.
+
 ### 4. Establish deploy authority
 
 1. Resolve the selected environment’s exact application revision from its

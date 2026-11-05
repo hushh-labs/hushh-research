@@ -66,11 +66,13 @@ if policy_key not in policy:
     print(f"ERROR: policy key '{policy_key}' is missing from {os.environ['POLICY_FILE']}")
     sys.exit(1)
 branch_policy = dict(policy[policy_key])
+root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                          check=True, capture_output=True, text=True).stdout.strip())
+sys.path.insert(0, str(root / "scripts/ci"))
+from prepared_branch_governance import queue_response_timeout, queue_timeout_payload
+expected_queue_timeout = queue_response_timeout(policy)
 native_prepared = bool(prepared.get("owner_admin_ruleset_name"))
 if native_prepared:
-    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                              check=True, capture_output=True, text=True).stdout.strip())
-    sys.path.insert(0, str(root / "scripts/ci"))
     from prepared_branch_governance import branch_policy as prepared_policy, verify_destination_authority
     branch_policy = prepared_policy(policy, branch)
 if prepared:
@@ -202,7 +204,7 @@ merge_queue_bypass = []
 merge_queue_bypass_team_names = []
 merge_queue_bypass_team_slugs = []
 expected_queue_team_members = set()
-prepared_queue_matches = 0
+named_queue_matches = 0
 for ruleset in ruleset_list:
     if ruleset.get("target") != "branch" or ruleset.get("enforcement") != "active":
         continue
@@ -219,6 +221,15 @@ for ruleset in ruleset_list:
     )
     if expected_queue_ruleset_name and detail.get("name") != expected_queue_ruleset_name:
         continue
+    try:
+        budget = queue_timeout_payload(detail, branch=branch, name=expected_queue_ruleset_name,
+                                       minutes=expected_queue_timeout)
+    except SystemExit as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
+    named_queue_matches += 1
+    if budget["rules"] != detail["rules"]:
+        raise SystemExit(f"Queue check-response timeout drifted for {branch}: expected {expected_queue_timeout} minutes")
     if branch == "main" and branch_policy.get("owner_admin_ruleset_name"):
         # Do not normalize away unknown actor types or unresolved account IDs.
         if (detail.get("conditions") != {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
@@ -229,19 +240,6 @@ for ruleset in ruleset_list:
     if native_prepared and sorted(detail.get("bypass_actors", []), key=lambda a: json.dumps(a, sort_keys=True)) != sorted(
             expected_owner_actors, key=lambda a: json.dumps(a, sort_keys=True)):
         raise SystemExit("Prepared queue exception contains unknown actors, modes or scope")
-    if prepared:
-        # Prepared queues are deliberately exact-ref rules, not wildcard inference.
-        refs = detail.get("conditions", {}).get("ref_name", {})
-        if not (
-            detail.get("target") == "branch"
-            and detail.get("enforcement") == "active"
-            and refs.get("include") == [f"refs/heads/{branch}"]
-            and refs.get("exclude") == []
-            and any(rule.get("type") == "merge_queue" and rule.get("parameters")
-                    for rule in detail.get("rules", []))
-        ):
-            continue
-        prepared_queue_matches += 1
     if not expected_queue_bypass and detail.get("bypass_actors"):
         raise SystemExit("Merge queue policy forbids every bypass actor, including unresolved roles and apps")
     for actor in detail.get("bypass_actors") or []:
@@ -312,8 +310,8 @@ merge_queue_bypass_team_names = sorted(set(merge_queue_bypass_team_names))
 merge_queue_bypass_team_slugs = sorted(set(merge_queue_bypass_team_slugs))
 
 errors = []
-if prepared and prepared_queue_matches != 1:
-    errors.append("prepared branch requires exactly one active, exact-ref named merge queue ruleset")
+if require_merge_queue and named_queue_matches != 1:
+    errors.append("branch requires exactly one active, exact-ref named merge queue ruleset")
 pending_queue_bypass = []
 missing_queue_bypass = sorted(set(expected_queue_bypass) - set(merge_queue_bypass))
 if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypass_team_slugs:

@@ -3,6 +3,7 @@
     "intake_branch": "dev",
     "train_branch": "integration/pr-train",
     "promotion_branch": "main",
+    "merge_queue_check_response_timeout_minutes": 120,
     "main_allowed_head_branches": [
       "integration/pr-train",
       "maintainer/promote-damria-one-location-to-main",
