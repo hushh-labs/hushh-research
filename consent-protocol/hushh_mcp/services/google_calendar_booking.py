@@ -348,7 +348,7 @@ def validate_plan(
             plan.update(board_create_fields(payload, account_id, meeting_type, meeting_link))
         if "opening_selection" in payload:
             selection = _opening_selection(payload["opening_selection"], plan)
-            plan["opening_selection"] = selection.model_dump(mode="json")
+            plan["opening_selection"] = selection.model_dump(mode="json", exclude_defaults=True)
         if "shared_opening_selection" in payload:
             if "opening_selection" in payload or booking_source == "board":
                 raise GoogleConnectionError("Choose one Calendar slot source", status_code=422)
@@ -589,18 +589,38 @@ async def check_opening(
     selection = _opening_selection(plan["opening_selection"], plan)
     if instant(selection.slot.start_at) <= datetime.now(UTC) or not binding:
         raise GoogleConnectionError("This slot expired. Check openings again.", status_code=409)
-    result = await calendar.freebusy(
-        user_id=user_id,
-        start_at=selection.slot.start_at,
-        end_at=selection.slot.end_at,
-        calendar_ids=selection.calendar_ids,
-        expected_binding=binding,
-    )
-    busy = calendar._merged_busy_intervals(
-        calendars=result.get("calendars"),
-        range_start=instant(selection.slot.start_at),
-        range_end=instant(selection.slot.end_at),
-    )
+    if selection.coverage_policy == "board_default":
+        from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+
+        schedule = CalendarScheduleService(calendar=calendar)
+        inventory = await schedule._included_calendars(user_id, binding=binding)
+        selected, _ = schedule._availability_selection(inventory)
+        if set(schedule.opening_calendar_ids(selected)) != set(selection.calendar_ids):
+            raise GoogleConnectionError(
+                "Calendar coverage changed. Check openings again.",
+                status_code=409,
+                reason_code="calendar_selection_changed",
+            )
+        busy = await schedule._busy_intervals(
+            user_id=user_id,
+            start=instant(selection.slot.start_at),
+            end=instant(selection.slot.end_at),
+            calendar_ids=selection.calendar_ids,
+            binding=binding,
+        )
+    else:
+        result = await calendar.freebusy(
+            user_id=user_id,
+            start_at=selection.slot.start_at,
+            end_at=selection.slot.end_at,
+            calendar_ids=selection.calendar_ids,
+            expected_binding=binding,
+        )
+        busy = calendar._merged_busy_intervals(
+            calendars=result.get("calendars"),
+            range_start=instant(selection.slot.start_at),
+            range_end=instant(selection.slot.end_at),
+        )
     if busy:
         raise GoogleConnectionError(
             "This slot is no longer free. Check openings again.",

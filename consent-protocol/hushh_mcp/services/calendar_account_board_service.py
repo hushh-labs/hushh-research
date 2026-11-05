@@ -37,11 +37,19 @@ def _window_intersection(
     result: list[dict[str, str]] = []
     i = j = 0
     while i < len(left) and j < len(right):
-        start = max(left[i]["start_at"], right[j]["start_at"])
-        end = min(left[i]["end_at"], right[j]["end_at"])
+        from hushh_mcp.services.calendar_opening_selection import instant
+
+        left_end, right_end = instant(left[i]["end_at"]), instant(right[j]["end_at"])
+        start = max(instant(left[i]["start_at"]), instant(right[j]["start_at"]))
+        end = min(left_end, right_end)
         if start < end:
-            result.append({"start_at": start, "end_at": end})
-        if left[i]["end_at"] <= right[j]["end_at"]:
+            result.append(
+                {
+                    "start_at": start.isoformat().replace("+00:00", "Z"),
+                    "end_at": end.isoformat().replace("+00:00", "Z"),
+                }
+            )
+        if left_end <= right_end:
             i += 1
         else:
             j += 1

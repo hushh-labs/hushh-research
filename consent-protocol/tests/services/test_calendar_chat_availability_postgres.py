@@ -34,6 +34,53 @@ from tests.services import test_external_connector_lifecycle_postgres as postgre
 connector_postgres_url = postgres_support.connector_postgres_url
 
 
+@pytest.mark.asyncio
+async def test_guest_question_restores_privately_before_complete_review(calendar_pg, monkeypatch):
+    from hushh_mcp.agents.calendar.guest_clarification import STATE_GUEST_CLARIFICATION
+    from tests.agents.test_calendar_guest_clarification import REQUEST, reply, setup_question
+
+    _google, db, engine = calendar_pg
+
+    def service():
+        async def execute(sql, params):
+            return await asyncio.to_thread(db.execute_raw, sql, params)
+
+        return EncryptedAdkSessionService(
+            static_chat_cipher(), repository=PostgresAdkSessionRepository(execute)
+        )
+
+    _store, port, session, _ = await setup_question(monkeypatch, owner=OWNER, store=service())
+    original = copy.deepcopy(session.state[STATE_GUEST_CLARIFICATION])
+    restored_store = service()
+    restored = await restored_store.get_session(app_name="one", user_id=OWNER, session_id="guests")
+    assert restored is not None and restored.state[STATE_GUEST_CLARIFICATION] == original
+    assert (
+        await restored_store.get_session(
+            app_name="one", user_id="another-owner", session_id="guests"
+        )
+        is None
+    )
+    with engine.connect() as connection:
+        ciphertext = connection.execute(
+            text("SELECT payload_ciphertext FROM one_adk_sessions WHERE session_id='guests'")
+        ).scalar_one()
+        assert REQUEST not in ciphertext and STATE_GUEST_CLARIFICATION not in ciphertext
+    result, model = await reply(monkeypatch, restored_store, port, owner=OWNER)
+    assert result["status"] == "confirmation_required", result
+    assert result["directive"]["payload"]["attendees"] == ["guest@example.test"]
+    assert model._inputs[0]["pending_clarification"]["original_user_messages"] == [REQUEST]
+    assert model._planning[0]["original_user_messages"] == [REQUEST]
+    assert model._planning[0]["original_turn_at"] == original["original_turn_at"]
+    assert model._planning[0]["requested_time_zone"] == "Asia/Kolkata"
+    assert model._planning[0]["original_request_clock"]["tomorrow"] == "2030-11-06"
+    assert "grant_binding" not in str(model._planning)
+    assert not (
+        await service().get_session(app_name="one", user_id=OWNER, session_id="guests")
+    ).state.get(STATE_GUEST_CLARIFICATION)
+    port.propose.assert_awaited_once()
+    port.execute.assert_not_awaited()
+
+
 @pytest.fixture
 def calendar_pg(connector_postgres_url, monkeypatch, shared_hub_owner):
     schema = "calendar_chat_" + uuid4().hex
@@ -109,6 +156,15 @@ async def _connect(google, label, additional):
 
 
 async def _journey(calendar_pg, monkeypatch):
+    # This database recovery/executor fixture starts after request assessment.
+    # Real SDK action-scope enforcement is covered by the Calendar contract matrix.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.request_scope", AsyncMock(return_value=("create",))
+    )
     google, db, engine = calendar_pg
     ids = {label: await _connect(google, label, label != "A") for label in ("A", "B", "C")}
     assert ids["A"] == "default" and len(set(ids.values())) == 3
@@ -186,7 +242,7 @@ async def _journey(calendar_pg, monkeypatch):
         context, date="2030-10-21", duration_minutes=30
     )
     assert result["status"] == "ok", result
-    assert result["openings"][1]["start_at"] == "2030-10-21T13:00:00Z"
+    assert result["openings"][1]["start_at"] == "2030-10-21T04:30:00Z"
     assert len(calls) == 6 and {item[3] for item in calls} == {"read"}
     assert "binding" not in str(result)
     original = copy.deepcopy(context.state[STATE_OPENING_OFFER])
@@ -222,7 +278,7 @@ async def _journey(calendar_pg, monkeypatch):
         )
     restored.state["hussh:timezone"] = "Pacific/Auckland"
     detail = await opening_tools.calendar_opening_detail(restored, ordinal=2)
-    assert detail["start_at"] == "2030-10-21T13:00:00Z"
+    assert detail["start_at"] == "2030-10-21T04:30:00Z"
     assert detail["time_zone"] == "America/New_York"
     assert restored.state[STATE_OPENING_OFFER] == original
     return google, db, engine, ids, calls, unavailable, restored

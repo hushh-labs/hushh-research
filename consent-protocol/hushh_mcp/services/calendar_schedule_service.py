@@ -508,6 +508,39 @@ class CalendarScheduleService:
             raise error
         return calendars, options
 
+    @staticmethod
+    def opening_calendar_ids(calendars):
+        """Use the provider's verified primary identity, never an extra calendar."""
+        return ["primary" if item.get("primary") is True else item["id"] for item in calendars]
+
+    async def openings_in_window(
+        self, *, user_id, start_at, end_at, duration_minutes, limit, expected_binding=None
+    ):
+        start_at, end_at = self.calendar._read_window(start_at, end_at)
+        start, end = datetime.fromisoformat(start_at), datetime.fromisoformat(end_at)
+        binding = await self._read_binding(user_id)
+        if expected_binding is not None and binding != expected_binding:
+            raise _error("Calendar connection changed.", 409, "calendar_connection_changed")
+        inventory = await self._included_calendars(user_id, binding=binding)
+        calendars, _ = self._availability_selection(inventory)
+        ids = self.opening_calendar_ids(calendars)
+        busy = await self._busy_intervals(
+            user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
+        )
+        from hushh_mcp.services.calendar_opening_selection import opening_options
+
+        options = opening_options(self._free_gaps(start, end, busy), duration_minutes, limit)
+        await self.calendar._check_read_binding(user_id, binding)
+        return {
+            "time_min": start_at,
+            "time_max": end_at,
+            "duration_minutes": duration_minutes,
+            "calendar_ids": ids,
+            "coverage_policy": "board_default",
+            "coverage_complete": True,
+            **options,
+        }
+
     async def free_windows(
         self,
         *,
@@ -632,20 +665,14 @@ class CalendarScheduleService:
             busy = await self._busy_intervals(
                 user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
             )
-            minimum = timedelta(minutes=duration_minutes)
+            from hushh_mcp.services.calendar_opening_selection import opening_options
+
             result = {
                 "time_min": GoogleCalendarService._utc_iso(start),
                 "time_max": GoogleCalendarService._utc_iso(end),
                 "duration_minutes": duration_minutes,
-                "openings": [
-                    {
-                        "start_at": GoogleCalendarService._utc_iso(left),
-                        "end_at": GoogleCalendarService._utc_iso(left + minimum),
-                        "available_until": GoogleCalendarService._utc_iso(right),
-                    }
-                    for left, right in self._free_gaps(start, end, busy)
-                    if right - left >= minimum
-                ][:20],
+                "coverage_complete": True,
+                **opening_options(self._free_gaps(start, end, busy), duration_minutes, 20),
             }
         await self.calendar._check_read_binding(user_id, binding)
         return {**result, "time_zone": time_zone, "calendars": calendars}

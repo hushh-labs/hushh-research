@@ -15,6 +15,7 @@ from email.parser import BytesParser
 
 # ruff: noqa: S106 -- token strings below name test fixtures, not credentials.
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -51,6 +52,17 @@ class _Session:
 
 @pytest.fixture
 def agent(monkeypatch, tmp_path):
+    # These executor fixtures start after request assessment. The real SDK runner
+    # covers current-turn scope in tests/agents/test_calendar_request_scope.py.
+    from hushh_mcp.agents.calendar import request_scope
+
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
+        request_scope, "request_scope", AsyncMock(return_value=("create", "reschedule", "cancel"))
+    )
     log, tokens, google = h.install(
         monkeypatch,
         tmp_path,
