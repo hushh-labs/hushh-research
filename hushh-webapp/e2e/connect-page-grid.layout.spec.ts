@@ -179,6 +179,78 @@ async function settle(page: Page, _width: number) {
 }
 
 for (const width of [393, 1440]) {
+  test(`Connect retains the latest tab through delayed navigation and resize at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
+    await open(page, width, false, { connectionsMs: 0, circlesMs: 0, directoryMs: 0 }, () => {
+      document.documentElement.dataset.navigationMs = "650";
+    });
+    await expect(page).toHaveURL("http://localhost/connect-page-grid");
+    await expect(page).toHaveTitle("Connect layout fixture");
+    const connections = page.getByRole("tab", { name: "Connections", exact: true });
+    const circles = page.getByRole("tab", { name: "Circles", exact: true });
+    const pager = page.locator('[data-swipe-views-root="true"]').first();
+    const circlePane = page.locator('[data-connect-surface="circles"]');
+    await expect(connections).toHaveAttribute("aria-selected", "true");
+    await circles.click();
+    // Resize the real pager before Next's query acknowledgment arrives.
+    await pager.evaluate(node => { node.style.width = "calc(100% - 8px)"; });
+    await page.waitForTimeout(150);
+    await expect.poll(async () => {
+      const viewport = await pager.boundingBox();
+      const panel = await circlePane.locator("..").boundingBox();
+      return Math.abs(panel!.x - viewport!.x);
+    }, { timeout: 250 }).toBeLessThan(2);
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "1");
+
+    // Reverse before the first animation settles; the final tap owns the URL.
+    await connections.click();
+    await circles.click();
+    await connections.click();
+    await expect(connections).toHaveAttribute("aria-selected", "true");
+    await expect(circlePane.locator("..")).toHaveAttribute("aria-hidden", "true");
+    // Wait beyond both route acknowledgment and the compositor's settle tail.
+    await page.waitForTimeout(1100);
+    await expect(connections).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "4");
+    const box = (await pager.boundingBox())!;
+    const startX = box.x + box.width * 0.8;
+    const swipeY = await pager.evaluate((node, x) => {
+      const bounds = node.getBoundingClientRect();
+      for (let y = Math.min(bounds.bottom - 20, innerHeight - 20); y > bounds.top; y -= 30) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit && hit.closest('[data-swipe-views-root="true"]') === node && !hit.closest("button,input,a,[role=button],[role=tab]")) return y;
+      }
+      throw new Error("No unobstructed pager gesture area");
+    }, startX);
+    await page.mouse.move(startX, swipeY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.15, swipeY, { steps: 8 });
+    await page.mouse.up();
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await page.waitForTimeout(1100);
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "5");
+    // Return to the current route by swipe before a contrary tap is echoed.
+    await page.evaluate(() => { document.documentElement.dataset.navigationMs = "1800"; });
+    await connections.click();
+    await page.waitForTimeout(100);
+    await page.mouse.move(startX, swipeY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.15, swipeY, { steps: 8 });
+    await page.mouse.up();
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "7");
+    await page.waitForTimeout(2100);
+    await expect(circles).toHaveAttribute("aria-selected", "true");
+    await expect(circlePane.locator("..")).toHaveAttribute("aria-hidden", "false");
+    await expect(page.locator("nextjs-portal")).toHaveCount(0);
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: testInfo.outputPath(`connect-tabs-${width}.png`) });
+  });
+
   test(`mutual list keeps paged people and retraces profile and directory at ${width}px`, async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
