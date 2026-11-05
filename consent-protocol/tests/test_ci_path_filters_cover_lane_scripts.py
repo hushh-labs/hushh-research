@@ -42,7 +42,7 @@ AUTH_HEALTH_PATHS = frozenset(
 )
 WORKFLOW_EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 
-LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend)\s*==\s*'true'")
+LANE_OUTPUT_RE = re.compile(r"outputs\.(frontend|backend|document)\s*==\s*'true'")
 STAGE_ARM_RE = re.compile(r"^    ([\w|-]+)\)\n(.*?)^      ;;", re.MULTILINE | re.DOTALL)
 ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 # The jobs this guard must find; if the `if:` shape changes and discovery
@@ -52,18 +52,20 @@ EXPECTED_JOBS = {
     "web-targeted-check": {"frontend"},
     "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
-    "document-webkit-check": {"frontend", "backend"},
+    "document-webkit-check": {"document"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
     "protocol-database-check-two": {"backend"},
     "mcp-package-check": {"backend"},
-    "integration-check": {"frontend", "backend"},
+    "integration-check": {"frontend", "backend", "document"},
 }
 
 # Actual shared runtime/image inputs used by the governed environment releases.
 # Application flags, policy and SQL already fall under consent-protocol/**.
 # Workflow-only changes use the focused controller owner below.
 DELETION_RELEASE_WORKFLOWS = (
+    ".github/workflows/deploy-dev-implementation.yml",
+    ".github/workflows/deploy-uat-implementation.yml",
     ".github/workflows/deploy-dev.yml",
     ".github/workflows/deploy-uat.yml",
     ".github/workflows/deploy-production.yml",
@@ -98,10 +100,26 @@ RESTORATION_FIXTURE_OWNER_TESTS = (
 
 class _Filter:
     def __init__(self, patterns: list[str]) -> None:
-        self.includes = [p for p in patterns if not p.startswith("!")]
-        self.excludes = [p[1:] for p in patterns if p.startswith("!")]
+        # paths-filter expands brace alternatives; pathspec does not. Retain
+        # those alternatives when checking real runtime paths in this fixture.
+        expanded = [item for pattern in patterns for item in self._expand(pattern)]
+        self.includes = [p for p in expanded if not p.startswith("!")]
+        self.excludes = [p[1:] for p in expanded if p.startswith("!")]
         self._include = pathspec.PathSpec.from_lines("gitignore", self.includes)
         self._exclude = pathspec.PathSpec.from_lines("gitignore", self.excludes)
+
+    @classmethod
+    def _expand(cls, pattern: str) -> list[str]:
+        match = re.search(r"\{([^{}]+)\}", pattern)
+        if not match:
+            return [pattern]
+        return [
+            expanded
+            for alternative in match.group(1).split(",")
+            for expanded in cls._expand(
+                pattern[: match.start()] + alternative + pattern[match.end() :]
+            )
+        ]
 
     def match_file(self, path: str) -> bool:
         return self._include.match_file(path) and not self._exclude.match_file(path)
@@ -159,6 +177,7 @@ def _resolve_path_outputs(
     env = {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
+        "CI_VALIDATION_LEVEL": "focused",
         "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
         "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
     }
@@ -361,7 +380,9 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     jobs = _workflow()["jobs"]
     governance = jobs["repo-governance"]
     assert governance["needs"] == ["paths"]
-    assert governance["if"] == "always()"
+    # Run despite an independent path failure, but stop superseded work.
+    # The final required gate separately remains always-running/fail-closed.
+    assert governance["if"] == "${{ !cancelled() }}"
     steps = governance["steps"]
     setup = next(
         i
@@ -409,7 +430,6 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
         "pr-base-policy",
         "repo-governance",
         "paths",
-        "main-freshness-gate",
     ]
 
 
@@ -461,6 +481,30 @@ def test_deploy_workflow_edits_select_controller_contract_without_backend_lane()
     assert promotion_plan["selection_error"] is None
     assert promotion_plan["selected_groups"] == ["controller"]
     assert "account-deletion-release-workflow" in {row["id"] for row in promotion_plan["commands"]}
+
+
+def test_push_hook_uses_its_governance_owner_without_backend_fanout(tmp_path: Path) -> None:
+    hook = "consent-protocol/ops/monorepo/pre-push.sh"
+    changed = (
+        hook,
+        "scripts/ci/test_check_main_sync.py",
+        ".agents/skills/repo-operations/references/maintainer-branch-freshness.md",
+    )
+    _, resolved = _auth_health_decision(changed, tmp_path)
+    assert all(resolved[lane] == "false" for lane in ("frontend", "backend", "ios", "android"))
+    plan = _governance_plan(changed)
+    assert plan["selection_error"] is None
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["main-sync"] == ["python3", "scripts/ci/test_check_main_sync.py"]
+
+    for runtime in (
+        "consent-protocol/ops/monorepo/unknown-runtime.sh",
+        "consent-protocol/hushh_mcp/runtime_settings.py",
+        "consent-protocol/db/schema.sql",
+        "consent-protocol/migrations/0001_example.sql",
+    ):
+        _, mixed = _auth_health_decision((*changed, runtime), tmp_path)
+        assert mixed["backend"] == "true", runtime
 
 
 def test_production_emergency_authority_test_is_controller_owned_not_backend() -> None:
@@ -523,6 +567,21 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     ]
     assert "protocol-check" not in commands
     assert "cloudrun-retention" not in commands
+
+
+def test_route_metadata_keeps_web_ownership_without_unrelated_document_webkit() -> None:
+    filters = _filters()
+    metadata = "hushh-webapp/lib/navigation/app-route-layout.contract.json"
+    assert filters["frontend"].match_file(metadata)
+    assert not filters["document"].match_file(metadata)
+    for runtime in (
+        "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/navigation/app-route-layout.ts",
+        "hushh-webapp/lib/auth/account-session.ts",
+        "hushh-webapp/lib/crypto/record.ts",
+    ):
+        assert filters["document"].match_file(runtime), runtime
+        assert any(filters["document"].match_file(p) for p in (metadata, runtime))
 
 
 def test_document_delivery_ci_contract_paths_select_controller_owner_not_backend() -> None:
@@ -618,3 +677,77 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
         == "unrecognized scripts owner path: scripts/ci/new-unowned-check.py"
     )
     assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}
+
+
+def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
+    paths = (
+        "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
+        "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
+        "consent-protocol/tests/test_dev_release_classification.py",
+        "consent-protocol/tests/test_frontend_prebuilt_image_contract.py",
+        "consent-protocol/tests/test_hushh_tech_runtime_config.py",
+        "consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py",
+        "consent-protocol/tests/test_one_location_read_only_runtime_config.py",
+        "consent-protocol/tests/test_pkm_answer_config.py",
+        "consent-protocol/tests/test_account_generation_admission_deploy.py",
+        "consent-protocol/tests/test_azure_pod_release_publish_step.py",
+        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
+        "consent-protocol/tests/test_cloud_run_image_resolution.py",
+        "consent-protocol/tests/test_commerce_preview_bootstrap.py",
+        "consent-protocol/tests/test_commerce_preview_target.py",
+        "consent-protocol/tests/test_curated_connector_deploy_wiring.py",
+        "consent-protocol/tests/test_deploy_sha_gate_payload_size.py",
+        "consent-protocol/tests/test_dev_candidate_gate.py",
+        "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
+        "consent-protocol/tests/test_drive_v1_worker_lane.py",
+        "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_feed_stream_capacity_contract.py",
+        "consent-protocol/tests/test_gmail_information_request_release_contract.py",
+        "consent-protocol/tests/test_hushh_tech_client_migration.py",
+        "consent-protocol/tests/test_kai_analyze_durable_run_store_deploy_parity.py",
+        "consent-protocol/tests/test_one_wallet_card_deploy_parity.py",
+        "consent-protocol/tests/test_phone_schema_legacy_job.py",
+        "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
+        "consent-protocol/tests/test_plg_qualification_producer.py",
+        "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
+        "consent-protocol/tests/test_uat_connector_rollout_contract.py",
+        "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+        "consent-protocol/tests/test_uat_frontend_image_handoff.py",
+        "consent-protocol/tests/test_uat_kai_regression_smoke.py",
+        "consent-protocol/tests/test_dco_history_sync.py",
+        "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+        "consent-protocol/tests/test_one_chat_service_only_release.py",
+        "consent-protocol/tests/test_deployment_security.py",
+        "consent-protocol/tests/test_native_ship_artifact_workflows.py",
+        "consent-protocol/tests/test_uat_backend_image_promotion.py",
+        "consent-protocol/tests/test_predecessor_acceptance_contract.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_measurement.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_premerge.py",
+    )
+    dedicated = "consent-protocol/tests/test_account_deletion_release_workflow.py"
+    backend = _filters()["backend"]
+    assert not backend.match_file(dedicated)
+    assert all(not backend.match_file(path) for path in paths)
+    assert backend.match_file("consent-protocol/tests/test_account_deletion_service.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/account_deletion_service.py")
+    assert backend.match_file("consent-protocol/db/migrations/098_pkm_v7_recovery_foundation.sql")
+    assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    plan = _governance_plan((*paths, dedicated))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["controller"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["release-controller-contracts"] == [
+        "uv",
+        "run",
+        "--frozen",
+        "--project",
+        "consent-protocol",
+        "python",
+        "-m",
+        "pytest",
+        "-q",
+        *paths,
+    ]
+
+    assert commands["account-deletion-release-workflow"][-1] == dedicated
+    assert sum(dedicated in argv for argv in commands.values()) == 1

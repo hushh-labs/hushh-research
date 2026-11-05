@@ -120,6 +120,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({
+    user: mocks.user,
+    userId: mocks.user.uid,
+  }),
   useRequireAuth: () => ({
     user: mocks.user,
     // Generation-0 accounts: the application owner equals the Firebase UID.
@@ -1579,7 +1583,7 @@ describe("Connect — People", () => {
     expect(screen.queryByLabelText("People per page")).toBeNull();
   });
 
-  it("keeps directory and mutual-list memory through profile visits, including paged peers and failed refresh", async () => {
+  it("restores directory and mutual-list position while rechecking people after profile visits", async () => {
     mocks.searchParams = new URLSearchParams("tab=all&view=connections&q=Original");
     const target = { userId: "kushal", publicPersonRef: "person-kushal", displayName: "Kushal", photoUrl: null, email: null,
       relationship: "connected", mutualConnectionCount: 3, mutualConnectionPreview: null };
@@ -1608,16 +1612,25 @@ describe("Connect — People", () => {
     view.rerender(<ConnectPageClient />);
     await screen.findByRole("button", { name: "Open Manish's profile" });
     fireEvent.click(screen.getByRole("button", { name: "Load more mutual connections" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Open Second mutual's profile" }));
-    const profileHref = mocks.routerPush.mock.calls.at(-1)?.[0] as string;
-    expect(new URL(profileHref, "https://app.test").searchParams.get("from")).toBe(listHref);
+    const peer = await screen.findByRole("button", { name: "Open Second mutual's profile" });
+    const preview = vi.fn();
+    window.addEventListener("hussh:person-profile-preview", preview, { once: true });
+    fireEvent.click(peer);
+    expect(preview).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.objectContaining({ personRef: "person-second", returnFocus: peer }),
+    }));
+    expect(mocks.routerPush.mock.calls.at(-1)?.[0]).toBe(listHref);
     view.unmount();
-    // Returning from a profile rehydrates both pages while fresh reads run.
-    mocks.listMutualConnections.mockRejectedValue(new Error("offline"));
+    // Restore both pages only after fresh authorization, without retaining private rows.
     const returned = render(<ConnectPageClient />);
+    expect(screen.queryByRole("button", { name: "Open Manish's profile" })).toBeNull();
+    await screen.findByRole("button", { name: "Open Second mutual's profile" });
     expect(screen.getByRole("button", { name: "Open Manish's profile" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open Second mutual's profile" })).toBeVisible();
+    expect(mocks.listMutualConnections).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 }));
+    mocks.listMutualConnections.mockRejectedValue(new Error("offline"));
+    await act(async () => dispatchConnectionGraphChanged("me"));
     await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Open Second mutual's profile" })).toBeNull();
     mocks.searchParams = new URLSearchParams("tab=all");
     returned.rerender(<ConnectPageClient />);
     expect((screen.getByLabelText("Search people") as HTMLInputElement).value).toBe("Kushal");

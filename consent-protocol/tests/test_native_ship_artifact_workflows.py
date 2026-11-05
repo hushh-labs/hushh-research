@@ -39,7 +39,7 @@ def test_native_jobs_read_environment_configuration_without_hosted_deployment_re
 ) -> None:
     jobs = _workflow(workflow_name)["jobs"]
     environments = [job["environment"] for job in jobs.values() if "environment" in job]
-    assert len(environments) == 3
+    assert len(environments) == (4 if workflow_name == "ship-ios-testflight.yml" else 3)
     assert all(
         environment == {"name": environment_name, "deployment": False}
         for environment in environments
@@ -623,6 +623,6 @@ def test_production_archive_overlaps_deploy_but_upload_joins_exact_healthy_relea
     testflight = _workflow("ship-ios-testflight.yml")
     assert workflow["jobs"]["release"]["concurrency"] == testflight["jobs"]["ship"]["concurrency"]
     assert workflow["jobs"]["release"]["concurrency"]["group"] == "ios-build-and-upload"
-    uat = _workflow("deploy-uat.yml")
+    uat = _workflow("deploy-uat-implementation.yml")
     assert "release" not in uat["jobs"] and "cadence" not in uat["jobs"]
     assert uat["jobs"]["deploy"]["concurrency"]["group"] == "deploy-uat"

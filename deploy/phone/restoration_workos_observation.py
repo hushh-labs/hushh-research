@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
+import subprocess
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from zipfile import ZipFile
@@ -182,12 +184,52 @@ def original_row(receipt, source):
     return row
 
 
+def historical_manual(run: dict) -> None:
+    """Preserve only the fixed completed receipt, never a new dispatch or rerun."""
+    continuation = importlib.import_module("production_restoration_continuation")
+    from process_group import bounded_stdout
+
+    if run.get("id") != RUN:
+        continuation.manual(run)
+        return
+    require(
+        run.get("run_attempt") == ATTEMPT and run.get("head_sha") == WORKFLOW_SHA
+        and run.get("status") == "completed" and run.get("conclusion") == "success"
+        and run.get("path") == ".github/workflows/deploy-production.yml"
+        and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
+        and all((run.get(key) or {}).get("full_name") == REPOSITORY
+                for key in ("repository", "head_repository"))
+    )
+    root = continuation.owner.ROOT
+    subprocess.run(
+        ["git", "merge-base", "--is-ancestor", WORKFLOW_SHA, "origin/main"],
+        cwd=root, capture_output=True, timeout=30, check=True,
+    )
+    policy = json.loads(bounded_stdout(
+        ["git", "-C", str(root), "show", f"{WORKFLOW_SHA}:config/ci-governance.json"],
+        max_bytes=65536, timeout=30,
+    ))
+    allowed = policy["production"]["manual_dispatch_users"]
+    require(all((run.get(key) or {}).get("login") in allowed
+                for key in ("actor", "triggering_actor")))
+
+
 def load(source: str) -> dict:
     """Authenticate the original healthy operation using existing receipt owners."""
     _authorities()
     continuation = importlib.import_module("production_restoration_continuation")
     owner = continuation.owner
     arguments = continuation.ports()
+    current_governed = arguments["governed"]
+
+    def historical_governed(candidate, repository, environment):
+        if candidate.get("id") != RUN:
+            return current_governed(candidate, repository, environment)
+        require(repository == REPOSITORY and environment == "production")
+        historical_manual(candidate)
+        return True
+
+    arguments["governed"] = historical_governed
     run = continuation.fresh_run(arguments, RUN)
     require(
         run.get("id") == RUN
@@ -196,14 +238,16 @@ def load(source: str) -> dict:
         and run.get("status") == "completed"
         and run.get("conclusion") == "success"
     )
-    continuation.manual(run)
+    historical_manual(run)
     artifact, job, content, lane = continuation.archive(run, arguments)
     require(artifact.get("id") == ARTIFACT and artifact.get("digest") == DIGEST)
     release = owner.phone._document(content, "prod-release-status.json")
     require(release.get("sha") == source)
     # This verifies the unchanged original operation, source record, healthy pair,
     # exact attempt, governed actors, successful hosted gates and archive origin.
-    owner.serving_reference(REPOSITORY, run, release, lane, **arguments)
+    owner.serving_reference(
+        REPOSITORY, run, release, lane, manual_validator=historical_manual, **arguments
+    )
     steps = [
         s
         for s in job.get("steps", [])

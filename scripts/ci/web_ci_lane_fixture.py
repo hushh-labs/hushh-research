@@ -40,7 +40,7 @@ STUB_NPM = """#!/usr/bin/env bash
 if [ "${1:-}" = "run" ]; then
   printf '%s\\n' "$*" >> "$NPM_STUB_LOG"
   if [ -n "${NPM_STUB_FAIL:-}" ] && [ "${2:-}" = "$NPM_STUB_FAIL" ]; then
-    exit 23
+    exit "${NPM_STUB_EXIT:-23}"
   fi
 fi
 exit 0
@@ -233,11 +233,38 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         ("hushh-webapp/lib/voice/voice-session.ts\nconsent-protocol/tests/test_phone.py\nhushh-webapp/contracts/ui-review/back/review.json", "false"),
         ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/tests/test_phone.py", "true"),
         ("consent-protocol/tests/test_phone.py", "false"),
+        ("hushh-webapp/contracts/kai/one-capability-graph.v1.json", "false"),
+        ("consent-protocol/hushh_mcp/services/advisor_review_service.py", "false"),
+        ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/api/routes/one/finance_sharing.py", "true"),
+        ("hushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts", "false"),
+        ("hushh-webapp/lib/agent/calendar-directive-runtime.ts\nhushh-webapp/lib/agent/calendar-proposal-review.ts\nhushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts\nhushh-webapp/__tests__/fixtures/calendar-chat-controlled-results.json\nconsent-protocol/tests/test_calendar_routes.py", "true"),
     ):
         code, values, calls, output = _browser_plan(changed)
         assert code == 0, output[-2000:]
         assert values == {"selection_known": "true", "browser_required": required}, values
         assert calls == []
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/components/kai/finance-flow.tsx\nhushh-webapp/e2e/fixtures/finance-interactions.tsx\nconsent-protocol/tests/test_finance.py",
+        CI_VALIDATION_LEVEL="focused")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, output
+    assert calls == []
+
+    # Real mixed Finance/Calendar promotion inputs must keep their functional
+    # owners rather than expand the complete browser archive.
+    for changed, required in (
+        ("hushh-webapp/e2e/fixtures/advisor-review-boundaries.ts\nhushh-webapp/e2e/fixtures/advisor-review-checks.ts\nhushh-webapp/e2e/fixtures/advisor-review.tsx\nhushh-webapp/lib/advisor-review/service.ts\nhushh-webapp/lib/utils/portfolio-normalize.ts", "true"),
+        ("hushh-webapp/lib/connections/google-connect-in-place.ts", "true"),
+        ("hushh-webapp/lib/services/pre-vault-sensitive-draft-service.ts", "true"),
+        ("hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts\nhushh-webapp/lib/utils/request-timeouts.ts", "false"),
+        ("hushh-webapp/scripts/testing/affected-tests.mjs\nhushh-webapp/scripts/testing/affected-tests.test.mjs", "false"),
+        ("hushh-webapp/scripts/architecture/ui-review-receipts.mjs\nhushh-webapp/scripts/architecture/verify-ui-contracts.mjs\nhushh-webapp/scripts/architecture/back-navigation.test.mjs\nhushh-webapp/scripts/voice/search-contracts.test.mjs", "false"),
+    ):
+        code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": required}, output
+        assert calls == []
+
 
 def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
     # A known no-browser diff still qualifies the named release core, without

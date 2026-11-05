@@ -90,6 +90,9 @@ def test_preview_substitutions_preserve_single_delimiter_and_namespace(model_pro
     assert pairs["_CLOUD_RUN_MIN_INSTANCES"] == "1"
     assert pairs["_GMAIL_OAUTH_CLIENT_ID_SECRET"] == ""
     assert pairs["_GENAI_PROJECT_ID"] == "hushh-vertex-personal54"
+    assert pairs["_PKM_ANSWER_PAYMENTS_ENABLED"] == "false"
+    assert pairs["_ANSWER_WORK_DRAIN_ENABLED"] == "false"
+    assert pairs["_ANSWER_WORK_DRAIN_AUDIENCE"] == ""
     assert module["TARGET"]["PROJECT"] == "hushh-pda-dev"
     assert pairs["_RUNTIME_SERVICE_ACCOUNT"] == (
         "commerce-sandbox-runtime@hushh-pda-dev.iam.gserviceaccount.com"
@@ -231,10 +234,12 @@ def test_preview_refuses_unsafe_authority_transport_before_constructing_request(
 
 
 def test_preview_keeps_authority_gates_and_checks_bindings_before_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
-    assert names.index("Assert manual dispatch originates from main") < names.index(
+    assert names.index("Assert manual dispatch originates from dev") < names.index(
         "Resolve fixed deployment target"
     )
     assert names.index("Assert manual dev dispatch actor policy") < names.index(
@@ -246,7 +251,7 @@ def test_preview_keeps_authority_gates_and_checks_bindings_before_promotion():
     binding = next(step for step in steps if "isolated preview bindings" in step["name"])
     assert "continue-on-error" not in binding
     assert "--phase mounts" in binding["run"]
-    source = (ROOT / ".github/workflows/deploy-dev.yml").read_text()
+    source = (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
     assert 'REQUIRE_CI_SUCCESS: "1"' in source
     assert (
         'REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"'
@@ -321,7 +326,10 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
     backend_build = (ROOT / "deploy/backend.cloudbuild.yaml").read_text()
     backend_deploy = (ROOT / "scripts/deploy/backend-deploy.sh").read_text()
     for lane in ("dev", "uat", "production"):
-        workflow = (ROOT / f".github/workflows/deploy-{lane}.yml").read_text()
+        workflow = (
+            ROOT
+            / f".github/workflows/deploy-{lane}{'-implementation' if lane in {'dev', 'uat'} else ''}.yml"
+        ).read_text()
         if lane == "uat":
             assert "source deploy/drive/uat_stripe_bindings.sh" in workflow
             assert "_STRIPE_SECRET_KEY_SECRET=${STRIPE_UAT_KEY_SECRET}" in workflow
@@ -356,7 +364,12 @@ def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
 
 def test_uat_and_production_verify_the_candidate_runs_the_pinned_digest() -> None:
     for lane in ("uat", "production"):
-        workflow = yaml.safe_load((ROOT / f".github/workflows/deploy-{lane}.yml").read_text())
+        workflow = yaml.safe_load(
+            (
+                ROOT
+                / f".github/workflows/deploy-{lane}{'-implementation' if lane in {'dev', 'uat'} else ''}.yml"
+            ).read_text()
+        )
         steps = workflow["jobs"]["deploy"]["steps"]
         names = [str(step.get("name") or "") for step in steps]
         verify = "Verify frontend candidate runs the pinned image digest"

@@ -58,7 +58,9 @@ def test_manual_ci_secret_range_includes_diverged_candidate_commits(tmp_path):
 
 
 def test_workflow_candidate_tag_fits_preview_services_and_binds_retry(tmp_path):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     resolve = next(step for step in steps if step["name"] == "Resolve fixed deployment target")
     probe = next(step for step in steps if step.get("id") == "verify-candidates")
@@ -122,7 +124,9 @@ def test_candidate_health_observes_cold_start_without_accepting_redirects(
 
 
 def test_dev_builds_immutable_candidate_before_migration_and_probes_before_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
     assert names.index("Build and pin backend image before lifecycle migration") < names.index(
@@ -142,7 +146,9 @@ def test_dev_builds_immutable_candidate_before_migration_and_probes_before_promo
 
 
 def test_dev_observations_use_order_safe_serving_state():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     for step in steps:
         if step.get("id") in {"predeploy-state", "current-state", "final-state"}:
@@ -168,7 +174,9 @@ def test_dev_observations_use_order_safe_serving_state():
 def test_candidate_interfaces_are_checked_before_mutating_steps(
     tmp_path, legacy_interface, reviewer_layout, expected_root, refused
 ):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
     assert names.index("Validate candidate build capabilities") < names.index(
@@ -239,7 +247,9 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
 
 @pytest.mark.parametrize("target", ["scope-commerce-sandbox", "shared-dev", None])
 def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path, target):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     run = next(
         s["run"]
         for s in workflow["jobs"]["deploy"]["steps"]
@@ -348,8 +358,11 @@ def test_main_owned_preview_selection_is_fixed_and_preserves_shared_defaults(
 
 
 def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
-    trigger = workflow.get("on", workflow.get(True))
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
+    dispatcher = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    trigger = dispatcher.get("on", dispatcher.get(True))
     assert trigger["workflow_dispatch"]["inputs"]["target"]["default"] == "shared-dev"
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
@@ -374,7 +387,9 @@ def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promot
 
 
 def test_preview_database_gates_use_release_contract_without_shared_dev_fallback(tmp_path):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     contract_dir = tmp_path / "consent-protocol/db/contracts"
     contract_dir.mkdir(parents=True)
@@ -450,7 +465,9 @@ body=$(cat)
 
 
 def test_preview_public_admission_follows_authenticated_health_and_application_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     # The retired spelling sends normal owner OAuth returns to a signed-out
     # origin. Runtime callback generation and release probes use this origin.
     assert workflow["env"]["APP_FRONTEND_ORIGIN"] == "https://dev.one.hussh.ai"
@@ -527,7 +544,9 @@ def test_preview_failure_receipt_never_contains_provider_exception_details(monke
 
 
 def test_dev_secret_sync_retains_its_own_environment_policy():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     sync = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]

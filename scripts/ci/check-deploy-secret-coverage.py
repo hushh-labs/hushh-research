@@ -118,7 +118,8 @@ def main() -> int:
         )
 
     for lane, expected in baseline["lanes"].items():
-        workflow = WORKFLOWS / lane
+        source = lane.replace(".yml", "-implementation.yml") if lane in {"deploy-dev.yml", "deploy-uat.yml"} else lane
+        workflow = WORKFLOWS / source
         if not workflow.exists():
             failures.append(f"{lane}: workflow not found")
             continue

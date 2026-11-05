@@ -17,10 +17,18 @@ ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "hushh-webapp"
 # Named presentation contracts, not a permissive exclusion of failing behavior.
 PRESENTATION = (
-    r"@motion-performance|100 KB paste|provider icons share the Google scale|"
+    r"@presentation|@motion-performance|100 KB paste|provider icons share the Google scale|"
     r"welcome starters keep foreground text|starter suggestions retain compact spacing|"
     r"pointerdown grows a clipped ripple|wallet workspace.*(?:geometry|typography)|"
-    r"the agent mark stays visible in the header"
+    r"the agent mark stays visible in the header|"
+    r"explicit Feed typography survives outside the page shell|"
+    r"Reset icon colors only its arrowhead and keeps native geometry in the account pane|"
+    r"shows four distinct activity portraits|"
+    r"resizes the same native canvas across phone and desktop widths|"
+    r"retains painted artwork through delayed loads and interrupted transitions|"
+    r"keeps brief activities perceptible in both locations|"
+    r"keeps header and profile presence in sync through all four native Rive states|"
+    r"One profile keeps its header and tabs stationary while switching"
 )
 SUPPORTED_PROJECTS = {"chromium", "mobile-chrome"}
 KNOWN_PROJECTS = {*SUPPORTED_PROJECTS, "webkit", "firefox"}
@@ -137,13 +145,23 @@ def main() -> int:
                                   cwd=WEB, env=env, check=False)
         if prepared.returncode:
             return prepared.returncode
+    return run_selected(selected, env)
+
+
+def run_selected(selected: list[list[str]], env: dict[str, str]) -> int:
+    failed: list[str] = []
     for command in selected:
-        print("Functional browser:", shlex.join(command), flush=True)
+        label = shlex.join(command)
+        print("Functional browser:", label, flush=True)
         proc = subprocess.run([str(WEB / "node_modules/.bin/playwright"), "test", *command],
                               cwd=WEB, env=env, check=False)
+        if proc.returncode < 0 or proc.returncode >= 124:
+            return 128 - proc.returncode if proc.returncode < 0 else proc.returncode
         if proc.returncode:
-            return proc.returncode
-    return 0
+            failed.append(f"{label} (exit {proc.returncode})")
+    if failed:
+        print("Failed browser commands:\n  - " + "\n  - ".join(failed), flush=True)
+    return int(bool(failed))
 
 
 if __name__ == "__main__":

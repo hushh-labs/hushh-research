@@ -125,6 +125,45 @@ def test_cloud_build_provider_review_gate_runs_before_deployment(monkeypatch, mo
 
 
 @pytest.mark.parametrize(
+    "payments,drain,expected",
+    [("true", "false", 1), ("true", "true", 0), ("false", "true", 0), ("false", "false", 0)],
+)
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_paid_admission_requires_independent_settlement_drain(
+    payments, drain, expected, environment
+):
+    import os
+    import subprocess
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    steps = yaml.safe_load((root / "deploy/backend.cloudbuild.yaml").read_text())["steps"]
+    body = next(
+        step["args"][1]
+        for step in steps
+        if "independently enabled settlement drain" in str(step.get("args"))
+    )
+    start = body.index(
+        'if [[ "${_PKM_ANSWER_PAYMENTS_ENABLED}" == "true" && "${_ANSWER_WORK_DRAIN_ENABLED}"'
+    )
+    gate = body[start : body.index("\nfi", start) + len("\nfi")]
+    result = subprocess.run(  # noqa: S603 -- actual bounded release admission gate
+        ["bash", "-c", gate],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "_DEPLOY_ENV": environment,
+            "_PKM_ANSWER_PAYMENTS_ENABLED": payments,
+            "_ANSWER_WORK_DRAIN_ENABLED": drain,
+        },
+    )
+    assert result.returncode == expected
+
+
+@pytest.mark.parametrize(
     "environment,mode,origin,allowed",
     [
         ("development", "test", "http://localhost:3000", True),
@@ -171,7 +210,7 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
     import yaml
 
     root = Path(__file__).resolve().parents[2]
-    workflow = (root / ".github/workflows/deploy-uat.yml").read_text()
+    workflow = (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
     cloudbuild_text = (root / "deploy/backend.cloudbuild.yaml").read_text()
     cloudbuild = yaml.safe_load(cloudbuild_text)
     runtime_text = cloudbuild_text + (root / "scripts/deploy/backend-deploy.sh").read_text()
@@ -183,7 +222,17 @@ def test_uat_deploy_maps_composer_review_and_optional_retained_credentials():
         assert f'append_optional_env "PKM_ANSWER_{flag}" "${{_PKM_ANSWER_{flag}}}"' in runtime_text
         assert cloudbuild["substitutions"][f"_PKM_ANSWER_{flag}"] == "false"
     for environment, suffix in (("uat", "UAT"), ("dev", "DEV"), ("production", "PROD")):
-        mapped = (root / f".github/workflows/deploy-{environment}.yml").read_text()
+        owner = environment if environment == "production" else f"{environment}-implementation"
+        mapped = (root / f".github/workflows/deploy-{owner}.yml").read_text()
+        if environment == "dev":
+            assert (
+                "ANSWER_KEY_SECRET=\"${{ vars.PKM_ANSWER_STRIPE_TEST_SECRET_KEY_DEV_SECRET || 'STRIPE_SECRET_KEY' }}\""
+                in mapped
+            )
+            assert (
+                "ANSWER_WEBHOOK_SECRET=\"${{ vars.PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_DEV_SECRET || 'STRIPE_WEBHOOK_SECRET' }}\""
+                in mapped
+            )
         for mode in ("TEST", "LIVE"):
             for name, retained_test_default in (
                 (f"PKM_ANSWER_STRIPE_{mode}_SECRET_KEY", "STRIPE_SECRET_KEY"),

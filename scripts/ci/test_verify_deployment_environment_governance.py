@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -85,11 +86,33 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     """
 
     def fake_gh_json(path: str) -> dict:
-        if path.endswith("/variables"):
-            return {"variables": [{"name": name} for name in variables]}
+        if "/variables?per_page=100" in path:
+            return {"total_count": len(variables), "variables": [{"name": name} for name in variables]}
         return _environment_payload()
 
     module._gh_json = fake_gh_json
+
+
+def test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> None:
+    module = _module()
+    policy = _policy(module)
+    policy["dev"] = {**policy["uat"], "environment": "dev", "deployment_branches": ["dev", "main", "integration/pr-train"]}
+    rows = [{"type": "branch", "name": name} for name in policy["dev"]["deployment_branches"]]
+    inventory = {"total_count": len(rows), "branch_policies": rows}
+    def read(path):
+        if "deployment-branch-policies" in path:
+            return inventory
+        if "/variables?per_page=100" in path:
+            names = policy["dev"]["required_environment_variables"]
+            return {"total_count": len(names), "variables": [{"name": name} for name in names]}
+        return {**_environment_payload(), "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
+    module._gh_json = read
+    assert module._assert_surface("dev", "owner/repo", policy) == []
+    inventory["total_count"] += 1
+    assert any("incomplete" in error for error in module._assert_surface("dev", "owner/repo", policy))
+    inventory["total_count"] -= 1
+    rows[0]["name"] = "*"
+    assert any("exactly" in error for error in module._assert_surface("dev", "owner/repo", policy))
 
 
 def test_required_environment_variables_are_enforced() -> None:
@@ -100,6 +123,21 @@ def test_required_environment_variables_are_enforced() -> None:
     )
 
     assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    original_reader = module._gh_json
+    def paginated(path):
+        if "/variables?" in path:
+            names = ["GCP_DEPLOY_SERVICE_ACCOUNT"] if "page=2" in path else ["GCP_WORKLOAD_IDENTITY_PROVIDER"]
+            return {"total_count": 2, "variables": [{"name": name} for name in names]}
+        return original_reader(path)
+    module._gh_json = paginated
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    module._gh_json = original_reader
+    reader = module._gh_json
+    module._gh_json = lambda path: ({**reader(path), "total_count": 31}
+                                  if "/variables?" in path else reader(path))
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == [
+        "production environment variable inventory is incomplete"
+    ]
 
 
 def test_missing_environment_variable_fails_verification() -> None:
@@ -197,6 +235,21 @@ def test_production_tripwire_matches_committed_policy() -> None:
         "scripts/ci/verify-deployment-environment-governance.py must be updated "
         "in the same PR"
     )
+
+
+def test_production_dispatch_accepts_only_the_approved_three_operators() -> None:
+    root = Path(__file__).resolve().parents[2]
+    expected = {"kushaltrivedi5", "ankitkumarsingh1702", "imsharukhan"}
+    policy = json.loads((root / "config/ci-governance.json").read_text())
+    assert set(policy["main"]["merge_users"]) == expected
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+    for actor in sorted(expected | {"msainani", "RGlodAkshat", "DamriaNeelesh"}):
+        result = subprocess.run(
+            [sys.executable, str(root / "scripts/ci/assert-governed-actor.py"),
+             "--surface", "production", "--actor", actor],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        assert (result.returncode == 0) == (actor in expected), (actor, result.stderr)
 
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
@@ -466,11 +519,13 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
 
 def main() -> int:
     tests = [
+        test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads,
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,
         test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
+        test_production_dispatch_accepts_only_the_approved_three_operators,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
         test_fixed_bridge_requires_governed_manual_production_apply,

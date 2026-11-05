@@ -44,6 +44,24 @@ PACKAGE_JSON = ROOT / "hushh-webapp/package.json"
 BROWSER_CORE = runpy.run_path(str(ROOT / "scripts/ci/web-browser-core.py"))
 
 
+def test_presentation_filter_preserves_interaction_and_lifecycle_cases() -> None:
+    presentation = re.compile(BROWSER_CORE["PRESENTATION"])
+    for name in ("@presentation Calendar account portraits and fallback initials",
+                 "explicit Feed typography survives outside the page shell",
+                 "Reset icon colors only its arrowhead and keeps native geometry in the account pane",
+                 "shows four distinct activity portraits while animations load at 390px",
+                 "retains painted artwork through delayed loads and interrupted transitions",
+                 "keeps brief activities perceptible in both locations and recovers from an animation load failure",
+                 "keeps header and profile presence in sync through all four native Rive states",
+                 "One profile keeps its header and tabs stationary while switching at 390px"):
+        assert presentation.search(name), name
+    for name in ("keeps hover, press and tap clear",
+                 "keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes",
+                 "History preserves full long titles at 320px",
+                 "cancelling the Calendar card while Google is open ends quietly and ignores the late callback"):
+        assert not presentation.search(name), name
+
+
 def _one_matching_file_per_pack() -> str:
     """A changed-file list that schedules every pack whose paths exist today."""
 
@@ -165,6 +183,35 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
         })
         assert code == 0, output[-2000:]
         assert calls == expected, (part, calls)
+
+
+def test_targeted_pack_stops_after_interruption() -> None:
+    code, calls, output = _run(TARGETED, {
+        "WEB_TARGETED_CHANGED_FILES": "hushh-webapp/app/globals.css",
+        "WEB_TARGETED_PART": "browser",
+        "NPM_STUB_FAIL": "test:layout-contracts",
+        "NPM_STUB_EXIT": "130",
+    })
+    assert code == 130, output
+    assert calls[-1] == "run test:layout-contracts", calls
+
+
+def test_browser_commands_report_all_failures_but_stop_on_cancellation() -> None:
+    from unittest.mock import patch
+    from types import SimpleNamespace
+
+    selected = [["first"], ["second"], ["third"]]
+    execute = BROWSER_CORE["run_selected"]
+    with patch.object(subprocess, "run", side_effect=[
+        SimpleNamespace(returncode=1), SimpleNamespace(returncode=2),
+        SimpleNamespace(returncode=0),
+    ]) as runner:
+        assert execute(selected, {}) == 1
+        assert [call.args[0][-1] for call in runner.call_args_list] == ["first", "second", "third"]
+    for status in (-15, 130, 143, 124):
+        with patch.object(subprocess, "run", return_value=SimpleNamespace(returncode=status)) as runner:
+            assert execute(selected, {}) >= 124
+            assert runner.call_count == 1
 
 
 def test_functional_browser_plans_keep_chromium_from_multi_project_packs() -> None:
@@ -652,9 +699,12 @@ def collect_browser_shards() -> None:
 
 def main() -> int:
     tests = (
+        test_presentation_filter_preserves_interaction_and_lifecycle_cases,
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_functional_browser_plans_keep_chromium_from_multi_project_packs,
+        test_browser_commands_report_all_failures_but_stop_on_cancellation,
+        test_targeted_pack_stops_after_interruption,
         test_functional_browser_plan_accumulates_project_syntax_and_fails_closed,
         test_browser_plan_skips_only_known_no_browser_selection,
         test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed,

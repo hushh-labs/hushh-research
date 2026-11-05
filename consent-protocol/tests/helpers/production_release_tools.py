@@ -70,6 +70,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/release_acceptance_provenance.py",
         "scripts/ci/uat_exact_ci.py",
         "scripts/ci/github_security_authority.py",
+        "scripts/ci/verify-protected-pipeline-edits.py",
         "scripts/ci/resolve-deploy-scope.py",
         "scripts/ci/production_emergency.py",
         "scripts/ci/require-deploy-sha-on-main.sh",

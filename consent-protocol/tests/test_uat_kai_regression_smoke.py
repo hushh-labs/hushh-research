@@ -126,7 +126,9 @@ def test_reviewer_approval_encrypts_a_bound_envelope_v2() -> None:
 
 
 def test_uat_backend_deploy_sets_the_public_consent_resource_origin() -> None:
-    workflow = (REPO_ROOT / ".github/workflows/deploy-uat.yml").read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(
+        encoding="utf-8"
+    )
     backend_build = backend_deploy_surface()
 
     assert "CONSENT_API_PUBLIC_ORIGIN: https://api.uat.hushh.ai" in workflow

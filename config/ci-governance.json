@@ -13,51 +13,50 @@
     "prepared_branches": {
       "dev": {
         "policy_key": "pr_train",
-        "merge_queue_ruleset_name": "dev merge queue"
+        "merge_queue_ruleset_name": "dev merge queue",
+        "owner_admin_ruleset_name": "dev owner validated merge"
       },
       "uat": {
-        "policy_key": "main",
-        "merge_queue_ruleset_name": "uat merge queue"
+        "policy_key": "uat_merge",
+        "merge_queue_ruleset_name": "uat merge queue",
+        "owner_admin_ruleset_name": "uat owner validated merge"
+      },
+      "uat-isolated": {
+        "policy_key": "uat_merge",
+        "merge_queue_ruleset_name": "uat-isolated merge queue"
+      },
+      "integration/pr-train": {
+        "policy_key": "pr_train",
+        "merge_queue_ruleset_name": "integration pr train merge queue"
       }
-    }
+    },
+    "review_rulesets": {
+      "main": "main owner review"
+    },
+    "protected_pipeline_review_ruleset_name": "protected pipeline review"
   },
   "repository": {
-    "allow_auto_merge": true
+    "allow_auto_merge": true,
+    "merge_queue_check_timeout_minutes": 120
   },
   "main": {
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
     "require_last_push_approval": true,
-    "require_strict_status_checks": true,
+    "require_strict_status_checks": false,
     "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
-      "ankitkumarsingh1702",
-      "Jhumma-hushh",
-      "DamriaNeelesh",
-      "parthmawai",
-      "anoushkauoc",
-      "Roopmann30",
-      "imsharukhan"
+      "ankitkumarsingh1702"
     ],
-    "review_bypass_team_slug": "allowed-maintainers-to-approve",
+    "review_bypass_team_slug": "",
     "merge_queue_required": true,
     "merge_queue_ruleset_name": "main merge queue",
-    "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",
-    "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
+    "merge_queue_bypass_team_name": "",
+    "merge_queue_bypass_team_slug": "",
     "merge_queue_bypass_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
-      "ankitkumarsingh1702",
-      "Jhumma-hushh",
-      "DamriaNeelesh",
-      "parthmawai",
-      "anoushkauoc",
-      "Roopmann30",
-      "imsharukhan"
+      "ankitkumarsingh1702"
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
@@ -67,6 +66,9 @@
       ".github/workflows/",
       ".github/actions/",
       "scripts/ci/",
+      "hushh-webapp/scripts/testing/affected-tests.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+      "hushh-webapp/scripts/testing/playwright-shard.cjs",
       "scripts/git/check-main-sync.sh",
       "deploy/",
       "config/ci-governance.json",
@@ -90,15 +92,28 @@
       ".agents/skills/codex-skill-authoring/",
       ".agents/skills/verify-before-claim/",
       ".agents/skills/docs-governance/",
-      "docs/vision/agent-ontology.md"
+      "docs/vision/agent-ontology.md",
+      "bin/hushh",
+      "consent-protocol/.github/actions/setup-python-uv/",
+      "consent-protocol/scripts/ci/",
+      "consent-protocol/scripts/run-test-ci.sh",
+      "consent-protocol/scripts/sync_runtime_requirements.sh",
+      "hushh-webapp/playwright.config.ts",
+      "hushh-webapp/vitest.config.ts"
     ],
-    "require_code_owner_reviews": true
+    "require_code_owner_reviews": true,
+    "merge_users": [
+      "kushaltrivedi5",
+      "ankitkumarsingh1702",
+      "imsharukhan"
+    ],
+    "owner_admin_ruleset_name": "main owner validated merge"
   },
   "pr_train": {
     "required_status_check": "CI Status Gate",
     "required_approving_reviews": 1,
     "require_last_push_approval": true,
-    "require_strict_status_checks": true,
+    "require_strict_status_checks": false,
     "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
@@ -115,20 +130,9 @@
     "review_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_required": true,
     "merge_queue_ruleset_name": "integration pr train merge queue",
-    "merge_queue_bypass_team_name": "Allowed Maintainers to Approve",
-    "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
-    "merge_queue_bypass_users": [
-      "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
-      "ankitkumarsingh1702",
-      "Jhumma-hushh",
-      "DamriaNeelesh",
-      "parthmawai",
-      "anoushkauoc",
-      "Roopmann30",
-      "imsharukhan"
-    ],
+    "merge_queue_bypass_team_name": "",
+    "merge_queue_bypass_team_slug": "",
+    "merge_queue_bypass_users": [],
     "require_code_owner_reviews": true
   },
   "dev": {
@@ -144,6 +148,15 @@
       "anoushkauoc",
       "Roopmann30",
       "imsharukhan"
+    ],
+    "required_environment_variables": [
+      "GCP_WORKLOAD_IDENTITY_PROVIDER",
+      "GCP_DEPLOY_SERVICE_ACCOUNT"
+    ],
+    "deployment_branches": [
+      "dev",
+      "integration/pr-train",
+      "main"
     ]
   },
   "uat": {
@@ -175,10 +188,7 @@
     ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
-      "msainani",
-      "RGlodAkshat",
       "ankitkumarsingh1702",
-      "DamriaNeelesh",
       "imsharukhan"
     ],
     "owner_environment": "production"
@@ -187,5 +197,74 @@
     "mode": "advisory",
     "workflow": ".github/workflows/readiness-exam.yml",
     "environment": "readiness-exam"
+  },
+  "uat_merge": {
+    "required_status_check": "CI Status Gate",
+    "required_approving_reviews": 1,
+    "require_last_push_approval": true,
+    "require_strict_status_checks": false,
+    "require_conversation_resolution": true,
+    "review_bypass_users": [
+      "kushaltrivedi5",
+      "msainani",
+      "RGlodAkshat",
+      "ankitkumarsingh1702",
+      "Jhumma-hushh",
+      "DamriaNeelesh",
+      "parthmawai",
+      "anoushkauoc",
+      "Roopmann30",
+      "imsharukhan"
+    ],
+    "review_bypass_team_slug": "allowed-maintainers-to-approve",
+    "merge_queue_required": true,
+    "merge_queue_ruleset_name": "main merge queue",
+    "merge_queue_bypass_team_name": "",
+    "merge_queue_bypass_team_slug": "",
+    "merge_queue_bypass_users": [],
+    "protected_pipeline_edit_users": [
+      "kushaltrivedi5",
+      "ankitkumarsingh1702"
+    ],
+    "protected_pipeline_paths": [
+      ".github/workflows/",
+      ".github/actions/",
+      "scripts/ci/",
+      "hushh-webapp/scripts/testing/affected-tests.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+      "hushh-webapp/scripts/testing/playwright-shard.cjs",
+      "scripts/git/check-main-sync.sh",
+      "deploy/",
+      "config/ci-governance.json",
+      "config/protected-behaviors.json",
+      "config/runtime-capacity.json",
+      "config/release-cadence.json",
+      ".github/CODEOWNERS",
+      "AGENTS.md",
+      ".agents/instructions.md",
+      ".agents/README.md",
+      ".agents/config.toml",
+      ".agents/routing/",
+      ".agents/subagents/",
+      ".agents/workflows/",
+      ".agents/skills/repo-context/",
+      ".agents/skills/repo-operations/",
+      ".agents/skills/quality-contracts/",
+      ".agents/skills/security-audit/",
+      ".agents/skills/iam-consent-governance/",
+      ".agents/skills/agent-orchestration-governance/",
+      ".agents/skills/codex-skill-authoring/",
+      ".agents/skills/verify-before-claim/",
+      ".agents/skills/docs-governance/",
+      "docs/vision/agent-ontology.md",
+      "bin/hushh",
+      "consent-protocol/.github/actions/setup-python-uv/",
+      "consent-protocol/scripts/ci/",
+      "consent-protocol/scripts/run-test-ci.sh",
+      "consent-protocol/scripts/sync_runtime_requirements.sh",
+      "hushh-webapp/playwright.config.ts",
+      "hushh-webapp/vitest.config.ts"
+    ],
+    "require_code_owner_reviews": true
   }
 }

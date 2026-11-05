@@ -7,11 +7,15 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { openPersonPreviewHistory, closePersonPreviewHistory, personPreviewHistoryEntry } from "@/lib/navigation/profile-pane";
 import { ConnectionsService } from "@/lib/services/connections-service";
-import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
+import { getAuthSessionGeneration, subscribeAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { PERSON_PROFILE_PREVIEW_EVENT, type PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { useBackLayer } from "@/lib/navigation/back-layers";
 
 const Profile = lazy(() => import("./person-profile-page").then(module => ({ default: module.PersonProfilePage })));
+const NetworkList = lazy(() => import("../connect/network-people-list").then(module => ({ default: module.NetworkPeopleList })));
+let nextJourneyKey = 0;
+type Visit = PersonProfilePreviewIdentity & { owner: string; generation: number | null; route: string; key: number; scrollTop?: number; focus?: { control?: string; person?: string } };
 
 class PreviewBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -24,24 +28,58 @@ export function PersonProfilePreview() {
   const { user } = useAuth();
   const pathname = usePathname();
   const search = useSearchParams()?.toString() ?? "";
-  const [entry, setEntry] = useState<(PersonProfilePreviewIdentity & { returnFocus?: HTMLElement; owner: string; generation: number | null; route: string; key: number }) | null>(null);
+  const [entry, setEntry] = useState<Visit | null>(null);
   const [resolved, setResolved] = useState<{ key: number; personRef: string | null } | null>(null);
-  const nextKey = useRef(0);
+  // Bounded, per-host memory restores known Forward entries; history itself has
+  // only opaque counters. A cold reload deliberately starts from the route.
+  const visits = useRef(new Map<number, Visit>());
   const opening = useRef(false);
   const closing = useRef(false);
   const returnFocus = useRef<HTMLElement | undefined>(undefined);
+  const scroll = useRef<HTMLDivElement>(null);
+  const currentEntry = useRef(entry);
+  currentEntry.current = entry;
+  const restoredKey = useRef<number | null>(null);
   const route = `${pathname}?${search}`;
   const active = entry && entry.owner === user?.uid && entry.generation === getAuthSessionGeneration() && entry.route === route ? entry : null;
+  useEffect(() => subscribeAuthSessionGeneration(() => {
+    visits.current.clear(); setEntry(null); setResolved(null);
+    opening.current = false; closing.current = false;
+  }), []);
+  const rememberVisit = useCallback((focusOverride?: HTMLElement) => {
+    const visit = currentEntry.current;
+    if (!visit) return;
+    visit.scrollTop = scroll.current?.scrollTop ?? 0;
+    const focused = focusOverride ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    if (focused && scroll.current?.contains(focused)) {
+      visit.focus = { control: focused.dataset.voiceControlId, person: focused.dataset.networkPerson };
+    }
+  }, []);
+  const restoreVisit = useCallback(() => {
+    const visit = currentEntry.current;
+    if (!visit || restoredKey.current === visit.key || !scroll.current) return;
+    scroll.current.scrollTop = visit.scrollTop ?? 0;
+    const target = Array.from(scroll.current.querySelectorAll<HTMLElement>("[data-voice-control-id], [data-network-person]"))
+      .find(element => visit.focus?.control ? element.dataset.voiceControlId === visit.focus.control : visit.focus?.person ? element.dataset.networkPerson === visit.focus.person : false);
+    target?.focus({ preventScroll: true });
+    restoredKey.current = visit.key;
+  }, []);
+  useLayoutEffect(() => {
+    restoredKey.current = null;
+    if (scroll.current) scroll.current.scrollTop = 0;
+  }, [active?.key]);
 
   const close = useCallback(() => {
     if (closing.current) return;
     if (entry) {
+      rememberVisit();
       closing.current = true;
       if (closePersonPreviewHistory(entry.key)) return;
       closing.current = false;
     }
     setEntry(null);
-  }, [entry]);
+  }, [entry, rememberVisit]);
+  useBackLayer(pathname ?? "", active ? 10 : 0, () => { close(); return true; });
 
   useLayoutEffect(() => {
     opening.current = Boolean(active);
@@ -61,11 +99,15 @@ export function PersonProfilePreview() {
 
   useEffect(() => {
     const popped = () => {
-      if (entry && personPreviewHistoryEntry(window.history.state) !== entry.key) setEntry(null);
+      rememberVisit();
+      const key = personPreviewHistoryEntry(window.history.state);
+      const visit = key ? visits.current.get(key) : null;
+      closing.current = false;
+      setEntry(visit && visit.owner === user?.uid && visit.generation === getAuthSessionGeneration() && visit.route === route ? visit : null);
     };
     window.addEventListener("popstate", popped);
     return () => window.removeEventListener("popstate", popped);
-  }, [entry]);
+  }, [user, route, rememberVisit]);
 
   usePublishVoiceSurfaceMetadata(active ? { interactionLayer: {
     schemaVersion: "voice_interaction_layer.v1", id: "person_profile_preview", kind: "person_profile",
@@ -74,26 +116,35 @@ export function PersonProfilePreview() {
     blocksUnderlyingActions: true, agentContinuity: "suppressed",
   } } : null, { role: "interaction_layer" });
 
-  useEffect(() => { if (entry && !active) setEntry(null); }, [entry, active]);
+  useEffect(() => {
+    if (entry && !active) setEntry(null);
+    for (const [key, visit] of visits.current) {
+      if (visit.owner !== user?.uid || visit.generation !== getAuthSessionGeneration() || visit.route !== route) visits.current.delete(key);
+    }
+  }, [entry, active, user, route]);
 
   useEffect(() => {
     const open = (event: Event) => {
       const detail = (event as CustomEvent<PersonProfilePreviewIdentity & { returnFocus?: HTMLElement }>).detail;
-      if (!user || (!detail?.personRef?.trim() && !detail?.userId?.trim())) return;
+      if (!user || (!detail?.personRef?.trim() && !detail?.userId?.trim() && detail?.networkList !== "discovery")) return;
       event.preventDefault();
-      if (opening.current) return;
+      if (closing.current) return;
+      rememberVisit(detail.returnFocus);
+      if (!opening.current) returnFocus.current = detail.returnFocus;
       opening.current = true;
-      returnFocus.current = detail.returnFocus;
-      const key = ++nextKey.current;
+      const key = ++nextJourneyKey;
+      const visit: Visit = { personRef: detail.personRef, userId: detail.userId, networkList: detail.networkList, owner: user.uid, generation: getAuthSessionGeneration(), route, key };
+      visits.current.set(key, visit);
+      if (visits.current.size > 64) visits.current.delete(visits.current.keys().next().value!);
       openPersonPreviewHistory(key);
-      setEntry({ ...detail, owner: user.uid, generation: getAuthSessionGeneration(), route, key });
+      setEntry(visit);
     };
     window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, open);
     return () => window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, open);
-  }, [user, route]);
+  }, [user, route, rememberVisit]);
 
   useEffect(() => {
-    if (!active || active.personRef?.trim() || !user) return;
+    if (!active || active.networkList || active.personRef?.trim() || !user) return;
     let cancelled = false;
     const key = active.key;
     void user.getIdToken().then(idToken => ConnectionsService.getPersonContext({ idToken, counterpartUserId: active.userId!.trim() }))
@@ -109,10 +160,11 @@ export function PersonProfilePreview() {
       onCloseAutoFocus={event => { event.preventDefault(); if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); }}>
       <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background px-3 py-2">
         <button type="button" aria-label="Back to previous screen" className="flex size-11 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-ring" onClick={close}><ArrowLeft className="size-5" /></button>
-        <DialogTitle>Profile</DialogTitle>
+        <DialogTitle>{active?.networkList === "discovery" ? "Your network" : active?.networkList === "mutuals" ? "Mutual connections" : active?.networkList === "connections" ? "Connections" : "Profile"}</DialogTitle>
       </div>
-      <div className="min-h-0 overflow-y-auto overscroll-contain py-4">
-        {active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded /></Suspense></PreviewBoundary>
+      <div ref={scroll} data-network-scroll-owner className="min-h-0 overflow-y-auto overscroll-contain py-4">
+        {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} onReady={restoreVisit} /></Suspense></PreviewBoundary>
+          : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
           : <p role={resolved?.key === active?.key ? "alert" : "status"} className="p-6">{resolved?.key === active?.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>
     </DialogContent>
