@@ -200,14 +200,15 @@ it does not establish Dev/UAT acceptance or authorize a deployment. Keep
 
 ### Carry stable fixes back to development
 
-A reviewed UAT or production hotfix creates a follow-up for Dev containing the
-source change, required dependencies and a link to the destination PR. Reconcile
-that fix by behavior against the current Dev base, verify its destination CI and
-record the merged Dev commit before closing the follow-up. A selective cherry-pick
-or equivalent reviewed change is appropriate; do not merge all of UAT into Dev or
-all of Dev into UAT. This is currently an operator procedure, not an automated
-back-sync guarantee. An automated reminder must preserve those same review and
-freshness boundaries before it is enabled.
+The coding agent completing each merge also completes its reviewed downstream
+source syncs: **Main → UAT and Dev; UAT → Dev**. Follow the canonical
+[agent-owned completion procedure](../../../.agents/skills/repo-operations/references/maintainer-branch-freshness.md#agent-owned-downstream-completion)
+for dependency preservation, equivalent-change detection, verification and conflict
+handoff. Carry the reviewed change rather than replacing a destination's complete
+tree; selected Dev promotion upward remains a separate review.
+
+No bot, recurring sync workflow or unattended merge is introduced. A source merge
+on any branch deploys nothing; deployments retain explicit authorization.
 
 ## Working Rules
 
