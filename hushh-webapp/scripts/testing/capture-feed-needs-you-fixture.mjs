@@ -27,6 +27,8 @@ import { MapPin } from "@/components/icons";
 import path from "node:path";
 import { afterEach, it, vi } from "vitest";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
 import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";

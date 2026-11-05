@@ -5,6 +5,7 @@ import { Loader2 } from "@/components/icons";
 
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { cn } from "@/lib/utils";
+import type { PersonProfilePreviewIdentity } from "@/lib/connections/person-profile-preview";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 
 /**
@@ -36,12 +37,14 @@ export function initials(value: string): string {
 }
 
 export function ContactAvatar({
+  personRef,
+  userId,
   label,
   photoUrl,
   className,
   verified = false,
   fromContacts = false,
-}: {
+}: PersonProfilePreviewIdentity & {
   label: string;
   photoUrl?: string | null;
   className?: string;
@@ -50,6 +53,8 @@ export function ContactAvatar({
 }) {
   return (
     <ConnectionPersonAvatar
+      personRef={personRef}
+      userId={userId}
       label={label}
       photoUrl={photoUrl}
       verified={verified}
@@ -138,6 +143,8 @@ export function ContactRowAction({
 }
 
 export function ContactRow({
+  personRef,
+  userId,
   label,
   photoUrl,
   verified = false,
@@ -149,7 +156,7 @@ export function ContactRow({
   onAdd,
   onRemove,
   addDisabled,
-}: {
+}: PersonProfilePreviewIdentity & {
   label: string;
   photoUrl?: string | null;
   verified?: boolean;
@@ -167,7 +174,7 @@ export function ContactRow({
       className="flex min-h-[58px] items-center gap-3 px-3.5 py-2"
       data-testid="contact-picker-row"
     >
-      <ContactAvatar label={label} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
+      <ContactAvatar personRef={personRef} userId={userId} label={label} photoUrl={photoUrl} verified={verified} fromContacts={fromContacts} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
           <span data-location-type-role="row-title" className="min-w-0 truncate text-[17px] font-normal leading-[22px] text-[color:var(--app-label)]">

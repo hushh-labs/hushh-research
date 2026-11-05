@@ -226,6 +226,9 @@ GET /api/one/connections
 POST /api/one/connections/contact-sync
 GET /api/one/connections/directory
 GET /api/one/connections/mutuals
+GET /api/one/connections/network
+GET /api/one/connections/network/summary
+GET,PATCH /api/one/connections/network/visibility
 GET,PUT /api/one/connections/directory-presence
 POST /api/one/connections/link-circle-invite
 GET,POST /api/one/connections/requests

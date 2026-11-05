@@ -477,7 +477,7 @@ export function SharedWithYouCard({ person, items, variant = "chat", className }
   return (
     <div ref={sectionRef}>
       <SharedWithYouCardView
-        person={{ displayName: person.displayName, photoUrl: person.photoUrl ?? null }}
+        person={{ displayName: person.displayName, photoUrl: person.photoUrl ?? null, personRef: person.personRef }}
         status={status}
         items={views}
         variant={variant}

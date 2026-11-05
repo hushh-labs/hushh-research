@@ -58,6 +58,7 @@
     "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
     "hushh-webapp/components/kai/views/kai-stocks-view.voice-action-contract.json",
     "hushh-webapp/components/onboarding/setup/one-setup-hub.voice-action-contract.json",
+    "hushh-webapp/components/profile/network-visibility-setting.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-account-detail.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-request-detail.voice-action-contract.json",
     "hushh-webapp/components/ria/ria-client-workspace.voice-action-contract.json"
@@ -1680,6 +1681,29 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_network_visibility",
+      "surface_title": "Network visibility",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/components/profile/network-visibility-setting.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one"
+      },
+      "search": {},
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "ria_client_account_detail",
       "surface_title": "RIA Client Account Detail",
       "docs_references": [
@@ -2926,6 +2950,109 @@
             "label": "Continue invitation review in One Chat",
             "failure_behavior": "stop",
             "service": "frontend.calendar.invitation.review"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "connect.explore_network",
+      "surface_id": "one_connect",
+      "label": "Explore your network",
+      "aliases": [
+        "explore my network",
+        "browse my network"
+      ],
+      "search_keywords": [
+        "network",
+        "first degree",
+        "second degree",
+        "third degree"
+      ],
+      "meaning": "Opens viewer-relative network discovery with exact 1st, 2nd and 3rd degree filters. Only consented paths qualify; mutual connections remain people directly connected to both you and a target.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "connect.explore_network"
+      },
+      "control_ids": [
+        "connect-explore-network"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.connect.explore_network",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "connect.explore_network",
+            "label": "Explore your network",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -23058,6 +23185,107 @@
       }
     },
     {
+      "action_id": "people.profile.browse_network",
+      "surface_id": "one_person_profile",
+      "label": "Browse this person’s network",
+      "aliases": [],
+      "search_keywords": [
+        "network",
+        "mutual",
+        "connections"
+      ],
+      "meaning": "The profile shows viewer-relative degree and direct shared neighbors. Zero mutuals hide the control, one opens its available profile, and multiple open a list. View connections appears only when the server authorizes this active direct connection after the target opts in.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person explicitly chooses a visible mutual or authorized connection-list control; nested preview interactions suppress underlying actions.",
+        "intended_handler": "PersonNetworkSummary"
+      },
+      "control_ids": [
+        "person-network-mutuals",
+        "person-network-connections"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /people/[personRef]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.browse_network",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.browse_network",
+            "label": "Browse this person’s network",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "phone_mandate.select_country",
       "surface_id": "phone_mandate",
       "label": "Choose Country Code",
@@ -36211,6 +36439,109 @@
             "type": "action",
             "action_id": "setup.hub_master_ack",
             "label": "Finish setup",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.network_visibility.choose",
+      "surface_id": "one_network_visibility",
+      "label": "Share my connection list",
+      "aliases": [],
+      "search_keywords": [
+        "network",
+        "connections",
+        "visibility",
+        "privacy"
+      ],
+      "meaning": "The owner explicitly chooses whether active direct connections may browse their connection list and shared edges may contribute anonymous extended-network degree labels. Private contacts and information grants are unaffected. Existing users start private.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_my_data"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The signed-in owner has loaded their saved preference."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "high",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The owner chooses network sharing using the visible switch after reviewing the disclosure.",
+        "intended_handler": "NetworkVisibilitySetting"
+      },
+      "control_ids": [
+        "network-share-connection-list"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/my-data"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.network_visibility.choose",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.network_visibility.choose",
+            "label": "Share my connection list",
             "failure_behavior": "stop"
           }
         ],

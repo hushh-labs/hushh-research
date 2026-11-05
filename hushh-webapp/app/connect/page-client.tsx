@@ -27,6 +27,8 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NearbyDirectories } from "@/components/connect/nearby-directories";
 import { MutualConnectionsList } from "@/components/connect/mutual-connections-list";
+import { openPersonProfilePreview, PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
+import { getAuthSessionGeneration } from "@/lib/auth/session-owner";
 import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, restoreConnectListScroll } from "@/lib/connect/connect-list-memory";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -576,6 +578,18 @@ export default function ConnectPageClient() {
   const openedCommandReview = useRef<string | null>(null);
   const connectOwnerRef = useRef(userId);
   connectOwnerRef.current = userId;
+  const mutualResolutionRef = useRef(0);
+  const mutualSource = searchParams.toString();
+  useEffect(() => {
+    const requests = mutualResolutionRef;
+    requests.current++;
+    return () => { requests.current++; };
+  }, [userId, mutualSource]);
+  useEffect(() => {
+    const retire = () => { mutualResolutionRef.current++; };
+    window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, retire);
+    return () => window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, retire);
+  }, []);
   /**
    * The route-backed Connect surface, from `?tab=`.
    *
@@ -672,6 +686,7 @@ export default function ConnectPageClient() {
       ? directoryMemory.query : searchQueryParam || directoryMemory?.query || readStoredConnectSearchQuery(),
   );
   const appliedSearchQueryParamRef = useRef(searchQueryParam || null);
+  useEffect(() => { mutualResolutionRef.current++; }, [query]);
   useEffect(() => {
     if (
       searchQueryParam &&
@@ -2191,13 +2206,6 @@ export default function ConnectPageClient() {
   // advisor, instead of becoming one by sitting under the advisor tab.
   const connectionSearch = useConnectionSearch({ ownerId: userId, query: debouncedConnectionsQuery, audience: connectionAudience, loadPage: loadConnectionsPage, revision: connections });
   const sortedConnections = connectionSearch.active ? connectionSearch.items : connections;
-  const connectionGroups = useMemo(() => {
-    if (isAdvisorTab) return [{ key: "advisors", label: null, items: sortedConnections }];
-    return [
-      { key: "contacts", label: "From contacts", items: sortedConnections.filter(connection => connection.connectedFromContacts === true) },
-      { key: "other", label: "Other connections", items: sortedConnections.filter(connection => connection.connectedFromContacts !== true) },
-    ].filter(group => group.items.length > 0);
-  }, [isAdvisorTab, sortedConnections]);
   const pendingRemoveConnection = pendingRemoveTarget?.ownerId === userId && pendingRemoveTarget?.generation === batchDraftGenerationRef.current ? pendingRemoveTarget.connection : null;
 
   // Voice surface for Connect. Until this existed the route derived the
@@ -2433,6 +2441,10 @@ export default function ConnectPageClient() {
     setConnectionView("discover");
     setTab("people");
     return { status: "succeeded", summary: "Connect people opened." };
+  });
+  useLocalOnboardingActionHandler("connect.explore_network", () => {
+    const opened = openPersonProfilePreview({ networkList: "discovery" });
+    return { status: opened ? "succeeded" : "blocked", summary: opened ? "Your network opened." : "Open Connect and try again." };
   });
   useLocalOnboardingActionHandler("connect.open_connections", () => {
     selectSurface("all");
@@ -3220,6 +3232,7 @@ export default function ConnectPageClient() {
                           <TabsTrigger value="discover" data-voice-control-id="one-connect-discovery">Find people</TabsTrigger>
                         </TabsList>
                         <TabsContent forceMount value="discover" hidden={connectionView !== "discover"} aria-label="Find people">
+                          <button type="button" data-voice-control-id="connect-explore-network" className="mb-3 min-h-11 rounded-full border px-4 text-sm font-medium" onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}>Explore your network</button>
                           {tab === "nearby" ? <div className="space-y-3"><div>{directorySelector}</div><NearbyDirectories getIdToken={getIdToken} /></div> : (
                             <SettingsGroup
                               testId="connect-directory-group"
@@ -3502,6 +3515,7 @@ export default function ConnectPageClient() {
                                         !isSelectionMode &&
                                         person.publicPersonRef
                                           ? () => {
+                                              mutualResolutionRef.current++;
                                               rememberDirectory();
                                               router.push(
                                                 buildPersonProfileRoute(
@@ -3516,9 +3530,21 @@ export default function ConnectPageClient() {
                                           person={person}
                                           onOpenMutual={
                                             !isSelectionMode &&
-                                            ((person.mutualConnectionCount ?? 0) > 1 ? person.publicPersonRef : person.mutualConnectionPreview?.publicPersonRef)
-                                              ? () => {
+                                            (person.mutualConnectionCount ?? 0) > 0 && person.publicPersonRef
+                                              ? async () => {
+                                                  const request = ++mutualResolutionRef.current;
                                                   rememberDirectory();
+                                                  if (person.mutualConnectionCount === 1 && !person.mutualConnectionPreview?.publicPersonRef && user) {
+                                                    const generation = getAuthSessionGeneration();
+                                                    try {
+                                                      const result = await ConnectionsService.listMutualConnections({ idToken: await user.getIdToken(), personRef: person.publicPersonRef!, page: 1 });
+                                                      if (request !== mutualResolutionRef.current || connectOwnerRef.current !== userId || generation !== getAuthSessionGeneration()) return;
+                                                      if (result.totalCount > 1) router.push(connectMutualsHref(person.publicPersonRef!, searchParams, query), { scroll: false });
+                                                      else if (result.items[0]) openPersonProfilePreview({ personRef: result.items[0].publicPersonRef });
+                                                      else toast.info("This mutual connection’s profile is unavailable.");
+                                                    } catch { if (request === mutualResolutionRef.current && connectOwnerRef.current === userId && generation === getAuthSessionGeneration()) toast.error("Could not open this mutual connection. Please try again."); }
+                                                    return;
+                                                  }
                                                   router.push((person.mutualConnectionCount ?? 0) > 1
                                                     ? connectMutualsHref(person.publicPersonRef!, searchParams, query)
                                                     :
@@ -3818,92 +3844,78 @@ export default function ConnectPageClient() {
                                 disabled
                               />
                             ) : (
-                              connectionGroups.map((group) => (
-                                <section key={group.key} aria-label={group.label ?? connectionsHeadingLabel} data-testid={`connection-source-${group.key}`}>
-                                  {group.label ? (
-                                    <div
-                                      role="heading"
-                                      aria-level={3}
-                                      data-slot="settings-group-heading"
-                                      className="flex min-h-8 items-center gap-2 pb-0.5 pt-3"
-                                    >
-                                      <ContactsBookIcon aria-hidden="true" className="size-4" />
-                                      {group.label}
-                                    </div>
-                                  ) : null}
-                                  {group.items.map((connection) => {
-                                    const connectionName = connectPersonName(connection);
-                                    return (
-                                    <ConnectPersonRow
-                                      key={connection.connectionId}
-                                      leading={
-                                        <ConnectionPersonAvatar
-                                          size="compact"
-                                          className="!size-9 max-[350px]:!size-8"
-                                          fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
-                                          photoUrl={connection.photoUrl ?? null}
-                                          label={connectionName}
-                                          verified={Boolean(connection.isRia)}
-                                        />
-                                      }
-                                      title={connectionName}
-                                      description={
-                                        connection.createdAt &&
-                                        !Number.isNaN(
-                                          Date.parse(connection.createdAt),
-                                        )
-                                          ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
-                                          : "Connected"
-                                      }
-                                      voiceLabel={connectionName}
-                                      openLabel={`Open ${connectionName}'s profile`}
-                                      onOpen={
-                                        connection.publicPersonRef
-                                          ? () =>
-                                              router.push(
-                                                buildPersonProfileRoute(
-                                                  connection.publicPersonRef!,
-                                                  { from: ROUTES.CONNECT },
-                                                ),
-                                              )
-                                          : undefined
-                                      }
-                                      trailing={
-                                        <span className="flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
-                                          {connection.publicPersonRef ? (
-                                            <Button
-                                              type="button"
-                                              variant="none"
-                                              effect="fade"
-                                              size="compact"
-                                              aria-label={`Message ${connectionName}`}
-                                              className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
-                                              onClick={() => {
-                                                void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
-                                              }}
-                                            >
-                                              <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
-                                            </Button>
-                                          ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                              sortedConnections.map((connection) => {
+                                const connectionName = connectPersonName(connection);
+                                return (
+                                  <ConnectPersonRow
+                                    key={connection.connectionId}
+                                    leading={
+                                      <ConnectionPersonAvatar
+                                        size="compact"
+                                        className="!size-9 max-[350px]:!size-8"
+                                        fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
+                                        photoUrl={connection.photoUrl ?? null}
+                                        label={connectionName}
+                                        verified={Boolean(connection.isRia)}
+                                        fromContacts={connection.connectedFromContacts === true}
+                                      />
+                                    }
+                                    title={connectionName}
+                                    description={
+                                      connection.createdAt &&
+                                      !Number.isNaN(
+                                        Date.parse(connection.createdAt),
+                                      )
+                                        ? `Connected ${formatConnectedDate(new Date(connection.createdAt))}`
+                                        : "Connected"
+                                    }
+                                    voiceLabel={connectionName}
+                                    openLabel={`Open ${connectionName}'s profile`}
+                                    onOpen={
+                                      connection.publicPersonRef
+                                        ? () =>
+                                            router.push(
+                                              buildPersonProfileRoute(
+                                                connection.publicPersonRef!,
+                                                { from: ROUTES.CONNECT },
+                                              ),
+                                            )
+                                        : undefined
+                                    }
+                                    trailing={
+                                      <span className="flex shrink-0 items-center justify-end gap-0 whitespace-nowrap">
+                                        {connection.publicPersonRef ? (
                                           <Button
                                             type="button"
                                             variant="none"
                                             effect="fade"
                                             size="compact"
-                                            aria-label={`Options for ${connectionName}`}
-                                            aria-haspopup="dialog"
+                                            aria-label={`Message ${connectionName}`}
                                             className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
-                                            onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
+                                            onClick={() => {
+                                              void navigateDirectMessage(router, { personRef: connection.publicPersonRef });
+                                            }}
                                           >
-                                            <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                            <ProfilePaneMessageIcon size={22} strokeWidth={1.65} className="translate-x-1.5" />
                                           </Button>
-                                        </span>
-                                      }
-                                    />
-                                    );
-                                  })}
-                                </section>
-                              ))
+                                        ) : <span className="size-11 shrink-0" aria-hidden="true" />}
+                                        <Button
+                                          type="button"
+                                          variant="none"
+                                          effect="fade"
+                                          size="compact"
+                                          aria-label={`Options for ${connectionName}`}
+                                          aria-haspopup="dialog"
+                                          className={CONNECT_ROW_ICON_ACTION_CLASSNAME}
+                                          onClick={() => setPendingRemoveTarget(userId ? { ownerId: userId, generation: batchDraftGenerationRef.current, connection } : null)}
+                                        >
+                                          <MoreHorizontal aria-hidden="true" className="size-5 -translate-x-1.5" />
+                                        </Button>
+                                      </span>
+                                    }
+                                  />
+                                );
+                              })
                             )}
                           </SettingsGroup>
 
