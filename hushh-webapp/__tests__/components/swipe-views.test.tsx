@@ -92,6 +92,25 @@ describe("SwipeViews", () => {
     expect(target.set).toHaveBeenCalledWith(-400);
   });
 
+  it.each([false, true])("preserves same-tab query state unless cancelling a pending opposite tap (%s)", pendingTap => {
+    const committed = vi.fn();
+    render(<SwipeViews options={OPTIONS} tabSetId="query-state" activeValue="first" onSelectionCommit={committed}>
+      <div>My connections with a search</div><div>Circles</div>
+    </SwipeViews>);
+    if (pendingTap) act(() => requestTopShellTabSelection("query-state", "second"));
+    act(() => {
+      embla.listeners.get("pointerDown")?.();
+      embla.scrollProgress = 0.1;
+      embla.listeners.get("scroll")?.();
+      embla.selectedIndex = 0;
+      if (pendingTap) embla.listeners.get("select")?.();
+      embla.listeners.get("pointerUp")?.();
+      embla.listeners.get("settle")?.();
+    });
+    if (pendingTap) expect(committed).toHaveBeenCalledExactlyOnceWith("first");
+    else expect(committed).not.toHaveBeenCalled();
+  });
+
   it("does not restart a swipe when the active value follows its destination", () => {
     let destination = 0;
     embla.engine = {

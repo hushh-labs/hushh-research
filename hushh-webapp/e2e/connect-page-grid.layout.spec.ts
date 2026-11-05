@@ -246,6 +246,13 @@ for (const width of [393, 1440]) {
     await page.waitForTimeout(2100);
     await expect(circles).toHaveAttribute("aria-selected", "true");
     await expect(circlePane.locator("..")).toHaveAttribute("aria-hidden", "false");
+    // An ordinary short drag returning to the same pane owns no route write.
+    await page.mouse.move(startX, swipeY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 12, swipeY, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(1100);
+    await expect(page.locator("body")).toHaveAttribute("data-navigation-count", "7");
     await expect(page.locator("nextjs-portal")).toHaveCount(0);
     expect(errors).toEqual([]);
     await page.screenshot({ path: testInfo.outputPath(`connect-tabs-${width}.png`) });

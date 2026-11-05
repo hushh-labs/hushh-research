@@ -511,6 +511,7 @@ export function SwipeViews({
   // A tab press or swipe can precede its route echo. Geometry repair must
   // retain that intent rather than restoring the previous URL's selection.
   const selectionValueRef = useRef(activeValue);
+  const gestureStartValueRef = useRef(activeValue);
   useLayoutEffect(() => {
     selectionValueRef.current = activeValue;
   }, [activeValue]);
@@ -909,7 +910,7 @@ export function SwipeViews({
       lastReportedValueRef.current = newValue;
       onSelectionChange?.(newValue);
     }
-    if (userSwipe && newValue) {
+    if (userSwipe && newValue && newValue !== gestureStartValueRef.current) {
       selectionValueRef.current = newValue;
       onSelectionCommit?.(newValue);
     }
@@ -1028,6 +1029,7 @@ export function SwipeViews({
       }
     };
     const onPointerDown = () => {
+      gestureStartValueRef.current = selectionValueRef.current;
       programmaticSelectionRef.current = false;
       isDraggingRef.current = true;
       // A finger landing mid-flight takes over from the tap that started it.
