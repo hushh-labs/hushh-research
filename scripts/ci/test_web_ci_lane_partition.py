@@ -48,7 +48,11 @@ def test_presentation_filter_preserves_interaction_and_lifecycle_cases() -> None
     presentation = re.compile(BROWSER_CORE["PRESENTATION"])
     for name in ("explicit Feed typography survives outside the page shell",
                  "Reset icon colors only its arrowhead and keeps native geometry in the account pane",
-                 "shows four distinct activity portraits while animations load at 390px"):
+                 "shows four distinct activity portraits while animations load at 390px",
+                 "retains painted artwork through delayed loads and interrupted transitions",
+                 "keeps brief activities perceptible in both locations and recovers from an animation load failure",
+                 "keeps header and profile presence in sync through all four native Rive states",
+                 "One profile keeps its header and tabs stationary while switching at 390px"):
         assert presentation.search(name), name
     for name in ("keeps hover, press and tap clear",
                  "keeps HD reduced-motion artwork and pauses rendering for app lifecycle changes",
@@ -694,6 +698,7 @@ def collect_browser_shards() -> None:
 
 def main() -> int:
     tests = (
+        test_presentation_filter_preserves_interaction_and_lifecycle_cases,
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_functional_browser_plans_keep_chromium_from_multi_project_packs,
