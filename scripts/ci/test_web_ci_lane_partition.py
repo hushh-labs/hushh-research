@@ -710,6 +710,7 @@ def collect_browser_shards() -> None:
 
 def main() -> int:
     tests = (
+        test_presentation_filter_preserves_interaction_and_lifecycle_cases,
         test_build_exports_explicit_and_default_backend_origins,
         test_targeted_legs_partition_the_matched_packs,
         test_functional_browser_plans_keep_chromium_from_multi_project_packs,
