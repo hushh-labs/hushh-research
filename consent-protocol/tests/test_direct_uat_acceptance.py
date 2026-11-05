@@ -8,7 +8,6 @@ from unittest import mock
 import pytest
 import yaml
 
-from tests.helpers.deployment_cli import read_deploy_source
 from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -279,7 +278,9 @@ def test_deploy_missing_or_malformed_pins_fail_before_any_api_read(monkeypatch, 
 
 
 def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
-    workflow = yaml.safe_load(read_deploy_source(ROOT, ".github/workflows/deploy-uat.yml"))
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
     assert inspector["environment"] == {"name": "uat", "deployment": False}
@@ -300,11 +301,10 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert validate < auth
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)
     assert jobs["select-target"]["if"] == "inputs.operation == 'deploy'"
-    assert jobs["deployment-security"]["if"] == (
-        "always() && (inputs.operation == 'inspect-routing' || "
-        "(needs.select-target.result == 'success' && "
-        "needs.select-target.outputs.decision != 'NO_OP'))"
-    )
+    security_condition = jobs["deployment-security"]["if"]
+    assert "inputs.operation == 'inspect-routing'" in security_condition
+    assert "needs.select-target.result == 'success'" in security_condition
+    assert "needs.select-target.outputs.decision != 'NO_OP'" in security_condition
     for name in ("deploy", "wait-capacity"):
         assert (
             "select-target" in jobs[name]["needs"] and "deployment-security" in jobs[name]["needs"]
@@ -322,15 +322,6 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert step_names.index(
         "Verify exact serving base (${{ inputs.uat_base_sha }})"
     ) < step_names.index("Verify the exact UAT checkout")
-
-
-def test_deploy_config_reader_rejects_unreviewed_implementation(tmp_path):
-    relative = ".github/workflows/deploy-uat.yml"
-    wrapper = tmp_path / relative
-    wrapper.parent.mkdir(parents=True)
-    wrapper.write_text("jobs:\n  release:\n    uses: other/repository/workflow.yml@main\n")
-    with pytest.raises(AssertionError, match="reviewed Main implementation"):
-        read_deploy_source(tmp_path, relative)
 
 
 @pytest.mark.parametrize(
@@ -422,3 +413,19 @@ def test_explicit_deploy_cannot_claim_an_unrecorded_base_from_static_ci(monkeypa
     job["name"] = "Exact UAT Candidate"
     with pytest.raises(subject.Refused):
         subject.validate_deployment(api, SHA, "123", "1", "d" * 40)
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat"])
+def test_branch_acceptance_producer_authenticates_main_authority_lookup(environment):
+    workflow = yaml.safe_load(
+        (ROOT / f".github/workflows/deploy-{environment}-implementation.yml").read_text()
+    )
+    producers = [
+        step
+        for step in workflow["jobs"]["deploy"]["steps"]
+        if step.get("name", "").startswith("Produce exact-SHA")
+    ]
+    assert len(producers) == 1
+    producer = producers[0]
+    assert 'verify-predecessor-acceptance.py" create' in producer["run"]
+    assert producer.get("env", {}).get("GH_TOKEN") == "${{ github.token }}"

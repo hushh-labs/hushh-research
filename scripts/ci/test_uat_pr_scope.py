@@ -13,6 +13,46 @@ from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attemp
 
 
 class ApprovedUatScopeTest(unittest.TestCase):
+    def test_accumulated_pr_chain_checks_every_link_and_keeps_a_bound(self):
+        for count in (11, 20):
+            with self.subTest(count=count):
+                base = "0" * 40
+                prior, prior_tree = base, base
+                prs, identities, terms = {}, {}, []
+                for number in range(1, count + 1):
+                    head, landed = f"{100 + number:040x}", f"{200 + number:040x}"
+                    prs[number] = {"merged": True, "merge_commit_sha": landed,
+                                   "head": {"sha": head}, "base": {"ref": "uat",
+                                   "repo": {"full_name": subject.REPOSITORY}}}
+                    identities.update({
+                        ("rev-parse", f"{landed}^1"): prior,
+                        ("merge-base", "--all", prior, head): prior,
+                        ("rev-parse", f"{prior}^{{tree}}"): prior_tree,
+                        ("rev-parse", f"{head}^{{tree}}"): head,
+                        ("rev-parse", f"{landed}^{{tree}}"): head,
+                    })
+                    terms.append(f"{number}={head}")
+                    prior, prior_tree = landed, head
+                calls = []
+                def read(path):
+                    number = int(path.rsplit("/", 1)[1])
+                    calls.append(number)
+                    return prs[number]
+                api = SimpleNamespace(read=read)
+                approval = f"{base}:{base}:" + ",".join(terms)
+                with patch.object(prerequisites, "git_identity", side_effect=lambda *args: identities[args]):
+                    prerequisites.verify_approved_scope(api, landed, base, approval)
+                    self.assertEqual(calls, list(range(1, count + 1)))
+                    prs[count // 2]["head"]["sha"] = "f" * 40
+                    with self.assertRaisesRegex(subject.Refused, "approved head"):
+                        prerequisites.verify_approved_scope(api, landed, base, approval)
+                if count == 20:
+                    calls.clear()
+                    with self.assertRaisesRegex(subject.Refused, "explicit candidate"):
+                        prerequisites.verify_approved_scope(api, landed, base,
+                                                           approval + ",21=" + "f" * 40)
+                    self.assertEqual(calls, [])
+
     def test_landed_tree_must_be_the_reviewed_pr_delta_and_live_bases_must_match(self):
         base, head, landed, extra = (letter * 40 for letter in "abcd")
         pr = {"merged": True, "merge_commit_sha": landed, "head": {"sha": head},

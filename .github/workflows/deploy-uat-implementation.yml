@@ -23,6 +23,10 @@ on:
         description: "Protected UAT source branch"
         required: false
         type: string
+      verify_candidate_before_promotion:
+        description: "Require candidate health and text recovery before changing UAT traffic"
+        default: false
+        type: boolean
       approved_scope:
         description: "Approved serving baselines and reviewed PR heads"
         required: false
@@ -94,6 +98,7 @@ permissions:
 
 env:
   UAT_SOURCE_BRANCH: ${{ inputs.source_branch || 'uat' }}
+  PREPROMOTION_UAT_GATES: ${{ inputs.source_branch == 'uat-isolated' || inputs.verify_candidate_before_promotion }}
   GCP_PROJECT_ID: hushh-pda-uat
   UAT_FIREBASE_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
@@ -500,7 +505,7 @@ jobs:
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/uat_release_prerequisites.py scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_release_prerequisites.py scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py scripts/ci/verify-protected-pipeline-edits.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"
@@ -2563,7 +2568,7 @@ jobs:
           fi
 
       - name: Bootstrap isolated UAT files before candidate verification
-        if: inputs.source_branch == 'uat-isolated'
+        if: env.PREPROMOTION_UAT_GATES == 'true'
         shell: bash
         run: &bootstrap-uat-semantic-files |
           set -euo pipefail
@@ -2571,7 +2576,7 @@ jobs:
           bash scripts/env/use_profile.sh uat
 
       - name: Load isolated UAT maintainer smoke overlay
-        if: inputs.source_branch == 'uat-isolated'
+        if: env.PREPROMOTION_UAT_GATES == 'true'
         shell: bash
         run: &load-uat-maintainer-smoke |
           set -euo pipefail
@@ -2594,7 +2599,7 @@ jobs:
 
       - name: Verify isolated UAT candidates before promotion
         id: verify-isolated-uat-candidates
-        if: inputs.source_branch == 'uat-isolated' && (steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
+        if: env.PREPROMOTION_UAT_GATES == 'true' && (steps.scope.outputs.deploy_frontend != 'true' || steps.verify-analytics-uat.outcome == 'success')
         shell: bash
         env:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
@@ -2750,7 +2755,7 @@ jobs:
 
       - name: Recover eligible pending UAT text requests before promotion
         id: recover-isolated-uat-text-requests
-        if: inputs.source_branch == 'uat-isolated' && steps.verify-isolated-uat-candidates.outcome == 'success' && inputs.preserve_paused_drive_worker != true && steps.scope.outputs.deploy_backend == 'true'
+        if: env.PREPROMOTION_UAT_GATES == 'true' && steps.verify-isolated-uat-candidates.outcome == 'success' && inputs.preserve_paused_drive_worker != true && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           CANDIDATE_SHA: ${{ steps.resolve-sha.outputs.sha }}
@@ -2792,7 +2797,7 @@ jobs:
 
       - name: Promote deployed revisions to UAT traffic
         id: promote-uat-traffic
-        if: success() && (inputs.source_branch != 'uat-isolated' || (steps.verify-isolated-uat-candidates.outcome == 'success' && (inputs.preserve_paused_drive_worker == true || steps.scope.outputs.deploy_backend != 'true' || steps.recover-isolated-uat-text-requests.outcome == 'success')))
+        if: success() && (env.PREPROMOTION_UAT_GATES != 'true' || (steps.verify-isolated-uat-candidates.outcome == 'success' && (inputs.preserve_paused_drive_worker == true || steps.scope.outputs.deploy_backend != 'true' || steps.recover-isolated-uat-text-requests.outcome == 'success')))
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -2809,8 +2814,8 @@ jobs:
             exit 0
           fi
 
-          if [[ "$UAT_SOURCE_BRANCH" == uat-isolated ]]; then
-            gh api "repos/$GITHUB_REPOSITORY/branches/uat-isolated" \
+          if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/branches/$UAT_SOURCE_BRANCH" \
               | jq -e --arg sha "$APPLICATION_SHA" '.protected and .commit.sha == $sha' >/dev/null
             check_serving() {
               gcloud run services describe "$1" --project="$GCP_PROJECT_ID" \
@@ -3065,12 +3070,12 @@ jobs:
             --report-path /tmp/uat-db-migration-guard-postdeploy.json
 
       - name: Bootstrap UAT runtime files for semantic verification
-        if: inputs.source_branch != 'uat-isolated' && steps.postdeploy-db-gate.outcome != 'failure'
+        if: env.PREPROMOTION_UAT_GATES != 'true' && steps.postdeploy-db-gate.outcome != 'failure'
         shell: bash
         run: *bootstrap-uat-semantic-files
 
       - name: Load maintainer smoke overlay
-        if: inputs.source_branch != 'uat-isolated' && steps.postdeploy-db-gate.outcome != 'failure'
+        if: env.PREPROMOTION_UAT_GATES != 'true' && steps.postdeploy-db-gate.outcome != 'failure'
         shell: bash
         run: *load-uat-maintainer-smoke
 
@@ -3834,7 +3839,7 @@ jobs:
 
       - name: Recover eligible pending UAT text requests
         id: recover-uat-text-requests
-        if: success() && inputs.source_branch != 'uat-isolated' && inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome == 'success' && steps.scope.outputs.deploy_backend == 'true'
+        if: success() && env.PREPROMOTION_UAT_GATES != 'true' && inputs.preserve_paused_drive_worker != true && steps.deploy-drive-worker.outcome == 'success' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -4206,7 +4211,7 @@ jobs:
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
              && [ "${{ inputs.preserve_paused_drive_worker }}" != "true" ] \
              && [ "${{ steps.deploy-drive-worker.outcome }}" = "success" ] \
-             && [ "${{ inputs.source_branch == 'uat-isolated' && steps.recover-isolated-uat-text-requests.outcome || steps.recover-uat-text-requests.outcome }}" != "success" ]; then
+             && [ "${{ env.PREPROMOTION_UAT_GATES == 'true' && steps.recover-isolated-uat-text-requests.outcome || steps.recover-uat-text-requests.outcome }}" != "success" ]; then
             STATUS="blocked"
           fi
 
@@ -4271,7 +4276,7 @@ jobs:
                   "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
                   "answer_work_drain_mode": "${{ steps.activate-answer-work-drain.outputs.mode }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
-                  "text_processor_recovery": "${{ inputs.source_branch == 'uat-isolated' && steps.recover-isolated-uat-text-requests.outcome || steps.recover-uat-text-requests.outcome }}",
+                  "text_processor_recovery": "${{ env.PREPROMOTION_UAT_GATES == 'true' && steps.recover-isolated-uat-text-requests.outcome || steps.recover-uat-text-requests.outcome }}",
                   "isolated_candidate_checks": "${{ steps.verify-isolated-uat-candidates.outcome }}",
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
                   "drive_v1_worker": "${{ steps.deploy-drive-v1-worker.outcome }}",
@@ -4320,6 +4325,8 @@ jobs:
 
       - name: Produce exact-SHA UAT acceptance
         if: always() && steps.begin-uat-mutation.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" create \
             --environment uat --status /tmp/uat-release-status.json \
