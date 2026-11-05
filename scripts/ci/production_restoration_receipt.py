@@ -220,7 +220,8 @@ def _runtime(archive, release, record, run):
 
 
 def serving_reference(
-    repository, run, release, lane, *, api, governed, timestamp, run_command, timeout
+    repository, run, release, lane, *, api, governed, timestamp, run_command, timeout,
+    manual_validator=None,
 ):
     """Validate the original receipt unchanged; return no rollback/cleanup authority."""
     deadline = time.monotonic() + timeout
@@ -258,6 +259,7 @@ def serving_reference(
             run, original, job, archive, api=api, governed=governed,
             timestamp=timestamp, run_command=run_command,
             timeout=deadline - time.monotonic(),
+            manual_validator=manual_validator,
         )
     _gates(job, run)
     operation = _operation(repository, run, job, lane, api=api, timestamp=timestamp)
