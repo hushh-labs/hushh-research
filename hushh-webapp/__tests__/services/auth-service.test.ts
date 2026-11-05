@@ -163,7 +163,6 @@ import {
   setPersistence,
   signInWithCredential,
   signOut as firebaseSignOut,
-  updatePhoneNumber,
 } from "firebase/auth";
 import { HushhAuth } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
@@ -947,7 +946,7 @@ describe("AuthService.restoreNativeSession", () => {
       const start = mode === "link"
         ? AuthService.startPhoneLinkVerification("+16505550101", { resendCode: true })
         : AuthService.startPhoneReplacementVerification("+16505550101", { resendCode: true });
-      await expect(start).rejects.toThrow("Sign in before verifying a phone number.");
+      await expect(start).rejects.toMatchObject({ code: "session_changed" });
       expect(proof).not.toHaveBeenCalled();
       expect(mockAuth.currentUser).toBe(cached);
       expect(FirebaseAuthentication.linkWithPhoneNumber).not.toHaveBeenCalled();
@@ -956,40 +955,61 @@ describe("AuthService.restoreNativeSession", () => {
     } finally { proof.mockRestore(); }
   });
 
-  it("links the web user phone number during link confirmation", async () => {
+  it.each(["link", "replace"] as const)("uses the existing web token for %s and discards the phone session", async intent => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
-    const reload = vi.fn().mockResolvedValue(undefined);
-    const linkedUser = {
+    const phoneNumber = "+16505550101";
+    const current = {
       uid: "web-user",
-      phoneNumber: "+16505550101",
-      reload,
+      phoneNumber: intent === "replace" ? "+16505550100" : null as string | null,
+      getIdToken: vi.fn().mockResolvedValue("existing-email-session"),
+      reload: vi.fn(async () => { current.phoneNumber = phoneNumber; }),
     };
-    mockAuth.currentUser = {
-      uid: "web-user",
-      phoneNumber: null,
-    } as any;
-    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
-      "phone-credential" as any,
-    );
-    vi.mocked(linkWithCredential).mockResolvedValue({
-      user: linkedUser,
-    } as any);
-
-    const verifiedUser = await AuthService.confirmPhoneLinkVerification({
-      verificationCode: "123456",
-      verificationId: "link-verification-id",
+    mockAuth.currentUser = current as any;
+    const exchange = vi.fn().mockResolvedValue(Response.json({
+      localId: current.uid, phoneNumber, isNewUser: false,
+      idToken: "unadopted-phone-id-token", refreshToken: "unadopted-phone-refresh-token",
+    }));
+    vi.stubGlobal("fetch", exchange);
+    const params = { expectedUserId: current.uid, phoneNumber, verificationCode: "123456", verificationId: "link-verification-id" };
+    const verified = intent === "replace"
+      ? await AuthService.confirmPhoneReplacementVerification(params)
+      : await AuthService.confirmPhoneLinkVerification(params);
+    const [url, request] = exchange.mock.calls[0];
+    expect(String(url)).toBe("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=demo-key");
+    expect(JSON.parse(request.body)).toEqual({
+      idToken: "existing-email-session", code: "123456", sessionInfo: "link-verification-id",
     });
+    expect(verified).toBe(current);
+    expect(current.reload).toHaveBeenCalledOnce();
+    await expect(verified.getIdToken()).resolves.toBe("existing-email-session");
+    expect(signInWithCredential).not.toHaveBeenCalled();
+  });
 
-    expect(PhoneAuthProvider.credential).toHaveBeenCalledWith(
-      "link-verification-id",
-      "123456",
-    );
-    expect(linkWithCredential).toHaveBeenCalledWith(
-      mockAuth.currentUser,
-      "phone-credential",
-    );
-    expect(reload).toHaveBeenCalledTimes(1);
-    expect(verifiedUser).toBe(linkedUser);
+  it("leaves the existing web session intact when Firebase reports a conflicting owner", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const current = { uid: "web-user", phoneNumber: "+16505550100", getIdToken: vi.fn().mockResolvedValue("email-session") };
+    mockAuth.currentUser = current as any;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ temporaryProof: "other-user-proof" })));
+    await expect(AuthService.confirmPhoneReplacementVerification({
+      verificationCode: "123456", verificationId: "replacement-verification-id",
+      expectedUserId: current.uid, phoneNumber: "+16505550101",
+    })).rejects.toMatchObject({ code: "credential-already-in-use" });
+    expect(signInWithCredential).not.toHaveBeenCalled();
+    expect(mockAuth.currentUser).toBe(current);
+    expect(current.phoneNumber).toBe("+16505550100");
+  });
+
+  it("rejects a successful phone response that identifies another Firebase UID", async () => {
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    const current = { uid: "web-user", phoneNumber: null, getIdToken: vi.fn().mockResolvedValue("email-session"), reload: vi.fn() };
+    mockAuth.currentUser = current as any;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ localId: "other-user", phoneNumber: "+16505550101" })));
+    await expect(AuthService.confirmPhoneLinkVerification({
+      verificationCode: "123456", verificationId: "link-verification-id",
+      expectedUserId: current.uid, phoneNumber: "+16505550101",
+    })).rejects.toMatchObject({ code: "phone_verification_failed" });
+    expect(current.reload).not.toHaveBeenCalled();
+    expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
   it("mints a web phone claim token without linking the primary Firebase user", async () => {
@@ -1027,36 +1047,6 @@ describe("AuthService.restoreNativeSession", () => {
     expect(claimToken).toBe("phone-claim-id-token");
   });
 
-  it("updates the web user phone number during replacement confirmation", async () => {
-    mockCapacitor.isNativePlatform.mockReturnValue(false);
-    const reload = vi.fn().mockResolvedValue(undefined);
-    mockAuth.currentUser = {
-      uid: "web-user",
-      phoneNumber: "+16505550101",
-      reload,
-    } as any;
-    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
-      "phone-credential" as any,
-    );
-    vi.mocked(updatePhoneNumber).mockResolvedValue(undefined);
-
-    const verifiedUser = await AuthService.confirmPhoneReplacementVerification({
-      verificationCode: "123456",
-      verificationId: "verification-id",
-    });
-
-    expect(PhoneAuthProvider.credential).toHaveBeenCalledWith(
-      "verification-id",
-      "123456",
-    );
-    expect(updatePhoneNumber).toHaveBeenCalledWith(
-      mockAuth.currentUser,
-      "phone-credential",
-    );
-    expect(reload).toHaveBeenCalledTimes(1);
-    expect(verifiedUser).toBe(mockAuth.currentUser);
-  });
-
   it("blocks replacing with a phone number already linked to the current user", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     mockAuth.currentUser = {
@@ -1074,53 +1064,17 @@ describe("AuthService.restoreNativeSession", () => {
     });
   });
 
-  it("normalizes an expired OTP into stable, user-facing copy", async () => {
+  it.each([
+    ["SESSION_EXPIRED", "code-expired", "This verification code has expired. Please request a new code."],
+    ["INVALID_CODE", "invalid-verification-code", "That verification code is incorrect. Please check the code and try again."],
+  ])("normalizes Identity Platform %s into stable, user-facing copy", async (error, code, message) => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
-    const verifyPhoneNumber = vi.fn().mockResolvedValue("verification-id");
-    mockPhoneAuthProvider.mockImplementation(function () {
-      return { verifyPhoneNumber };
-    });
-    mockAuth.currentUser = { uid: "web-user", phoneNumber: null } as any;
-    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
-      "phone-credential" as any,
-    );
-    vi.mocked(linkWithCredential).mockRejectedValue({
-      code: "auth/code-expired",
-      message: "Firebase: Error (auth/code-expired).",
-    });
-
-    await expect(
-      AuthService.confirmPhoneLinkVerification({
-        verificationCode: "123456",
-        verificationId: "link-verification-id",
-      }),
-    ).rejects.toMatchObject({
-      code: "code-expired",
-      message: "This verification code has expired. Please request a new code.",
-    });
-  });
-
-  it("normalizes an incorrect OTP into stable, user-facing copy", async () => {
-    mockCapacitor.isNativePlatform.mockReturnValue(false);
-    mockAuth.currentUser = { uid: "web-user", phoneNumber: null } as any;
-    vi.mocked(PhoneAuthProvider.credential).mockReturnValue(
-      "phone-credential" as any,
-    );
-    vi.mocked(linkWithCredential).mockRejectedValue({
-      code: "auth/invalid-verification-code",
-      message: "Firebase: Error (auth/invalid-verification-code).",
-    });
-
-    await expect(
-      AuthService.confirmPhoneLinkVerification({
-        verificationCode: "000000",
-        verificationId: "link-verification-id",
-      }),
-    ).rejects.toMatchObject({
-      code: "invalid-verification-code",
-      message:
-        "That verification code is incorrect. Please check the code and try again.",
-    });
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: null, getIdToken: vi.fn().mockResolvedValue("email-session") };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: { message: error } }, { status: 400 })));
+    await expect(AuthService.confirmPhoneLinkVerification({
+      verificationCode: "000000", verificationId: "link-verification-id",
+      expectedUserId: "web-user", phoneNumber: "+16505550101",
+    })).rejects.toMatchObject({ code, message });
   });
 
   it("normalizes a raw Firebase error out of getPhoneClaimIdToken instead of leaking it to the UI", async () => {
