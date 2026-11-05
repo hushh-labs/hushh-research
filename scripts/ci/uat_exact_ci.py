@@ -16,6 +16,7 @@ import json
 import os
 import re
 import runpy
+import sys
 import tomllib
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from github_security_authority import GitHub, Refused, verify_source
 from process_group import BoundedReadError, bounded_stdout
 
 REPOSITORY = "hushh-labs/hushh-research"
+SOURCE_BRANCHES = ("uat", "uat-isolated")
 SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
 
@@ -51,6 +53,49 @@ AUTHORITY_PATHS = (
     "packages/hushh-mcp/scripts",
     "deploy/mail-api/test",
     "config/ci-governance.json",
+)
+# Only these paths are taken from Main in a disposable CI checkout.
+# Runtime build and migration inputs are never replaced in the candidate.
+ISOLATED_CI_PATHS = (
+    ".agents", ".github", "bin", "scripts/ci", "scripts/git", "scripts/ops",
+    "consent-protocol/.github", "consent-protocol/scripts/ci",
+    "consent-protocol/ops/monorepo/pre-push.sh",
+    "consent-protocol/scripts/run-test-ci.sh",
+    "consent-protocol/scripts/generate_capability_graph.py",
+    "hushh-webapp/scripts", "hushh-webapp/playwright.config.ts",
+    "hushh-webapp/vitest.config.ts", "hushh-webapp/__tests__/setup.ts",
+    "packages/hushh-mcp/scripts", "deploy/mail-api/test", "config/ci-governance.json",
+    "consent-protocol/config/database_connection_limits.json",
+    "consent-protocol/tests/test_ci_status_gate_fails_closed.py",
+    "consent-protocol/tests/test_deployment_security.py",
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
+    "consent-protocol/tests/test_production_restoration_operation.py",
+    "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+    "consent-protocol/tests/test_uat_deploy_parallelism.py",
+    "consent-protocol/tests/test_uat_application_selection.py",
+    "consent-protocol/tests/test_uat_paused_drive_maintenance.py",
+    "consent-protocol/tests/test_protected_document_release_contract.py",
+    "consent-protocol/tests/test_account_deletion_release_workflow.py",
+    "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
+    "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
+    "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/helpers/document_delivery_ci.py",
+    "consent-protocol/tests/helpers/predecessor_acceptance.py",
+    "deploy/iam/setup_nonproduction_github_wif.py",
+)
+ISOLATED_RELEASE_AUTHORITY_PATHS = (
+    "deploy", ":(exclude)deploy/README.md", ":(exclude)deploy/iam/README.md",
+    ":(exclude)deploy/iam/setup_nonproduction_github_wif.py",
+    ":(exclude)deploy/personal-backend-image.cloudbuild.yaml",
+    ":(exclude)deploy/mail-api/test",
+    "scripts/deploy", "consent-protocol/db/migrate.py",
+    "consent-protocol/db/migration_authority.py", "consent-protocol/db/dev_migration_manifest.py",
+    "consent-protocol/db/connection.py",
+    "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",
+    "consent-protocol/scripts/adopt_drive_permission_file_claims.py",
+    "consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py",
+    "scripts/ops/db_migration_release_guard.py",
+    "scripts/ops/email_auth_uat_release.py",
 )
 MANIFEST_FILES = (
     "hushh-webapp/package.json", "packages/hushh-mcp/package.json",
@@ -84,6 +129,7 @@ REQUIRED_JOBS = {
     and not name.startswith("Web Targeted Contracts (browser-")
 } | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
+AGGREGATE_JOBS = {"Preflight Gate", "Branch Validation Gate"}
 
 
 
@@ -111,19 +157,27 @@ def verify_invocation_authority(candidate: str, authority: str) -> None:
                 "UAT test invocation differs from reviewed Main authority")
 
 
-def verify_git_authority(candidate: str, base: str, authority: str, *, current: bool = True) -> str:
+def verify_git_authority(candidate: str, base: str, authority: str, *, current: bool = True, branch: str = "uat") -> str:
     require(
         all(SHA.fullmatch(value) for value in (candidate, base, authority)),
         "Full immutable SHAs are required",
     )
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
     if current:
-        git("fetch", "--no-tags", "origin", "main", "uat")
-        require(git("rev-parse", "origin/uat").decode().strip() == candidate,
+        git(
+            "fetch", "--no-tags", "origin",
+            "+refs/heads/main:refs/remotes/origin/main",
+            f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+        )
+        require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
                 "UAT tip changed; qualify the current protected candidate")
     git("merge-base", "--is-ancestor", authority, "origin/main")
     git("merge-base", "--is-ancestor", base, candidate)
     for source in (candidate, authority):
         git("cat-file", "-e", f"{source}^{{commit}}")
+    if branch == "uat-isolated":
+        verify_isolated_release_authority(candidate, authority)
+        return application_tree(candidate)
     expected = git("ls-tree", "-r", "--full-tree", authority, "--", *AUTHORITY_PATHS)
     observed = git("ls-tree", "-r", "--full-tree", candidate, "--", *AUTHORITY_PATHS)
     require(
@@ -131,9 +185,47 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         "UAT CI authority differs from reviewed Main",
     )
     verify_invocation_authority(candidate, authority)
+    return application_tree(candidate)
+
+
+def application_tree(candidate: str) -> str:
     tree = git("rev-parse", f"{candidate}^{{tree}}").decode().strip()
     require(SHA.fullmatch(tree), "UAT application tree is invalid")
     return tree
+
+
+def verify_isolated_release_authority(candidate: str, authority: str) -> None:
+    require(not git("diff", "--name-only", candidate, authority, "--",
+                    *ISOLATED_RELEASE_AUTHORITY_PATHS),
+            "Isolated UAT build or migration authority differs from Main")
+    verify_invocation_authority(candidate, authority)
+
+
+def prepare_isolated_checkout(candidate: str, base: str, authority: str, tree: str) -> None:
+    from repo_governance_plan import RELEASE_CONTROLLER_TESTS
+
+    require(os.environ.get("GITHUB_REF") == "refs/heads/main"
+            and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and os.environ.get("GITHUB_SHA") == authority,
+            "Isolated UAT qualification requires a Main dispatch")
+    require(all(SHA.fullmatch(value) for value in (candidate, base, authority)),
+            "Full candidate, serving base and Main SHAs are required")
+    require(git("rev-parse", "HEAD").decode().strip() == authority,
+            "Qualification must begin on its authenticated Main checkout")
+    require(verify_git_authority(candidate, base, authority, current=False, branch="uat-isolated") == tree,
+            "Requested isolated application tree differs from Git")
+    require_protected_tip(GitHub(REPOSITORY, os.environ.get("GH_TOKEN", "")), candidate, "uat-isolated")
+    require(git("rev-parse", "origin/uat-isolated").decode().strip() == candidate,
+            "Isolated UAT qualification candidate is no longer the protected tip")
+    git("checkout", "--detach", candidate)
+    # HEAD stays at the exact application commit; the staged test overlay
+    # is disposable and never becomes a deployment commit.
+    # The release contracts test the Main workflows overlaid above. Keep those
+    # tests with their controller while product tests stay at the candidate SHA.
+    control_paths = (*ISOLATED_CI_PATHS, *RELEASE_CONTROLLER_TESTS)
+    git("restore", f"--source={authority}", "--staged", "--worktree", "--", *control_paths)
+    require(not git("diff", "--cached", "--name-only", authority, "--", *control_paths),
+            "CI working copy differs from reviewed Main authority")
 
 
 def verify_serving_bases(
@@ -159,9 +251,10 @@ def verify_serving_bases(
     return result
 
 
-def require_protected_tip(api: GitHub, candidate: str) -> None:
-    branch = api.read(f"repos/{REPOSITORY}/branches/uat")
-    require(branch.get("protected") is True and branch.get("commit", {}).get("sha") == candidate,
+def require_protected_tip(api: GitHub, candidate: str, branch: str = "uat") -> None:
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
+    ref = api.read(f"repos/{REPOSITORY}/branches/{branch}")
+    require(ref.get("protected") is True and ref.get("commit", {}).get("sha") == candidate,
             "The protected UAT candidate changed during admission")
 
 
@@ -240,7 +333,7 @@ def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
 
 
 
-def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True):
+def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True, isolated_candidate=""):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory = api.read(f"{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
     jobs = inventory.get("jobs")
@@ -266,6 +359,12 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
                  or (not legacy and name in OPTIONAL_NATIVE and matches[0].get("conclusion") == "skipped")),
             "UAT CI did not complete its exact-source and aggregate gates",
         )
+        if isolated_candidate and name not in AGGREGATE_JOBS:
+            require(any(step.get("name") == "Prepare isolated UAT source"
+                        and step.get("conclusion") == "success"
+                        for step in matches[0].get("steps", []))
+                    or matches[0].get("conclusion") == "skipped",
+                    "A required CI lane did not prepare the isolated application")
         required_step = None
         if name.startswith("Web Targeted Contracts ("):
             required_step = "Run targeted web contract checks"
@@ -301,6 +400,11 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
         len(exact_steps) == 1 and exact_steps[0].get("conclusion") == "success",
         "A required UAT CI step was not verified",
     )
+    if isolated_candidate:
+        identity = f"Verify isolated source ({isolated_candidate} {application_tree(isolated_candidate)})"
+        bound = [step for step in exact_job.get("steps", []) if step.get("name") == identity]
+        require(len(bound) == 1 and bound[0].get("conclusion") == "success",
+                "Main CI attempt did not attest the exact isolated application tree")
     gate = next(job for job in jobs if job["name"] == "Branch Validation Gate")
     check_url = gate.get("check_run_url", "")
     match = re.fullmatch(
@@ -324,9 +428,9 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
 
 
 
-def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
+def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True, branch="uat", title=""):
     prefix = f"repos/{REPOSITORY}/actions"
-    inventory_path = f"{prefix}/workflows/ci.yml/runs?branch=uat&event=workflow_dispatch&head_sha={candidate}&per_page=100"
+    inventory_path = f"{prefix}/workflows/ci.yml/runs?branch={branch}&event=workflow_dispatch&head_sha={candidate}&per_page=100"
     rows = api.read(inventory_path)
     runs = rows.get("workflow_runs")
     require(
@@ -338,7 +442,8 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
     relevant = [
         item
         for item in runs
-        if item.get("head_sha") == candidate and item.get("head_branch") == "uat"
+        if item.get("head_sha") == candidate and item.get("head_branch") == branch
+        and (not title or item.get("display_title") == title)
     ]
     if not current:
         # Historical serving acceptance binds one immutable successful run. A
@@ -367,7 +472,7 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
         observed = api.read(f"{prefix}/runs/{identifier}/attempts/{current_attempt}")
         require(
             observed.get("id") == identifier and observed.get("run_attempt") == current_attempt
-            and observed.get("head_sha") == candidate and observed.get("head_branch") == "uat",
+            and observed.get("head_sha") == candidate and observed.get("head_branch") == branch,
             "UAT CI attempt chronology belongs to another source",
         )
         attempts.append(observed)
@@ -382,38 +487,45 @@ def _latest_attempt_inventory(api, candidate, run_id, attempt, *, current=True):
 
 
 def verify_attempt(
-    api: GitHub, candidate: str, base: str, run_id: int, attempt: int, *, current=True
+    api: GitHub, candidate: str, base: str, run_id: int, attempt: int, *, current=True, branch="uat", authority=""
 ) -> dict:
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
     require(SHA.fullmatch(candidate), "Full application SHA is required")
     require(SHA.fullmatch(base), "Full UAT serving-base SHA is required")
     require(
         type(run_id) is int and run_id > 0 and type(attempt) is int and attempt > 0,
         "CI pin is invalid",
     )
+    run_head, run_branch, title = candidate, branch, ""
+    if branch == "uat-isolated":
+        require(SHA.fullmatch(authority or ""), "Isolated qualification requires the Main authority SHA")
+        run_head, run_branch, title = authority, "main", f"Isolated UAT {candidate}"
     source = verify_source(
         api.read,
         REPOSITORY,
-        {"run_id": run_id, "attempt": attempt, "head_sha": candidate},
+        {"run_id": run_id, "attempt": attempt, "head_sha": run_head},
     )
     prefix = f"repos/{REPOSITORY}/actions"
     run = api.read(f"{prefix}/runs/{run_id}")
     require(
         run.get("event") == "workflow_dispatch"
-        and run.get("head_branch") == "uat"
+        and run.get("head_branch") == run_branch
+        and (not title or run.get("display_title") == title)
         and run.get("head_repository", {}).get("id") == source["repository_id"]
         and run.get("head_repository", {}).get("full_name") == REPOSITORY
         and run.get("status") == "completed"
         and run.get("conclusion") == "success",
         "UAT CI is not a successful exact-branch dispatch",
     )
-    _verify_run_jobs(api, run, candidate, base, run_id, attempt, current=current)
+    _verify_run_jobs(api, run, run_head, base, run_id, attempt, current=current,
+                     isolated_candidate=candidate if title else "")
     inventory_path, rows = _latest_attempt_inventory(
-        api, candidate, run_id, attempt, current=current
+        api, run_head, run_id, attempt, current=current, branch=run_branch, title=title
     )
     rechecked_source = verify_source(
         api.read,
         REPOSITORY,
-        {"run_id": run_id, "attempt": attempt, "head_sha": candidate},
+        {"run_id": run_id, "attempt": attempt, "head_sha": run_head},
     )
     require(
         rechecked_source == source
@@ -422,7 +534,7 @@ def verify_attempt(
             api.read(inventory_path) == rows
             if current
             else _latest_attempt_inventory(
-                api, candidate, run_id, attempt, current=False
+                api, run_head, run_id, attempt, current=False, branch=run_branch, title=title
             )[1] == rows
         ),
         "UAT CI changed during verification",
@@ -433,17 +545,18 @@ def verify_attempt(
 
 def verify_predecessor(prior: dict, *, current: bool) -> None:
     candidate = prior["sha"]
-    tree = verify_git_authority(candidate, prior["base_sha"], prior["authority_sha"], current=current)
+    branch = prior.get("source_branch", "uat")
+    tree = verify_git_authority(candidate, prior["base_sha"], prior["authority_sha"], current=current, branch=branch)
     require(tree == prior["tree"], "UAT predecessor tree changed")
     api = GitHub(REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     if current:
-        require_protected_tip(api, candidate)
+        require_protected_tip(api, candidate, branch)
     verify_attempt(
         api, candidate, prior["base_sha"], prior["run_id"], prior["run_attempt"],
-        current=current,
+        current=current, branch=branch, authority=prior["authority_sha"],
     )
     if current:
-        require_protected_tip(api, candidate)
+        require_protected_tip(api, candidate, branch)
 
 
 def issue_predecessor(args) -> dict:
@@ -454,12 +567,23 @@ def issue_predecessor(args) -> dict:
     serving = live_serving_bases(args.scope)
     require(all(value["sha"] == args.base_sha for value in serving.values()),
             "Actual UAT serving baseline changed before mutation")
+    branch = getattr(args, "source_branch", "uat")
     record = {"schema_version": 1, "kind": "uat-exact-ci", "status": "accepted", "environment": "uat",
               "repository": REPOSITORY, "sha": args.sha, "base_sha": args.base_sha,
               "authority_sha": args.authority_sha, "services": sorted(services), "serving": serving,
               "run_id": args.ci_run_id, "run_attempt": args.ci_attempt,
-              "tree": verify_git_authority(args.sha, args.base_sha, args.authority_sha)}
+              "tree": verify_git_authority(args.sha, args.base_sha, args.authority_sha, branch=branch)}
+    if branch != "uat":
+        record["source_branch"] = branch
     verify_predecessor(record, current=True)
     if args.predecessor is not None:
         require(record == json.loads(args.predecessor.read_text()), "Direct UAT admission changed before mutation")
     return record
+
+
+if __name__ == "__main__":
+    try:
+        require(len(sys.argv) == 5, "Provide candidate, serving base, authority and tree SHAs")
+        prepare_isolated_checkout(*sys.argv[1:])
+    except Refused as error:
+        sys.exit(str(error))
