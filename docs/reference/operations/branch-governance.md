@@ -410,7 +410,9 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 Every ring above has a real GitHub team, created and kept in sync by
 `apply-governance.py` from `config/ci-governance.json`. The teams exist so people
 can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
-The gate never reads them.
+Deployment actor gates read committed policy. Native protected-path review uses
+the verified owner-team mirror; the reconciler verifies its exact membership
+against the same committed policy.
 
 The direction is a security property, not a preference:
 
@@ -428,8 +430,8 @@ The direction is a security property, not a preference:
    read teams live, adding someone to a team would silently grant production
    deploy, routing straight around the control that exists to limit exactly that.
 
-So: **teams own nothing, the config owns everything, and widening access always
-costs a reviewed protected-path PR.**
+Access cohorts are authored in config. Widening them requires a reviewed
+protected-path PR; native team mirrors must match that approved policy.
 
 #### Team members are `member`, never `maintainer`
 
@@ -453,11 +455,15 @@ have.
 ## Admin landing
 
 Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md).
-Ordinary merges require applicable independent review and combined-result queue
-validation. The Main-only owner Admin route lets Kushal or Ankit explicitly
-approve their own exact-head PR without a second owner. Its native strict CI/PR
+Ordinary Main merges require applicable independent review and combined-result
+queue validation. Eligible Dev/UAT authors may request their own ordinary PR's
+queue entry without blanket review. Protected CI and fundamental guidance still
+require Kushal/Ankit authority on every destination.
+
+The named-owner Admin route lets Kushal or Ankit explicitly approve their own
+exact-head PR on Main, Dev or UAT without a second owner. Its native strict CI/PR
 guard and canonical command preserve current-base evidence, resolved conversations
-and landed-tree verification. This does not enable an Admin route on Dev/UAT.
+and landed-tree verification. Other maintainers use the ordinary queue.
 Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 
