@@ -166,6 +166,7 @@ if [ "${CI_VALIDATION_LEVEL:-diagnostic}" != diagnostic ]; then
   layout_owner '^hushh-webapp/(components/(connect|connections)/|e2e/(connect-page|circle-discovery))' e2e/connect-page-grid.layout.spec.ts e2e/circle-discovery.layout.spec.ts
   layout_owner '^hushh-webapp/(components/feed/|e2e/feed-needs-you)' e2e/feed-needs-you-row.layout.spec.ts
   layout_owner '^hushh-webapp/(components/secrets/|e2e/secrets-card)' e2e/secrets-card.layout.spec.ts
+  layout_owner '^hushh-webapp/(components/kai/|lib/(kai|finance-sharing|portfolio-share)/|e2e/(finance-interactions|fixtures/finance-))' e2e/finance-interactions.layout.spec.ts
   location_specs="$(node -e 'const body=require(process.argv[1]).scripts["test:layout-contracts"]; console.log([...new Set(body.match(/e2e\/(?:one-location-[\w-]+|save-location-sheet|active-share-actions|location-[\w-]+)\.layout\.spec\.ts/g)||[])].join(" "))' "$WEB_DIR/package.json")"
   # Word splitting expands only the checked-in, whitespace-free spec paths.
   # shellcheck disable=SC2086

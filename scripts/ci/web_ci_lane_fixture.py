@@ -233,6 +233,7 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         ("hushh-webapp/lib/voice/voice-session.ts\nconsent-protocol/tests/test_phone.py\nhushh-webapp/contracts/ui-review/back/review.json", "false"),
         ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/tests/test_phone.py", "true"),
         ("consent-protocol/tests/test_phone.py", "false"),
+        ("hushh-webapp/contracts/kai/one-capability-graph.v1.json", "false"),
         ("consent-protocol/hushh_mcp/services/advisor_review_service.py", "false"),
         ("hushh-webapp/e2e/calendar-connected-workspace.layout.spec.ts\nconsent-protocol/api/routes/one/finance_sharing.py", "true"),
         ("hushh-webapp/lib/agent/__tests__/calendar-directive-runtime.test.ts", "false"),
@@ -242,6 +243,13 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         assert code == 0, output[-2000:]
         assert values == {"selection_known": "true", "browser_required": required}, values
         assert calls == []
+    code, values, calls, output = _browser_plan(
+        "hushh-webapp/components/kai/finance-flow.tsx\nhushh-webapp/e2e/fixtures/finance-interactions.tsx\nconsent-protocol/tests/test_finance.py",
+        CI_VALIDATION_LEVEL="focused")
+    assert code == 0, output[-2000:]
+    assert values == {"selection_known": "true", "browser_required": "true"}, output
+    assert calls == []
+
 
 def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
     # A known no-browser diff still qualifies the named release core, without

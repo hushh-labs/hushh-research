@@ -96,6 +96,10 @@ web_targeted_non_browser_owner() {
     # unknown frontend dependency and must not expand every browser pack.
     consent-protocol/*|contracts/*|packages/*) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
+    # These exact compiler outputs retain UI Contracts and their affected unit
+    # owners. Unknown JSON and generated runtime code remain conservative.
+    hushh-webapp/contracts/kai/one-capability-graph.v1.json|hushh-webapp/contracts/kai/one-route-orchestration-index.v1.json|hushh-webapp/contracts/kai/kai-action-gateway.vnext.json) return 0 ;;
+    hushh-webapp/frontend-native-surface-map.generated.json|hushh-webapp/cache-coherence-screen-manifest.generated.json) return 0 ;;
     hushh-webapp/lib/*/__tests__/*|hushh-webapp/components/*/__tests__/*|hushh-webapp/app/*/__tests__/*) return 0 ;;
     *.md) return 0 ;;
     *) return 1 ;;
