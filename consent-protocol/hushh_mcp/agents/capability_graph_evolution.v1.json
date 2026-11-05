@@ -2698,6 +2698,14 @@
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "076c05cd70ea69d7",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
     }
   ]
 }
