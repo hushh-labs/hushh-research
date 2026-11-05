@@ -193,4 +193,15 @@
   }
 }
 
+@media (max-width: 21rem) {
+  .content {
+    --emoji-picker-columns: 5;
+  }
+
+  .emojiButton {
+    height: 2.75rem;
+    aspect-ratio: auto;
+  }
+}
+
 .more { grid-column: 1 / -1; min-height: 44px; color: var(--app-accent); font-size: 0.875rem; }

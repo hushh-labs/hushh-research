@@ -386,14 +386,18 @@ for (const width of [393, 1440]) {
 
 test.describe("touch emoji sending", () => {
   test.use({ hasTouch: true, isMobile: true });
-  for (const width of [320, 393, 449, 464, 465, 768, 1440]) {
+  for (const width of [320, 336, 337, 393, 449, 464, 465, 768, 1440]) {
     test(`emoji picker keeps categories and grid aligned above the composer at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
+      if (width === 320) await page.addInitScript((values) => {
+        localStorage.setItem("hushh.direct-messages.recent-emojis", JSON.stringify(values));
+      }, emojiCatalogue.categories[0]!.entries.slice(0, 10).map((entry) => entry[0]!));
       const errors = await mount(page, width === 393);
       const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
       await page.getByRole("button", { name: "Choose emoji", exact: true }).tap();
       const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
       await expect(picker).toBeVisible();
+      if (width === 320) await expect(picker.getByRole("region", { name: "Recently used emoji" }).getByRole("button")).toHaveCount(10);
       await expect.poll(() => picker.evaluate((element) => parseFloat(element.parentElement!.style.getPropertyValue("--radix-popper-anchor-width")))).toBeGreaterThan(0);
       // Opening the picker must not focus Search and raise a phone keyboard
       // before the person's first emoji tap. Search is an explicit choice.
@@ -421,13 +425,17 @@ test.describe("touch emoji sending", () => {
       });
       expect.soft(geometry.horizontalOverflow).toBeLessThanOrEqual(1);
       expect(geometry.tabs).toHaveLength(9);
+      for (const column of geometry.columns) {
+        expect.soft(column.width).toBeGreaterThanOrEqual(44);
+        expect.soft(column.height).toBeGreaterThanOrEqual(44);
+      }
       for (const [index, tab] of geometry.tabs.entries()) {
         expect.soft(tab.width).toBeGreaterThanOrEqual(44);
         expect.soft(tab.height).toBeGreaterThanOrEqual(44);
         const column = geometry.columns[index % geometry.columns.length]!;
         expect.soft(Math.abs(tab.x + tab.width / 2 - column.x - column.width / 2)).toBeLessThanOrEqual(1);
       }
-      expect.soft(geometry.targets.every(Boolean), "all categories and the first grid row can receive a real tap").toBe(true);
+      expect.soft(geometry.targets.every(Boolean), "all categories and initial emoji choices can receive a real tap").toBe(true);
       const box = (await picker.boundingBox())!;
       const form = (await page.locator("form").filter({ has: composer }).boundingBox())!;
       expect(box.x).toBeGreaterThanOrEqual(0);
