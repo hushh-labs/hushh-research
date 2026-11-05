@@ -49,7 +49,7 @@ git rev-parse --verify "${head}^{commit}" >/dev/null
 file="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hushh-ci-changed-files-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
 umask 077
 git diff --name-only "$base" "$head" > "$file"
-if [ ! -s "$file" ]; then
+if [ "${GITHUB_EVENT_NAME:-}" = workflow_dispatch ] && [ ! -s "$file" ]; then
   rm -f "$file"
   echo 'No changes against the comparison base; supply uat_base_sha for the changes to validate.' >&2
   exit 2
