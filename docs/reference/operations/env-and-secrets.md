@@ -342,15 +342,20 @@ connector, frontend or GitHub workflow edit is needed for these settings.
 Personal Cloud Run backend sandboxes may explicitly set
 `HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai`. This is accepted only on
 `backend-dev-<handle>` services in `development`/`local`, with owner-pod mode off.
+Pair it with `HUSHH_SANDBOX_AZURE_CLIENT_ID`, the canonical UUID of the dedicated
+sandbox Entra runtime application. Missing, malformed or probe-only client IDs
+are refused. The resolved identity is included in the policy fingerprint, so
+rotating it invalidates existing model bindings and readiness caches.
 The process keeps its real environment, Firebase issuer and database; only its
 managed transport uses the configured Azure account and deployment descriptors.
 It does not enable UAT's private-information approval policy. Chat, readiness and
 the model picker use `one_text_root`; the LTM Memory Manager uses the primary text
 deployment. Missing federation access fails rather than silently selecting Vertex.
 An operator must authorize the dedicated sandbox service identity in Entra and
-configure this flag through the approved personal deployment path. New source
-commits require updated approval; the existing ready-revision reuse path is not
-proof that a changed configuration was deployed. Do not relabel the sandbox as UAT
+configure these flags through the approved personal deployment path. The Main-owned
+self-service workflow qualifies the exact current green memory-branch tip without
+a per-commit owner review. A ready older revision is not proof that a changed
+configuration was deployed. Do not relabel the sandbox as UAT
 or directly mutate a Cloud Run revision to bypass that release procedure.
 
 For exhausted Azure quota, choose a compatible provisioned Azure resource or

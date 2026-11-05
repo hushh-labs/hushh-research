@@ -83,6 +83,7 @@ async def test_sandbox_model_preference_reports_actual_azure_deployment(monkeypa
     monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
     monkeypatch.setenv("HUSSH_POD_MODE", "false")
     monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", "afd2feb2-fd0f-422c-bdfe-0b7c7e14b5ed")
     result = await prefs.get_preference(user_id="owner")
     assert result["effective_model"] == "one-search-gpt-54-mini-eval"
     assert result["choices"][0]["label"] == "Azure · gpt-5.4-mini"

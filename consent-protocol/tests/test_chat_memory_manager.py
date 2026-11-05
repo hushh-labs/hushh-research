@@ -56,6 +56,7 @@ async def test_sandbox_default_chat_and_ltm_use_azure_without_vertex(monkeypatch
     monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
     monkeypatch.setenv("HUSSH_POD_MODE", "false")
     monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.setenv("HUSHH_SANDBOX_AZURE_CLIENT_ID", "afd2feb2-fd0f-422c-bdfe-0b7c7e14b5ed")
     adapter, client, client_factory, supplier = model(
         [response(message(json.dumps({"markdown": "# Memory\n- Prefers coffee.\n"})))]
     )

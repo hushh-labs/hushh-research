@@ -95,7 +95,9 @@ preserves the prior checkpoint and performs no memory commit.
 
 Personal Cloud Run services named `backend-dev-<handle>` may explicitly select
 `HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` while retaining
-`ENVIRONMENT=development`. This reuses the configured Azure account, the
+`ENVIRONMENT=development`. The paired `HUSHH_SANDBOX_AZURE_CLIENT_ID` selects the
+dedicated sandbox Entra runtime identity and participates in binding freshness.
+This uses the configured Azure resource, the
 `one_text_root` deployment for chat, and the existing primary text deployment for
 LTM rewrites and ordinary text genes. Readiness probes and the model preference
 response report Azure. It does not activate UAT's automatic information-processing
