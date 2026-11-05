@@ -6,6 +6,7 @@ import { usePathname, useSearchParams, useRouter } from "./connect-page-boundari
 import { navigateTopShellBack } from "../../lib/navigation/top-shell-back";
 import { PersonProfilePreview } from "../../components/connections/person-profile-preview";
 import { useWebHistoryBack } from "../../lib/navigation/web-history-back";
+import { useRouteTransition } from "../../lib/morphy-ux/hooks/use-route-transition";
 import {
   resolveSignedInShellContentOffset,
   resolveTopShellGeometryStyle,
@@ -17,6 +18,11 @@ import {
  * owns the bottom clearance, a spacer under the top bar, and the page itself.
  * The network behind it answers on timers (connect-page-boundaries.tsx).
  */
+function RouteTransitionOwner() {
+  useRouteTransition();
+  return null;
+}
+
 function Shell() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -37,6 +43,9 @@ function Shell() {
         } as React.CSSProperties
       }
     >
+      {/* Delayed routing needs the production shell's intent settlement too,
+          or an old tap stays optimistic after a later swipe commits. */}
+      {document.documentElement.dataset.navigationMs ? <RouteTransitionOwner /> : null}
       <div
         data-app-scroll-root="true"
         style={{
