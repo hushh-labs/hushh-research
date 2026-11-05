@@ -10,10 +10,34 @@ steps:
         cp -R contracts consent-protocol/contracts
         docker buildx create --use --driver docker-container
         docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+          --metadata-file /workspace/personal-backend-image-metadata.json \
           --label "org.opencontainers.image.revision=${_SOURCE_SHA}" \
           --cache-from "type=registry,ref=${_IMAGE}:buildcache" \
           --cache-to "type=registry,ref=${_IMAGE}:buildcache,mode=max" \
           --tag "${_IMAGE}:${_ATTEMPT}" --push consent-protocol
+  - name: python:3.13-slim
+    entrypoint: python3
+    args:
+      - -I
+      - -c
+      - |
+        import json, os, pathlib, re, sys
+        if sys.argv[1] == "ankit":
+            sys.exit(0)
+        path = pathlib.Path("/workspace/personal-backend-image-metadata.json")
+        if path.stat().st_size > 1048576:
+            raise ValueError("personal image metadata oversized")
+        digest = json.loads(path.read_bytes()).get("containerimage.digest", "")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise ValueError("personal image digest missing")
+        destination = pathlib.Path(os.environ["BUILDER_OUTPUT"])
+        if not destination.is_absolute():
+            raise ValueError("native build output unavailable")
+        (destination / "output").write_text(json.dumps({"image": sys.argv[2], "digest": digest}))
+      - "${_SANDBOX}"
+      - "${_IMAGE}:${_ATTEMPT}"
+substitutions:
+  _SANDBOX: ankit
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: E2_HIGHCPU_8
