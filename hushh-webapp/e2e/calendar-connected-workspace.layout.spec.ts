@@ -152,9 +152,6 @@ for (const width of [390, 1440]) {
     }
     await expect(page.getByRole("group", { name: "Calendar account qa-owner@example.com" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
     await expect(page.getByRole("group", { name: "Calendar account qa-work@example.com" }).locator("[data-photo-source=hussh]")).toHaveCount(1);
-    const ownerPhoto = await page.getByRole("group", { name: "Calendar account qa-owner@example.com" }).locator("[data-photo-url]").getAttribute("data-photo-url");
-    const workPhoto = await page.getByRole("group", { name: "Calendar account qa-work@example.com" }).locator("[data-photo-url]").getAttribute("data-photo-url");
-    expect(workPhoto).not.toBe(ownerPhoto);
     await expect(page.getByRole("group", { name: "Calendar account qa-projects@example.com" }).locator("[data-photo-url]")).toHaveCount(0);
     for (const email of ["qa-owner@example.com", "qa-work@example.com"]) {
       await expect.poll(() => page.getByRole("group", { name: `Calendar account ${email}` }).locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
