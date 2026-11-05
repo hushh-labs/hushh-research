@@ -133,9 +133,8 @@ class UiGateTests(unittest.TestCase):
 
     def test_review_base_uses_bound_merge_parent_and_rejects_wrong_head(self):
         with tempfile.TemporaryDirectory() as directory:
-            git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
             def git(*args):
-                return subprocess.check_output(["git", *args], cwd=directory, env=git_env, text=True, stderr=subprocess.DEVNULL).strip()
+                return subprocess.check_output(["git", *args], cwd=directory, text=True, stderr=subprocess.DEVNULL).strip()
             git("init", "-b", "main")
             git("config", "user.name", "Synthetic UI CI")
             git("config", "user.email", "ui-ci@example.invalid")
@@ -150,7 +149,7 @@ class UiGateTests(unittest.TestCase):
             git("merge", "--no-ff", "-m", "tested PR merge", "pr")
             merge = git("rev-parse", "HEAD")
             event = Path(directory) / "event.json"
-            env = git_env.copy()
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
             env.update(GITHUB_EVENT_NAME="pull_request", GITHUB_EVENT_PATH=str(event), GITHUB_SHA=merge)
             def run(payload):
                 event.write_text(json.dumps(payload))
