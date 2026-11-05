@@ -1288,22 +1288,19 @@ Verbatim English literals, errors, accessible names and compact dynamic template
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Share invite link | [L6541](../../components/one-location/redesign/location-redesign-hub.tsx#L6541) |
-| Invite link created | [L6542](../../components/one-location/redesign/location-redesign-hub.tsx#L6542) |
-| They approve first. | [L6543](../../components/one-location/redesign/location-redesign-hub.tsx#L6543) |
-| Circle invite | [L6552](../../components/one-location/redesign/location-redesign-hub.tsx#L6552) |
-| Invite expires soon | [L6557](../../components/one-location/redesign/location-redesign-hub.tsx#L6557) |
-| Pending | [L6561](../../components/one-location/redesign/location-redesign-hub.tsx#L6561) |
-| Share invite | [L6572](../../components/one-location/redesign/location-redesign-hub.tsx#L6572) |
-| Revoke invite | [L6590](../../components/one-location/redesign/location-redesign-hub.tsx#L6590) |
-| Invite to One / Circle | [L6600](../../components/one-location/redesign/location-redesign-hub.tsx#L6600) |
-| Invite before sharing | [L6601](../../components/one-location/redesign/location-redesign-hub.tsx#L6601) |
-| Invite | [L6604](../../components/one-location/redesign/location-redesign-hub.tsx#L6604) |
-| They sign in, verify phone, and approve. | [L6605](../../components/one-location/redesign/location-redesign-hub.tsx#L6605) |
-| Expires after | [L6609](../../components/one-location/redesign/location-redesign-hub.tsx#L6609) |
-| How long the link stays usable. | [L6610](../../components/one-location/redesign/location-redesign-hub.tsx#L6610) |
-| 24 hours | [L6627](../../components/one-location/redesign/location-redesign-hub.tsx#L6627) |
-| Create invite | [L6639](../../components/one-location/redesign/location-redesign-hub.tsx#L6639) |
+| Share invite link | [L6560](../../components/one-location/redesign/location-redesign-hub.tsx#L6560) |
+| Invite link created | [L6561](../../components/one-location/redesign/location-redesign-hub.tsx#L6561) |
+| They approve first. | [L6562](../../components/one-location/redesign/location-redesign-hub.tsx#L6562) |
+| Circle invite | [L6571](../../components/one-location/redesign/location-redesign-hub.tsx#L6571) |
+| Invite expires soon | [L6576](../../components/one-location/redesign/location-redesign-hub.tsx#L6576) |
+| Pending | [L6580](../../components/one-location/redesign/location-redesign-hub.tsx#L6580) |
+| Share invite | [L6595](../../components/one-location/redesign/location-redesign-hub.tsx#L6595) |
+| Revoke invite | [L6618](../../components/one-location/redesign/location-redesign-hub.tsx#L6618) |
+| Invite to Circle (screen-reader heading) | [L6627](../../components/one-location/redesign/location-redesign-hub.tsx#L6627) |
+| They sign in, verify phone, and approve. | [L6630](../../components/one-location/redesign/location-redesign-hub.tsx#L6630) |
+| Expires after | [L6635](../../components/one-location/redesign/location-redesign-hub.tsx#L6635) |
+| 24 hours | [L6652](../../components/one-location/redesign/location-redesign-hub.tsx#L6652) |
+| Create invite | [L6664](../../components/one-location/redesign/location-redesign-hub.tsx#L6664) |
 
 #### components/one-location/redesign/check-in-flow.tsx
 
