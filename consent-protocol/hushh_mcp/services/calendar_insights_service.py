@@ -113,8 +113,9 @@ class CalendarInsightsService:
     async def overview(self, *, user_id, date, time_zone):
         first = datetime.fromisoformat(date).date()
         first -= timedelta(days=first.weekday())
-        start, _ = day_window(first.isoformat(), time_zone)
-        _, end = day_window((first + timedelta(days=6)).isoformat(), time_zone)
+        # Aggregation uses whole civil dates, not strict editable meeting times.
+        start, _ = local_day_window(first.isoformat(), time_zone)
+        _, end = local_day_window((first + timedelta(days=6)).isoformat(), time_zone)
         events, complete = await self.events(user_id=user_id, start=start, end=end)
         days = [
             {"date": (first + timedelta(days=i)).isoformat(), "minutes": 0, "meetings": 0}
@@ -145,7 +146,7 @@ class CalendarInsightsService:
             if begin.tzinfo is None or finish.tzinfo is None or finish <= begin:
                 continue
             for day in days:
-                left, right = day_window(day["date"], time_zone)
+                left, right = local_day_window(day["date"], time_zone)
                 minutes = max(0, (min(finish, right) - max(begin, left)).total_seconds() / 60)
                 day["minutes"] += minutes
                 if minutes:
