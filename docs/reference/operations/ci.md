@@ -758,9 +758,9 @@ backend coverage, and release qualification retains both database partitions.
 
 Manual `scope=auto` uses the dispatched commit's real merge-base against the
 repository's default branch. This development comparison does not grant UI
-review inheritance or replace a serving-base release receipt. Missing history
-or an empty comparison asks for an explicit `uat_base_sha`; scoped/release
-qualification requires that input rather than guessing from the last commit.
+review inheritance or replace a serving-base release receipt. Unavailable or unrelated history refuses selection; an explicit `uat_base_sha`
+can supply the intended comparison. UAT release qualification still requires
+its verified serving base rather than a development comparison.
 
 The affected unit selector does not own standalone Node verifiers: analytics'
 Android-scope verifier and Node failure tests remain in the targeted Node job.
