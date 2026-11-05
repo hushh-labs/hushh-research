@@ -5,8 +5,10 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_connection_service import (
     CALENDAR_LIST_READ_SCOPE,
     GoogleConnectionError,
@@ -168,25 +170,125 @@ async def _verify_board_snapshot(
         )
 
 
+def target_fields(payload: dict[str, Any]) -> dict[str, str]:
+    account_id = payload.get("account_id", "default")
+    calendar_id = payload.get("calendar_id", "primary")
+    if not isinstance(account_id, str) or not account_id.strip() or len(account_id) > 128:
+        raise GoogleConnectionError("Choose a valid Calendar account", status_code=422)
+    # Secondary calendars are readable, but their mutation authority is not yet
+    # qualified. Never reinterpret an explicit target as the primary calendar.
+    if calendar_id != "primary":
+        raise GoogleConnectionError(
+            "Changes currently require this account's primary calendar. Choose that calendar and review again.",
+            status_code=422,
+            reason_code="calendar_destination_unsupported",
+        )
+    return {"account_id": account_id, "calendar_id": calendar_id}
+
+
+def event_path(plan: dict[str, Any]) -> str:
+    target = target_fields(plan)
+    return f"/calendars/{quote(target['calendar_id'], safe='')}/events/{quote(plan['event_id'], safe='')}"
+
+
+def review_event(plan: dict[str, Any], event: dict[str, Any], *, execution: bool = False) -> None:
+    """Bind an occurrence to its provider identity, never a guessed series scope."""
+    if event.get("id") != plan["event_id"]:
+        raise GoogleConnectionError("Calendar event changed. Review it again.", status_code=409)
+    if event.get("recurrence"):
+        raise GoogleConnectionError(
+            "Choose one occurrence of this recurring meeting before reviewing a change.",
+            status_code=422,
+            reason_code="calendar_occurrence_required",
+        )
+    if event.get("attendeesOmitted"):
+        raise GoogleConnectionError(
+            "The complete guest list is required before review.", status_code=409
+        )
+    if not event.get("etag"):
+        raise GoogleConnectionError(
+            "Calendar event review is incomplete. Try again.", status_code=409
+        )
+    boundaries = ["start", "end"]
+    if event.get("recurringEventId"):
+        boundaries.append("originalStartTime")
+    for key in boundaries:
+        boundary = event.get(key)
+        if not isinstance(boundary, dict):
+            raise GoogleConnectionError(
+                "Calendar event review is incomplete. Try again.", status_code=409
+            )
+        try:
+            if boundary.get("dateTime"):
+                value = datetime.fromisoformat(boundary["dateTime"].replace("Z", "+00:00"))
+                if value.tzinfo is None:
+                    raise ValueError("unqualified_time")
+            else:
+                date.fromisoformat(boundary["date"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise GoogleConnectionError(
+                "Calendar event review is incomplete. Try again.", status_code=409
+            ) from exc
+    identity = {
+        "recurring_event_id": event.get("recurringEventId"),
+        "original_start_time": event.get("originalStartTime"),
+    }
+    if execution and any(plan.get(key) != value for key, value in identity.items()):
+        raise GoogleConnectionError(
+            "Calendar occurrence changed. Review it again.", status_code=409
+        )
+    plan.update(identity)
+
+
 def validate_plan(
     calendar: GoogleCalendarService, *, action: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    target = target_fields(payload)
+    if target["account_id"] != getattr(calendar.connections, "account_id", "default"):
+        raise GoogleConnectionError(
+            "Calendar account review changed",
+            status_code=409,
+            reason_code="calendar_connection_changed",
+        )
+    for field in ("event_id", "title", "description", "location"):
+        if field in payload and payload[field] is not None and not isinstance(payload[field], str):
+            raise GoogleConnectionError(
+                "Calendar text fields must be strings; use an empty string only to clear a field.",
+                status_code=422,
+            )
+    raw_attendees = payload.get("attendees")
+    if raw_attendees is not None and (
+        not isinstance(raw_attendees, list)
+        or any(not isinstance(item, str) for item in raw_attendees)
+    ):
+        raise GoogleConnectionError(
+            "Calendar attendees must be a list of email addresses.", status_code=422
+        )
+    if "send_updates" in payload and not isinstance(payload["send_updates"], bool):
+        raise GoogleConnectionError(
+            "Choose whether Calendar guests should be notified.", status_code=422
+        )
     event_id = str(payload.get("event_id") or "").strip()
     title = str(payload.get("title") or "").strip()
     if action in {"reschedule", "cancel"} and not event_id:
         raise GoogleConnectionError("Calendar event id is required", status_code=422)
     if action == "cancel":
-        return {"event_id": event_id, "send_updates": bool(payload.get("send_updates", True))}
+        return {
+            **target,
+            "event_id": event_id,
+            "send_updates": bool(payload.get("send_updates", True)),
+        }
     if (action == "create" and not title) or len(title) > 512:
         raise GoogleConnectionError("Calendar event title is required", status_code=422)
-    start = calendar._iso(str(payload.get("start_at") or ""))
-    end = calendar._iso(str(payload.get("end_at") or ""))
-    if start >= end:
-        raise GoogleConnectionError("Calendar end must be after start", status_code=422)
+    start, end = calendar._read_window(
+        str(payload.get("start_at") or ""), str(payload.get("end_at") or "")
+    )
     booking_source = payload.get("booking_source")
     account_id = str(payload.get("account_id") or "default")
     provided_zone = str(payload.get("time_zone") or "")
-    board_zone = "Asia/Kolkata" if provided_zone == "Asia/Calcutta" else provided_zone
+    board_zone = normalize_time_zone(
+        provided_zone, default="" if booking_source == "board" else "UTC"
+    )
     if booking_source == "board":
         validate_board_request(
             action=action,
@@ -200,7 +302,6 @@ def validate_plan(
     attendees = [
         str(item).strip().lower()
         for item in (raw_attendees if isinstance(raw_attendees, list) else [])
-        if str(item).strip()
     ]
     if len(attendees) > 100 or any("@" not in item for item in attendees):
         raise GoogleConnectionError(
@@ -209,10 +310,11 @@ def validate_plan(
     description = str(payload.get("description") or "")[:8000]
     location = str(payload.get("location") or "")[:1024]
     plan: dict[str, Any] = {
+        **target,
         "event_id": event_id or None,
         "start_at": start,
         "end_at": end,
-        "time_zone": board_zone if booking_source == "board" else provided_zone or "UTC",
+        "time_zone": board_zone,
         "send_updates": bool(payload.get("send_updates", True)),
     }
     if action == "create":
@@ -235,8 +337,16 @@ def validate_plan(
             plan.update(board_create_fields(payload, account_id, meeting_type, meeting_link))
         return plan
     changes = {"title": title, "description": description, "location": location}
-    plan.update({key: value for key, value in changes.items() if value})
-    if attendees:
+    plan.update(
+        {
+            key: value
+            for key, value in changes.items()
+            if key in payload and payload[key] is not None
+        }
+    )
+    if "title" in plan and not plan["title"]:
+        raise GoogleConnectionError("Calendar event title is required", status_code=422)
+    if "attendees" in payload and payload["attendees"] is not None:
         plan["attendees"] = list(dict.fromkeys(attendees))
     return plan
 

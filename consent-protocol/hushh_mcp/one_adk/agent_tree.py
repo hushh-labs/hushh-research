@@ -843,9 +843,12 @@ def _one_runtime_instruction(context: Any) -> str:
     Built once per model step; its build time goes to the turn timing line."""
     started_at = time.perf_counter()
     try:
+        from hushh_mcp.agents.calendar.read_projection import turn_clock
+
         state_getter = getattr(getattr(context, "state", None), "get", None)
         return (
             _compose_one_runtime_instruction(context)
+            + str(turn_clock(context))
             + follow_up_instruction(state_getter)
             + reaction_instruction(state_getter)
         )
