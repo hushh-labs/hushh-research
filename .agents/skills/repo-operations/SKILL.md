@@ -75,7 +75,7 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 8. For local runtime/server work, follow `branch-runtime-ops.md` for visible terminal defaults, inline override, restart, and health-probe rules.
 9. For UAT runtime failures, start with the repo RCA command before editing or redeploying.
 10. Use a pull request and the authorized Admin SOP for a reviewed, exact-head merge when appropriate. Verify the current destination, required CI and applicable approvals; admin authority never grants permission to skip validation or deploy.
-11. Inspect the actual destination and reconcile relevant stable fixes during development. Branch age alone does not block a merge; queue validation proves the combined result. Preserve shared history and run affected checks after conflict resolution. A source sync never deploys. For ordinary Dev/UAT maintainer landing, follow `references/dev-uat-admin-landing.md`; CI and protected fundamental guidance retain Kushal/Ankit authorization. See `maintainer-branch-freshness.md`.
+11. Follow `maintainer-branch-freshness.md`: inspect the actual destination and reconcile relevant stable fixes during development. Branch age alone does not block a merge; queue validation proves the combined result. Preserve shared history and run affected checks after conflict resolution. A source sync never deploys.
 12. To add/remove a maintainer, repair the repository auto-merge setting, or change deploy/merge authority, edit `config/ci-governance.json` (single source of truth) then run `python3 scripts/ci/apply-governance.py --apply` to sync GitHub; MERGE AND DEPLOY ARE SEPARATE LISTS and neither implies the other, so a refused deploy is almost never the GitHub role it claims to be ("maintainer but not admin") — read the `assert-governed-actor.py` refusal line in the workflow log, which names the surface and actor, and check `<lane>.manual_dispatch_users` before touching org settings; the GitHub teams are a DERIVED MIRROR of that file; native protected-path review uses the exact verified pipeline-editors team, so never grant access by editing a team; the JSON edit must LAND ON MAIN for runtime UAT/merge gates to see it. Full runbook in `docs/reference/operations/branch-governance.md` ("Adding or removing a maintainer"). **Dev intake** is the default for new development; preserve the legacy `integration/pr-train` and its protection. Direct UAT uses its protected exact application commit, full CI run/attempt and observed serving base without mandatory Dev deployment. Follow branch governance for first-use history qualification, immutable typed predecessor receipts and under-lock rechecks; source changes alone do not prove a successful UAT deployment. For operations/hotfixes, governed maintainers may branch from `origin/main` and open a PR directly into `main` by actor identity; required CI, queue/Admin SOP and landed smoke remain mandatory. Neither a Main merge nor Dev acceptance authorizes another environment deployment.
 13. Resolve expensive PKM and reviewer-browser verification through `scripts/ci/resolve-uat-verification-plan.py`; it is the only changed-SHA selector for PR, queue, post-merge, and UAT. Preserve non-skippable authority, migration, provenance, health, and changed-surface gates. Do not add a second path classifier or run the PKM upgrade rehearsal for ordinary UI, consent, or MCP changes.
 14. When production GitHub WIF configuration is absent or drifted, use `deploy/iam/setup_production_github_wif.sh`; do not create a parallel provider, reuse UAT authority, or restore a JSON service-account key. Detect the drift with `python3 scripts/ci/verify-deploy-identity-provenance.py`, which compares that script's own literals — attribute mapping, attribute condition, deploy-account project roles — against live GCP. Its `--record-only` half needs no cloud and runs in `repo-governance-check.sh`; a refused live read reports `deploy_identity_unverifiable` and never a pass. Never restate the condition anywhere else: the setup script is the record, and a second copy is a second thing to drift.
@@ -135,38 +135,11 @@ source extraction alone does not activate branch routing. No merge implies deplo
 
 ## Required Checks
 
-Choose checks from the changed contract and validation purpose; an ordinary
-push does not require the full local core mirror. CI uses three levels:
-
-- `focused` keeps authority, security and protected-pipeline gates blocking,
-  then selects regression owners affected by the exact changed-file list.
-- `release` adds core release-authority checks and affected owners.
-- `diagnostic` runs the historical full governance set, including optional
-  skill, documentation, architecture-size and agent-hygiene checks.
-
-Missing, unbounded or unrecognized changed-file input must select conservative
-coverage or fail; it must not silently select an empty set. Run the nearest
-owner checks locally. Use the full core mirror for a dependency graph that
-crosses its stages or when diagnosing a broader failure. `codex pre-pr --base-ref origin/<destination> --body-file <draft>` or
-`codex pre-pr --pr <number>` runs affected local owners and checks the actual
-PR impact description. Browser execution remains hosted and is not certified
-by local preflight. Use `codex pre-pr --diagnostic` for the retained full mirror;
-do not run both modes for the same unchanged candidate. Safari-specific web layout and
-performance checks are developer-local diagnostics. Run native checks when
-native code or a native contract changes. No validation profile relaxes live
-security, source-authority or protected-pipeline checks.
-
-Batch fixes before pushing: a newer PR push cancels the active validation and
-starts another hosted run. Use `./bin/hushh codex ci-rerun` for an eligible
-same-head retry with the exact run, attempt and SHA. Do not launch a standalone
-security worker; release alert clearance belongs to the protected Deployment
-Security job in the explicit release workflow.
-
-For local focused selection, provide `CI_CHANGED_FILES` or
-`CI_CHANGED_FILES_FILE` and set `CI_VALIDATION_LEVEL` to `focused` or `release`.
-Use `diagnostic` to run the retained full governance set. When a local core run
-uses `CI_IMPACT_BASE_SHA`, it must be the verified PR merge base; an unknown
-base stays conservative.
+Use focused or release governance with the exact changed files. The diagnostic
+profile runs the historical full set. Missing inputs stay conservative. Run the
+core mirror for cross-stage changes and `codex pre-pr` for PR impact and affected
+owners. Hosted CI owns browser proof. Use a governed same-attempt retry after a
+diagnosed failure, and keep live authority and security gates blocking.
 
 ```bash
 ./bin/hushh codex ci-status

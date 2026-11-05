@@ -6,14 +6,15 @@ They do not need Kushal or Ankit to review
 an ordinary product change. GitHub's `allowed-maintainers-to-approve` team is the
 maintainer mirror; the target's canonical policy and live branch exceptions must
 both authorize the operator. Team membership does not grant Main or production
-permission. Ordinary reviews are requested from the maintainer team, not from
-Kushal/Ankit personally.
+permission. If an ordinary review is requested, use the maintainer team rather than
+requesting Kushal/Ankit personally.
 
 Use this bounded preflight before requesting the queue:
 
-1. Confirm the actual destination is `dev` or `uat`, the authenticated operator is
-   in its governed maintainer cohort, and live review/queue exceptions permit
-   the requested route. Check the PR's complete diff, not its title.
+1. Confirm the actual destination is `dev` or `uat`. Check `gh api user`:
+   the authenticated operator must be the PR author and belong to the destination
+   maintainer cohort to use ordinary self-approval. Inspect the complete diff
+   and live rules before requesting the queue.
 2. Capture the exact head and current destination. Required checks on the current
    head must be terminal and successful; resolve conversations and review
    objections. Verify the combined result against the current destination. If
@@ -38,8 +39,26 @@ protected Main revision, rechecks them before clearance and requires an owner
 approval for protected changes. A direct `--admin` command is a separate bypass;
 do not use it as a substitute for combined-result evidence.
 
-`./bin/hushh codex admin-merge` is the **Main owner-only** command; do not
-send Dev/UAT maintainers through it or interpret its refusal as requiring a
-personal review. If canonical and live branch exceptions differ, record that
-specific drift and reconcile it through a reviewed operations change; never
-blindly apply a policy rewrite or weaken CI to make the command work.
+`./bin/hushh codex admin-merge` is the **named-owner-only** command for
+Main, Dev and UAT. It is reserved for Kushal or Ankit's own explicitly approved
+PR and verifies the current destination, exact head and successful CI evidence.
+Other Dev/UAT maintainers use the queue above; a refusal from the owner command
+does not mean their ordinary PR needs a personal review. Main has its own
+merger cohort and code-owner review requirements, described in the
+[branch governance runbook](../../../../docs/reference/operations/branch-governance.md).
+
+An owner direct merge advances the destination and can invalidate in-flight
+queue checks. Prefer the queue for ordinary work and inspect active queue work
+before using the direct exception; do not force a stale queue run green.
+
+If canonical and live branch exceptions differ, record that specific drift and
+reconcile it through a reviewed operations change. Keep required CI and protected
+review intact.
+
+## Stacked pull requests
+
+Land the predecessor into its intended protected destination first. Then retarget
+the dependent PR to that destination, preserve its unique changes and resolve any
+actual conflicts. Retargeting requires validation against the new base. A PR into
+a feature branch does not by itself qualify a Dev, UAT or production deployment.
+The author requests each eligible queue entry under their own CLI identity.
