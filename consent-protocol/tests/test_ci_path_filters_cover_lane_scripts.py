@@ -380,7 +380,9 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
     jobs = _workflow()["jobs"]
     governance = jobs["repo-governance"]
     assert governance["needs"] == ["paths"]
-    assert governance["if"] == "always()"
+    # Run despite an independent path failure, but stop superseded work.
+    # The final required gate separately remains always-running/fail-closed.
+    assert governance["if"] == "${{ !cancelled() }}"
     steps = governance["steps"]
     setup = next(
         i
