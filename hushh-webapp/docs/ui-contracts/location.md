@@ -901,6 +901,8 @@ All ordinary Location service calls below use platform-aware `ApiService.apiFetc
 
 ### People and direct person handoffs
 
+Share and Ask remain text-only on hover. Their scoped hover ripple is disabled; press feedback, keyboard focus rings and the existing 44px touch targets remain available.
+
 People rows show name/photo, RIA verification and optional status: both ways; outgoing ordinary/SMS; incoming; pending new request; or no subtitle. Multiple grants from one counterpart read `{N} active shares`; one timed grant uses remaining time, open-ended uses “Until you stop”/“Until they stop”. Pending extensions do not replace the directory's new-request status. A row opens local PersonActionsDialog; Share and Ask quick actions start a fresh intent preselected to that person. Unready Share opens the explanation dialog rather than calling a grant endpoint. [Person row/status](../../components/one-location/redesign/location-redesign-hub.tsx#L3459).
 
 Dialog answer set: both ways→View their location/Manage my sharing; outgoing→Manage my sharing plus Ask if no pending ask; incoming→View their location plus Share if ready; pending→Cancel request (withdraw) plus Share if ready; neutral-ready→Share/Ask; neutral-unready→Ask/Manage connection. At most three rows render. View/Manage open full respective lists; these do not themselves read/decrypt a chosen person's grant. Manage connection routes Connect. Cancel request mutates immediately; successful refreshed state removes the pending dialog action. Default X (“Close”), Escape/outside and native top-overlay dismissal clear selected person only, with no network call. No extra Yes/No confirmation is authored. [Dialog](../../components/one-location/redesign/location-redesign-hub.tsx#L3966), [callbacks](../../components/one-location/redesign/location-redesign-hub.tsx#L4440).
@@ -1288,22 +1290,19 @@ Verbatim English literals, errors, accessible names and compact dynamic template
 
 | Exact text/template | Source line(s) |
 |---|---|
-| Share invite link | [L6541](../../components/one-location/redesign/location-redesign-hub.tsx#L6541) |
-| Invite link created | [L6542](../../components/one-location/redesign/location-redesign-hub.tsx#L6542) |
-| They approve first. | [L6543](../../components/one-location/redesign/location-redesign-hub.tsx#L6543) |
-| Circle invite | [L6552](../../components/one-location/redesign/location-redesign-hub.tsx#L6552) |
-| Invite expires soon | [L6557](../../components/one-location/redesign/location-redesign-hub.tsx#L6557) |
-| Pending | [L6561](../../components/one-location/redesign/location-redesign-hub.tsx#L6561) |
-| Share invite | [L6572](../../components/one-location/redesign/location-redesign-hub.tsx#L6572) |
-| Revoke invite | [L6590](../../components/one-location/redesign/location-redesign-hub.tsx#L6590) |
-| Invite to One / Circle | [L6600](../../components/one-location/redesign/location-redesign-hub.tsx#L6600) |
-| Invite before sharing | [L6601](../../components/one-location/redesign/location-redesign-hub.tsx#L6601) |
-| Invite | [L6604](../../components/one-location/redesign/location-redesign-hub.tsx#L6604) |
-| They sign in, verify phone, and approve. | [L6605](../../components/one-location/redesign/location-redesign-hub.tsx#L6605) |
-| Expires after | [L6609](../../components/one-location/redesign/location-redesign-hub.tsx#L6609) |
-| How long the link stays usable. | [L6610](../../components/one-location/redesign/location-redesign-hub.tsx#L6610) |
-| 24 hours | [L6627](../../components/one-location/redesign/location-redesign-hub.tsx#L6627) |
-| Create invite | [L6639](../../components/one-location/redesign/location-redesign-hub.tsx#L6639) |
+| Share invite link | [L6562](../../components/one-location/redesign/location-redesign-hub.tsx#L6562) |
+| Invite link created | [L6563](../../components/one-location/redesign/location-redesign-hub.tsx#L6563) |
+| They approve first. | [L6564](../../components/one-location/redesign/location-redesign-hub.tsx#L6564) |
+| Circle invite | [L6573](../../components/one-location/redesign/location-redesign-hub.tsx#L6573) |
+| Invite expires soon | [L6578](../../components/one-location/redesign/location-redesign-hub.tsx#L6578) |
+| Pending | [L6582](../../components/one-location/redesign/location-redesign-hub.tsx#L6582) |
+| Share invite | [L6597](../../components/one-location/redesign/location-redesign-hub.tsx#L6597) |
+| Revoke invite | [L6620](../../components/one-location/redesign/location-redesign-hub.tsx#L6620) |
+| Invite to Circle (screen-reader heading) | [L6629](../../components/one-location/redesign/location-redesign-hub.tsx#L6629) |
+| They sign in, verify phone, and approve. | [L6632](../../components/one-location/redesign/location-redesign-hub.tsx#L6632) |
+| Expires after | [L6637](../../components/one-location/redesign/location-redesign-hub.tsx#L6637) |
+| 24 hours | [L6654](../../components/one-location/redesign/location-redesign-hub.tsx#L6654) |
+| Create invite | [L6666](../../components/one-location/redesign/location-redesign-hub.tsx#L6666) |
 
 #### components/one-location/redesign/check-in-flow.tsx
 
