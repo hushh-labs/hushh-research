@@ -21,12 +21,21 @@ const after = <T,>(ms: number, value: T) =>
 let currentQuery = dataset().initialQuery ?? "";
 let currentPath = "/one/connect";
 const routeListeners = new Set<() => void>();
+let navigationRequest = 0;
 const navigate = (href: string) => {
   document.body.dataset.lastNavigation = href;
   const destination = new URL(href, "http://localhost");
-  currentPath = destination.pathname;
-  currentQuery = destination.search;
-  routeListeners.forEach((listener) => listener());
+  const request = ++navigationRequest;
+  document.body.dataset.navigationCount = String(request);
+  const apply = () => {
+    if (request !== navigationRequest) return;
+    currentPath = destination.pathname;
+    currentQuery = destination.search;
+    routeListeners.forEach((listener) => listener());
+  };
+  const wait = delay("navigationMs", 0);
+  if (wait > 0) window.setTimeout(apply, wait);
+  else apply();
 };
 const router = { replace: navigate, push: navigate, prefetch: noop, back: noop, refresh: noop };
 export const useRouter = () => router;
