@@ -46,7 +46,8 @@ BROWSER_CORE = runpy.run_path(str(ROOT / "scripts/ci/web-browser-core.py"))
 
 def test_presentation_filter_preserves_interaction_and_lifecycle_cases() -> None:
     presentation = re.compile(BROWSER_CORE["PRESENTATION"])
-    for name in ("explicit Feed typography survives outside the page shell",
+    for name in ("@presentation Calendar account portraits and fallback initials",
+                 "explicit Feed typography survives outside the page shell",
                  "Reset icon colors only its arrowhead and keeps native geometry in the account pane",
                  "shows four distinct activity portraits while animations load at 390px",
                  "retains painted artwork through delayed loads and interrupted transitions",
