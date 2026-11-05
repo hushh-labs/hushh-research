@@ -133,8 +133,9 @@ class UiGateTests(unittest.TestCase):
 
     def test_review_base_uses_bound_merge_parent_and_rejects_wrong_head(self):
         with tempfile.TemporaryDirectory() as directory:
+            git_env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
             def git(*args):
-                return subprocess.check_output(["git", *args], cwd=directory, text=True, stderr=subprocess.DEVNULL).strip()
+                return subprocess.check_output(["git", *args], cwd=directory, env=git_env, text=True, stderr=subprocess.DEVNULL).strip()
             git("init", "-b", "main")
             git("config", "user.name", "Synthetic UI CI")
             git("config", "user.email", "ui-ci@example.invalid")
@@ -149,7 +150,7 @@ class UiGateTests(unittest.TestCase):
             git("merge", "--no-ff", "-m", "tested PR merge", "pr")
             merge = git("rev-parse", "HEAD")
             event = Path(directory) / "event.json"
-            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env = git_env.copy()
             env.update(GITHUB_EVENT_NAME="pull_request", GITHUB_EVENT_PATH=str(event), GITHUB_SHA=merge)
             def run(payload):
                 event.write_text(json.dumps(payload))
@@ -178,6 +179,11 @@ class UiGateTests(unittest.TestCase):
             uat["inputs"]["uat_base_sha"] = old
             env["GITHUB_SHA"] = merge
             self.assertNotEqual(run(uat).returncode, 0)
+            env["GITHUB_REF"] = "refs/heads/main"
+            isolated = {"inputs": {"scope": "all", "uat_base_sha": old, "uat_candidate_sha": head}}
+            self.assertEqual(run(isolated).stdout.strip(), old)
+            isolated["inputs"]["uat_candidate_sha"] = merge
+            self.assertNotEqual(run(isolated).returncode, 0)
 
     def test_web_core_uses_the_same_verified_review_base(self):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()

@@ -112,6 +112,27 @@ def _assert_no_unowned_protection(current: dict, desired: dict | None = None) ->
             raise SystemExit(f"Existing {key} requires explicit reconciliation")
 
 
+def _same_actors(actual, expected):
+    """GitHub may reorder actors; retain duplicates and compare every field."""
+    if not isinstance(actual, list) or not isinstance(expected, list):
+        return False
+    return sorted(json.dumps(actor, sort_keys=True) for actor in actual) == sorted(
+        json.dumps(actor, sort_keys=True) for actor in expected
+    )
+
+
+def _same_queue(actual, expected, *, snapshot=False):
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    if not _same_actors(actual.get("bypass_actors"), expected.get("bypass_actors")):
+        return False
+    if snapshot:
+        return {k: v for k, v in actual.items() if k != "bypass_actors"} == {
+            k: v for k, v in expected.items() if k != "bypass_actors"
+        }
+    return all(actual.get(k) == v for k, v in expected.items() if k != "bypass_actors")
+
+
 STAGE_B_AUTHORITY_PATHS = (
     ".github/workflows/ci.yml", ".github/workflows/queue-validation.yml",
     "scripts/ci/queue_combined_result.py", "scripts/ci/verify-protected-pipeline-edits.py",
@@ -195,11 +216,12 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
                 raise SystemExit(f"Refusing to retarget existing ruleset {name}")
             if any(r["type"] != "merge_queue" for r in current_queue["rules"]):
                 raise SystemExit(f"Refusing to replace unrelated rules in {name}")
-            if native and current_queue.get("bypass_actors", []) not in ([], actors):
+            if native and not (_same_actors(current_queue.get("bypass_actors", []), [])
+                               or _same_actors(current_queue.get("bypass_actors", []), actors)):
                 legacy_slug = policy[config["policy_key"]].get("review_bypass_team_slug")
                 legacy_team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{legacy_slug}"]) if legacy_slug else {}
                 legacy_bypass = [{"actor_id": legacy_team.get("id"), "actor_type": "Team", "bypass_mode": "pull_request"}]
-                if not legacy_team.get("id") or current_queue.get("bypass_actors") != legacy_bypass:
+                if not legacy_team.get("id") or not _same_actors(current_queue.get("bypass_actors"), legacy_bypass):
                     raise SystemExit("Unexpected queue bypass actors require explicit reconciliation")
         endpoint = f"repos/{repo}/branches/{quote(branch, safe='')}/protection"
         code, output, error = raw(["api", endpoint], check=False)
@@ -220,7 +242,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         plans.append((branch, endpoint, desired, current, desired_queue, current_queue, matches, native, authority))
     for branch, endpoint, desired, current, queue, previous, matches, native, authority in plans:
         protection_changed = not _same_protection(current, desired)
-        queue_changed = previous is None or any(previous.get(k) != v for k, v in queue.items())
+        queue_changed = previous is None or not _same_queue(previous, queue)
         print(f"  {branch}: protection_change={protection_changed}, queue_change={queue_changed}")
         if not apply:
             continue
@@ -231,7 +253,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
             governance.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read, repo=repo)
             # Do not overwrite a peer's intervening branch or queue changes.
             if read(["api", endpoint]) != current or (previous is not None and
-                    read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"]) != previous):
+                    not _same_queue(read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"]), previous, snapshot=True)):
                 raise SystemExit("Prepared branch changed during planning; inspect and retry")
         # Remove bypass before relaxing branch-age checks; partial failure must
         # retain the stricter boundary, not permit an unchecked direct merge.
@@ -240,7 +262,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
             _write(f"repos/{repo}/rulesets{suffix}", queue, "PUT" if matches else "POST")
         if native:
             installed_queue = read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"])
-            if any(installed_queue.get(k) != v for k, v in queue.items()):
+            if not _same_queue(installed_queue, queue):
                 raise SystemExit("Owner-only queue readback failed; classic reviews retained")
             governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
             governance.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read, repo=repo)
