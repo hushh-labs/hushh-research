@@ -2149,6 +2149,19 @@ jobs:
           fi
           echo "All required CI jobs passed or were intentionally skipped."
 
+      - name: Verify Akshat sandbox CI inputs
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/New_memory_architecutre'
+        shell: bash
+        env:
+          CUSTOM_BASE: ${{ inputs.uat_base_sha }}
+          CUSTOM_SOURCE: ${{ inputs.uat_candidate_sha }}
+          CUSTOM_TREE: ${{ inputs.uat_candidate_tree }}
+        run: |
+          if [[ -n "${CUSTOM_BASE}${CUSTOM_SOURCE}${CUSTOM_TREE}" ]]; then
+            echo "::error::Validate the exact sandbox branch without UAT source overrides."
+            exit 1
+          fi
+
       # A manual branch verdict has its own name and cannot satisfy PR branch
       # protection. The same full selected lanes remain required for dev.
       - name: Refuse diagnostic-only dispatch scopes

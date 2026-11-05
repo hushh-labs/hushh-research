@@ -16,12 +16,12 @@ on:
         required: true
         type: string
       source:
-        description: Sandbox source object path with its GCS generation (personal-backend/NAME#GENERATION)
-        required: true
+        description: Legacy pinned source object with its GCS generation
+        required: false
         type: string
       source_sha256:
-        description: SHA-256 of the archive created from that commit
-        required: true
+        description: SHA-256 of the legacy pinned source archive
+        required: false
         type: string
       reuse_build_id:
         description: Successful Ankit sandbox Cloud Build ID for the same source (optional)
@@ -48,6 +48,7 @@ jobs:
     environment: uat
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
@@ -58,9 +59,18 @@ jobs:
           SANDBOX: ${{ inputs.sandbox }}
           SOURCE_SHA: ${{ inputs.sha }}
           REUSE_BUILD_ID: ${{ inputs.reuse_build_id }}
+          SOURCE_OBJECT: ${{ inputs.source }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
-          bash deploy/deploy-personal-sandbox.sh --authorize
+          mode="$(bash deploy/deploy-personal-sandbox.sh --authorize)"
+          if [[ "$mode" == qualified ]]; then
+            python3 scripts/ci/qualify-akshat-sandbox-deploy-source.py "$SOURCE_SHA"
+            git -c tar.umask=0000 archive --format=tar "$SOURCE_SHA" consent-protocol contracts |
+              gzip -n > "$RUNNER_TEMP/hushh-sandbox-qualified-source.tar.gz"
+          fi
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
