@@ -113,6 +113,7 @@ async def assess_scope(context: Any, messages: tuple[str, ...]) -> CalendarReque
 async def request_scope(context: Any) -> tuple[Action, ...]:
     from hushh_mcp.agents.calendar.guest_clarification import (
         STATE_GUEST_CLARIFICATION,
+        STATE_GUEST_RECOVERY,
         admitted_pending,
     )
 
@@ -166,6 +167,8 @@ async def request_scope(context: Any) -> tuple[Action, ...]:
         return ()
     if not scope.continuation:
         context.state[STATE_GUEST_CLARIFICATION] = None
+    if scope.allowed_actions:
+        context.state[STATE_GUEST_RECOVERY] = None
     context.state[STATE_REQUEST_SCOPE] = store_request_secret(
         json.dumps(
             {
@@ -197,11 +200,17 @@ def proof_current(context: Any, proof: dict[str, Any]) -> bool:
 async def require_action(context: Any, action: Action) -> dict[str, Any] | None:
     if action in await request_scope(context):
         return None
-    return scope_refusal(action)
+    return scope_refusal(action, context)
 
 
-def scope_refusal(action: Action) -> dict[str, Any]:
+def scope_refusal(action: Action, context: Any = None) -> dict[str, Any]:
     logger.info("calendar.proposal_refused reason=request_scope action=%s", action)
+    if context is not None:
+        from hushh_mcp.agents.calendar.guest_clarification import guest_recovery
+
+        recovery = guest_recovery(context)
+        if recovery is not None:
+            return recovery
     return {
         "status": "blocked",
         "reason_code": "calendar_request_read_only",

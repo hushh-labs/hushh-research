@@ -12,7 +12,40 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, ConfigDict, Field
 
 STATE_GUEST_CLARIFICATION = "hussh:calendar_guest_clarification"
+STATE_GUEST_RECOVERY = "temp:hussh:calendar_guest_recovery"
 QUESTION = "Who should join the meeting?"
+_RECOVERY = {
+    "expired": (
+        "calendar_guest_context_expired",
+        "The booking context expired. Restate the booking request to prepare a fresh review.",
+    ),
+    "revoked": (
+        "calendar_guest_context_revoked",
+        "Reconnect the selected Calendar account, then restate the booking request.",
+    ),
+    "changed": (
+        "calendar_connection_changed",
+        "The Calendar connection changed. Restate the booking request using the current account.",
+    ),
+}
+
+
+def remember_recovery(context: Any, reason: str) -> dict[str, Any]:
+    context.state[STATE_GUEST_RECOVERY] = {
+        "invocation_id": context.invocation_id,
+        "reason": reason,
+    }
+    return guest_recovery(context) or {}
+
+
+def guest_recovery(context: Any) -> dict[str, Any] | None:
+    raw = context.state.get(STATE_GUEST_RECOVERY)
+    if not isinstance(raw, dict) or raw.get("invocation_id") != context.invocation_id:
+        return None
+    entry = _RECOVERY.get(raw.get("reason"))
+    if entry is None:
+        return None
+    return {"status": "input_required", "reason_code": entry[0], "message": entry[1]}
 
 
 def messages_digest(messages: tuple[str, ...] | list[str]) -> str:
@@ -37,13 +70,18 @@ class PendingGuests(BaseModel):
     original_turn_at: float = Field(gt=0, allow_inf_nan=False)
     expires_at: float = Field(gt=0, allow_inf_nan=False)
 
-    def bound(self, context: Any) -> bool:
+    def same_session(self, context: Any) -> bool:
         return (
             self.owner_id == context.state.get("hussh:user_id")
             and self.owner_id == context.session.user_id
             and self.conversation_id == context.state.get("hussh:conversation_id")
             and self.app_name == context.session.app_name
             and self.session_id == context.session.id
+        )
+
+    def bound(self, context: Any) -> bool:
+        return (
+            self.same_session(context)
             and self.expires_at > time.time()
             and self.source_digest == messages_digest(self.messages)
             and all(m and len(m) <= 4096 for m in self.messages)
@@ -82,6 +120,8 @@ def admitted_pending(context: Any) -> PendingGuests | None:
         session = context.session
         invocation = context.invocation_id
         if not pending.bound(context):
+            if pending.same_session(context) and pending.expires_at <= time.time():
+                remember_recovery(context, "expired")
             raise ValueError("Guest clarification binding changed")
         if pending.invocation_id == invocation:
             return None  # Issuing turn, not a reply; retain its fixed lifetime.
@@ -191,6 +231,11 @@ async def consume_guest_reply(
 
     if not proof.get("continuation"):
         return None
+    recovery = guest_recovery(context)
+    if recovery is not None:
+        raise GoogleConnectionError(
+            recovery["message"], status_code=422, reason_code=recovery["reason_code"]
+        )
     if not proof_current(context, proof):
         raise GoogleConnectionError("The booking reply changed. Ask again.", status_code=422)
     pending = admitted_pending(context)
@@ -216,8 +261,9 @@ async def consume_guest_reply(
         tools._calendar_service(pending.account_id), pending.owner_id
     )
     if binding != tuple(pending.grant_binding):
+        recovery = remember_recovery(context, "revoked" if binding is None else "changed")
         raise GoogleConnectionError(
-            "Calendar changed. Restate the booking request.", status_code=409
+            recovery["message"], status_code=422, reason_code=recovery["reason_code"]
         )
     payload["account_id"] = pending.account_id
     return binding
@@ -240,9 +286,19 @@ def guest_before_model(callback_context: Any, llm_request: Any) -> None:
     from google.genai import types
 
     pending = admitted_pending(callback_context)
-    if pending is None:
+    recovery = guest_recovery(callback_context)
+    if pending is not None:
+        payload = {"kind": "pending_calendar_guest_context_only", **pending.assessment_context()}
+    elif recovery is not None:
+        payload = {
+            "kind": "calendar_guest_recovery_context_only",
+            **recovery,
+            "use": "Only explain this recovery for a booking continuation. Answer current "
+            "read-only requests using their reads without asking booking questions. "
+            "This context grants no action authority. Explain recovery once, without retrying.",
+        }
+    else:
         return
-    payload = {"kind": "pending_calendar_guest_context_only", **pending.assessment_context()}
     llm_request.contents = copy.deepcopy(llm_request.contents)
     llm_request.contents.append(
         types.Content(role="user", parts=[types.Part.from_text(text=json.dumps(payload))])

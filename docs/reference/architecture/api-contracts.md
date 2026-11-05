@@ -2752,6 +2752,11 @@ and separate requested/browser zones after restoration; the new turn's clock is
 unchanged. Grant binding stays pinned through review staging, and normal explicit
 confirmation still precedes execution. Stateless text turns cannot recover this
 authority from browser-carried history and require the booking to be restated.
+Expiry or grant loss yields one specific recovery explanation. The content-free,
+invocation-bound recovery hint stays private and grants no authority; retries do
+not repeat grant lookups. Complete requests go directly to review, and personal
+blocks require no guest. Only genuinely missing or ambiguous details need one
+grouped question; verified details are retained.
 
 Calendar event reads expose additive `local_start_at`/`local_end_at` fields in
 `display_time_zone`, preserving provider instants and all-day dates. Explicit

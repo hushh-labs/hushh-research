@@ -907,6 +907,9 @@ async def propose_calendar_event(
     Preserve the original booking date/time; never reinterpret an earlier relative date
     using the reply's clock. Assistant prose or slot attachments confer no authority.
     Pass time_zone when the person explicitly names an IANA timezone.
+    A personal calendar block needs no guest. Complete requests go straight to review.
+    If essential information is missing or ambiguous, ask one concise question grouping
+    only those details; retain known date, duration, account, zone and verified recipients.
 
     For a previously offered slot, supply slot_ordinal and omit start_at/end_at.
     The private offer supplies its exact account, calendar, UTC interval and zone.
@@ -1087,6 +1090,7 @@ async def _propose(
     pending_key = f"{_STATE_PENDING_DIRECTIVE}:calendar"
     if tool_context.state.get(pending_key) is not None:
         tool_context.state[pending_key] = None
+    proof: dict[str, Any] | None = None
     try:
         user_id = _user_id(tool_context)
         from hushh_mcp.agents.calendar.request_scope import (
@@ -1100,7 +1104,7 @@ async def _propose(
             return refused
         proof = scope_receipt(tool_context)
         if proof is None or action not in proof.get("actions", []):
-            return scope_refusal(action)
+            return scope_refusal(action, tool_context)
         from hushh_mcp.agents.calendar.guest_clarification import (
             STATE_GUEST_CLARIFICATION,
             consume_guest_reply,
@@ -1193,6 +1197,24 @@ async def _propose(
             "message": "Which connected Calendar account should I use?",
         }
     except GoogleConnectionError as exc:
+        if (
+            proof is not None
+            and proof.get("continuation")
+            and exc.reason_code
+            in {
+                "calendar_connection_changed",
+                "google_not_connected",
+                "calendar_not_connected",
+                "google_reauthorization_required",
+                "calendar_reauthorization_required",
+            }
+        ):
+            from hushh_mcp.agents.calendar.guest_clarification import remember_recovery
+
+            return remember_recovery(
+                tool_context,
+                "changed" if exc.reason_code == "calendar_connection_changed" else "revoked",
+            )
         if exc.status_code == 422:
             return {
                 "status": "input_required",

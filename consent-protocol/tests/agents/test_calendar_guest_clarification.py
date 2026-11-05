@@ -42,6 +42,9 @@ class GuestModel(BaseLlm):
     _scopes: list = PrivateAttr()
     _inputs: list = PrivateAttr(default_factory=list)
     _planning: list = PrivateAttr(default_factory=list)
+    _recovery: list = PrivateAttr(default_factory=list)
+    _answers: list = PrivateAttr(default_factory=list)
+    _root_calls: int = PrivateAttr(default=0)
 
     def __init__(self, steps, scopes):
         super().__init__(model="scripted")
@@ -53,13 +56,19 @@ class GuestModel(BaseLlm):
             self._inputs.append(json.loads(llm_request.contents[-1].parts[0].text))
             parts = [types.Part(text=json.dumps(self._scopes.pop(0)))]
         else:
+            self._root_calls += 1
             for content in llm_request.contents:
                 for part in content.parts or []:
                     if isinstance(part.text, str) and part.text.startswith(
                         '{"kind": "pending_calendar_guest_context_only"'
                     ):
                         self._planning.append(json.loads(part.text))
+                    if isinstance(part.text, str) and part.text.startswith(
+                        '{"kind": "calendar_guest_recovery_context_only"'
+                    ):
+                        self._recovery.append(json.loads(part.text))
             parts = self._steps.pop(0)
+            self._answers.extend(p.text for p in parts if p.text)
         yield LlmResponse(content=types.Content(role="model", parts=parts))
 
 

@@ -113,6 +113,7 @@ tests/agents/test_calendar_agent_tools.py
 tests/agents/test_calendar_request_scope.py
 tests/agents/test_calendar_contract_matrix.py
 tests/agents/test_calendar_guest_clarification.py
+tests/agents/test_calendar_conversation_compatibility.py
 tests/agents/test_calendar_slot_matrix.py
 tests/services/test_drive_live_search_parity.py
 tests/services/test_drive_live_rule_contract.py
