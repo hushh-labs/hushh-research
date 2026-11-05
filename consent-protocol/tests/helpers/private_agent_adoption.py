@@ -279,9 +279,9 @@ def install_custody_fixture(connection):
     return observed
 
 
-def canonical_database(server, monkeypatch):
-    database = "synthetic_consent_adoption"
-    server.execute("CREATE DATABASE " + database)
+def canonical_database(server, monkeypatch, *, database="synthetic_consent_adoption"):
+    if database != "postgres":
+        server.execute("CREATE DATABASE " + database)
     server.execute(
         "CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN"
     )

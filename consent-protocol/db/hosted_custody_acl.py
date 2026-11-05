@@ -31,32 +31,55 @@ _NATIVE_ACL_VALIDATORS = (
 
 
 def family_acl_profile_sql() -> str:
-    """Return the exact whole-vector canonical/native ACL profile query."""
+    """Return exact canonical/native and owner-only ACL vector checks."""
     return r"""
  SELECT
   bool_and(acl_valid) FILTER (WHERE profile_name='canonical'),
-  bool_and(acl_valid) FILTER (WHERE profile_name='native')
- INTO canonical_acl_profile,native_acl_profile
+  bool_and(acl_valid) FILTER (WHERE profile_name='native'),
+  bool_and(acl_valid) FILTER (WHERE profile_name='owner_canonical'),
+  bool_and(acl_valid) FILTER (WHERE profile_name='owner_native')
+ INTO canonical_acl_profile,native_acl_profile,
+      owner_canonical_acl_profile,owner_native_acl_profile
  FROM (
   SELECT expected.profile_name,
-   EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
-       acldefault('f',p.proowner))) a WHERE a.grantee=p.proowner
-       AND a.grantor=p.proowner AND a.privilege_type='EXECUTE' AND NOT a.is_grantable)
+   CASE WHEN expected.owner_only THEN
+    EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
+        acldefault('f',p.proowner))) a WHERE a.grantee=p.proowner
+        AND a.grantor=p.proowner AND a.privilege_type='EXECUTE' AND NOT a.is_grantable)
     AND NOT EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
-       acldefault('f',p.proowner))) a WHERE a.grantee NOT IN
-        (p.proowner,service_role_oid,0)
-       OR a.grantor<>p.proowner OR a.privilege_type<>'EXECUTE' OR a.is_grantable
+        acldefault('f',p.proowner))) a WHERE NOT (
+         (a.grantee=p.proowner AND a.grantor=p.proowner
+          AND a.privilege_type='EXECUTE' AND NOT a.is_grantable)
+         OR (expected.public_required AND a.grantee=0 AND a.grantor=p.proowner
+          AND a.privilege_type='EXECUTE' AND NOT a.is_grantable)))
+    AND (SELECT count(*) FROM aclexplode(COALESCE(p.proacl,
+        acldefault('f',p.proowner))))=1+CASE WHEN expected.public_required THEN 1 ELSE 0 END
+   ELSE
+    EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
+        acldefault('f',p.proowner))) a WHERE a.grantee=p.proowner
+        AND a.grantor=p.proowner AND a.privilege_type='EXECUTE' AND NOT a.is_grantable)
+    AND NOT EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,
+        acldefault('f',p.proowner))) a WHERE
+         (a.grantee IS DISTINCT FROM p.proowner
+          AND a.grantee IS DISTINCT FROM service_role_oid AND a.grantee<>0)
+       OR a.grantor IS DISTINCT FROM p.proowner
+       OR a.privilege_type IS DISTINCT FROM 'EXECUTE' OR a.is_grantable
        OR (a.grantee=service_role_oid AND expected.direct_service IS NOT TRUE)
        OR (a.grantee=0 AND expected.public_required IS NOT TRUE))
     AND COALESCE((SELECT bool_or(a.grantee=service_role_oid
-       AND a.privilege_type='EXECUTE')
-       FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a),false)
-       IS NOT DISTINCT FROM expected.direct_service
+        AND a.privilege_type='EXECUTE')
+        FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a),false)
+        IS NOT DISTINCT FROM expected.direct_service
     AND COALESCE((SELECT bool_or(a.grantee=0 AND a.privilege_type='EXECUTE')
-       FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a),false)
-       IS NOT DISTINCT FROM expected.public_required
+        FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a),false)
+        IS NOT DISTINCT FROM expected.public_required
     AND (f.service_required IS NOT TRUE
-       OR has_function_privilege(service_role_oid,p.oid,'EXECUTE')) AS acl_valid
+        OR has_function_privilege(service_role_oid,p.oid,'EXECUTE'))
+    AND (SELECT count(*) FROM aclexplode(COALESCE(p.proacl,
+        acldefault('f',p.proowner))))=
+        1+CASE WHEN expected.direct_service THEN 1 ELSE 0 END
+         +CASE WHEN expected.public_required THEN 1 ELSE 0 END
+   END AS acl_valid
   FROM jsonb_to_recordset(family) AS f(
    signature text,proname text,expected_hash text,base_hash text,files_hash text,
    upgrade_hash text,native_contract_hash text,direct_service boolean,service_required boolean,
@@ -64,9 +87,11 @@ def family_acl_profile_sql() -> str:
    native_direct_service boolean,native_public_required boolean)
   JOIN pg_proc p ON p.oid=to_regprocedure('public.'||f.signature)
   CROSS JOIN LATERAL (VALUES
-   ('canonical',f.direct_service,f.public_required),
-   ('native',f.native_direct_service,f.native_public_required)
-  ) AS expected(profile_name,direct_service,public_required)
+   ('canonical',f.direct_service,f.public_required,false),
+   ('native',f.native_direct_service,f.native_public_required,false),
+   ('owner_canonical',false,f.public_required,true),
+   ('owner_native',false,f.native_public_required,true)
+  ) AS expected(profile_name,direct_service,public_required,owner_only)
  ) profiles;
 """
 
