@@ -5741,8 +5741,10 @@ authenticated Matrix UAT workspace. It uses the same bounded filters, identity
 projection, seven-day attempt summaries and cursor expiry as `/audience`, with
 the distinct HMAC purpose `audience-uat` and project-bound UAT cursors. It requires
 the UAT auth lane, project `hushh-pda-uat`, enabled UAT activity admission,
-`ONE_PLG_UAT_AUDIENCE_ENABLED=true` and a separate 32+ character
-`ONE_PLG_UAT_AUDIENCE_SECRET`. Owner-read, delivery and Production keys cannot
+an explicit directory activation and a separate 32+ character directory key.
+The legacy pair is `ONE_PLG_UAT_AUDIENCE_ENABLED=true` with
+`ONE_PLG_UAT_AUDIENCE_SECRET`; the mounted UAT configuration below carries the
+same separate authority without an additional deploy binding. Owner-read, delivery and Production keys cannot
 authorize this directory. Firebase traversal and indexed identity lookups must
 use the UAT project; there is no fallback to Production.
 
@@ -5756,6 +5758,25 @@ are excluded. Missing or capped capture remains unknown. This source addition
 does not enable any runtime flag, provision secrets, or change release tooling.
 
 ### PLG release configuration
+
+The existing `ONE_PLG_UAT_EXPORT_SECRET` mount also accepts a bounded JSON
+envelope with exactly `version: 1`, `environment: "uat"`,
+`project: "hushh-pda-uat"`, `ownerReadKey`, `audienceReadKey` and the boolean
+`audienceEnabled`. Generate independent random owner and directory keys and
+store the envelope only in that UAT Secret Manager resource. Configure Matrix's
+separate UAT owner and audience secret resources with their respective key,
+never the envelope. Neither value may equal a delivery or Production key.
+
+This is application configuration through the existing mounted secret; no
+workflow, deployment binder or runtime-config writer change is needed. Existing
+UAT collection/export flags and exact lane/project checks still apply. The
+directory is off unless `audienceEnabled` is explicitly true. Activity emails
+retain their independent worker key, runtime switch and per-owner choice.
+Malformed/duplicate/foreign-lane fields, extra fields, oversized values, reused
+keys or mixed envelope and legacy audience settings close the reads. Flat owner
+keys and the legacy explicit directory pair retain their previous behavior.
+Disabling only `audienceEnabled` preserves owner reads; rotating the envelope
+requires matching the independent Matrix keys before accepting live reads.
 
 Dev/UAT own-activity rollout uses the canonical backend runtime configuration
 writer and `deploy/plg/bind_secrets.sh`. The structured flags

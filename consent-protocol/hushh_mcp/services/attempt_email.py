@@ -19,6 +19,7 @@ from db.connection import get_pool
 from hushh_mcp.services import marketing_preferences, product_activity
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
 from hushh_mcp.services.plg_catalog import activity_catalog
+from hushh_mcp.services.plg_read_secrets import secret_in_use
 
 DISCLOSURE = "one-attempt-email-v1"
 
@@ -31,9 +32,9 @@ def worker_authority():
     secret = os.getenv("ONE_PLG_ATTEMPT_EMAIL_SECRET", "")
     if not expected or os.getenv("GOOGLE_CLOUD_PROJECT") != expected or len(secret) < 32:
         raise PermissionError("Attempt email worker unavailable")
-    if secret in [
-        os.getenv(name, "")
-        for name in (
+    if secret_in_use(
+        secret,
+        (
             "ONE_PLG_EXPORT_SECRET",
             "ONE_PLG_AUDIENCE_SECRET",
             "ONE_PLG_UAT_AUDIENCE_SECRET",
@@ -41,8 +42,8 @@ def worker_authority():
             "ONE_PLG_DEV_EXPORT_SECRET",
             "ONE_PLG_SUBSCRIPTION_SECRET",
             "ONE_PLG_OWNER_EXPORT_SECRET",
-        )
-    ]:
+        ),
+    ):
         raise PermissionError("Attempt email worker unavailable")
     return lane, secret
 

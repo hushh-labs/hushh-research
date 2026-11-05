@@ -28,6 +28,7 @@ from hushh_mcp.services.actor_identity_service import ActorIdentityService, reso
 from hushh_mcp.services.plg_audience_identity import current_records
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
 from hushh_mcp.services.plg_outcomes import value_summaries
+from hushh_mcp.services.plg_read_secrets import read_secret, secret_in_use, uat_directory_enabled
 from hushh_mcp.services.plg_reporting import reporting_identifiers, reporting_policy
 from hushh_mcp.services.product_activity import enabled_for, registered_uat_enabled
 
@@ -36,16 +37,16 @@ PAGE_SIZE = 25
 
 def uat_audience_secret() -> str | None:
     """Directory identity authority is separate from owner reads and delivery."""
-    secret = os.getenv("ONE_PLG_UAT_AUDIENCE_SECRET", "")
+    secret = read_secret("ONE_PLG_UAT_AUDIENCE_SECRET")
     if (
         not registered_uat_enabled()
         or current_auth_lane() != "uat"
         or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda-uat"
-        or os.getenv("ONE_PLG_UAT_AUDIENCE_ENABLED") != "true"
+        or not uat_directory_enabled()
         or len(secret) < 32
-        or any(
-            secret == os.getenv(key)
-            for key in (
+        or secret_in_use(
+            secret,
+            (
                 "ONE_PLG_AUDIENCE_SECRET",
                 "ONE_PLG_EXPORT_SECRET",
                 "ONE_PLG_OWNER_EXPORT_SECRET",
@@ -53,7 +54,7 @@ def uat_audience_secret() -> str | None:
                 "ONE_PLG_UAT_EXPORT_SECRET",
                 "ONE_PLG_SUBSCRIPTION_SECRET",
                 "ONE_PLG_ATTEMPT_EMAIL_SECRET",
-            )
+            ),
         )
     ):
         return None

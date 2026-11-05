@@ -257,9 +257,11 @@ async def export_snapshot(request: Request):
 
 
 def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
+    from hushh_mcp.services.plg_read_secrets import read_secret, secret_in_use
+
     prefix = environment.upper()
     secret_name = f"ONE_PLG_{prefix}_EXPORT_SECRET"
-    secret = os.getenv(secret_name, "")
+    secret = read_secret(secret_name)
     allowed = {
         uid.strip()
         for uid in os.getenv(f"ONE_PLG_ACTIVITY_{prefix}_ACCOUNT_IDS", "").split(",")
@@ -273,19 +275,22 @@ def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
         or os.getenv("GOOGLE_CLOUD_PROJECT") != f"hushh-pda-{environment}"
         or current_auth_lane() != environment
         or len(secret) < 32
-        or any(
-            secret == os.getenv(key)
-            for key in (
-                "ONE_PLG_EXPORT_SECRET",
-                "ONE_PLG_OWNER_EXPORT_SECRET",
-                "ONE_PLG_UAT_EXPORT_SECRET",
-                "ONE_PLG_DEV_EXPORT_SECRET",
-                "ONE_PLG_ATTEMPT_EMAIL_SECRET",
-                "ONE_PLG_AUDIENCE_SECRET",
-                "ONE_PLG_UAT_AUDIENCE_SECRET",
-                "ONE_PLG_SUBSCRIPTION_SECRET",
-            )
-            if key != secret_name
+        or secret_in_use(
+            secret,
+            (
+                key
+                for key in (
+                    "ONE_PLG_EXPORT_SECRET",
+                    "ONE_PLG_OWNER_EXPORT_SECRET",
+                    "ONE_PLG_UAT_EXPORT_SECRET",
+                    "ONE_PLG_DEV_EXPORT_SECRET",
+                    "ONE_PLG_ATTEMPT_EMAIL_SECRET",
+                    "ONE_PLG_AUDIENCE_SECRET",
+                    "ONE_PLG_UAT_AUDIENCE_SECRET",
+                    "ONE_PLG_SUBSCRIPTION_SECRET",
+                )
+                if key != secret_name
+            ),
         )
         or (environment == "dev" and not 1 <= len(allowed) <= 100)
         or (environment == "dev" and any(len(uid) > 128 for uid in allowed))
@@ -296,6 +301,8 @@ def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
 
 
 def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
+    from hushh_mcp.services.plg_read_secrets import secret_in_use
+
     if environment == "dev" or environment == "uat":
         return _nonproduction_export_scope(environment)
     secret = os.getenv("ONE_PLG_OWNER_EXPORT_SECRET", "")
@@ -310,9 +317,9 @@ def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
         or os.getenv("ONE_PLG_ACTIVITY_ENABLED") != "true"
         or len(secret) < 32
         or not 1 <= len(allowed) <= 100
-        or any(
-            secret == os.getenv(key)
-            for key in (
+        or secret_in_use(
+            secret,
+            (
                 "ONE_PLG_EXPORT_SECRET",
                 "ONE_PLG_UAT_EXPORT_SECRET",
                 "ONE_PLG_DEV_EXPORT_SECRET",
@@ -320,7 +327,7 @@ def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
                 "ONE_PLG_UAT_AUDIENCE_SECRET",
                 "ONE_PLG_SUBSCRIPTION_SECRET",
                 "ONE_PLG_ATTEMPT_EMAIL_SECRET",
-            )
+            ),
         )
     ):
         raise HTTPException(404, "Own activity export unavailable", headers=NO_STORE)
