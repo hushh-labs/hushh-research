@@ -36,7 +36,8 @@
     "protected_pipeline_review_ruleset_name": "protected pipeline review"
   },
   "repository": {
-    "allow_auto_merge": true
+    "allow_auto_merge": true,
+    "merge_queue_check_timeout_minutes": 120
   },
   "main": {
     "required_status_check": "CI Status Gate",
