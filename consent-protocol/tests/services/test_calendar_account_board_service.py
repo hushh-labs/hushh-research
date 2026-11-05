@@ -111,8 +111,8 @@ async def test_three_account_shared_time_is_exact_intersection(monkeypatch):
     assert result["conflicts_complete"] is True
     assert result["shared_free_windows"] == [
         {
-            "start_at": "2026-10-21T11:00:00+00:00",
-            "end_at": "2026-10-21T11:30:00+00:00",
+            "start_at": "2026-10-21T11:00:00Z",
+            "end_at": "2026-10-21T11:30:00Z",
         }
     ]
     assert all(schedule.reads == 2 for schedule in schedules.values())

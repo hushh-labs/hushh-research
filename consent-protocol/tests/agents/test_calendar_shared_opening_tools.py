@@ -31,6 +31,16 @@ class AvailabilitySchedule(Schedule):
 
 
 def shared_setup(monkeypatch, count=3):
+    # This fixture isolates the existing offer/grant/dispatch boundary. Invocation
+    # scope is exercised with the real assessor in test_calendar_request_scope.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.request_scope",
+        AsyncMock(return_value=("create",)),
+    )
     owner, store, service, writes = setup(monkeypatch, count, "second")
     for item in owner.accounts:
         account_id = item["account_id"]
@@ -78,9 +88,12 @@ async def test_shared_offer_restore_show_then_confirm_exact_destination_once(mon
     result = await offer_slots(context)
     assert result["openings"][1] == {
         "ordinal": 2,
-        "start_at": "2030-10-21T13:00:00Z",
-        "end_at": "2030-10-21T13:30:00Z",
-        "available_until": "2030-10-21T15:00:00Z",
+        "start_at": "2030-10-21T04:30:00Z",
+        "end_at": "2030-10-21T05:00:00Z",
+        "available_until": "2030-10-21T12:00:00Z",
+        "local_start_at": "2030-10-21T00:30:00-04:00",
+        "local_end_at": "2030-10-21T01:00:00-04:00",
+        "local_available_until": "2030-10-21T08:00:00-04:00",
     }
     assert len(owner.reads) == 3  # One batched availability operation per account.
     assert "binding" not in str(result)
@@ -90,6 +103,17 @@ async def test_shared_offer_restore_show_then_confirm_exact_destination_once(mon
     detail = await opening_tools.calendar_opening_detail(restored, ordinal=2)
     assert detail["start_at"] == result["openings"][1]["start_at"]
     assert detail["time_zone"] == "America/New_York"
+    assert detail["display_time_zone"] == "America/New_York"
+    assert detail["local_start_at"] == "2030-10-21T00:30:00-04:00"
+    redisplay = await opening_tools.calendar_opening_detail(
+        restored, ordinal=2, time_zone="Asia/Kolkata"
+    )
+    assert redisplay["display_time_zone"] == "Asia/Kolkata"
+    assert redisplay["local_start_at"] == "2030-10-21T10:00:00+05:30"
+    assert (
+        redisplay["start_at"] == detail["start_at"]
+        and restored.state[STATE_OPENING_OFFER] == original
+    )
     assert store.plan is None and not writes
     ambiguous = await tools.propose_calendar_event(restored, title="Planning", slot_ordinal=2)
     assert ambiguous["reason_code"] == "calendar_account_required"
@@ -149,8 +173,12 @@ async def test_shared_offer_changes_fail_before_provider_mutation(monkeypatch, p
     elif change == "accounts":
         owner.accounts.pop()
     elif change == "busy":
+        selected = context.state[STATE_OPENING_OFFER]["slots"][1]
         owner.busy["third"] = [
-            (datetime(2030, 10, 21, 13, tzinfo=UTC), datetime(2030, 10, 21, 14, tzinfo=UTC))
+            (
+                datetime.fromisoformat(selected["start_at"]),
+                datetime.fromisoformat(selected["end_at"]),
+            )
         ]
     elif change == "read_only":
         owner.roles["second"] = "reader"
