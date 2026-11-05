@@ -8,6 +8,7 @@ import {
   getGmailEmailDraftPayload,
   getGmailInformationRequestReplyPayload,
 } from "@/components/agent/agent-chat-workspace";
+import { calendarProposalReviewError, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import type { AgentChatToolEvent } from "@/lib/services/agent-chat-client";
 
 function makeToolEvent(
@@ -43,8 +44,10 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     expect(source).not.toContain("persistGoogleOAuthSameWindowAttempt");
     expect(source).not.toMatch(/location\.(assign|replace|href\s*=)\([^)]*authorize/);
     const connectAt = source.indexOf('if (type === "calendar.connect") {');
-    const block = source.slice(connectAt, connectAt + 700);
-    expect(block).toContain('runDirectiveConnect("calendar")');
+    const block = source.slice(connectAt, source.indexOf('if (type !== "calendar.execute_proposal")', connectAt));
+    expect(block).toContain('calendarDirectiveAccountId(payload)');
+    expect(block).toContain('requestedAccount !== selectedAccount');
+    expect(block).toContain('runDirectiveConnect("calendar", requestedAccount)');
     const runnerAt = source.indexOf("const runDirectiveConnect = ");
     const runner = source.slice(runnerAt, runnerAt + 3_000);
     expect(runner).toContain("connectCalendarInPlace(");
@@ -74,6 +77,37 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     expect(fullTurn).toContain("onSpecialistDirective:");
   });
 
+  it("keeps malformed legacy reviews non-executable without breaking the stream", () => {
+    const result = getCalendarDirectiveFromToolEvent(makeToolEvent("propose_calendar_cancellation", {
+      status: "confirmation_required", proposal_id: "gcal_bad", expires_at: "2099-12-02T16:00:00Z",
+      plan: { account_id: "default", calendar_id: "primary", event_id: "evt-1", time_zone: "UTC", send_updates: true,
+        current_event: { title: "Planning", start: { dateTime: "2026-12-02T16:00:00Z" },
+          end: { dateTime: "2026-12-02T16:30:00Z" }, attendees: [null] } }, conflicts: [null],
+    }));
+    expect(result).not.toBeNull();
+    expect(calendarProposalReviewError(result!.directive.payload)).toContain("incomplete");
+  });
+
+  it("normalizes a complete legacy review into the same confirmable facts", () => {
+    const payload = legacyCalendarProposalPayload({ proposal_id: "gcal_complete", expires_at: "2099-12-02T16:00:00Z", plan: {
+      account_id: "account-b", calendar_id: "primary", title: "Planning", time_zone: "Asia/Kolkata",
+      start_at: "2026-12-02T16:00:00Z", end_at: "2026-12-02T16:30:00Z", attendees: [], send_updates: false,
+      conflicts: [],
+    } }, "create");
+    expect(calendarProposalReviewError(payload)).toBeNull();
+    expect(payload).toMatchObject({ accountId: "account-b", calendarId: "primary", attendees: [], sendUpdates: false });
+  });
+
+  it("uses the provider's exact IANA zone for a complete legacy cancellation", () => {
+    const payload = legacyCalendarProposalPayload({ proposal_id: "gcal_cancel", expires_at: "2099-12-02T16:00:00Z", conflicts: [], plan: {
+      account_id: "account-b", calendar_id: "primary", event_id: "evt-1", send_updates: true,
+      current_event: { title: "Planning", start: { dateTime: "2026-12-02T16:00:00Z", timeZone: "America/New_York" },
+        end: { dateTime: "2026-12-02T16:30:00Z", timeZone: "America/New_York" }, attendees: [] },
+    } }, "cancel");
+    expect(payload.timeZone).toBe("America/New_York");
+    expect(calendarProposalReviewError(payload)).toBeNull();
+  });
+
   it("returns null for non-calendar tools", () => {
     const event = makeToolEvent("search_pkm", { results: [] });
     expect(getCalendarDirectiveFromToolEvent(event)).toBeNull();
@@ -95,6 +129,7 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     };
     const event = makeToolEvent("propose_calendar_event", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_test_explicit",
       directive,
       message: "The app is showing the exact calendar change for owner confirmation.",
@@ -115,8 +150,10 @@ describe("getCalendarDirectiveFromToolEvent", () => {
   it("extracts directive from legacy confirmation_required tool result without explicit directive", () => {
     const event = makeToolEvent("propose_calendar_event", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_test_legacy",
       plan: {
+        account_id: "account-b", calendar_id: "primary", time_zone: "Asia/Kolkata",
         title: "Study Session",
         start_at: "2026-09-04T16:00:00+05:30",
         end_at: "2026-09-04T17:00:00+05:30",
@@ -145,8 +182,10 @@ describe("getCalendarDirectiveFromToolEvent", () => {
   it("marks confirmLabel as 'Schedule anyway' when conflicts are detected", () => {
     const event = makeToolEvent("propose_calendar_event", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_test_conflicts",
       plan: {
+        account_id: "account-b", calendar_id: "primary", time_zone: "Asia/Kolkata",
         title: "Study Session",
       },
       conflicts: [{ title: "Existing meeting" }],
@@ -179,6 +218,7 @@ describe("getCalendarDirectiveFromToolEvent", () => {
     };
     const event = makeToolEvent("propose_calendar_event", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_structured",
       directive,
     });
@@ -190,8 +230,10 @@ describe("getCalendarDirectiveFromToolEvent", () => {
   it("normalizes the legacy path to the governed proposal envelope", () => {
     const event = makeToolEvent("propose_calendar_event", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_legacy_structured",
       plan: {
+        account_id: "account-b", calendar_id: "primary", time_zone: "Asia/Kolkata",
         title: "Study Session",
         start_at: "2026-09-04T16:00:00+05:30",
         end_at: "2026-09-04T17:00:00+05:30",
@@ -211,24 +253,26 @@ describe("getCalendarDirectiveFromToolEvent", () => {
           type: "calendar.execute_proposal",
           proposalId: "gcal_legacy_structured",
           action: "create",
-          summary: "Schedule 'Study Session'",
+          summary: "Schedule “Study Session”",
           confirmLabel: "Schedule meeting",
           googleMeet: true,
-          expiresAt: "",
+          expiresAt: "2099-12-02T16:00:00Z",
         },
       },
       stateChanged: true,
     });
-    expect(result?.directive.payload).not.toHaveProperty("startAt");
-    expect(result?.directive.payload).not.toHaveProperty("attendees");
-    expect(result?.directive.payload).not.toHaveProperty("location");
+    expect(result?.directive.payload.startAt).toBe("2026-09-04T16:00:00+05:30");
+    expect(result?.directive.payload.attendees).toEqual(["a@example.com"]);
+    expect(result?.directive.payload.location).toBe("Library");
   });
 
-  it("normalizes a legacy cancel proposal without exposing event details", () => {
+  it("normalizes a legacy cancel proposal with the actual event details", () => {
     const event = makeToolEvent("propose_calendar_cancellation", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_legacy_cancel",
       plan: {
+        account_id: "account-b", calendar_id: "primary", time_zone: "Asia/Kolkata",
         event_id: "evt-1",
         send_updates: true,
         current_event: {
@@ -251,20 +295,21 @@ describe("getCalendarDirectiveFromToolEvent", () => {
           type: "calendar.execute_proposal",
           proposalId: "gcal_legacy_cancel",
           action: "cancel",
-          summary: "Cancel 'evt-1'",
+          summary: "Cancel “Design review”",
           confirmLabel: "Cancel",
-          expiresAt: "",
+          expiresAt: "2099-12-02T16:00:00Z",
         },
       },
       stateChanged: true,
     });
-    expect(result?.directive.payload).not.toHaveProperty("eventId");
-    expect(result?.directive.payload).not.toHaveProperty("attendees");
+    expect(result?.directive.payload.eventId).toBe("evt-1");
+    expect(result?.directive.payload.attendees).toEqual(["person@example.com"]);
   });
 
   it("keeps legacy conflicts in the governed confirmation label", () => {
     const event = makeToolEvent("propose_calendar_event", {
       status: "confirmation_required",
+      expires_at: "2099-12-02T16:00:00Z",
       proposal_id: "gcal_legacy_conflicts",
       plan: { title: "Study Session" },
       conflicts: [{ title: "Existing meeting", start: { dateTime: "2026-09-04T16:00:00Z" } }],
@@ -275,11 +320,11 @@ describe("getCalendarDirectiveFromToolEvent", () => {
       type: "calendar.execute_proposal",
       proposalId: "gcal_legacy_conflicts",
       action: "create",
-      summary: "Schedule 'Study Session'",
+      summary: "Schedule “Study Session”",
       confirmLabel: "Schedule anyway",
-      expiresAt: "",
+      expiresAt: "2099-12-02T16:00:00Z",
     });
-    expect(result?.directive.payload).not.toHaveProperty("conflicts");
+    expect(result?.directive.payload.conflicts).toEqual([{ title: "Existing meeting", startAt: "2026-09-04T16:00:00Z" }]);
   });
 
   it("extracts connection directive when Google Calendar requires authorization", () => {

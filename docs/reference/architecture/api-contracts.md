@@ -2672,6 +2672,25 @@ cancellation and authorization never execute an event. Calendar Join uses the
 event's account email for an explicit Meet pre-join reminder; the external Meet
 app or browser still chooses its own signed-in account. Other meeting providers
 open their original validated links directly.
+Calendar booking reviews retain the exact `account_id` (default, second or third
+connected account), `calendar_id`, event ID, recurring-instance identity and
+OAuth grant generation from preparation through confirmation. Mutation support
+currently accepts only `calendar_id: "primary"` within the explicitly selected
+account; a secondary calendar is rejected before provider access. Recurring
+series changes require an occurrence selection. Event changes recheck occurrence,
+ETag and grant identity before their conditional PATCH or DELETE.
+
+For rescheduling, omitted guest, location and description fields remain unchanged;
+`attendees: []`, `location: ""` and `description: ""` explicitly remove permitted
+guests or clear the named field. Reviews show removals and retain organizer,
+self, room and unrelated attendee metadata. An incomplete guest list cannot be
+reviewed. Chat's legacy and structured reviews share complete account, event,
+time, guest and notification details; incomplete or expired reviews cannot be
+confirmed. Older proposals without sealed account/calendar/grant facts require
+a new review. Invalid, missing, DST-ambiguous or nonexistent local times ask for
+clarification before provider access; explicit offsets retain their UTC instant
+and the review retains the IANA display zone.
+
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -2688,6 +2707,38 @@ proposals show busy-period warnings across the included calendars and reject
 changed availability at confirmation. Google must return an event identifier
 before creation is reported as successful; mutations are never automatically
 retried.
+
+Calendar Chat reads accept an exact `account_id`. When a fresh request has
+multiple connected accounts and no selection, the tool returns the owner-scoped
+account choices for clarification. Event, subscribed-calendar and invitation
+references retain their own account, calendar, complete opaque grant binding,
+conversation and five-minute expiry. Another account's read cannot redirect a
+reference; a conflicting explicit account is rejected. Invitation handoffs,
+inline reviews, confirmations and reconnect controls preserve this account ID,
+including when two observations have the same email. Additional accounts remain
+unsupported on single-account owner-cloud and data-door ports; those paths
+never resolve shared credentials as a fallback. Organizer Mail preparation
+requires its existing sending grant to prove the same Google subject as the
+selected Calendar grant. A different sender requires a new matching-account
+review; Calendar never changes Mail's selected account automatically.
+
+`calendar_free_slots` retains completed openings in the existing encrypted ADK
+session as a private five-minute offer. It records the selected account,
+destination, exact checked calendar coverage, query window, elapsed duration,
+canonical IANA zone and ordered UTC intervals. Current typed opening searches
+check that account's primary calendar only; they do not claim invitee or
+all-account coverage. `propose_calendar_event(slot_ordinal=...)` resolves a
+one-based choice from this offer and rejects replacement times or a different
+target. Session recovery retains the original creation time, without renewing
+expiry. Failed or empty replacement searches retire previous offers. Public
+state snapshots and deltas exclude this private state.
+
+Slot-backed proposals recheck complete free/busy coverage before issuing a
+review and immediately before confirmed execution. Expired, past, reconnected,
+partially checked or newly busy slots require fresh openings rather than a
+"Schedule anyway" confirmation. Existing proposal expiry, single-use claims,
+included-calendar checks and explicit browser confirmation still apply.
+Availability checks do not reserve provider time atomically.
 
 The visible Schedule view refreshes every thirty seconds and on return to the
 page or network recovery, coalescing requests within three seconds. Superseded

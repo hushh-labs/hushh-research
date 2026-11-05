@@ -1019,6 +1019,7 @@ class GoogleCalendarService:
         duration_minutes: int,
         limit: int = 3,
         calendar_ids: list[str] | None = None,
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return the earliest free slots of a requested duration.
 
@@ -1052,6 +1053,7 @@ class GoogleCalendarService:
             start_at=start_at,
             end_at=end_at,
             calendar_ids=calendar_ids,
+            **({"expected_binding": expected_binding} if expected_binding is not None else {}),
         )
         range_start = datetime.fromisoformat(availability["time_min"].replace("Z", "+00:00"))
         range_end = datetime.fromisoformat(availability["time_max"].replace("Z", "+00:00"))
@@ -1236,13 +1238,21 @@ class GoogleCalendarService:
         user_id: str,
         action: Literal["create", "reschedule", "cancel"],
         payload: dict[str, Any],
+        expected_binding: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
+        plan = self._validate_plan(action=action, payload=payload)
         await self._purge_expired_proposals(user_id=user_id)
         # A create proposal previously needed no Google call, so a read-only
         # connection reached the confirmation screen and failed only after the
         # owner pressed Schedule. Verify the management grant before creating
         # any proposal so the agent can request the incremental scope instead.
         binding = await self.connections.read_grant_binding(user_id=user_id, service="calendar")
+        if expected_binding is not None and binding != expected_binding:
+            raise GoogleConnectionError(
+                "Calendar connection changed. Show the event again.",
+                status_code=409,
+                reason_code="calendar_connection_changed",
+            )
         await self.connections.access_token(
             user_id=user_id, service="calendar", access_level="manage"
         )
@@ -1253,7 +1263,6 @@ class GoogleCalendarService:
                 reason_code="calendar_connection_changed",
             )
         await self._check_read_binding(user_id, binding)
-        plan = self._validate_plan(action=action, payload=payload)
         await booking.prepare_proposal_account(self, user_id=user_id, plan=plan, binding=binding)
         await booking.prepare_included_conflicts(
             self, user_id=user_id, action=action, plan=plan, binding=binding
@@ -1263,10 +1272,11 @@ class GoogleCalendarService:
             event = await self._request(
                 user_id=user_id,
                 method="GET",
-                path=f"/calendars/primary/events/{plan['event_id']}",
+                path=booking.event_path(plan),
                 access="manage",
                 expected_binding=binding,
             )
+            booking.review_event(plan, event)
             expected_etag = str(event.get("etag") or "") or None
             plan["current_event"] = self._event_summary(event)
             if action == "reschedule":
@@ -1291,6 +1301,14 @@ class GoogleCalendarService:
                 )
             ]
             plan["conflicts"] = [*plan["conflicts"], *extra]
+        if plan.get("opening_selection"):
+            await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
+            if plan.get("conflicts"):
+                raise GoogleConnectionError(
+                    "This slot is no longer free. Check openings again.",
+                    status_code=409,
+                    reason_code="calendar_availability_changed",
+                )
         await self._check_read_binding(user_id, binding)
         proposal_id, expires_at = await self.proposals.issue(
             user_id=user_id, action=action, plan=plan, expected_etag=expected_etag
@@ -1399,7 +1417,7 @@ class GoogleCalendarService:
             ("description", "description"),
             ("location", "location"),
         ):
-            if plan.get(source) and plan[source] != event.get(field):
+            if source in plan and plan[source] != event.get(field):
                 body[field] = plan[source]
         kept, added, removed = self._attendee_change(plan, event)
         if added or removed:
@@ -1482,6 +1500,14 @@ class GoogleCalendarService:
         value_epoch = await capture_value_epoch(user_id)
         plan = proposal["plan"]
         try:
+            if (
+                not all(key in plan for key in ("account_id", "calendar_id", "connection_binding"))
+                or not plan["connection_binding"]
+            ):
+                raise GoogleConnectionError(
+                    "Calendar review is incomplete. Review the meeting again.", status_code=409
+                )
+            booking.target_fields(plan)
             if plan.get("account_id", "default") != account_id or account_id != getattr(
                 self.connections, "account_id", "default"
             ):
@@ -1508,6 +1534,8 @@ class GoogleCalendarService:
                     ),
                 )
             if action == "create":
+                if plan.get("opening_selection"):
+                    await booking.check_opening(self, user_id=user_id, plan=plan, binding=binding)
                 response = await booking.execute_create(
                     self, user_id=user_id, proposal_id=proposal_id, plan=plan, binding=binding
                 )
@@ -1515,10 +1543,11 @@ class GoogleCalendarService:
                 current = await self._request(
                     user_id=user_id,
                     method="GET",
-                    path=f"/calendars/primary/events/{plan['event_id']}",
+                    path=booking.event_path(plan),
                     access="manage",
                     expected_binding=binding,
                 )
+                booking.review_event(plan, current, execution=True)
                 if (
                     proposal.get("expected_event_etag")
                     and current.get("etag") != proposal["expected_event_etag"]
@@ -1549,7 +1578,7 @@ class GoogleCalendarService:
                     response = await self._request(
                         user_id=user_id,
                         method="PATCH",
-                        path=f"/calendars/primary/events/{plan['event_id']}",
+                        path=booking.event_path(plan),
                         access="manage",
                         expected_binding=binding,
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
@@ -1560,7 +1589,7 @@ class GoogleCalendarService:
                     await self._request(
                         user_id=user_id,
                         method="DELETE",
-                        path=f"/calendars/primary/events/{plan['event_id']}",
+                        path=booking.event_path(plan),
                         access="manage",
                         expected_binding=binding,
                         params={"sendUpdates": "all" if plan["send_updates"] else "none"},
@@ -1590,6 +1619,8 @@ class GoogleCalendarService:
             logger.warning("Calendar proposal cleanup failed after a confirmed action")
         return {
             "action": action,
+            "account_id": plan["account_id"],
+            "calendar_id": plan["calendar_id"],
             "event": self._event_summary(response) if response.get("id") else response,
         }
 

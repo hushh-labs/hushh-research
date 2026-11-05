@@ -1,4 +1,6 @@
 "use client";
+
+import { calendarProposalReviewError, legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
 import { AgentPromptSuggestions, AgentWelcomePanel } from "./agent-welcome-panel";
 import { CalendarInsightsService, type MeetingContext, type MeetingSelection } from "@/lib/services/calendar-insights-service";
 
@@ -309,6 +311,7 @@ import {
 } from "@/lib/agent/agent-chat-history-cache";
 import { GoogleCalendarError, GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { calendarInvitationInstruction, type CalendarInvitationHandoff } from "@/lib/calendar/calendar-invitation-handoff";
+import { calendarAccountStatus, calendarDirectiveAccountId } from "@/lib/calendar/calendar-account-status";
 import { calendarSlotInstruction, calendarSlotProposalError, calendarSlotStarts, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { isCalendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { rememberInAppChat, selectedInAppChat } from "@/lib/agent/in-app-chat-selection";
@@ -1056,44 +1059,13 @@ export function getCalendarDirectiveFromToolEvent(
     typeof parsed.proposal_id === "string" &&
     parsed.proposal_id
   ) {
-    const plan = (parsed.plan as Record<string, unknown>) || {};
-    const action =
-      toolName === "propose_calendar_cancellation"
-        ? "cancel"
-        : toolName === "propose_calendar_reschedule"
-          ? "reschedule"
-          : "create";
-    const verb =
-      action === "cancel"
-        ? "Cancel"
-        : action === "reschedule"
-          ? "Reschedule"
-          : "Schedule";
-    const conflicts = Array.isArray(parsed.conflicts) ? parsed.conflicts : [];
-    const confirmLabel =
-      conflicts.length > 0
-        ? `${verb} anyway`
-        : action === "create"
-          ? "Schedule meeting"
-          : verb;
-    const title = String(plan.title || plan.event_id || "event");
-    const summary = `${verb} '${title}'`;
-
+    const action = toolName === "propose_calendar_cancellation" ? "cancel" :
+      toolName === "propose_calendar_reschedule" ? "reschedule" : "create";
+    const payload = legacyCalendarProposalPayload(parsed, action);
     return {
       delegateAgentId: "agent_calendar",
-      directive: {
-        kind: "action",
-        payload: {
-          type: "calendar.execute_proposal",
-          proposalId: parsed.proposal_id,
-          action,
-          googleMeet: action === "create",
-          summary,
-          confirmLabel,
-          expiresAt: String(parsed.expires_at || ""),
-        },
-      },
-      message: String(parsed.message || summary),
+      directive: { kind: "action", payload },
+      message: String(parsed.message || payload.summary || ""),
       stateChanged: true,
     };
   }
@@ -4152,7 +4124,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * cancellable while Google's window is open; on success it is cleared, as
    * the old redirect-return did, and the person stays in this chat.
    */
-  const runDirectiveConnect = (kind: "gmail_modify" | "calendar") => {
+  const runDirectiveConnect = (kind: "gmail_modify" | "calendar", accountId = "default") => {
     const owner = user;
     if (!owner?.uid || !applicationOwnerId) return;
     const ownerId = applicationOwnerId;
@@ -4164,7 +4136,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       (controls) =>
         kind === "calendar"
           ? connectCalendarInPlace({
-              owner,
+              owner, accountId,
               accessLevel: "manage", includeCalendarList: true, includeMeetingFiles: true,
               ...controls,
               vaultOwnerCapability: vaultOwnerToken ?? undefined,
@@ -4438,7 +4410,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
       setPendingSpecialistDirective({ delegateAgentId: "agent_calendar", directive: { kind: "action", payload: {
-        type: "calendar.invitations", filter: "all", calendarId: invitation.calendarId,
+        type: "calendar.invitations", filter: "all", accountId: invitation.accountId ?? "default", calendarId: invitation.calendarId,
         eventId: invitation.eventId, decision: invitation.decision || "offer_times", accountEmail: invitation.accountEmail, timeZone: invitation.timeZone,
         startAt: invitation.startAt, endAt: invitation.endAt,
       } }, message: invitation.request || "Review this invitation.", stateChanged: true,
@@ -6109,6 +6081,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
+    setPendingSpecialistDirective(current => current?.delegateAgentId === "agent_calendar" &&
+      current.directive.payload.type === "calendar.execute_proposal" ? null : current);
     pendingMcpReviewsRef.current = [];
     setPendingMcpReviews([]);
 
@@ -6967,6 +6941,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (isSilentMemoryToolEvent(toolEvent)) return;
             openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);
             const calendarDirective = getCalendarDirectiveFromToolEvent(toolEvent);
+            if (!calendarDirective && ["propose_calendar_event", "propose_calendar_reschedule", "propose_calendar_cancellation"].includes(String(toolEvent.raw?.toolName))) {
+              setPendingSpecialistDirective(current => current?.delegateAgentId === "agent_calendar" ? null : current);
+            }
             if (calendarDirective) {
               setPendingSpecialistDirective({ ...calendarDirective, sourceAssistantMessageId: assistantMessageId });
               if (calendarDirective.directive.payload.type === "calendar.invitations") setCalendarInvitationContext(current => current ? { ...current, needsContext: false } : null);
@@ -8139,12 +8116,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         if (!calendarSlot || !(error instanceof GoogleCalendarError) || error.status !== 409 || error.message !== "Calendar availability changed; review the proposed time again before confirming") return;
         setCalendarSlot(current => current === calendarSlot ? null : current);
         const payload = directive.directive.payload;
-        appendMessage({ id: `calendar-conflict-${crypto.randomUUID()}`, role: "assistant", ...stampNow(), status: "done", text: "That time became busy. No event was created. I can check newly available times for this meeting.", renderAsPlainAssistantMessage: true, followUps: [`Find newly available times on ${calendarSlot.selection.date} in ${calendarSlot.selection.timeZone} for this ${calendarSlot.selection.durationMinutes}-minute meeting with ${JSON.stringify(payload.attendees)}. Keep the title ${JSON.stringify(payload.title)}. The previous time became unavailable; check fresh availability and show a new proposal for confirmation.`] });
+        appendMessage({ id: `calendar-conflict-${crypto.randomUUID()}`, role: "assistant", ...stampNow(), status: "done", text: "That time became busy. No event was created. I can check newly available times for this meeting.", renderAsPlainAssistantMessage: true, followUps: [`Find newly available times using Calendar account_id ${JSON.stringify(calendarSlot.selection.accountId ?? "default")} on ${calendarSlot.selection.date} in ${calendarSlot.selection.timeZone} for this ${calendarSlot.selection.durationMinutes}-minute meeting with ${JSON.stringify(payload.attendees)}. Keep the title ${JSON.stringify(payload.title)}. The previous time became unavailable; check fresh availability and show a new proposal for confirmation.`] });
       },
       run: async () => {
         if (calendarSlot) {
           const status = await GoogleCalendarService.status(await user!.getIdToken(), userId);
-          if (!status.connected || !status.google_email || status.google_email.toLowerCase() !== calendarSlot.selection.accountEmail.toLowerCase()) {
+          const selected = calendarAccountStatus(status, calendarSlot.selection.accountId ?? "default");
+          if (!selected?.connected || !selected.google_email || selected.google_email.toLowerCase() !== calendarSlot.selection.accountEmail.toLowerCase()) {
             throw new Error("The connected Calendar account changed. Ask One to check this meeting again before scheduling.");
           }
           if (!chatSessionRef.current.isCurrent(confirmedChatEpoch)) throw new Error("The conversation changed before scheduling.");
@@ -10774,8 +10752,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     >;
                     const type = String(payload.type ?? "");
                     if (type === "calendar.invitations" && user && applicationOwnerId) {
-                      return <CalendarInvitationChat key={`${applicationOwnerId}:${vaultSessionEpoch}:${conversationId}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
+                      return <CalendarInvitationChat key={`${applicationOwnerId}:${vaultSessionEpoch}:${conversationId}:${String(payload.accountId || "default")}:${String(payload.eventId || "list")}:${String(payload.startAt || "")}`}
                         owner={user} ownerId={applicationOwnerId} payload={payload} vaultOwnerCapability={vaultOwnerToken} confirmLegacyTransition={terms => confirmTransition(terms, 'calendar')}
+                        expectedAccountId={calendarInvitationContext && calendarInvitationContext.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountId ?? "default" : undefined}
                         expectedAccountEmail={calendarInvitationContext && calendarInvitationContext.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current ? calendarInvitationContext.selection.accountEmail : undefined}
                         onBusyChange={setSpecialistBusy} onClose={() => { setPendingSpecialistDirective(null); setCalendarInvitationContext(null); }}
                         onResult={result => appendMessage({ id: `calendar-rsvp-${crypto.randomUUID()}`, role: "assistant", ...stampNow(),
@@ -10823,7 +10802,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }
                         // Opens Google's window synchronously, in this click;
                         // the chat window never navigates.
-                        runDirectiveConnect("calendar");
+                        const requestedAccount = calendarDirectiveAccountId(payload);
+                        if (requestedAccount === null) {
+                          addErrorMessage("The Calendar account selection is invalid. Check it again before reconnecting.");
+                          return;
+                        }
+                        const selectedAccount = calendarInvitationContext?.selection.ownerId === applicationOwnerId && calendarInvitationContext.conversationId === conversationIdRef.current
+                          ? calendarInvitationContext.selection.accountId ?? "default"
+                          : calendarSlot?.selection.ownerId === applicationOwnerId && calendarSlot.conversationId === conversationIdRef.current
+                            ? calendarSlot.selection.accountId ?? "default" : null;
+                        if (selectedAccount !== null && requestedAccount !== selectedAccount) {
+                          addErrorMessage("The Calendar account selection changed. Check the selected account again before reconnecting.");
+                          return;
+                        }
+                        runDirectiveConnect("calendar", requestedAccount);
                         return;
                       }
                       if (type !== "calendar.execute_proposal") {
@@ -10833,6 +10825,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         );
                         return;
                       }
+                      const reviewError = calendarProposalReviewError(payload);
+                      if (reviewError) { addErrorMessage(reviewError); return; }
                       const token = getVaultOwnerToken();
                       if (!token || !applicationOwnerId) {
                         addErrorMessage(
@@ -10861,6 +10855,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       return (
                         <AgentCalendarProposalCard
                           action={calendarAction}
+                          accountId={typeof payload.accountId === "string" ? payload.accountId : null}
+                          locationCleared={payload.locationCleared === true}
+                          descriptionCleared={payload.descriptionCleared === true}
+                          attendeesRemoved={Array.isArray(payload.attendeesRemoved) ? payload.attendeesRemoved.filter((email): email is string => typeof email === "string") : []}
                           title={typeof payload.title === "string" ? payload.title : null}
                           startAt={typeof payload.startAt === "string" ? payload.startAt : null}
                           endAt={typeof payload.endAt === "string" ? payload.endAt : null}
@@ -10875,11 +10873,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           busy={specialistBusy}
                           onConfirm={onConfirm}
                           onCancel={onCancel}
-                          validationError={calendarSlot ? calendarSlotProposalError(calendarSlot.selection, payload) : null}
+                          validationError={calendarProposalReviewError(payload) ?? (calendarSlot ? calendarSlotProposalError(calendarSlot.selection, payload) : null)}
                           timeOptions={calendarSlot ? calendarSlotStarts(calendarSlot.selection) : []}
                           onChangeTime={calendarSlot && calendarSlot.selection.ownerId === applicationOwnerId && calendarAction === "create" ? start => {
                             setPendingSpecialistDirective(null);
-                            enqueuePrompt(`Change this meeting to ${start}, ending ${new Date(Date.parse(start) + calendarSlot.selection.durationMinutes * 60000).toISOString()} (${calendarSlot.selection.timeZone}). Keep the ${calendarSlot.selection.durationMinutes}-minute duration, title ${JSON.stringify(payload.title)} and attendees ${JSON.stringify(attendees)}. Check availability again and show a fresh proposal for confirmation; do not schedule yet.`);
+                            enqueuePrompt(`Change this meeting using Calendar account_id ${JSON.stringify(calendarSlot.selection.accountId ?? "default")} to ${start}, ending ${new Date(Date.parse(start) + calendarSlot.selection.durationMinutes * 60000).toISOString()} (${calendarSlot.selection.timeZone}). Keep the ${calendarSlot.selection.durationMinutes}-minute duration, title ${JSON.stringify(payload.title)} and attendees ${JSON.stringify(attendees)}. Check availability again and show a fresh proposal for confirmation; do not schedule yet.`);
                           } : undefined}
                         />
                       );

@@ -29,6 +29,7 @@ from hushh_mcp.services.calendar_attendance_confirmation import (
     recheck_accepted_invitation,
     require_review_account_email,
     require_rsvp_review,
+    selected_organizer_sender,
     send_reviewed_organizer_mail,
 )
 from hushh_mcp.services.calendar_decline_comment import clean_decline_reason, patch_with_comment
@@ -1001,9 +1002,24 @@ class CalendarScheduleService:
                 "body": body + ("\n\n" + link if link else ""),
             }
             mail = self.mail or get_gmail_delivery_service()
+            sender = await selected_organizer_sender(
+                self, user_id=user_id, mail=mail, binding=binding
+            )
             mail_review = await mail.prepare(
                 user_id=user_id, draft_payload=draft, idempotency_key="calendar-" + review_id
             )
+            if sender is not None and (
+                sender
+                != await selected_organizer_sender(
+                    self, user_id=user_id, mail=mail, binding=binding
+                )
+                or mail_review.get("sender_label") != sender.get("account_label")
+            ):
+                raise _error(
+                    "The Mail account changed. Review this invitation again.",
+                    409,
+                    "calendar_mail_account_mismatch",
+                )
             draft["sender_token"] = mail_review["sender_token"]
             plan["mail"] = {"action_id": mail_review["action_id"], "draft": draft}
         review_token = self._seal(plan, "calendar-review-v1")

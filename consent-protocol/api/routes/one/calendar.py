@@ -75,6 +75,7 @@ class CalendarRange(BaseModel):
 
 
 class CalendarProposal(_UserRequest):
+    calendar_id: str = Field(default="primary", min_length=1, max_length=1024)
     action: Literal["create", "reschedule", "cancel"]
     event_id: str | None = Field(default=None, max_length=2048)
     title: str | None = Field(default=None, max_length=512)
@@ -306,7 +307,7 @@ async def proposal(payload: CalendarProposal, token: dict = Depends(hub_content_
         return await _selected_calendar(payload.account_id).propose(
             user_id=token["user_id"],
             action=payload.action,
-            payload=payload.model_dump(exclude={"user_id", "action"}),
+            payload=payload.model_dump(exclude={"user_id", "action"}, exclude_unset=True),
         )
     except Exception as exc:
         raise _http(exc) from exc
