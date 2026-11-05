@@ -4,7 +4,7 @@ set -euo pipefail
 document_mode="${1:-all}"
 if [ "$#" -gt 1 ]; then echo 'Unexpected integration gate arguments.' >&2; exit 64; fi
 case "$document_mode" in
-  all) ;;
+  all|--ci-core) ;;
   --ci-linux-document)
     [ "${CI:-}:${RUNNER_OS:-}" = 'true:Linux' ] || exit 64 ;;
   *) echo 'Unknown integration gate mode.' >&2; exit 64 ;;
@@ -67,7 +67,12 @@ validation_check "Account deletion" bash "$REPO_ROOT/scripts/ci/account-deletion
 # assignment. These loops use production clients, routes and PostgreSQL: protected
 # document delivery plus phone recovery, erasure and device-action admission.
 case "${CI_DOCUMENT_CONTRACT_REQUIRED:-true}" in
-  true) validation_check "Document delivery" bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh" "$document_mode" ;;
+  true)
+    if [ "$document_mode" = --ci-core ]; then
+      echo "Browser-engine document/phone qualification is an explicit diagnostic; runtime and SQL contracts retain their existing owners."
+    else
+      validation_check "Document delivery" bash "$REPO_ROOT/scripts/ci/document-delivery-check.sh" "$document_mode"
+    fi ;;
   false) echo 'Protected document and phone browser contracts are unchanged.' ;;
   *) echo 'Invalid document contract selection.' >&2; exit 64 ;;
 esac

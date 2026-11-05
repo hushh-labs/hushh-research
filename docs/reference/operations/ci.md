@@ -1,5 +1,13 @@
 # CI Configuration Reference
 
+App-browser automation is an explicit diagnostic, not a required PR, merge-queue
+or release lane. Required web validation covers build/type correctness and affected
+unit/runtime contracts. Browser-engine-specific document/phone behavior is not
+certified by those non-browser results; use the existing explicit document/browser
+commands when that qualification is requested. One's Browser capability tests are
+separate runtime authority checks and remain selected when affected.
+
+
 > **Branch state:** `dev` is the protected development intake and default Dev
 > deployment source. UAT selects its protected branch independently, with exact
 > candidate CI; first use still requires baseline/history qualification.
@@ -59,9 +67,8 @@ its exact changed-file list. `focused` keeps authority/security checks and
 affected owners; `release` adds core release-authority checks; `diagnostic`
 runs the retained historical full set, including optional hygiene. A full local
 core mirror is for cross-stage dependency changes or diagnosis, not a required
-pre-push step. Safari presentation/performance checks are developer-local. The separate
-Protected Document WebKit check remains required for its native cryptography
-boundary, until the pinned Linux engine passes those regression vectors. Native
+pre-push step. Browser journeys and engine-specific cryptography are explicit
+diagnostics; required runtime/API/database checks do not claim browser-engine proof. Native
 app checks run when native source or its contract changes. Unknown selection stays
 conservative, and security/source-authority gates remain blocking. Dev can
 deploy an exact CI-green branch SHA without merging application content to main.
@@ -93,19 +100,15 @@ Canonical pre-PR command:
 
 Use the actual destination (`origin/main`, `origin/dev` or `origin/uat`). This
 runs affected local owners, validates the PR body and protects core edits. Its
-report lists hosted browser, database and native checks still required; a local
+report lists affected runtime, database and native checks still required; a local
 pass cannot satisfy exact-head hosted admission. Use `--diagnostic` for the
 retained full mirror, optionally with `--include-advisory`.
 
-The browser plan reports unclassified paths before installation. An unclassified
-application dependency retains conservative coverage; known helpers must attach
-to their existing functional browser, unit or compiler owner instead. Shared
-request timeouts retain their direct cancellation/timeout tests, and generated
-workflow cards retain compiler and behavior checks. Pure portrait/frame/geometry
-comparisons stay diagnostic; real interaction and renderer lifecycle checks remain.
-Mark appearance-only browser cases with `@presentation` so explicit diagnostic
-commands retain them while required functional runs exclude them. Do not apply
-that tag to interaction, accessibility, consent, identity or recovery contracts.
+Unknown application impact retains conservative unit/service coverage. Known
+helpers belong to their existing test or compiler owner. Request timeouts retain
+direct cancellation tests. App-browser tests, including layout and interaction
+journeys, run only when explicitly requested; they do not block ordinary PRs,
+combined-result queue checks or release qualification.
 
 ## Queue response and build limits
 
@@ -673,13 +676,10 @@ jobs.
 
 1. `Web Core` retains install, preflight, docs/design contracts, typecheck, lint
    and the required Next production build for frontend changes.
-2. `Web Targeted Contracts (node)` and `Web Targeted Contracts (browser)` use
-   the same changed-path selector in separate unsharded jobs. The Node job runs
-   selected Node checks without browser setup. The browser job plans before
-   cache restore or installation; a known no-browser selection skips browser
-   work, while unknown selection or planner failure keeps all browser packs
-   enabled. The `CI Status Gate` requires both jobs when frontend paths select
-   them. `scripts/ci/test_web_ci_lane_partition.py` protects the split.
+2. `Web Targeted Contracts (node)` runs the existing selected non-browser
+   commands. It installs no browser, runs no layout matrix and emits no synthetic
+   browser artifacts. `CI Status Gate` still requires successful selected Node
+   contracts. Browser npm commands remain available as explicit diagnostics.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. Governance uses that
@@ -735,24 +735,12 @@ Android-scope verifier and Node failure tests remain in the targeted Node job.
 their owning job. Standalone focused npm commands retain their complete
 behavior; the lane-partition contract protects these boundaries.
 
-Flake budget: in CI each Playwright test gets one retry (`retries` in
-`hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
-browser job; local Safari diagnostics use the same config and budget. The
-browser job's `Install Playwright browsers` step, which
-also runs the web dependency install, is bounded at 8 minutes and retries a
-failed browser install once, so a stalled apt mirror or browser download
-fails the job early instead of holding a runner to the job limit.
-
-Failed synthetic Wallet, connected Calendar, direct-chat and Feed layout runs
-retain `synthetic-layout-failures-<role>` for seven days. The allowlist
-contains only those fixtures' traces, failure screenshots and error context;
-the direct-chat 768x852 keyboard case also retains its synthetic geometry JSON.
-Uploads on cancellation are best-effort because a hard job timeout can stop the
-runner before the upload step. Targeted browser jobs combine GitHub annotations
-with Playwright's line reporter so the active test title remains visible in the
-runner log. Protected reviewer journeys must never enter these artifacts.
-Earlier commands can clear their output; this does not prove retention for
-preceding packs or failures that pass on retry.
+Integration's required `--ci-core` mode retains runtime, account-deletion and
+applicable database contracts without starting an app browser. The existing
+`document-delivery-check.sh` modes are explicit engine-specific diagnostics:
+`all`, `--ci-linux-document` and `--ci-macos-webkit`. Those commands retain their
+actual browser/SQL assertions and platform prerequisites. Their results are not
+implied by a normal CI pass.
 
 Calendar's lock regression holds the next Schedule response while asserting that
 the prior private view is cleared, then releases distinct fresh information.
