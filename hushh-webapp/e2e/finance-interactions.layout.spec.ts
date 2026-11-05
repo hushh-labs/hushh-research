@@ -186,7 +186,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
         };
       });
       expect(measurements.font).toMatch(/Plus Jakarta Sans/);
-      expect(measurements.headline).toEqual(["15px", "22px", "600"]);
+      expect(measurements.headline).toEqual(["14px", "21px", "600"]);
       expect(measurements.metadata).toEqual(["12px", "18px"]);
       expect(measurements.clamp).toBe("none");
       expect(measurements.cardOverflow).toBe(false);
@@ -246,7 +246,7 @@ for (const width of [320, 360, 375, 393, 430, 768, 1024, 1440]) {
         expect(await company.evaluate(element => {
           const style = getComputedStyle(element);
           return [style.fontSize, style.lineHeight, style.webkitLineClamp, element.scrollHeight <= element.clientHeight];
-        })).toEqual(["13px", "18px", "none", true]);
+        })).toEqual(["12px", "18px", "none", true]);
 
       }
       await movers.screenshot({ path: test.info().outputPath(`finance-movers-${width}-${theme}.png`) });

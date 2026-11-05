@@ -29,7 +29,8 @@ export async function expectMarketMiniCharts(page: Page): Promise<void> {
     await expect(chart.locator("path.recharts-area-area")).toHaveAttribute("fill", /^url\(#index-/);
   }
   const ids = await page.locator("linearGradient[id^='index-']").evaluateAll(nodes => nodes.map(node => node.id));
-  expect(new Set(ids).size).toBe(4);
+  expect(ids).toHaveLength(8);
+  expect(new Set(ids).size).toBe(ids.length);
   // The chart root owns the direction; cached status never desaturates its series.
   expect(await page.locator("[data-index-chart-tone='positive']").count()).toBe(1);
   expect(await page.locator("[data-index-chart-tone='negative']").count()).toBe(3);
@@ -293,7 +294,9 @@ export function registerStockQuoteRecoveryChecks(mount: (page: Page, width?: num
 
 export async function expectMarketLocalTimes(page: Page, localTime: string): Promise<void> {
   const movers = page.getByRole("region", { name: "Market movers", exact: true });
-  await expect(movers.locator("[data-market-mover-pair]")).toHaveCount(3);
+  for (const name of ["Gainers", "Losers"]) {
+    await expect(movers.getByRole("region", { name, exact: true }).getByRole("button")).toHaveCount(3);
+  }
   await expect(movers.getByRole("button")).toHaveCount(6);
   await expect(movers.locator("[data-market-mover-freshness]")).toContainText(localTime);
   await expect(page.locator("body")).not.toContainText(/\bcached\b/i);
