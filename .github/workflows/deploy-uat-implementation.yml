@@ -479,7 +479,7 @@ jobs:
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/verify-protected-pipeline-edits.py scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
             "${RUNNER_TEMP}/release-tools/resolve-cloud-run-deploy-revision.py"

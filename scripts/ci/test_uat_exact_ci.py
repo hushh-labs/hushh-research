@@ -29,6 +29,10 @@ class ExactUatCiTest(unittest.TestCase):
         main = {"scripts": {"test": "vitest"}, "dependencies": {"a": "1"}}
         candidate = {**main, "dependencies": {"a": "2"}}
         def observed(*args):
+            if args[0] == "ls-tree":
+                return f"100644 blob {'d' * 40}\t{subject.BACKEND_TEST_MANIFEST}\n".encode()
+            if args[-1].endswith(subject.BACKEND_TEST_MANIFEST):
+                return b"tests/test_application.py\n"
             if args[-1].endswith("pyproject.toml"):
                 return b"[tool.pytest.ini_options]\naddopts = '-q'\n"
             return json.dumps(candidate if args[-1].startswith("candidate:") else main).encode()
@@ -37,6 +41,89 @@ class ExactUatCiTest(unittest.TestCase):
             candidate["scripts"] = {"test": "true"}
             with self.assertRaises(subject.Refused):
                 subject.verify_invocation_authority("candidate", "main")
+
+    def test_branch_test_inventory_is_preserved_without_relaxing_executors(self):
+        candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
+        state = {"manifest": b"tests/test_main.py\ntests/services/test_uat_only.py\n",
+                 "mode": "100644", "executor_changed": False}
+
+        def observed(*args):
+            if args[0] == "ls-tree":
+                if args[1] != "-r":
+                    return f"{state['mode']} blob {'d' * 40}\t{subject.BACKEND_TEST_MANIFEST}\n".encode()
+                revision = args[3]
+                code = "f" if state["executor_changed"] and revision == candidate else "e"
+                manifest = "1" if revision == authority else "2"
+                return (f"100644 blob {code * 40}\t.github/workflows/ci.yml\n"
+                        f"100644 blob {manifest * 40}\t{subject.BACKEND_TEST_MANIFEST}\n").encode()
+            if args[0] == "show":
+                if args[1].endswith(subject.BACKEND_TEST_MANIFEST):
+                    return state["manifest"] if args[1].startswith(candidate + ":") else b"tests/test_main.py\n"
+                if args[1].endswith("pyproject.toml"):
+                    return b"[tool.pytest.ini_options]\naddopts = '-q'\n"
+                return b'{"scripts": {"test": "vitest"}}'
+            if args[0] == "rev-parse":
+                return ("9" * 40).encode()
+            return b""
+
+        with patch.object(subject, "git", side_effect=observed):
+            self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "9" * 40)
+            state["executor_changed"] = True
+            with self.assertRaisesRegex(subject.Refused, "authority differs"):
+                subject.verify_git_authority(candidate, base, authority, current=False)
+            state["executor_changed"] = False
+            for invalid in (b"--override-ini=addopts=\n", b"tests/../outside.py\n",
+                            b"tests/test_main.py\ntests/test_main.py\n", b"\xff"):
+                state["manifest"] = invalid
+                with self.subTest(manifest=invalid), self.assertRaisesRegex(subject.Refused, "invalid test identities"):
+                    subject.verify_git_authority(candidate, base, authority, current=False)
+            state["manifest"] = b"tests/test_other.py\n"
+            with self.assertRaisesRegex(subject.Refused, "omits required Main test identities"):
+                subject.verify_git_authority(candidate, base, authority, current=False)
+            state["manifest"] = b"tests/test_main.py\n"
+            state["mode"] = "120000"
+            with self.assertRaisesRegex(subject.Refused, "regular tracked file"):
+                subject.verify_git_authority(candidate, base, authority, current=False)
+
+    def test_preserved_release_tooling_can_validate_branch_manifest(self):
+        import importlib.util
+        import sys
+        import textwrap
+
+        root = Path(__file__).resolve().parents[2]
+        for name in ("deploy-uat-implementation.yml", "deploy-production.yml"):
+            with self.subTest(workflow=name), tempfile.TemporaryDirectory() as scratch:
+                workflow = (root / ".github/workflows" / name).read_text()
+                block = workflow.split("- name: Preserve current release tooling", 1)[1].split("\n      - name:", 1)[0]
+                script = textwrap.dedent(block.split("run: |\n", 1)[1]).replace(
+                    "${{ inputs.skip_managed_vertex_probe_once }}", "false"
+                )
+                env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+                env["RUNNER_TEMP"] = scratch
+                subprocess.run(["bash", "-c", script], cwd=root, env=env, check=True, capture_output=True)
+                copied = Path(scratch) / "release-tools/uat_exact_ci.py"
+                if name == "deploy-production.yml":
+                    checkout = workflow.split("- name: Checkout deployment SHA", 1)[1].split("\n      - name:", 1)[0]
+                    restore = next(line.strip() for line in checkout.splitlines()
+                                   if line.lstrip().startswith('cp "${RUNNER_TEMP}/release-tools/uat_exact_ci.py"'))
+                    destination = Path(scratch) / "candidate"
+                    (destination / "scripts/ci").mkdir(parents=True)
+                    subprocess.run(["bash", "-c", restore], cwd=destination, env=env, check=True, capture_output=True)
+                    copied = destination / "scripts/ci/uat_exact_ci.py"
+                spec = importlib.util.spec_from_file_location("preserved_uat_exact", copied)
+                module = importlib.util.module_from_spec(spec)
+                with patch.object(sys, "path", [str(Path(scratch) / "release-tools"), *sys.path]):
+                    spec.loader.exec_module(module)
+                def observed(*args):
+                    if args[0] == "ls-tree":
+                        return f"100644 blob {'d' * 40}\t{module.BACKEND_TEST_MANIFEST}\n".encode()
+                    if args[-1].endswith(module.BACKEND_TEST_MANIFEST):
+                        return b"tests/test_application.py\n"
+                    if args[-1].endswith("pyproject.toml"):
+                        return b"[tool.pytest.ini_options]\naddopts = '-q'\n"
+                    return b'{"scripts": {"test": "vitest"}}'
+                with patch.object(module, "git", side_effect=observed):
+                    module.verify_invocation_authority("a" * 40, "b" * 40)
 
     def test_remote_tip_is_refreshed_but_historical_authority_does_not_use_current_tip(self):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
