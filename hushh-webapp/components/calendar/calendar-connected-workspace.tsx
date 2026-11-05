@@ -69,8 +69,7 @@ type Props = {
 export function CalendarConnectedWorkspace(props: Props) {
   const { vaultOwnerToken, getVaultOwnerToken } = useVault();
   const accountKey = (props.status.accounts || []).map(account => `${account.account_id}:${account.google_email}:${account.status}:${account.grant_generation || ""}`).join("|") || props.status.google_email || "";
-  const ownerAccountEmails = (props.status.accounts || []).filter(account => account.connected && account.google_email_verified === true && account.google_email).map(account => account.google_email as string);
-  const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, ownerAccountEmails, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });
+  const calendarPeople = useCalendarHusshPeople({ userId: props.userId, accountKey, connectionRevision: props.connectionRevision, getIdToken: props.getIdToken, vaultOwnerToken });
   if (props.status.accounts?.length && props.onAddAccount && props.onDisconnectAccount && props.onReconnectAccount) {
     return <CalendarAccountBoard key={props.userId} {...props} getVaultOwnerToken={getVaultOwnerToken} onAddAccount={props.onAddAccount}
       onReconnectAccount={props.onReconnectAccount} calendarPeople={calendarPeople}

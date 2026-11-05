@@ -23,7 +23,7 @@ function admittedPhoto(value: string | null | undefined): string | null {
 
 /** Known Calendar people from active Connections and the owner's proven addresses. */
 export function calendarHusshPeople({
-  connections, ownerId, ownerEmail, ownerEmailVerified, ownerPhotoUrl, ownerAliases = [], ownerAccountEmails = [],
+  connections, ownerId, ownerEmail, ownerEmailVerified, ownerPhotoUrl, ownerAliases = [],
 }: {
   connections: readonly ConnectionSummaryEntry[];
   ownerId: string;
@@ -31,8 +31,6 @@ export function calendarHusshPeople({
   ownerEmailVerified: boolean;
   ownerPhotoUrl: string | null | undefined;
   ownerAliases?: readonly AccountEmailAlias[];
-  /** Google accounts the owner signed in to and verified in Calendar; each one is the owner's own. */
-  ownerAccountEmails?: readonly string[];
 }): CalendarHusshPeople {
   const people = new Map<string, CalendarHusshPerson>();
   const ambiguous = new Set<string>();
@@ -62,18 +60,6 @@ export function calendarHusshPeople({
       if (alias.user_id === ownerId && alias.verification_status === "verified" && !alias.revoked_at) {
         add(alias.email_normalized, owner);
       }
-    }
-  }
-  // A Google account the owner connected is the owner's own, so it shows the owner's
-  // HUSSH avatar exactly as Profile does. An address another person has already
-  // proven as theirs keeps that person.
-  if (ownerId) {
-    for (const accountEmail of ownerAccountEmails) {
-      const key = exactEmail(accountEmail);
-      const claimed = key ? people.get(key) : null;
-      if (!key || (claimed && claimed.userId !== ownerId)) continue;
-      ambiguous.delete(key);
-      people.set(key, { userId: ownerId, displayName: null, photoUrl: admittedPhoto(ownerPhotoUrl) });
     }
   }
   return people;
