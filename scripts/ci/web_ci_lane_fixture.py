@@ -257,6 +257,7 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         ("hushh-webapp/lib/connections/google-connect-in-place.ts", "true"),
         ("hushh-webapp/lib/services/pre-vault-sensitive-draft-service.ts", "true"),
         ("hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts\nhushh-webapp/lib/utils/request-timeouts.ts", "false"),
+        ("hushh-webapp/scripts/testing/affected-tests.mjs\nhushh-webapp/scripts/testing/affected-tests.test.mjs", "false"),
     ):
         code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
         assert code == 0, output[-2000:]
