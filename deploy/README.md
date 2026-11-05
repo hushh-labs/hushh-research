@@ -409,6 +409,61 @@ remain responsible for application rollout.
 Cloud Build files are implementation inputs. Their presence does not authorize
 direct human builds or traffic changes.
 
+### Akshat's personal backend
+
+The Main-owned personal backend workflow binds `RGlodAkshat` to
+`hushh-pda-uat/us-central1/backend-dev-akshat` and grants
+`i-akshat@hush1one.com` invoker and viewer access on that service. The
+initial approval is for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f`.
+A different source requires an updated approval.
+
+Land the UAT capacity entry before creating the Cloud Run service. Provision
+the dedicated `backend-dev-akshat-pg` Cloud SQL instance, initialize the
+`backend_dev_akshat` database from the approved source, and verify startup
+under its own database role. Provision the same-name Artifact Registry
+repository, the `hushh-pda-uat-backend-dev-akshat-builds` source bucket,
+separate `backend-dev-akshat` and `backend-dev-akshat-build` service
+accounts, and the four `BACKEND_DEV_AKSHAT_*` secrets. Scope runtime and
+builder access to their own resources. The existing UAT WIF deployer
+submits the build and deploys the image.
+
+Configure the isolated Firebase project `hushh-akshat-sandbox-auth` for
+the sandbox runtime and localhost session signer. Enable the Google sign-in
+provider for sandbox test accounts and authorize `localhost`. The approved backend
+source resolves its Firebase project through Google ADC. Verify that a
+sandbox Firebase token works and a shared-project token is refused. Use
+sandbox test accounts and fixtures.
+
+Create the archive with the pinned tar mode, upload it to the dedicated
+bucket under `personal-backend/`, and dispatch the workflow on Main with
+`sandbox=akshat`, the full SHA, the generation-qualified object, and its
+compressed SHA-256.
+
+```bash
+git -c tar.umask=0000 archive --format=tar 5f4dcb772a66a303fb925f267246bc2e17b0ba9f \
+  consent-protocol contracts | gzip -n > akshat-source.tar.gz
+shasum -a 256 akshat-source.tar.gz
+```
+
+Download the `backend-dev-akshat-receipt` artifact to the exact source
+worktree's Git metadata directory. Run the launcher from a checkout of the
+Main tooling and pass the path to the exact source worktree.
+
+```bash
+source_tree=/path/to/akshat-source
+receipt="$(git -C "$source_tree" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
+gh run download "$run_id" -R hushh-labs/hushh-research \
+  --name backend-dev-akshat-receipt --dir "$(dirname "$receipt")"
+scripts/ops/dev-personal-backend.sh "$source_tree" --check
+scripts/ops/dev-personal-backend.sh "$source_tree"
+```
+
+The launcher uses Akshat's gcloud login for the Cloud Run tunnel. For the
+frontend, supply `HUSHH_SANDBOX_FIREBASE_WEB_CONFIG` from the dedicated
+Firebase web app and `GOOGLE_APPLICATION_CREDENTIALS` for its impersonated
+`localhost-sandbox-auth` service account. Verify the frontend on
+`http://localhost:3000` after the proxy reaches the pinned backend.
+
 ## Environment and secret contracts
 
 Canonical owners:
