@@ -97,6 +97,8 @@ web_targeted_non_browser_owner() {
     consent-protocol/*|contracts/*|packages/*) return 0 ;;
     # These exact CI selectors are exercised by the existing Node governance owner.
     hushh-webapp/scripts/testing/affected-tests.mjs|hushh-webapp/scripts/testing/affected-tests.test.mjs) return 0 ;;
+    # The unconditional UI Contracts job runs these exact Node validators.
+    hushh-webapp/scripts/architecture/ui-review-receipts.mjs|hushh-webapp/scripts/architecture/verify-ui-contracts.mjs|hushh-webapp/scripts/architecture/back-navigation.test.mjs|hushh-webapp/scripts/voice/search-contracts.test.mjs) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
     # These exact compiler outputs retain UI Contracts and their affected unit
     # owners. Unknown JSON and generated runtime code remain conservative.
