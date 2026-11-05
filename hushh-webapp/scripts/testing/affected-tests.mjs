@@ -32,6 +32,9 @@ const MAX_SOURCE_SCAN_BYTES = 64 * 1024 * 1024;
 const MAX_IMPORT_GRAPH_STATES = 250_000;
 const MAX_IMPORT_GRAPH_EDGES = 500_000;
 const OTHER_OWNER_FILES = new Set([
+  // Governance executes the selector contracts even inside mixed frontend PRs.
+  "scripts/testing/affected-tests.mjs",
+  "scripts/testing/affected-tests.test.mjs",
   // This browser-flow harness is covered by the hosted browser contract lane.
   "scripts/testing/phone-conflict-flow.mjs",
   // Required UI Contracts executes these Node validators on every CI run.
