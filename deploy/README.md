@@ -454,8 +454,8 @@ source_tree=/path/to/akshat-source
 receipt="$(git -C "$source_tree" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
 gh run download "$run_id" -R hushh-labs/hushh-research \
   --name backend-dev-akshat-receipt --dir "$(dirname "$receipt")"
-scripts/ops/dev-personal-backend.sh "$source_tree" --check
-scripts/ops/dev-personal-backend.sh "$source_tree"
+deploy/dev-personal-backend.sh "$source_tree" --check
+deploy/dev-personal-backend.sh "$source_tree"
 ```
 
 The launcher uses Akshat's gcloud login for the Cloud Run tunnel. For the

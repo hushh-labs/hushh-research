@@ -10,6 +10,7 @@ steps:
         cp -R contracts consent-protocol/contracts
         docker buildx create --use --driver docker-container
         docker buildx build --platform linux/amd64 --provenance=false --sbom=false \
+          --metadata-file /workspace/personal-backend-image-metadata.json \
           --label "org.opencontainers.image.revision=${_SOURCE_SHA}" \
           --cache-from "type=registry,ref=${_IMAGE}:buildcache" \
           --cache-to "type=registry,ref=${_IMAGE}:buildcache,mode=max" \
