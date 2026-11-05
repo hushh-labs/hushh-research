@@ -28,6 +28,7 @@ REPOSITORY = "hushh-labs/hushh-research"
 SOURCE_BRANCHES = ("uat", "uat-isolated")
 SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
+BACKEND_TEST_MANIFEST = "consent-protocol/scripts/test-ci.manifest.txt"
 
 # Fail closed when a UAT candidate changes CI or release execution authority.
 # The Main-owned UAT workflow consumes Cloud Build recipes under deploy/ and
@@ -155,6 +156,18 @@ def verify_invocation_authority(candidate: str, authority: str) -> None:
             return json.loads(raw).get("scripts", {})
         require(invocation(candidate) == invocation(authority),
                 "UAT test invocation differs from reviewed Main authority")
+    # Test identities belong to the selected application, while their executor
+    # remains byte-identical Main authority. Preserve branch-owned regressions.
+    entry = git("ls-tree", candidate, "--", BACKEND_TEST_MANIFEST)
+    require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
+            "UAT backend test manifest must be a regular tracked file")
+    parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]
+    try:
+        selected = parser(git("show", f"{candidate}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
+        required = parser(git("show", f"{authority}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise Refused("UAT backend test manifest contains invalid test identities") from None
+    require(required <= selected, "UAT backend manifest omits required Main test identities")
 
 
 def verify_git_authority(candidate: str, base: str, authority: str, *, current: bool = True, branch: str = "uat") -> str:
@@ -178,11 +191,14 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
     if branch == "uat-isolated":
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
-    expected = git("ls-tree", "-r", "--full-tree", authority, "--", *AUTHORITY_PATHS)
-    observed = git("ls-tree", "-r", "--full-tree", candidate, "--", *AUTHORITY_PATHS)
+    def execution_tree(revision):
+        entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
+        return [entry for entry in entries if entry.partition(b"\t")[2] != BACKEND_TEST_MANIFEST.encode()]
+    expected = execution_tree(authority)
+    observed = execution_tree(candidate)
     require(
         bool(expected) and observed == expected,
-        "UAT CI authority differs from reviewed Main",
+        "UAT CI authority differs from reviewed Main; synchronize reviewed CI/release tooling into UAT before qualification",
     )
     verify_invocation_authority(candidate, authority)
     return application_tree(candidate)

@@ -173,8 +173,9 @@ only in an explicit Main-owned deployment's protected job.
 
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 `uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
-with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. These identify the
-application, validation attempt and comparison base separately. Do not substitute
+with `sha`, `ci_run_id`, `ci_run_attempt`, `ci_base_sha` and the reviewed
+`approved_scope` PR chain. These identify the application, validation attempt,
+comparison base and approved change set separately. Do not substitute
 a PR merge-tree check, another attempt or a branch status for that exact run.
 The complete same-SHA dispatch inventory must identify the selected current
 attempt. A sole matching run needs no chronological ordering, so inconsistent
@@ -183,6 +184,15 @@ still require valid chronology, including an older-ID run retried later; a newer
 failed or pending attempt blocks. Incomplete inventories, stale attempts and
 unverified source, jobs or producers always refuse admission. Never correct
 provider timestamps, sort by run ID or choose only successful runs.
+If inspection reports that UAT CI authority differs from Main, this is an
+execution-tooling synchronization prerequisite, not a missing maintainer approval.
+Reconcile the reviewed Main CI/release sources into UAT without importing unrelated
+product code, then qualify the resulting UAT commit. Preserve branch-owned test
+identities: the regular backend manifest must contain canonical test paths and all
+Main-required tests; extra UAT tests are allowed. The manifest's test inventory is
+not the executable authority of its runner. Do not remove branch tests merely to
+make file bytes equal, or reuse CI evidence from before the source synchronization.
+
 Candidate `deploy/` release recipes must match reviewed Main; changes to those
 Cloud Build recipes require a Main-reviewed operations PR. The Main-owned
 workflow also pins `consent-protocol/db/migrate.py`, `db/migration_authority.py`,
