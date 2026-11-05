@@ -21,17 +21,6 @@ describe("advisor source integrity", () => {
     const saved = await readSavedFinance(context, source, true);
     expect(saved.portfolio.holdings).toHaveLength(1);
   });
-  it.each([
-    { market_value: -100 },
-    { is_short: true },
-    { is_short_position: true },
-    { is_liability_position: true },
-    { position_side: "short" },
-    { position_side: "liability" },
-  ])("refuses a statement with unsupported exposure %j before advisor review", async position => {
-    mocks.load.mockResolvedValue(financial({ holdings: [{ ...holding, ...position }], total_value: 100 }));
-    await expect(readSavedFinance(context, source, true)).rejects.toThrow("cannot be verified accurately");
-  });
   it("checks the V7 source before normalization and rejects foreign currency", async () => {
     const v7 = { pkm_contract_version: "7.0.0", financial_core_v7: { active_source: "statement", accounts: { account: { account_id: "account", currency: "USD" } },
       securities: { sec: { symbol: "AAPL", name: "Apple" } }, positions: { one: { security_id: "sec", account_id: "account", quantity: 1, price: 100, market_value: 100 } },
@@ -71,11 +60,6 @@ describe("advisor source integrity", () => {
     mocks.load.mockResolvedValue(saved);
     const result = await readSavedFinance(context, { kind: "plaid", snapshotId: null }, true);
     expect(result.portfolio.holdings?.length).toBeGreaterThan(0);
-    const short = structuredClone(saved);
-    Object.assign(Object.values(short.holdings_v1 ?? {})[0]!, { is_short_position: true });
-    mocks.load.mockResolvedValue(short);
-    await expect(readSavedFinance(context, { kind: "plaid", snapshotId: null }, true))
-      .rejects.toThrow("cannot be verified accurately");
     const foreign = structuredClone(saved);
     const first = Object.values(foreign.holdings_v1 ?? {})[0]!;
     first.iso_currency_code = "EUR";

@@ -195,7 +195,10 @@ def test_a_lane_without_access_to_the_source_is_left_inert(monkeypatch):
 def test_the_deploy_workflows_pass_the_flag_they_configure():
     """A generator argument nobody passes is the same as no argument at all."""
     workflow = (
-        Path(__file__).resolve().parents[2] / ".github" / "workflows" / "deploy-uat.yml"
+        Path(__file__).resolve().parents[2]
+        / ".github"
+        / "workflows"
+        / "deploy-uat-implementation.yml"
     ).read_text()
     assert "--advisors-api-base-url" in workflow
 

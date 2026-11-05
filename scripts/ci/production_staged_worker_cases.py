@@ -39,6 +39,7 @@ class StagedWorkerFixture:
             "status": "completed",
             "conclusion": "success",
             "head_sha": "c" * 40,
+            "head_branch": "main",
             "path": worker.WORKFLOW,
             "repository": {"id": 7},
             "head_repository": {"id": 7},

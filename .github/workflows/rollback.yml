@@ -39,12 +39,17 @@ on:
           - backend
           - frontend
           - all
+          - drive-worker
       backend_revision:
         description: "Backend revision to restore (blank = last known-good tag)"
         required: false
         type: string
       frontend_revision:
         description: "Frontend revision to restore (blank = last known-good tag)"
+        required: false
+        type: string
+      drive_worker_revision:
+        description: "Exact accepted UAT Drive worker revision for drive-worker scope"
         required: false
         type: string
       reason:
@@ -173,6 +178,68 @@ jobs:
           echo "revision=${REVISION}" >> "$GITHUB_OUTPUT"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${REVISION}"
 
+      - name: Restore the accepted UAT Drive worker
+        id: rollback-drive-worker
+        if: inputs.scope == 'drive-worker'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKER_REVISION: ${{ inputs.drive_worker_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKER_REVISION" =~ ^consent-protocol-drive-worker-[0-9]+-[a-z0-9]+$ ]]
+          worker=consent-protocol-drive-worker
+          runtime_account=consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com
+          run_location=(--project="$GCP_PROJECT_ID" --region="$GCP_REGION")
+          serving_revision() {
+            gcloud run services describe "$1" "${run_location[@]}" --format=json \
+              | python3 scripts/ci/resolve-cloud-run-serving-state.py --service-json /dev/stdin \
+              | jq -er '.revision'
+          }
+          umask 077
+          baseline="$(serving_revision "$BACKEND_SERVICE")"
+          frontend_baseline="$(serving_revision "$FRONTEND_SERVICE")"
+          sha="$(gcloud run revisions describe "$baseline" "${run_location[@]}" \
+            --format='value(metadata.labels.deploy-sha)')"
+          python3 scripts/ci/verify-predecessor-acceptance.py require \
+            --environment uat --sha "$sha" --scope backend --output "$RUNNER_TEMP/worker-baseline.json"
+          run="$(jq -er '.services.backend.run_id' "$RUNNER_TEMP/worker-baseline.json")"
+          image="$(jq -er '.services.backend.image_reference' "$RUNNER_TEMP/worker-baseline.json")"
+          provider="$(python3 scripts/ci/managed_provider_readiness.py worker-provider \
+            --sha "$sha" --image "$image" --run-id "$run" --account "$runtime_account")"
+          worker_snapshot="$RUNNER_TEMP/worker-rollback-revision.json"
+          gcloud run revisions describe "$WORKER_REVISION" "${run_location[@]}" --format=json > "$worker_snapshot"
+          jq -e --arg worker "$worker" --arg run "$run" \
+                --arg provider "$provider" --arg account "$runtime_account" '
+                .metadata.labels["serving.knative.dev/service"] == $worker
+                and .metadata.labels["github-run-id"] == $run
+                and .spec.serviceAccountName == $account
+                and any(.spec.containers[]; .name == "drive-worker"
+                  and any(.env[]; .name == "HUSHH_UAT_MANAGED_AI_PROVIDER" and .value == $provider))
+              ' "$worker_snapshot" >/dev/null
+          # Reuse the same reviewed scanner pins and revision validator as deployment.
+          scanner_index="$(sed -nE 's/^readonly CLAMAV_IMAGE="[^"]+@(sha256:[a-f0-9]{64})"$/\1/p' \
+            deploy/drive/deploy_worker_service.sh)"
+          scanner_amd64="$(sed -nE 's/^readonly CLAMAV_AMD64_DIGEST="(sha256:[a-f0-9]{64})"$/\1/p' \
+            deploy/drive/deploy_worker_service.sh)"
+          [[ "$scanner_index" =~ ^sha256:[a-f0-9]{64}$ && "$scanner_amd64" =~ ^sha256:[a-f0-9]{64}$ ]]
+          EXPECTED_SHA="$sha" EXPECTED_APP_IMAGE="$image" EXPECTED_DRAIN_ENABLED=true \
+            EXPECTED_SCANNER_INDEX_DIGEST="$scanner_index" EXPECTED_SCANNER_AMD64_DIGEST="$scanner_amd64" \
+            EXPECTED_MANAGED_TEXT_PROVIDER="$provider" EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1 \
+            python3 deploy/drive/verify_worker_revision.py < "$worker_snapshot"
+          origin="$(gcloud run services describe "$worker" "${run_location[@]}" --format='value(status.url)')"
+          python3 deploy/drive/work_drain_scheduler_snapshot.py verify-configuration --worker-origin "$origin"
+          [[ "$(serving_revision "$BACKEND_SERVICE")" == "$baseline" ]]
+          if [[ "$(serving_revision "$worker")" != "$WORKER_REVISION" ]]; then
+            bash scripts/ci/cloudrun-rollback.sh "$worker" "$GCP_REGION" "$WORKER_REVISION"
+          fi
+          [[ "$(serving_revision "$worker")" == "$WORKER_REVISION" ]]
+          [[ "$(serving_revision "$BACKEND_SERVICE")" == "$baseline" ]]
+          [[ "$(serving_revision "$FRONTEND_SERVICE")" == "$frontend_baseline" ]]
+          python3 deploy/drive/work_drain_scheduler_snapshot.py verify-configuration --worker-origin "$origin"
+          echo "revision=$WORKER_REVISION" >> "$GITHUB_OUTPUT"
+          echo "Accepted UAT Drive worker $WORKER_REVISION serves all worker traffic."
+
       - name: Post-rollback backend health check
         if: github.event.inputs.scope == 'backend' || github.event.inputs.scope == 'all'
         shell: bash
@@ -215,6 +282,7 @@ jobs:
             echo "- Scope: \`${{ github.event.inputs.scope }}\`"
             echo "- Backend target revision: \`${{ steps.rollback-backend.outputs.revision || 'n/a (not in scope)' }}\`"
             echo "- Frontend target revision: \`${{ steps.rollback-frontend.outputs.revision || 'n/a (not in scope)' }}\`"
+            echo "- Drive worker target revision: \`${{ steps.rollback-drive-worker.outputs.revision || 'n/a (not in scope)' }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   rollback-production:
@@ -250,6 +318,10 @@ jobs:
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
+      - name: Refuse worker-only scope outside UAT
+        if: inputs.scope == 'drive-worker'
+        run: exit 1
+
       - name: Assert manual dispatch originates from main
         shell: bash
         run: |

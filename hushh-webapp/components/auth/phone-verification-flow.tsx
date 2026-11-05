@@ -61,7 +61,6 @@ import { CountryPicker, InlineCountryPickerPanel } from "@/components/auth/count
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
-import { usePhoneLinkedDeletion } from "./use-phone-linked-deletion";
 import { PhoneConflictRecovery } from "@/components/auth/phone-conflict-recovery";
 
 const FLOW_CONTROL_SHELL_CLASS_NAME =
@@ -131,9 +130,6 @@ export function usePhoneVerificationFlow({
   currentPhoneNumber,
   startVerification,
   confirmVerification,
-  prepareLinkedDeletion,
-  confirmLinkedDeletion,
-  cancelLinkedDeletion,
   deletePreviousAccount,
   onCompleted,
   onContinueExisting,
@@ -172,7 +168,7 @@ export function usePhoneVerificationFlow({
   );
   const [verificationCode, setVerificationCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<"choices" | "delete" | null>(null);
+  const [conflict, setConflict] = useState<"choices" | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [step, setStep] = useState<VerificationStep>(
     mode === "link" && currentPhoneNumber ? "linked" : "phone",
@@ -193,25 +189,6 @@ export function usePhoneVerificationFlow({
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
-  const deletionGuard = useMemo(() => ({ pending: false, visit }), [visit]);
-  const deletionCurrent = useCallback(
-    () => current() && allowedOperation.current?.() !== false && visit.entryRevision === entryRevision,
-    [current, visit, entryRevision],
-  );
-  const deletionFallback = useCallback(async () => {
-    await performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, deletionCurrent,
-      phoneFlowInFlightRef, setBusy, setOperationError, "Couldn’t open deletion review. Try again.");
-  }, [deletePreviousAccount, submittedPhoneNumber, deletionCurrent, phoneFlowInFlightRef]);
-  const deletion = usePhoneLinkedDeletion({
-    phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current: deletionCurrent,
-    inFlight: phoneFlowInFlightRef, setBusy, setConflict, setError: setOperationError,
-    prepare: prepareLinkedDeletion, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
-    fallback: deletionFallback,
-    onDeleted: async verified => {
-      visit.verified = true; visit.verifiedUser = verified;
-      setConflict(null); changeStep("linked"); await onCompleted(verified);
-    },
-  });
   const seededOwner = useRef(ownerKey);
   useEffect(() => {
     stepRef.current = step;
@@ -274,14 +251,9 @@ export function usePhoneVerificationFlow({
     onStepChange?.(step);
   }, [onStepChange, step]);
 
-  const { leave: leaveDeletionReview } = deletion;
   const returnToPhoneNumber = useCallback(() => {
     if (!current()) return true;
     if (phoneFlowInFlightRef.current) return true;
-    if (conflict === "delete") {
-      if (leaveDeletionReview()) { setConflict("choices"); setOperationError(null); }
-      return true;
-    }
     advanceEntryRevision();
     setVerificationCode("");
     setCodeError(null);
@@ -289,7 +261,7 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, leaveDeletionReview]);
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision]);
 
   useEffect(() => {
     onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
@@ -855,6 +827,12 @@ export function usePhoneVerificationFlow({
     await submitVerificationCode(verificationCode, { notify: true });
   }, [submitVerificationCode, verificationCode]);
 
+  const reviewPreviousDeletion = useCallback(async () => {
+    if (!current() || allowedOperation.current?.() === false || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
+    await performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError,
+      "Couldn’t open deletion review. Try again.");
+  }, [current, busy, deletePreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
+
   useLocalOnboardingActionHandler(
     "phone_mandate.submit_code",
     async (slots) => {
@@ -922,11 +900,7 @@ export function usePhoneVerificationFlow({
   );
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
-    conflict, reviewPreviousDeletion: deletion.review,
-    canReviewPreviousDeletion: Boolean(deletePreviousAccount || (prepareLinkedDeletion && confirmLinkedDeletion)),
-    deletionReview: conflict === "delete" ? deletion.prepared : null,
-    confirmDeletion: deletion.submit,
-    deletionUnavailable: deletion.freshProof || deletion.unconfirmed,
+    conflict, reviewPreviousDeletion, canReviewPreviousDeletion: Boolean(deletePreviousAccount),
     countries: PHONE_COUNTRY_OPTIONS,
     selectedCountry, selectedCountryOption, selectedCountryDisplayLabel, countryQuery, countryInputValue, countryComboboxOpen,
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,

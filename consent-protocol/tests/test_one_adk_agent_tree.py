@@ -481,7 +481,7 @@ class TestAgentTreeShape:
         assert "Tri-flow parity" in ONE_IDENTITY_INSTRUCTION
         # Authoritative registry-sourced roster catalog.
         assert "YOUR SPECIALISTS" in ONE_IDENTITY_INSTRUCTION
-        assert "Kai Financial Agent" in ONE_IDENTITY_INSTRUCTION
+        assert "AgentOne Finance" in ONE_IDENTITY_INSTRUCTION
         assert "agent.kai.analyze" in ONE_IDENTITY_INSTRUCTION
 
     def test_persona_grounding_reaches_both_heads(self):

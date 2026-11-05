@@ -29,6 +29,7 @@ def _original_run(module):
         "id": module.RUN,
         "run_attempt": 1,
         "head_sha": module.HEAD,
+        "head_branch": "main",
         "status": "completed",
         "conclusion": "success",
         "repository": {"id": 1},

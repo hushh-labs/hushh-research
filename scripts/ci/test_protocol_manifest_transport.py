@@ -12,7 +12,7 @@ from web_ci_lane_fixture import ROOT, _bash
 
 
 class ProtocolManifestTransportTest(unittest.TestCase):
-    def _run_manifest(self, manifest, partition=None, missing=(), shard=None):
+    def _run_manifest(self, manifest, partition=None, missing=(), shard=None, failure=0):
         with tempfile.TemporaryDirectory(prefix="protocol-manifest-") as temporary:
             root = Path(temporary)
             for test_path in set(manifest) - set(missing):
@@ -32,6 +32,7 @@ class ProtocolManifestTransportTest(unittest.TestCase):
                 "    args.extend(Path(arg[1:]).read_text().splitlines() if arg.startswith('@') else [arg])\n"
                 "with open(os.environ['PYTEST_TRANSPORT_LOG'],'a') as log:\n"
                 "    log.write(json.dumps(args)+'\\n')\n"
+                f"sys.exit({failure} if '-n' in args else 0)\n"
             )
             env = {
                 **os.environ, "PYTHON_BIN": sys.executable,
@@ -55,6 +56,40 @@ class ProtocolManifestTransportTest(unittest.TestCase):
             calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
             self.assertEqual(list(scratch.iterdir()), [], "Runner leaked temporary arguments or offline state")
             return result, calls
+
+    def test_backend_collects_independent_checks_after_successful_setup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in ("consent-protocol/scripts/ci/backend-check.sh", "scripts/ci/validation-results.sh"):
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text((ROOT / name).read_text())
+            for name in ("sync_runtime_requirements.sh", "run-test-ci.sh"):
+                (root / "consent-protocol/scripts" / name).write_text('echo "$0" >> "$CHECK_LOG"\n')
+            binaries = root / "bin"
+            binaries.mkdir()
+            for name in ("uv", "node"):
+                stub = binaries / name
+                stub.write_text("""#!/bin/bash
+echo "$*" >> "$CHECK_LOG"
+case "$*" in
+  'sync '*) exit "${SETUP_STATUS:-0}" ;;
+  *generate_capability_graph*|*'ruff check'*) exit 1 ;;
+esac
+""")
+                stub.chmod(0o755)
+            log = root / "checks"
+            env = {**os.environ, "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}", "CHECK_LOG": str(log)}
+            command = [_bash(), "scripts/ci/backend-check.sh"]
+            result = subprocess.run(command, cwd=root / "consent-protocol", env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("run-test-ci.sh", log.read_text())
+            self.assertIn("Capability graph (exit 1)", result.stderr)
+            self.assertIn("Python lint (exit 1)", result.stderr)
+            log.unlink()
+            result = subprocess.run(command, cwd=root / "consent-protocol", env={**env, "SETUP_STATUS": "1"}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(log.read_text().splitlines(), ["sync --frozen --group dev"])
 
     def test_large_manifest_keeps_every_argument_and_final_collection(self):
         test_path = "tests/" + "selected_test_" * 7 + ".py"
@@ -83,6 +118,18 @@ class ProtocolManifestTransportTest(unittest.TestCase):
         self.assertEqual(database, [["-q", *manifest[1:]]])
         self.assertEqual(parallel[1:], [["--collect-only", "-q", "tests/"]])
         self.assertEqual(results[None], [parallel[0], *database, *parallel[1:]])
+
+    def test_failed_parallel_tests_do_not_hide_serial_tests_or_collection(self):
+        result, calls = self._run_manifest(["tests/ordinary.py", "tests/owner_postgres.py"], failure=1)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[1], ["-q", "tests/owner_postgres.py"])
+        self.assertEqual(calls[2], ["--collect-only", "-q", "tests/"])
+
+    def test_interrupted_parallel_tests_stop_remaining_partitions(self):
+        result, calls = self._run_manifest(["tests/ordinary.py", "tests/owner_postgres.py"], failure=2)
+        self.assertEqual(result.returncode, 130)
+        self.assertEqual(len(calls), 1)
 
     def test_unknown_partition_refuses_before_pytest(self):
         result, calls = self._run_manifest(["tests/ordinary.py"], "unknown")

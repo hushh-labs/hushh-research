@@ -1,13 +1,14 @@
 "use client";
 
 import { useNativeDrawerPresentation } from "@/lib/capacitor/use-native-drawer-presentation";
-import { nativeDrawers, nativeDrawerAcknowledged, hasNativeProfileScene, type NativeDrawerRow, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, hasNativeProfileScene, type NativeDrawerRow, type NativeDrawerSection, type NativeProfilePage } from "@/lib/capacitor/native-drawers";
 import type { NativeDrawerActions } from "@/lib/capacitor/native-drawer-presentation";
 import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { PROFILE_PANE_SHOWN_EVENT } from "@/lib/navigation/profile-pane";
 import { NativeFeaturePage } from "@/components/app-ui/native-feature-page";
 import { expectNativeProfilePreparation, nativePrivacyCanPrepareProfile, nativePrivacyObservation, subscribeNativePrivacyObservation } from "@/lib/capacitor/session-privacy";
 import type { ProfilePreparationDescription, ProfilePreparationScene } from "@/lib/capacitor/native-profile-preparation";
+import type { NwsCardAction } from "./net-worth-score-card";
 import { type ProfileMenuActions, profileMenuGroups } from "./profile-menu-model";
 import { useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type ComponentProps, type ReactNode } from "react";
 
@@ -28,12 +29,16 @@ export function projectNativeProfileMenu(name: string, email: string | null, rea
 
 /** Explicit authored port. Identity information is private presentation only;
  * native receives no URL, credential, permission or executable operation. */
-export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, navigationLocked, name, email, portrait, groups, actions, onClose, onPresented, onHidden, fallbackOwned, stack, preparation }: {
+export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, navigationLocked, name, email, portrait, groups, actions, onClose, onPresented, onHidden, fallbackOwned, stack, preparation, scoreCard }: {
   owner: string; ready: boolean; open: boolean; name: string; email: string | null;
   surfaceOpen?: boolean;
   enabled?: boolean;
   navigationLocked?: boolean;
   portrait?: string;
+  scoreCard?: {
+    score: string; netWorth: string | null; updated: string | null; status: string | null;
+    primary?: NwsCardAction; secondary?: NwsCardAction; onOpen: () => void;
+  };
   groups: ReturnType<typeof profileMenuGroups>; actions: ProfileMenuActions; onClose: NativeDrawerActions["close"];
   onPresented?: (destinationId: string | undefined, privacyGeneration: number) => void;
   onHidden?: (privacyGeneration: number) => void;
@@ -57,10 +62,27 @@ export function NativeProfileMenu({ owner, ready, open, surfaceOpen, enabled, na
     },
     project: () => {
       const projected = projectNativeProfileMenu(name, email, ready, groups, actions, onClose);
-      const sections = portraitSupported ? projected.sections.map(section => ({ ...section,
+      let sections: NativeDrawerSection[] = portraitSupported ? projected.sections.map(section => ({ ...section,
         rows: section.rows.map(row => row.id === "identity" ? { ...row, portrait: true,
           ...(portrait ? { portraitData: portrait } : {}) } : row),
       })) : projected.sections;
+      if (scoreCard) {
+        const summary = [scoreCard.netWorth && `Linked net worth ${scoreCard.netWorth}`,
+          scoreCard.updated && `Last updated ${scoreCard.updated}`, scoreCard.status].filter(Boolean).join("\n");
+        const rows: NativeDrawerRow[] = [{
+          id: "nws-score-value", label: scoreCard.score, ...(summary ? { detail: summary } : {}),
+          enabled: ready,
+        }];
+        projected.actions.rows.set("nws-score-value", scoreCard.onOpen);
+        const buttons = [scoreCard.primary, scoreCard.secondary];
+        buttons.forEach((button, index) => {
+          if (!button) return;
+          const id = index === 0 ? "nws-primary" : "nws-secondary";
+          rows.push({ id, label: button.label, enabled: ready });
+          projected.actions.rows.set(id, button.run);
+        });
+        sections = [sections[0]!, { id: "net-worth-score-card", title: "Net Worth Score", rows }, ...sections.slice(1)];
+      }
       if (!stack) return { ...projected, sections };
       // Additive capability: old wrappers keep their established ordinary row.
       const pages = portraitSupported ? stack.pages : stack.pages.map(page => ({ ...page, sections: page.sections.map(section => ({

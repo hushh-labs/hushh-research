@@ -478,15 +478,6 @@ def test_protected_outcome_cannot_cancel_full_account_deletion():
         )
 
 
-@pytest.fixture
-def isolated_phone_orphan_firebase(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "local")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "development")
-    firebase_app = SimpleNamespace(project_id="hushh-pda-uat")
-    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", lambda: firebase_app)
-
-
-@pytest.mark.usefixtures("isolated_phone_orphan_firebase")
 def test_phone_orphan_delete_failure_never_disables_a_potentially_established_identity(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
@@ -524,7 +515,6 @@ def test_phone_orphan_delete_failure_never_disables_a_potentially_established_id
     revoke.assert_not_called()
 
 
-@pytest.mark.usefixtures("isolated_phone_orphan_firebase")
 def test_phone_orphan_cleanup_revalidates_exact_uid_before_delete(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
@@ -609,7 +599,6 @@ def test_phone_orphan_cleanup_revalidates_exact_uid_before_delete(monkeypatch):
         ),
     ],
 )
-@pytest.mark.usefixtures("isolated_phone_orphan_firebase")
 def test_phone_orphan_cleanup_protects_changed_or_established_identity(
     monkeypatch,
     user_record,
@@ -635,7 +624,6 @@ def test_phone_orphan_cleanup_protects_changed_or_established_identity(
     delete_user.assert_not_called()
 
 
-@pytest.mark.usefixtures("isolated_phone_orphan_firebase")
 def test_phone_orphan_cleanup_settles_missing_exact_uid_without_delete(monkeypatch):
     from firebase_admin import auth as firebase_auth
 
@@ -664,7 +652,6 @@ def test_phone_orphan_cleanup_settles_missing_exact_uid_without_delete(monkeypat
     delete_user.assert_not_called()
 
 
-@pytest.mark.usefixtures("isolated_phone_orphan_firebase")
 def test_phone_orphan_cleanup_revalidates_again_before_retry(monkeypatch):
     from firebase_admin import auth as firebase_auth
 

@@ -178,6 +178,20 @@ retryable. Fresh backend authentication, linked-phone verification and the final
 explicit deletion confirmation remain required. Local regression coverage does
 not establish a successful deployed Google exchange or authorize a live deletion.
 
+## Phone-proven linked-account deletion
+
+The existing linked-account deletion API again honors its explicit environment
+rollout control, with production disabled by default. Independent requester
+authentication, explicit deletion confirmation and fresh real SMS proof remain
+mandatory. Shared configured test codes cannot authorize deleting another account.
+Admission checks the current phone binding, account generation, protected-reviewer
+status and proof deadline; final full-account admission rechecks the binding and
+deadline under its owner locks. Final erasure detaches the deleting owner's raw
+references after its tombstone exists; hashed receipts and consumed proof events
+survive erasure of either account. Provider cleanup
+and local-erasure consent are unchanged; an admitted request is not a completed
+erasure receipt. The existing UI still requires previous-account sign-in.
+
 ## MCP Read-Only Tools
 
 1. `list_ria_profiles`
