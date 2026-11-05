@@ -384,6 +384,7 @@ POST /api/one/plg/subscriptions/ack
 GET,POST /api/one/plg/activity
 POST /api/one/plg/snapshot
 POST /api/one/plg/audience
+POST /api/one/plg/audience-uat
 POST /api/one/plg/customer-cohort
 POST /api/one/plg/owner
 POST /api/one/plg/owner-dev

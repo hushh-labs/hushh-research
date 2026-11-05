@@ -36,6 +36,7 @@ def worker_authority():
         for name in (
             "ONE_PLG_EXPORT_SECRET",
             "ONE_PLG_AUDIENCE_SECRET",
+            "ONE_PLG_UAT_AUDIENCE_SECRET",
             "ONE_PLG_UAT_EXPORT_SECRET",
             "ONE_PLG_DEV_EXPORT_SECRET",
             "ONE_PLG_SUBSCRIPTION_SECRET",

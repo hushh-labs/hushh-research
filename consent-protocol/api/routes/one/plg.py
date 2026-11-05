@@ -20,7 +20,12 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from api.middleware import require_firebase_auth_read_only
 from api.utils.firebase_auth import current_auth_lane
 from hushh_mcp.services import marketing_preferences, product_activity
-from hushh_mcp.services.plg_audience import AudienceCursorError, AudienceRequest, audience_page
+from hushh_mcp.services.plg_audience import (
+    AudienceCursorError,
+    AudienceRequest,
+    audience_page,
+    uat_audience_secret,
+)
 from hushh_mcp.services.plg_customer_cohort import (
     CohortCursorError,
     CohortRequest,
@@ -277,6 +282,7 @@ def _nonproduction_export_scope(environment: Literal["dev", "uat"]):
                 "ONE_PLG_DEV_EXPORT_SECRET",
                 "ONE_PLG_ATTEMPT_EMAIL_SECRET",
                 "ONE_PLG_AUDIENCE_SECRET",
+                "ONE_PLG_UAT_AUDIENCE_SECRET",
                 "ONE_PLG_SUBSCRIPTION_SECRET",
             )
             if key != secret_name
@@ -311,6 +317,7 @@ def _owner_export_scope(environment: Literal["dev", "uat", "production"]):
                 "ONE_PLG_UAT_EXPORT_SECRET",
                 "ONE_PLG_DEV_EXPORT_SECRET",
                 "ONE_PLG_AUDIENCE_SECRET",
+                "ONE_PLG_UAT_AUDIENCE_SECRET",
                 "ONE_PLG_SUBSCRIPTION_SECRET",
                 "ONE_PLG_ATTEMPT_EMAIL_SECRET",
             )
@@ -487,6 +494,25 @@ async def export_audience(request: Request):
         raise HTTPException(400, "Invalid audience request", headers=NO_STORE) from None
     except Exception:
         raise HTTPException(503, "Audience evidence unavailable", headers=NO_STORE) from None
+    return JSONResponse(result, headers=NO_STORE)
+
+
+@router.post("/audience-uat", include_in_schema=False)
+async def export_uat_audience(request: Request):
+    secret = uat_audience_secret()
+    if secret is None:
+        raise HTTPException(404, "UAT audience unavailable", headers=NO_STORE)
+    body = await _signed_body(request, secret=secret, purpose="audience-uat")
+    try:
+        payload = AudienceRequest.model_validate_json(body)
+        result = await asyncio.wait_for(
+            audience_page(payload, secret, datetime.now(timezone.utc), environment="uat"),
+            timeout=25,
+        )
+    except (AudienceCursorError, ValidationError):
+        raise HTTPException(400, "Invalid audience request", headers=NO_STORE) from None
+    except Exception:
+        raise HTTPException(503, "UAT audience evidence unavailable", headers=NO_STORE) from None
     return JSONResponse(result, headers=NO_STORE)
 
 
