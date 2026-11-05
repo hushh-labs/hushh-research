@@ -57,6 +57,11 @@ class AppStoreConnectHTTPError(DistributionError):
         self.status_code = status_code
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 @dataclass(frozen=True)
 class BetaReviewContact:
     first_name: str
@@ -149,7 +154,11 @@ class AppStoreConnectClient:
 
     @staticmethod
     def absolute_url(path_or_url: str) -> str:
-        return path_or_url if path_or_url.startswith("https://") else f"{ASC_API_ROOT}{path_or_url}"
+        url = urllib.parse.urljoin(ASC_API_ROOT, path_or_url)
+        parsed = urllib.parse.urlsplit(url)
+        if f"{parsed.scheme}://{parsed.netloc}" != ASC_API_ROOT or not parsed.path.startswith("/v1/"):
+            raise DistributionError("App Store Connect URL left the expected API origin")
+        return url
 
     def _urllib_request(
         self, method: str, url: str, payload: dict[str, Any] | None
@@ -166,7 +175,7 @@ class AppStoreConnectClient:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.build_opener(_NoRedirect()).open(request, timeout=60) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             # Apple responses can contain reviewer-facing information. Status is
@@ -471,6 +480,55 @@ def distribute_valid_build(
     }
 
 
+def configured_tester_access(
+    client: AppStoreConnectClient,
+    app_id: str,
+    build_id: str,
+    configuration: DistributionConfiguration,
+    email: str,
+) -> str:
+    """Check the named tester's eligibility through the configured groups."""
+    email = email.strip().casefold()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+", email):
+        return "lookup_unavailable"
+    query = urllib.parse.urlencode(
+        {"filter[email]": email, "filter[apps]": app_id,
+         "fields[betaTesters]": "email,state", "limit": 20}
+    )
+    testers = client.get(f"/v1/betaTesters?{query}")
+    matches = [
+        row for row in testers["data"]
+        if row.get("type") == "betaTesters"
+        and (row.get("attributes") or {}).get("email", "").casefold() == email
+    ]
+    if (testers.get("links") or {}).get("next") or len(matches) > 1:
+        return "lookup_unavailable"
+    if not matches:
+        return "no_matching_tester"
+    tester = matches[0]
+    state = tester["attributes"].get("state")
+    if state not in {"ACCEPTED", "INSTALLED"}:
+        return "invitation_pending" if state == "INVITED" else "tester_inactive"
+    tester_id = validate_resource_id("TestFlight tester", tester["id"])
+    membership = client.get(f"/v1/betaTesters/{tester_id}/relationships/betaGroups?limit=200")
+    group_ids = {row["id"] for row in membership["data"] if row.get("type") == "betaGroups"}
+    build = require_resource(client.get(f"/v1/builds/{build_id}"), "builds", "TestFlight build")
+    attrs = build.get("attributes") or {}
+    if (build["id"] != build_id or attrs.get("expired") is not False
+            or attrs.get("processingState") != "VALID"):
+        return "build_unavailable"
+    detail = require_resource(
+        client.get(f"/v1/builds/{build_id}/buildBetaDetail"),
+        "buildBetaDetails", "TestFlight beta status",
+    ).get("attributes") or {}
+    for group, lane in ((configuration.internal_group_id, "internal"),
+                        (configuration.external_group_id, "external")):
+        if (group in group_ids and detail.get(f"{lane}BuildState") == "IN_BETA_TESTING"
+                and relationship_contains_build(client, group, build_id)):
+            return f"eligible_{lane}"
+    return "configured_group_access_unconfirmed"
+
+
 def die(message: str) -> NoReturn:
     print(f"distribute-testflight-build: {message}", file=sys.stderr, flush=True)
     raise SystemExit(1)
@@ -596,6 +654,15 @@ def main(argv: list[str]) -> int:
             configuration=configuration,
             build_id=build_id,
         )
+        if tester_email := os.environ.get("TESTFLIGHT_TESTER_EMAIL"):
+            try:
+                result["tester_access"] = configured_tester_access(
+                    client, app_id, result["build_id"], configuration, tester_email,
+                )
+            except (DistributionError, AttributeError, KeyError, OSError, TypeError, ValueError):
+                # Tester lookup is read-only. Keep the verified distribution
+                # receipt when Apple cannot establish individual access.
+                result["tester_access"] = "lookup_unavailable"
     except DistributionError as exc:
         die(str(exc))
 
