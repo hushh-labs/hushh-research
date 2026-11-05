@@ -160,7 +160,7 @@ def current_head_reviewers(repository, member, policy, guard):
 
     Native reviewDecision is null when GitHub has no review-count requirement;
     neither that absence nor an APPROVED label grants authority. Reuse the same
-    cohort that populates ordinary CODEOWNERS, without mutable team membership.
+    governed ordinary-review cohort, independently of review-request labels.
     """
     governance = _module("apply-governance.py", "queue_reviewer_cohort")
     teams = [team for team in governance.MANAGED_TEAMS

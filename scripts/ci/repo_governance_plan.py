@@ -48,6 +48,9 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_phone_schema_legacy_job.py",
     "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
     "consent-protocol/tests/test_plg_qualification_producer.py",
+    "consent-protocol/tests/test_plg_qualification_bootstrap.py",
+    "consent-protocol/tests/test_plg_qualification_acceptance.py",
+    "consent-protocol/tests/test_plg_qualification_candidate.py",
     "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
     "consent-protocol/tests/test_uat_connector_rollout_contract.py",
     "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
@@ -306,6 +309,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_account_deletion_release_workflow.py",
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
+        "consent-protocol/tests/helpers/plg_qualification.py",
     }:
         return frozenset({"controller"}), None
     if root == ".agents":

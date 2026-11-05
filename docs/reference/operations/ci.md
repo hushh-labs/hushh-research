@@ -751,6 +751,17 @@ retain their dedicated owner exactly once. Runtime modules, schemas, migrations
 and unregistered test paths still select the existing backend lanes. The path
 contract checks both focused coverage and those conservative controls.
 
+The inert PLG qualification helper and its four consumer suites also use that
+controller owner. Fixture-only edits do not schedule the full backend. Changes
+to shared PLG runtime fixtures, application code or unknown helpers retain
+backend coverage, and release qualification retains both database partitions.
+
+Manual `scope=auto` uses the dispatched commit's real merge-base against the
+repository's default branch. This development comparison does not grant UI
+review inheritance or replace a serving-base release receipt. Unavailable or unrelated history refuses selection; an explicit `uat_base_sha`
+can supply the intended comparison. UAT release qualification still requires
+its verified serving base rather than a development comparison.
+
 The affected unit selector does not own standalone Node verifiers: analytics'
 Android-scope verifier and Node failure tests remain in the targeted Node job.
 `verify:voice-gateway` and the other explicit contract verifiers run once in

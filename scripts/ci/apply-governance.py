@@ -948,7 +948,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))
     ):
         raise SystemExit("Main queue configuration is not the reviewed active boundary")
-    from prepared_branch_governance import queue_rules
+    from prepared_branch_governance import _same_actors, _same_queue, queue_rules
 
     desired_rules = queue_rules(policy, queue["rules"])
     desired = {"users": users, "teams": [], "apps": []} if restrict_writers else None
@@ -1004,12 +1004,14 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             )
     elif main.get("merge_queue_bypass_team_slug"):
         raise SystemExit("Combined-result enforcement forbids team queue bypass")
+    if not restrict_writers and not _same_actors(queue.get("bypass_actors"), bypass):
+        raise SystemExit("Main queue exceptions differ; reconcile before writer activation")
     writer_change = (restricted != desired if restrict_writers
                      else protection.get("restrictions") is not None)
     changed = (
         writer_change
         or checks.get("strict") is not False
-        or queue.get("bypass_actors") != bypass
+        or not _same_actors(queue.get("bypass_actors"), bypass)
         or observed_scope != main_scope
         or queue["rules"] != desired_rules
     )
@@ -1026,7 +1028,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
                 _write(f"{endpoint}/restrictions/{key}", desired[key], "PUT")
-    if queue.get("bypass_actors") != bypass or observed_scope != main_scope or queue["rules"] != desired_rules:
+    if not _same_actors(queue.get("bypass_actors"), bypass) or observed_scope != main_scope or queue["rules"] != desired_rules:
         body = {
             key: queue[key]
             for key in ("name", "target", "enforcement", "conditions", "rules")
@@ -1050,7 +1052,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             raise SystemExit("Main protection changed; writer restriction retained")
         observed_queue = gh_json(["api", queue_endpoint])
         expected_queue = dict(queue, conditions=main_scope, rules=desired_rules, bypass_actors=bypass)
-        if observed_queue != expected_queue:
+        if not _same_queue(observed_queue, expected_queue, snapshot=True):
             raise SystemExit("Main queue changed; writer restriction retained")
         reconcile_protected_pipeline_review(policy, verify_only=True, read=gh_json)
         reconcile_owner_admin_ruleset(policy, branch="main", verify_only=True, read=gh_json)
@@ -1058,7 +1060,10 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             raise SystemExit("Main authority advanced; writer restriction retained")
         gh(["api", "--method", "DELETE", f"{endpoint}/restrictions"])
         after = gh_json(["api", endpoint])
-        if after != dict(expected, restrictions=None):
+        without_restrictions = {key: value for key, value in expected.items() if key != "restrictions"}
+        # GitHub omits the removed subresource; some API fixtures return null.
+        # Accept only those two representations, with every other field exact.
+        if after not in (without_restrictions, dict(expected, restrictions=None)):
             raise SystemExit("Main writer readback differs; inspect before any further operation")
     return changed
 
