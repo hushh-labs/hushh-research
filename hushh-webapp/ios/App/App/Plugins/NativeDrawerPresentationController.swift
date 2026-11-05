@@ -1097,6 +1097,37 @@ struct NativeDrawerContent: View {
                         ForEach(section.rows) { row in
                             profileIdentityHeader(row, photoOptions: false)
                         }
+                    } else if section.id == "net-worth-score-card", let score = section.rows.first {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button { model.choice("row", row: score.id) } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(section.title ?? "Net Worth Score").font(.headline)
+                                        Spacer()
+                                        Image(systemName: "chevron.forward").font(.footnote)
+                                    }
+                                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                        Text(score.label).font(.custom("PlusJakartaSans-Bold", size: 38, relativeTo: .largeTitle))
+                                        Text("/ 1,000").font(.footnote)
+                                    }.monospacedDigit().foregroundStyle(Color(red: 0.94, green: 0.79, blue: 0.36))
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!score.enabled || !model.interactionEnabled)
+                            .accessibilityIdentifier("native-profile-open-nws")
+                            if let details = score.detail { Text(details).font(.footnote) }
+                            ForEach(Array(section.rows.dropFirst())) { row in
+                                Button(row.label) { model.choice("row", row: row.id) }
+                                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                                    .disabled(!row.enabled || !model.interactionEnabled)
+                            }
+                        }
+                        .foregroundStyle(Color(red: 0.95, green: 0.94, blue: 0.89))
+                        .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(red: 0.06, green: 0.17, blue: 0.14), in: RoundedRectangle(cornerRadius: 16))
+                        .accessibilityIdentifier("native-profile-nws")
                     } else if section.id == "account-portrait", let row = section.rows.first, row.portrait == true {
                         profileIdentityHeader(row, photoOptions: true)
                     } else {
