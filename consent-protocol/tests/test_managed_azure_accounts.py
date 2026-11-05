@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -47,6 +48,57 @@ def _bindings(path) -> dict:
         provider: load_managed_runtime_policy(path, environment="uat", provider=provider)
         for provider in ("azure_openai", "vertex")
     }
+
+
+def test_personal_sandbox_selects_azure_transport_without_uat_information_grants(monkeypatch):
+    from hushh_mcp.managed_ai_config import sandbox_managed_azure_enabled
+    from hushh_mcp.runtime_providers.managed_azure import ManagedAzureBinding
+    from hushh_mcp.runtime_providers.managed_text import managed_text_policy
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-akshat-sandbox-auth")
+    monkeypatch.setenv("HUSSH_POD_MODE", "false")
+    monkeypatch.delenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", raising=False)
+    assert ManagedAzureBinding.from_environment() is None
+    monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    assert sandbox_managed_azure_enabled()
+    binding = ManagedAzureBinding.from_environment()
+    assert binding is not None and binding.capabilities["one_text_root"]["model"] == "gpt-5.4-mini"
+    assert load_managed_runtime_policy(environment="production") is None
+    assert load_managed_runtime_policy(environment="dev") is None
+    assert managed_text_policy() is None
+    assert os.environ["ENVIRONMENT"] == "development"
+    assert os.environ["GOOGLE_CLOUD_PROJECT"] == "hushh-akshat-sandbox-auth"
+    binding.require_current()
+    monkeypatch.delenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER")
+    with pytest.raises(RuntimeError, match="selection changed"):
+        binding.require_current()
+
+
+@pytest.mark.parametrize(
+    "environment,service,pod,provider",
+    [
+        ("production", "backend-dev-akshat", "false", "azure_openai"),
+        ("uat", "backend-dev-akshat", "false", "azure_openai"),
+        ("development", "consent-protocol", "false", "azure_openai"),
+        ("development", "backend-dev-akshat", "true", "azure_openai"),
+        ("development", "backend-dev-akshat", "false", "unsupported"),
+    ],
+)
+def test_sandbox_azure_flag_refuses_other_runtimes(
+    monkeypatch, environment, service, pod, provider
+):
+    from hushh_mcp.managed_ai_config import sandbox_managed_azure_enabled
+
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("K_SERVICE", service)
+    monkeypatch.setenv("HUSSH_POD_MODE", pod)
+    monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", provider)
+    with pytest.raises(ValueError, match="dedicated development backend"):
+        sandbox_managed_azure_enabled()
 
 
 def test_selected_account_resolves_to_the_inline_contract_without_rotating_bindings(tmp_path):

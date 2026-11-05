@@ -44,23 +44,35 @@ class ContextBudget:
 
 
 def context_budget(model: str) -> ContextBudget:
-    """Published supported-model limits, checked 2026-11-03.
+    """Published supported-model limits, checked 2026-11-05.
 
     aistudio.google.com/docs/models/gemini-3.8-flash (and gemini-3.7-flash);
     developers.openai.com/api/docs/models/gpt-5.1, gpt-5.6-luna and gpt-6-luna;
+    learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/models (GPT-5.4 mini);
     platform.claude.com/docs/en/build-with-claude/context-windows.
     Unknown/local models retain an explicitly labelled conservative fallback.
     """
     name = str(model).lower().rsplit("/", 1)[-1]
-    if name in {"gemini-3.8-flash", "gemini-3.7-flash"}:
-        return ContextBudget(1048576, 65536)
-    if name in {"gpt-5", "gpt-5-mini", "gpt-5.1"}:
-        return ContextBudget(400000, 128000)
-    if name in {"gpt-5.6-luna", "gpt-6-luna"}:
-        return ContextBudget(1050000, 128000)
-    if name in {"claude-sonnet-4-5", "claude-haiku-4-5"}:
-        return ContextBudget(200000, 64000)
-    return ContextBudget(8192, 2048, "unknown_model_fallback")
+    budgets = {
+        **dict.fromkeys(("gemini-3.8-flash", "gemini-3.7-flash"), ContextBudget(1048576, 65536)),
+        **dict.fromkeys(
+            ("gpt-5", "gpt-5-mini", "gpt-5.1", "gpt-5.4-mini"), ContextBudget(400000, 128000)
+        ),
+        **dict.fromkeys(("gpt-5.6-luna", "gpt-6-luna"), ContextBudget(1050000, 128000)),
+        **dict.fromkeys(("claude-sonnet-4-5", "claude-haiku-4-5"), ContextBudget(200000, 64000)),
+    }
+    if name in budgets:
+        return budgets[name]
+    from hushh_mcp.managed_ai_config import load_managed_runtime_policy
+
+    # Azure deployment IDs are arbitrary. Resolve only descriptors in the
+    # server-owned model contract, never infer a model from its deployment name.
+    policy = load_managed_runtime_policy(environment="uat", provider="azure_openai")
+    for descriptor in policy["azure"].values():
+        if isinstance(descriptor, dict) and descriptor.get("deployment") == model:
+            name = descriptor["model"]
+            break
+    return budgets.get(name, ContextBudget(8192, 2048, "unknown_model_fallback"))
 
 
 def _json(value: Any) -> str:
@@ -297,8 +309,15 @@ async def generate_summary(*, model: Any, owner: str, snapshot: dict) -> Summary
     return result
 
 
-async def _summarize(service: Any, identity: dict, model: Any, snapshot: dict) -> None:
+async def _summarize(
+    service: Any, identity: dict, model: Any, snapshot: dict, *, invocation: Any = None
+) -> None:
     try:
+        # Managed Azure agents bind owner authority on a per-invocation copy.
+        # Resolve that copy in the background; agent.model itself is unbound.
+        resolver = getattr(getattr(invocation, "agent", None), "canonical_model_async", None)
+        if callable(resolver):
+            model = await resolver(invocation)
         result = await generate_summary(model=model, owner=identity["user_id"], snapshot=snapshot)
         checkpoint = {
             key: snapshot[key] for key in ("version", "cutoff", "prefixDigest", "consentDigest")
@@ -337,7 +356,9 @@ def _schedule(context: Any, snapshot: dict | None) -> bool:
 
     lease = retain_request_chat_key()
     lease.__enter__()
-    task = asyncio.create_task(_summarize(service, identity, model, snapshot), name="one-chat-stm")
+    task = asyncio.create_task(
+        _summarize(service, identity, model, snapshot, invocation=invocation), name="one-chat-stm"
+    )
     _PENDING[key] = task
 
     def settled(completed: asyncio.Task) -> None:

@@ -850,6 +850,102 @@ def _stm_events(count=7, width=20):
     ]
 
 
+def test_stm_resolves_configured_azure_deployment_budget():
+    from hushh_mcp.one_adk import chat_memory as stm
+
+    canonical = stm.context_budget("gpt-5.4-mini")
+    assert (canonical.context, canonical.output) == (400_000, 128_000)
+    assert stm.context_budget("one-search-gpt-54-mini-eval") == canonical
+    assert stm.context_budget("unregistered-azure-deployment").kind == "unknown_model_fallback"
+
+
+@pytest.mark.asyncio
+async def test_stm_azure_background_binds_owner_and_refuses_revoked_authority(monkeypatch):
+    import json
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.adk_bridge import delegation
+    from hushh_mcp.one_adk import chat_memory as stm
+    from hushh_mcp.one_adk import request_secrets
+    from hushh_mcp.runtime_providers.managed_text import (
+        ManagedPrimaryTextModel,
+        ManagedTextAgent,
+        managed_text_policy,
+    )
+    from hushh_mcp.services import chat_key
+    from tests.services.test_azure_adk import message, model, response
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    monkeypatch.setattr(chat_key, "retain_request_chat_key", nullcontext)
+    authority = AsyncMock(return_value={"owner": "owner"})
+    monkeypatch.setattr(delegation, "validate_first_party_owner_token", authority)
+    monkeypatch.setattr(request_secrets, "resolve_request_secret", lambda value: value)
+    session = Session(
+        id="azure-stm",
+        app_name="one",
+        user_id="owner",
+        events=_stm_events(),
+        state={"hussh:user_id": "owner", "hussh:consent_token": "synthetic-owner-authority"},
+    )
+    snapshot = stm.summary_snapshot(session)
+    adapter, client, factory, supplier = model(
+        [
+            response(
+                message(
+                    json.dumps({"summary": "Earlier owner goals.", "cutoff": snapshot["cutoff"]})
+                )
+            )
+        ]
+    )
+    original = ManagedPrimaryTextModel(
+        model=adapter.model,
+        endpoint=adapter.endpoint,
+        client_factory=factory,
+        token_supplier=supplier,
+        processing_scope="one_text_chat",
+        policy_generation=managed_text_policy()["generation"],
+        allow_fallback=False,
+    )
+    agent = ManagedTextAgent(name="one", mode="chat", model=original)
+    service = SimpleNamespace(commit_chat_summary=AsyncMock(return_value=True))
+    invocation = SimpleNamespace(
+        session=session,
+        state=session.state,
+        agent=agent,
+        session_service=service,
+    )
+    context = SimpleNamespace(get_invocation_context=lambda: invocation)
+    try:
+        assert original.require_current is None
+        assert stm._schedule(context, snapshot)
+        assert not client.requests  # Scheduling never waits for model or owner checks.
+        await asyncio.gather(*stm._PENDING.values())
+        await asyncio.sleep(0)
+        service.commit_chat_summary.assert_awaited_once()
+        assert len(client.requests) == 1
+        assert client.requests[0]["text"]["format"]["type"] == "json_schema"
+        assert client.requests[0]["store"] is False
+        assert original.require_current is None  # Shared model was never mutated.
+
+        service.commit_chat_summary.reset_mock()
+        authority.return_value = None
+        assert stm._schedule(context, snapshot)
+        await asyncio.gather(*stm._PENDING.values())
+        await asyncio.sleep(0)
+        assert len(client.requests) == 1
+        service.commit_chat_summary.assert_not_awaited()
+        assert stm.CHECKPOINT_KEY not in session.state
+    finally:
+        for task in list(stm._PENDING.values()):
+            task.cancel()
+        if stm._PENDING:
+            await asyncio.gather(*stm._PENDING.values(), return_exceptions=True)
+
+
 def test_stm_counts_system_tools_and_ltm_and_never_cuts_a_tool_pair():
     from google.adk.models.llm_request import LlmRequest
 
@@ -893,6 +989,33 @@ def test_stm_counts_system_tools_and_ltm_and_never_cuts_a_tool_pair():
     assert full > estimate_request_tokens(no_config)
     fit_recent_context(request, ContextBudget(500, 100), summary_applied=False)
     assert [part.text for content in request.contents for part in content.parts] == ["newest"]
+
+
+def test_azure_usage_reconciles_input_once_without_adding_cached_or_reasoning_tokens(monkeypatch):
+    from hushh_mcp.one_adk import chat_memory as stm
+    from hushh_mcp.runtime_providers.azure_response_codec import _response
+    from tests.services.test_azure_adk import message, response
+
+    native = response(message("Synthetic answer."))
+    native.usage.input_tokens_details = SimpleNamespace(cached_tokens=7)
+    native.usage.output_tokens_details = SimpleNamespace(reasoning_tokens=3)
+    adapted = _response(native, allowed_names=set())
+    session = Session(id="usage", app_name="one", user_id="owner")
+    session.state[stm.USAGE_KEY] = {
+        "invocationId": "turn",
+        "modelCallId": "same-call",
+        "inputTokens": 100,
+        "outputReserveTokens": 128000,
+        "contextBudgetTokens": 400000,
+    }
+    recorded = []
+    monkeypatch.setattr(stm, "_record_usage", recorded.append)
+    stm.chat_memory_after_model(SimpleNamespace(session=session, state=session.state), adapted)
+    assert adapted.usage_metadata.cached_content_token_count == 7
+    assert adapted.usage_metadata.thoughts_token_count == 3
+    assert recorded[-1]["inputTokens"] == native.usage.input_tokens == 12
+    assert recorded[-1]["modelCallId"] == "same-call"
+    assert recorded[-1]["tokenCountMethod"] == "provider_usage"
 
 
 def test_stm_snapshot_rolls_forward_and_excludes_consent_tagged_turns():

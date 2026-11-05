@@ -77,6 +77,21 @@ async def test_person_choice_outranks_the_lane(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
+async def test_sandbox_model_preference_reports_actual_azure_deployment(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
+    monkeypatch.setenv("HUSSH_POD_MODE", "false")
+    monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    result = await prefs.get_preference(user_id="owner")
+    assert result["effective_model"] == "one-search-gpt-54-mini-eval"
+    assert result["choices"][0]["label"] == "Azure · gpt-5.4-mini"
+    with pytest.raises(prefs.ModelPreferenceError) as refused:
+        await prefs.set_preference(user_id="owner", model_id="gemini-3.8-flash")
+    assert refused.value.code == "MODEL_MANAGED_BY_POLICY"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("withdrawn_model", ["gemini-2.0-retired", "gemini-3.6-flash"])
 async def test_a_withdrawn_choice_degrades_instead_of_failing_the_turn(
     monkeypatch: pytest.MonkeyPatch,

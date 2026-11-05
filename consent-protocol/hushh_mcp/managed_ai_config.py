@@ -26,6 +26,28 @@ AZURE_ACCOUNT_FIELDS = ("tenant_id", "client_id", "primary_endpoint", "phi_endpo
 AZURE_DEPLOYMENT_FIELDS = frozenset({"primary_deployment", "phi_deployment"})
 
 
+def sandbox_managed_azure_enabled() -> bool:
+    """Explicit transport selection for personal Cloud Run sandboxes only.
+
+    Reusing fleet model descriptors does not activate UAT's information-processing
+    approvals, change the runtime environment, or grant Azure federation access.
+    """
+    selected = os.getenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "").strip()
+    if not selected:
+        return False
+    environment = (
+        (os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local").strip().lower()
+    )
+    if (
+        selected != "azure_openai"
+        or environment not in {"development", "local"}
+        or not re.fullmatch(r"backend-dev-[a-z][a-z0-9-]{0,40}", os.getenv("K_SERVICE", ""))
+        or os.getenv("HUSSH_POD_MODE", "").strip().lower() not in {"", "0", "false", "off", "no"}
+    ):
+        raise ValueError("Sandbox Azure requires a dedicated development backend service")
+    return True
+
+
 def validate_profile(value: dict, *, local: bool = False) -> dict:
     if set(value) != FIELDS:
         raise RuntimeError("Managed AI profile fields do not match the contract")
@@ -303,17 +325,21 @@ def load_managed_runtime_policy(
     provider: str | None = None,
     document: dict | None = None,
 ) -> dict | None:
-    """UAT processor selection only; callers retain information/action authority.
+    """Managed capability selection; callers retain information/action authority.
 
     This expanded administrator rollout is separate from the narrower historical
-    One/Drive consent descriptor. It does not select or redirect a BYOK client.
+    One/Drive consent descriptor. A personal sandbox may explicitly reuse the
+    Azure transport descriptors without activating that UAT approval policy.
+    It does not select or redirect a BYOK client.
     """
     env = (
         (environment or os.getenv("HUSHH_DEPLOY_ENV") or os.getenv("ENVIRONMENT") or "local")
         .strip()
         .lower()
     )
-    if env != "uat":
+    sandbox_enabled = env != "uat" and sandbox_managed_azure_enabled()
+    sandbox = sandbox_enabled and env in {"development", "local"}
+    if env != "uat" and not sandbox:
         return None
     document = json.loads(path.read_text()) if document is None else document
     value = document["managed_runtime_uat"]
@@ -339,11 +365,17 @@ def load_managed_runtime_policy(
     ):
         raise ValueError("Invalid managed capability inventory")
     _validate_managed_azure_bindings(value["azure"], required)
-    selected = selected_managed_provider(path, document=document) if provider is None else provider
+    if provider is None:
+        selected = "azure_openai" if sandbox else selected_managed_provider(path, document=document)
+    else:
+        selected = provider
     if selected not in {"azure_openai", "vertex"}:
         raise ValueError("Invalid managed provider selection")
     azure = load_pwm_policy(path, environment="uat", provider="azure_openai", document=document)
-    digest = profile_hash({"policy": value, "azure": azure["azure"]})
+    material = {"policy": value, "azure": azure["azure"]}
+    if sandbox:
+        material["sandbox_service"] = os.environ["K_SERVICE"]
+    digest = profile_hash(material)
     return {
         **value,
         "provider": selected,

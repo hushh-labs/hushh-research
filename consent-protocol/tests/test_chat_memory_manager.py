@@ -43,6 +43,52 @@ async def test_rewrite_supplies_only_incremental_source_and_explicit_owner_model
     assert "history" not in payload
 
 
+async def test_sandbox_default_chat_and_ltm_use_azure_without_vertex(monkeypatch):
+    from unittest.mock import Mock
+
+    from hushh_mcp.one_adk.agent_tree import build_one_text_agent
+    from hushh_mcp.runtime_providers import factory, managed_azure, managed_azure_text
+    from tests.services.test_azure_adk import message, model, response
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("TESTING", "false")
+    monkeypatch.setenv("K_SERVICE", "backend-dev-akshat")
+    monkeypatch.setenv("HUSSH_POD_MODE", "false")
+    monkeypatch.setenv("HUSHH_SANDBOX_MANAGED_AI_PROVIDER", "azure_openai")
+    adapter, client, client_factory, supplier = model(
+        [response(message(json.dumps({"markdown": "# Memory\n- Prefers coffee.\n"})))]
+    )
+    monkeypatch.setattr(managed_azure, "_credential_supplier", lambda *_: supplier)
+    original = managed_azure_text.build_azure_text_model
+
+    def isolated_transport(*args, **kwargs):
+        selected = original(*args, **kwargs)
+        return selected.model_copy(update={"client_factory": client_factory})
+
+    monkeypatch.setattr(managed_azure_text, "build_azure_text_model", isolated_transport)
+    vertex = Mock(side_effect=AssertionError("Sandbox Azure must not dispatch to Vertex"))
+    monkeypatch.setattr(factory.ManagedGeminiRuntimeBinding, "build_regional_adk_model", vertex)
+    chat = build_one_text_agent(include_client_receipt_tools=False)
+    assert chat.model.model == "one-search-gpt-54-mini-eval"
+    assert chat.model.default_reasoning_effort == "none"
+    # A caller-supplied owner model remains authoritative.
+    assert build_one_text_agent(model=adapter, include_client_receipt_tools=False).model is adapter
+
+    result = await memory.rewrite_chat_memory(request())
+    assert "coffee" in result.markdown
+    assert len(client.requests) == 1
+    sent = client.requests[0]
+    assert sent["model"] == "pwm-gpt-5-mini-eval"
+    assert sent["store"] is False
+    assert sent["text"]["format"]["type"] == "json_schema"
+    assert sent["max_output_tokens"] == 32768
+    payload = json.loads(sent["input"][-1]["content"])
+    assert [item["id"] for item in payload["new_messages"]] == ["new-42"]
+    assert "Tea" in payload["current_markdown"]
+    vertex.assert_not_called()
+
+
 async def test_invalid_or_failed_generation_never_returns_a_replacement(monkeypatch):
     monkeypatch.setattr(memory, "build_single_turn_agent", lambda *a, **kw: "agent")
     run = AsyncMock(return_value={"markdown": ""})

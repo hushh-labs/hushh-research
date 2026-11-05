@@ -2729,11 +2729,20 @@ def build_one_text_agent(
         lookup=consent_bundle_lookup or _requester_bundle, before_model=_one_consent_before_model
     )
 
+    root_model = one_chat_root_model(text_model) if execution_mode == "chat" else text_model
+    if model is None and execution_mode == "chat":
+        from hushh_mcp.managed_ai_config import sandbox_managed_azure_enabled
+
+        if sandbox_managed_azure_enabled():
+            from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+            root_model = build_azure_text_model(_SPECIALIST_MODEL, capability="one_text_root")
+
     return one_text_agent(
         name="one",
         mode=execution_mode,
         output_schema=output_schema,
-        model=one_chat_root_model(text_model) if execution_mode == "chat" else text_model,
+        model=root_model,
         description=_ONE_MANIFEST.description,
         instruction=instruction_for_head(
             google_search_model if google_search_model is not None else text_model,

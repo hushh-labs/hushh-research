@@ -84,6 +84,26 @@ check. Failure preserves both previous values. Pending work never delays the mai
 answer; at the hard budget only the model-facing oldest complete turn groups may
 be omitted temporarily. The stored transcript is never shortened.
 
+Azure chat deployment names resolve through the server-owned
+`managed_runtime_uat.azure` descriptors before the context budget is calculated;
+they are not treated as model names or inferred from a deployment-name prefix.
+GPT-5.4 mini has a 400,000-token context window and 128,000-token maximum output
+allowance. Unknown deployments keep the labelled conservative fallback.
+Background STM resolves the canonical per-invocation model in its own task so
+the Azure owner-authority guard remains attached. Failed or revoked authority
+preserves the prior checkpoint and performs no memory commit.
+
+Personal Cloud Run services named `backend-dev-<handle>` may explicitly select
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` while retaining
+`ENVIRONMENT=development`. This reuses the configured Azure account, the
+`one_text_root` deployment for chat, and the existing primary text deployment for
+LTM rewrites and ordinary text genes. Readiness probes and the model preference
+response report Azure. It does not activate UAT's automatic information-processing
+approvals, grant provider credentials, or redirect owner/BYOK models. The flag is
+rejected on other services, in UAT/production and in owner pods. Deployment still
+requires approved source/configuration and Entra trust for the dedicated runtime
+identity; local mocked verification is not live Azure acceptance.
+
 The owner-scoped browser LTM runtime accumulates full request **input tokens**
 (including repeated system/tools/memory input) since its last acknowledged rewrite.
 Its initial configurable threshold is 12,000 tokens. Explicit remember/forget,
@@ -91,6 +111,10 @@ new-chat or switch, and five minutes of inactivity also trigger it. There is no
 five-message or guessed end-of-conversation trigger and no new save-status UI.
 Idle work requires an open, unlocked app; process suspension cannot promise a
 wall-clock background run.
+
+Azure `input_tokens` reconciles the same main-call usage record as the initial
+estimate. Cached input is already included and is not added again; reasoning and
+other output tokens do not contribute to the LTM input counter.
 
 The separate `agent_chat_memory_manager` receives only the current document and
 unprocessed role-attributed source messages, in bounded batches. It proposes a
