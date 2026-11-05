@@ -34,6 +34,12 @@ const MAX_IMPORT_GRAPH_EDGES = 500_000;
 const OTHER_OWNER_FILES = new Set([
   // This browser-flow harness is covered by the hosted browser contract lane.
   "scripts/testing/phone-conflict-flow.mjs",
+  // Required UI Contracts executes these Node validators on every CI run.
+  "scripts/architecture/ui-review-receipts.mjs",
+  "scripts/architecture/verify-ui-contracts.mjs",
+  "scripts/architecture/back-navigation.test.mjs",
+  "scripts/voice/search-contracts.test.mjs",
+  "scripts/voice/sync-search-contracts.mjs",
 ]);
 const REGISTERED_CONTRACT_INPUTS = new Set([
   "app/register-phone/page.voice-action-contract.json",
