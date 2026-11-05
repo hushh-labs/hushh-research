@@ -305,6 +305,11 @@ test("known native and browser harness inputs stay with their other owner", () =
       "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
       "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
+      "hushh-webapp/scripts/architecture/ui-review-receipts.mjs",
+      "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs",
+      "hushh-webapp/scripts/architecture/back-navigation.test.mjs",
+      "hushh-webapp/scripts/voice/search-contracts.test.mjs",
+      "hushh-webapp/scripts/voice/sync-search-contracts.mjs",
     ].join("\n"),
   } });
   assert.equal(plan.effectiveLevel, "focused");
