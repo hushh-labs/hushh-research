@@ -41,6 +41,10 @@ on:
         options:
           - uat
           - uat-isolated
+      verify_candidate_before_promotion:
+        description: "Require candidate health and text recovery before changing UAT traffic"
+        default: false
+        type: boolean
       approved_scope:
         description: "Required for deploy: approved release PR and full SHAs (BACKEND:FRONTEND:PR=HEAD[,PR=HEAD])"
         required: false
@@ -125,6 +129,7 @@ jobs:
       scope: ${{ inputs.scope }}
       sha: ${{ inputs.sha }}
       source_branch: ${{ inputs.source_branch }}
+      verify_candidate_before_promotion: ${{ inputs.verify_candidate_before_promotion }}
       approved_scope: ${{ inputs.approved_scope }}
       ci_run_id: ${{ inputs.ci_run_id }}
       ci_run_attempt: ${{ inputs.ci_run_attempt }}

@@ -244,9 +244,11 @@ class GitHub:
         self.accept(previous, "dev", sha, service)
 
     def accept_testflight_backend(
-        self, *, sha: str, run_id: int, revision: str, image_digest: str
+        self, *, sha: str, run_id: int, revision: str, image_digest: str,
+        source_branch: str = "uat-isolated",
     ) -> dict:
-        """Bind an isolated release receipt to the backend currently serving TestFlight."""
+        """Bind an exact UAT release receipt to the backend currently serving TestFlight."""
+        require(source_branch in {"uat", "uat-isolated"}, "Unknown protected UAT source")
         run = self.read(f"runs/{run_id}")
         attempt = run.get("run_attempt")
         require(
@@ -259,8 +261,8 @@ class GitHub:
         _, _, receipt = self._receipt(pin, "uat")
         prior = receipt.get("predecessor", {})
         require(
-            prior.get("kind") == "uat-exact-ci" and prior.get("source_branch") == "uat-isolated",
-            "TestFlight requires acceptance for the protected isolated source",
+            prior.get("kind") == "uat-exact-ci" and prior.get("source_branch", "uat") == source_branch,
+            "TestFlight requires acceptance for the requested protected UAT source",
         )
         accepted = self.accept(pin, "uat", sha, "backend")
         require(
@@ -484,7 +486,7 @@ def main() -> int:
     parser.add_argument("--predecessor", type=Path)
     parser.add_argument("--base-sha")
     parser.add_argument("--authority-sha")
-    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"), default="uat")
+    parser.add_argument("--source-branch", choices=("uat", "uat-isolated"))
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--ci-run-id", type=int)
@@ -509,8 +511,10 @@ def main() -> int:
                 receipt = GitHub().accept_testflight_backend(
                     sha=args.sha, run_id=args.deployment_run_id,
                     revision=args.serving_revision, image_digest=args.serving_image,
+                    source_branch=args.source_branch or "uat-isolated",
                 )
             elif args.command == "direct-uat":
+                args.source_branch = args.source_branch or "uat"
                 receipt = direct_uat(args)
             elif args.command == "backend-image":
                 receipt = pinned_backend_image(args)

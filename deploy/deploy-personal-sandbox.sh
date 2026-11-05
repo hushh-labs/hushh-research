@@ -8,16 +8,45 @@ die() { printf '%s\n' "$*" >&2; exit 1; }
 # only with the dedicated build and runtime accounts.
 project=hushh-pda-uat
 region=us-central1
-service=backend-dev-ankit
-auth_project=hushh-team-sandbox-auth
-bucket=hushh-pda-uat-backend-dev-ankit-builds
+owner="${SANDBOX:-ankit}"
+approved_sha=
+approved_tar=
+case "$owner/${GITHUB_ACTOR:-}/${GITHUB_TRIGGERING_ACTOR:-}" in
+  ankit/ankitkumarsingh1702/ankitkumarsingh1702)
+    invoker=ankit@hushh.ai
+    auth_project=hushh-team-sandbox-auth
+    adc_project=$project
+    baseline=e8c9b607229f87ba33cc3af838d880abdff8ec28
+    ;;
+  akshat/ankitkumarsingh1702/ankitkumarsingh1702|akshat/RGlodAkshat/RGlodAkshat)
+    invoker=i-akshat@hush1one.com
+    auth_project=hushh-akshat-sandbox-auth
+    adc_project=$auth_project
+    baseline=d884959b5b1dc666b01998b24bdd8138be93161e
+    approved_sha=5f4dcb772a66a303fb925f267246bc2e17b0ba9f
+    # Hash the Git tar before compression so gzip implementation is immaterial.
+    approved_tar=8ca26e5c906f28acce2ce6e3c5caeacb60853d9c059da15c190939225d5184c5
+    ;;
+  *) die "The actor and rerun actor are not authorized for this sandbox." ;;
+esac
+service="backend-dev-$owner"
+bucket="$project-$service-builds"
 image="$region-docker.pkg.dev/$project/$service/$service"
 runtime="$service@$project.iam.gserviceaccount.com"
 builder="$service-build@$project.iam.gserviceaccount.com"
 sql="$project:$region:$service-pg"
-baseline=e8c9b607229f87ba33cc3af838d880abdff8ec28
+database="backend_dev_$owner"
+secret_prefix="BACKEND_DEV_$(printf '%s' "$owner" | tr '[:lower:]' '[:upper:]')"
 
 [[ ${SOURCE_SHA:-} =~ ^[0-9a-f]{40}$ ]] || die "Supply the full source commit SHA."
+[[ "$SOURCE_SHA" == "${approved_sha:-$SOURCE_SHA}" ]] || die "Source commit is not approved for this sandbox."
+if [[ "$owner" == akshat && -n "${REUSE_BUILD_ID:-}" ]]; then
+  die "Akshat recovery uses the build ID recorded on the ready revision."
+fi
+if [[ "${1:-}" == --authorize && $# == 1 ]]; then
+  exit 0
+fi
+[[ $# == 0 ]] || die "Unexpected arguments."
 [[ ${SOURCE_SHA256:-} =~ ^[0-9a-f]{64}$ ]] || die "Supply the archive's SHA-256."
 [[ ${SOURCE_OBJECT:-} =~ ^personal-backend/[a-zA-Z0-9._-]+#[1-9][0-9]{0,18}$ ]] ||
   die "Supply a generation-qualified object in the personal-backend prefix."
@@ -33,8 +62,14 @@ stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 
 gcloud storage cp "gs://$bucket/$SOURCE_OBJECT" "$stage/source.tar.gz" --project="$project" --quiet
-printf '%s  %s\n' "$SOURCE_SHA256" "$stage/source.tar.gz" | sha256sum --check --status ||
+archive_hash="$(sha256sum "$stage/source.tar.gz")"
+[[ "${archive_hash%% *}" == "$SOURCE_SHA256" ]] ||
   die "The selected source generation failed its SHA-256 check."
+
+if [[ -n "$approved_tar" ]]; then
+  tar_hash="$(gzip -dc "$stage/source.tar.gz" | sha256sum)"
+  [[ "${tar_hash%% *}" == "$approved_tar" ]] || die "Archive contents differ from the approved Git tar."
+fi
 
 # Read the Git archive commit marker without extracting candidate files.
 archive_sha="$(python3 -c '
@@ -53,13 +88,14 @@ require_private_policy() {
 existing="$(gcloud run services list "${flags[@]}" --filter="metadata.name=$service" --format='value(metadata.name)')"
 deploy_flags=("${flags[@]}")
 reuse_revision=false
+build_id="${REUSE_BUILD_ID:-}"
 pin_traffic=true
 if [[ -n "$existing" ]]; then
   [[ "$existing" == "$service" ]] || die "Unexpected Cloud Run target."
   service_state="$(gcloud run services describe "$service" "${flags[@]}" \
     --format='json(metadata.labels,metadata.annotations,spec.traffic,status.traffic,status.latestReadyRevisionName)')"
-  jq -e '
-    .metadata.labels["sandbox-owner"] == "ankit" and
+  jq -e --arg owner "$owner" '
+    .metadata.labels["sandbox-owner"] == $owner and
     .metadata.annotations["run.googleapis.com/invoker-iam-disabled"] != "true"
   ' <<< "$service_state" >/dev/null || die "The target is not a private sandbox."
   require_private_policy
@@ -70,12 +106,17 @@ if [[ -n "$existing" ]]; then
 
   previous_revision="$(jq -r --arg tag "$tag" '.spec.traffic[]? | select(.tag == $tag) | .revisionName' <<< "$service_state")"
   if [[ -n "$previous_revision" ]]; then
-    [[ "$previous_revision" =~ ^backend-dev-ankit-[a-z0-9-]+$ ]] || die "Unexpected tagged revision."
-    ready="$(gcloud run revisions describe "$previous_revision" "${flags[@]}" --format='json(status.conditions)' |
-      jq -er '.status.conditions[] | select(.type == "Ready") | .status')"
+    [[ "$previous_revision" =~ ^$service-[a-z0-9-]+$ ]] || die "Unexpected tagged revision."
+    previous="$(gcloud run revisions describe "$previous_revision" "${flags[@]}" \
+      --format='json(metadata.labels,status.conditions)')"
+    ready="$(jq -er '.status.conditions[] | select(.type == "Ready") | .status' <<< "$previous")"
     case "$ready" in
       True)
-        [[ -n "${REUSE_BUILD_ID:-}" ]] || die "Supply the verified build ID to finalize a ready revision."
+        if [[ "$owner" == akshat ]]; then
+          build_id="$(jq -er '.metadata.labels["sandbox-build-id"]' <<< "$previous")" ||
+            die "The ready revision lacks its verified build ID."
+        fi
+        [[ -n "$build_id" ]] || die "Supply the verified build ID to finalize a ready revision."
         jq -e --arg tag "$tag" --arg revision "$previous_revision" '
           ([.status.traffic[]? | select(.tag == $tag)] |
             length == 1 and .[0].revisionName == $revision)
@@ -97,7 +138,6 @@ if [[ -n "$existing" ]]; then
   fi
 fi
 
-build_id="${REUSE_BUILD_ID:-}"
 if [[ -z "$build_id" ]]; then
   # Preserve the verified generation. A source argument to builds submit would
   # stage a copy with a different generation.
@@ -110,51 +150,71 @@ if [[ -z "$build_id" ]]; then
   build_id="$(gcloud builds submit --no-source --config="$stage/build.yaml" --project="$project" \
     --region=global --quiet --suppress-logs --format='value(id)' \
     --service-account="projects/$project/serviceAccounts/$builder" \
-    --substitutions="_IMAGE=$image,_SOURCE_SHA=$SOURCE_SHA,_ATTEMPT=$attempt")"
+    --substitutions="_IMAGE=$image,_SOURCE_SHA=$SOURCE_SHA,_ATTEMPT=$attempt,_SANDBOX=$owner")"
 fi
 [[ "$build_id" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]] || die "Expected a Cloud Build ID."
 
-attempt="$(gcloud builds describe "$build_id" --project="$project" --region=global --format=json |
-  jq -er --arg bucket "$bucket" --arg object "${SOURCE_OBJECT%#*}" --arg generation "${SOURCE_OBJECT##*#}" \
+build="$(gcloud builds describe "$build_id" --project="$project" --region=global --format=json)"
+attempt="$(jq -er --arg bucket "$bucket" --arg object "${SOURCE_OBJECT%#*}" --arg generation "${SOURCE_OBJECT##*#}" \
     --arg builder "projects/$project/serviceAccounts/$builder" --arg image "$image" --arg sha "$SOURCE_SHA" '
       select(.status == "SUCCESS" and .serviceAccount == $builder
         and .substitutions._IMAGE == $image and .substitutions._SOURCE_SHA == $sha
         and (.sourceProvenance.resolvedStorageSource |
           .bucket == $bucket and .object == $object and (.generation | tostring) == $generation))
       | .substitutions._ATTEMPT
-    ')" || die "Cloud Build did not confirm the exact sandbox builder, image and source."
+    ' <<< "$build")" || die "Cloud Build did not confirm the exact sandbox builder, image and source."
 [[ "$attempt" =~ ^$SOURCE_SHA-[0-9]+-[0-9]+$ ]] || die "Unexpected sandbox image attempt tag."
 printf 'Verified Cloud Build %s for %s\n' "$build_id" "$SOURCE_SHA"
 
-digest="$(gcloud artifacts docker images describe "$image:$attempt" --project="$project" \
-  --format='value(image_summary.digest)')"
+if [[ "$owner" == akshat ]]; then
+  digest="$(jq -er --arg image "$image:$attempt" '
+    .results.buildStepOutputs[1] | select(type == "string" and length <= 4096)
+    | @base64d | fromjson | select(.image == $image) | .digest
+  ' <<< "$build")" || die "Cloud Build did not record a digest for the exact sandbox image."
+else
+  digest="$(gcloud artifacts docker images describe "$image:$attempt" --project="$project" \
+    --format='value(image_summary.digest)')"
+fi
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || die "The build did not publish an image digest."
 
 if [[ "$reuse_revision" == false ]]; then
   # The backend uses a recognized runtime profile. Telemetry has its own label.
-  env_vars="ENVIRONMENT=development,GOOGLE_CLOUD_PROJECT=$project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
-  env_vars+=",REQUIRE_DATABASE_ON_STARTUP=true,DB_NAME=backend_dev_ankit,DB_UNIX_SOCKET=/cloudsql/$sql"
+  env_vars="ENVIRONMENT=development,GOOGLE_CLOUD_PROJECT=$adc_project,APP_FRONTEND_ORIGIN=http://localhost:3000,CORS_ALLOWED_ORIGINS=http://localhost:3000"
+  env_vars+=",REQUIRE_DATABASE_ON_STARTUP=true,DB_NAME=$database,DB_UNIX_SOCKET=/cloudsql/$sql"
   # Each worker holds three LISTEN connections. Preserve one request slot.
   env_vars+=",DB_POOL_MIN_SIZE=1,DB_POOL_MAX_SIZE=4,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0"
-  env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-ankit"
-  env_vars+=",HUSHH_SANDBOX_FIREBASE_PROJECT_ID=$auth_project"
-  env_vars+=",ONE_VOICE_LIVE_ENABLED=true"
+  env_vars+=",OTEL_ENABLED=true,HUSHH_TELEMETRY_ENV=sandbox-$owner"
+  if [[ "$owner" == ankit ]]; then
+    env_vars+=",HUSHH_SANDBOX_FIREBASE_PROJECT_ID=$auth_project"
+    env_vars+=",ONE_VOICE_LIVE_ENABLED=true"
+  else
+    # The approved source resolves Firebase's issuer through Google ADC.
+    env_vars+=",WEB_CONCURRENCY=1,OTEL_EXPORTER_GCP_TRACE_PROJECT_ID=$project"
+  fi
   env_vars+=',OTEL_EXPORTER_GCP_TRACE_RESOURCE_REGEX=^(deployment[.]environment|service[.]name)$'
-  secrets="APP_SIGNING_KEY=BACKEND_DEV_ANKIT_APP_SIGNING_KEY:1,VAULT_DATA_KEY=BACKEND_DEV_ANKIT_VAULT_DATA_KEY:1"
-  secrets+=",DB_USER=BACKEND_DEV_ANKIT_DB_USER:1,DB_PASSWORD=BACKEND_DEV_ANKIT_DB_PASSWORD:1"
+  secrets="APP_SIGNING_KEY=${secret_prefix}_APP_SIGNING_KEY:1,VAULT_DATA_KEY=${secret_prefix}_VAULT_DATA_KEY:1"
+  secrets+=",DB_USER=${secret_prefix}_DB_USER:1,DB_PASSWORD=${secret_prefix}_DB_PASSWORD:1"
 
+  labels="sandbox-owner=$owner,deploy-sha=$SOURCE_SHA,env=sandbox-$owner"
+  if [[ "$owner" == akshat ]]; then
+    labels+=",sandbox-build-id=$build_id"
+  fi
   gcloud run deploy "$service" "${deploy_flags[@]}" \
     --service-account="$runtime" --ingress=all --invoker-iam-check --no-allow-unauthenticated \
     --set-cloudsql-instances="$sql" --min-instances=0 --max-instances=1 --concurrency=20 --timeout=3600 \
-    --revision-suffix="$suffix" --tag="$tag" --labels="sandbox-owner=ankit,deploy-sha=$SOURCE_SHA,env=sandbox-ankit" \
+    --revision-suffix="$suffix" --tag="$tag" --labels="$labels" \
     --container=consent-protocol --image="$image@$digest" --port=8080 --cpu=2 --memory=4Gi \
     --set-env-vars="$env_vars" --set-secrets="$secrets" \
     --startup-probe='httpGet.path=/health,httpGet.port=8080,periodSeconds=5,failureThreshold=24'
 fi
 
 gcloud run revisions describe "$revision" "${flags[@]}" --format=json |
-  jq -e --arg sha "$SOURCE_SHA" --arg digest "$digest" --arg runtime "$runtime" --arg sql "$sql" '
-    .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == "sandbox-ankit" and
+  jq -e --arg sha "$SOURCE_SHA" --arg digest "$digest" --arg runtime "$runtime" \
+    --arg sql "$sql" --arg owner "$owner" --arg auth "$auth_project" --arg build "$build_id" '
+    .metadata.labels["deploy-sha"] == $sha and .metadata.labels.env == ("sandbox-" + $owner) and
+    ($owner == "ankit" or
+      (.metadata.labels["sandbox-build-id"] == $build and
+       any(.spec.containers[].env[]; .name == "GOOGLE_CLOUD_PROJECT" and .value == $auth))) and
     .metadata.annotations["run.googleapis.com/cloudsql-instances"] == $sql and
     .spec.serviceAccountName == $runtime and
     (.status.imageDigest | split("@")[-1]) == $digest and
@@ -165,7 +225,11 @@ if [[ "$pin_traffic" == true ]]; then
   gcloud run services update-traffic "$service" "${flags[@]}" --to-revisions="$revision=100"
 fi
 gcloud run services add-iam-policy-binding "$service" "${flags[@]}" \
-  --member=user:ankit@hushh.ai --role=roles/run.invoker --format=none
+  --member="user:$invoker" --role=roles/run.invoker --format=none
+if [[ "$owner" == akshat ]]; then
+  gcloud run services add-iam-policy-binding "$service" "${flags[@]}" \
+    --member="user:$invoker" --role=roles/run.viewer --format=none
+fi
 
 require_private_policy
 gcloud run services describe "$service" "${flags[@]}" --format=json |

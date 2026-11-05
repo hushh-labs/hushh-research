@@ -144,6 +144,48 @@ class FakeApple:
 
 
 class DistributeTestFlightBuildTests(unittest.TestCase):
+    def test_configured_tester_access_requires_the_exact_active_build(self) -> None:
+        email = "tester@example.test"
+        assigned = {BUILD_ID}
+        external = False
+
+        def read(method, url, payload):
+            self.assertEqual(method, "GET")
+            self.assertIsNone(payload)
+            parsed = urllib.parse.urlsplit(url)
+            if parsed.path == "/v1/betaTesters":
+                filters = urllib.parse.parse_qs(parsed.query)
+                self.assertEqual(filters["filter[email]"], [email])
+                self.assertEqual(filters["filter[apps]"], [APP_ID])
+                return {"data": [{"id": "tester-1", "type": "betaTesters",
+                                  "attributes": {"email": email, "state": "ACCEPTED"}}]}
+            group = EXTERNAL_GROUP_ID if external else INTERNAL_GROUP_ID
+            if parsed.path == "/v1/betaTesters/tester-1/relationships/betaGroups":
+                return {"data": [{"type": "betaGroups", "id": group}]}
+            if parsed.path == f"/v1/builds/{BUILD_ID}":
+                return {"data": {"type": "builds", "id": BUILD_ID,
+                                 "attributes": {"expired": False, "processingState": "VALID"}}}
+            if parsed.path == f"/v1/builds/{BUILD_ID}/buildBetaDetail":
+                return {"data": {"type": "buildBetaDetails", "id": "beta-1", "attributes": {
+                    "internalBuildState": "IN_BETA_TESTING",
+                    "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+                }}}
+            self.assertEqual(parsed.path, f"/v1/betaGroups/{group}/relationships/builds")
+            return {"data": [{"type": "builds", "id": build} for build in assigned]}
+
+        client = subject.AppStoreConnectClient("synthetic", request=read)
+        def access():
+            return subject.configured_tester_access(client, APP_ID, BUILD_ID, configuration(), email)
+
+        self.assertEqual(access(), "eligible_internal")
+        assigned.clear()
+        self.assertEqual(access(), "configured_group_access_unconfirmed")
+        assigned.add(BUILD_ID)
+        external = True
+        self.assertEqual(access(), "configured_group_access_unconfirmed")
+        with self.assertRaisesRegex(subject.DistributionError, "expected API origin"):
+            client.get("https://example.invalid/v1/betaTesters")
+
     def test_localization_update_finds_locale_on_later_page_and_only_patches_notes(self) -> None:
         calls = []
         def request(method, url, payload):
