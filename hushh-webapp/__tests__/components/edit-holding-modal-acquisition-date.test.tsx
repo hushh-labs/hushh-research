@@ -18,7 +18,7 @@ vi.mock("@/lib/kai/ticker-universe-cache", () => ({
   searchTickerUniverseRemote: vi.fn().mockResolvedValue([]),
 }));
 
-describe("EditHoldingModal acquisition date (iOS-native tap contract)", () => {
+describe("EditHoldingModal acquisition date", () => {
   it("accepts reported cash without stock quantities and keeps the original correction entry identity", () => {
     const cash = { symbol: "CASH", name: "Sweep", quantity: 0, price: 0, market_value: 8245 };
     const invalid = { entry_id: "bad-entry", symbol: "GOOG", name: "Alphabet", quantity: 10, price: 0, market_value: 0 };
@@ -67,45 +67,54 @@ describe("EditHoldingModal acquisition date (iOS-native tap contract)", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ cost_basis: 0, unrealized_gain_loss: 100, unrealized_gain_loss_pct: undefined }));
   });
-  it("renders the date input as a full-size overlay, not a hidden 1px input", () => {
-    render(
-      <EditHoldingModal
-        isOpen
-        onClose={() => {}}
-        holding={null}
-        onSave={() => {}}
-      />,
-    );
+  it("saves the selected day without losing broker-reported gain or market value", async () => {
+    const onSave = vi.fn();
+    render(<EditHoldingModal isOpen onClose={() => {}} holding={{
+      symbol: "AAPL", name: "Apple", quantity: 1, price: 100, market_value: 98, acquisition_date: "02/01/2024",
+      unrealized_gain_loss: -2, unrealized_gain_loss_pct: -2,
+    }} onSave={onSave} />);
 
-    const dateInput = screen.getByLabelText("Acquisition date") as HTMLInputElement;
-    expect(dateInput.type).toBe("date");
-    // iOS WKWebView only opens the native date wheel from a direct tap ON the
-    // date input. The old implementation hid it at 1px with
-    // pointer-events-none and relied on programmatic showPicker()/click(),
-    // which iOS ignores - the field could never be filled on device. The fix
-    // is a full-size invisible overlay that receives the real tap.
-    expect(dateInput.className).toContain("absolute inset-0");
-    expect(dateInput.className).toContain("h-full w-full");
-    expect(dateInput.className).not.toContain("pointer-events-none");
-    expect(dateInput.getAttribute("aria-hidden")).toBeNull();
-    expect(dateInput.tabIndex).not.toBe(-1);
+    const trigger = screen.getByRole("button", { name: "Choose acquisition date from calendar" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+    const calendar = screen.getByRole("group", { name: "Acquisition date calendar" });
+    expect(calendar).toBeVisible();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox", { name: "Acquisition month" })).toHaveTextContent("February");
+    fireEvent.click(screen.getByRole("button", { name: "Thursday, February 29, 2024" }));
+
+    expect(screen.queryByRole("group", { name: "Acquisition date calendar" })).toBeNull();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.getByLabelText("Acquisition date")).toHaveValue("29/02/2024");
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ acquisition_date: "2024-02-29",
+      market_value: 98, unrealized_gain_loss: -2, unrealized_gain_loss_pct: -2 }));
+
+    fireEvent.change(screen.getByLabelText("Cost Basis (Total)"), { target: { value: "80" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ market_value: 98, cost_basis: 80,
+      unrealized_gain_loss: 18, unrealized_gain_loss_pct: 22.5 }));
   });
 
-  it("updates the visible display when a date is chosen", () => {
-    render(
-      <EditHoldingModal
-        isOpen
-        onClose={() => {}}
-        holding={null}
-        onSave={() => {}}
-      />,
-    );
-
-    const dateInput = screen.getByLabelText("Acquisition date") as HTMLInputElement;
-    fireEvent.change(dateInput, { target: { value: "2024-03-15" } });
-    expect(dateInput.value).toBe("2024-03-15");
-    expect(screen.getByText("03/15/2024")).toBeTruthy();
+  it("rejects impossible typed dates and persists a corrected date in ISO format", () => {
+    const onSave = vi.fn();
+    render(<EditHoldingModal isOpen onClose={() => {}} holding={{ symbol: "AAPL", name: "Apple", quantity: 1, price: 100, market_value: 100 }} onSave={onSave} />);
+    const date = screen.getByLabelText("Acquisition date");
+    const save = screen.getByRole("button", { name: /save/i });
+    fireEvent.change(date, { target: { value: "30022024" } });
+    fireEvent.click(save);
+    expect(date).toHaveAttribute("aria-invalid", "true");
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(date, { target: { value: "2902202412" } });
+    expect(date).toHaveValue("29/02/2024");
+    fireEvent.click(save);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ acquisition_date: "2024-02-29" }));
+    fireEvent.change(date, { target: { value: "" } });
+    fireEvent.click(save);
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ acquisition_date: undefined }));
   });
+
+
 
   it("rejects future acquisition dates on save", () => {
     const onSave = vi.fn();

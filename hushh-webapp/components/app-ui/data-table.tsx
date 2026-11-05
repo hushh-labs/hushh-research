@@ -50,6 +50,7 @@ import { Search } from "@/components/icons";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
+import { CompactPaginationFooter } from "@/components/app-ui/compact-pagination-footer";
 
 function buildPaginationItems(
   currentPage: number,
@@ -109,6 +110,7 @@ interface DataTableProps<TData, TValue> {
   density?: "default" | "compact";
   stickyHeader?: boolean;
   preserveMobilePaginationPosition?: boolean;
+  compactPagination?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -131,6 +133,7 @@ export function DataTable<TData, TValue>({
   density = "default",
   stickyHeader = false,
   preserveMobilePaginationPosition = false,
+  compactPagination = false,
 }: DataTableProps<TData, TValue>) {
   const mobilePaginationRef = React.useRef<HTMLElement>(null);
   const paginationAnchorRef = React.useRef<number | null>(null);
@@ -347,7 +350,7 @@ export function DataTable<TData, TValue>({
         </div>
       ) : null}
 
-      {renderMobileCard && hasMultiplePages ? (
+      {!compactPagination && renderMobileCard && hasMultiplePages ? (
         <nav
           ref={mobilePaginationRef}
           aria-label="Table pagination"
@@ -535,7 +538,16 @@ export function DataTable<TData, TValue>({
         </Table>
       </div>
 
-      {hasMultiplePages && (
+      {compactPagination ? (
+        <CompactPaginationFooter
+          total={filteredCount}
+          page={currentPage}
+          pageSize={pageSize}
+          pageSizes={normalizedPageSizeOptions}
+          onPageChange={page => table.setPageIndex(page - 1)}
+          onPageSizeChange={size => table.setPageSize(size)}
+        />
+      ) : hasMultiplePages && (
         <div
           className={cn(
             "flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between min-w-0 max-w-full flex-wrap",

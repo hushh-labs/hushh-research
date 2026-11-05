@@ -144,6 +144,7 @@ class VaultSnapshotRequest(_StrictModel):
     access_token: str = Field(..., min_length=8, max_length=256, pattern=_OPAQUE_ID_PATTERN)
     transactions_cursor: str | None = Field(default=None, max_length=4096, pattern=_CURSOR_PATTERN)
     transactions_continuation: bool = False
+    include_country_on_file: bool = False
 
 
 class VaultRemoveRequest(_StrictModel):
@@ -434,6 +435,7 @@ async def vault_snapshot(
             access_token,
             payload.transactions_cursor,
             continuation=payload.transactions_continuation,
+            include_country_on_file=payload.include_country_on_file,
         )
     except Exception as exc:
         raise _to_http_exception("snapshot", exc) from exc

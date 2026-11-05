@@ -331,13 +331,13 @@ export function AnalysisSummaryView({
 
       {showHeader ? (
         <div className="flex items-center gap-4 px-1">
-          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-semibold text-white dark:bg-white dark:text-black">
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-sm font-semibold text-white dark:bg-white dark:text-black">
             {entry.ticker.slice(0, 1)}
           </div>
           <div>
-            <h2 className="text-[20px] font-medium leading-tight tracking-normal sm:text-[22px]">{entry.ticker} Insight</h2>
+            <h2 className="ui-text-section-label">{entry.ticker} Insight</h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
-              <span className="font-mono text-sm text-muted-foreground">{priceLabel}</span>
+              <span className="text-sm tabular-nums text-muted-foreground">{priceLabel}</span>
               {todayChangePct !== null ? (
                 <span
                   className={cn(
@@ -364,7 +364,7 @@ export function AnalysisSummaryView({
       ) : null}
 
       <SurfaceCard>
-        <SurfaceCardContent className="space-y-4 p-5">
+        <SurfaceCardContent className="space-y-3 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className="text-sm font-semibold text-foreground">Analysis</span>
             <span className="text-xs font-medium text-muted-foreground">At analysis · {updatedAt}</span>

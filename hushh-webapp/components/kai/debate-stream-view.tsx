@@ -1470,7 +1470,7 @@ export function DebateStreamView({
           <MorphyCard showRipple={false}>
             <MorphyCardContent className="p-8 flex flex-col items-center space-y-4">
             <div className="p-4 rounded-full bg-muted/30">{display.icon}</div>
-            <h3 className="text-lg font-semibold text-center">{display.title}</h3>
+            <h3 className="ui-text-section-label text-center">{display.title}</h3>
             <p className="text-sm text-muted-foreground text-center">{error}</p>
             {retryCountdown !== null && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1520,7 +1520,7 @@ export function DebateStreamView({
         <div className="relative z-10 mb-4 overflow-hidden rounded-2xl border border-border/50 bg-background/65 px-4 py-3 shadow-sm backdrop-blur-md">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div />
-            <h1 className="justify-self-center text-[34px] font-medium tracking-normal text-foreground">
+            <h1 className="justify-self-center ui-text-section-label">
               {normalizedTicker}
             </h1>
             <div className="justify-self-end flex items-center gap-2">

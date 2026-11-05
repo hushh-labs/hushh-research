@@ -148,7 +148,9 @@ function normalizeHoldings(holdings: AnyObj[] | undefined): AnyObj[] {
       const symbol = normalizeHoldingSymbol(row.symbol, name, assetType);
       const quantity = parseMaybeNumber(row.quantity) ?? 0;
       const price = parseMaybeNumber(row.price ?? row.price_per_unit) ?? 0;
-      const marketValue = parseMaybeNumber(row.market_value) ?? 0;
+      const observedMarketValue = parseMaybeNumber(row.market_value);
+      const marketValueUnavailable = row.market_value_unavailable === true || observedMarketValue === undefined;
+      const marketValue = observedMarketValue ?? 0;
       const costBasis = parseMaybeNumber(row.cost_basis);
       const unrealized = parseMaybeNumber(row.unrealized_gain_loss);
       const estimatedAnnualIncome = parseMaybeNumber(
@@ -157,11 +159,8 @@ function normalizeHoldings(holdings: AnyObj[] | undefined): AnyObj[] {
       let unrealizedPct = parseMaybeNumber(row.unrealized_gain_loss_pct);
 
       if (unrealizedPct === undefined && unrealized !== undefined) {
-        const basis =
-          costBasis !== undefined && Math.abs(costBasis) > 1e-6
-            ? costBasis
-            : marketValue - unrealized;
-        if (Math.abs(basis) > 1e-6) {
+        const basis = costBasis ?? (marketValueUnavailable ? undefined : marketValue - unrealized);
+        if (basis !== undefined && Math.abs(basis) > 1e-6) {
           unrealizedPct = (unrealized / basis) * 100;
         }
       }
@@ -173,6 +172,7 @@ function normalizeHoldings(holdings: AnyObj[] | undefined): AnyObj[] {
         quantity,
         price,
         market_value: marketValue,
+        market_value_unavailable: marketValueUnavailable || undefined,
         cost_basis: costBasis,
         unrealized_gain_loss: unrealized,
         unrealized_gain_loss_pct: unrealizedPct,

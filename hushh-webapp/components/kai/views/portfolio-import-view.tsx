@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, FileUp, Loader2 } from "@/components/icons";
 
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
-import { KaiWorkspaceHeader } from "@/components/kai/kai-workspace-header";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
@@ -37,7 +37,9 @@ interface PortfolioImportViewProps {
   onSkip: () => void;
   onPreloadSchema?: () => void;
   onConnectPlaid?: (environment?: string | null) => void;
+  plaidConnectionError?: string | null;
   isUploading?: boolean;
+  isSkippingSource?: boolean;
   isPreloadingSchema?: boolean;
   isConnectingPlaid?: boolean;
   plaidConfigured?: boolean;
@@ -50,16 +52,17 @@ interface PortfolioImportViewProps {
 }
 
 /**
- * A first-time portfolio source picker. This deliberately stays within the
- * shared reading measure: it is a short decision list, not a dashboard or
- * import workbench. Parsing and connection progress render after a choice.
+ * The source picker renders animated cards during onboarding and a compact
+ * list from Portfolio. Both surfaces dispatch through the same handlers.
  */
 export function PortfolioImportView({
   onFileSelect,
   onSkip,
   onPreloadSchema,
   onConnectPlaid,
+  plaidConnectionError,
   isUploading = false,
+  isSkippingSource = false,
   isPreloadingSchema = false,
   isConnectingPlaid = false,
   plaidConfigured = true,
@@ -138,7 +141,7 @@ export function PortfolioImportView({
     onPreloadSchema();
   }, [isPreloadingSchema, isUploading, onPreloadSchema]);
 
-  const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid;
+  const isBusy = isUploading || isPreloadingSchema || isConnectingPlaid || isSkippingSource;
 
   if (presentation === "onboarding") {
     return <>
@@ -147,19 +150,15 @@ export function PortfolioImportView({
       <FinanceSourcePicker onConnect={handleConnectPlaid} onStatement={() => fileInputRef.current?.click()}
         onSample={handlePreloadSchema} onSkip={onSkip} onBack={onIntroductionBack} busy={isBusy}
         plaidAvailable={Boolean(onConnectPlaid && plaidConfigured)} sampleAvailable={Boolean(onPreloadSchema)}
-        status={isConnectingPlaid ? "Opening Plaid…" : isPreloadingSchema ? "Loading sample…" : "Importing statement…"}
-        error={selectionError} />
+        status={isSkippingSource ? "Continuing…" : isConnectingPlaid ? "Opening Plaid…" : isPreloadingSchema ? "Loading sample…" : "Importing statement…"}
+        error={selectionError ?? plaidConnectionError} />
     </>;
   }
 
   return (
-    <div className={`${finance.workspace} w-full pb-2`}>
-      <KaiWorkspaceHeader
-        workspace="portfolio"
-        title="Portfolio"
-      />
-
-      <AppPageContentRegion className="space-y-3">
+    <div className={`app-type-compact ${finance.workspace} w-full pb-2`}>
+      <AppPageContentRegion className="mx-auto max-w-lg space-y-4">
+        <PageHeader title="Import portfolio" accent="neutral" className={finance.compactPageHeader} />
         <input
           ref={fileInputRef}
           type="file"
@@ -177,7 +176,6 @@ export function PortfolioImportView({
           testId="portfolio-import-source-options"
         >
         <SettingsRow
-          className={finance.bankEntry}
           icon={PlaidIcon as any}
           iconTone="blue"
           title={
@@ -249,9 +247,9 @@ export function PortfolioImportView({
         ) : null}
         </SettingsGroup>
 
-        {selectionError ? (
-          <p className="px-1 text-sm text-destructive" role="alert">
-            {selectionError}
+        {selectionError || plaidConnectionError ? (
+          <p className="ui-text-row-description px-1 text-destructive" role="alert">
+            {selectionError ?? plaidConnectionError}
           </p>
         ) : null}
 
@@ -262,7 +260,7 @@ export function PortfolioImportView({
               effect="fade"
               onClick={onSkip}
               disabled={isBusy}
-              className="h-10 rounded-full px-4 text-sm text-muted-foreground hover:text-foreground"
+              className="ui-text-row-description min-h-11 rounded-full px-4 text-muted-foreground hover:text-foreground"
             >
               I&apos;ll link this later
             </MorphyButton>

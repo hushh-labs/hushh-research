@@ -3915,7 +3915,7 @@ These fields are additive to the canonical decision payload and mirrored in `raw
 
 Terminal payload from `POST /api/kai/portfolio/import/stream` now includes:
 
-- `portfolio_data_v2` (canonical app-consumed portfolio payload)
+- `portfolio_data_v2` (canonical portfolio payload with separate statement holding entries in `holdings`. The app groups matching entries for review. Position-level analytics and quality counters use their existing aggregation.)
 - `raw_extract_v2` (raw single-pass LLM extraction snapshot)
 - `analytics_v2` (materialized dashboard/debate/optimize metrics)
 - `quality_report_v2` (deterministic quality report and gate output)
