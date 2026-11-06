@@ -324,16 +324,17 @@ jobs:
       # the branch name, so a branch that moves mid-run cannot select lanes for
       # a commit this run does not test. Both are passed only on dispatch,
       # because v4 ignores them on a pull_request event and warns on every run.
-      # The default branch has no branch diff, so `auto` there runs `all`.
+      # Explicit release qualification keeps application core checks broad, but
+      # native work is selected against the actual candidate's changed inputs.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
           github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' ||
-          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
-          github.ref_name != github.event.repository.default_branch)
+          (github.event_name == 'workflow_dispatch' && ((inputs.scope == 'all' && inputs.uat_base_sha != '') ||
+          (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
           base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
-          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && github.sha || '' }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -679,8 +680,8 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
 
-      # The dispatches the filter above did not resolve: an explicit scope, or
-      # `auto` on the default branch. `editor` follows `frontend`.
+      # Preserve explicit frontend/backend diagnostics and default-branch auto.
+      # Release scope=all uses the filter's native ownership instead.
       - id: override
         if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
         env:

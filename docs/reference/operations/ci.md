@@ -220,6 +220,13 @@ as part of each merge task, following the [downstream completion procedure](../.
 scanning remains in PR validation and privileged unresolved-secret clearance runs
 only in an explicit Main-owned deployment's protected job.
 
+Read-only UAT inspection checks the selected candidate's public email-risk snapshot
+when email authentication is enabled. Expired or malformed inputs require a pinned
+upstream refresh before qualification; the full integrity and activation checks
+remain enforced during deployment. Base-pinned release `scope=all` keeps web/backend core
+qualification, selecting native lanes only from their existing ownership filters
+against that candidate and serving base. Explicit diagnostic scopes are unchanged.
+
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 `uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
