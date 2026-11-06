@@ -63,6 +63,94 @@ async def assert_quiet(queue):
 
 
 @pytest.mark.asyncio
+async def test_request_projection_hints_follow_committed_participants_and_only_visible_changes(
+    feed_db,
+):
+    writer, listener = feed_db
+    await writer.execute("""
+      CREATE TABLE connection_requests (requester_user_id text, addressee_user_id text, status text);
+      CREATE TABLE drive_share_requests (request_id uuid, user_id text, recipient_user_id text);
+      CREATE TABLE drive_owner_search_jobs (
+        client_request_id uuid, user_id text, status text, evaluation_status text, pages_scanned int);
+      CREATE TABLE drive_bulk_shares (origin_request_id uuid, user_id text, status text);
+      CREATE TABLE drive_request_payment_orders (
+        request_id uuid, user_id text, requester_user_id text, status text,
+        reconciliation_required bool, stripe_checkout_session_id text, stripe_checkout_expires_at timestamptz);
+      CREATE TABLE drive_request_payment_refunds (request_id uuid, status text);
+    """)
+    migration = ROOT / "db/migrations/453_feed_request_realtime.sql"
+    sql = migration.read_text()
+    await writer.execute(sql)
+    await writer.execute(sql)
+    queue = asyncio.Queue()
+    await listener.add_listener(
+        CHANNEL, lambda _c, _p, _ch, value: queue.put_nowait(json.loads(value))
+    )
+    request_id = uuid4()
+
+    async def expect(reason):
+        hints = [await asyncio.wait_for(queue.get(), 2) for _ in range(2)]
+        assert hints == [
+            {"type": "feed_changed", "user_id": user_id, "reason": reason}
+            for user_id in ("owner", "peer")
+        ]
+        await assert_quiet(queue)
+
+    async with writer.transaction():
+        await writer.execute("INSERT INTO connection_requests VALUES ('owner','peer','pending')")
+        await assert_quiet(queue)
+    await expect("connection_mutated")
+    await writer.execute("UPDATE connection_requests SET status='accepted'")
+    await expect("connection_mutated")
+
+    await writer.execute("INSERT INTO drive_share_requests VALUES ($1,'owner','peer')", request_id)
+    # A standalone or another owner's job cannot signal this request's participants.
+    await writer.execute(
+        "INSERT INTO drive_owner_search_jobs VALUES ($1,'other','queued','pending',0)", request_id
+    )
+    await assert_quiet(queue)
+    await writer.execute(
+        "INSERT INTO drive_owner_search_jobs VALUES ($1,'owner','queued','pending',0)", request_id
+    )
+    await expect("consent_mutated")
+    await writer.execute(
+        "UPDATE drive_owner_search_jobs SET status='running' WHERE user_id='owner'"
+    )
+    await expect("consent_mutated")
+    await writer.execute("UPDATE drive_owner_search_jobs SET status=status, pages_scanned=1")
+    await assert_quiet(queue)
+
+    await writer.execute("INSERT INTO drive_bulk_shares VALUES ($1,'owner','running')", request_id)
+    await expect("consent_mutated")
+    await writer.execute(
+        "INSERT INTO drive_request_payment_orders VALUES ($1,'owner','peer','awaiting_payment',false,NULL,NULL)",
+        request_id,
+    )
+    await expect("consent_mutated")
+    await writer.execute("UPDATE drive_request_payment_orders SET stripe_checkout_expires_at=now()")
+    await assert_quiet(queue)
+    await writer.execute("""
+      UPDATE drive_request_payment_orders SET status='checkout_open', stripe_checkout_session_id='private-session'
+    """)
+    await expect("consent_mutated")
+    await writer.execute("BEGIN; UPDATE drive_request_payment_orders SET status='paid'; ROLLBACK")
+    await assert_quiet(queue)
+    await writer.execute("UPDATE drive_request_payment_orders SET status='paid'")
+    await expect("consent_mutated")
+    await writer.execute(
+        "INSERT INTO drive_request_payment_refunds VALUES ($1,'queued')", request_id
+    )
+    await expect("consent_mutated")
+    await writer.execute("INSERT INTO drive_request_payment_refunds VALUES ($1,'queued')", uuid4())
+    await assert_quiet(queue)
+
+    rollback = migration.parent / "rollback/453_feed_request_realtime.rollback.sql"
+    await writer.execute(rollback.read_text())
+    await writer.execute("UPDATE connection_requests SET status='rejected'")
+    await assert_quiet(queue)
+
+
+@pytest.mark.asyncio
 async def test_feed_hints_commit_scope_coalescing_and_every_write(feed_db):
     writer, listener = feed_db
     await writer.execute(MIGRATION.read_text())

@@ -175,7 +175,7 @@ vi.mock("@/components/feed/feed-row", async (importOriginal) => {
           row-{props.item.id}
         </button>
       ) : (
-        <div>row-{props.item.id}</div>
+        <div data-feed-history-row="">row-{props.item.id}</div>
       );
     },
   };
@@ -238,6 +238,43 @@ beforeEach(() => {
   mocks.actionablesError = null;
   mocks.progressLoading = false;
   mocks.progressError = null;
+});
+
+it("publishes a received request outcome while reading older Feed history", async () => {
+  const original = mocks.data;
+  const renderPage = () => <div data-app-scroll-root="true"><FeedPage /></div>;
+  const view = render(renderPage());
+  try {
+    const originalRow = await screen.findByText("row-5");
+    const root = view.container.querySelector<HTMLElement>("[data-app-scroll-root]")!;
+    vi.spyOn(root, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 320, 500));
+    vi.spyOn(originalRow, "getBoundingClientRect").mockImplementation(() =>
+      new DOMRect(0, screen.queryByText("row-6") ? 152 : 100, 320, 52));
+    mocks.readStarted.mockClear();
+    root.scrollTop = 150;
+    fireEvent.scroll(root);
+    mocks.data = {
+      ...original,
+      items: [
+        { ...original.items[0], id: "7", source_domain: "kai", event_type: "kai_analysis_completed" },
+        { ...original.items[0], id: "6", source_domain: "connected_systems", event_type: "document_share_payment_confirmed" },
+        ...original.items,
+      ],
+    };
+    view.rerender(renderPage());
+    expect(await screen.findByText("row-6")).toBeInTheDocument();
+    expect(screen.getByText("row-5")).toBeInTheDocument();
+    expect(screen.queryByText("row-7")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New activity" })).toBeInTheDocument();
+    expect(root.scrollTop).toBe(202);
+    expect(mocks.readStarted).not.toHaveBeenCalled();
+    root.scrollTop = 0;
+    fireEvent.scroll(root);
+    expect(mocks.readStarted).toHaveBeenCalledWith("feed-user", "6");
+  } finally {
+    mocks.data = original;
+    view.unmount();
+  }
 });
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 

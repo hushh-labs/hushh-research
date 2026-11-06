@@ -761,6 +761,11 @@ export class CacheSyncService {
     this.onFeedChanged(userId);
   }
 
+  static onFeedConnectionRequestsChanged(userId: string): void {
+    noteConsentMutated(userId);
+    CacheService.getInstance().invalidate(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+  }
+
   /**
    * One-to-One requests can add, revoke, or leave capabilities unchanged.
    * Keep every affected surface on the same invalidation contract rather than

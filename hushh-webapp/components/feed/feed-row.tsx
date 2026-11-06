@@ -273,6 +273,7 @@ export const FeedRow = memo(function FeedRow({
   return (
     <div
       data-testid="feed-row"
+      data-feed-history-row=""
       data-no-route-swipe
       data-swipe-direction={removeDirection}
       className="group/feed-row relative isolate overflow-hidden bg-transparent after:pointer-events-none after:absolute after:bottom-0 after:left-11 after:right-0 after:h-px after:bg-[color:var(--app-separator)] after:content-[''] last:after:hidden"

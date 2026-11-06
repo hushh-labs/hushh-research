@@ -19,6 +19,7 @@ MIGRATION_NAME = "174_hushh_tech_uat_client_foundation.sql"
 DRIVE_RETIREMENT_MIGRATION_NAME = "360_uat_drive_collection_retirement.sql"
 UAT_OVERLAY_NAMES = (MIGRATION_NAME, DRIVE_RETIREMENT_MIGRATION_NAME)
 UAT_OVERLAY_NAMES += ("438_uat_legacy_generation_settlement.sql",)
+UAT_OVERLAY_NAMES += ("453_feed_request_realtime.sql",)
 ROLLBACK_NAME = "174_hushh_tech_uat_client_foundation.rollback.sql"
 MIGRATION = ROOT / "db" / "migrations" / MIGRATION_NAME
 ROLLBACK = ROOT / "db" / "migrations" / "rollback" / ROLLBACK_NAME

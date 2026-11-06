@@ -74,7 +74,8 @@ function OneFeedPreview({
         force: options?.force,
       }),
   });
-  useFeedLiveRefresh(() => {
+  useFeedLiveRefresh((scope) => {
+    if (scope === "connections") return;
     void refresh({ force: true });
   });
   const clearedThrough = readFeedClearedThroughId(ownerId);

@@ -1,6 +1,7 @@
 /** Fired after FeedService.markRead resolves, so the tab badge updates
  * immediately instead of waiting for the next poll. */
 export const FEED_STATE_CHANGED_EVENT = "hushh:feed-state-changed";
+export const FEED_CONNECTION_REQUESTS_CHANGED_EVENT = "hushh:feed-connection-requests-changed";
 
 /**
  * Why the feed state changed.
@@ -29,6 +30,11 @@ export function dispatchFeedStateChanged(
       detail: { reason },
     }),
   );
+}
+
+export function dispatchFeedConnectionRequestsChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(FEED_CONNECTION_REQUESTS_CHANGED_EVENT));
 }
 
 /** Reads the reason off a dispatched event, defaulting to the broader `action`

@@ -12,7 +12,7 @@ import {
   createDocumentFeedStreamManager,
   type DocumentFeedStreamManager,
 } from "@/lib/feed/document-feed-stream-manager";
-import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { dispatchFeedConnectionRequestsChanged, dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { dispatchPayoutStateChanged } from "@/lib/payouts/payout-events";
 import { setPayoutStreamState } from "@/lib/payouts/payout-live-store";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
@@ -85,15 +85,19 @@ function openSharedStream(user: FeedUser, ownerId: string): SharedStream {
     getToken: (forceRefresh) => shared.user.getIdToken(forceRefresh),
     isCurrent,
     isVisible: () => document.visibilityState !== "hidden",
-    dispatchFeed: ({ general, consent, requestId, historyMutated }) => {
+    dispatchFeed: ({ general, consent, connections, requestId, historyMutated }) => {
       // Server activity invalidates both Feed projections and fences older reads.
       if (historyMutated) CacheSyncService.onFeedHistoryMutated(uid);
-      else CacheSyncService.onFeedChanged(uid);
+      else if (general && !consent) CacheSyncService.onFeedChanged(uid);
+      if (consent) CacheSyncService.onConsentMutated(uid);
+      if (connections) {
+        CacheSyncService.onFeedConnectionRequestsChanged(uid);
+        dispatchFeedConnectionRequestsChanged();
+      }
       if (general) dispatchFeedStateChanged("arrived");
       if (!consent) return;
       // Feed surfaces listen to this one signal and perform a forced
       // authenticated reread. Consent Center also repairs its current view.
-      CacheSyncService.onConsentMutated(uid);
       dispatchConsentStateChanged({
         source: "sse_document_feed",
         requestId: requestId ? `document_share_request:${requestId}` : undefined,

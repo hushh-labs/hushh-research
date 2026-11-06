@@ -10,6 +10,21 @@ import type { FeedListResponse } from "@/lib/services/feed-service";
 import { createFeedPaginationState, reconcileFeedFirstPage, type FeedPaginationState } from "@/lib/feed/feed-pagination";
 
 type HistoryPresentation = { generation: number | null; revision: number; page: FeedListResponse; pagination: FeedPaginationState; scrollTop: number };
+type ScrollAnchor = { rows: Array<{ row: HTMLElement; top: number }>; scrollTop: number };
+
+function captureScrollAnchor(): ScrollAnchor | null {
+  const root = getAppScrollRoot();
+  if (!root) return null;
+  const viewport = root.getBoundingClientRect();
+  const rows: ScrollAnchor["rows"] = [];
+  for (const row of root.querySelectorAll<HTMLElement>("[data-feed-history-row]")) {
+    const rect = row.getBoundingClientRect();
+    if (rect.bottom > viewport.top && rect.top < viewport.bottom) {
+      rows.push({ row, top: rect.top });
+    }
+  }
+  return rows.length ? { rows, scrollTop: root.scrollTop } : null;
+}
 
 /** One bounded, memory-only return position. It never authorizes a Feed action. */
 export function useFeedHistoryPresentation(userId: string | undefined, data: FeedListResponse | null) {
@@ -26,7 +41,19 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
   const scrollTop = useRef(saved?.scrollTop ?? 0);
   const restoring = useRef(Boolean(saved));
   const latest = useRef({ page, pagination });
-  useLayoutEffect(() => { latest.current = { page, pagination }; }, [page, pagination]);
+  const anchor = useRef<ScrollAnchor | null>(null);
+  useLayoutEffect(() => {
+    latest.current = { page, pagination };
+    const savedAnchor = anchor.current;
+    anchor.current = null;
+    if (!savedAnchor) return;
+    const root = getAppScrollRoot();
+    if (!root || root.scrollTop !== savedAnchor.scrollTop) return;
+    const surviving = savedAnchor.rows.find(({ row }) => root.contains(row));
+    if (!surviving) return;
+    root.scrollTop += surviving.row.getBoundingClientRect().top - surviving.top;
+    scrollTop.current = root.scrollTop;
+  }, [page, pagination]);
 
   useEffect(() => {
     if (!data) return;
@@ -49,13 +76,24 @@ export function useFeedHistoryPresentation(userId: string | undefined, data: Fee
       return;
     }
     const known = new Set(previous?.items.map((item) => item.id));
-    if (previous && scrollTop.current > 100 && data.items.some((item) => !known.has(item.id))) {
-      setPending(data);
-      // Existing statuses may settle immediately; newly prepended history waits
-      // for the reader. Live emergency/actionable lanes have their own owner.
-      const updates = new Map(data.items.map((item) => [item.id, item]));
-      setPage({ ...previous, items: previous.items.map((item) => updates.get(item.id) ?? item) });
-      return;
+    const arrivals = data.items.filter((item) => !known.has(item.id));
+    if (previous && scrollTop.current > 100 && arrivals.length > 0) {
+      const liveArrivals = arrivals.filter((item) =>
+        item.source_domain === "consent" || item.source_domain === "connections"
+        || (item.source_domain === "connected_systems" && item.event_type.startsWith("document_share_")));
+      // Request and payment outcomes are live even while reading older activity.
+      if (liveArrivals.length > 0) anchor.current = captureScrollAnchor();
+      if (liveArrivals.length < arrivals.length) {
+        setPending(data);
+        // Ordinary prepends wait for the reader while request outcomes and known
+        // row status updates apply. Keep the cursor for the displayed history.
+        const updates = new Map(data.items.map((item) => [item.id, item]));
+        setPage({
+          ...previous,
+          items: [...liveArrivals, ...previous.items.map((item) => updates.get(item.id) ?? item)],
+        });
+        return;
+      }
     }
     setPage(data);
     setPending(null);

@@ -3775,7 +3775,9 @@ token check. v2 frames:
 - `hello {v, heartbeat_ms, max_lifetime_ms, live}` first.
 - `feed_reset {}` on connect and after a LISTEN resync: reread the snapshot.
 - `feed_changed` with an event `id` and `{request_id}` for one document
-  request, or `{}` for any other Feed write.
+  request, `{}` for an ordinary Feed write, or `{reason}` for a targeted
+  reread. Reasons are `consent_mutated`, `connection_mutated`, and
+  `history_mutated`. The reason carries no request or counterparty details.
 - `payout_changed {kinds, request_ids}`. Kinds are `wallet`, `earnings`,
   `bank_payouts`, `account` and `balance`; a doorbell with missing or unknown
   kinds lists them all. `request_ids` holds at most 20 IDs and is empty when the

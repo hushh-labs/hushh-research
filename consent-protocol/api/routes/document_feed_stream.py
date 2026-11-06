@@ -21,6 +21,7 @@ v2 (``?v=2``)::
     feed_reset     {}                         on connect and after a LISTEN resync
     feed_changed   id:<event uuid> {"request_id":"<uuid>"}   one document request
     feed_changed   {}                         any other committed Feed write
+    feed_changed   {"reason":<known reason>}   targeted snapshot invalidation
     payout_changed {"kinds":[...],"request_ids":[<=20 uuids]}
     heartbeat      {"ts":<epoch ms>,"live":bool}   every 15 s, time-based
     reconnect      {"after_ms":0..2000}       just before the server closes
@@ -330,8 +331,12 @@ def _reset_frame() -> dict[str, str]:
 
 
 def _general_feed_frame(item: dict[str, Any]) -> dict[str, str]:
-    # Only an explicit history reset reason crosses this content-free boundary.
-    payload = {"reason": "history_mutated"} if item.get("reason") == "history_mutated" else {}
+    reason = item.get("reason")
+    payload = (
+        {"reason": reason}
+        if reason in ("history_mutated", "consent_mutated", "connection_mutated")
+        else {}
+    )
     return _json_frame("feed_changed", payload)
 
 
@@ -498,6 +503,24 @@ async def document_feed_event_generator(
             elif event_type == GENERAL_FEED_EVENT_TYPE:
                 # Installed v1 builds ignore it; it never shortens their long-poll.
                 yield _general_feed_frame(item)
+            elif v2 and (
+                event_type == "information_request_updated"
+                or (
+                    event_type is None
+                    and item.get("action")
+                    in (
+                        "REQUESTED",
+                        "CONSENT_GRANTED",
+                        "CONSENT_DENIED",
+                        "CANCELLED",
+                        "REVOKED",
+                        "TIMEOUT",
+                    )
+                )
+            ):
+                # Consent's listener has already checked the recipient. Forward
+                # only a snapshot hint, never the consent event or its payload.
+                yield _general_feed_frame({"reason": "consent_mutated"})
             elif event_type == FEED_CHANGED_EVENT_TYPE:
                 frame = _feed_changed_frame(item)
                 if frame is not None:
