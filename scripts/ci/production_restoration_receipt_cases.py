@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 from unittest import mock
-from zipfile import ZipFile
+from zipfile import ZipFile, ZipInfo
 
 import production_restoration_receipt as restoration
 
@@ -43,6 +43,19 @@ def _operation_fixture(owner, attempt):
 
 
 class RestorationServingReceiptCases:
+    def test_restoration_archive_fixture_is_immutable_across_wall_clock_changes(self):
+        fixture = self.restoration_fixture()
+        with mock.patch("zipfile.time.localtime", return_value=(2026, 1, 1, 0, 0, 0, 3, 1, 0)):
+            original = self.restoration_archives(fixture)
+        with mock.patch("zipfile.time.localtime", return_value=(2026, 1, 1, 0, 0, 4, 3, 1, 0)):
+            refreshed = self.restoration_archives(fixture)
+            self.assertEqual(original, refreshed)
+            # Content changes still alter the immutable binding; only clock
+            # metadata is excluded from the synthetic archive's identity.
+            fixture["documents"]["synthetic-change.json"] = {"changed": True}
+            changed = self.restoration_archives(fixture)
+            self.assertNotEqual(original[self.artifact["id"]], changed[self.artifact["id"]])
+
     def restoration_fixture(self, attempt=2):
         path = restoration.ROOT / "deploy/account-deletion/production-restoration.json"
         record, digest = (
@@ -123,7 +136,9 @@ class RestorationServingReceiptCases:
             buffer = io.BytesIO()
             with ZipFile(buffer, "w") as bundle:
                 for name, value in documents.items():
-                    bundle.writestr(name, json.dumps(value))
+                    # A hosted artifact is immutable. Reconstructing this test
+                    # fixture must not mint new bytes at each two-second tick.
+                    bundle.writestr(ZipInfo(name), json.dumps(value))
             archives[item["id"]] = buffer.getvalue()
             item.update(
                 size_in_bytes=len(buffer.getvalue()),

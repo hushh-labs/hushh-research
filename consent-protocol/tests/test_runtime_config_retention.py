@@ -270,6 +270,46 @@ def test_plg_activation_cannot_cross_environment_or_project(
         )
 
 
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_reviewed_lane_flags_survive_writer_without_enabling_legacy_product(
+    monkeypatch, plg_runtime_sync, environment
+):
+    keys = (
+        ("one_plg_owner_export_enabled",)
+        if environment == "production"
+        else (f"one_plg_{environment}_export_enabled", f"one_plg_activity_{environment}_enabled")
+    )
+    stored = {
+        **dict.fromkeys(keys, True),
+        "one_plg_activity_enabled": True,
+        "one_plg_attempt_email_enabled": True,
+    }
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
+    actual = json.loads(writes[target])
+    assert all(actual[key] is value for key, value in stored.items())
+    assert "one_plg_export_account_ids" not in actual
+    # Main's older product does not interpret newer lane capability fields.
+    # Carrying the reviewed writer must not add those product capabilities.
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in (*keys, "one_plg_attempt_email_enabled"):
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
+    runtime_settings.hydrate_runtime_environment()
+    assert all(key.upper() not in os.environ for key in (*keys, "one_plg_attempt_email_enabled"))
+    project = "hushh-pda" if environment == "production" else f"hushh-pda-{environment}"
+    with pytest.raises(ValueError):
+        plg_runtime_sync._retained_plg_config(
+            {
+                **actual,
+                "one_plg_uat_export_enabled"
+                if environment != "uat"
+                else "one_plg_dev_export_enabled": True,
+            },
+            project=project,
+            environment=environment,
+        )
+
+
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
     path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
     spec = importlib.util.spec_from_file_location("referral_runtime_sync", path)
