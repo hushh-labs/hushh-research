@@ -21,6 +21,15 @@ beforeEach(() => {
   mocks.read.mockResolvedValue(plan); mocks.approve.mockResolvedValue({ ...plan, approvalRequired: false });
 });
 afterEach(() => { publishValidatedAuthSessionOwner(null); vi.restoreAllMocks(); vi.useRealTimers(); });
+it("offers sign out while approved cleanup remains pending without cancelling or retrying it", async () => {
+  mocks.read.mockResolvedValue({ ...plan, approvalRequired: false, inProgress: true, executionStarted: true });
+  const onLeave = vi.fn().mockResolvedValue(undefined);
+  render(<AccountCloudCleanup userId="synthetic-owner" token="synthetic-memory-only" purpose="remove_cloud" provider="gcp" onUnlock={vi.fn()} onFinish={vi.fn()} onLeave={onLeave} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+  expect(onLeave).toHaveBeenCalledOnce();
+  expect(mocks.begin).not.toHaveBeenCalled();
+  expect(mocks.cancelCloud).not.toHaveBeenCalled();
+});
 it("withdraws only a server-qualified unapproved removal and resumes without deleting", async () => {
   const review = { ...plan, canCancel: true, executionStarted: false };
   mocks.read.mockResolvedValue(review);
