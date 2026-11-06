@@ -206,9 +206,47 @@ def test_current_firebase_email_failure_keeps_initials(monkeypatch: pytest.Monke
 
 def test_event_lookup_is_bounded_and_never_searches_arbitrary_payloads() -> None:
     events = [{"attendees": [{"email": f"person{index}@example.test"} for index in range(120)]}]
-    assert len(portraits._event_emails(events)) == portraits.MAX_PORTRAIT_EMAILS
-    assert portraits._event_emails({"attendees": [{"email": "manish@example.test"}]}) == []
-    assert portraits._event_emails([{"attendees": "manish@example.test"}]) == []
+    assert len(portraits._portrait_emails(events)) == portraits.MAX_PORTRAIT_EMAILS
+    assert portraits._portrait_emails({"attendees": [{"email": "manish@example.test"}]}) == []
+    assert portraits._portrait_emails([{"attendees": "manish@example.test"}]) == []
+
+
+@pytest.mark.parametrize(
+    "events",
+    [[], [{"attendees": [{"email": f"person{i}@example.test"} for i in range(120)]}]],
+)
+def test_verified_accounts_reuse_visible_profiles_even_without_events(monkeypatch, events):
+    calls = []
+
+    class Directory:
+        def search_directory_candidates(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "items": [
+                    {"email": "work@example.test", "userId": "work-user", "photoUrl": "work-photo"}
+                ],
+                "hasMore": False,
+            }
+
+    monkeypatch.setattr(portraits, "OneLocationAgentService", Directory)
+    monkeypatch.setattr(
+        portraits, "verified_directory_emails", lambda _ids: {"work-user": "work@example.test"}
+    )
+    result = asyncio.run(
+        portraits.calendar_directory_portraits(
+            owner_user_id="owner",
+            events=events,
+            account_emails=[" Work@Example.Test ", "work@example.test", "invalid"],
+        )
+    )
+    assert result == {
+        "work@example.test": {"userId": "work-user", "displayName": None, "photoUrl": "work-photo"}
+    }
+    assert len(calls) == 1
+    assert calls[0]["owner_user_id"] == "owner"
+    assert "work@example.test" in calls[0]["verified_email_lookup"]
+    assert len(calls[0]["verified_email_lookup"]) <= portraits.MAX_PORTRAIT_EMAILS
+    assert "invalid" not in calls[0]["verified_email_lookup"]
 
 
 def test_invitations_route_adds_photos_to_the_owner_bound_event_read(

@@ -1,9 +1,10 @@
-"""Visible HUSSH profiles (name and portrait) for people in an owner's Calendar events."""
+"""Visible HUSSH profiles for an owner's verified Calendar accounts and event people."""
 
 from __future__ import annotations
 
 import asyncio
 from collections import Counter
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 from hushh_mcp.services.directory_identity_service import verified_directory_emails
@@ -20,10 +21,25 @@ class InvitationWindow(Protocol):
     def model_dump(self, *, exclude: set[str], exclude_none: bool) -> dict[str, Any]: ...
 
 
-def _event_emails(events: object) -> list[str]:
-    if not isinstance(events, list):
-        return []
+def _portrait_emails(events: object, account_emails: Sequence[str] = ()) -> list[str]:
     emails: set[str] = set()
+
+    def add(email: object) -> None:
+        if not isinstance(email, str):
+            return
+        normalized = email.strip().lower()
+        if (
+            3 <= len(normalized) <= 320
+            and normalized.count("@") == 1
+            and not any(char.isspace() for char in normalized)
+        ):
+            emails.add(normalized)
+
+    # Reserve space for verified account identities even on a busy or empty day.
+    for email in account_emails[:MAX_PORTRAIT_EMAILS]:
+        add(email)
+    if not isinstance(events, list) or len(emails) >= MAX_PORTRAIT_EMAILS:
+        return sorted(emails)
     for event in events:
         if not isinstance(event, dict):
             continue
@@ -32,16 +48,7 @@ def _event_emails(events: object) -> list[str]:
         for person in people:
             if not isinstance(person, dict):
                 continue
-            email = person.get("email")
-            if not isinstance(email, str):
-                continue
-            normalized = email.strip().lower()
-            if (
-                3 <= len(normalized) <= 320
-                and normalized.count("@") == 1
-                and not any(char.isspace() for char in normalized)
-            ):
-                emails.add(normalized)
+            add(person.get("email"))
             if len(emails) >= MAX_PORTRAIT_EMAILS:
                 return sorted(emails)
     return sorted(emails)
@@ -92,10 +99,10 @@ def _visible_portraits(owner_user_id: str, emails: list[str]) -> dict[str, dict[
 
 
 async def calendar_directory_portraits(
-    *, owner_user_id: str, events: object
+    *, owner_user_id: str, events: object, account_emails: Sequence[str] = ()
 ) -> dict[str, dict[str, str | None]]:
     """Enrich an owner read without letting a profile lookup block Calendar."""
-    emails = _event_emails(events)
+    emails = _portrait_emails(events, account_emails)
     if not owner_user_id or not emails:
         return {}
     try:

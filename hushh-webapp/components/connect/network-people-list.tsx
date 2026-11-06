@@ -36,10 +36,11 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [retry, setRetry] = useState(0);
   const root = useRef<HTMLElement>(null);
   const restore = useRef(Boolean(saved));
   const requestRef = useRef(0);
-  const previousRead = useRef<{ scope: string; page: number } | null>(null);
+  const lastSuccessfulRead = useRef<{ scope: string; page: number } | null>(null);
   const scope = JSON.stringify([owner, generation, mode, personRef, degree, query, revision]);
   const snapshot = useRef<Snapshot>({ query, degree, page, scrollTop: 0, focusRef: saved?.focusRef });
   snapshot.current = { ...snapshot.current, query, degree, page: result?.page ?? page };
@@ -64,17 +65,20 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
   useEffect(() => {
     const controller = new AbortController();
     const request = ++requestRef.current;
-    const append = previousRead.current?.scope === scope && page > previousRead.current.page;
-    previousRead.current = { scope, page };
+    const previous = lastSuccessfulRead.current;
+    const append = previous?.scope === scope && page === previous.page + 1;
     setBusy(true); setError(null);
-    if (!append) setResult(null);
+    if (!append) {
+      lastSuccessfulRead.current = null;
+      setResult(null);
+    }
     if (!user) { setBusy(false); return () => controller.abort(); }
     const timer = setTimeout(() => void (async () => {
       try {
         const idToken = await user.getIdToken();
         if (controller.signal.aborted || generation !== getAuthSessionGeneration()) return;
         const pages: NetworkPage[] = [];
-        for (let next = 1; next <= page; next++) {
+        for (let next = append ? page : 1; next <= page; next++) {
           const value = mode === "mutuals" && personRef
             ? await ConnectionsService.listMutualConnections({ idToken, personRef, page: next, signal: controller.signal })
             : await ConnectionsService.listNetwork({ idToken, personRef: mode === "connections" ? personRef : undefined, degree, query, page: next, signal: controller.signal });
@@ -83,11 +87,23 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
         }
         if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
         const last = pages[pages.length - 1];
-        if (last) setResult({ ...last, items: [...new Map(pages.flatMap(value => value.items).map(person => [person.publicPersonRef, person])).values()] });
+        if (last) {
+          lastSuccessfulRead.current = { scope, page: last.page };
+          const items = pages.flatMap(value => value.items);
+          setResult(current => {
+            const merged = append && current ? [...current.items, ...items] : items;
+            return { ...last, items: [...new Map(merged.map(person => [person.publicPersonRef, person])).values()] };
+          });
+        }
       } catch (failure) {
         if (controller.signal.aborted || request !== requestRef.current || generation !== getAuthSessionGeneration()) return;
-        setResult(null);
-        const unavailable = failure instanceof ConnectionsServiceRequestError && [401, 403, 404].includes(failure.status);
+        const status = failure instanceof ConnectionsServiceRequestError ? failure.status : null;
+        const unavailable = status !== null && [401, 403, 404].includes(status);
+        // Requalification failures can invalidate previously visible rows. Only a rate limit permits retaining them.
+        if (!append || status !== 429) {
+          lastSuccessfulRead.current = null;
+          setResult(null);
+        }
         if (unavailable) saveConnectListMemory(owner, memoryKey, null);
         setError(unavailable ? "This connection list is unavailable." : "Could not load connections. Please try again.");
       } finally {
@@ -95,9 +111,9 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
       }
     })(), query ? 250 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [user, owner, generation, mode, personRef, degree, query, page, revision, memoryKey, scope]);
+  }, [user, owner, generation, mode, personRef, degree, query, page, revision, retry, memoryKey, scope]);
 
-  useEffect(() => { if (result && !busy) onReady?.(); }, [result, busy, onReady]);
+  useEffect(() => { if (result && !busy && !error) onReady?.(); }, [result, busy, error, onReady]);
 
   useEffect(() => {
     if (!result || !restore.current || !saved) return;
@@ -123,7 +139,7 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
       {([undefined, 1, 2, 3] as const).map(value => <button key={value ?? "all"} type="button" aria-pressed={degree === value} className="min-h-11 min-w-14 rounded-full border px-4 text-sm aria-pressed:bg-primary aria-pressed:text-primary-foreground" onClick={() => { restore.current = false; setDegree(value); setPage(1); }}>{value ? networkDegreeLabel(value) : "All"}</button>)}
     </div> : null}
     {busy && !result ? <p role="status" className="py-6 text-muted-foreground">Loading connections…</p> : null}
-    {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRevision(value => value + 1)}>Try again</button></div> : null}
+    {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
     {result ? <ul className="divide-y rounded-2xl border bg-card" aria-busy={busy}>
       {result.items.map(person => <li key={person.publicPersonRef}><button type="button" data-network-person={person.publicPersonRef} aria-label={`Open ${connectPersonName(person)}'s profile`} className="flex min-h-[76px] w-full items-center gap-3 rounded-xl px-4 py-3 text-left hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring" onClick={event => {
         const scrollTop = root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop();
@@ -139,6 +155,6 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
     </ul> : null}
     {result && !result.items.length ? <p role="status" className="py-4 text-muted-foreground">No profiles to show{query ? " for this name" : " right now"}.</p> : null}
     {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
-    {result?.hasMore ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : "Load more connections"}</button> : null}
+    {result?.hasMore && !error ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : "Load more connections"}</button> : null}
   </section>;
 }

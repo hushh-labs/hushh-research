@@ -117,7 +117,7 @@ export type CalendarBoardConflict = {
 };
 export type CalendarBoardDay = {
   date: string; time_zone: string; duration_minutes: 15 | 30 | 60;
-  accounts: CalendarBoardAccount[]; complete: boolean; conflicts_complete: boolean;
+  accounts: CalendarBoardAccount[]; people?: CalendarInvitationsResponse["people"]; complete: boolean; conflicts_complete: boolean;
   conflicts: CalendarBoardConflict[]; shared_free_windows: CalendarOpening[]; checked_at: string;
 };
 export type CalendarEventRef = { account_id: string; calendar_id: string; event_id: string };
