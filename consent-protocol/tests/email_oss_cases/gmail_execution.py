@@ -250,6 +250,21 @@ async def test_html_alternative_keeps_only_safe_bounded_action_links_without_cha
     assert "javascript:" not in json.dumps(html_only)
     assert "user:secret" not in json.dumps(html_only)
 
+    linked_notice = "Event information " * 10 + "booking closes 30 November 2026"
+    html_part = next(
+        part
+        for part in resource.messages["m1"]["payload"]["parts"]
+        if part["mimeType"] == "text/html"
+    )
+    html_part["body"]["data"] = encoded(
+        f'<a href="https://summit.example.test/accommodation">{linked_notice}</a>'
+    )
+    long_link = await GmailExecution(resource).get_message("m1")
+    assert "booking closes 30 November 2026" in long_link["body"]
+    assert long_link["body_truncated"] is False
+    assert len(long_link["extracted_links"][0]["text"]) == 120
+    assert long_link["extracted_links"][0]["url"] == "https://summit.example.test/accommodation"
+
 
 @pytest.mark.asyncio
 async def test_recheck_lost_authority_between_list_and_batch_prevents_private_reads():
