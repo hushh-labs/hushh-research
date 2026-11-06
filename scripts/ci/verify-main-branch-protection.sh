@@ -148,6 +148,10 @@ if native_prepared:
                                         capture_output=True, text=True).stdout)
     module.reconcile_protected_pipeline_review(policy, verify_only=True, read=read_prepared)
     module.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read_prepared, repo=repo)
+    if branch == "uat-isolated":
+        from prepared_branch_governance import _same_protection, protection_payload
+        if not _same_protection(data, protection_payload(branch_policy)):
+            raise SystemExit("Isolated classic protection differs from the exact authored policy")
     # Source equality gates Stage B activation in the mutation owner. Requiring
     # it here would prevent the verified source-sync PR from landing.
     expected_owner_actors = [
