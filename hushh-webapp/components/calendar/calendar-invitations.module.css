@@ -122,3 +122,8 @@
    fallbacks keep the app-wide values. */
 .calendarTypography { --type-button-label-size: var(--app-side-pane-row-title-size, 17px); --type-button-label-line: var(--app-side-pane-row-title-line, 22px); --type-button-label-weight: var(--app-side-pane-row-title-weight, 650); }
 .calendarTypography :global([data-slot="dialog-description"]) { font-size: var(--profile-type-description-size, 14px); line-height: var(--profile-type-description-line, 20px); }
+
+.declineFooter { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; min-width: 0; }
+.declineFooter > button { flex: none; }
+.declineReviewActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
+.declineReviewActions > button { min-height: 44px; max-width: 100%; white-space: normal; }
