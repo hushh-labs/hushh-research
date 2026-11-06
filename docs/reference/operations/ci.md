@@ -109,6 +109,21 @@ that tag to interaction, accessibility, consent, identity or recovery contracts.
 
 ## Queue response and build limits
 
+PR Validation runs before queue admission. Queue Validation then verifies the
+current combined code; it does not merge or deploy first. A single-PR group can
+reuse its latest successful PR attempt only when the tested base/tree and the
+actual API, merged-tree and integration selection inventories agree. A behind
+branch alone does not disqualify reuse. Changed code, PR-only lane profiles,
+multiple PRs, missing proof or legacy receipts require combined validation.
+
+Main/Dev/UAT use one native queue build at a time. Their CI concurrency is scoped
+to the destination so a rebuilt temporary ref cancels obsolete checks. Legacy
+speculative destinations retain independent per-ref execution. GitHub does not
+guarantee event ordering: a late obsolete event can cancel a newer run, requiring
+rebuild/retry; current-source admission still refuses stale results. Inspect the
+current native group before retrying, rather than repeatedly pushing unchanged
+source. This cancellation policy never applies to deployments or maintenance.
+
 Main, Dev and UAT allow 120 minutes for required queue checks to return. This is
 an expiry ceiling, not a runtime target: GitHub previously removed valid entries
 at 30 minutes while their combined-result validation was still running. Inspect

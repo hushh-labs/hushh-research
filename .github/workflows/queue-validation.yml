@@ -12,8 +12,12 @@ permissions:
   actions: read
   security-events: read
 
+# Main/Dev/UAT build one native queue candidate at a time. A rebuilt temporary
+# ref supersedes the prior candidate; other destinations keep per-ref groups.
+# GitHub does not guarantee event order: a late obsolete event can cause a safe
+# cancellation/retry, but cannot authorize stale source (admission rechecks it).
 concurrency:
-  group: queue-${{ github.ref }}
+  group: queue-${{ contains(fromJSON('["refs/heads/main","refs/heads/dev","refs/heads/uat"]'), github.event.merge_group.base_ref) && github.event.merge_group.base_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
