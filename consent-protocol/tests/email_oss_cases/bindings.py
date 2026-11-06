@@ -133,7 +133,9 @@ async def test_owner_gmail_sdk_port_fences_account_switch_and_closes_resource(mo
 
     grant = ("owner", "gmail", "account-A", "connected", "revision-A")
     gmail = SimpleNamespace(
-        get_bound_read_access_token=AsyncMock(return_value=("synthetic-access", grant)),
+        get_bound_read_access_token=AsyncMock(
+            return_value=("synthetic-access", grant, "owner@example.test")
+        ),
         read_execution_grant_binding=AsyncMock(return_value=grant),
     )
     resource = SimpleNamespace(close=Mock())
@@ -165,6 +167,34 @@ async def test_owner_gmail_sdk_port_fences_account_switch_and_closes_resource(mo
     assert not adapter.observed_messages
 
 
+async def test_bound_gmail_link_uses_exact_account_and_thread_without_guessing():
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.email_oss.bindings import OwnerGmailExecution
+
+    grant = ("owner", "gmail", "account-A", "connected", "revision-A")
+    gmail = SimpleNamespace(
+        get_bound_read_access_token=AsyncMock(
+            return_value=("token", grant, "owner+mail@example.test")
+        ),
+        read_execution_grant_binding=AsyncMock(return_value=grant),
+    )
+    adapter = OwnerGmailExecution(gmail, "owner", AsyncMock())
+    adapter.account_email = "owner+mail@example.test"
+    row = {"id": "m1", "thread_id": "thread_1", "subject": "Summit"}
+    adapter._observe_result("get_message", {}, grant, row)
+    assert (
+        row["gmail_web_link"]
+        == "https://mail.google.com/mail/u/owner%2Bmail%40example.test/#all/thread_1"
+    )
+    assert adapter.observed_messages["m1"]["gmail_web_link"] == row["gmail_web_link"]
+
+    adapter.account_email = "attacker@example.test\n"
+    unsafe = {"id": "m2", "thread_id": "thread_2"}
+    adapter._observe_result("get_message", {}, grant, unsafe)
+    assert "gmail_web_link" not in unsafe
+
+
 @pytest.mark.parametrize("changed,refresh", [(False, False), (False, True), (True, False)])
 async def test_vault_token_is_bound_to_its_actual_post_refresh_account(changed, refresh):
     from copy import deepcopy
@@ -177,6 +207,7 @@ async def test_vault_token_is_bound_to_its_actual_post_refresh_account(changed, 
         "status": "connected",
         "revoked": False,
         "google_sub": "A",
+        "google_email": "owner@example.test",
         "connected_at": "connected",
         "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
         "token_updated_at": "refresh-new" if refresh else "old",
@@ -198,6 +229,10 @@ async def test_vault_token_is_bound_to_its_actual_post_refresh_account(changed, 
         token, binding = await service.get_bound_read_access_token(user_id="owner")
         assert token == "synthetic-access" and binding[2] == "A"
         assert binding == await service.read_execution_grant_binding(user_id="owner")
+        linked = await service.get_bound_read_access_token(
+            user_id="owner", include_account_email=True
+        )
+        assert linked == (token, binding, "owner@example.test")
 
 
 @pytest.mark.parametrize("account_changed", [False, True])

@@ -217,6 +217,56 @@ async def test_html_charset_and_nested_mime_are_cleaned_without_following_links(
 
 
 @pytest.mark.asyncio
+async def test_html_alternative_keeps_only_safe_bounded_action_links_without_changing_plain_body():
+    resource = Resource()
+    resource.messages["m1"]["payload"]["parts"] += [
+        {
+            "mimeType": "text/html",
+            "body": {
+                "data": encoded(
+                    '<p>Register <a href="https://summit.example.test/apply?event=21&amp;src=mail">here</a>.</p>'
+                    '<a href="javascript:alert(1)">Unsafe</a>'
+                    '<a href="https://user:secret@example.test/private">Credential URL</a>'
+                )
+            },
+        },
+    ]
+    listed = await GmailExecution(resource).search_threads("summit")
+    assert "body" not in listed["messages"][0]
+    assert "extracted_links" not in listed["messages"][0]
+    assert resource.batches == 1
+
+    read = await GmailExecution(resource).get_message("m1")
+    assert read["body"] == "Receipt total INR 12.50"
+    assert read["extracted_links"] == [
+        {
+            "text": "here",
+            "url": "https://summit.example.test/apply?event=21&src=mail",
+        }
+    ]
+    resource.messages["m1"]["payload"]["parts"] = resource.messages["m1"]["payload"]["parts"][1:]
+    html_only = await GmailExecution(resource).get_message("m1")
+    assert "[here](https://summit.example.test/apply?event=21&src=mail)" in html_only["body"]
+    assert "javascript:" not in json.dumps(html_only)
+    assert "user:secret" not in json.dumps(html_only)
+
+    linked_notice = "Event information " * 10 + "booking closes 30 November 2026"
+    html_part = next(
+        part
+        for part in resource.messages["m1"]["payload"]["parts"]
+        if part["mimeType"] == "text/html"
+    )
+    html_part["body"]["data"] = encoded(
+        f'<a href="https://summit.example.test/accommodation">{linked_notice}</a>'
+    )
+    long_link = await GmailExecution(resource).get_message("m1")
+    assert "booking closes 30 November 2026" in long_link["body"]
+    assert long_link["body_truncated"] is False
+    assert len(long_link["extracted_links"][0]["text"]) == 120
+    assert long_link["extracted_links"][0]["url"] == "https://summit.example.test/accommodation"
+
+
+@pytest.mark.asyncio
 async def test_recheck_lost_authority_between_list_and_batch_prevents_private_reads():
     resource = Resource()
 
@@ -373,6 +423,34 @@ async def test_partial_batch_failure_keeps_order_and_discloses_failed_count():
     assert result["failed_count"] == 1 and result["returned_count"] == 1
     assert [m["id"] for m in result["messages"]] == ["m2"]
     assert "private" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_transient_batch_read_retries_once_without_changing_page_or_order():
+    resource = Resource()
+    first = True
+    original = resource.respond
+
+    class TemporaryError(Exception):
+        resp = type("Response", (), {"status": 503})()
+
+    def respond(family, operation, kwargs):
+        nonlocal first
+        if family == "messages" and operation == "get" and kwargs["id"] == "m1" and first:
+            first = False
+            raise TemporaryError("private provider error")
+        return original(family, operation, kwargs)
+
+    resource.respond = respond
+    result = await GmailExecution(resource).search_threads("summit", max_results=50)
+    assert [item["id"] for item in result["messages"]] == ["m1", "m2"]
+    assert result["failed_count"] == 0
+    assert resource.batches == 2
+    assert [call[2]["id"] for call in resource.calls if call[:2] == ("messages", "get")] == [
+        "m2",
+        "m1",
+        "m1",
+    ]
 
 
 @pytest.mark.asyncio
