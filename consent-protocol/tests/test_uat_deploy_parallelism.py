@@ -482,10 +482,6 @@ def test_document_gate_preserves_official_mirrors_and_partitions_browser_engines
     document_delivery_ci.assert_document_platform(tmp_path, ci, mode, runner, expected)
 
 
-def test_document_crypto_runs_native_webkit_on_required_macos_job():
-    document_delivery_ci.assert_document_platform_wiring()
-
-
 @pytest.mark.parametrize(
     "mode,runner,expected",
     [

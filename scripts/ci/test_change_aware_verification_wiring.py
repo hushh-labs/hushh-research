@@ -61,7 +61,8 @@ def test_pr_integration_selects_the_tested_merge_not_destination_only_paths() ->
             temp = Path(raw)
             repo = temp / "repo"
             repo.mkdir()
-            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("GIT_", "GITHUB_", "GH_"))}
 
             def git(*args: str) -> str:
                 return subprocess.check_output(
@@ -194,7 +195,8 @@ def _run_uat_step(temp: Path, name: str, env: dict[str, str], output: str) -> st
 def test_manual_branch_changed_files_use_the_frozen_head_and_default_merge_base() -> None:
     with tempfile.TemporaryDirectory() as raw:
         temp = Path(raw)
-        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("GIT_", "GITHUB_", "GH_"))}
         _, base, head = _uat_base_fixture(temp, env)
         repo = temp / "candidate"
 
@@ -234,7 +236,10 @@ def test_manual_branch_changed_files_use_the_frozen_head_and_default_merge_base(
 
         result = run()
         assert result.returncode == 0, result.stderr
-        changed = Path(output.read_text().strip().split("=", 1)[1])
+        values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        changed = Path(values["CI_CHANGED_FILES_FILE"])
+        assert values["CI_IMPACT_BASE_SHA"] == base
+        assert values["CI_IMPACT_HEAD_SHA"] == head
         expected = {"hushh-webapp/lib/vault/vault-context.tsx", "consent-protocol/api/routes/vault_routes.py"}
         assert set(changed.read_text().splitlines()) == expected
         assert run(CI_IMPACT_BASE_SHA=base).returncode == 0

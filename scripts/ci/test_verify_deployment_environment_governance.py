@@ -230,7 +230,8 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     return subprocess.run(
         ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
         env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
+             "GITHUB_ACTOR": actor, "GITHUB_TRIGGERING_ACTOR": actor,
+             "GITHUB_RUN_ATTEMPT": "1", "RELEASE_ENV": inputs.get("environment", ""),
              "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
              "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
              "APPLY": inputs.get("apply", ""),
