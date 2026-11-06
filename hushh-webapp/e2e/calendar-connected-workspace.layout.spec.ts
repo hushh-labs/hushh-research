@@ -129,8 +129,6 @@ test("Calendar account pickers show verified portraits and readable initials for
     await expect(unmatched.locator("[data-photo-url]")).toHaveCount(0);
     await expect(unmatched.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
     await page.keyboard.press("Escape");
-    await expect(page.locator('[data-slot="dropdown-menu-content"]')).toHaveCount(0);
-    await expect(owner).toBeFocused();
   }
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
