@@ -220,6 +220,11 @@ as part of each merge task, following the [downstream completion procedure](../.
 scanning remains in PR validation and privileged unresolved-secret clearance runs
 only in an explicit Main-owned deployment's protected job.
 
+The two bundled public email-risk data files use actual-blob digest/bounds checks
+and the existing domain-policy cases in Governance. Their runtime parser, test
+module, schema and unrecognized neighboring inputs retain backend validation.
+This data-only owner does not replace full application release qualification.
+
 Read-only UAT inspection checks the selected candidate's public email-risk snapshot
 when email authentication is enabled. Expired or malformed inputs require a pinned
 upstream refresh before qualification; the full integrity and activation checks
