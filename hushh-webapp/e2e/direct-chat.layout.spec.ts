@@ -77,7 +77,8 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "direct-chat.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle()), minify: true }).code.toString();
 });
 async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
   if (!options.systemTheme) await page.emulateMedia({ colorScheme: dark ? "dark" : "light" });
@@ -104,15 +105,19 @@ async function expectSharedDockFrame(page: Page) {
     const root = document.documentElement;
     const shell = document.querySelector("[data-app-bottom-shell]")!;
     const style = getComputedStyle(shell);
+    const canvas = document.querySelector("[data-direct-message-page]")!.getBoundingClientRect();
+    const sidebar = Array.from(document.querySelectorAll("[data-direct-message-page] aside"))
+      .map(node => node.getBoundingClientRect()).find(box => box.width > 0 && box.right < canvas.right);
     return {
-      viewport: root.clientWidth,
+      start: sidebar?.right ?? canvas.left,
+      end: canvas.right,
       maxWidth: parseFloat(getComputedStyle(root).getPropertyValue("--app-bottom-shell-max-width")),
-      inset: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight),
+      inset: 2 * parseFloat(style.paddingRight),
     };
   });
   const dock = (await page.locator("[data-bottom-shell-motion-stack]").boundingBox())!;
-  expect(Math.abs(dock.x + dock.width / 2 - shared.viewport / 2), "Messages uses the page-centered footer frame").toBeLessThanOrEqual(1);
-  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.viewport - shared.inset)), "Messages uses the shared footer width cap").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.x + dock.width / 2 - (shared.start + shared.end) / 2), "Messages footer follows the conversation pane").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.end - shared.start - shared.inset)), "Messages uses the shared footer width cap within its pane").toBeLessThanOrEqual(1);
   for (const selector of ["[data-bottom-shell-navigation-slot]", "[data-agent-bar-shell]"]) {
     const bar = (await page.locator(selector).boundingBox())!;
     expect(Math.abs(bar.x - dock.x)).toBeLessThanOrEqual(1);
@@ -133,6 +138,30 @@ for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1440, 1000
     await expect(navigation.getByRole("radio", { name: "Chat", exact: true })).toHaveAttribute("aria-checked", "false");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width!);
     await page.screenshot({ path: test.info().outputPath(`messages-preview-${width}.png`), animations: "disabled" });
+    for (const sidebar of width! >= 768 ? [240, 360] : [0]) {
+      if (sidebar) await page.evaluate(value => document.documentElement.style.setProperty("--app-messages-sidebar-width", `${value}px`), sidebar);
+      await expectSharedDockFrame(page);
+      const form = page.locator("form").filter({ has: page.locator("[data-direct-message-composer-input]") });
+      for (const draft of ["", "A message ready to send"]) {
+        await page.getByRole("textbox", { name: "Message Maya Rao" }).fill(draft);
+        const controls = [form.getByRole("button", { name: "Add attachment", exact: true }), form.locator("textarea"),
+          form.getByRole("button", { name: "Choose emoji", exact: true }), form.getByRole("button", { name: draft ? "Send message" : "Record voice message", exact: true })];
+        const frame = (await form.boundingBox())!;
+        let previousEnd = frame.x;
+        for (const control of controls) {
+          const box = (await control.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(previousEnd);
+          expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+          expect(box.width).toBeGreaterThan(0);
+          if (await control.evaluate(node => node.tagName === "BUTTON")) {
+            expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+          }
+          previousEnd = box.x + box.width;
+        }
+        const navigation = (await page.locator("[data-bottom-shell-navigation-slot]").boundingBox())!;
+        expect(frame.y + frame.height).toBeLessThanOrEqual(navigation.y);
+      }
+    }
     expect(errors).toEqual([]);
   });
 }
@@ -833,8 +862,13 @@ test("individual chats send, play, reload and reply to video attachments", async
   await holdMessage(page, sent);
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.locator('[class*="composerReplyPreview"]')).toContainText("Attachment");
-  await page.getByRole("textbox", { name: "Message Maya Rao", exact: true }).fill("A reply to the video");
+  const replyEditor = page.getByRole("textbox", { name: "Message Maya Rao", exact: true });
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(replyEditor).toBeFocused();
+  await replyEditor.fill("A reply to the video");
+  await expect(replyEditor).toHaveValue("A reply to the video");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByText("A reply to the video", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Go to original message from you", exact: true })).toContainText("Attachment");
   await page.getByRole("button", { name: "Back to messages", exact: true }).click();
   await expect(page.locator("video")).toHaveCount(0);
@@ -907,11 +941,20 @@ test.describe("compact message layout", () => {
     await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
     for (const id of ["maya-79", "maya-78"]) {
       const row = page.locator(`[data-chat-message="${id}"]`);
-      await row.hover();
       const bubble = row.locator('[data-chat-bubble]');
-      const before = await bubble.boundingBox();
-      await row.getByRole("button", { name: "Message options" }).focus();
-      expect(await bubble.boundingBox()).toEqual(before);
+      await expect(bubble).toContainText("Hi 🙂");
+      await page.mouse.move(0, 0);
+      await page.locator("[data-direct-message-composer-input]").focus();
+      const stable = [bubble, bubble.locator(":scope > p"), bubble.locator("time"), bubble.locator('[class*="messageBubbleMeta"]')];
+      const before = await Promise.all(stable.map(node => node.boundingBox()));
+      const options = row.getByRole("button", { name: "Message options" });
+      for (const state of ["hover", "focus", "menu", "dismiss"] as const) {
+        if (state === "hover") await row.hover();
+        else if (state === "focus") await options.focus();
+        else if (state === "menu") { await options.click(); await expect(page.getByRole("menu")).toBeVisible(); }
+        else await page.keyboard.press("Escape");
+        expect(await Promise.all(stable.map(node => node.boundingBox())), state).toEqual(before);
+      }
       const geometry = await bubble.evaluate(element => {
         const text = element.querySelector(":scope > p")!.getBoundingClientRect();
         const time = element.querySelector("time")!.getBoundingClientRect();
@@ -933,6 +976,9 @@ test.describe("compact message layout", () => {
         expect(rect.height).toBeGreaterThanOrEqual(44);
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        const time = (await bubble.locator("time").boundingBox())!;
+        expect(rect.x + rect.width <= time.x || rect.x >= time.x + time.width || rect.y + rect.height <= time.y || rect.y >= time.y + time.height,
+          `${label} must not cover the timestamp`).toBe(true);
         if (!(await touchMessageActions(page))) await button.hover();
         await expect(button).toHaveCSS("background-image", label === "Message options" ? /12px.*12\.5px/ : /14px.*15px/);
         await page.keyboard.press("Tab");

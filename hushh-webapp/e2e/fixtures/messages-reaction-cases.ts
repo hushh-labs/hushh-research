@@ -29,6 +29,10 @@ export function registerMessagesReactionCases({ mount, fixture, holdMessage }: {
           await expect(menu).toHaveCount(0);
           await expect(message.getByRole("button", { name: "Message options", exact: true })).toBeFocused();
           const draft = page.locator("[data-direct-message-composer-input]");
+          // Finish the dropdown's delayed focus restoration before entering a draft.
+          await expect(menu).toHaveCount(0);
+          await draft.click();
+          await expect(draft).toBeFocused();
           await draft.fill("Keep this draft");
           await expect(draft, "draft must exist before opening the reaction picker").toHaveValue("Keep this draft");
           const avatarOffset = async () => {
