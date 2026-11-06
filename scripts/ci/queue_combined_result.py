@@ -133,9 +133,9 @@ def _module(filename, name):
     return module
 
 
-def authority_policy(repository, branch, base):
-    """Use current protected Main authority for Dev/UAT, not candidate policy."""
-    if branch not in {"dev", "uat"}:
+def authority_policy(repository, branch, base, *, owner_admin=False):
+    """Use protected Main for Dev/UAT and the isolated Admin operator."""
+    if branch not in {"dev", "uat"} and not (branch == "uat-isolated" and owner_admin):
         return base, json.loads(git("show", f"{base}:config/ci-governance.json"))
     ref = api(f"repos/{repository}/git/ref/heads/main")
     authority = ref.get("object", {})
@@ -408,7 +408,8 @@ def owner_admin_snapshot(number, expected_head):
     actor = api("user").get("login")
     pr = api(f"repos/{repository}/pulls/{number}")
     branch = pr.get("base", {}).get("ref")
-    require(branch in {"main", "dev", "uat"}, "Owner Admin route supports only Main/Dev/UAT")
+    require(branch in {"main", "dev", "uat", "uat-isolated"},
+            "Owner Admin route requires a governed Main, Dev or UAT destination")
     base = api(f"repos/{repository}/git/ref/heads/{branch}")["object"]["sha"]
     require(
         SHA.fullmatch(str(expected_head))
@@ -426,7 +427,7 @@ def owner_admin_snapshot(number, expected_head):
         check=True,
         timeout=90,
     )
-    policy_revision, policy = authority_policy(repository, branch, base)
+    policy_revision, policy = authority_policy(repository, branch, base, owner_admin=True)
     if branch == "main":
         main = policy["main"]
     else:

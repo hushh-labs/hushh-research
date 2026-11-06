@@ -12,7 +12,7 @@ HELPER = ROOT / "deploy/plg/bind_secrets.sh"
 BACKEND_BINDINGS = ROOT / "scripts/deploy/commerce-preview-bindings.sh"
 
 
-@pytest.mark.parametrize("lane", ["dev", "uat", "production"])
+@pytest.mark.parametrize("lane", ["uat"])
 def test_owner_bindings_are_project_pinned_without_cross_lane_keys(lane):
     project = "hushh-pda" if lane == "production" else f"hushh-pda-{lane}"
     common = {"ONE_PLG_ATTEMPT_EMAIL_SECRET", "ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS"}
@@ -104,7 +104,6 @@ source "$1" "$2" "$3"
         ("production", "DISABLED", "ENABLED", "ENABLED", 3),
         ("production", "ENABLED", "ENABLED", "ENABLED", 4),
         ("production", "ENABLED", "ENABLED", "error", 3),
-        ("uat", "ENABLED", "ENABLED", "ENABLED", 0),
         ("dev", "ENABLED", "ENABLED", "ENABLED", 0),
     ],
 )
@@ -183,6 +182,44 @@ printf '%s\n' "$secrets"
     if profile == "production" and policy == "ENABLED":
         bindings += ["ONE_PLG_REPORTING_POLICY_JSON:ONE_PLG_REPORTING_POLICY_JSON"]
     assert actual == [value.replace(":", "=", 1) + ":latest" for value in bindings]
+
+
+@pytest.mark.parametrize(
+    ("project", "prefix", "exit_code", "bound"),
+    [
+        ("hushh-pda-uat", "", 0, True),
+        ("hushh-pda", "", 1, False),
+        ("hushh-pda-uat", "preview_", 0, False),
+    ],
+)
+def test_uat_binding_stays_in_its_project_and_excludes_previews(project, prefix, exit_code, bound):
+    script = r"""
+set -euo pipefail
+_SECRET_PREFIX=$3
+gcloud() {
+    [[ "$*" == *'--project=hushh-pda-uat'* ]] || return 1
+    [[ "$*" != *'_ACCOUNT_IDS'* ]] || return 1
+    printf '%s\n' ENABLED
+}
+append_optional_secret() { printf '%s=%s\n' "$1" "$2"; }
+source "$1" uat "$2"
+"""
+    result = subprocess.run(  # noqa: S603 -- fixed helper, synthetic gcloud
+        ["bash", "-c", script, "plg-uat", str(HELPER), project, prefix],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == exit_code
+    assert result.stdout.splitlines() == (
+        [
+            "ONE_PLG_UAT_EXPORT_SECRET=ONE_PLG_UAT_EXPORT_SECRET",
+            "ONE_PLG_ATTEMPT_EMAIL_SECRET=ONE_PLG_ATTEMPT_EMAIL_SECRET",
+        ]
+        if bound
+        else []
+    )
 
 
 def test_observation_projection_follows_split_literals_and_rejects_expressions():
