@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check focused CI roles and preserve explicit local diagnostic commands.
 
-Hosted CI has separate unsharded ``node`` and ``browser`` targeted jobs, one
+Hosted CI has an unsharded ``node`` targeted job, one
 affected unit-contract job, and two database jobs for backend changes. The
 node/browser selector remains a disjoint partition of selected packs; unknown
 browser selection stays conservative. Safari layout and web performance remain
@@ -364,6 +364,7 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/components/icons/ui/shortcut-action-icons.tsx",
         "hushh-webapp/components/icons/ui/shortcut-icon-motion.module.css",
         "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/connections/person-profile-preview.ts",
         "hushh-webapp/lib/navigation/profile-pane.ts",
         "hushh-webapp/lib/morphy-ux/hooks/use-shortcut-icon-motion.ts",
         "hushh-webapp/app/globals.css",
@@ -511,45 +512,16 @@ def test_workflow_schedules_focused_jobs_and_database_pair() -> None:
     )
     assert "working-directory: hushh-webapp/scripts/architecture/ui-contract-tools" in governance[1]
     assert "run: npm ci --ignore-scripts --no-audit --progress=false" in governance[1]
-    # Keep evidence confined to these synthetic fixtures, never protected reviewers.
-    evidence = re.search(
-        r"- name: Upload synthetic layout failure evidence\n(.*?)(?=\n      - name:)",
-        workflow, re.S,
-    )
-    assert evidence, "retain the failing synthetic layout trace before runner teardown"
-    assert (
-        "if: ${{ (failure() || cancelled()) && env.WEB_TARGETED_PART == 'browser' }}"
-        in evidence[1]
-    )
-    assert (
-        "name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}" in evidence[1]
-    )
-    paths = re.search(r"path: \|\n((?:            [^\n]+\n)+)", evidence[1])
-    assert paths
-    assert [line.strip() for line in paths[1].splitlines()] == [
-        "hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip",
-        "hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png",
-        "hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md",
-        "hushh-webapp/test-results/calendar-connected-*/trace.zip",
-        "hushh-webapp/test-results/calendar-connected-*/test-failed-*.png",
-        "hushh-webapp/test-results/calendar-connected-*/error-context.md",
-        "hushh-webapp/test-results/direct-chat.layout-*/trace.zip",
-        "hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png",
-        "hushh-webapp/test-results/direct-chat.layout-*/error-context.md",
-        "hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json",
-        "hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip",
-        "hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png",
-        "hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md",
-    ], "do not broaden synthetic evidence into protected browser artifacts"
-    shard = "          PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}\n"
-    broken = workflow.replace(shard, shard + shard, 1)
+    # Ordinary validation has no browser installation or artifact-producing job.
+    # Keep the negative control focused on a real aggregate/selection boundary.
+    broken = workflow.replace("WEB_TARGETED_PART: node", "WEB_TARGETED_PART: all")
     assert broken != workflow
     try:
         assert_web_lane_topology(broken, scripts, playwright)
-    except AssertionError as error:
-        assert "duplicate PLAYWRIGHT_SHARD" in str(error)
+    except AssertionError:
+        pass
     else:
-        raise AssertionError("duplicated workflow environment was accepted")
+        raise AssertionError("required Node lane accepted automatic browser execution")
 
 
 def test_browser_shard_setting_is_validated_before_any_pack() -> None:

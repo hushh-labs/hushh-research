@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
@@ -50,9 +51,7 @@ ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 EXPECTED_JOBS = {
     "web-core-check": {"frontend"},
     "web-targeted-check": {"frontend"},
-    "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
-    "document-webkit-check": {"document"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
     "protocol-database-check-two": {"backend"},
@@ -709,6 +708,9 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_phone_schema_legacy_job.py",
         "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
         "consent-protocol/tests/test_plg_qualification_producer.py",
+        "consent-protocol/tests/test_plg_qualification_bootstrap.py",
+        "consent-protocol/tests/test_plg_qualification_acceptance.py",
+        "consent-protocol/tests/test_plg_qualification_candidate.py",
         "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
         "consent-protocol/tests/test_uat_connector_rollout_contract.py",
         "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
@@ -751,3 +753,24 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
 
     assert commands["account-deletion-release-workflow"][-1] == dedicated
     assert sum(dedicated in argv for argv in commands.values()) == 1
+
+    # Every consumer of this inert fixture belongs to the same focused owner;
+    # adding a consumer cannot silently leave fixture-only changes uncovered.
+    fixture = "consent-protocol/tests/helpers/plg_qualification.py"
+    assert not backend.match_file(fixture)
+    fixture_plan = _governance_plan((fixture,))
+    assert fixture_plan["selection_error"] is None
+    assert fixture_plan["selected_groups"] == ["controller"]
+    consumers = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "consent-protocol/tests").rglob("*.py")
+        if any(
+            isinstance(node, ast.ImportFrom) and node.module == "tests.helpers.plg_qualification"
+            for node in ast.walk(ast.parse(path.read_text()))
+        )
+    }
+    assert len(consumers) == 4
+    assert consumers <= set(paths)
+    assert backend.match_file("consent-protocol/tests/helpers/plg_runtime.py")
+    assert backend.match_file("consent-protocol/tests/helpers/new.py")
+    assert backend.match_file("deploy/plg/qualification_candidate.py")

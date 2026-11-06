@@ -334,11 +334,12 @@ def render(result: dict) -> str:
              f"- Observed serving base: `{result['base_sha']}`",
              f"- Main workflow authority: `{result['authority_sha']}`"]
     if result["ready"]:
-        lines += ["- Current exact-source CI passed. Deploy from the protected UAT caller with:",
+        lines += ["- Current exact-source CI passed. Deployment also requires the reviewed PR-scope approval below. Use the protected UAT caller with:",
                   f"  - `sha={result['candidate_sha']}`",
                   f"  - `ci_run_id={result['ci_run_id']}`",
                   f"  - `ci_run_attempt={result['ci_run_attempt']}`",
-                  f"  - `ci_base_sha={result['base_sha']}`", "  - `scope=auto`"]
+                  f"  - `ci_base_sha={result['base_sha']}`", "  - `scope=auto`",
+                  "  - `approved_scope=BACKEND:FRONTEND:PR=HEAD[,PR=HEAD]` (required: the reviewed PR heads and observed serving SHAs; CI success does not select or approve this delta)"]
     elif result["reason_code"] in {"qualification_missing", "qualification_base_unpublished", "qualification_base_changed"}:
         branch = result.get("source_branch", "uat")
         lines += ["- Qualification is required. In Actions → PR Validation → Run workflow:",

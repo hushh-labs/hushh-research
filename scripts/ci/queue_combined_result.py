@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -155,12 +156,38 @@ def authority_policy(repository, branch, base):
     return revision, policy
 
 
+def policy_fingerprint(policy, branch):
+    material = dict(policy)
+    if branch != "main":
+        # This switch controls only Main's native writer restriction. It is
+        # not read by queue authorization for any other destination.
+        material["main"] = {key: value for key, value in policy["main"].items()
+                            if key != "restrict_writes_to_merge_users"}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def same_queue_state(recorded, observed):
+    if not all(SHA.fullmatch(str(state.get("policy_revision", ""))) for state in (recorded, observed)):
+        return False
+    if "policy_fingerprint" not in recorded:
+        # Historical receipts retain their exact revision requirement.
+        return recorded == {key: value for key, value in observed.items()
+                            if key != "policy_fingerprint"}
+    fingerprint = recorded["policy_fingerprint"]
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        return False
+    return {key: value for key, value in recorded.items() if key != "policy_revision"} == {
+        key: value for key, value in observed.items() if key != "policy_revision"
+    }
+
+
 def current_head_reviewers(repository, member, policy, guard):
     """Prove approval against the current head and canonical maintainer authority.
 
     Native reviewDecision is null when GitHub has no review-count requirement;
     neither that absence nor an APPROVED label grants authority. Reuse the same
-    cohort that populates ordinary CODEOWNERS, without mutable team membership.
+    governed ordinary-review cohort, independently of review-request labels.
     """
     governance = _module("apply-governance.py", "queue_reviewer_cohort")
     teams = [team for team in governance.MANAGED_TEAMS
@@ -247,6 +274,7 @@ def snapshot():
             "Destination advanced; validate the rebuilt merge group")
     return {"repository": repository, "branch": branch, "base": group["base_sha"],
             "policy_revision": policy_revision,
+            "policy_fingerprint": policy_fingerprint(policy, branch),
             "head": group["head_sha"], "tree": git("rev-parse", "HEAD^{tree}"),
             "members": included}
 
@@ -287,11 +315,11 @@ def current_validations(state, read=api):
 def receipt_matches(receipt, state, validation):
     """Reuse needs the tested tree AND identical selection/authority inputs.
 
-    A PR whose head was behind its tested base still merges normally, but its
-    historical PR-file selection is not reused: the combined checks run again.
+    Version 2 proves the actual selected inventories, including PR-only profiles.
+    Legacy receipts are not upgraded by assumption: combined checks run again.
     """
     return isinstance(receipt, dict) and receipt == {
-        "version": 1, "repository": state["repository"], "event": "pull_request",
+        "version": 2, "repository": state["repository"], "event": "pull_request",
         "run": validation["run"], "attempt": validation["attempt"],
         "pr": validation["number"], "head": validation["head"],
         "base": state["base"], "tree": state["tree"],
@@ -323,6 +351,36 @@ def reusable(state, validations, read=api):
     return receipt_matches(receipt, state, validation)
 
 
+
+def exact_selection(base):
+    """Prove the actual API inventory matches the tested merge inventory.
+
+    Branch ancestry alone is neither necessary nor sufficient. Keep unknown
+    inputs conservative, including the PR-only backend suppression profile.
+    """
+    if os.environ.get("QUEUE_AUTH_HEALTH_ONLY") != "false":
+        return False
+    try:
+        with open(os.environ.get("QUEUE_SELECTION_FILE", ""), encoding="utf-8") as source:
+            encoded = source.read(1_000_001)
+        if len(encoded) > 1_000_000:
+            return False
+        raw = json.loads(encoded)
+        if not isinstance(raw, str) or len(raw.encode()) > 500_000:
+            return False
+        paths = json.loads(raw)
+    except (OSError, ValueError):
+        return False
+    if (not isinstance(paths, list) or not paths or len(paths) > 6000
+            or any(not isinstance(path, str) or not path
+                   or any(char in path for char in ("\0", "\n", "\r")) for path in paths)):
+        return False
+    actual = set(paths)
+    # Web, governance and integration now select against the tested merge.
+    # Renames with a differing old-path inventory still refuse reuse.
+    return actual == set(git("diff", "--name-only", "-z", base, "HEAD").split("\0")) - {""}
+
+
 def record_receipt():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     pr = event["pull_request"]
@@ -332,10 +390,10 @@ def record_receipt():
             and git("rev-parse", "HEAD") == os.environ["GITHUB_SHA"]
             and len(parents) == 2 and parents[1] == head,
             "Receipt requires the actual tested PR merge")
-    exact = parents[0] == base and subprocess.run(
-        ["git", "merge-base", "--is-ancestor", base, head], check=False, timeout=30,
-    ).returncode == 0
-    return {"version": 1, "repository": os.environ["GITHUB_REPOSITORY"],
+    exact = parents[0] == base and exact_selection(base)
+    print("PR selection matches the tested combined inputs." if exact else
+          "PR selection is not reusable; queue will validate its combined inputs.")
+    return {"version": 2, "repository": os.environ["GITHUB_REPOSITORY"],
             "event": "pull_request", "run": int(os.environ["GITHUB_RUN_ID"]),
             "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]), "pr": pr["number"],
             "head": head, "base": base, "tree": git("rev-parse", "HEAD^{tree}"),
@@ -495,9 +553,8 @@ def owner_admin_merge(number, expected_head, receipt, apply=False):
     )
     proof.update(outcome="merged", landed=landed, request_exit_code=exit_code)
     receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
-    print(
-        f"Owner-approved PR merged at {landed}. Main smoke remains required; no deployment requested."
-    )
+    next_step = "Main smoke remains required; " if proof["state"]["branch"] == "main" else ""
+    print(f"Owner-approved PR merged at {landed}. {next_step}No deployment requested.")
 
 def main():
     import argparse
@@ -531,10 +588,14 @@ def main():
             )
         else:
             value = json.loads(args.receipt.read_text())
-            require(
-                value["state"] == state and value["validations"] == validations,
-                "Queue membership, approval or validation changed; rebuild the group",
-            )
+            changed = sorted(key for key in value["state"].keys() | state.keys()
+                             if value["state"].get(key) != state.get(key))
+            require(same_queue_state(value["state"], state),
+                    f"Queue inputs changed ({', '.join(changed)}); rebuild the group")
+            require(value["validations"] == validations,
+                    "Latest PR validation run or attempt changed; rebuild the group")
+            if value["state"]["policy_revision"] != state["policy_revision"]:
+                print(f"Main advanced to {state['policy_revision']}; queue policy inputs are unchanged.")
             if value["reuse"]:
                 require(reusable(state, validations), "Combined-input proof changed")
             else:

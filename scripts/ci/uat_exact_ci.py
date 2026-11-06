@@ -82,6 +82,8 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
+    "consent-protocol/tests/helpers/plg_qualification.py",
+    "consent-protocol/tests/helpers/plg_runtime.py",
     "deploy/iam/setup_nonproduction_github_wif.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
@@ -123,12 +125,15 @@ LEGACY_REQUIRED_JOBS = {
     "Web Targeted Contracts (node)",
     *(f"Web Targeted Contracts (browser-{index}-of-4)" for index in (1, 2, 3, 4)),
 }
+UNIT_JOB = "Web Unit Contracts"
+UNIT_SHARDS = ("1/1", "1/3", "2/3", "3/3")
 REQUIRED_JOBS = {
     name for name in LEGACY_REQUIRED_JOBS
     if name != "Web Editor Performance (macOS)"
     and not name.startswith("Web Full Suite (Vitest)")
     and not name.startswith("Web Targeted Contracts (browser-")
-} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+} | {UNIT_JOB}
+PRE_BROWSER_REMOVAL_JOBS = REQUIRED_JOBS | {"Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
 AGGREGATE_JOBS = {"Preflight Gate", "Branch Validation Gate"}
 
@@ -185,7 +190,10 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
                 "UAT tip changed; qualify the current protected candidate")
     git("merge-base", "--is-ancestor", authority, "origin/main")
-    git("merge-base", "--is-ancestor", base, candidate)
+    try:
+        git("merge-base", "--is-ancestor", base, candidate)
+    except Refused:
+        raise Refused(f"UAT serving base {base[:12]} is not an ancestor of candidate {candidate[:12]}, or its history is unavailable. Reconcile the accepted release lineage through a reviewed source transition before qualification; retrying unchanged will not repair it.") from None
     for source in (candidate, authority):
         git("cat-file", "-e", f"{source}^{{commit}}")
     if branch == "uat-isolated":
@@ -193,7 +201,16 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         return application_tree(candidate)
     def execution_tree(revision):
         entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
-        return [entry for entry in entries if entry.partition(b"\t")[2] != BACKEND_TEST_MANIFEST.encode()]
+        def required(entry):
+            metadata, _, name = entry.partition(b"\t")
+            if name == BACKEND_TEST_MANIFEST.encode():
+                return False  # The existing invocation guard checks its identities separately.
+            # Prose is not privileged execution. Keep executable/symlink Markdown,
+            # metadata, controllers and every existing build/migration input bound.
+            prose = (name.startswith(b".agents/") and name.endswith((b".md", b".markdown"))
+                     or re.search(rb"(?:^|/)README\.(?:md|markdown)$", name, re.I))
+            return not (metadata.startswith(b"100644 blob ") and prose)
+        return [entry for entry in entries if required(entry)]
     expected = execution_tree(authority)
     observed = execution_tree(candidate)
     require(
@@ -351,8 +368,7 @@ def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
 
 def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate):
     require(len(matches) in (1, 3), "UAT unit shard inventory is incomplete")
-    allowed = {f"Verify unit shard ({shard})": shard
-               for shard in ("1/1", "1/3", "2/3", "3/3")}
+    allowed = {f"Verify unit shard ({shard})": shard for shard in UNIT_SHARDS}
     shards = []
     for job in matches:
         require(job.get("run_id") == run_id and job.get("head_sha") == candidate
@@ -367,7 +383,8 @@ def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate
                    if step.get("name", "").startswith("Verify unit shard")]
         # Preserve immutable predecessor evidence under its original policy.
         # Current release qualification always requires typed coverage proof.
-        if not current and len(matches) == 1 and not markers:
+        label = job.get("name")
+        if not current and len(matches) == 1 and label == UNIT_JOB and not markers:
             try:
                 workflow = git("show", f"{candidate}:.github/workflows/ci.yml").decode("utf-8")
             except UnicodeDecodeError:
@@ -388,7 +405,11 @@ def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate
                 "UAT unit shard markers are invalid")
         verified = [step for step in markers if step.get("conclusion") == "success"]
         require(len(verified) == 1, "UAT unit shard coverage proof is missing or ambiguous")
-        shards.append(allowed[verified[0]["name"]])
+        shard = allowed[verified[0]["name"]]
+        require(label == f"{UNIT_JOB} ({shard})"
+                or (label == UNIT_JOB and len(matches) == 1 and shard == "1/1"),
+                "UAT unit job name does not match its shard marker")
+        shards.append(shard)
     require(sorted(shards) in (["1/1"], ["1/3", "2/3", "3/3"]),
             "UAT unit shard coverage is incomplete or duplicated")
 
@@ -407,13 +428,16 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
     # inventory. Current qualification requires the new release-core policy.
     legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
     exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
-    required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
+    historical_browser = not current and any(job.get("name") == "Web Targeted Contracts (browser)" for job in jobs)
+    required_jobs = LEGACY_REQUIRED_JOBS if legacy else PRE_BROWSER_REMOVAL_JOBS if historical_browser else REQUIRED_JOBS
     for name in required_jobs:
-        matches = [job for job in jobs if job.get("name") == name]
-        if name == "Web Unit Contracts":
-            _verify_unit_jobs(matches, candidate, run_id, current=current,
+        if name == UNIT_JOB:
+            unit_jobs = [job for job in jobs if job.get("name") == UNIT_JOB
+                         or (job.get("name") or "").startswith(f"{UNIT_JOB} (")]
+            _verify_unit_jobs(unit_jobs, candidate, run_id, current=current,
                               isolated_candidate=isolated_candidate)
             continue
+        matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1
             and matches[0].get("run_id") == run_id

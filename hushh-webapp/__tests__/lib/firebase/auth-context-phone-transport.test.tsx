@@ -33,7 +33,7 @@ describe("phone test transport selection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send phone OTP" }));
     await waitFor(() => expect(mocks.phoneLinkStart).toHaveBeenCalledOnce());
     expect(mocks.phoneTestStart).toHaveBeenCalledOnce();
-    expect(mocks.phoneLinkStart).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ allowLinkedPhoneProof: true }));
+    expect(mocks.phoneLinkStart).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ expectedUserId: "account-owner" }));
     expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
     expect(mocks.identityClaim).not.toHaveBeenCalled();
   });

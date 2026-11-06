@@ -48,6 +48,9 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_phone_schema_legacy_job.py",
     "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
     "consent-protocol/tests/test_plg_qualification_producer.py",
+    "consent-protocol/tests/test_plg_qualification_bootstrap.py",
+    "consent-protocol/tests/test_plg_qualification_acceptance.py",
+    "consent-protocol/tests/test_plg_qualification_candidate.py",
     "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
     "consent-protocol/tests/test_uat_connector_rollout_contract.py",
     "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
@@ -306,6 +309,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_account_deletion_release_workflow.py",
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
+        "consent-protocol/tests/helpers/plg_qualification.py",
     }:
         return frozenset({"controller"}), None
     if root == ".agents":
@@ -326,6 +330,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/promotion_approval.py",
             "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ci/resolve-ui-contract-base.py",
+            "scripts/ci/main-post-merge-smoke.sh",
             "scripts/ci/test_ui_contract_gate.py",
             "scripts/ci/integration-check.sh",
             "scripts/ci/account-deletion-check.sh",
@@ -379,6 +384,22 @@ def _select_groups(files: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]
     return tuple(group for group in REGRESSION_GROUPS if group in groups), None
 
 
+# Inputs read by the lane-topology regression owner, not product behavior.
+WEB_LANE_INPUTS = frozenset({
+    'hushh-webapp/package.json',
+    'hushh-webapp/playwright.config.ts',
+    'hushh-webapp/scripts/testing/playwright-shard.cjs',
+    'scripts/ci/test_web_ci_lane_partition.py',
+    'scripts/ci/web_ci_lane_fixture.py',
+    'scripts/ci/web_lane_topology_contract.py',
+    'scripts/ci/web-targeted-check.sh',
+    'scripts/ci/web-targeted-plan.sh',
+    'scripts/ci/web-common.sh',
+    'scripts/ci/web-full-suite-check.sh',
+    'scripts/ci/web-browser-core.py',
+})
+
+
 def build_selection(env: dict[str, str]) -> Selection:
     raw_level = env.get("CI_VALIDATION_LEVEL")
     level = raw_level.strip().lower() if raw_level and raw_level.strip() else "diagnostic"
@@ -405,6 +426,13 @@ def build_selection(env: dict[str, str]) -> Selection:
         and (
             not check.groups.intersection({"controller", "retention", "agent", "release"})
             or bool(check.groups.intersection(requested_groups))
+        )
+        and (
+            check.check_id != "web-lane-partition"
+            or level == "release"
+            or selection_error
+            or "controller" in requested_groups
+            or bool(WEB_LANE_INPUTS.intersection(files))
         )
     )
     return Selection(

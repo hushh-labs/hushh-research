@@ -26,6 +26,77 @@ from uat_exact_ci_fixture import (
 
 
 class ExactUatCiTest(unittest.TestCase):
+    def test_guidance_drift_does_not_unbind_executable_or_configuration_authority(self):
+        with tempfile.TemporaryDirectory(prefix="hussh-uat-authority-") as root:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
+
+            def git(*args):
+                return subprocess.check_output(["git", "-C", root, *args], env=env, stderr=subprocess.DEVNULL)
+
+            def write(path, text):
+                target = Path(root, path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text)
+
+            def commit():
+                git("add", ".")
+                git("commit", "-qm", "fixture")
+                return git("rev-parse", "HEAD").decode().strip()
+
+            git("init", "-q")
+            git("config", "user.name", "CI fixture")
+            git("config", "user.email", "ci@example.invalid")
+            git("config", "core.hooksPath", "/dev/null")
+            for path in subject.MANIFEST_FILES:
+                write(path, "[tool.pytest.ini_options]\naddopts = '-q'\n" if path.endswith(".toml")
+                      else '{"scripts": {"test": "vitest"}}')
+            write(subject.BACKEND_TEST_MANIFEST, "tests/test_main.py\n")
+            prose = ".agents/skills/repo-operations/SKILL.md"
+            write(prose, "# Original guidance\n")
+            guarded = (".agents/config.toml", ".agents/workflows/example/workflow.json",
+                       ".agents/skills/repo-operations/scripts/operator.py",
+                       "scripts/ops/sync_backend_runtime_secrets.py",
+                       "scripts/ops/scope_commerce_runtime_policy.py",
+                       "consent-protocol/db/migration_authority.py", "deploy/backend.yaml")
+            for path in guarded:
+                write(path, "original\n")
+            authority = commit()
+            git("update-ref", "refs/remotes/origin/main", authority)
+            write(prose, "# Updated development guidance\n")
+            candidate = commit()
+            with patch.object(subject, "git", side_effect=git):
+                self.assertEqual(subject.verify_git_authority(candidate, authority, authority, current=False),
+                                 git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
+                for path in guarded:
+                    write(path, "changed\n")
+                    changed = commit()
+                    with self.subTest(path=path), self.assertRaisesRegex(subject.Refused, "authority differs"):
+                        subject.verify_git_authority(changed, authority, authority, current=False)
+                    write(path, "original\n")
+                    commit()
+                git("update-index", "--chmod=+x", prose)
+                git("commit", "-qm", "executable Markdown")
+                with self.assertRaisesRegex(subject.Refused, "authority differs"):
+                    subject.verify_git_authority(git("rev-parse", "HEAD").decode().strip(), authority, authority, current=False)
+                Path(root, prose).unlink()
+                Path(root, prose).symlink_to("operator.py")
+                linked = commit()
+                with self.assertRaisesRegex(subject.Refused, "authority differs"):
+                    subject.verify_git_authority(linked, authority, authority, current=False)
+
+    def test_serving_lineage_refusal_explains_repair_without_weakening_admission(self):
+        candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
+
+        def observed(*args):
+            if args == ("merge-base", "--is-ancestor", base, candidate):
+                raise subject.Refused("Git authority lookup failed")
+            return b""
+
+        with patch.object(subject, "git", side_effect=observed), self.assertRaisesRegex(
+            subject.Refused, "UAT serving base bbbbbbbbbbbb.*reviewed source transition"
+        ):
+            subject.verify_git_authority(candidate, base, authority, current=False)
+
     def test_reviewed_product_tests_and_dependencies_do_not_change_execution_authority(self):
         main = {"scripts": {"test": "vitest"}, "dependencies": {"a": "1"}}
         candidate = {**main, "dependencies": {"a": "2"}}
@@ -389,10 +460,12 @@ class ExactUatAttemptTest(unittest.TestCase):
 
         def leg(shard):
             result = copy.deepcopy(unit)
+            result["name"] = f"Web Unit Contracts ({shard})"
             result["steps"][-1]["name"] = f"Verify unit shard ({shard})"
             return result
 
         verify([unit])
+        verify([leg("1/1")])
         complete = [leg(shard) for shard in ("1/3", "2/3", "3/3")]
         verify(complete)
         old = copy.deepcopy(unit)
@@ -402,11 +475,19 @@ class ExactUatAttemptTest(unittest.TestCase):
         with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
             verify([old], current=False)
             observed.assert_called_once_with("show", f"{candidate}:.github/workflows/ci.yml")
+        decorated_without_marker = {**old, "name": "Web Unit Contracts (1/1)"}
+        with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
+            with self.assertRaises(subject.Refused):
+                verify([decorated_without_marker], current=False)
+            observed.assert_not_called()
         with patch.object(subject, "git", return_value=(historical_workflow + "    strategy: {}\n").encode()):
             with self.assertRaises(subject.Refused):
                 verify([old], current=False)
         cases = [[], [old], complete[:2], [leg("1/3")] * 3,
                  [leg("1/1"), leg("2/3"), leg("3/3")], [leg("4/4")]]
+        mismatched = copy.deepcopy(complete)
+        mismatched[0]["name"], mismatched[1]["name"] = mismatched[1]["name"], mismatched[0]["name"]
+        cases.extend([mismatched, [unit, *complete], [leg("1/1"), leg("4/4")]])
         for field, value in (("run_id", 999), ("head_sha", "c" * 40),
                              ("status", "in_progress"), ("conclusion", "cancelled")):
             bad = copy.deepcopy(complete)

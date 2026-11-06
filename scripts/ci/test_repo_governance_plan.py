@@ -53,6 +53,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
+        "scripts/ci/main-post-merge-smoke.sh",
         "scripts/ci/integration-check.sh",
         "scripts/ci/account-deletion-check.sh",
         "scripts/ci/backend-check.sh",
@@ -155,6 +156,21 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
     assert selection.groups == ()
     assert "cloudrun-retention" not in selection.check_ids
     assert "agent-orchestration" not in selection.check_ids
+    assert "web-lane-partition" not in selection.check_ids
+    # Owning package/fixture changes retain the topology check without turning
+    # ordinary package edits into the entire release-controller regression group.
+    from repo_governance_plan import WEB_LANE_INPUTS
+    for path in WEB_LANE_INPUTS:
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert "web-lane-partition" in selected.check_ids
+        if path == "hushh-webapp/package.json":
+            assert "release-controller-contracts" not in selected.check_ids
+    for level, path in (("release", "hushh-webapp/app/page.tsx"),
+                        ("focused", "unknown-root/runtime.py"),
+                        ("focused", ".github/workflows/ci.yml")):
+        selected = build_selection({"CI_VALIDATION_LEVEL": level, "CI_CHANGED_FILES": path})
+        assert "web-lane-partition" in selected.check_ids
 
 
 def test_affected_unit_selector_test_is_a_controller_owner() -> None:
@@ -305,6 +321,17 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
     assert not any(argv[-1] == "integration" for argv, _ in observed)
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
+    # The operator report must not instruct agents to run a retired required lane.
+    context.update(branch="fix/change", url=None, lane_warning=None)
+    output = io.StringIO()
+    with patch.object(sys, "argv", ["pre-pr", "--base-ref", "main", "--json"]), \
+         patch.object(local, "_context", return_value=context), \
+         patch.object(local, "_focused", return_value=({"local": {"ok": True}}, [])), \
+         contextlib.redirect_stdout(output):
+        assert local.main() == 0
+    report = json.loads(output.getvalue())
+    assert "functional browser contracts" not in report["hosted_required"]
+    assert report["browser_validation"] == "explicit diagnostic only; not executed locally"
 
 
 def test_validation_results_collect_independent_failures_and_preserve_stops() -> None:

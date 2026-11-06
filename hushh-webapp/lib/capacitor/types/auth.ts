@@ -1,3 +1,5 @@
+export type PhoneLinkIntent = "link" | "replace";
+
 export interface NativeGoogleContactsAuthorization {
   accessToken: string;
   googleSubject: string;
@@ -7,7 +9,9 @@ export interface NativeGoogleContactsAuthorization {
 }
 
 export interface NativeDeletionPhoneProofPlugin {
-  /** Isolated, manually entered SMS proof; never links the primary identity. */
+  /** A distinct method refuses old binaries before any SMS side effect. */
+  startPhoneLinkVerification(options: { expectedUserId: string; attemptId: string; phoneNumber: string; resendCode?: boolean; linkIntent: PhoneLinkIntent }): Promise<{ attemptId: string; verificationId: string; linkIntent: PhoneLinkIntent; providerVerificationId: string }>;
+  /** Isolated proof compatibility; never links the primary identity. */
   startPhoneVerificationProof(options: { expectedUserId: string; attemptId: string; phoneNumber: string; resendCode?: boolean }): Promise<{ attemptId: string; verificationId: string }>;
   confirmPhoneVerificationProof(options: { expectedUserId: string; attemptId: string; verificationCode: string }): Promise<{ attemptId: string; phoneIdToken: string }>;
   cancelPhoneVerificationProof(options: { attemptId: string }): Promise<void>;
