@@ -455,6 +455,29 @@ def test_owner_admin_reconciles_response_without_second_merge(tmp_path, request_
         assert json.loads(receipt.read_text())["landed"] == SECOND
 
 
+@pytest.mark.parametrize("changed", ["base", "tree", "unreadable"])
+def test_owner_admin_records_confirmed_unqualified_landing_before_refusal(tmp_path, changed):
+    from types import SimpleNamespace
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "uat", "base": BASE, "tree": FIRST}}
+    commit = {"tree": {"sha": SECOND if changed == "tree" else FIRST},
+              "parents": [{"sha": SECOND if changed == "base" else BASE}, {"sha": HEAD1}]}
+    readback = queue.subprocess.CalledProcessError(1, "gh") if changed == "unreadable" else commit
+    with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
+         patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as write, \
+         patch.object(queue, "api", side_effect=[{"merged": True, "merge_commit_sha": SECOND}, readback]):
+        receipt = tmp_path / "receipt.json"
+        with pytest.raises((queue.Refused, queue.subprocess.CalledProcessError)):
+            queue.owner_admin_merge(9052, HEAD1, receipt, apply=True)
+        write.assert_called_once()
+        result = json.loads(receipt.read_text())
+        assert result["outcome"] == "merged_unqualified"
+        assert result["landed"] == SECOND
+        assert result["state"] == proof["state"]
+        if changed != "unreadable":
+            assert result["observed_commit"] == {
+                "tree": commit["tree"]["sha"], "parents": [p["sha"] for p in commit["parents"]]}
+
+
 def test_owner_admin_never_replays_unconfirmed_merge(tmp_path):
     from types import SimpleNamespace
     proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "main", "base": BASE, "tree": FIRST}}
