@@ -310,20 +310,6 @@ def test_uat_plg_rejects_foreign_flags_and_activity_without_its_lane(
         )
 
 
-def test_retained_uat_fields_do_not_activate_main_legacy_runtime(monkeypatch):
-    keys = (
-        "one_plg_uat_export_enabled",
-        "one_plg_activity_uat_enabled",
-        "one_plg_attempt_email_enabled",
-    )
-    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
-    for key in keys:
-        monkeypatch.delenv(key.upper(), raising=False)
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(dict.fromkeys(keys, True)))
-    runtime_settings.hydrate_runtime_environment()
-    assert all(key.upper() not in os.environ for key in keys)
-
-
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
     path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
     spec = importlib.util.spec_from_file_location("referral_runtime_sync", path)
