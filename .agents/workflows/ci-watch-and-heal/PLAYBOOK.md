@@ -11,7 +11,7 @@ Monitor PR checks live, classify failures into the correct owner skill, and keep
 1. Start with `repo-operations` and use `owner skill only` as the default narrow path.
 2. Run the repo-operations Branch Preservation Gate: identify the active developer branch, keep fixes on it when safe, and record it as the return target before any merge, checkout, or hotfix branch.
 3. For any merge, Admin bypass, deploy, or rollback transition, follow `.agents/skills/repo-operations/references/admin-release-sop.md`; do not infer the next transition from a green prior stage.
-4. Run `./bin/hushh codex ci-status --watch` on the active PR or current branch.
+4. Run `./bin/hushh agents ci-status --watch` on the active PR or current branch.
 5. Distinguish the failing stage before editing code:
    `PR Validation` (through `CI Status Gate`) is the authoritative pre-merge blocker, `Queue Validation` is a pass-through that reuses it for an identical merge-group tree, and `Main Post-Merge Smoke` is the merge-to-main completion gate on the real `main` SHA.
 6. If the change lands on `main`, continue the monitoring chain through `Main Post-Merge Smoke`. Continue into `Deploy to UAT` only when the user explicitly asked for a UAT deployment or that dispatch has already started.

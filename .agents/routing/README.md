@@ -1,6 +1,6 @@
 # Repository routing
 
-Reads `.agents/` at invocation time and composes a briefing the way `./bin/hushh codex route-task` does: workflow → owner_skill + default_spoke → union of `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, `risk_tags`.
+Reads `.agents/` at invocation time and composes a briefing the way `./bin/hushh agents route-task` does: workflow → owner_skill + default_spoke → union of `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, `risk_tags`.
 
 ## Response rules
 

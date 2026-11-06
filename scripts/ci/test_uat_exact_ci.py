@@ -53,7 +53,7 @@ class ExactUatCiTest(unittest.TestCase):
             write(subject.BACKEND_TEST_MANIFEST, "tests/test_main.py\n")
             prose = ".agents/skills/repo-operations/SKILL.md"
             write(prose, "# Original guidance\n")
-            guarded = (".agents/config.toml", ".agents/workflows/example/workflow.json",
+            guarded = (".agents/config.json", ".agents/workflows/example/workflow.json",
                        ".agents/skills/repo-operations/scripts/operator.py",
                        "scripts/ops/sync_backend_runtime_secrets.py",
                        "scripts/ops/scope_commerce_runtime_policy.py",

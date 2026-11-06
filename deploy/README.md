@@ -666,7 +666,7 @@ repair command into an alternative release path.
 
 1. Classify CI, deploy, runtime, schema, provenance, or semantic failure before
    editing.
-2. Start with `./bin/hushh codex rca --surface uat --text` for UAT failures.
+2. Start with `./bin/hushh agents rca --surface uat --text` for UAT failures.
 3. Inspect the exact failing GitHub job/step and its artifacts.
 4. Apply the smallest owner-routed correction, rerun local parity, and dispatch
    a new governed workflow from an eligible SHA.

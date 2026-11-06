@@ -27,7 +27,7 @@
   "required_commands": [
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
     "./bin/hushh docs verify",
-    "./bin/hushh codex audit"
+    "./bin/hushh agents audit"
   ],
   "verification_bundles": [
     {
@@ -35,11 +35,11 @@
       "commands": [
         "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
         "./bin/hushh docs verify",
-        "./bin/hushh codex audit"
+        "./bin/hushh agents audit"
       ],
       "tests": [
         "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex audit"
+        "./bin/hushh agents audit"
       ]
     }
   ],

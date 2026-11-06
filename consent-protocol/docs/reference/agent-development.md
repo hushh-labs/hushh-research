@@ -2,7 +2,7 @@
 
 > The community contribution bible. Everything you need to build, test, and ship a new Hussh agent or operon.
 
-The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
+The executable lifecycle route is `./bin/hushh agents route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
 engineering evidence agents are authored under root `.agents/subagents/`.
 Claude projections are generated under `.agents/generated/subagents` and exposed

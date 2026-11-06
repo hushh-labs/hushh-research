@@ -25,7 +25,7 @@
 /AGENTS.md @hushh-labs/pipeline-editors
 /.agents/instructions.md @hushh-labs/pipeline-editors
 /.agents/README.md @hushh-labs/pipeline-editors
-/.agents/config.toml @hushh-labs/pipeline-editors
+/.agents/config.json @hushh-labs/pipeline-editors
 /.agents/routing/ @hushh-labs/pipeline-editors
 /.agents/subagents/ @hushh-labs/pipeline-editors
 /.agents/workflows/ @hushh-labs/pipeline-editors

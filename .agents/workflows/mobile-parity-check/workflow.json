@@ -18,7 +18,7 @@
     "docs/project_context_map.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task mobile-parity-check",
+    "./bin/hushh agents route-task mobile-parity-check",
     "cd hushh-webapp && npm run verify:capacitor:static",
     "cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon",
     "cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/App/build/DerivedData build-for-testing"
