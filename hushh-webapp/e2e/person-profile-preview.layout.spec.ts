@@ -91,9 +91,15 @@ for (const width of [320, 393, 768, 1440]) {
     await preview.getByRole("textbox", { name: "Search network by name" }).fill("Second");
     const connect = preview.getByRole("button", { name: "Connect with Second Degree Person" });
     await expect(connect).toBeVisible();
-    const connectBounds = await connect.boundingBox();
-    const profileBounds = await preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox();
-    expect(connectBounds!.x + connectBounds!.width).toBeLessThanOrEqual(profileBounds!.x);
+    await expect.poll(async () => {
+      const [connectBounds, profileBounds] = await Promise.all([
+        connect.boundingBox(),
+        preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox(),
+      ]);
+      return connectBounds && profileBounds
+        ? connectBounds.x + connectBounds.width - profileBounds.x
+        : Number.POSITIVE_INFINITY;
+    }).toBeLessThanOrEqual(0);
     await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(1);
     await page.screenshot({ path: testInfo.outputPath(`network-connect-action-${width}.png`) });
     await connect.click();
