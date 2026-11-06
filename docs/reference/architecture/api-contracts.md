@@ -64,7 +64,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`; filtering precedes logical pagination. |
 | `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
 
@@ -5283,7 +5283,14 @@ unavailable row with a retry action.
 ### Connect directory mutual connections
 
 Directory rows additionally return `mutualConnectionCount` and optional
-`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`), plus
+`mutualConnectionPreviews` containing up to two eligible public identities. The
+singular field remains the first eligible preview for existing clients. The same
+metadata is returned on mutual-list and network-list rows, with viewer-relative
+`relationship` (`none`, `pending_outgoing`, `pending_incoming`, `connected`).
+Preview reads are batched across at most 50 page rows and 100 selected identities;
+final graph, block, profile and reference checks reject mid-read changes with 503.
+Counts use distinct shared
 neighbors across active canonical connections, scoped to the returned page,
 excluding blocked relationships. A bounded batch lookup resolves shared peers
 through the canonical directory's live visibility and account checks, independent
@@ -5294,6 +5301,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+The authenticated, private/no-store person-context lookup also returns the
+canonical `publicPersonRef`. UID-only portrait entry points use this reference
+to open the existing shared profile preview; they never reinterpret a UID as a
+public reference. Connection requests continue through the existing authenticated
+`POST /api/one/people/{person_ref}/connection` endpoint.
 
 ### Private email send recovery
 
