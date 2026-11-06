@@ -54,6 +54,8 @@ type CachedMarkdownMemory = {
   updatedAt: string | null;
   dataVersion?: number;
   persisted: boolean;
+  /** V1 consolidated documents retain authored headings and full model context. */
+  verbatimMarkdown?: boolean;
   syncStatus?: "synced" | "saving" | "retryable";
   /** Private control metadata; never part of Soul.md or model context. */
   kycIntakeCompletedAt?: string | null;
@@ -205,21 +207,25 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function readStoredDocument(data: unknown): { markdown: string; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims; chatMemoryCheckpoint: ChatMemoryCheckpoint } | null {
+function readStoredDocument(data: unknown): { markdown: string; verbatimMarkdown: boolean; updatedAt: string | null; kycIntakeCompletedAt: string | null; sourceSummaries: SourceSummaries; deletedFactLabels: string[]; pwmClaims: PwmClaims; chatMemoryCheckpoint: ChatMemoryCheckpoint } | null {
   const root = record(data);
   if (typeof root.markdown !== "string") {
     if (Object.keys(root).length) throw new Error("memory.md document is invalid.");
     return null;
   }
-  const markdown = normalizeSoulDocument(omitCredentialsFromMemory(root.markdown));
+  const chatMemoryCheckpoint = readChatCheckpoint(root._chat_memory);
+  const verbatimMarkdown = root._chat_memory != null;
+  const safeMarkdown = omitCredentialsFromMemory(root.markdown);
+  const markdown = verbatimMarkdown ? safeMarkdown : normalizeSoulDocument(safeMarkdown);
   return {
     markdown,
+    verbatimMarkdown,
     updatedAt: typeof root.updated_at === "string" ? root.updated_at : null,
     kycIntakeCompletedAt: typeof root._kyc_intake_completed_at === "string" ? root._kyc_intake_completed_at : null,
     sourceSummaries: readSourceSummaries(root._source_summaries),
     deletedFactLabels: Array.isArray(root._deleted_fact_labels) ? root._deleted_fact_labels.filter((label): label is string => typeof label === "string") : [],
     pwmClaims: readPwmClaims(root._pwm_claims),
-    chatMemoryCheckpoint: readChatCheckpoint(root._chat_memory),
+    chatMemoryCheckpoint,
   };
 }
 
@@ -350,6 +356,7 @@ function cacheDocument(params: {
   updatedAt: string | null;
   dataVersion?: number;
   persisted: boolean;
+  verbatimMarkdown?: boolean;
   syncStatus?: CachedMarkdownMemory["syncStatus"];
   kycIntakeCompletedAt?: string | null;
   sourceSummaries?: SourceSummaries;
@@ -360,6 +367,7 @@ function cacheDocument(params: {
 }): CachedMarkdownMemory {
   const entry = {
     ...params,
+    verbatimMarkdown: params.verbatimMarkdown ?? cache.get(params.userId)?.verbatimMarkdown ?? false,
     deletedFactLabels: params.deletedFactLabels ?? cache.get(params.userId)?.deletedFactLabels ?? [],
     pwmClaims: params.pwmClaims ?? cache.get(params.userId)?.pwmClaims ?? {},
     chatMemoryCheckpoint: params.chatMemoryCheckpoint ?? cache.get(params.userId)?.chatMemoryCheckpoint ?? readChatCheckpoint(null),
@@ -421,10 +429,11 @@ async function readMarkdownMemory(params: {
   const pendingJobs = syncQueues.get(params.userId)?.jobs ?? [];
   const current = peekMarkdownMemory(params.userId);
   if (current !== beforeRead && !pendingJobs.length) return current;
-  const pending = applyPendingMemory(stored?.markdown ?? emptySoulDocument(), stored?.sourceSummaries ?? {}, pendingJobs);
+  const pending = applyPendingMemory(stored?.markdown ?? "", stored?.sourceSummaries ?? {}, pendingJobs);
   return cacheDocument({
     userId: params.userId,
     markdown: pending.markdown,
+    verbatimMarkdown: stored?.verbatimMarkdown ?? false,
     sourceSummaries: pending.sourceSummaries,
     deletedFactLabels: stored?.deletedFactLabels ?? [],
     pwmClaims: stored?.pwmClaims ?? {},
@@ -891,8 +900,8 @@ async function replaceMarkdownMemory(params: {
   if (local && local.markdown !== params.expectedMarkdown) return { success: false, conflict: true, message: "memory.md changed while you were editing. Your draft is still here." };
   const previousQueue = syncQueues.get(params.userId);
   if (previousQueue?.running || previousQueue?.jobs.length) return { success: false, message: "Your latest memories haven't finished syncing. Your draft is still here; retry sync before saving changes." };
-  const cleaned = omitCredentialsFromMemory(params.markdown).trim();
-  const markdown = cleaned ? `${cleaned}\n` : "";
+  const cleaned = omitCredentialsFromMemory(params.markdown).trimEnd();
+  const markdown = cleaned.trim() ? `${cleaned}\n` : "";
   if (markdown.length > MAX_MARKDOWN_MEMORY_CHARS) {
     return { success: false, message: "memory.md is too long. Shorten it before saving." };
   }
@@ -957,7 +966,7 @@ async function replaceMarkdownMemory(params: {
   try { await params.beforeEffect(); } catch (error) { releaseQueue(); throw error; }
   if (!isVaultSessionEpochCurrent(epoch)) { releaseQueue(); return { success: false, message: "Unlock your vault to reopen memory.md." }; }
   const pending = applyPendingMemory(markdown, sourceSummaries, queue.jobs);
-  cacheDocument({ userId: params.userId, markdown: pending.markdown, sourceSummaries: pending.sourceSummaries, deletedFactLabels, pwmClaims, chatMemoryCheckpoint, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
+  cacheDocument({ userId: params.userId, markdown: pending.markdown, verbatimMarkdown: true, sourceSummaries: pending.sourceSummaries, deletedFactLabels, pwmClaims, chatMemoryCheckpoint, updatedAt: result.updatedAt ?? new Date().toISOString(), dataVersion: result.dataVersion, persisted: true, syncStatus: syncStatus(params.userId),
     kycIntakeCompletedAt: queue.jobs.some(job => job.completeKycIntake)
       ? peekMarkdownMemory(params.userId)?.kycIntakeCompletedAt ?? kycIntakeCompletedAt : kycIntakeCompletedAt });
   releaseQueue();
@@ -968,7 +977,7 @@ export function markdownMemoryToAgentContext(
   memory: CachedMarkdownMemory,
 ): AgentPkmContext {
   const excluded = new Set<string>();
-  for (const source of Object.values(memory.sourceSummaries ?? {})) for (const fact of source.facts) {
+  if (!memory.verbatimMarkdown) for (const source of Object.values(memory.sourceSummaries ?? {})) for (const fact of source.facts) {
     try { assertLightweightReceiptFacts([fact]); } catch { excluded.add(fact); }
   }
   const markdown = memory.markdown.split("\n").filter(line => !excluded.has(line.trim().replace(/^[-*]\s+/, ""))).join("\n");

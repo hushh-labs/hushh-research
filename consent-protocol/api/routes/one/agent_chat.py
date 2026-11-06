@@ -557,7 +557,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
+        if token
+        else "",
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,

@@ -660,7 +660,7 @@ async def _stream_one_text_turn_once(
             STATE_TIMEZONE: str(timezone or "").strip()[:64],
             STATE_SCREEN: str(sanitized_context.get("screen") or "").strip()[:64],
             STATE_VOICE_CONTEXT: sanitized_context,
-            STATE_PKM_CONTEXT: str(pkm_context or "").strip()[:20000],
+            STATE_PKM_CONTEXT: str(pkm_context or ""),
             # Only meaningful when the projection is empty; the instruction reads it
             # solely on that branch. Carried rather than recomputed because the
             # grounding service is the only thing that knows WHY.

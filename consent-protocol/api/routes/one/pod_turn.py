@@ -106,8 +106,8 @@ class PodTurnRequest(BaseModel):
     # itself: it holds no database credential BY DESIGN, and the browser already
     # computes exactly this value for every hub turn.
     #
-    # 20000 matches the hub's cap so the two paths cannot disagree about what fits.
-    pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=20000)
+    # Match the hub's bounded field so V1 memory reaches either chat path whole.
+    pkm_context: Optional[str] = Field(default=None, alias="pkmContext", max_length=128_000)
     # Recent conversation turns from the browser, so this turn has the thread the
     # hub would have from its database. Seeded into the runner memory-only and
     # capped by the runner (last 20, user/assistant only, 4000 chars each); the
@@ -483,7 +483,7 @@ async def run_pod_turn(
     payload, (provider, model, runtime_mode) = _resolve_owner_target(payload, provider, model)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
-    grounding = (payload.pkm_context or "").strip() or None
+    grounding = payload.pkm_context if (payload.pkm_context or "").strip() else None
 
     # No grounding pushed in? Ask this pod's OWN index.
     #
