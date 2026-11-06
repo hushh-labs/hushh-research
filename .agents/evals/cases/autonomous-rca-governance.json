@@ -7,7 +7,7 @@
         "top_k": 3
       },
       {
-        "prompt": "run ./bin/hushh codex rca --surface uat and tell me what is blocking the release",
+        "prompt": "run ./bin/hushh agents rca --surface uat and tell me what is blocking the release",
         "top_k": 3
       },
       {

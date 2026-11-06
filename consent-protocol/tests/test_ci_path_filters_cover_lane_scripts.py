@@ -437,6 +437,7 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     reference = "consent-protocol/docs/reference/private-browser-runtime.md"
     runtime = "consent-protocol/hushh_mcp/services/pod_binding_service.py"
     assert not backend.match_file(reference)
+    assert not backend.match_file("consent-protocol/docs/reference/agent-development.md")
     for path in (
         "consent-protocol/docs/reference/env-vars.md",
         "consent-protocol/docs/reference/future-document.md",
@@ -448,6 +449,20 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     assert any(backend.match_file(path) for path in (reference, runtime))
     assert not backend.match_file("scripts/ci/protocol-check.sh")
     assert not backend.match_file(".github/workflows/ci.yml")
+
+
+def test_engineering_judge_contract_keeps_full_coverage_without_backend_selection() -> None:
+    path = "consent-protocol/tests/test_memory_judge.py"
+    backend = _filters()["backend"]
+    assert not backend.match_file(path)
+    assert backend.match_file("consent-protocol/scripts/ops/memory_judge.py")
+    assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["agent"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["memory-judge-contracts"][-1] == path
+    assert "protocol-check" not in commands
 
 
 def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
@@ -680,6 +695,7 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_direct_uat_acceptance.py",
         "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
         "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
         "consent-protocol/tests/test_dev_release_classification.py",

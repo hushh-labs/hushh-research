@@ -242,10 +242,12 @@ services; image publication remains a separate explicitly requested operation.
 
 This bounded sample does not show dev as intrinsically slower than UAT.
 [Source validation 37572520334](https://github.com/hushh-labs/hushh-research/actions/runs/37572520334)
-passed in 22m20s, with browser validation the critical path at 19m58s. That is a
+passed in 22m20s, with browser validation the critical path at 19m58s. This
+historical required-browser policy was superseded on 6 November; browsers are
+now explicit diagnostics. That was a
 separate cost. Earlier failed Drive fixtures spent about 26 minutes retrying;
-their corrections now pass. One recovered Connections fixture flake remains a
-follow-up, not permission to remove browser assertions.
+their corrections subsequently passed. Retain fixture evidence for explicit
+diagnostics; do not infer live browser acceptance from non-browser CI.
 
 [Dev 37574435209](https://github.com/hushh-labs/hushh-research/actions/runs/37574435209)
 finished in about 17m17s but failed strict environment bootstrap after promotion:

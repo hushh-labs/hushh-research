@@ -22,12 +22,12 @@
     "docs/reference/architecture/runtime-db-data-plane-contract.json"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task runtime-topology-maintenance",
+    "./bin/hushh agents route-task runtime-topology-maintenance",
     "python3 scripts/ops/audit_agents_md_alignment.py --json",
     "python3 scripts/ops/generate_runtime_topology_index.py --check",
     "cd hushh-webapp && npm run verify:surface-map && npm run verify:route-orchestration-index && npm run audit:cache-coherence",
     "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
-    "./bin/hushh codex data-model-audit"
+    "./bin/hushh agents data-model-audit"
   ],
   "verification_bundle": {
     "id": "runtime-topology-maintenance",
@@ -37,13 +37,13 @@
       "cd hushh-webapp && npm run verify:surface-map && npm run verify:route-orchestration-index && npm run audit:cache-coherence",
       "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
       "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py",
-      "./bin/hushh codex data-model-audit",
+      "./bin/hushh agents data-model-audit",
       "./bin/hushh docs verify"
     ],
     "tests": [
       "python3 scripts/ops/generate_runtime_topology_index.py --check",
       "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py",
-      "./bin/hushh codex data-model-audit"
+      "./bin/hushh agents data-model-audit"
     ]
   },
   "deliverables": [
