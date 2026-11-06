@@ -1243,6 +1243,9 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
         generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text()
     )
     assert {a["action_id"] for a in gateway["actions"]} <= {a["id"] for a in catalog["actions"]}
+    document_actions = [a for a in catalog["actions"] if a["id"].startswith("document.")]
+    assert document_actions
+    assert all(a["agentId"] == "agent_documents" for a in document_actions)
     chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
     assert {a["agentId"] for a in chat} == {
         "agent_one",

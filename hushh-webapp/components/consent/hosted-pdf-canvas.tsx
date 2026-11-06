@@ -4,14 +4,15 @@ import { Button } from "@/lib/morphy-ux/button";
 import { HelperText } from "@/components/app-ui/typography";
 import { loadHostedPdf, renderHostedPdfPage } from "@/lib/consent/document-hosting-pdf";
 
-export function HostedPdfCanvas({ bytes, signal, onRendered }: { bytes: Uint8Array; signal: AbortSignal; onRendered: () => void }) {
+export function HostedPdfCanvas({ bytes, signal, onRendered, onFailed }: { bytes: Uint8Array; signal: AbortSignal; onRendered: () => void; onFailed?: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [page, setPage] = useState(1); const [pages, setPages] = useState(0); const [error, setError] = useState(false);
   const [loaded, setLoaded] = useState<{ bytes: Uint8Array; signal: AbortSignal; pdf: Awaited<ReturnType<typeof loadHostedPdf>> } | null>(null);
   const [rendering, setRendering] = useState(true);
   const renderWork = useRef<Promise<void>>(Promise.resolve());
   const callback = useRef(onRendered);
-  useLayoutEffect(() => { callback.current = onRendered; }, [onRendered]);
+  const failed = useRef(onFailed);
+  useLayoutEffect(() => { callback.current = onRendered; failed.current = onFailed; }, [onRendered, onFailed]);
   useEffect(() => {
     const controller = new AbortController();
     const element = canvas.current;
@@ -30,7 +31,7 @@ export function HostedPdfCanvas({ bytes, signal, onRendered }: { bytes: Uint8Arr
       if (controller.signal.aborted) { await pdf.loadingTask.destroy(); return; }
       setPages(pdf.numPages);
       setLoaded({ bytes, signal, pdf });
-    })().catch(() => { if (!controller.signal.aborted) { setError(true); setRendering(false); } });
+    })().catch(() => { if (!controller.signal.aborted) { setError(true); setRendering(false); failed.current?.(); } });
     return () => { signal.removeEventListener("abort", abort); abort(); };
   }, [bytes, signal]);
   useEffect(() => {
@@ -50,6 +51,7 @@ export function HostedPdfCanvas({ bytes, signal, onRendered }: { bytes: Uint8Arr
       if (!controller.signal.aborted) {
         element.width = 0; element.height = 0;
         setError(true); setRendering(false);
+        failed.current?.();
       }
     });
     renderWork.current = render;

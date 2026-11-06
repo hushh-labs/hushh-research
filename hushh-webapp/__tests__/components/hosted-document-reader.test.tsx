@@ -1,5 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const reported = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock("@/lib/observability/product-activity-client", () => ({ captureProductAttempt: reported.capture }));
 const state = vi.hoisted(() => ({ open: vi.fn(), artifact: vi.fn(), verify: vi.fn(), package: vi.fn(), activity: vi.fn(), download: vi.fn(), loadPdf: vi.fn(), renderPdf: vi.fn(), current: true, copyStatus: vi.fn(), copyContent: vi.fn(), copyActivity: vi.fn(), copyRevoke: vi.fn(), native: false, share: vi.fn() }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/one/documents/open" }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => state.native } }));
@@ -23,17 +25,41 @@ import { HostedPdfCanvas } from "@/components/consent/hosted-pdf-canvas";
 const session = { userId: "b", vaultKey: "vault", vaultOwnerToken: "token", isCurrent: () => state.current };
 const value = () => ({ package: { accessExpiresAt: new Date(Date.now() + 3000).toISOString(), packageDigest: "digest", interactionId: "interaction", artifacts: [{ artifactId: "original" }, { artifactId: "preview" }] }, manifest: { version: 1, files: [{ fileRef: "ref", name: "Private.pdf", sourceRevision: "v1", originalArtifactId: "original", watermarkedArtifactId: "preview" }] } });
 const flush = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
-beforeEach(() => { CacheService.getInstance().clear(); vi.useFakeTimers(); vi.clearAllMocks(); state.current = true; state.native = false; state.open.mockResolvedValue(value()); state.verify.mockResolvedValue(undefined); state.package.mockResolvedValue(value().package); state.activity.mockResolvedValue({}); state.artifact.mockResolvedValue(new Uint8Array([1, 2, 3])); state.download.mockResolvedValue(true); state.loadPdf.mockResolvedValue({ numPages: 1, loadingTask: { destroy: vi.fn() } }); state.renderPdf.mockResolvedValue(undefined); });
+beforeEach(() => { CacheService.getInstance().clear(); vi.useFakeTimers(); vi.clearAllMocks(); reported.capture.mockImplementation(() => ({ started: vi.fn(), settled: vi.fn() })); state.current = true; state.native = false; state.open.mockResolvedValue(value()); state.verify.mockResolvedValue(undefined); state.package.mockResolvedValue(value().package); state.activity.mockResolvedValue({}); state.artifact.mockResolvedValue(new Uint8Array([1, 2, 3])); state.download.mockResolvedValue(true); state.loadPdf.mockResolvedValue({ numPages: 1, loadingTask: { destroy: vi.fn() } }); state.renderPdf.mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("protected reader entitlement and memory", () => {
+  it.each([false, true])("settles a preview only after rendering while its original session is current (retired=%s)", async retired => {
+    let rendered!: () => void;
+    state.renderPdf.mockImplementationOnce(() => new Promise<void>(resolve => { rendered = resolve; }));
+    render(<HostedDocumentReader session={session} requestId="request" />); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true })); await flush();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.preview", "b");
+    const attempt = reported.capture.mock.results[0]!.value;
+    expect(attempt.settled).not.toHaveBeenCalled();
+    state.current = !retired;
+    await act(async () => rendered()); await flush();
+    if (retired) expect(attempt.settled).not.toHaveBeenCalled();
+    else expect(attempt.settled).toHaveBeenCalledExactlyOnceWith("returned");
+  });
+  it.each(["parse", "render"])("reports an actual %s error without claiming a displayed preview", async failure => {
+    (failure === "parse" ? state.loadPdf : state.renderPdf).mockRejectedValueOnce(new Error("synthetic PDF failure"));
+    render(<HostedDocumentReader session={session} requestId="request" />); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true })); await flush();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.preview", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    expect(state.activity).not.toHaveBeenCalled();
+  });
   it("never downloads on preview, erases preview bytes and names at expiry, and cannot reopen expired information", async () => {
     const bytes = new Uint8Array([1, 2, 3]); state.artifact.mockResolvedValue(bytes);
     render(<HostedDocumentReader session={session} requestId="request" />); await flush();
+    expect(reported.capture).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true })); await flush();
     expect(screen.getByRole("region", { name: "Document preview" })).toBeInTheDocument(); expect(state.download).not.toHaveBeenCalled();
     await act(async () => { vi.advanceTimersByTime(4000); });
     expect(bytes).toEqual(new Uint8Array(3)); expect(screen.queryByText("Private.pdf")).not.toBeInTheDocument(); expect(screen.queryByRole("region", { name: "Document preview" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Download original" })).not.toBeInTheDocument();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.preview", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
   it("rejects a late decrypted response after the vault session changes, without a browser download", async () => {
     let release!: (bytes: Uint8Array) => void; state.artifact.mockImplementation(() => new Promise(resolve => { release = resolve; }));
@@ -42,6 +68,9 @@ describe("protected reader entitlement and memory", () => {
     state.current = false; const bytes = new Uint8Array([4, 5]); await act(async () => { release(bytes); });
     expect(bytes).toEqual(new Uint8Array(2)); expect(state.download).not.toHaveBeenCalled();
     await act(async () => { vi.advanceTimersByTime(1000); }); expect(screen.queryByText("Private.pdf")).not.toBeInTheDocument();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.download_original", "b");
+    expect(reported.capture.mock.results[0]!.value.started).toHaveBeenCalledOnce();
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
   });
   it("clears decrypted presentation when a focus recheck rejects or changes the package", async () => {
     render(<HostedDocumentReader session={session} requestId="request" />); await flush();
@@ -53,10 +82,21 @@ describe("protected reader entitlement and memory", () => {
 const background = (mimeType = "application/pdf", previewAvailable = true) => ({ requestId: "request", actorRole: "recipient", status: "ready", files: [{ fileRef: "file", name: "Original.file", mimeType, status: "ready", previewAvailable, sha256: "hash" }] });
 describe("background One copies in the existing file flow", () => {
   beforeEach(() => { state.copyStatus.mockResolvedValue(background()); state.copyContent.mockResolvedValue(new Uint8Array([1, 2, 3])); });
+  it("reports an explicit refresh error, without counting initial reads or focus checks as attempts", async () => {
+    render(<BackgroundDocumentFilesBody session={session} requestId="request" />); await flush();
+    fireEvent.focus(window); await flush();
+    expect(reported.capture).not.toHaveBeenCalled();
+    state.copyStatus.mockRejectedValueOnce(new Error("synthetic read failure"));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true })); await flush();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.refresh", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    expect(screen.getByRole("alert")).toHaveTextContent("One copy unavailable");
+  });
   it("previews only after click, never downloads on preview, and clears bytes on Back", async () => {
     const bytes = new Uint8Array([1, 2, 3]); state.copyContent.mockResolvedValue(bytes);
     render(<BackgroundDocumentFilesBody session={session} requestId="request" />); await flush();
     expect(state.copyContent).not.toHaveBeenCalled();
+    expect(reported.capture).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Preview", exact: true })); await flush();
     expect(state.copyContent).toHaveBeenCalledWith(session, "request", "file", "preview", expect.any(AbortSignal), expect.any(Number));
     expect(screen.getByRole("region", { name: "Document preview" })).toBeVisible();
@@ -102,9 +142,12 @@ describe("background One copies in the existing file flow", () => {
     expect(layer).toBeDefined(); act(() => { layer![2](); }); await flush();
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(state.copyRevoke).not.toHaveBeenCalled();
+    expect(reported.capture).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Stop One access" })); await flush();
     fireEvent.click(screen.getByRole("button", { name: "Stop access", exact: true })); await flush();
     expect(state.copyRevoke).toHaveBeenCalledWith(session, "request", expect.any(AbortSignal));
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.revoke", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
   it("downloads an unsupported original with its MIME and never embeds active content", async () => {
     state.copyStatus.mockResolvedValue(background("text/html", true));
@@ -116,6 +159,8 @@ describe("background One copies in the existing file flow", () => {
     expect(state.copyContent).toHaveBeenCalledWith(session, "request", "file", "download", expect.any(AbortSignal), expect.any(Number));
     expect(state.download).toHaveBeenCalledWith(expect.objectContaining({ type: "text/html" }), "Original.file", expect.any(Function));
     expect(bytes).toEqual(new Uint8Array(6));
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.download", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
   it("labels a Google export and saves the advertised rendition without converting bytes", async () => {
     const copy = background("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", false);
@@ -138,6 +183,8 @@ describe("background One copies in the existing file flow", () => {
     await act(async () => { vi.advanceTimersByTime(1000); });
     expect(bytes).toEqual(new Uint8Array(2)); expect(state.download).not.toHaveBeenCalled();
     expect(screen.queryByText("Original.file")).not.toBeInTheDocument();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.download", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
   });
   it("bounds the final entitlement read before revealing bytes or handing off a file", async () => {
     const bytes = new Uint8Array([1, 2, 3]); state.copyContent.mockResolvedValue(bytes);
@@ -149,19 +196,24 @@ describe("background One copies in the existing file flow", () => {
     expect(screen.queryByRole("region", { name: "Document preview" })).not.toBeInTheDocument();
     expect(state.download).not.toHaveBeenCalled(); expect(state.share).not.toHaveBeenCalled();
     expect(bytes).toEqual(new Uint8Array(3));
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.download", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
   });
-  it("uses native file handoff without claiming that a cancelled save completed", async () => {
+  it.each(["Share cancelled", "native handoff failed"])("uses native file handoff without claiming that %s saved a file", async error => {
     state.native = true; let rejectShare!: (error: Error) => void;
     state.share.mockImplementation(() => new Promise((_, reject) => { rejectShare = reject; }));
     state.copyStatus.mockResolvedValue(background("application/vnd.openxmlformats-officedocument.wordprocessingml.document", false));
     render(<BackgroundDocumentFilesBody session={session} requestId="request" />); await flush();
     fireEvent.click(screen.getByRole("button", { name: "Download", exact: true })); await flush();
     expect(state.share).toHaveBeenCalled(); expect(state.download).not.toHaveBeenCalled();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.download", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
     await act(async () => { await vi.advanceTimersByTimeAsync(60_001); }); await flush();
     expect(screen.queryByText("File took too long. Try again.")).not.toBeInTheDocument();
     expect(state.share.mock.calls[0][0].isEffectCurrent()).toBe(true);
-    await act(async () => rejectShare(new Error("synthetic cancellation"))); await flush();
+    await act(async () => rejectShare(new Error(error))); await flush();
     expect(screen.queryByText("Handed to system.")).not.toBeInTheDocument();
+    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith(error === "Share cancelled" ? "cancelled" : "failed");
   });
 });
 

@@ -15,6 +15,7 @@ import { shareFile } from "@/lib/share/share-file";
 import { isShareCancellationError } from "@/lib/share/share-link";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { verifyHostedRecipientKey } from "@/lib/consent/document-hosting-preparation";
+import { captureProductAttempt, type ProductAttempt } from "@/lib/observability/product-activity-client";
 
 type Opened = Awaited<ReturnType<typeof openHostedDocuments>>;
 export function documentHostingErrorCopy(error: unknown): string {
@@ -33,7 +34,7 @@ export function documentHostingErrorCopy(error: unknown): string {
 export function HostedDocumentReader({ session, requestId }: { session: DocumentSession; requestId: string }) {
   const pathname = usePathname();
   const [opened, setOpened] = useState<Opened | null>(null);
-  const [preview, setPreview] = useState<{ bytes: Uint8Array; fileRef: string; artifactId: string; controller: AbortController } | null>(null);
+  const [preview, setPreview] = useState<{ bytes: Uint8Array; fileRef: string; artifactId: string; controller: AbortController; attempt: ProductAttempt } | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
   const operation = useRef<AbortController | null>(null); const previewRef = useRef(preview);
   const openedRef = useRef(opened);
@@ -81,9 +82,11 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
     void DocumentHostingService.activity(session, requestId, { interactionId: value.package.interactionId, artifactId, eventId: crypto.randomUUID(), kind, outcome }).catch(() => undefined);
   };
   const loadFile = async (file: Opened["manifest"]["files"][number], role: "original" | "watermarked", download: boolean, trigger?: HTMLButtonElement) => {
-    if (busy) return;
+    if (busy || !session.isCurrent()) return;
     close(); if (trigger) returnFocus.current = trigger;
     const controller = new AbortController(); operation.current = controller; setBusy(true); setError(null); setNotice(null);
+    const attempt = captureProductAttempt(!download ? "document.hosted.preview" : role === "original" ? "document.hosted.download_original" : "document.hosted.download_copy", session.userId);
+    attempt.started();
     let bytes: Uint8Array | null = null;
     try {
       const current = await openHostedDocuments(session, requestId, controller.signal);
@@ -110,9 +113,11 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
           setNotice("Download started.");
         }
         record(artifactId, "handoff_reported", "success", current);
-      } else { setOpened(current); setPreview({ bytes, fileRef: file.fileRef, artifactId, controller }); bytes = null; }
+        if (session.isCurrent() && !controller.signal.aborted) attempt.settled("returned");
+      } else { setOpened(current); setPreview({ bytes, fileRef: file.fileRef, artifactId, controller, attempt }); bytes = null; }
     } catch (cause) {
       if (!controller.signal.aborted && session.isCurrent()) {
+        attempt.settled(isShareCancellationError(cause) ? "cancelled" : "failed");
         if (isShareCancellationError(cause)) setNotice("Document was not saved.");
         else setError(documentHostingErrorCopy(cause));
       }
@@ -126,11 +131,13 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
     {error?.includes("supported browser") && protectedDocumentUrl(requestId) ? <Button asChild size="compact"><a href={protectedDocumentUrl(requestId)!} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">Open protected link in browser</a></Button> : null}
     {error?.includes("key") ? <Button data-voice-control-id="document-hosting-recovery-request" size="compact" disabled={busy} onClick={() => {
       if (!window.confirm("Set up or recover your current vault-backed key and ask the owner to repair this paid copy? This does not create a new purchase.")) return;
+      if (!session.isCurrent()) return;
       const controller = new AbortController(); operation.current = controller; setBusy(true);
+      const attempt = captureProductAttempt("document.hosted.recovery_request", session.userId); attempt.started();
       void OneKycClientZkService.ensureConnector({ userId: session.userId, vaultKey: session.vaultKey, vaultOwnerToken: session.vaultOwnerToken })
         .then(connector => { requireDocumentSession(session, controller.signal); return verifyHostedRecipientKey(session, requestId, connector.connector_key_id, controller.signal, "recovery"); })
-        .then(() => { if (session.isCurrent() && !controller.signal.aborted) setNotice("Recovery requested. The owner must authorize repairing this copy. Nothing was charged."); })
-        .catch(cause => { if (session.isCurrent() && !controller.signal.aborted) setError(documentHostingErrorCopy(cause)); })
+        .then(() => { if (session.isCurrent() && !controller.signal.aborted) { attempt.settled("returned"); setNotice("Recovery requested. The owner must authorize repairing this copy. Nothing was charged."); } })
+        .catch(cause => { if (session.isCurrent() && !controller.signal.aborted) { attempt.settled("failed"); setError(documentHostingErrorCopy(cause)); } })
         .finally(() => { if (session.isCurrent() && !controller.signal.aborted) setBusy(false); });
     }}>Request key recovery</Button> : null}
     {notice ? <HelperText role="status">{notice}</HelperText> : null}
@@ -144,12 +151,17 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
       </div>
     </div>)}
     {preview ? <div className="space-y-3" role="region" aria-label="Document preview">
-      <Button data-voice-control-id="document-hosting-close-preview" size="compact" variant="none" onClick={close}>Back to documents</Button>
+      <Button data-voice-control-id="document-hosting-close-preview" size="compact" variant="none" onClick={() => {
+        const attempt = captureProductAttempt("document.hosted.close_preview", session.userId); attempt.started();
+        if (close() && session.isCurrent()) attempt.settled("returned");
+      }}>Back to documents</Button>
       <HelperText>This is a watermarked preview. The original and any signatures remain unchanged.</HelperText>
       <HostedPdfCanvas key={preview.artifactId} bytes={preview.bytes} signal={preview.controller.signal} onRendered={() => {
+        if (!session.isCurrent() || preview.controller.signal.aborted) return;
+        preview.attempt.settled("returned");
         const key = `${opened?.package.interactionId}:${preview.artifactId}`;
         if (!announced.current.has(key)) { announced.current.add(key); record(preview.artifactId, "preview_rendered", "success"); }
-      }} />
+      }} onFailed={() => { if (session.isCurrent() && !preview.controller.signal.aborted) preview.attempt.settled("failed"); }} />
     </div> : null}
   </section>;
 }
