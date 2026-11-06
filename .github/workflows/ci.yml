@@ -309,6 +309,7 @@ jobs:
       document: ${{ steps.resolve.outputs.document }}
       auth_health_only: ${{ steps.resolve.outputs.auth_health_only }}
       auth_health: ${{ steps.filter.outputs.auth_health }}
+      queue_selection_files: ${{ steps.filter.outputs.queue_selection_files }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -338,6 +339,7 @@ jobs:
           # 'some'. Without this setting a '!' pattern would match every other
           # file in the repository.
           predicate-quantifier: 'some-with-excludes'
+          list-files: json
           # scripts/ci is split by the lane that executes each script.
           # The web lanes run orchestrate.sh, its web-*.sh scripts and the
           # shared UI review-base resolver. The shared web-common.sh
@@ -350,6 +352,9 @@ jobs:
           # Guarded by
           # consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py
           filters: |
+            # Capture the existing selector's actual inventory for queue reuse.
+            queue_selection:
+              - '**'
             frontend:
               - 'hushh-webapp/**'
               - '!hushh-webapp/scripts/testing/affected-tests.mjs'
@@ -2193,8 +2198,17 @@ jobs:
         with:
           fetch-depth: 0
       - name: Record tested merge inputs
+        env:
+          QUEUE_SELECTION_FILE: ${{ runner.temp }}/queue-selection.json
+          QUEUE_AUTH_HEALTH_ONLY: ${{ needs.paths.outputs.auth_health_only }}
         if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-        run: python3 scripts/ci/queue_combined_result.py record --receipt "$RUNNER_TEMP/ci-combined-inputs.json"
+        # Serialize as a JSON string into a quoted heredoc, never shell code or
+        # one large environment value (Linux limits each value to about 128 KiB).
+        run: |
+          cat > "$QUEUE_SELECTION_FILE" <<'HUSSH_QUEUE_SELECTION_JSON'
+          ${{ toJSON(needs.paths.outputs.queue_selection_files) }}
+          HUSSH_QUEUE_SELECTION_JSON
+          python3 scripts/ci/queue_combined_result.py record --receipt "$RUNNER_TEMP/ci-combined-inputs.json"
       - uses: actions/upload-artifact@v7
         if: github.event_name == 'pull_request' && !github.event.pull_request.draft
         with:
