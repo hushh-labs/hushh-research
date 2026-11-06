@@ -22,6 +22,7 @@ import {
   type KaiStockPreviewResponse,
 } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";
+import { marketSnapshotForTicker, type TickerMarketSnapshot } from "@/lib/kai/market-snapshot";
 
 function formatCurrency(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "Price unavailable";
@@ -67,6 +68,7 @@ function describeAdvisorState(
 
 export function StockComparisonPreview({
   preview,
+  marketSnapshot = null,
   loading = false,
   error,
   onStartDebate,
@@ -80,6 +82,7 @@ export function StockComparisonPreview({
   showStartAction = true,
 }: {
   preview: KaiStockPreviewResponse | null;
+  marketSnapshot?: TickerMarketSnapshot | null;
   loading?: boolean;
   error?: string | null;
   onStartDebate: () => void;
@@ -98,6 +101,33 @@ export function StockComparisonPreview({
     displaySources[0] ||
     null;
   const advisorSummary = preview?.advisor_summary ?? null;
+  const directQuote = preview?.quote;
+  const fallback = marketSnapshotForTicker(marketSnapshot, preview?.symbol ?? marketSnapshot?.ticker ?? "");
+  const usingSnapshot = fallback?.last_price != null && !(directQuote?.price != null && directQuote.price > 0);
+  const price = usingSnapshot ? fallback.last_price : directQuote?.price;
+  const change = usingSnapshot ? fallback.change_pct : directQuote?.change_pct;
+  const asOf = usingSnapshot ? fallback.observed_at : directQuote?.as_of;
+  const quoteCard = (
+    <SurfaceInset className={embeddedInDetailSurface ? "rounded-none border-0 !bg-transparent p-3 shadow-none" : "p-4"}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="ui-text-row-description text-muted-foreground">{usingSnapshot ? "Market snapshot" : "Market quote"}</p>
+          {!embeddedInDetailSurface ? <h3 className="ui-text-section-label">{fallback?.company_name || directQuote?.company_name || preview?.symbol}</h3> : null}
+          {directQuote?.sector ? <p className="ui-text-row-description text-muted-foreground">{directQuote.sector}</p> : null}
+        </div>
+        {!embeddedInDetailSurface && preview ? <Badge variant="secondary">{preview.symbol}</Badge> : null}
+      </div>
+      <div className={cn("flex flex-wrap items-end gap-x-4 gap-y-2", embeddedInDetailSurface ? "mt-2" : "mt-4")}>
+        <p className="ui-text-row-label-emphasized tabular-nums">{formatCurrency(price)}</p>
+        {change != null ? <p className={cn("ui-text-row-label-emphasized tabular-nums", change > 0 ? "text-emerald-600" : change < 0 ? "text-rose-600" : "text-muted-foreground")}>
+          {formatPercent(change)}
+        </p> : null}
+      </div>
+      {(price != null || change != null) && asOf && Number.isFinite(Date.parse(asOf)) ? (
+        <time dateTime={asOf} className="ui-text-row-description mt-1 block text-muted-foreground">{new Date(asOf).toLocaleString()}</time>
+      ) : null}
+    </SurfaceInset>
+  );
 
   return (
     <section>
@@ -105,7 +135,7 @@ export function StockComparisonPreview({
         tone="feature"
         className={cn(
           embeddedInDetailSurface &&
-            "border-0 !bg-transparent shadow-none",
+            "rounded-none border-0 !bg-transparent shadow-none",
         )}
       >
         <SurfaceCardContent
@@ -177,6 +207,7 @@ export function StockComparisonPreview({
           ) : null}
 
           {error ? <p className="px-1 py-1 text-sm text-red-500">{error}</p> : null}
+          {(loading || error || !preview) && usingSnapshot ? quoteCard : null}
 
           {preview ? (
             <SurfaceInset
@@ -233,42 +264,14 @@ export function StockComparisonPreview({
                 "grid-cols-1 gap-4",
             )}
           >
-            <SurfaceInset className={cn(embeddedInDetailSurface ? "rounded-none border-0 !bg-transparent p-3 shadow-none" : "p-4")}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                    Market quote
-                  </p>
-                  <h3 className={cn("font-semibold text-foreground", embeddedInDetailSurface ? "text-base" : "text-lg")}>
-                    {preview.quote.company_name}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {preview.quote.sector || "Sector unavailable"}
-                  </p>
-                </div>
-                <Badge variant="secondary">{preview.symbol}</Badge>
-              </div>
-              <div className={cn("flex flex-wrap items-end gap-x-4 gap-y-2", embeddedInDetailSurface ? "mt-2" : "mt-4")}>
-                <p className={cn("font-semibold tracking-tight text-foreground", embeddedInDetailSurface ? "text-xl sm:text-2xl" : "text-3xl")}>
-                  {formatCurrency(preview.quote.price)}
-                </p>
-                <p
-                  className={cn(
-                    "text-sm font-medium",
-                    (preview.quote.change_pct ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600"
-                  )}
-                >
-                  {formatPercent(preview.quote.change_pct)}
-                </p>
-              </div>
-            </SurfaceInset>
+            {quoteCard}
 
             <SurfaceInset className={cn(embeddedInDetailSurface ? "rounded-none border-0 border-t border-[color:var(--app-card-border-standard)] !bg-transparent p-3 shadow-none" : "p-4")}>
               <div className="space-y-1">
                 <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                   List comparison
                 </p>
-                <h3 className={cn("font-semibold text-foreground", embeddedInDetailSurface ? "text-base" : "text-lg")}>
+                <h3 className="ui-text-section-label">
                   {preview.list_match.in_list ? "Included on the active list" : "Not on the active list"}
                 </h3>
                 <p className={cn("text-sm text-muted-foreground", embeddedInDetailSurface && "text-sm leading-[21px]")}>
@@ -301,7 +304,7 @@ export function StockComparisonPreview({
                   <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
                     Your advisor shared
                   </p>
-                  <h3 className="text-base font-semibold text-foreground">{advisorSummary.source_label}</h3>
+                  <h3 className="ui-text-section-label">{advisorSummary.source_label}</h3>
                   <p className="text-sm text-muted-foreground">
                     {describeAdvisorState(advisorSummary.state, advisorSummary.ticker_status)}
                   </p>
@@ -334,9 +337,7 @@ export function StockComparisonPreview({
                   {preview.list_match.investment_thesis || "One can launch the full debate to generate the deeper thesis and recommendation context."}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id}{preview.quote.as_of && Number.isFinite(Date.parse(preview.quote.as_of))
-                    ? ` · Quote as of ${new Date(preview.quote.as_of).toLocaleString()}`
-                    : ""}
+                  Source: {selectedSource?.label || preview.list_match.label || preview.list_match.source_id}
                 </p>
               </div>
             </div>

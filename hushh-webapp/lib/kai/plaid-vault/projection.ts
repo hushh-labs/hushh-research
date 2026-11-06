@@ -17,6 +17,7 @@
  */
 
 import type { Holding, PortfolioData } from "@/components/kai/types/portfolio";
+import { scoreLinkedNetWorth } from "./nws";
 import { cleanText, round2, toAccountRecord, toHoldingRecord, toNumber, toSecurityRecord, toTransactionRecord } from "./snapshot-records";
 export { round2 } from "./snapshot-records";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
@@ -481,6 +482,16 @@ function computeDerived(
 
   const recurring = detectRecurringBills(spendRows, now);
   const recurringItems = spendRows.map((tx) => tx.item_id);
+  const nws = scoreLinkedNetWorth(counted, connections);
+  const nwsSourceItems = counted
+    .filter((account) => account.holder_category !== "business")
+    .map((account) => account.item_id);
+  const oldestBalanceRefresh = nwsSourceItems
+    .map((itemId) => connections.get(itemId)?.last_refreshed_at ?? "")
+    .sort()[0];
+  const nwsReport = nws.score !== null && oldestBalanceRefresh
+    ? { ...nws, balances_refreshed_at: oldestBalanceRefresh }
+    : nws;
 
   return {
     schema: "plaid-derived-v1",
@@ -489,6 +500,7 @@ function computeDerived(
     total_liabilities: fact(liabilities, now, liabilityItems),
     net_worth: fact(netWorth, now, balanceItems),
     net_worth_band: fact(amountBand(netWorth), now, balanceItems),
+    nws: fact(nwsReport, now, nwsSourceItems),
     liquid_cash: fact(round2(liquid), now, liquidItems),
     investable_assets: fact(round2(investable), now, investableItems),
     allocation_pct: fact(allocationPct, now, allocationItems),
@@ -678,6 +690,7 @@ export function applySnapshot(
 
   const nextConnection: ConnectionRecord = {
     ...connection,
+    ...(snapshot.country_on_file !== undefined ? { country_on_file: snapshot.country_on_file } : {}),
     institution_id: connection.institution_id ?? cleanText(snapshot.item?.institution_id),
     products:
       Array.isArray(snapshot.item?.products) && snapshot.item.products.length > 0

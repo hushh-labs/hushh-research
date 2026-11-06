@@ -1,15 +1,8 @@
 "use client";
 
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
+import { formatCurrency } from "@/lib/kai/market-value-format";
 import { cn } from "@/lib/utils";
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function formatShares(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
@@ -21,16 +14,17 @@ function formatSignedPercent(value: number | null): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
-function formatSignedCurrency(value: number | null): string {
+function formatSignedCurrency(value: number | null, currency?: string): string {
   if (value === null || !Number.isFinite(value)) return "N/A";
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${formatCurrency(Math.abs(value))}`;
+  return `${sign}${formatCurrency(Math.abs(value), currency)}`;
 }
 
 export interface HoldingMobileCardViewModel {
   id: string;
   symbol: string;
   name: string;
+  currency?: string;
   marketValue: number;
   shares: number;
   gainLossValue: number | null;
@@ -69,7 +63,7 @@ export function HoldingMobileCard({
       : "text-muted-foreground";
 
   const averagePriceText =
-    holding.averagePrice !== null ? formatCurrency(holding.averagePrice) : "N/A";
+    holding.averagePrice !== null ? formatCurrency(holding.averagePrice, holding.currency) : "N/A";
 
   return (
     <div
@@ -131,10 +125,10 @@ export function HoldingMobileCard({
                 holding.pendingDelete && "line-through"
               )}
             >
-              {formatCurrency(holding.marketValue)}
+              {formatCurrency(holding.marketValue, holding.currency)}
             </p>
             <p className={cn("app-feature-point", gainLossTone, holding.pendingDelete && "line-through")}>
-              {formatSignedCurrency(holding.gainLossValue)}
+              {formatSignedCurrency(holding.gainLossValue, holding.currency)}
               {holding.gainLossPct !== null ? ` · ${formatSignedPercent(holding.gainLossPct)}` : ""}
             </p>
           </div>

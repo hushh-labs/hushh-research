@@ -145,12 +145,14 @@ export async function fetchVaultSnapshot(params: {
   accessToken: string;
   transactionsCursor?: string | null;
   transactionsContinuation?: boolean;
+  includeCountryOnFile?: boolean;
 }): Promise<PlaidVaultSnapshot> {
   const accessToken = requireToken(params.accessToken, "A Plaid access token");
   return post<PlaidVaultSnapshot>("snapshot", params.vaultOwnerToken, {
     access_token: accessToken,
     transactions_cursor: params.transactionsCursor ?? null,
     ...(params.transactionsContinuation ? { transactions_continuation: true } : {}),
+    ...(params.includeCountryOnFile ? { include_country_on_file: true } : {}),
   });
 }
 

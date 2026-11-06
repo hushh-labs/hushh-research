@@ -111,10 +111,9 @@ describe("setup warm-transition contract", () => {
     const admission = coordinator.slice(0, coordinator.indexOf("const settle"));
 
     expect(admission).toContain("getCachedBootstrapState?.(userId)");
-    expect(admission).toContain(
-      "cachedJourney ??\n          (await PreVaultUserStateService.bootstrapState(userId))",
-    );
-    expect(admission).toContain("await PreVaultUserStateService.bootstrapState(userId)");
+    expect(admission).toMatch(/entryJourney\s*\?\?\s*\(await\s*\(allowCompletedFinanceEntry/);
+    expect(admission).toContain("PreVaultUserStateService.bootstrapState(userId, { force: true })");
+    expect(admission).toContain("PreVaultUserStateService.bootstrapState(userId)");
   });
 
   it("does not block every route change on a forced onboarding admission check", () => {
@@ -223,9 +222,9 @@ describe("setup warm-transition contract", () => {
     expect(plaidConnect).toContain("sealVaultPlaidConnection({");
     expect(plaidConnect).toContain("vaultOwnerToken: effectiveVaultOwnerToken");
     // Ordinary resolved-root re-entry still bypasses setup settlement, but a
-    // pending invitation must remain on the import's explicit terminal.
+    // pending invitation or setup picker must remain in the setup flow.
     expect(plaidConnect).toMatch(
-      /if\s*\(\s*onSetupSourceSettled\s*&&\s*!shouldSettleSetupSource\s*&&\s*!hasSetupContinuation\s*\)/,
+      /if\s*\(\s*onSetupSourceSettled\s*&&\s*!shouldSettleSetupSource\s*&&\s*!hasSetupContinuation\s*&&\s*!setupSourcePicker\s*\)/,
     );
   });
 

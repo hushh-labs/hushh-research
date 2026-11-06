@@ -21,7 +21,7 @@
 .privacy { padding: 14px 16px; border-radius: 14px; background: var(--muted); font-size: 12px; line-height: 18px; color: var(--muted-foreground); }
 .section { display: grid; gap: 14px; }
 .bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--muted); }
-.value { font-size: 30px; line-height: 38px; font-weight: 600; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.value { font-size: var(--type-row-label-size); line-height: var(--type-row-label-line); font-weight: 600; font-variant-numeric: tabular-nums; }
 .toolbar { width: 100%; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .managerTabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .managerTabs :global(button[aria-pressed="true"]) { color: var(--app-accent-deep); border-color: var(--app-accent-border); background: var(--app-accent-surface); }

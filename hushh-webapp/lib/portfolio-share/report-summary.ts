@@ -1,5 +1,6 @@
 import type { jsPDF } from "jspdf";
 
+import type { Holding } from "@/components/kai/types/portfolio";
 import type { PortfolioSharePayload } from "@/lib/portfolio-share/contract";
 import { formatCurrency, formatSignedCurrency, formatSignedPercent } from "@/lib/portfolio-share/format";
 
@@ -8,6 +9,35 @@ export interface PortfolioReportContext {
   period: string;
   change: number | null;
   changePct: number | null;
+  positions?: readonly Holding[];
+}
+
+export function drawPortfolioReportHoldings(doc: jsPDF, positions: readonly Holding[], left: number, right: number): void {
+  const bottom = doc.internal.pageSize.getHeight() - 44;
+  let y = bottom;
+  for (const position of positions) {
+    if (y + 20 > bottom) {
+      doc.addPage();
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text(`Holdings (${positions.length})`, left, 54);
+      doc.setFontSize(9);
+      doc.text("Security", left, 78);
+      doc.text("Market value", right, 78, { align: "right" });
+      y = 100;
+    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    const symbol = position.symbol;
+    const label = [symbol, position.name === symbol ? "" : position.name].filter(Boolean).join("  ");
+    const currencyCode = position.currency || position.iso_currency_code || "";
+    const currency = /^[A-Z]{3}$/.test(currencyCode) ? currencyCode : "USD";
+    const value = new Intl.NumberFormat("en-US", { style: "currency", currency, currencyDisplay: "code" }).format(position.market_value);
+    doc.text(doc.splitTextToSize(label, right - left - 126)[0] ?? "", left, y);
+    doc.text(value, right, y, { align: "right" });
+    y += 18;
+  }
 }
 
 export function drawPortfolioReportSummary(

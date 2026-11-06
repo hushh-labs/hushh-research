@@ -15,6 +15,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import {
   clearPlaidOAuthResumeSession,
   loadPlaidOAuthResumeSession,
+  rememberFinanceSetupPlaidSuccess,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
@@ -116,11 +117,14 @@ export default function KaiPlaidOauthReturnPage() {
         });
         if (result.status === "blocked") throw new Error(result.reason);
         if (kind === "connect") {
-          await settleOnboardingPlaidAttempt({
+          const settled = await settleOnboardingPlaidAttempt({
             userId,
             attemptId: session.onboardingAttemptId,
             outcome: result.status === "connected" ? "succeeded" : "cancelled",
-          }).catch(() => undefined);
+          }).catch(() => false);
+          if (result.status === "connected" && (!session.onboardingAttemptId || settled)) {
+            rememberFinanceSetupPlaidSuccess(userId, session.returnPath);
+          }
         }
         if (result.status === "connected") {
           toast.success(
@@ -189,9 +193,9 @@ export default function KaiPlaidOauthReturnPage() {
       }}
     >
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
-        <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">Plaid connection needs attention</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+        <div className="app-type-compact w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
+          <h1 className="ui-text-section-label">Plaid connection needs attention</h1>
+          <p className="mt-2 ui-text-row-description">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
             <Button onClick={() => router.replace(returnPath)} className="w-full">
               Back to Finance

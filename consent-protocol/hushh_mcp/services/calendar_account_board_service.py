@@ -8,7 +8,8 @@ from typing import Any
 
 from hushh_mcp.services.calendar_directory_portraits import calendar_directory_portraits
 from hushh_mcp.services.calendar_invitations import event_bounds, occurrence_key
-from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService
+from hushh_mcp.services.calendar_schedule_service import CalendarScheduleService, local_day_window
+from hushh_mcp.services.calendar_time_zone import normalize_time_zone
 from hushh_mcp.services.google_calendar_service import GoogleCalendarService
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
@@ -36,11 +37,19 @@ def _window_intersection(
     result: list[dict[str, str]] = []
     i = j = 0
     while i < len(left) and j < len(right):
-        start = max(left[i]["start_at"], right[j]["start_at"])
-        end = min(left[i]["end_at"], right[j]["end_at"])
+        from hushh_mcp.services.calendar_opening_selection import instant
+
+        left_end, right_end = instant(left[i]["end_at"]), instant(right[j]["end_at"])
+        start = max(instant(left[i]["start_at"]), instant(right[j]["start_at"]))
+        end = min(left_end, right_end)
         if start < end:
-            result.append({"start_at": start, "end_at": end})
-        if left[i]["end_at"] <= right[j]["end_at"]:
+            result.append(
+                {
+                    "start_at": start.isoformat().replace("+00:00", "Z"),
+                    "end_at": end.isoformat().replace("+00:00", "Z"),
+                }
+            )
+        if left_end <= right_end:
             i += 1
         else:
             j += 1
@@ -185,6 +194,98 @@ def _conflicts(accounts: list[dict[str, Any]], zone: str) -> list[dict[str, Any]
 class CalendarAccountBoardService:
     def __init__(self, connections: GoogleConnectionService | None = None) -> None:
         self.connections = connections or get_google_connection_service()
+
+    async def availability(
+        self, *, user_id: str, date: str, time_zone: str, duration_minutes: int = 30
+    ) -> dict[str, Any]:
+        """Board free time without event/portrait reads; snapshots stay private.
+
+        This is an internal service result, not an API/model projection. Callers
+        must allowlist public fields and keep board_accounts in encrypted state.
+        """
+        from hushh_mcp.services.google_calendar_booking import _verify_board_snapshot
+
+        if (
+            isinstance(duration_minutes, bool)
+            or not isinstance(duration_minutes, int)
+            or duration_minutes not in (15, 30, 60)
+        ):
+            raise GoogleConnectionError("Choose 15, 30 or 60 minutes", status_code=422)
+        time_zone = normalize_time_zone(time_zone, default="")
+        start, end = local_day_window(date, time_zone)
+        status = await self.connections.calendar_accounts_status(user_id=user_id)
+        identities = status.get("accounts", [])
+        if not identities:
+            raise GoogleConnectionError(
+                "Connect Calendar first", status_code=403, reason_code="calendar_not_connected"
+            )
+        if not 1 <= len(identities) <= 3 or len({x["account_id"] for x in identities}) != len(
+            identities
+        ):
+            raise GoogleConnectionError("Calendar accounts changed", status_code=409)
+
+        async def load(identity: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+            public = {
+                "account_id": identity["account_id"],
+                "account_email": identity["google_email"],
+                "status": "incomplete",
+                "free_windows": [],
+            }
+            if not identity.get("connected"):
+                return {**public, "reason_code": "calendar_reauthorization_required"}, None
+            schedule = account_schedule(identity["account_id"], self.connections)
+            try:
+                binding = await schedule._read_binding(user_id)
+                result = await schedule.free_windows(
+                    user_id=user_id,
+                    date=date,
+                    time_zone=time_zone,
+                    duration_minutes=duration_minutes,
+                    max_windows=None,
+                )
+                if not binding or await schedule._read_binding(user_id) != binding:
+                    raise GoogleConnectionError("Calendar connection changed", status_code=409)
+                calendar_ids = [item["id"] for item in result["calendars"]]
+                return {
+                    **public,
+                    "status": "complete",
+                    "calendar_ids": calendar_ids,
+                    "free_windows": result["windows"],
+                }, {
+                    "account_id": identity["account_id"],
+                    "account_email": identity["google_email"],
+                    "binding": list(binding),
+                    "calendar_ids": calendar_ids,
+                }
+            except GoogleConnectionError as exc:
+                return {**public, "reason_code": exc.reason_code}, None
+
+        loaded = await asyncio.gather(*(load(identity) for identity in identities))
+        accounts = [item[0] for item in loaded]
+        snapshots = [item[1] for item in loaded if item[1] is not None]
+        # A can reconnect while B/C finish, even with unchanged email/status.
+        await _verify_board_snapshot(
+            owner=self.connections,
+            user_id=user_id,
+            status_reader=self.connections.calendar_accounts_status,
+            accounts=identities,
+            snapshots=snapshots,
+            reviewed=None,
+        )
+        complete = all(item["status"] == "complete" for item in accounts)
+        return {
+            "date": date,
+            "time_zone": time_zone,
+            "time_min": GoogleCalendarService._utc_iso(start),
+            "time_max": GoogleCalendarService._utc_iso(end),
+            "duration_minutes": duration_minutes,
+            "complete": complete,
+            "accounts": accounts,
+            "board_accounts": snapshots if complete else [],
+            "shared_free_windows": _shared_free_windows(accounts, duration_minutes)
+            if complete
+            else [],
+        }
 
     async def day(
         self,

@@ -538,6 +538,8 @@ def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_to
         "calendar_event_detail",
         "calendar_availability",
         "calendar_free_slots",
+        "calendar_shared_free_slots",
+        "calendar_opening_detail",
     ],
 )
 def test_each_calendar_read_blocks_a_later_action_in_the_same_turn(read_name):
@@ -1531,8 +1533,15 @@ async def test_calendar_read_then_booking_prepares_review_without_executing_and_
     monkeypatch,
     needs_permission,
 ):
+    from hushh_mcp.agents.calendar import request_scope
     from hushh_mcp.agents.calendar import tools as calendar_tools
     from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(request_scope, "request_scope", AsyncMock(return_value=("create",)))
 
     plan = {
         "title": "PRIVATE_PROPOSAL_TITLE",
