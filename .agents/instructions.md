@@ -12,9 +12,9 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 |---|---|
 | `.agents/instructions.md` (loaded by root `AGENTS.md`) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
 | `.agents/skills/` | Canonical portable and governed **skills**; read these sources directly |
-| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`), read by every development host |
+| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.md`), read by every development host |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
-| `.agents/config.toml` | Bounded execution and declared tool connections; host capability remains separately verified |
+| `.agents/config.json` | Bounded engineering execution; host tools remain separately configured and verified |
 | `.agents/evals/`, `.agents/imports/` | Routing cases and pinned third-party resources |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
@@ -231,9 +231,9 @@ explicitly loads this operating contract before routing or implementation.
 | Source | Contract |
 | --- | --- |
 | `.agents/skills/<id>/` | Portable practice or governed owner/spoke; one authored behavior |
-| `.agents/subagents/<lane>.toml` | Read-only engineering evidence lanes, separate from runtime product agents |
+| `.agents/subagents/<lane>.md` | Read-only engineering evidence lanes, separate from runtime product agents |
 | `.agents/workflows/<id>/` | Existing workflow IDs, composed ownership, checks and handoff authority |
-| `.agents/config.toml` | Shared execution limits and tool declarations; no vendor directory hierarchy |
+| `.agents/config.json` | Shared execution limits; no vendor directory hierarchy |
 | `.agents/routing/` | One provider-neutral routing CLI and its evaluation fixtures |
 
 Every skill has matching directory/name frontmatter. Governed skills additionally
@@ -261,7 +261,7 @@ Route every non-trivial task before implementation or delegation. Use
 Repository precedence:
 
 1. `AGENTS.md` sets policy and hard gates, subject to higher-priority host and user instructions.
-2. `./bin/hushh codex route-task <workflow-id>` resolves the recurring workflow.
+2. `./bin/hushh agents route-task <workflow-id>` resolves the recurring workflow.
 3. `workflow.json` composes `owner_skill`, `default_spoke`, required reads/commands, handoff chain, verification bundle and risk tags.
 4. `SKILL.md` supplies the lane procedure. Architecture references establish domain truth when supported by source; historical and future plans retain their stated limits.
 

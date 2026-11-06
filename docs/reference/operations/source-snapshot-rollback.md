@@ -230,7 +230,7 @@ If users are affected, assess the existing traffic recovery lane immediately;
 it does not require waiting for the source restore PR. Record the environment,
 affected services, serving revisions, source SHAs, image identities, and active
 or queued releases. Start UAT investigation through
-`./bin/hushh codex rca --surface uat --text` and reconcile overlapping releases
+`./bin/hushh agents rca --surface uat --text` and reconcile overlapping releases
 before dispatching recovery.
 
 1. Select compatible prior backend/frontend revisions from release evidence.
@@ -297,7 +297,7 @@ even after hosted recovery.
   [TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/).
 - If an upload succeeded but processing/distribution did not finish, inspect
   its retained upload receipt and existing App Store Connect state before a
-  retry. The existing `resume-ios-testflight.yml` accepts the original
+  retry. Recovery mode in `ship-ios-testflight.yml` accepts the original
   `upload_run_id` from either TestFlight or App Store upload workflows. It
   reconciles processing and tester-group assignment without a rebuild, a new
   upload, or a beta-review submission; it preserves that binary's backend.

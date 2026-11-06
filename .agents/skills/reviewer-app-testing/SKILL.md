@@ -79,7 +79,7 @@ Local enablement and identity reconciliation follow `.agents/skills/reviewer-app
 
 ```bash
 ./scripts/ci/reviewer-app-testing-check.sh
-./bin/hushh codex route-task reviewer-app-rehearsal --text
+./bin/hushh agents route-task reviewer-app-rehearsal --text
 node .agents/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help
 consent-protocol/.venv/bin/python .agents/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py --help
 ```

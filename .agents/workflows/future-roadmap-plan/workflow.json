@@ -18,18 +18,18 @@
     "consent-protocol/docs/reference/personal-knowledge-model.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task future-roadmap-plan"
+    "./bin/hushh agents route-task future-roadmap-plan"
   ],
   "verification_bundle": {
     "id": "future-roadmap-plan",
     "commands": [
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
       "./bin/hushh docs verify",
-      "./bin/hushh codex audit"
+      "./bin/hushh agents audit"
     ],
     "tests": [
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-      "./bin/hushh codex audit"
+      "./bin/hushh agents audit"
     ]
   },
   "deliverables": [

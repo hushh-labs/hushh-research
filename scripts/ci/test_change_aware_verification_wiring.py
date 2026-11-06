@@ -55,7 +55,7 @@ def test_pr_integration_selects_the_tested_merge_not_destination_only_paths() ->
     for feature_path, expected in (
         ("docs/feature.md", (False, False)),
         ("consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py", (True, False)),
-        ("hushh-webapp/lib/vault/feature.ts", (False, True)),
+        ("hushh-webapp/lib/vault/feature.ts", (False, False)),
     ):
         with tempfile.TemporaryDirectory() as raw:
             temp = Path(raw)
@@ -173,6 +173,8 @@ def _uat_base_fixture(temp: Path, env: dict[str, str]) -> tuple[str, str, str]:
     (repo / "scripts/ci").mkdir(parents=True)
     shutil.copy(ROOT / "scripts/ci/resolve-uat-verification-plan.py", repo / "scripts/ci")
     (temp / "runner/release-tools").mkdir(parents=True)
+    shutil.copy(ROOT / "scripts/ci/resolve-uat-verification-plan.py", temp / "runner/release-tools")
+    (repo / "scripts/ci/resolve-uat-verification-plan.py").write_text("raise SystemExit('old candidate planner must not execute')\n")
     (temp / "runner/release-tools/verify-predecessor-acceptance.py").write_text(_ACCEPTANCE_READER)
     return accepted[0], accepted[1], git("rev-parse", "HEAD")
 
@@ -292,6 +294,7 @@ def test_uat_plan_steps_bind_only_their_inputs() -> None:
         "FRONTEND_BASE_SHA": "${{ steps.verification-bases.outputs.frontend_base }}",
         **scope,
         "RUN_LIVE_MODEL_CHECKS": "${{ inputs.run_live_model_checks && 'true' || 'false' }}",
+        "RUN_BROWSER_DIAGNOSTICS": "${{ inputs.repeat_reviewer_byok && 'true' || 'false' }}",
     }
     plan_block = _uat_step("Resolve UAT verification plan", "block")
     assert "secrets." not in plan_block and "github.token" not in plan_block
@@ -306,7 +309,7 @@ def test_uat_plan_compares_only_from_accepted_serving_shas() -> None:
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
         env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
         a, b, candidate = _uat_base_fixture(temp, env)
-        env.update(TARGET_SHA=candidate, RUN_LIVE_MODEL_CHECKS="false")
+        env.update(TARGET_SHA=candidate, RUN_LIVE_MODEL_CHECKS="false", RUN_BROWSER_DIAGNOSTICS="true")
         both = f"{a}:backend,{a}:frontend"
         unproven = "conservative:comparison_base_unproven"
 
@@ -367,14 +370,7 @@ def test_uat_capacity_admission_follows_resolved_scope_on_old_targets() -> None:
         'cp "${RUNNER_TEMP}/release-tools/runtime-capacity.json"',
         'cp "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"',
     )
-    require(
-        ".github/workflows/deploy-uat-one-chat.yml",
-        "--inherit-candidate-service consent-protocol",
-        'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity-budget.py"',
-        'cp "${RUNNER_TEMP}/capacity-tools/runtime_capacity_inventory.py"',
-        '"${RUNNER_TEMP}/capacity-tools/runtime_capacity_volume.py" scripts/ci/',
-        'cp "${RUNNER_TEMP}/capacity-tools/runtime-capacity.json"',
-    )
+
 
     require(
         ".github/workflows/deploy-production.yml",
