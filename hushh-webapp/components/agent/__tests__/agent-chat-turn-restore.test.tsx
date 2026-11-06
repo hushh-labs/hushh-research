@@ -305,6 +305,8 @@ describe("a settled answer in the chat column", () => {
     const bubble = screen.getByText("Nothing new today.").closest("[data-agent-response-bubble]");
     expect(bubble).not.toBeNull();
     expect(bubble?.className).toContain("bg-[color:var(--one-chat-bubble)]");
+    expect(bubble?.className).toContain("w-full");
+    expect(bubble?.className).not.toContain("w-fit");
   });
 
   it("keeps an error's Try again in plain sight rather than on hover", () => {

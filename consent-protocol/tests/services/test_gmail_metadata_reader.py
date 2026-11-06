@@ -86,12 +86,13 @@ async def _allowed():
     return None
 
 
-def _reader(gmail, handler, require_access=_allowed):
+def _reader(gmail, handler, require_access=_allowed, *, expose_message_links=False):
     return GmailMetadataReader(
         gmail=gmail,
         user_id="owner",
         require_access=require_access,
         transport=httpx.MockTransport(handler),
+        expose_message_links=expose_message_links,
     )
 
 
@@ -145,6 +146,32 @@ async def test_search_is_one_page_metadata_only_and_drops_provider_ids_and_bodie
     )
     with pytest.raises(GmailMetadataError, match="read_already_used"):
         await reader.read("search_inbox", {"query": "other"})
+
+
+async def test_email_specialist_search_keeps_thread_relationships_without_body_reads():
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        if request.url.path.endswith("/messages"):
+            assert request.url.params["q"] == '"IIT Bombay" "E-Summit"'
+            return _response({"messages": [{"id": "m-1"}, {"id": "m-2"}]})
+        assert request.url.params["format"] == "metadata"
+        message = _message(request.url.path.rsplit("/", 1)[-1])
+        message["payload"]["headers"].append(
+            {"name": "Message-ID", "value": f"<{message['id']}@example.test>"}
+        )
+        return _response(message)
+
+    result = await _reader(_Gmail(), respond, expose_message_links=True).read(
+        "search_inbox", {"query": '"IIT Bombay" "E-Summit"', "mailbox": "anywhere", "limit": 25}
+    )
+    first, second = result["untrusted_external_content"]
+    assert len(calls) == 3
+    assert result["metadata_only"] is True
+    assert (first["thread_ref"], second["thread_ref"]) == ("thread:1", "thread:1")
+    assert first["rfc822_message_id"] != second["rfc822_message_id"]
+    assert "body" not in first and "body" not in second
 
 
 async def test_needs_reply_does_not_fetch_invites_or_full_messages():
@@ -850,6 +877,43 @@ async def test_body_read_falls_back_to_html_text_and_caps_size():
     assert result["coverage"]["items_omitted"] is False
     assert result["coverage"]["content_depth"] == "message"
     assert result["coverage"]["returned"] == 1
+
+
+async def test_owner_bound_read_projects_safe_links_and_refuses_changed_mailbox_label():
+    gmail = _Gmail()
+
+    def respond(request):
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": "m-1"}]})
+        message = _full_message(
+            "m-1",
+            [
+                _part(
+                    "text/html",
+                    '<p>Register <a href="https://summit.example/register">here</a>'
+                    '<a href="javascript:alert(1)">unsafe</a></p>',
+                ),
+            ],
+        )
+        message["payload"]["headers"].append(
+            {"name": "Message-ID", "value": "<event@example.test>"}
+        )
+        return _response(message)
+
+    reader = _reader(gmail, respond, expose_message_links=True)
+    result = await reader.read("read_message", {"query": "subject:Summit", "limit": 1})
+    item = result["untrusted_external_content"][0]
+    assert (
+        item["gmail_web_link"] == "https://mail.google.com/mail/u/owner%40example.com/#all/thread-1"
+    )
+    assert item["rfc822_message_id"] == "<event@example.test>"
+    assert item["extracted_links"] == [{"text": "here", "url": "https://summit.example/register"}]
+    assert "[here](https://summit.example/register)" in item["body"]
+    assert "javascript:" not in json.dumps(item)
+
+    gmail.row["google_email"] = "other@example.com"
+    with pytest.raises(GmailMetadataError, match="connection_changed"):
+        await reader.require_current()
 
 
 async def test_thread_read_returns_each_message_body_in_thread_order():
