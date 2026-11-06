@@ -22,6 +22,9 @@ VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_runtime_config_retention.py",
     "consent-protocol/tests/test_plg_deploy_bindings.py",
+    "consent-protocol/tests/test_azure_runtime_config_wiring.py",
+    "consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py",
+    "consent-protocol/tests/test_runtime_settings_maps.py",
     "consent-protocol/tests/test_uat_application_selection.py",
     "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
