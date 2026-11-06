@@ -488,6 +488,19 @@ for (const width of [320, 390, 1440]) {
     }));
     expect(guestBounds.every((row, index) => row.rowWidth > 0 && row.x === guestBounds[0]?.x && (index === 0 || row.y > guestBounds[index - 1]!.y))).toBe(true);
     expect(guestBounds.every(row => row.x + row.rowWidth <= bounds.x + bounds.width + 1)).toBe(true);
+    const decline = (await dialog.getByRole("button", { name: "Decline", exact: true }).boundingBox())!;
+    const acceptBounds = (await dialog.getByRole("button", { name: "Accept", exact: true }).boundingBox())!;
+    const offer = (await dialog.getByRole("button", { name: "Decline & offer another time", exact: true }).boundingBox())!;
+    expect(decline.x + decline.width).toBeLessThan(acceptBounds.x);
+    expect(decline.y).toBe(acceptBounds.y);
+    expect(decline.width).toBeCloseTo(acceptBounds.width, 0);
+    expect(decline.height).toBe(acceptBounds.height);
+    expect(offer.width).toBeLessThan(acceptBounds.x + acceptBounds.width - decline.x);
+    expect(offer.y).toBeGreaterThanOrEqual(decline.y + decline.height);
+    const join = dialog.getByRole("link", { name: "Join meeting", exact: true });
+    await expect(join).toHaveCSS("border-top-width", "0px");
+    await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    expect((await join.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     const actionButtons = dialog.getByRole("button", { name: /^(Accept|Decline|Decline & offer another time)$/ });
     for (const button of await actionButtons.all()) {
       const normal = (await button.boundingBox())!;
@@ -528,6 +541,42 @@ for (const width of [320, 390, 1440]) {
     expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
   });
 }
+
+test("invitation titles retain source spacing and wrap within their available measure", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "long", false, true);
+  await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+  const card = page.getByRole("button", { name: `Open invitation: ${privateLongTitle}` });
+  await expect(card.locator("..").locator("strong").filter({ hasText: privateLongTitle })).toHaveText(privateLongTitle);
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    const account = (await page.getByRole("button", { name: "Calendar account: qa-owner@example.com" }).boundingBox())!;
+    const filters = (await page.getByRole("tablist", { name: "Invitation filters" }).boundingBox())!;
+    const date = (await page.getByLabel("Invitation date").boundingBox())!;
+    const heading = (await page.getByRole("heading", { name: "Needs your response" }).boundingBox())!;
+    const invitation = (await card.boundingBox())!;
+    for (const element of [filters, date, heading, invitation]) expect(element.x).toBeCloseTo(account.x, 0);
+    expect(filters.y).toBeGreaterThanOrEqual(account.y + account.height);
+    expect(date.y).toBeGreaterThanOrEqual(filters.y + filters.height);
+    expect(heading.y).toBeGreaterThanOrEqual(date.y + date.height);
+    expect(invitation.y).toBeGreaterThanOrEqual(heading.y + heading.height);
+    const warning = card.locator("..").getByText("Overlaps QA Existing meeting", { exact: true }).locator("..");
+    expect(await warning.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeLessThan(await card.locator("..").locator("strong").filter({ hasText: privateLongTitle }).evaluate(element => parseFloat(getComputedStyle(element).fontSize)));
+  }
+  await page.setViewportSize({ width: 390, height: 950 });
+  await card.click();
+  const dialog = page.getByRole("dialog");
+  const title = dialog.getByRole("heading", { name: privateLongTitle });
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await expect(title).toHaveCSS("letter-spacing", "normal");
+    await expect(title).toHaveCSS("white-space", "pre-wrap");
+    expect(await title.evaluate(element => element.textContent)).toBe(privateLongTitle);
+    expect(await title.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await title.evaluate(element => element.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+});
 
 for (const width of [390, 1280]) {
   test(`Calendar Insights library and notes at ${width}px`, async ({ page }) => {
