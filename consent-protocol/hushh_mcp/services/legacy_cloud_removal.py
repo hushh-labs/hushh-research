@@ -199,6 +199,18 @@ def resource_state(recovery: dict, key: str) -> dict:
     return result
 
 
+def operator_source(recovery: dict) -> str:
+    """A qualified append changes the executor source, never the approved plan."""
+    return next(
+        (
+            event["receipt"]["sourceRevision"]
+            for event in reversed(recovery["events"])
+            if event["stage"] == "operator_source"
+        ),
+        recovery["plan"]["sourceRevision"],
+    )
+
+
 def recovery_view(recovery: dict) -> dict:
     plan = recovery["plan"]
     states = {
@@ -362,7 +374,7 @@ class LegacyRemovalJournal:
         raise AzureTeardownRefused("CLOUD_REMOVAL_RECOVERY_CHANGED")
 
     def start(self, execution_id: str, source_revision: str) -> dict:
-        _require(self.read()["plan"]["sourceRevision"] == source_revision)
+        _require(operator_source(self.read()) == source_revision)
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "SELECT pid,backend_start::text FROM pg_stat_activity WHERE pid=pg_backend_pid()"

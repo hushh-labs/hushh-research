@@ -494,7 +494,7 @@ def execution_sql(
     """Adapt pending420 in either executing mode; caller keeps observe/skip gates."""
     from db.legacy_cloud_removal_adoption import installation_sql, preserve_successor
 
-    if entry.migration_id == "985":
+    if entry.migration_id in {"985", "986"}:
         return installation_sql(entry)
     if entry.migration_id == "420":
         return preserve_successor(entry, private_agent_adoption_sql(entry))

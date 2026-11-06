@@ -642,17 +642,21 @@ def test_legacy_cloud_removal_successor_survives_replay_and_refuses_drift(replay
     [recovery] = build_manifest_entries(
         MIGRATIONS / "parked", ["985_legacy_cloud_removal_recovery.sql"]
     )
+    [resume] = build_manifest_entries(
+        MIGRATIONS / "parked", ["986_legacy_cloud_removal_resume.sql"]
+    )
     connection, _ = canonical_database(replay_pg, monkeypatch)
     with closing(connection), connection.cursor() as cursor:
         for entry in entries:
             cursor.execute(execution_sql(entry))
         cursor.execute(execution_sql(recovery))
+        cursor.execute(execution_sql(resume))
         before = {
             signature: cursor.execute("SELECT pg_get_functiondef(%s::regprocedure)", (signature,))
             or cursor.fetchone()[0]
             for signature in PINS
         }
-        for entry in [recovery, *entries]:
+        for entry in [resume, recovery, *entries]:
             cursor.execute(execution_sql(entry))
         for signature, definition in before.items():
             cursor.execute("SELECT pg_get_functiondef(%s::regprocedure)", (signature,))
@@ -673,12 +677,238 @@ def test_legacy_cloud_removal_successor_survives_replay_and_refuses_drift(replay
                 cursor.execute(qualification_sql())
             cursor.execute("ROLLBACK")
         cursor.execute(
+            (MIGRATIONS / "rollback/986_legacy_cloud_removal_resume.rollback.sql").read_text()
+        )
+        cursor.execute(
             (MIGRATIONS / "rollback/985_legacy_cloud_removal_recovery.rollback.sql").read_text()
         )
         cursor.execute("SELECT to_regprocedure('public.legacy_cloud_removal_complete(text,text)')")
         assert cursor.fetchone()[0] is None
         for entry in entries:
             cursor.execute(execution_sql(entry))
+
+
+def test_exited_probe_adopts_source_then_admits_only_compute_until_native_writer_proof(
+    legacy_recovery_pg,
+):
+    from copy import deepcopy
+    from datetime import datetime, timezone
+
+    from hushh_mcp.services.legacy_cloud_removal import (
+        LegacyRemovalJournal,
+        operator_source,
+        resource_key,
+    )
+
+    pg, owner, reservation, plan = legacy_recovery_pg
+    [resume] = build_manifest_entries(
+        MIGRATIONS / "parked", ["986_legacy_cloud_removal_resume.sql"]
+    )
+    # This older lifecycle fixture retains predecessor PUBLIC ACLs. The
+    # canonical-database replay test above qualifies the complete ACL family.
+    pg.execute(resume.sql)
+    attempt = reservation["attemptId"]
+    supervisor = LegacyRemovalJournal(pg._conn, owner, attempt)
+    original = supervisor.prepare(plan)
+    supervisor.append(
+        "$approval",
+        "approval",
+        {
+            "planSha256": original["planSha256"],
+            "ownerId": owner,
+            "confirmation": "owner-project",
+        },
+    )
+    adoption = {
+        "previousSourceRevision": plan["sourceRevision"],
+        "sourceRevision": "f" * 40,
+        "planSha256": original["planSha256"],
+        "actor": plan["actor"],
+    }
+    account = next(r for r in plan["resources"] if r["type"] == "service_account")
+    compute = next(r for r in plan["resources"] if r["type"] == "cloud_run_service")
+    memory = next(r for r in plan["resources"] if r["type"] == "reasoning_engine")
+    account_key, compute_key = resource_key(account), resource_key(compute)
+    identity = supervisor.identity_sha256(account)
+
+    def connect():
+        conn = psycopg2.connect(host=pg.dir, port=pg.port, user="hushh", dbname="postgres")
+        conn.autocommit = True
+        return conn
+
+    with closing(connect()) as conn:
+        old = LegacyRemovalJournal(conn, owner, attempt)
+        started = old.start(uuid4().hex, plan["sourceRevision"])
+        intent = {"identitySha256": identity, "requestId": uuid4().hex, "method": "POST"}
+        old.append(account_key, "writer_intent", intent)
+        dispatch = {**intent, "targetSha256": "b" * 64}
+        old.append(account_key, "provider_dispatch", dispatch)
+        old.append(
+            account_key,
+            "provider_ack",
+            {
+                "identitySha256": identity,
+                "requestId": intent["requestId"],
+                "targetSha256": dispatch["targetSha256"],
+                "httpStatus": 200,
+                "bodySha256": "c" * 64,
+                "operationName": None,
+            },
+        )
+        old.append(
+            account_key,
+            "writer_acknowledgement",
+            {
+                **{k: v for k, v in intent.items() if k != "method"},
+                "httpStatus": 200,
+                "operationName": None,
+            },
+        )
+        with pytest.raises(AzureTeardownRefused):
+            supervisor.append("$executor", "operator_source", adoption)
+    # A vanished database session is insufficient: require the real supervisor receipt.
+    with pytest.raises(AzureTeardownRefused):
+        supervisor.append("$executor", "operator_source", adoption)
+    supervisor.append(
+        "$executor",
+        "executor_exit",
+        {
+            **started,
+            "supervisorVerified": True,
+            "processExitCode": 1,
+            "outcome": "failed",
+        },
+    )
+    prefix = supervisor.read()
+
+    def valid(prefix, receipt=adoption):
+        event = {
+            "sequence": len(prefix["events"]),
+            "stage": "operator_source",
+            "resource": "$executor",
+            "receipt": receipt,
+            "recordedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        return _value(
+            pg,
+            "SELECT legacy_cloud_removal_event_valid(%s::jsonb,%s::jsonb)",
+            json.dumps(prefix),
+            json.dumps(event),
+        )
+
+    assert valid(prefix) is True
+    for changed in ("sourceRevision", "previousSourceRevision", "actor", "planSha256"):
+        assert valid(prefix, {**adoption, changed: "foreign"}) is False
+    for mutation in ("lost_ack", "pending_operation", "stale_approval"):
+        bad = deepcopy(prefix)
+        if mutation == "lost_ack":
+            bad["events"] = [e for e in bad["events"] if e["stage"] != "provider_ack"]
+        elif mutation == "pending_operation":
+            next(e for e in bad["events"] if e["stage"] == "provider_ack")["receipt"][
+                "operationName"
+            ] = "pending"
+        else:
+            next(e for e in bad["events"] if e["stage"] == "approval")["recordedAt"] = (
+                "2020-01-01T00:00:00Z"
+            )
+        assert valid(bad) is False
+    supervisor.append("$executor", "operator_source", adoption)
+    assert supervisor.read()["plan"] == original["plan"]
+    assert operator_source(supervisor.read()) == adoption["sourceRevision"]
+    with closing(connect()) as conn:
+        journal = LegacyRemovalJournal(conn, owner, attempt)
+        with pytest.raises(AzureTeardownRefused):
+            journal.start(uuid4().hex, plan["sourceRevision"])
+        journal.start(uuid4().hex, adoption["sourceRevision"])
+
+        def admit(resource):
+            journal.append(
+                resource_key(resource),
+                "intent",
+                {
+                    "identitySha256": journal.identity_sha256(resource),
+                    "requestId": uuid4().hex,
+                    "method": "DELETE",
+                },
+            )
+
+        with pytest.raises(AzureTeardownRefused):
+            admit(compute)
+        value = {
+            "runtimeIdentity": plan["runtime"]["principal"],
+            "status": "disabled",
+            "nativeReadbackSha256": "d" * 64,
+        }
+        with pytest.raises(AzureTeardownRefused):
+            journal.append(
+                account_key,
+                "checkpoint",
+                {
+                    "identitySha256": identity,
+                    "stage": "disabledWriterComputeAdmission",
+                    "value": {**value, "runtimeIdentity": {"uniqueId": "foreign"}},
+                },
+            )
+        journal.append(
+            account_key,
+            "checkpoint",
+            {
+                "identitySha256": identity,
+                "stage": "disabledWriterComputeAdmission",
+                "value": value,
+            },
+        )
+        admit(compute)
+        with pytest.raises(AzureTeardownRefused):
+            admit(memory)
+        writer = {
+            "identitySha256": identity,
+            "status": "disabled",
+            "runtimeIdentity": plan["runtime"]["principal"],
+            "bootstrapIdentity": next(
+                r for r in plan["resources"] if r["type"] == "bootstrap_access"
+            )["identity"]["account"],
+            "computeReceiptSha256": "e" * 64,
+        }
+        with pytest.raises(AzureTeardownRefused):
+            journal.append(account_key, "native_writer_disabled_after_compute", writer)
+        intent = next(e["receipt"] for e in journal.read()["events"] if e["stage"] == "intent")
+        operation = "projects/owner-project/locations/us-central1/operations/delete"
+        journal.append(
+            compute_key,
+            "acknowledgement",
+            {
+                "identitySha256": intent["identitySha256"],
+                "requestId": intent["requestId"],
+                "httpStatus": 200,
+                "operationName": operation,
+            },
+        )
+        observation = {
+            "identitySha256": intent["identitySha256"],
+            "status": "deleted",
+            "httpStatus": 404,
+            "nativeReadbackSha256": "d" * 64,
+            "operationName": operation,
+            "operationDone": True,
+            "coverage": {"complete": True, "pendingOperations": 0, "remainingRevisions": 0},
+        }
+        with pytest.raises(AzureTeardownRefused):
+            journal.append(compute_key, "observation", {**observation, "operationDone": False})
+        journal.append(compute_key, "observation", observation)
+        writer["computeReceiptSha256"] = journal.identity_sha256({"identity": observation})
+        with pytest.raises(AzureTeardownRefused):
+            journal.append(
+                account_key,
+                "native_writer_disabled_after_compute",
+                {**writer, "bootstrapIdentity": {}},
+            )
+        journal.append(account_key, "native_writer_disabled_after_compute", writer)
+        assert "credentialDenied" not in writer
+        admit(memory)
+        assert not any(e["stage"] == "writer_disabled" for e in journal.read()["events"])
+        with pytest.raises(psycopg2.Error, match="forward recovery required"):
+            pg.apply_file(MIGRATIONS / "rollback/986_legacy_cloud_removal_resume.rollback.sql")
 
 
 async def test_gcp_legacy_incompatibility_refuses_before_reservation_or_fence(monkeypatch):

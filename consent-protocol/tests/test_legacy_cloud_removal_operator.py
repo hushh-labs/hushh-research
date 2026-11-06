@@ -326,6 +326,73 @@ def test_resume_source_is_pinned_to_operator_and_refuses_dirty_source(
         operator.require_operator_source(pinned)
 
 
+@pytest.mark.parametrize(
+    "failure", [None, "compute_pending", "bootstrap_disabled", "identity_changed"]
+)
+def test_lost_probe_uses_compute_first_native_port_without_mint_or_reenable(worker, failure):
+    from urllib.parse import unquote
+
+    from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
+    from hushh_mcp.services.legacy_cloud_removal_writer import (
+        admit_disabled_writer_compute,
+        qualify_writer_after_compute,
+    )
+
+    runtime = worker._resource("service_account")
+    token = uuid4().hex
+    runtime["identity"]["name"] = f"projects/owner-project/serviceAccounts/{runtime['id']}"
+    principal = runtime["identity"]
+    bootstrap = {
+        "name": "projects/owner-project/serviceAccounts/bootstrap@owner-project.iam.gserviceaccount.com",
+        "email": "bootstrap@owner-project.iam.gserviceaccount.com",
+        "projectId": "owner-project",
+        "uniqueId": "123456789012346",
+    }
+    worker.plan["resources"].append(
+        {
+            "type": "bootstrap_access",
+            "id": bootstrap["email"],
+            "identity": {"account": bootstrap},
+            "authority": "owner_reviewed",
+        }
+    )
+    worker.journal.append(resource_key(runtime), "writer_acknowledgement", {"httpStatus": 200})
+    worker.session.get.side_effect = lambda url, **kwargs: (
+        response(404)
+        if "/services/" in url
+        else response(200, {**bootstrap, "disabled": failure == "bootstrap_disabled"})
+        if bootstrap["email"] in unquote(url)
+        else response(
+            200,
+            {
+                **principal,
+                "disabled": True,
+                **({"uniqueId": "foreign"} if failure == "identity_changed" else {}),
+            },
+        )
+    )
+    if failure == "identity_changed":
+        with pytest.raises(AzureTeardownRefused):
+            admit_disabled_writer_compute(worker)
+    else:
+        admit_disabled_writer_compute(worker)
+        terminal(worker, "cloud_run_service")
+        if failure == "compute_pending":
+            event = worker.journal.read()["events"][-1]
+            event["receipt"]["operationDone"] = False
+        if failure:
+            with pytest.raises((AzureTeardownRefused, SubstrateDeleteError)):
+                qualify_writer_after_compute(worker, token=token)
+        else:
+            qualify_writer_after_compute(worker, token=token)
+            state = resource_state(worker.journal.read(), resource_key(runtime))
+            assert state["native_writer_disabled_after_compute"]["runtimeIdentity"] == principal
+            assert "credentialDenied" not in state["native_writer_disabled_after_compute"]
+            assert "writer_disabled" not in state
+    worker.session.post.assert_not_called()
+    worker.session.delete.assert_not_called()
+
+
 def test_execute_resumes_retention_then_deleted_writer_and_interrupted_bootstrap(
     worker, operator, monkeypatch
 ):

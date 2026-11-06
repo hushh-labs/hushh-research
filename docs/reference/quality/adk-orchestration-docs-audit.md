@@ -30,8 +30,17 @@ Local qualification passed 190 backend cases, 38 UI cases and 513 Back cases;
 the actual 18-resource native inspection passes the migration-985 plan validator
 in disposable PostgreSQL. Fourteen additional operator regressions and independent
 source review close historical-bucket absence, Memory-binding drift and interrupted
-cleanup resume. Migration 985, CI, Dev deployment and the live owner
-journey are still pending. No cleanup or Firebase identity mutation has occurred.
+cleanup resume. PR [8983](https://github.com/hushh-labs/hushh-research/pull/8983)
+passed exact-source CI and the governed Dev deployment at `d87aeb168dcc`.
+Migration 985 qualified all nine functions, ACLs and trigger; all 80 earlier
+applied checksums were preserved. Background cold unlock, Profile and same-session
+Hosting passed with foreground unchanged. Native cleanup disabled the exact
+runtime identity, then the worker exited without cached-token denial proof.
+Compute, Memory and storage remain; both temporary IAM grants were removed.
+The bounded 986 candidate uses append-only qualified operator-source adoption and
+the existing compute-first writer port to recover without re-enabling the account
+or fabricating token-denial evidence. Its release and live acceptance remain open.
+No Firebase identity mutation has occurred.
 The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
 owns the recovery procedure and historical phone-identity findings. Seven
 phone-only Firebase candidates have production vaults and require protection;

@@ -62,9 +62,13 @@ OLD_SIGNING = Ed25519PrivateKey.from_private_bytes(bytes([7]) * 32)
 NEW_SIGNING = Ed25519PrivateKey.from_private_bytes(bytes([8]) * 32)
 # 944 is the chat-history cutover: it touches no registry table and refuses to run
 # without the chat tables, so it is unrelated to this fixture.
-# This legacy-only fixture does not adopt canonical421. Its dependent985 is
+# This legacy-only fixture does not adopt canonical421. Its dependent985/986 are
 # qualified by the complete canonical/Dev replay and legacy-removal suites.
-_UNRELATED = {"944_one_chat_history_legacy_cutover.sql", "985_legacy_cloud_removal_recovery.sql"}
+_UNRELATED = {
+    "944_one_chat_history_legacy_cutover.sql",
+    "985_legacy_cloud_removal_recovery.sql",
+    "986_legacy_cloud_removal_resume.sql",
+}
 
 
 def _signing(key: Ed25519PrivateKey) -> tuple[str, str]:
