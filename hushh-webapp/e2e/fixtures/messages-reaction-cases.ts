@@ -24,8 +24,13 @@ export function registerMessagesReactionCases({ mount, fixture, holdMessage }: {
           await expect(menu.getByRole("button")).toHaveCount(0);
           await page.screenshot({ path: test.info().outputPath(`message-menu-${width}-${dark ? "dark" : "light"}.png`), animations: "disabled" });
           await page.keyboard.press("Escape");
+          // Radix restores focus after its exit animation. Wait before fill(),
+          // whose focus and keyboard insertion are separate WebKit operations.
+          await expect(menu).toHaveCount(0);
+          await expect(message.getByRole("button", { name: "Message options", exact: true })).toBeFocused();
           const draft = page.locator("[data-direct-message-composer-input]");
           await draft.fill("Keep this draft");
+          await expect(draft, "draft must exist before opening the reaction picker").toHaveValue("Keep this draft");
           const avatarOffset = async () => {
             const avatar = (await message.getByRole("link", { name: "View Maya Rao's profile" }).boundingBox())!;
             const bubble = (await message.locator("[data-chat-bubble]").boundingBox())!;
@@ -58,6 +63,7 @@ export function registerMessagesReactionCases({ mount, fixture, holdMessage }: {
           await picker.getByRole("button", { name: `Use ${emoji}`, exact: true }).click();
           await expect(picker).toHaveCount(0);
           await expect(message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true })).toBeVisible();
+          expect(await page.evaluate(() => (window as any).directChatFixture.sends.length)).toBe(0);
           await expect(draft).toHaveValue("Keep this draft");
           expect(Math.abs(await avatarOffset() - originalAvatarOffset)).toBeLessThan(1);
           await message.getByRole("button", { name: `${emoji} reaction, 1`, exact: true }).click();
