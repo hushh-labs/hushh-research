@@ -728,6 +728,73 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
     assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}
 
 
+def test_public_email_risk_data_has_real_integrity_and_policy_ownership():
+    paths = (
+        "consent-protocol/config/email-auth/disposable-domains.txt",
+        "consent-protocol/config/email-auth/risk-manifest.json",
+    )
+    filters = _filters()
+    for path in paths:
+        assert not filters["backend"].match_file(path)
+        plan = _governance_plan((path,))
+        assert plan["selected_groups"] == ["controller"]
+        commands = {check["id"]: check["argv"] for check in plan["commands"]}
+        assert "email-risk-artifact-integrity" in commands
+        assert commands["email-risk-policy-contracts"][-2:] == [
+            "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
+            "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
+        ]
+    unrelated = _governance_plan((".github/workflows/ci.yml",))
+    assert not {"email-risk-artifact-integrity", "email-risk-policy-contracts"}.intersection(
+        check["id"] for check in unrelated["commands"]
+    )
+    for path in (
+        "consent-protocol/config/email-auth/unknown-risk-input.txt",
+        "consent-protocol/config/email-auth/LICENSE-disposable-domains.txt",
+        "consent-protocol/hushh_mcp/services/email_auth/domain_policy.py",
+        "consent-protocol/tests/services/test_email_auth_postgres.py",
+        "consent-protocol/db/migrations/359_independent_email_otp.sql",
+    ):
+        assert filters["backend"].match_file(path), path
+
+
+@pytest.mark.parametrize("fault", ["valid", "tampered", "redirected"])
+def test_public_email_risk_integrity_command_checks_the_actual_blob(tmp_path, fault):
+    import json
+
+    plan = _governance_plan(("consent-protocol/config/email-auth/risk-manifest.json",))
+    command = next(
+        check["argv"]
+        for check in plan["commands"]
+        if check["id"] == "email-risk-artifact-integrity"
+    )
+    program = command[command.index("-c") + 1]
+    protocol = tmp_path / "consent-protocol"
+    source = ROOT / "consent-protocol/config/email-auth"
+    data = protocol / "config/email-auth"
+    data.mkdir(parents=True)
+    (protocol / "hushh_mcp").symlink_to(
+        ROOT / "consent-protocol/hushh_mcp", target_is_directory=True
+    )
+    manifest = json.loads((source / "risk-manifest.json").read_text())
+    (data / manifest["file"]).write_bytes(
+        (source / manifest["file"]).read_bytes()
+        + (b"tampered.invalid\n" if fault == "tampered" else b"")
+    )
+    (data / manifest["license"]).write_bytes((source / manifest["license"]).read_bytes())
+    if fault == "redirected":
+        manifest["file"] = "another-input.txt"
+    (data / "risk-manifest.json").write_text(json.dumps(manifest))
+    result = subprocess.run(  # noqa: S603 - actual authored integrity command, isolated public fixture
+        [sys.executable, "-c", program], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert (result.returncode == 0) is (fault == "valid"), result.stderr
+    if fault == "tampered":
+        assert "digest mismatch" in result.stderr
+    elif fault == "redirected":
+        assert "unowned input" in result.stderr
+
+
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
         "consent-protocol/tests/test_runtime_config_retention.py",
