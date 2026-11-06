@@ -2093,8 +2093,9 @@ export function AgentBubble({
           "min-w-0",
           (shouldRenderStreamPanel || backgroundOnly) && !isUser
             ? "w-full max-w-none"
-            : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
-          isUser && "sm:max-w-[min(76%,42rem)]",
+            : isUser
+              ? "max-w-[90%] sm:max-w-[min(76%,42rem)]"
+              : "w-full max-w-[90%] sm:max-w-[min(82%,48rem)]",
         )}
       >
         <OneChatBubble
@@ -2142,7 +2143,7 @@ export function AgentBubble({
                 assistantText ? (
                   <div
                     data-agent-response-bubble
-                    className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-fit max-w-full sm:max-w-[min(82%,48rem)]")}
+                    className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-full min-w-0 max-w-full break-words")}
                   >
                     <AgentMarkdown text={assistantText} />
                     {hoverResponseActionsNode}

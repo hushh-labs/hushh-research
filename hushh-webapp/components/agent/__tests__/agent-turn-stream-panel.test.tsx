@@ -148,8 +148,8 @@ describe("AgentTurnStreamPanel", () => {
     const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="Your answer."
       isStreaming={false} structuredExperience={experience} onOpenConnections={onOpenConnections} />);
     expect(screen.getByRole("region", { name: "Mail read details" })).toBeInTheDocument();
-    expect(screen.getByText("Metadata only · 1 cited source")).toBeInTheDocument();
-    expect(screen.getByText("Mail 1")).toBeInTheDocument();
+    expect(screen.queryByText("Metadata only · 1 cited source")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
     expect(screen.getByText("Some matches or metadata were omitted.")).toBeInTheDocument();
     expect(onOpenConnections).not.toHaveBeenCalled();
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
@@ -159,6 +159,31 @@ describe("AgentTurnStreamPanel", () => {
     expect(onOpenConnections).toHaveBeenCalledOnce();
     expect(onOpenConnections).toHaveBeenCalledWith("gmail", expect.any(HTMLButtonElement));
     expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
+  });
+  it("shows one human Mail status while reading and hides successful Mail telemetry afterward", () => {
+    const tool = makeToolEvent({
+      callId: "mail-read",
+      label: "Gmail",
+      message: "Mail read finished · 5 mails fetched",
+      raw: { toolName: "ask_email_agent" },
+    });
+    const running = agentToolEventToVisibleStreamEvent("start", tool, 1_700_000);
+    const finished = agentToolEventToVisibleStreamEvent("result", tool, 1_700_000);
+    const { rerender } = render(<AgentTurnStreamPanel
+      streamEvents={[running]} responseText="" isStreaming />);
+    expect(screen.getByText("Checking your email…")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Activity/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/mails fetched/)).not.toBeInTheDocument();
+
+    rerender(<AgentTurnStreamPanel streamEvents={[finished]} responseText="Five messages found."
+      sources={[{ agentId: "agent_email", label: "Mail", reason: "read" }]}
+      structuredExperience={{ type: "one.connector_read.v1", connector: "mail",
+        status: "ok", sourceRefs: ["mail:1"], metadataOnly: true, truncated: false }}
+      isStreaming={false} />);
+    expect(screen.queryByText("Checking your email…")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Activity/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Mail read details" })).not.toBeInTheDocument();
+    expect(screen.getByText("Five messages found.")).toBeInTheDocument();
   });
   it("renders tool progress without leaking raw action payloads", () => {
     const event = {
@@ -254,7 +279,8 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Private memory ready.")).not.toBeInTheDocument();
     expect(screen.queryByText("Connector access checked.")).not.toBeInTheDocument();
 
-    // A failed memory load, a slow one, and a real tool call still show.
+    // A failed memory load and a slow readiness check still show. A completed
+    // Mail read belongs in the answer and its coverage, not Activity.
     const mailRead = agentToolEventToVisibleStreamEvent("result", makeToolEvent({
       callId: "mail", actionId: null, label: "Gmail", execution: "server",
       message: "Mail read finished.", raw: { protocol: "ag-ui", toolName: "ask_email_agent" },
@@ -275,7 +301,7 @@ describe("AgentTurnStreamPanel", () => {
     if (activity.getAttribute("aria-expanded") === "false") fireEvent.click(activity);
     expect(screen.getByText("Private memory could not load.")).toBeInTheDocument();
     expect(screen.getAllByText("Connector access checked.")).toHaveLength(1);
-    expect(screen.getByText("Mail read finished.")).toBeInTheDocument();
+    expect(screen.queryByText("Mail read finished.")).not.toBeInTheDocument();
   });
 
   it("shows a still-running memory preparation only once it is slow", () => {
