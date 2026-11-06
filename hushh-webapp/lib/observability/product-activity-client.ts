@@ -10,6 +10,10 @@ import { ApiService } from "@/lib/services/api-service";
 type Phase = "started" | "returned" | "failed" | "cancelled" | "blocked";
 type Admission = { enabled: boolean; generation?: string };
 type Observation = { scope: ProductActivityScope | null; admitted: Promise<Admission> };
+type DispatchObservation = { actionId: string; id: string; captured: Observation };
+// Associate only the original admission with a still-running result. Weak keys
+// neither retain product results nor add observation fields to their payloads.
+const dispatches = new WeakMap<object, DispatchObservation>();
 let admission: { scope: ProductActivityScope; capturedAt: number; value: Promise<Admission> } | null = null;
 let pending = 0;
 type QueuedObservation = { actionId: string; phase: Phase; operationId: string; captured: Observation; queuedAt: number };
@@ -122,7 +126,25 @@ export function observeProductEvent(event: string, action: unknown, result: unkn
   if (id && typeof window !== "undefined") enqueue(key, phase, id, observation(scope));
 }
 
-/** Wrap a completed dispatch without delaying a trusted browser activation. */
+function dispatchResult<T extends { status: string }>(result: T, attempt: DispatchObservation): T {
+  const { actionId, id, captured } = attempt;
+  const phase = result.status === "succeeded" || result.status === "completed" ? "returned"
+    : result.status === "started" || result.status === "settling" ? "started"
+    : result.status === "failed" ? "failed" : "blocked";
+  if (phase === "started") dispatches.set(result, attempt);
+  else if (typeof window !== "undefined") enqueue(actionId, phase, id, captured);
+  return result;
+}
+
+/** A confirmed destination settles the same attempt; timeouts remain unknown. */
+export function settleProductDispatch<T extends { status: string }>(previous: object, result: T): T {
+  const attempt = dispatches.get(previous);
+  if (!attempt) return result;
+  dispatches.delete(previous);
+  return dispatchResult(result, attempt);
+}
+
+/** Wrap a dispatch without delaying a trusted browser activation. */
 export function observeDispatch<T extends { status: string }>(
   actionId: string, operation: Promise<T>,
 ): Promise<T> {
@@ -130,13 +152,7 @@ export function observeDispatch<T extends { status: string }>(
   if (!id) return operation;
   const captured = observation(snapshotProductActivityScope());
   if (typeof window !== "undefined") enqueue(actionId, "started", id, captured);
-  return operation.then((result) => {
-    const phase = result.status === "succeeded" || result.status === "completed" ? "returned"
-      : result.status === "started" || result.status === "settling" ? "started"
-      : result.status === "failed" ? "failed" : "blocked";
-    if (typeof window !== "undefined") enqueue(actionId, phase, id, captured);
-    return result;
-  }, (error: unknown) => {
+  return operation.then((result) => dispatchResult(result, { actionId, id, captured }), (error: unknown) => {
     if (typeof window !== "undefined") enqueue(actionId, error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "failed", id, captured);
     throw error;
   });
