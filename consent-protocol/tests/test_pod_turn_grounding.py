@@ -78,9 +78,14 @@ async def _run(payload: pt.PodTurnRequest, seen: dict):
 @pytest.mark.asyncio
 async def test_a_projection_reaches_the_runtime_and_is_reported_grounded(enabled) -> None:
     seen: dict = {}
-    result = await _run(_payload(pkmContext=PROJECTION), seen)
+    complete = (
+        "    synthetic_code()\n\n# My research notebook\n"
+        + "Research context. " * 1500
+        + "\n## Final goals\n- Preserve the last fact.\n"
+    )
+    result = await _run(_payload(pkmContext=complete), seen)
 
-    assert seen["pkm_context"] == PROJECTION
+    assert seen["pkm_context"] == complete
     assert result["grounded"] is True
 
 
@@ -158,6 +163,11 @@ def test_both_ends_agree_on_how_much_projection_fits() -> None:
     relay_cap = PodTurnRelayRequest.model_fields["pkm_context"].metadata
     pod_cap = pt.PodTurnRequest.model_fields["pkm_context"].metadata
     assert str(relay_cap) == str(pod_cap)
+    from pydantic import ValidationError
+
+    for request in (PodTurnRelayRequest, pt.PodTurnRequest):
+        with pytest.raises(ValidationError):
+            request(message="hi", pkmContext="x" * 128_001)
 
 
 @pytest.mark.asyncio

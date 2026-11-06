@@ -636,6 +636,47 @@ class EncryptedAdkSessionService(BaseSessionService):
             self._set_revision(session, self._revision(latest))
         raise RuntimeError("Encrypted ADK session changed concurrently; retry the run.")
 
+    async def commit_chat_summary(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        expected_checkpoint: dict | None,
+        checkpoint: dict,
+    ) -> bool:
+        """Commit one exact STM prefix, atomically preserving concurrent arrivals.
+
+        Revalidate the expected summary and source prefix on every CAS retry.
+        The checkpoint shares the owner's encrypted Session; no events are removed.
+        """
+        from hushh_mcp.one_adk.chat_memory import CHECKPOINT_KEY, checkpoint_prefix
+
+        for _attempt in range(4):
+            session = await self.get_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+            if (
+                session is None
+                or session.state.get(CHECKPOINT_KEY) != expected_checkpoint
+                or checkpoint_prefix(session, checkpoint) is None
+            ):
+                return False
+            revision = self._revision(session)
+            session.state[CHECKPOINT_KEY] = checkpoint
+            encoded = self._encode(session)
+            result = await self._repository.replace(
+                app=app_name,
+                user=user_id,
+                session=session_id,
+                revision=revision,
+                chat_marker=CHAT_CIPHERTEXT_LIKE,
+                **encoded,
+            )
+            if result.data:
+                return True
+        return False
+
     async def append_event_once(
         self, *, app_name: str, user_id: str, session_id: str, event: Event
     ) -> Event:

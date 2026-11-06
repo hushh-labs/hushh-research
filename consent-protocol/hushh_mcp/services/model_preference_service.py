@@ -136,6 +136,27 @@ def _choice_payload(choice: TextModelChoice, effective: str) -> dict[str, Any]:
 
 async def get_preference(*, user_id: str) -> dict[str, Any]:
     """What this person may choose, what they chose, and what actually runs."""
+    from hushh_mcp.managed_ai_config import (
+        load_managed_runtime_policy,
+        sandbox_managed_azure_enabled,
+    )
+
+    if sandbox_managed_azure_enabled():
+        descriptor = load_managed_runtime_policy()["azure"]["one_text_root"]
+        return {
+            "user_id": user_id,
+            "selected_model": None,
+            "effective_model": descriptor["deployment"],
+            "source": "administrator_policy",
+            "choices": [
+                {
+                    "model_id": descriptor["deployment"],
+                    "label": f"Azure · {descriptor['model']}",
+                    "is_default": True,
+                    "is_active": True,
+                }
+            ],
+        }
     resolved = await resolve_text_model(user_id)
     from hushh_mcp.runtime_providers.managed_text import managed_text_binding, managed_text_policy
 
@@ -172,8 +193,14 @@ async def get_preference(*, user_id: str) -> dict[str, Any]:
 
 async def set_preference(*, user_id: str, model_id: str | None) -> dict[str, Any]:
     """Record this person's choice, or clear it with ``None`` to follow the lane again."""
+    from hushh_mcp.managed_ai_config import sandbox_managed_azure_enabled
     from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
+    if sandbox_managed_azure_enabled():
+        raise ModelPreferenceError(
+            "The sandbox text model is configured by its deployment.",
+            code="MODEL_MANAGED_BY_POLICY",
+        )
     if managed_text_policy() is not None:
         raise ModelPreferenceError(
             "The UAT text model is managed by Hussh.", code="MODEL_MANAGED_BY_POLICY"
