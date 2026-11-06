@@ -266,7 +266,7 @@ def c2_canonical_frontmatter() -> None:
 
 def c3_agent_mirrors_have_authored_source() -> None:
     """One authored fleet; no host-specific copies or projections."""
-    authored = list((REPO_ROOT / ".agents/subagents").glob("*.toml"))
+    authored = list((REPO_ROOT / ".agents/subagents").glob("*.md"))
     duplicate = REPO_ROOT / ".agents/generated/subagents"
     record("C3 one authored development fleet", bool(authored) and not duplicate.exists(),
            f"{len(authored)} authored lanes; no generated host fleet.")
@@ -343,7 +343,7 @@ def self_test() -> int:
     import tempfile
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        for name, text in {"AGENTS.md": "Read .agents/instructions.md", ".agents/instructions.md": "fixture", ".agents/README.md": "fixture", ".agents/config.toml": ""}.items():
+        for name, text in {"AGENTS.md": "Read .agents/instructions.md", ".agents/instructions.md": "fixture", ".agents/README.md": "fixture", ".agents/config.json": ""}.items():
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)

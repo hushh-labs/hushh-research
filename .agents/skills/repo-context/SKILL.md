@@ -76,12 +76,12 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-./bin/hushh codex scan summary
-./bin/hushh codex list-workflows
-./bin/hushh codex route-task repo-orientation
-./bin/hushh codex impact repo-orientation
-./bin/hushh codex data-model-audit
-./bin/hushh codex audit
+./bin/hushh agents scan summary
+./bin/hushh agents list-workflows
+./bin/hushh agents route-task repo-orientation
+./bin/hushh agents impact repo-orientation
+./bin/hushh agents data-model-audit
+./bin/hushh agents audit
 python3 .agents/skills/repo-context/scripts/repo_scan.py validate
 python3 .agents/skills/repo-context/scripts/architecture_fitness.py --self-test && python3 .agents/skills/repo-context/scripts/architecture_fitness.py --limit 20
 ```

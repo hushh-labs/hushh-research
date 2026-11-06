@@ -74,6 +74,6 @@ Non-owned surfaces:
 
 ```bash
 ./scripts/ci/pkm-upgrade-gate.sh
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 ./scripts/ci/reviewer-app-testing-check.sh
 ```

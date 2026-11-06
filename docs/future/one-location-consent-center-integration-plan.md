@@ -180,7 +180,7 @@ The frontend already clears the "Shared with me" map on revoke/expiry. Confirm
 ## Verification bundle (run before declaring done)
 
 ```bash
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 cd consent-protocol && python3 -m pytest tests/test_one_location_center_contributor.py tests/test_consent_center_pure_helpers.py -q
 cd hushh-webapp && npm run typecheck
 ```
@@ -208,7 +208,7 @@ cd hushh-webapp && npm run typecheck
     flag off).
   - To activate in an environment: set
     `ONE_LOCATION_CONSENT_CENTER_ENABLED=true`. Remaining before prod:
-    `./bin/hushh codex data-model-audit` and a flag-ON integration test.
+    `./bin/hushh agents data-model-audit` and a flag-ON integration test.
 
 
 - DONE: `consent-protocol/hushh_mcp/services/one_location_center_contributor.py`

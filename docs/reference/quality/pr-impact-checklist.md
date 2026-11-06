@@ -68,7 +68,7 @@ Record actual route/runtime evidence in the existing readiness memo.
 - Runtime DB data-plane changes:
   - Table families changed: ...
   - Data class / retention / deletion policy updated: yes/no
-  - `./bin/hushh codex data-model-audit` run: yes/no
+  - `./bin/hushh agents data-model-audit` run: yes/no
 
 - Cache keys touched:
   - ...

@@ -20,6 +20,7 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
     "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
     "consent-protocol/tests/test_dev_release_classification.py",
@@ -101,6 +102,8 @@ CHECKS = (
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
     _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
     _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
+    _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", "consent-protocol/tests/test_memory_judge.py", groups=("agent",)),
     _check("architecture-fitness-selftest", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--self-test", diagnostic=True),
     _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/reference/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
     _check("pr-governance-sections", "python3", "scripts/ci/verify-pr-governance-sections.py", groups=("operations",)),
@@ -312,6 +315,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/helpers/plg_qualification.py",
     }:
         return frozenset({"controller"}), None
+    if path == "consent-protocol/tests/test_memory_judge.py":
+        return frozenset({"agent"}), None
     if root == ".agents":
         return frozenset({"agent"}), None
     if root in {".github", "config", "deploy", "bin"}:
@@ -333,6 +338,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/main-post-merge-smoke.sh",
             "scripts/ci/test_ui_contract_gate.py",
             "scripts/ci/integration-check.sh",
+            "scripts/ci/orchestrate.sh",
             "scripts/ci/account-deletion-check.sh",
             "scripts/ci/backend-check.sh",
             "scripts/ci/validation-results.sh",
@@ -384,6 +390,22 @@ def _select_groups(files: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]
     return tuple(group for group in REGRESSION_GROUPS if group in groups), None
 
 
+# Inputs read by the lane-topology regression owner, not product behavior.
+WEB_LANE_INPUTS = frozenset({
+    'hushh-webapp/package.json',
+    'hushh-webapp/playwright.config.ts',
+    'hushh-webapp/scripts/testing/playwright-shard.cjs',
+    'scripts/ci/test_web_ci_lane_partition.py',
+    'scripts/ci/web_ci_lane_fixture.py',
+    'scripts/ci/web_lane_topology_contract.py',
+    'scripts/ci/web-targeted-check.sh',
+    'scripts/ci/web-targeted-plan.sh',
+    'scripts/ci/web-common.sh',
+    'scripts/ci/web-full-suite-check.sh',
+    'scripts/ci/web-browser-core.py',
+})
+
+
 def build_selection(env: dict[str, str]) -> Selection:
     raw_level = env.get("CI_VALIDATION_LEVEL")
     level = raw_level.strip().lower() if raw_level and raw_level.strip() else "diagnostic"
@@ -410,6 +432,13 @@ def build_selection(env: dict[str, str]) -> Selection:
         and (
             not check.groups.intersection({"controller", "retention", "agent", "release"})
             or bool(check.groups.intersection(requested_groups))
+        )
+        and (
+            check.check_id != "web-lane-partition"
+            or level == "release"
+            or selection_error
+            or "controller" in requested_groups
+            or bool(WEB_LANE_INPUTS.intersection(files))
         )
     )
     return Selection(

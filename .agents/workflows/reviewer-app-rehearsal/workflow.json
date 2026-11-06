@@ -20,7 +20,7 @@
   ],
   "required_commands": [
     "./scripts/ci/reviewer-app-testing-check.sh",
-    "./bin/hushh codex route-task reviewer-app-rehearsal --text"
+    "./bin/hushh agents route-task reviewer-app-rehearsal --text"
   ],
   "verification_bundle": {
     "id": "reviewer-app-rehearsal",

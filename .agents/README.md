@@ -13,10 +13,19 @@ Start with root [AGENTS.md](../AGENTS.md), which explicitly loads the binding
 | [skills](skills/README.md) | Authored practices and governed owner/spoke procedures |
 | [subagents](subagents/) | Read-only engineering evidence lanes |
 | [workflows](workflows/) | Existing recurring workflow contracts and playbooks |
-| [configuration](config.toml) | Bounded execution and declared tool connections |
+| [configuration](config.json) | Bounded engineering execution |
 | [routing](routing/) | Invocation of existing workflow and skill owners |
 | [evals](evals/cases/) | Deterministic skill-routing cases shared by every host |
 | [imports](imports/) | Pinned third-party resources with retained licenses and explicit review status |
+
+Each authored role is one Markdown file: JSON frontmatter contains its identity,
+read-only authority and reasoning metadata; the body contains its instructions.
+All readers use the shared framework parser. Limits live in `config.json`.
+Use `./bin/hushh agents`; `codex` remains a compatibility alias to the same code,
+without another directory or host-specific adapter. Repo files do not register
+subagents or tools automatically in a host.
+The retired TOML configuration is refused. Its historical protected filename
+remains guarded to prevent reintroduction without weakening installed rules.
 
 `.agents` is the only development tree. Root `AGENTS.md` guides every coding
 agent to the same instructions, skills, workflows, subagents and evaluations.
@@ -41,7 +50,7 @@ evaluations detect drift. They share the same instructions, authority and person
 ## Release a development lane
 
 1. Route the change through `agent-orchestration-governance`; edit the existing
-   skill, workflow or `.agents/subagents/*.toml` source.
+   skill, workflow or `.agents/subagents/*.md` source.
 2. Validate canonical sources and absence of vendor roots. Run the owning routing,
    authority and governance checks; model selection inherits the parent session.
 3. Collect the subagent's evidence and unresolved risks. The parent decides what
@@ -53,8 +62,8 @@ evaluations detect drift. They share the same instructions, authority and person
 These are engineering lanes. Product specialists such as Files and Browser are
 authored in the runtime, not in this development fleet.
 
-Use `./bin/hushh codex route-task <workflow-id>` for a recurring task, or
-`./bin/hushh codex scan summary` for orientation. Routing IDs and verification
+Use `./bin/hushh agents route-task <workflow-id>` for a recurring task, or
+`./bin/hushh agents scan summary` for orientation. Routing IDs and verification
 requirements are unchanged by consolidation.
 
 Runtime product agents remain in

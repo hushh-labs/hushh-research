@@ -1145,7 +1145,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     desired_rules = module.protected_pipeline_review_rulesets(policy, read=read)
     desired = desired_rules[0]
     assert [item["name"] for item in desired_rules] == ["protected pipeline review 1", "protected pipeline review 2", "protected pipeline review 3", "protected pipeline review inherited 1", "protected pipeline review inherited 2", "protected pipeline review inherited 3"]
-    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, 7, 15, 15, 7]
+    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, len(policy["main"]["protected_pipeline_paths"]) - 30] * 2
     patterns = [pattern for item in desired_rules[:2] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]]
     assert patterns == sorted({"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][:30]})
     assert len(patterns) == len(set(patterns)) == 30
@@ -1165,7 +1165,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     assert rule["required_approving_review_count"] == 0 and rule["require_code_owner_review"] is False
     reviewer = rule["required_reviewers"][0]
     assert reviewer["minimum_approvals"] == 1 and reviewer["reviewer"] == {"id": 42, "type": "Team"}
-    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md"]
+    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md", ".agents/config.toml", ".agents/config.json"]
     negative = [".GITHUB/workflows/check.yml", "scripts/CI/guard.py", "unrelated/scripts/ci/guard.py", "agents.md", "hushh-webapp/app/page.tsx"]
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     with tempfile.TemporaryDirectory(prefix="native-review-patterns-") as scratch:

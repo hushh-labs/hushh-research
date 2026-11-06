@@ -19,7 +19,7 @@
     "AGENTS.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task product-agent-development",
+    "./bin/hushh agents route-task product-agent-development",
     "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
     "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
     "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
