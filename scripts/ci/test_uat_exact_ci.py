@@ -26,6 +26,19 @@ from uat_exact_ci_fixture import (
 
 
 class ExactUatCiTest(unittest.TestCase):
+    def test_serving_lineage_refusal_explains_repair_without_weakening_admission(self):
+        candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
+
+        def observed(*args):
+            if args == ("merge-base", "--is-ancestor", base, candidate):
+                raise subject.Refused("Git authority lookup failed")
+            return b""
+
+        with patch.object(subject, "git", side_effect=observed), self.assertRaisesRegex(
+            subject.Refused, "UAT serving base bbbbbbbbbbbb.*reviewed source transition"
+        ):
+            subject.verify_git_authority(candidate, base, authority, current=False)
+
     def test_reviewed_product_tests_and_dependencies_do_not_change_execution_authority(self):
         main = {"scripts": {"test": "vitest"}, "dependencies": {"a": "1"}}
         candidate = {**main, "dependencies": {"a": "2"}}

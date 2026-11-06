@@ -16,7 +16,7 @@ on:
         required: true
         type: string
       sha:
-        description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
+        description: "Exact qualified application SHA; blank only verifies an already-serving no-op"
         required: false
         type: string
       source_branch:
@@ -53,7 +53,7 @@ on:
         default: false
         type: boolean
       repeat_reviewer_byok:
-        description: "Repeat a selected read-only reviewer BYOK rehearsal for independent RCA acceptance"
+        description: "Explicitly run read-only app-browser diagnostics; no automatic browser rehearsal"
         required: false
         default: false
         type: boolean
@@ -1077,7 +1077,7 @@ jobs:
           if-no-files-found: error
 
       - name: Set up Node runtime for UAT browser verification
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -1085,7 +1085,7 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        if: inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
@@ -1094,12 +1094,18 @@ jobs:
 
       - name: Install UAT browser verification dependencies
         id: install-browser-dependencies
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
         timeout-minutes: 8
         shell: bash
+        env:
+          RUN_BROWSER_DIAGNOSTICS: ${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
+          if [ "${RUN_BROWSER_DIAGNOSTICS:-false}" != true ]; then
+            echo "Runtime dependencies installed; app-browser diagnostics were not requested."
+            exit 0
+          fi
           # Keep the runner's signed archive/security fallbacks. PR CI uses this
           # same removal after the preferred Azure mirror stalled for 23 minutes.
           if [ -f /etc/apt/apt-mirrors.txt ]; then
@@ -3112,7 +3118,7 @@ jobs:
 
       - name: Verify reviewer BYOK navigation and cold re-unlock
         id: verify-reviewer-byok
-        if: steps.verification-plan.outputs.run_reviewer_byok == 'true' && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
+        if: inputs.repeat_reviewer_byok && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
         continue-on-error: true
         shell: bash
         env:
@@ -3172,7 +3178,7 @@ jobs:
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-uat-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
-          REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          REVIEWER_BYOK_REQUIRED: ${{ inputs.repeat_reviewer_byok }}
           PWM_ACCEPTANCE_REQUIRED: ${{ inputs.run_pwm_acceptance }}
           PWM_ACCEPTANCE_OUTCOME: ${{ steps.verify-pwm-acceptance.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}

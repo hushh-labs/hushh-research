@@ -190,7 +190,10 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
                 "UAT tip changed; qualify the current protected candidate")
     git("merge-base", "--is-ancestor", authority, "origin/main")
-    git("merge-base", "--is-ancestor", base, candidate)
+    try:
+        git("merge-base", "--is-ancestor", base, candidate)
+    except Refused:
+        raise Refused(f"UAT serving base {base[:12]} is not an ancestor of candidate {candidate[:12]}, or its history is unavailable. Reconcile the accepted release lineage through a reviewed source transition before qualification; retrying unchanged will not repair it.") from None
     for source in (candidate, authority):
         git("cat-file", "-e", f"{source}^{{commit}}")
     if branch == "uat-isolated":

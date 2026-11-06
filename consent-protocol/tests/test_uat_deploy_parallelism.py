@@ -390,16 +390,19 @@ def test_parallel_build_keeps_release_and_readiness_before_deployment():
 
 
 @pytest.mark.parametrize(
-    "frontend,protected,pwm",
+    "frontend,protected,pwm,reviewer",
     [
-        (True, False, False),
-        (False, True, False),
-        (False, False, True),
-        (True, True, True),
-        (False, False, False),
+        (True, False, False, False),
+        (False, True, False, False),
+        (False, False, True, False),
+        (True, True, True, True),
+        (False, False, False, False),
+        (False, False, False, True),
     ],
 )
-def test_uat_browser_consumers_share_one_required_install(frontend, protected, pwm):
+def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
+    frontend, protected, pwm, reviewer
+):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
     ]["steps"]
@@ -412,10 +415,12 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
     condition = condition.replace(
         "steps.verification-plan.outputs.requires_web_dependencies == 'true'", str(protected)
     )
-    condition = condition.replace("inputs.run_pwm_acceptance", str(pwm))
+    condition = condition.replace("inputs.run_pwm_acceptance", str(pwm)).replace(
+        "inputs.repeat_reviewer_byok", str(reviewer)
+    )
     assert all(term.strip() in {"True", "False"} for term in condition.split("||"))
     assert any(term.strip() == "True" for term in condition.split("||")) == (
-        frontend or protected or pwm
+        frontend or protected or pwm or reviewer
     )
     for step in steps:
         if step.get("uses", "").startswith("actions/setup-node@"):
@@ -432,13 +437,19 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
     assert install["timeout-minutes"] == 8
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert "uat-chromium" in cache["with"]["key"]
+    assert cache["if"] == "inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
+    assert (
+        install["env"]["RUN_BROWSER_DIAGNOSTICS"]
+        == "${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
+    )
 
 
 @pytest.mark.parametrize(
-    "npm_status,failures,expected", [(0, 0, 0), (0, 1, 0), (0, 2, 1), (9, 0, 9)]
+    "npm_status,failures,expected,diagnostic",
+    [(0, 0, 0, True), (0, 1, 0, True), (0, 2, 1, True), (9, 0, 9, True), (0, 0, 0, False)],
 )
 def test_uat_browser_install_retries_and_blocks_on_failure(
-    tmp_path, npm_status, failures, expected
+    tmp_path, npm_status, failures, expected, diagnostic
 ):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
@@ -469,13 +480,14 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
             "ATTEMPTS": str(attempts),
             "NPM_STATUS": str(npm_status),
             "FAILURES": str(failures),
+            "RUN_BROWSER_DIAGNOSTICS": str(diagnostic).lower(),
         },
         capture_output=True,
         text=True,
     )
     assert result.returncode == expected, result.stderr
     assert calls.read_text().splitlines().count("npm") == 1
-    if npm_status:
+    if npm_status or not diagnostic:
         assert not attempts.exists()
     else:
         assert int(attempts.read_text()) == min(failures + 1, 2)
