@@ -315,11 +315,11 @@ def current_validations(state, read=api):
 def receipt_matches(receipt, state, validation):
     """Reuse needs the tested tree AND identical selection/authority inputs.
 
-    A PR whose head was behind its tested base still merges normally, but its
-    historical PR-file selection is not reused: the combined checks run again.
+    Version 2 proves the actual selected inventories, including PR-only profiles.
+    Legacy receipts are not upgraded by assumption: combined checks run again.
     """
     return isinstance(receipt, dict) and receipt == {
-        "version": 1, "repository": state["repository"], "event": "pull_request",
+        "version": 2, "repository": state["repository"], "event": "pull_request",
         "run": validation["run"], "attempt": validation["attempt"],
         "pr": validation["number"], "head": validation["head"],
         "base": state["base"], "tree": state["tree"],
@@ -351,6 +351,36 @@ def reusable(state, validations, read=api):
     return receipt_matches(receipt, state, validation)
 
 
+
+def exact_selection(base):
+    """Prove the actual API inventory matches the tested merge inventory.
+
+    Branch ancestry alone is neither necessary nor sufficient. Keep unknown
+    inputs conservative, including the PR-only backend suppression profile.
+    """
+    if os.environ.get("QUEUE_AUTH_HEALTH_ONLY") != "false":
+        return False
+    try:
+        with open(os.environ.get("QUEUE_SELECTION_FILE", ""), encoding="utf-8") as source:
+            encoded = source.read(1_000_001)
+        if len(encoded) > 1_000_000:
+            return False
+        raw = json.loads(encoded)
+        if not isinstance(raw, str) or len(raw.encode()) > 500_000:
+            return False
+        paths = json.loads(raw)
+    except (OSError, ValueError):
+        return False
+    if (not isinstance(paths, list) or not paths or len(paths) > 6000
+            or any(not isinstance(path, str) or not path
+                   or any(char in path for char in ("\0", "\n", "\r")) for path in paths)):
+        return False
+    actual = set(paths)
+    # Web, governance and integration now select against the tested merge.
+    # Renames with a differing old-path inventory still refuse reuse.
+    return actual == set(git("diff", "--name-only", "-z", base, "HEAD").split("\0")) - {""}
+
+
 def record_receipt():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     pr = event["pull_request"]
@@ -360,10 +390,10 @@ def record_receipt():
             and git("rev-parse", "HEAD") == os.environ["GITHUB_SHA"]
             and len(parents) == 2 and parents[1] == head,
             "Receipt requires the actual tested PR merge")
-    exact = parents[0] == base and subprocess.run(
-        ["git", "merge-base", "--is-ancestor", base, head], check=False, timeout=30,
-    ).returncode == 0
-    return {"version": 1, "repository": os.environ["GITHUB_REPOSITORY"],
+    exact = parents[0] == base and exact_selection(base)
+    print("PR selection matches the tested combined inputs." if exact else
+          "PR selection is not reusable; queue will validate its combined inputs.")
+    return {"version": 2, "repository": os.environ["GITHUB_REPOSITORY"],
             "event": "pull_request", "run": int(os.environ["GITHUB_RUN_ID"]),
             "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]), "pr": pr["number"],
             "head": head, "base": base, "tree": git("rev-parse", "HEAD^{tree}"),
@@ -523,9 +553,8 @@ def owner_admin_merge(number, expected_head, receipt, apply=False):
     )
     proof.update(outcome="merged", landed=landed, request_exit_code=exit_code)
     receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
-    print(
-        f"Owner-approved PR merged at {landed}. Main smoke remains required; no deployment requested."
-    )
+    next_step = "Main smoke remains required; " if proof["state"]["branch"] == "main" else ""
+    print(f"Owner-approved PR merged at {landed}. {next_step}No deployment requested.")
 
 def main():
     import argparse
