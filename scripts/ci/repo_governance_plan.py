@@ -102,6 +102,8 @@ CHECKS = (
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
     _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
     _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
+    _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", "consent-protocol/tests/test_memory_judge.py", groups=("agent",)),
     _check("architecture-fitness-selftest", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--self-test", diagnostic=True),
     _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/reference/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
     _check("pr-governance-sections", "python3", "scripts/ci/verify-pr-governance-sections.py", groups=("operations",)),
@@ -313,6 +315,8 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/helpers/plg_qualification.py",
     }:
         return frozenset({"controller"}), None
+    if path == "consent-protocol/tests/test_memory_judge.py":
+        return frozenset({"agent"}), None
     if root == ".agents":
         return frozenset({"agent"}), None
     if root in {".github", "config", "deploy", "bin"}:
