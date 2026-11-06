@@ -95,7 +95,8 @@
     "979_hosted_files_executor.sql",
     "980_personal_agent_upgrade_host_binding.sql",
     "981_hosted_native_location_contract.sql",
-    "985_legacy_cloud_removal_recovery.sql"
+    "985_legacy_cloud_removal_recovery.sql",
+    "986_legacy_cloud_removal_resume.sql"
   ],
   "deferred_release_migrations": [
     {

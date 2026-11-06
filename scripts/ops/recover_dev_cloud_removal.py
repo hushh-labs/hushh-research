@@ -198,8 +198,10 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
     from hushh_mcp.services.legacy_cloud_removal_executor import LegacyGcpRemoval
     from hushh_mcp.services.legacy_cloud_removal_native import RecoverySession
     from hushh_mcp.services.legacy_cloud_removal_writer import (
+        admit_disabled_writer_compute,
         cached_writer_probe,
         disable_writer,
+        qualify_writer_after_compute,
         verify_disabled_writer,
     )
     from hushh_mcp.services.legacy_cloud_removal_teardown import delete_remaining
@@ -221,13 +223,21 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
                 "service_account", worker.plan["runtime"]["principal"]["email"]
             )
             state = resource_state(journal.read(), resource_key(runtime))
-            if "writer_disabled" in state:
+            compute_first = False
+            if "writer_disabled" in state or "native_writer_disabled_after_compute" in state:
                 verify_disabled_writer(worker)
+            elif "writer_acknowledgement" in state:
+                # A prior worker may have exited with its cached probe token.
+                # Never re-enable the identity or manufacture credential denial.
+                admit_disabled_writer_compute(worker)
+                compute_first = True
             else:
                 token = cached_writer_probe(worker, actor=args.account)
                 disable_writer(worker, cached_token=token)
                 del token
             worker.delete_compute(credentials=credentials)
+            if compute_first:
+                qualify_writer_after_compute(worker, token=credentials.token)
             worker.delete_memory()
             pending = delete_remaining(worker, token=credentials.token, reservation=reservation)
             if pending:
@@ -264,7 +274,9 @@ def require_cleanup_authority(worker):
         resource_state,
     )
     from hushh_mcp.services.legacy_cloud_removal_native import resource_url
-    from hushh_mcp.services.legacy_cloud_removal_teardown import recover_bucket_acknowledgement
+    from hushh_mcp.services.legacy_cloud_removal_teardown import (
+        recover_bucket_acknowledgement,
+    )
 
     permissions = {
         "aiplatform.reasoningEngines.delete",
@@ -305,9 +317,15 @@ def require_cleanup_authority(worker):
         _require(current.status_code == 404, "CLOUD_REMOVAL_RESOURCE_REPLACED")
         historical = worker.session.get(
             resource_url(worker.project, worker.region, bucket),
-            params={"softDeleted": True, "generation": bucket["identity"]["generation"]},
+            params={
+                "softDeleted": True,
+                "generation": bucket["identity"]["generation"],
+            },
         )
-        _require(historical.status_code in {200, 404}, "CLOUD_REMOVAL_NATIVE_READ_UNAVAILABLE")
+        _require(
+            historical.status_code in {200, 404},
+            "CLOUD_REMOVAL_NATIVE_READ_UNAVAILABLE",
+        )
         if historical.status_code == 200:
             from hushh_mcp.services.legacy_cloud_removal_native import native_identity
 
@@ -365,7 +383,7 @@ def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "action",
-        choices=("inspect", "prepare", "execute", "status"),
+        choices=("inspect", "prepare", "adopt-operator", "execute", "status"),
         nargs="?",
         default="inspect",
     )
@@ -434,6 +452,7 @@ def main():
     from hushh_mcp.services.legacy_cloud_removal import (
         LegacyRemovalJournal,
         _require,
+        operator_source,
         validate_plan,
     )
     from hushh_mcp.services.legacy_cloud_removal_native import (
@@ -441,7 +460,7 @@ def main():
         observe_plan,
     )
 
-    mutation = args.action in {"prepare", "execute"}
+    mutation = args.action in {"prepare", "adopt-operator", "execute"}
     _require(not mutation or args.apply and args.manifest_sha256 is not None)
     with dev_database(args.port, readonly=not mutation) as (engine, source):
         row = retained(engine, args.owner, args.attempt)
@@ -474,16 +493,16 @@ def main():
             return 0
         expected_source = (
             source
-            if args.action == "prepare"
-            else (row.get("recovery") or {}).get("plan", {}).get("sourceRevision")
+            if args.action in {"prepare", "adopt-operator"}
+            else operator_source(row["recovery"])
         )
-        operator_source = require_operator_source(expected_source)
+        current_source = require_operator_source(expected_source)
         with engine.begin() as conn:
             from sqlalchemy import text
 
             from db.legacy_cloud_removal_adoption import qualification_sql
 
-            conn.execute(text(qualification_sql()))
+            conn.execute(text(qualification_sql(resume_required=True)))
         raw = engine.raw_connection()
         raw.driver_connection.autocommit = True
         try:
@@ -526,13 +545,50 @@ def main():
                 return 0
             _require(journal.read()["planSha256"] == args.manifest_sha256)
             _require(journal.read()["plan"]["actor"] == args.account)
+            if args.action == "adopt-operator":
+                # Freeze all original coordinates. Only the source and read time
+                # differ; SQL additionally requires fresh approval and reconciled
+                # pre-data workers/provider requests under the same CAS prefix.
+                with RecoverySession(token=credentials.token, project=args.project) as session:
+                    current = observe_plan(
+                        session,
+                        reservation=row["reservation"],
+                        inventory=row["inventory"],
+                        snapshot_hash=row["snapshot_sha256"],
+                        source_revision=source,
+                        actor=args.account,
+                    )
+                original = journal.read()["plan"]
+                _require(
+                    {k: v for k, v in current.items() if k not in {"sourceRevision", "observedAt"}}
+                    == {
+                        k: v
+                        for k, v in original.items()
+                        if k not in {"sourceRevision", "observedAt"}
+                    },
+                    "CLOUD_REMOVAL_PLACEMENT_CHANGED",
+                )
+                previous = operator_source(journal.read())
+                if previous != current_source:
+                    journal.append(
+                        "$executor",
+                        "operator_source",
+                        {
+                            "previousSourceRevision": previous,
+                            "sourceRevision": current_source,
+                            "planSha256": args.manifest_sha256,
+                            "actor": args.account,
+                        },
+                    )
+                print(json.dumps({"operatorSource": operator_source(journal.read())}))
+                return 0
             # A fresh interpreter owns the execution SQL session. The parent joins
             # that real process before writing exit; dropping a SQL lease is insufficient.
             args.execution_id = uuid4().hex
             payload = {
                 "args": vars(args),
                 "token": credentials.token,
-                "source": operator_source,
+                "source": current_source,
                 "reservation": row["reservation"],
             }
             payload["args"]["plan"] = str(args.plan) if args.plan else None
@@ -558,7 +614,7 @@ if __name__ == "__main__":
             from db.legacy_cloud_removal_adoption import qualification_sql
 
             with engine.begin() as conn:
-                conn.execute(text(qualification_sql()))
+                conn.execute(text(qualification_sql(resume_required=True)))
             result = execute(
                 args,
                 engine,
