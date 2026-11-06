@@ -11,7 +11,7 @@ def validate_source_confinement(root: Path, errors: list[str]) -> None:
     if source_root.is_symlink():
         errors.append(".agents: canonical root must not be a symlink")
         return
-    for name in ("instructions.md", "README.md", "config.toml", "skills", "subagents",
+    for name in ("instructions.md", "README.md", "config.json", "skills", "subagents",
                  "workflows", "routing", "evals", "imports"):
         source = source_root / name
         paths = [source]
@@ -67,10 +67,10 @@ def validate_canonical_framework(root: Path, errors: list[str]) -> None:
     validate_source_confinement(root, errors)
     if errors:
         return
-    for name in ("AGENTS.md", ".agents/instructions.md", ".agents/README.md", ".agents/config.toml"):
+    for name in ("AGENTS.md", ".agents/instructions.md", ".agents/README.md", ".agents/config.json"):
         if not (root / name).is_file():
             errors.append(f"{name}: canonical framework source is missing")
-    for name in (".agents/generated/subagents", ".agents/startup.json", ".agents/scripts/startup.py",
+    for name in (".agents/config.toml", ".agents/generated/subagents", ".agents/startup.json", ".agents/scripts/startup.py",
                  ".agents/routing/SKILL.md",
                  ".agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py",
                  ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"):
@@ -81,3 +81,31 @@ def validate_canonical_framework(root: Path, errors: list[str]) -> None:
         inventory = json.loads(inventory_path.read_text())
         if inventory.get("host_adapters") or inventory.get("compatibility_commands"):
             errors.append("Per-host adapters are retired; use the canonical routing CLI")
+
+
+def read_framework_source(path: Path) -> dict:
+    """Read canonical JSON configuration or a Markdown role, without YAML dependencies."""
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"{path}: duplicate metadata key {key}")
+            result[key] = value
+        return result
+
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        payload = json.loads(text, object_pairs_hook=unique)
+    elif path.suffix == ".md":
+        if not text.startswith("---\n") or "\n---\n" not in text[4:]:
+            raise ValueError(f"{path}: Markdown role needs JSON frontmatter")
+        metadata, body = text[4:].split("\n---\n", 1)
+        payload = json.loads(metadata, object_pairs_hook=unique)
+        if not isinstance(payload, dict) or "developer_instructions" in payload:
+            raise ValueError(f"{path}: role instructions belong in the Markdown body")
+        payload["developer_instructions"] = body
+    else:
+        raise ValueError(f"{path}: expected canonical Markdown or JSON")
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path}: metadata must be an object")
+    return payload

@@ -19,7 +19,7 @@ All development sources belong in **`.agents/`**:
 - [workflows](.agents/workflows/): ownership, routing and verification.
 - [subagents](.agents/subagents/): the unified read-only engineering fleet.
 - [evals](.agents/evals/): routing and engineering evaluations.
-- [configuration](.agents/config.toml): bounded execution and tool connections.
+- [configuration](.agents/config.json): bounded execution and tool connections.
 
 Create or evolve these through the existing governance workflow. Do not create
 `.claude`, `.codex`, `.qwen` or another vendor-specific instruction, skill or agent
@@ -34,7 +34,7 @@ After handoff, verify owned-process and temporary-resource cleanup; close child
 sessions when the host supports it. Never claim disposal from completion alone.
 
 Start with [the development-system map](.agents/README.md), then the existing
-`./bin/hushh codex route-task <workflow-id>` command for the owning workflow.
+`./bin/hushh agents route-task <workflow-id>` command for the owning workflow.
 Route CI work through the existing `ci-watch-and-heal` or `release-readiness`
 workflow and the `repo-operations` skill; keep required checks and release
 authority intact.

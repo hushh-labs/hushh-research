@@ -125,8 +125,8 @@ The named-owner route preserves these independent protections:
 From reviewed tooling synchronized with Main, use:
 
 ```bash
-./bin/hushh codex admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json>
-./bin/hushh codex admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json> --apply
+./bin/hushh agents admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json>
+./bin/hushh agents admin-merge --pr <number> --sha <exact-head> --receipt <local-receipt.json> --apply
 ```
 
 The first command is read-only apart from fetching Git objects and writing its

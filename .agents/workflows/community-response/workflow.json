@@ -17,12 +17,12 @@
     "consent-protocol/docs/reference/developer-api.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task community-response"
+    "./bin/hushh agents route-task community-response"
   ],
   "verification_bundle": {
     "id": "community-response",
     "commands": [
-      "./bin/hushh codex route-task community-response"
+      "./bin/hushh agents route-task community-response"
     ],
     "tests": []
   },

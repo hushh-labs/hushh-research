@@ -42,7 +42,7 @@ protected Main revision, rechecks them before clearance and requires an owner
 approval for protected changes. A direct `--admin` command is a separate bypass;
 do not use it as a substitute for combined-result evidence.
 
-`./bin/hushh codex admin-merge` is the **named-owner-only** command for
+`./bin/hushh agents admin-merge` is the **named-owner-only** command for
 Main, Dev and UAT. It is reserved for Kushal or Ankit's own explicitly approved
 PR and verifies the current destination, exact head and successful CI evidence.
 Other Dev/UAT maintainers use the queue above; a refusal from the owner command

@@ -81,5 +81,5 @@ verification. Keep live security, consent, schema and deployment gates blocking.
 cd hushh-webapp && npm run test:ci
 cd hushh-webapp && npm run verify:service-boundary
 cd consent-protocol && python3 -m pytest tests/quality -q
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 ```

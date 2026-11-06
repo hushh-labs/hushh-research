@@ -18,20 +18,20 @@
     "docs/reference/iam/README.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task security-posture-maintenance",
-    "./bin/hushh codex audit --json",
+    "./bin/hushh agents route-task security-posture-maintenance",
+    "./bin/hushh agents audit --json",
     "./scripts/ci/github-security-alerts.sh"
   ],
   "verification_bundle": {
     "id": "security-posture-maintenance",
     "commands": [
-      "./bin/hushh codex audit --json",
+      "./bin/hushh agents audit --json",
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
       "./bin/hushh docs verify",
       "./scripts/ci/github-security-alerts.sh"
     ],
     "tests": [
-      "./bin/hushh codex audit --json",
+      "./bin/hushh agents audit --json",
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
       "./bin/hushh docs verify"
     ]

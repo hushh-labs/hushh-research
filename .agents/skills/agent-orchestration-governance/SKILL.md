@@ -19,7 +19,7 @@ description: Use when changing repository engineering agents, subagent concurren
 Owned repo surfaces:
 
 1. `.agents/subagents`
-2. `.agents/config.toml`
+2. `.agents/config.json`
 3. `.agents/skills/agent-orchestration-governance`
 4. `.agents/workflows/agent-orchestration-governance`
 5. `AGENTS.md`
@@ -64,8 +64,8 @@ Non-owned surfaces:
 1. Verify that a custom agent is justified; prefer skills/workflows when role specialization is not needed.
 2. Keep the fleet at the curated sweet spot: broad read-only evidence lanes, not one agent per skill.
 3. Preserve the repo-wide delegation checkpoint and truth-first handoff shape in `AGENTS.md` and `delegation-contract.md`.
-4. Keep custom-agent TOML files thin: role, sandbox, nicknames, root craft/bacterial-architecture inheritance hook, concise instructions, and skill routing.
-5. Treat `.agents/subagents/*.toml` as the only authored fleet; no host projections or copies are created.
+4. Keep custom-agent Markdown files thin: role, sandbox, nicknames, root craft/bacterial-architecture inheritance hook, concise instructions, and skill routing.
+5. Treat `.agents/subagents/*.md` as the only authored fleet; no host projections or copies are created.
 6. Keep wave-1 agents read-only and leave branch switching, writes, approval, merge, deploy, secrets, and final decisions to the parent/governor.
 7. Reject vendor directories and per-host adapters; read `.agents` through root `AGENTS.md`. Release finished child sessions through supported host controls and verify closure.
 8. Keep global limits bounded at `max_threads = 6` and `max_depth = 1` unless a later review proves otherwise.
@@ -90,5 +90,5 @@ python3 .agents/skills/agent-orchestration-governance/scripts/agent_fleet_audit.
 python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py
 ./scripts/ci/repo-governance-check.sh
 python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
-./bin/hushh codex audit
+./bin/hushh agents audit
 ```

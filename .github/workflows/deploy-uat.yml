@@ -46,7 +46,7 @@ on:
         default: false
         type: boolean
       approved_scope:
-        description: "Required for deploy: approved release PR and full SHAs (BACKEND:FRONTEND:PR=HEAD[,PR=HEAD])"
+        description: "Legacy uat-isolated PR approval only; not needed for ordinary UAT"
         required: false
         type: string
       ci_run_id:

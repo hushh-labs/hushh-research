@@ -5,7 +5,7 @@
   "primary_scope": "puppy-one-harness",
   "description": "Use when running, grading, or extending the on-device model harness for Puppy One, including the review-queue judge handoff, capability probing, and the evolution ledger.",
   "owned_paths": [
-    ".agents/subagents/local_model_judge.toml",
+    ".agents/subagents/local_model_judge.md",
     ".agents/skills/puppy-one-harness/references/judging-contract.md"
   ],
   "non_owned_paths": [
@@ -19,7 +19,7 @@
   ],
   "required_reads": [
     ".agents/skills/puppy-one-harness/references/judging-contract.md",
-    ".agents/subagents/local_model_judge.toml"
+    ".agents/subagents/local_model_judge.md"
   ],
   "required_commands": [
     "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",

@@ -489,6 +489,8 @@ def main() -> int:
     parser.add_argument("--source-branch", choices=("uat", "uat-isolated"))
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
+    parser.add_argument("--backend-base-revision", default="")
+    parser.add_argument("--frontend-base-revision", default="")
     parser.add_argument("--ci-run-id", type=int)
     parser.add_argument("--ci-attempt", type=int)
     parser.add_argument("--deployment-run-id", type=int)

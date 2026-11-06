@@ -6,7 +6,7 @@
   "description": "Use when changing repository engineering agents, subagent concurrency or depth, delegation policy, or handoff verification rules in hushh-research.",
   "owned_paths": [
     ".agents/subagents",
-    ".agents/config.toml",
+    ".agents/config.json",
     ".agents/skills/agent-orchestration-governance",
     ".agents/workflows/agent-orchestration-governance",
     "AGENTS.md",
@@ -42,7 +42,7 @@
     "python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py",
     "./scripts/ci/repo-governance-check.sh",
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-    "./bin/hushh codex audit"
+    "./bin/hushh agents audit"
   ],
   "verification_bundles": [
     {
@@ -55,7 +55,7 @@
         "python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py",
         "./scripts/ci/repo-governance-check.sh",
         "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex audit",
+        "./bin/hushh agents audit",
         "./bin/hushh docs verify"
       ],
       "tests": [
@@ -66,7 +66,7 @@
         "python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke.py",
         "./scripts/ci/repo-governance-check.sh",
         "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex audit",
+        "./bin/hushh agents audit",
         "./bin/hushh docs verify"
       ]
     }
