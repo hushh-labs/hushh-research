@@ -169,6 +169,44 @@ def test_immutable_foundation_preserves_qualified_guards_and_pending_ledger_rece
     assert hashlib.sha256((MIGRATIONS / FOUNDATION).read_bytes()).hexdigest() == IMMUTABLE_SHA256
 
 
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_replay_preserves_the_installed_attempt_email_erasure(replay_pg, monkeypatch):
+    [entry] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+    connection, database = canonical_database(replay_pg, monkeypatch)
+    with closing(connection), connection.cursor() as cursor:
+        cursor.execute("""CREATE TABLE public.one_attempt_email_preferences (user_id text, user_hash text);
+CREATE TABLE public.one_attempt_email_outbox (user_id text);
+CREATE FUNCTION public.erase_one_attempt_email() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
+BEGIN
+  IF NEW.cleanup_intent_kind='phone_orphan' THEN RETURN NEW; END IF;
+  DELETE FROM one_attempt_email_outbox WHERE user_id IN
+    (SELECT user_id FROM one_attempt_email_preferences WHERE user_hash=NEW.user_id_hash);
+  DELETE FROM one_attempt_email_preferences WHERE user_hash=NEW.user_id_hash;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER one_attempt_email_erasure AFTER INSERT ON public.account_deletion_tombstones
+  FOR EACH ROW EXECUTE FUNCTION public.erase_one_attempt_email();""")
+        trigger = """SELECT oid, tgfoid, pg_get_triggerdef(oid) FROM pg_trigger
+          WHERE tgrelid='public.account_deletion_tombstones'::regclass
+            AND tgname='one_attempt_email_erasure'"""
+        cursor.execute(trigger)
+        original = cursor.fetchone()
+        with pytest.raises(
+            psycopg2.errors.RaiseException, match="Unqualified private-agent triggers"
+        ):
+            cursor.execute(entry.sql)
+        cursor.execute("ROLLBACK")
+        assert asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY)) == (
+            FOUNDATION,
+        )
+        cursor.execute(trigger)
+        assert cursor.fetchone() == original
+        cursor.execute("ALTER FUNCTION public.erase_one_attempt_email() SECURITY DEFINER")
+        with pytest.raises(asyncpg.RaiseError, match="Unqualified attempt email erasure successor"):
+            asyncio.run(execute_mode(replay_pg, database, entry, MigrationMode.REPLAY))
+
+
 @pytest.mark.parametrize("filename", [FOUNDATION, "421_cloud_removal_recovery.sql"])
 @pytest.mark.parametrize("drift", ["metadata", "body", "rehashed_body"])
 def test_private_agent_adoption_refuses_changed_immutable_source(drift, filename):
