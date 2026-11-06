@@ -319,6 +319,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
         "consent-protocol/tests/helpers/plg_qualification.py",
+        "consent-protocol/tests/helpers/calendar_followup_scheduler.py",
     }:
         return frozenset({"controller"}), None
     if path == "consent-protocol/tests/test_memory_judge.py":

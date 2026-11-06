@@ -439,6 +439,7 @@ jobs:
               - '!consent-protocol/tests/test_plg_qualification_acceptance.py'
               - '!consent-protocol/tests/test_plg_qualification_candidate.py'
               - '!consent-protocol/tests/helpers/plg_qualification.py'
+              - '!consent-protocol/tests/helpers/calendar_followup_scheduler.py'
               - '!consent-protocol/tests/test_scheduled_mail_scheduler_contract.py'
               - '!consent-protocol/tests/test_uat_connector_rollout_contract.py'
               - '!consent-protocol/tests/test_uat_deploy_no_traffic_contract.py'

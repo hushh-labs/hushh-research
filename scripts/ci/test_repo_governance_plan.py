@@ -372,6 +372,24 @@ validation_finish
     assert result.returncode == 1
     assert "unsafe-dependent" not in result.stdout and "independent" in result.stdout
 
+    # One stale offline fixture must not hide the next environment failure.
+    spec = importlib.util.spec_from_file_location("environment_failure_collection",
+        ROOT / "scripts/ci/test_verify_deployment_environment_governance.py")
+    environment = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(environment)
+    seen = []
+    for name in vars(environment).copy():
+        if name.startswith("test_"):
+            setattr(environment, name, lambda name=name: seen.append(name))
+    def failed():
+        seen.append("first-failed")
+        raise KeyError("intentional offline regression")
+    environment.test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads = failed
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        assert environment.main() == 1
+    assert "first-failed" in seen
+    assert "test_capacity_clock_refuses_to_queue_before_its_wait" in seen
+
 
 def main() -> int:
     tests = (
