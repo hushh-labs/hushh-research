@@ -20,6 +20,7 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
     "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
     "consent-protocol/tests/test_dev_release_classification.py",

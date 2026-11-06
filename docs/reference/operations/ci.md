@@ -15,7 +15,7 @@ selects a browser automatically. Unknown bases retain PKM preservation checks.
 
 > **Branch state:** `dev` is the protected development intake and default Dev
 > deployment source. UAT selects its protected branch independently, with exact
-> candidate CI; first use still requires baseline/history qualification.
+> candidate CI; deployment rechecks observed baselines, compatibility and rollback.
 > Main owns release workflows. Branch state does not prove what is serving; see
 > [branch preparation](./branch-governance.md#dev--uat-branch-preparation).
 
@@ -222,16 +222,15 @@ only in an explicit Main-owned deployment's protected job.
 
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 `uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
-with `sha`, `ci_run_id`, `ci_run_attempt`, `ci_base_sha` and the reviewed
-`approved_scope` PR chain. These identify the application, validation attempt,
-comparison base and approved change set separately. Do not substitute
-a PR merge-tree check, another attempt or a branch status for that exact run.
-List each approved PR and its reviewed head in order. For a landed tree that
-differs from its PR head, admission recomputes the clean merge from its approved
-parents. Queue merges require the successful GitHub Actions result from before
-landing. A regular UAT merge with no queue run can qualify its own exact SHA
-through full branch CI against the serving base if its release authority is
-unchanged. The final deployment candidate still requires separate exact CI.
+with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
+release selects that protected application SHA after full exact-candidate CI;
+ordinary Dev/UAT needs no manual PR-history chain or serving-commit ancestry.
+The base identifies changed verification inputs, not merge authority. Recheck both
+actual service revisions under the lock, including partial releases with different
+frontend/backend SHAs. Compatibility, candidate health, qualified rollback and
+Main-owned deployment security remain required. Legacy isolated-history recovery
+keeps its separately reviewed approval contract. Do not substitute a PR merge-tree
+check, another attempt or a branch status for the exact candidate run.
 The complete same-SHA dispatch inventory must identify the selected current
 attempt. A sole matching run needs no chronological ordering, so inconsistent
 provider timestamps do not discard otherwise verified evidence. Multiple runs

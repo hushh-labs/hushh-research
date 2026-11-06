@@ -31,7 +31,8 @@ summary identifies protected tip, serving base and current CI status. Wait for
 existing pending CI; investigate an existing failure before dispatching more CI.
 Only when missing qualification is reported, run full PR Validation on `uat`
 with the shown base. After success inspect again, then deploy with its exact
-current CI run, attempt, base, and approved PR scope. New deployments reject incomplete pins before
+current CI run, attempt and comparison base. Ordinary UAT selects the protected
+SHA directly; no manual PR-history chain or serving-commit ancestry is required. New deployments reject incomplete pins before
 security/capacity jobs; security clearance and under-lock admission remain required:
 
 ```bash
@@ -39,9 +40,14 @@ gh workflow run deploy-uat.yml --ref uat -f operation=inspect
 gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving-uat-sha>
 gh workflow run deploy-uat.yml --ref uat -f scope=auto \
   -f sha=<validated-uat-sha> -f ci_run_id=<run-id> \
-  -f ci_run_attempt=<attempt> -f ci_base_sha=<serving-uat-sha> \
-  -f approved_scope='<backend-base>:<frontend-base>:<PR>=<head>'
+  -f ci_run_attempt=<attempt> -f ci_base_sha=<serving-uat-sha>
 ```
+
+The locked release rechecks the exact candidate, current full-CI attempt, both
+observed serving revisions, schema compatibility and qualified rollback. Different
+frontend/backend serving SHAs are supported. Legacy `uat-isolated` recovery retains
+its separately reviewed PR-scope contract. Production still requires UAT acceptance
+and Main approval.
 
 Then watch:
 

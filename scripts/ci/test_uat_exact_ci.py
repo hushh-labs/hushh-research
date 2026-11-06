@@ -31,7 +31,10 @@ class ExactUatCiTest(unittest.TestCase):
             env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
 
             def git(*args):
-                return subprocess.check_output(["git", "-C", root, *args], env=env, stderr=subprocess.DEVNULL)
+                try:
+                    return subprocess.check_output(["git", "-C", root, *args], env=env, stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError as error:
+                    raise subject.Refused("Git authority lookup failed") from error
 
             def write(path, text):
                 target = Path(root, path)
@@ -64,7 +67,16 @@ class ExactUatCiTest(unittest.TestCase):
             git("update-ref", "refs/remotes/origin/main", authority)
             write(prose, "# Updated development guidance\n")
             candidate = commit()
+            git("checkout", "--detach", authority)
+            write("application.txt", "historical serving release from a sibling history\n")
+            serving = commit()
+            git("checkout", "--detach", candidate)
             with patch.object(subject, "git", side_effect=git):
+                # The accepted serving commit is deliberately not an ancestor.
+                self.assertEqual(subject.verify_git_authority(candidate, serving, authority, current=False),
+                                 git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
+                with self.assertRaises(subject.Refused):
+                    subject.verify_git_authority(candidate, "0" * 40, authority, current=False)
                 self.assertEqual(subject.verify_git_authority(candidate, authority, authority, current=False),
                                  git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
                 for path in guarded:
@@ -84,7 +96,7 @@ class ExactUatCiTest(unittest.TestCase):
                 with self.assertRaisesRegex(subject.Refused, "authority differs"):
                     subject.verify_git_authority(linked, authority, authority, current=False)
 
-    def test_serving_lineage_refusal_explains_repair_without_weakening_admission(self):
+    def test_legacy_isolated_history_retains_its_reviewed_ancestry_boundary(self):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
 
         def observed(*args):
@@ -93,9 +105,9 @@ class ExactUatCiTest(unittest.TestCase):
             return b""
 
         with patch.object(subject, "git", side_effect=observed), self.assertRaisesRegex(
-            subject.Refused, "UAT serving base bbbbbbbbbbbb.*reviewed source transition"
+            subject.Refused, "Isolated UAT serving base.*reviewed source transition"
         ):
-            subject.verify_git_authority(candidate, base, authority, current=False)
+            subject.verify_git_authority(candidate, base, authority, current=False, branch="uat-isolated")
 
     def test_reviewed_product_tests_and_dependencies_do_not_change_execution_authority(self):
         main = {"scripts": {"test": "vitest"}, "dependencies": {"a": "1"}}
@@ -284,13 +296,21 @@ class ExactUatCiTest(unittest.TestCase):
             with self.assertRaises(subject.Refused):
                 subject.require_protected_tip(SimpleNamespace(read=lambda _: observed), candidate)
         args = SimpleNamespace(environment="uat", scope="backend", sha=candidate, base_sha=base,
-            backend_base_sha=base, frontend_base_sha="", authority_sha="c" * 40,
+            backend_base_sha=base, frontend_base_sha="e" * 40, authority_sha="c" * 40,
+            backend_base_revision="consent-protocol-old", frontend_base_revision="hushh-webapp-old",
             ci_run_id=42, ci_attempt=1, predecessor=None)
-        serving = {"backend": {"sha": base, "revision": "consent-protocol-old"}}
+        serving = {"backend": {"sha": base, "revision": "consent-protocol-old"},
+                   "frontend": {"sha": "e" * 40, "revision": "hushh-webapp-old"}}
         with tempfile.TemporaryDirectory() as directory, patch.object(subject, "live_serving_bases", return_value=serving), \
              patch.object(subject, "verify_git_authority", return_value="d" * 40), \
              patch.object(subject, "verify_predecessor"):
             record = subject.issue_predecessor(args)
+            # Even before the first receipt exists, a same-SHA replacement must
+            # not silently change the rollback baseline captured by the caller.
+            serving["frontend"]["revision"] = "hushh-webapp-replaced"
+            with self.assertRaisesRegex(subject.Refused, "changed before mutation"):
+                subject.issue_predecessor(args)
+            serving["frontend"]["revision"] = args.frontend_base_revision
             args.predecessor = Path(directory) / "prior.json"
             args.predecessor.write_text(json.dumps(record))
             serving["backend"]["revision"] = "consent-protocol-replaced"
