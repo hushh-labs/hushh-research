@@ -17,7 +17,7 @@
     "consent-protocol/docs/reference/developer-api.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task mcp-surface-change",
+    "./bin/hushh agents route-task mcp-surface-change",
     "cd packages/hushh-mcp && npm run docs:check",
     "./bin/hushh protocol test-ci"
   ],

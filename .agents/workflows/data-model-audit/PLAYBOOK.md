@@ -17,7 +17,7 @@ write paths.
    - `docs/reference/operations/migration-governance.md`
    - `consent-protocol/docs/reference/personal-knowledge-model.md`
 2. Run:
-   - `./bin/hushh codex data-model-audit`
+   - `./bin/hushh agents data-model-audit`
    - This proves static classification and legacy-write checks. Review device-local
      SQLite authority separately; the command does not inspect a deployed database
      by default. For optional live statistics, follow the env-name invocation and
@@ -36,8 +36,8 @@ write paths.
    - prove that mapping rows do not grant access, complete publication, or revoke an external artifact
 7. Re-run:
    - `python3 -m py_compile scripts/ops/data_model_audit.py`
-   - `./bin/hushh codex data-model-audit`
-   - `./bin/hushh codex audit`
+   - `./bin/hushh agents data-model-audit`
+   - `./bin/hushh agents audit`
    - `./bin/hushh docs verify`
 
 ## Production-Grade Defaults

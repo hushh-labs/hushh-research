@@ -84,9 +84,19 @@ CI validation profiles preserve the security and source-authority baseline:
 - `release`: core release-authority owners plus affected regression owners;
 - `diagnostic`: the historical full check set, including optional hygiene.
 
-Treat missing or unknown changed-file metadata conservatively. Browser checks
-run in hosted CI when selected; use Safari layout or performance diagnostics
-locally when those engine-specific contracts change. Run native checks only
+Treat missing or unknown changed-file metadata conservatively. App-browser checks
+run only as explicit diagnostics; One Browser authority
+contracts remain required when affected. Use engine-specific diagnostics locally
+when that contract changes. Run native checks only
 when native source or its contract changes. Never turn an unrun check into a
 pass or remove a live security, consent, data-model or deployment gate to make
 the selection smaller.
+
+
+For quality-policy changes, supply the verified changed-file inventory to the
+existing focused owner. Feature work also runs its affected runtime checks through
+pre-PR readiness; the commands are selected by the change, not a full-suite default.
+
+```bash
+CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh
+```

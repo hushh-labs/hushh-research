@@ -22,23 +22,23 @@
     "docs/reference/architecture/schema-migration-discipline.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task data-model-audit",
-    "./bin/hushh codex data-model-audit",
+    "./bin/hushh agents route-task data-model-audit",
+    "./bin/hushh agents data-model-audit",
     "./bin/hushh docs verify"
   ],
   "verification_bundle": {
     "id": "data-model-audit",
     "commands": [
       "python3 -m py_compile scripts/ops/data_model_audit.py",
-      "./bin/hushh codex data-model-audit",
-      "./bin/hushh codex route-task data-model-audit",
-      "./bin/hushh codex audit",
+      "./bin/hushh agents data-model-audit",
+      "./bin/hushh agents route-task data-model-audit",
+      "./bin/hushh agents audit",
       "./bin/hushh docs verify"
     ],
     "tests": [
       "python3 -m py_compile scripts/ops/data_model_audit.py",
-      "./bin/hushh codex data-model-audit",
-      "./bin/hushh codex audit"
+      "./bin/hushh agents data-model-audit",
+      "./bin/hushh agents audit"
     ]
   },
   "deliverables": [

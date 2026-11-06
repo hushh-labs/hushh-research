@@ -17,12 +17,12 @@ Use package-local commands only when you are working inside a package on purpose
 ```bash
 <repo-root>/bin/hushh bootstrap
 <repo-root>/bin/hushh doctor --mode uat
-<repo-root>/bin/hushh codex onboard
-<repo-root>/bin/hushh codex route-task repo-orientation
-<repo-root>/bin/hushh codex impact repo-orientation
-<repo-root>/bin/hushh codex pre-pr
-<repo-root>/bin/hushh codex ci-status --watch
-<repo-root>/bin/hushh codex data-model-audit
+<repo-root>/bin/hushh agents onboard
+<repo-root>/bin/hushh agents route-task repo-orientation
+<repo-root>/bin/hushh agents impact repo-orientation
+<repo-root>/bin/hushh agents pre-pr
+<repo-root>/bin/hushh agents ci-status --watch
+<repo-root>/bin/hushh agents data-model-audit
 <repo-root>/bin/hushh web
 <repo-root>/bin/hushh web --mode uat
 <repo-root>/bin/hushh proxy --mode local
@@ -43,15 +43,15 @@ Use package-local commands only when you are working inside a package on purpose
 ## Operational Commands
 
 ```bash
-<repo-root>/bin/hushh codex scan summary
-<repo-root>/bin/hushh codex scan section skills
-<repo-root>/bin/hushh codex list-workflows
-<repo-root>/bin/hushh codex pre-pr --include-advisory
-<repo-root>/bin/hushh codex ci-status
-<repo-root>/bin/hushh codex data-model-audit
-<repo-root>/bin/hushh codex audit
-<repo-root>/bin/hushh codex rca --surface runtime
-<repo-root>/bin/hushh codex rca --surface uat
+<repo-root>/bin/hushh agents scan summary
+<repo-root>/bin/hushh agents scan section skills
+<repo-root>/bin/hushh agents list-workflows
+<repo-root>/bin/hushh agents pre-pr --include-advisory
+<repo-root>/bin/hushh agents ci-status
+<repo-root>/bin/hushh agents data-model-audit
+<repo-root>/bin/hushh agents audit
+<repo-root>/bin/hushh agents rca --surface runtime
+<repo-root>/bin/hushh agents rca --surface uat
 <repo-root>/bin/hushh env bootstrap
 <repo-root>/bin/hushh env use --mode prod
 <repo-root>/bin/hushh db init-iam
@@ -78,7 +78,7 @@ Use package-local commands only when you are working inside a package on purpose
 - Do not document root `npm run ...` commands.
 - Do not document `make`.
 - Keep helper output and runbooks aligned with this CLI.
-- Contributor and agent onboarding should start with `./bin/hushh codex onboard`, not direct internal script paths.
+- Contributor and agent onboarding should start with `./bin/hushh agents onboard`, not direct internal script paths.
 - `./bin/hushh web` defaults to `local`; use `--mode uat`, `--mode dev`, or `--mode prod` only when you explicitly want a hosted backend target.
 - Local runtime uses three separate terminals (one component each): `./bin/hushh proxy --mode local`, `./bin/hushh backend --mode local --reload`, and `./bin/hushh web --mode local`. There is no combined `stack` command.
 - Use `./bin/hushh terminal proxy|backend|web --mode <mode>` only when you explicitly want visible OS terminal windows instead of in-session terminals.
@@ -86,6 +86,6 @@ Use package-local commands only when you are working inside a package on purpose
 - The `dev` compose profile starts backend + Redis + Mailhog. The local Postgres profile is standalone unless an operator explicitly changes backend env values.
 - Use `uv` as the canonical Python install surface for `consent-protocol`; `requirements*.txt` are generated compatibility artifacts, not contributor commands.
 - Treat `./bin/hushh db verify-release-contract`, `./bin/hushh db verify-uat-schema`, `./bin/hushh db verify-dev-schema`, and `./bin/hushh db report-prod-posture` as the authoritative DB governance surface.
-- Use `./bin/hushh codex data-model-audit` before treating new tables, durable caches, or runtime DB family changes as production-ready.
-- Use `./bin/hushh codex rca --surface runtime|uat|ci` as the canonical machine-readable RCA surface for core runtime, CI, and UAT release failures.
-- Use `./bin/hushh codex pre-pr` as the canonical pre-PR local mirror of `PR Validation` and `CI Status Gate`; add `--include-advisory` only when you intentionally want the wider readiness lane.
+- Use `./bin/hushh agents data-model-audit` before treating new tables, durable caches, or runtime DB family changes as production-ready.
+- Use `./bin/hushh agents rca --surface runtime|uat|ci` as the canonical machine-readable RCA surface for core runtime, CI, and UAT release failures.
+- Use `./bin/hushh agents pre-pr` as the canonical pre-PR local mirror of `PR Validation` and `CI Status Gate`; add `--include-advisory` only when you intentionally want the wider readiness lane.

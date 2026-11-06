@@ -23,7 +23,8 @@
       },
       "uat-isolated": {
         "policy_key": "uat_merge",
-        "merge_queue_ruleset_name": "uat-isolated merge queue"
+        "merge_queue_ruleset_name": "uat-isolated merge queue",
+        "owner_admin_ruleset_name": "uat-isolated owner validated merge"
       },
       "integration/pr-train": {
         "policy_key": "pr_train",
@@ -100,7 +101,8 @@
       "consent-protocol/scripts/run-test-ci.sh",
       "consent-protocol/scripts/sync_runtime_requirements.sh",
       "hushh-webapp/playwright.config.ts",
-      "hushh-webapp/vitest.config.ts"
+      "hushh-webapp/vitest.config.ts",
+      ".agents/config.json"
     ],
     "require_code_owner_reviews": true,
     "restrict_writes_to_merge_users": false,
@@ -265,7 +267,8 @@
       "consent-protocol/scripts/run-test-ci.sh",
       "consent-protocol/scripts/sync_runtime_requirements.sh",
       "hushh-webapp/playwright.config.ts",
-      "hushh-webapp/vitest.config.ts"
+      "hushh-webapp/vitest.config.ts",
+      ".agents/config.json"
     ],
     "require_code_owner_reviews": true
   }

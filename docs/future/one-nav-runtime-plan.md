@@ -160,7 +160,7 @@ Docs and skills:
 ./bin/hushh docs verify
 python3 .agents/skills/docs-governance/scripts/doc_inventory.py tier-a
 python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
-./bin/hushh codex audit
+./bin/hushh agents audit
 ```
 
 ## Out Of Scope

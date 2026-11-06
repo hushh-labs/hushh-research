@@ -337,9 +337,8 @@ def main() -> int:
                 mirrors_workflows=["affected local checks"], diagnostic=False,
                 hosted_required=["exact-head PR admission and selected native checks"] +
                     (["cross-surface Integration"] if any(c["lanes"].values()) else []) +
-                    (["functional browser contracts"] if c["lanes"]["frontend"] else []) +
                     (["Protocol Database (1/2)", "Protocol Database (2/2)"] if c["lanes"]["backend"] else []),
-                browser_validation="hosted CI required; not executed locally",
+                browser_validation="explicit diagnostic only; not executed locally",
                 include_advisory=False, commands=commands, checks=checks,
                 next_actions=["Open or update the pull request after all focused checks pass." if ok
                               else "Resolve failed checks or provide the missing PR body before proceeding."],
@@ -415,7 +414,7 @@ def _diagnostic(args: argparse.Namespace) -> int:
             "Open or update the pull request once the local mirror is green."
             if ok
             else "Fix the failing local check before opening or updating the pull request.",
-            "Use ./bin/hushh codex ci-status --watch after the PR opens so GitHub reaches a terminal state.",
+            "Use ./bin/hushh agents ci-status --watch after the PR opens so GitHub reaches a terminal state.",
         ],
     )
 
