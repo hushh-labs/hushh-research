@@ -77,15 +77,32 @@ test("Calendar product font and real action targets survive responsive boundarie
 
 test("three-account Board keeps its measure, heading roles and account actions across breakpoints", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 360, false, "standard", false, true);
-  for (const width of [360, 393, 430, 768, 900, 901, 1024, 1440]) {
+  for (const width of [320, 360, 393, 430, 768, 900, 901, 1024, 1440]) {
     await page.setViewportSize({ width, height: 950 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Board overflow at ${width}px`).toBe(true);
     await expect(page.locator("[data-calendar-account-board]")).toHaveCSS("font-family", /Plus Jakarta Sans/);
     const add = (await page.getByRole("button", { name: "Add account" }).boundingBox())!;
     expect(add.height, `Add account target at ${width}px`).toBeGreaterThanOrEqual(44);
+    const counter = (await page.getByText("3 of 3 Google accounts added", { exact: true }).boundingBox())!;
+    const refresh = (await page.getByRole("button", { name: "Refresh Calendar", exact: true }).boundingBox())!;
+    expect(Math.abs(counter.y + counter.height / 2 - add.y - add.height / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(refresh.y + refresh.height / 2 - add.y - add.height / 2)).toBeLessThanOrEqual(1);
+    expect(counter.x + counter.width).toBeLessThanOrEqual(add.x);
+    expect(add.x + add.width).toBeLessThanOrEqual(refresh.x);
+    expect(refresh.x + refresh.width).toBeLessThanOrEqual(width);
     const overlap = (await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).boundingBox())!;
     expect(overlap.height, `overlap target at ${width}px`).toBeGreaterThanOrEqual(44);
   }
+  const today = page.getByRole("button", { name: "Today", exact: true });
+  await expect(today).toHaveAttribute("aria-current", "date");
+  await page.getByRole("button", { name: "Previous day", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Today", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+  await page.getByRole("button", { name: "Back to today", exact: true }).click();
+  await expect(today).toHaveAttribute("aria-current", "date");
+  await page.getByRole("button", { name: "Next day", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+  await page.getByRole("button", { name: "Back to today", exact: true }).click();
   const addPill = page.getByRole("button", { name: "Add account" });
   const lightPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
@@ -704,7 +721,7 @@ for (const width of [390, 1280]) {
     await expect(page.getByText("No pending invitations on this date.")).toBeVisible();
     await page.getByRole("button", { name: "Previous day", exact: true }).click();
     await expect(rows).toHaveCount(1);
-    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await page.getByRole("button", { name: "Back to today", exact: true }).click();
     await expect(rows).toHaveCount(10);
     const before = reads;
     await page.getByRole("tab", { name: "Schedule", exact: true }).click();

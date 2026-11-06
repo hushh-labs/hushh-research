@@ -56,6 +56,10 @@ export function registerCalendarConnectedFixture() {
     });
     css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
     css += fs.readdirSync(outDir).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
+    // Match the production optimization pass so dialog transforms and overflow
+    // are measured after globals and feature styles have been combined.
+    const { transform } = await import("lightningcss");
+    css = transform({ filename: "calendar-workspace.css", code: Buffer.from(css), minify: true }).code.toString();
     fs.mkdirSync(screenshotDirectory, { recursive: true });
   });
 
