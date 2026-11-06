@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import os
 import time
 from unittest.mock import AsyncMock
 
@@ -11,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.routes.one import plg
+from hushh_mcp import runtime_settings
 from hushh_mcp.services import attempt_email, plg_audience
 
 OWNER = "fixture-only-uat-owner-read-key-32-characters"
@@ -44,16 +46,20 @@ def uat(monkeypatch):
         "ONE_PLG_ATTEMPT_EMAIL_SECRET",
     ):
         monkeypatch.delenv(name, raising=False)
-    for name, value in {
-        "ENVIRONMENT": "uat",
-        "GOOGLE_CLOUD_PROJECT": "hushh-pda-uat",
-        "ONE_PLG_ACTIVITY_ENABLED": "true",
-        "ONE_PLG_ACTIVITY_UAT_ENABLED": "true",
-        "ONE_PLG_ACTIVITY_ALL_REGISTERED": "false",
-        "ONE_PLG_UAT_EXPORT_ENABLED": "true",
-        "ONE_PLG_UAT_EXPORT_SECRET": bundle(),
-    }.items():
-        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    config = {
+        "environment": "uat",
+        "google_cloud_project": "hushh-pda-uat",
+        "one_plg_activity_enabled": True,
+        "one_plg_activity_uat_enabled": True,
+        "one_plg_activity_all_registered": False,
+        "one_plg_uat_export_enabled": True,
+    }
+    for key in config:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(config))
+    runtime_settings.hydrate_runtime_environment()
+    monkeypatch.setenv("ONE_PLG_UAT_EXPORT_SECRET", bundle())
 
 
 def test_existing_binding_resolves_separate_uat_read_keys(uat):
