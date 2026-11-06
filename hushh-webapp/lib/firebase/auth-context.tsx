@@ -1869,7 +1869,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
           requirePhoneVerificationOwner(uid, epoch);
           if ("phoneIdToken" in result) {
             phoneTransferProofRef.current = { token: result.phoneIdToken, userId: uid, epoch, phone };
-            const identity = await AccountIdentityService.claimCurrentUserPhone(currentUser, result.phoneIdToken);
+            let identity: Awaited<ReturnType<typeof AccountIdentityService.claimCurrentUserPhone>>;
+            try { identity = await AccountIdentityService.claimCurrentUserPhone(currentUser, result.phoneIdToken); }
+            catch (error) {
+              requirePhoneVerificationOwner(uid, epoch);
+              // UI availability only; the retained proof and backend remain authoritative.
+              throw Object.assign(error instanceof Error ? error : new Error("Phone verification failed."), { phoneProofAvailable: true });
+            }
             requirePhoneVerificationOwner(uid, epoch);
             if (!AccountIdentityService.hasVerifiedPhone(identity)) throw new Error("Phone verification could not be completed.");
             phoneRecovery.cancelNativeStart();
@@ -1949,9 +1955,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         let verifiedUser = currentUser;
         if (attempt.proofContext) {
-          const token = await AuthService.confirmPhoneDeletionVerification({
-            ...attempt.proofContext, verificationId, verificationCode,
-          });
+          const retained = phoneTransferProofRef.current;
+          const token = retained?.userId === uid && retained.epoch === epoch && retained.phone === phone
+            ? retained.token : await AuthService.confirmPhoneDeletionVerification({
+              ...attempt.proofContext, verificationId, verificationCode,
+            });
           requirePhoneVerificationOwner(uid, epoch);
           phoneTransferProofRef.current = { token, userId: uid, epoch, phone };
           const identity = await AccountIdentityService.claimCurrentUserPhone(currentUser, token);
@@ -1997,6 +2005,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
         applyAuthUser(verifiedUser, principal);
         phoneVerificationOwnerRef.current = null;
         return verifiedUser;
+      }).catch((error: unknown) => {
+        const proof = phoneTransferProofRef.current;
+        const available = !!attempt && proof?.userId === attempt.userId && proof.epoch === attempt.epoch &&
+          proof.phone === attempt.phone && phoneVerificationEpochRef.current === attempt.epoch && userRef.current?.uid === attempt.userId;
+        if (error instanceof Error) Object.assign(error, { phoneProofAvailable: available });
+        throw error;
       });
     },
     [applyAuthUser, finalizeLinkedProviderPhone, phoneRecovery, phoneVerificationAttempt, requirePhoneVerificationOwner],

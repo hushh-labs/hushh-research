@@ -55,6 +55,10 @@ describe("register-phone conflict runtime", () => {
   afterEach(cleanupWebAuthMocks);
 
   it("survives real reCAPTCHA setup, phone claim conflict and Back without replacing React-owned DOM", async () => {
+    mocks.phoneLinkConfirm.mockImplementationOnce(async ({ onConflictProof }) => {
+      onConflictProof("verified-conflict-proof");
+      throw Object.assign(new Error("Phone held"), { code: "credential-already-in-use" });
+    });
     const navigate = vi.fn();
     render(<Boundary><AuthProvider><AgentRuntimeStateProvider>
       <PhoneMandatePageContent /><RuntimeProbe /><Navbar /><AppEdgeBackGesture />
@@ -79,11 +83,24 @@ describe("register-phone conflict runtime", () => {
     expect(screen.queryByText("Phone render failed")).toBeNull();
     expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
     expect(mocks.identityClaim).not.toHaveBeenCalled();
-    expect(mocks.phoneFinalize).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith("/api/account/identity/refresh?require_success=true", expect.objectContaining({ method: "POST", body: JSON.stringify({ verified_phone_number: "+16505550101" }) }));
+    expect(mocks.phoneFinalize).not.toHaveBeenCalled();
+    expect(mocks.phoneLinkConfirm).toHaveBeenCalledOnce();
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 
+  it("requires explicit fresh SMS when ordinary linking succeeds but the app claim conflicts", async () => {
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "6505550101" } });
+    fireEvent.submit(phone.closest("form")!);
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.submit(code.closest("form")!);
+    expect(await screen.findByRole("button", { name: "Use this number on this account" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send a real SMS code" })).toBeEnabled();
+    expect(mocks.phoneFinalize).toHaveBeenCalledOnce();
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+  });
   it.each(["recover", "delete", "revoke"] as const)("creates a server-bound %s continuation before leaving the current account", async (action) => {
     const continuationId = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     vi.mocked(fetch).mockImplementation(async (url) => String(url).endsWith("/phone/recovery/continuations")
@@ -159,22 +176,24 @@ describe("register-phone conflict runtime", () => {
     expect(bodies.some(body => String(body.path).endsWith("/phone/recovery/continuations"))).toBe(false);
     expect(mocks.replaceDocument).not.toHaveBeenCalled();
   });
-  it("keeps Dev's explicit real-SMS recovery and owner-approved transfer for a partially saved phone", async () => {
+  it.each(["manual", "instant", "retry save"] as const)("keeps Dev's explicit %s SMS recovery and owner-approved transfer for a partially saved phone", async proofMode => {
     const identity = await vi.importActual<typeof import("@/lib/services/account-identity-service")>("@/lib/services/account-identity-service");
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
     const { AuthService } = await import("@/lib/services/auth-service");
     const { AccountIdentityService } = await import("@/lib/services/account-identity-service");
     mocks.firebaseUser = makeUser("account-owner", "+16505550101");
-    const sendProof = vi.fn().mockResolvedValue({ verificationId: "fresh-proof-challenge" });
+    const sendProof = vi.fn().mockResolvedValue(proofMode === "instant" ? { phoneIdToken: "fresh-recovery-proof" } : { verificationId: "fresh-proof-challenge" });
     const confirmProof = vi.fn().mockResolvedValue("fresh-recovery-proof");
     Object.assign(AuthService, { startPhoneDeletionVerification: sendProof, confirmPhoneDeletionVerification: confirmProof });
     Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone, phoneTransferRequest: api.ApiService.phoneTransferRequest });
     Object.assign(AccountIdentityService, { transferCurrentUserPhone: identity.AccountIdentityService.transferCurrentUserPhone.bind(identity.AccountIdentityService) });
     mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
     const bodies: { path: string; [key: string]: unknown }[] = [];
+    let claims = 0;
     vi.mocked(fetch).mockImplementation(async (url, init) => {
       const path = String(url);
       if (init?.body) bodies.push({ path, ...JSON.parse(String(init.body)) });
+      if (path.endsWith("/phone/claim") && ++claims === 1 && proofMode === "retry save") return Response.json({ detail: { code: "PHONE_IDENTITY_SAVE_FAILED" } }, { status: 503 });
       if (path.endsWith("/phone/transfer/prepare")) return Response.json({ transfer_id: "verified-transfer" });
       if (path.endsWith("/phone/transfer/confirm")) return Response.json({ transfer_status: "completed", identity: {
         user_id: "account-owner", phone_verified: true, phone_number: "+16505550101",
@@ -186,9 +205,16 @@ describe("register-phone conflict runtime", () => {
     fireEvent.change(phone, { target: { value: "6505550101" } });
     fireEvent.submit(phone.closest("form")!);
     fireEvent.click(await screen.findByRole("button", { name: "Send a real SMS code" }));
-    const code = await screen.findByRole("textbox", { name: "One-time code" });
-    fireEvent.change(code, { target: { value: "123456" } });
-    fireEvent.submit(code.closest("form")!);
+    if (proofMode !== "instant") {
+      const code = await screen.findByRole("textbox", { name: "One-time code" });
+      fireEvent.change(code, { target: { value: "123456" } });
+      fireEvent.submit(code.closest("form")!);
+      if (proofMode === "retry save") {
+        await waitFor(() => expect(claims).toBe(1));
+        await waitFor(() => expect(code.closest("form")!.querySelector('button[type="submit"]')).not.toBeDisabled());
+        fireEvent.submit(code.closest("form")!);
+      }
+    }
     fireEvent.click(await screen.findByRole("button", { name: "Use this number on this account" }));
     fireEvent.click(await screen.findByRole("button", { name: "Confirm phone transfer" }));
     await waitFor(() => expect(bodies.some(body => body.path.endsWith("/phone/transfer/confirm"))).toBe(true));
@@ -197,7 +223,7 @@ describe("register-phone conflict runtime", () => {
       { path: "/api/account/phone/transfer/confirm", phone_id_token: "fresh-recovery-proof", expected_user_id: "account-owner", transfer_id: "verified-transfer", confirmed: true },
     ]);
     expect(sendProof).toHaveBeenCalledOnce();
-    expect(confirmProof).toHaveBeenCalledOnce();
+    expect(confirmProof).toHaveBeenCalledTimes(proofMode === "instant" ? 0 : 1);
     expect(mocks.phoneLinkStart).not.toHaveBeenCalled();
     expect(mocks.phoneLinkConfirm).not.toHaveBeenCalled();
     expect(bodies.some(body => body.path.includes("/deletions"))).toBe(false);

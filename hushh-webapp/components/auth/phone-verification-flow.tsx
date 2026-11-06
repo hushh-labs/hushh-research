@@ -643,7 +643,7 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't send the verification code. Please try again.");
         setOperationError(message);
         if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
-          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible(false); setConflict("choices"); changeStep("code");
+          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setTransferEligible((error as { phoneProofAvailable?: boolean })?.phoneProofAvailable === true); setConflict("choices"); changeStep("code");
         }
         if (committed) { morphyToast.error(message); return "auto_verified"; }
         trackEvent("phone_verification_started", {
@@ -813,7 +813,7 @@ export function usePhoneVerificationFlow({
         setOperationError(message);
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
         if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
-          advanceEntryRevision(); setTransferEligible(apiErrorCode(error) !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
+          advanceEntryRevision(); setTransferEligible((error as { phoneProofAvailable?: boolean })?.phoneProofAvailable === true && apiErrorCode(error) !== "PHONE_TEST_NUMBER_IN_USE"); setVerificationCode(""); setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
           action: mode,
