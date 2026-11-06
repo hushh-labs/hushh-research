@@ -87,7 +87,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
         if (exchangeOwner == null) proof.signOut()
     }
 
-    fun start(call: PluginCall, primaryLink: Boolean = false) = handler.post {
+    fun start(call: PluginCall, primaryLink: Boolean = false, manualOnly: Boolean = false) = handler.post {
         val expected = call.getString("expectedUserId")
         val attempt = call.getString("attemptId")
         val phone = call.getString("phoneNumber")
@@ -139,7 +139,7 @@ internal class DeletionPhoneProof(private val activity: Activity, private val pr
                         expire(op, (op.fence.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(1))
                     }
                     override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                        if (op.linkIntent != null) {
+                        if (manualOnly || op.linkIntent != null) {
                             if (active(op) && op.fence.phase == DeletionPhoneProofFence.Phase.WAITING)
                                 finish(op, "phone_manual_sms_required")
                             return

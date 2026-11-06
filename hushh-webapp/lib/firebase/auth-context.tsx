@@ -285,6 +285,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const phoneNumberRef = useRef<string | null>(null);
   const phoneVerificationOwnerRef = useRef<string | null>(null);
   const phoneVerificationEpochRef = useRef(0);
+  const phoneTransferProofRef = useRef<{ token: string; userId: string; epoch: number; phone: string } | null>(null);
   const requirePhoneVerificationOwner = useCallback(
     (expectedUid: string | null | undefined, expectedEpoch: number) => {
       const liveWebUid = Capacitor.isNativePlatform()
@@ -315,12 +316,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     attemptIsCurrent: (uid, epoch) => userRef.current?.uid === uid &&
       phoneVerificationOwnerRef.current === uid && phoneVerificationEpochRef.current === epoch,
     retireAttempt: () => {
+      phoneTransferProofRef.current = null;
       phoneVerificationEpochRef.current += 1;
       phoneVerificationOwnerRef.current = null;
       setPhoneVerificationAttempt(null);
     },
   }), [requirePhoneVerificationOwner]);
-  useEffect(() => () => phoneRecovery.cancelNativeStart(), [phoneRecovery]);
+  useEffect(() => () => {
+    phoneTransferProofRef.current = null;
+    phoneRecovery.cancelNativeStart();
+  }, [phoneRecovery]);
   const { finalizeLinkedProviderPhone } = phoneRecovery;
   const verifiedPhoneResolutionRef = useRef<{
     userId: string;
@@ -396,6 +401,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const ownerId = principal?.ownerId ?? null;
     if (userRef.current?.uid !== nextUser?.uid || previous !== principal) {
       phoneRecovery.cancelNativeStart();
+      phoneTransferProofRef.current = null;
       phoneVerificationOwnerRef.current = null;
       phoneVerificationEpochRef.current += 1;
       setPhoneVerificationAttempt(null);
@@ -1834,6 +1840,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const uid = currentUser.uid;
       phoneRecovery.requireIdle(uid);
       const phone = phoneInput.trim();
+      phoneTransferProofRef.current = null;
       const epoch = ++phoneVerificationEpochRef.current;
       phoneVerificationOwnerRef.current = uid;
       setPhoneVerificationAttempt(null);
@@ -1937,6 +1944,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
             verifiedUser = await confirm.call(AuthService, {
               verificationCode, verificationId, expectedUserId: uid, phoneNumber: phone,
               requireCurrent: () => requirePhoneVerificationOwner(uid, epoch),
+              onConflictProof: token => {
+                requirePhoneVerificationOwner(uid, epoch);
+                phoneTransferProofRef.current = { token, userId: uid, epoch, phone };
+              },
             });
             requirePhoneVerificationOwner(uid, epoch);
             if (verifiedUser.uid !== uid) throw new Error("The verified account changed. Start phone verification again.");
@@ -1948,6 +1959,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (verifiedUser.uid !== uid) throw new Error("The verified account changed. Start phone verification again.");
         if (!Capacitor.isNativePlatform()) resetRecaptcha();
         phoneRecovery.cancelNativeStart();
+        phoneTransferProofRef.current = null;
         setPhoneVerificationAttempt(null);
         applyAuthUser(verifiedUser, principal);
         phoneVerificationOwnerRef.current = null;
@@ -1963,9 +1975,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
     const principal = principalRef.current;
     return confirmLinkedDeletion(input, {
-      user: () => userRef.current, retained: () => null,
+      user: () => userRef.current,
+      retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
       requireOwner: requirePhoneVerificationOwner,
       finalize: (verified) => {
+        phoneTransferProofRef.current = null;
         setPhoneVerificationAttempt(null);
         if (!Capacitor.isNativePlatform()) resetRecaptcha();
         applyAuthUser(verified, principal);

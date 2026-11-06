@@ -3,6 +3,7 @@ import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
   PhoneAuthProvider,
+  PhoneAuthCredential,
   getAuth,
   inMemoryPersistence,
   setPersistence,
@@ -11,6 +12,7 @@ import {
 } from "firebase/auth";
 import { app, auth } from "@/lib/firebase/config";
 import { HushhAuth } from "@/lib/capacitor";
+import type { PhoneLinkConflict } from "./firebase-phone-link";
 import type { PhoneLinkIntent } from "@/lib/capacitor/types/auth";
 
 export type PhoneDeletionContext = { expectedUserId: string; attemptId: string; resendCode?: boolean; signal?: AbortSignal };
@@ -82,10 +84,18 @@ export async function startManualPhoneProof({
   manualAttempt = { expectedUserId, attemptId, dispose, intent, phoneNumber, expiresAt: performance.now() + 300_000 };
   signals.forEach(value => value?.addEventListener("abort", cancel, { once: true }));
   try {
-    const result = await HushhAuth.startPhoneVerificationProof({ expectedUserId, attemptId, phoneNumber, resendCode, linkIntent: intent });
+    let result;
+    try {
+      result = await HushhAuth.startPhoneLinkVerification({ expectedUserId, attemptId, phoneNumber, resendCode, linkIntent: intent });
+    } catch (error) {
+      if (String((error as { code?: unknown })?.code).toUpperCase() === "UNIMPLEMENTED") {
+        throw Object.assign(new Error("Update the app to verify a phone number."), { code: "phone-link-upgrade-required" });
+      }
+      throw error;
+    }
     if (manualAttempt?.attemptId !== attemptId || signals.some(value => value?.aborted) || result.attemptId !== attemptId || result.verificationId !== attemptId)
       throw new Error("session_changed");
-    // An older binary ignores linkIntent and can only exchange on a secondary Auth.
+    // Qualify the new bridge response before admitting its provider challenge.
     if (result.linkIntent !== intent || !result.providerVerificationId) {
       throw Object.assign(new Error("Update the app to verify a phone number."), { code: "phone-link-upgrade-required" });
     }
@@ -207,23 +217,26 @@ function trackDeletionCancellation(attemptId: string, signals: (AbortSignal | un
 }
 
 export async function mintPhoneClaimIdToken(
-  params: PhoneClaimConfirmation,
+  params: PhoneClaimConfirmation | PhoneLinkConflict,
   normalizeError: NormalizeError,
 ): Promise<string> {
-  const verificationCode = String(params.verificationCode ?? "").trim();
-  if (!verificationCode) {
-    throw new Error("Verification code is required.");
-  }
+  let credential;
+  if ("temporaryProof" in params) {
+    credential = PhoneAuthCredential.fromJSON(params);
+    if (!credential) throw new Error("Request a new verification code.");
+  } else {
+    const verificationCode = String(params.verificationCode ?? "").trim();
+    if (!verificationCode) {
+      throw new Error("Verification code is required.");
+    }
 
-  const verificationId = String(params.verificationId ?? "").trim();
-  if (!verificationId) {
-    throw new Error("Verification ID is required.");
-  }
+    const verificationId = String(params.verificationId ?? "").trim();
+    if (!verificationId) {
+      throw new Error("Verification ID is required.");
+    }
 
-  const credential = PhoneAuthProvider.credential(
-    verificationId,
-    verificationCode,
-  );
+    credential = PhoneAuthProvider.credential(verificationId, verificationCode);
+  }
   const secondaryApp =
     getApps().find(
       (firebaseApp) => firebaseApp.name === PHONE_CLAIM_APP_NAME,
@@ -235,6 +248,9 @@ export async function mintPhoneClaimIdToken(
   let claimToken = "";
   try {
     const result = await signInWithCredential(phoneClaimAuth, credential);
+    if ("temporaryProof" in params && result.user.phoneNumber !== params.phoneNumber) {
+      throw new Error("The verified phone changed. Request a new code.");
+    }
     claimToken = await result.user.getIdToken(true);
   } catch (error) {
     throw normalizeError(error);

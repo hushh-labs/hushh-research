@@ -1,14 +1,40 @@
 // Register the shared provider mocks before importing the provider itself.
 import { mocks, deferred, makeUser, SessionProbe, VerifiedPhoneProbe, resetWebAuthMocks, cleanupWebAuthMocks } from "./fixtures/auth-context-web-harness";
-import { AuthProvider } from "@/lib/firebase/auth-context";
+import { AuthProvider, useAuth } from "@/lib/firebase/auth-context";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PhoneRecoveryService } from "@/lib/services/phone-recovery-service";
 import { ApiError } from "@/lib/services/api-client";
+
+function LinkedDeletionProbe() {
+  const { confirmPhoneLinkedDeletion } = useAuth();
+  return <button onClick={() => void confirmPhoneLinkedDeletion({ operationId: "op-1", phoneNumber: "+12025550101" }).catch(() => undefined)}>Delete with verified phone</button>;
+}
 
 describe("@feature_auth_reliability @trace_loop web phone verification recovery", () => {
   beforeEach(resetWebAuthMocks);
   afterEach(cleanupWebAuthMocks);
+
+  it("passes the owner-bound provider conflict proof to deletion and drops it on a new attempt", async () => {
+    mocks.firebaseUser = makeUser("account-owner", "");
+    mocks.phoneLinkConfirm.mockImplementationOnce(async params => {
+      params.onConflictProof("fresh-conflict-proof");
+      throw Object.assign(new Error("Phone is linked"), { code: "credential-already-in-use" });
+    });
+    const deletion = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockResolvedValue({ operation_id: "op-1", state: "refused", code: "PHONE_LINKED_ACCOUNT_PROTECTED" });
+    render(<AuthProvider><SessionProbe /><VerifiedPhoneProbe /><LinkedDeletionProbe /></AuthProvider>);
+    await screen.findByText("Vault content for account-owner");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send phone OTP" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm phone OTP" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Delete with verified phone" })); });
+    expect(deletion).toHaveBeenCalledExactlyOnceWith(mocks.firebaseUser, "op-1", "+12025550101", { phone_id_token: "fresh-conflict-proof" }, expect.any(Function));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send phone OTP" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Delete with verified phone" })); });
+    expect(deletion).toHaveBeenCalledOnce();
+    expect(mocks.identityClaim).not.toHaveBeenCalled();
+    deletion.mockRestore();
+  });
 
   it("@feature_auth_reliability @trace_loop retains the actionable ownership conflict without creating a separate Firebase session", async () => {
     vi.stubEnv("NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED", "false");

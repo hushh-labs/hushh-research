@@ -18,7 +18,7 @@ import {
   startManualPhoneProof, readManualPhoneLinkChallenge, withNativePhoneProofStart,
   type PhoneDeletionContext, type PhoneDeletionConfirmation, type PhoneClaimConfirmation,
 } from "./phone-deletion-verification";
-import { linkFirebasePhone } from "./firebase-phone-link";
+import { linkFirebasePhone, type PhoneLinkConflict } from "./firebase-phone-link";
 import { PHONE_CONFLICT_COPY } from "@/lib/auth/phone-conflict-copy";
 import { authenticateCustomToken } from "@/lib/auth/custom-token-auth";
 import {
@@ -82,6 +82,7 @@ type PhoneLinkConfirmation = PhoneClaimConfirmation & {
   expectedUserId: string;
   phoneNumber: string;
   requireCurrent?: () => void;
+  onConflictProof?: (phoneIdToken: string) => void;
 };
 const LOCAL_DEV_PHONE_VERIFICATION_ID_PREFIX = "local-dev-phone:";
 const LOCAL_DEV_PHONE_VERIFICATION_HOSTS = new Set([
@@ -1622,7 +1623,7 @@ export class AuthService {
     return this.confirmPhoneVerification("link", params);
   }
 
-  static getPhoneClaimIdToken(params: PhoneClaimConfirmation): Promise<string> {
+  static getPhoneClaimIdToken(params: PhoneClaimConfirmation | PhoneLinkConflict): Promise<string> {
     return mintPhoneClaimIdToken(params, (error) => this.normalizePhoneVerificationError(error, "link_confirm"));
   }
 
@@ -1673,12 +1674,18 @@ export class AuthService {
       };
       const idToken = await current.getIdToken();
       requireCurrent();
-      await linkFirebasePhone({
+      const conflict = await linkFirebasePhone({
         apiKey: app.options.apiKey, tenantId: current.tenantId, idToken,
         uid: expectedUserId, phoneNumber,
         sessionInfo: nativeChallenge?.providerVerificationId ?? verificationId, code: verificationCode,
       });
       requireCurrent();
+      if (conflict) {
+        const phoneIdToken = await this.getPhoneClaimIdToken(conflict);
+        requireCurrent();
+        params.onConflictProof?.(phoneIdToken);
+        throw this.createPhoneVerificationError("credential-already-in-use", PHONE_CONFLICT_COPY.inApp);
+      }
 
       const linked = await this.reloadPhoneVerificationUser(expectedUserId);
       requireCurrent();

@@ -1058,6 +1058,11 @@ class HushhAuthPlugin : Plugin() {
 
     @PluginMethod
     fun startPhoneVerificationProof(call: PluginCall) {
+        deletionPhoneProof?.start(call, manualOnly = true) ?: call.reject("Phone verification is unavailable.", "phone_verification_failed")
+    }
+
+    @PluginMethod
+    fun startPhoneLinkVerification(call: PluginCall) {
         deletionPhoneProof?.start(call, primaryLink = true) ?: call.reject("Phone verification is unavailable.", "phone_verification_failed")
     }
 

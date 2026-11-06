@@ -14,6 +14,7 @@ const {
   mockHushhAuth,
   mockCapacitor,
   mockPhoneAuthProvider,
+  mockPhoneAuthCredential,
   mockUpdatePhoneNumber,
   mockLinkWithCredential,
   mockSignInWithCredential,
@@ -73,6 +74,7 @@ const {
     getPlatform: vi.fn(() => "ios"),
   },
   mockPhoneAuthProvider: vi.fn(),
+  mockPhoneAuthCredential: { fromJSON: vi.fn() },
   mockUpdatePhoneNumber: vi.fn(),
   mockLinkWithCredential: vi.fn(),
   mockSignInWithCredential: vi.fn(),
@@ -128,6 +130,7 @@ vi.mock("firebase/auth", () => ({
   OAuthProvider: function OAuthProvider(providerId: string) {
     return { providerId, addScope: mockOAuthAddScope, setCustomParameters: vi.fn() };
   },
+  PhoneAuthCredential: mockPhoneAuthCredential,
   PhoneAuthProvider: Object.assign(mockPhoneAuthProvider, {
     credential: vi.fn(),
   }),
@@ -985,16 +988,26 @@ describe("AuthService.restoreNativeSession", () => {
     expect(signInWithCredential).not.toHaveBeenCalled();
   });
 
-  it("leaves the existing web session intact when Firebase reports a conflicting owner", async () => {
+  it("retains fresh conflict proof without replaying the SMS or replacing the primary session", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
     const current = { uid: "web-user", phoneNumber: "+16505550100", getIdToken: vi.fn().mockResolvedValue("email-session") };
+    const phoneNumber = "+16505550101";
     mockAuth.currentUser = current as any;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ temporaryProof: "other-user-proof" })));
+    mockPhoneAuthCredential.fromJSON.mockReturnValue("temporary-phone-credential");
+    mockSignInWithCredential.mockResolvedValue({ user: { phoneNumber, getIdToken: vi.fn().mockResolvedValue("fresh-phone-proof") } });
+    const exchange = vi.fn().mockResolvedValue(Response.json({ temporaryProof: "verified-provider-proof", phoneNumber }));
+    vi.stubGlobal("fetch", exchange);
+    const onConflictProof = vi.fn();
     await expect(AuthService.confirmPhoneReplacementVerification({
       verificationCode: "123456", verificationId: "replacement-verification-id",
-      expectedUserId: current.uid, phoneNumber: "+16505550101",
+      expectedUserId: current.uid, phoneNumber, onConflictProof,
     })).rejects.toMatchObject({ code: "credential-already-in-use" });
-    expect(signInWithCredential).not.toHaveBeenCalled();
+    expect(exchange).toHaveBeenCalledOnce();
+    expect(mockPhoneAuthCredential.fromJSON).toHaveBeenCalledExactlyOnceWith({ temporaryProof: "verified-provider-proof", phoneNumber });
+    expect(mockPhoneAuthProvider.credential).not.toHaveBeenCalled();
+    expect(mockSignInWithCredential).toHaveBeenCalledExactlyOnceWith(mockPhoneClaimAuth, "temporary-phone-credential");
+    expect(onConflictProof).toHaveBeenCalledExactlyOnceWith("fresh-phone-proof");
+    expect(mockFirebaseSignOut).toHaveBeenCalledWith(mockPhoneClaimAuth);
     expect(mockAuth.currentUser).toBe(current);
     expect(current.phoneNumber).toBe("+16505550100");
   });
