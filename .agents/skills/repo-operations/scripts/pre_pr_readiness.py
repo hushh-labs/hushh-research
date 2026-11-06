@@ -414,7 +414,7 @@ def _diagnostic(args: argparse.Namespace) -> int:
             "Open or update the pull request once the local mirror is green."
             if ok
             else "Fix the failing local check before opening or updating the pull request.",
-            "Use ./bin/hushh codex ci-status --watch after the PR opens so GitHub reaches a terminal state.",
+            "Use ./bin/hushh agents ci-status --watch after the PR opens so GitHub reaches a terminal state.",
         ],
     )
 

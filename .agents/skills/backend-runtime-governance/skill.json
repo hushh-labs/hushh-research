@@ -30,18 +30,18 @@
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/services -q",
-    "./bin/hushh codex data-model-audit"
+    "./bin/hushh agents data-model-audit"
   ],
   "verification_bundles": [
     {
       "id": "backend-runtime",
       "commands": [
         "cd consent-protocol && python3 -m pytest tests/services -q",
-        "./bin/hushh codex data-model-audit"
+        "./bin/hushh agents data-model-audit"
       ],
       "tests": [
         "cd consent-protocol && python3 -m pytest tests/services -q",
-        "./bin/hushh codex data-model-audit"
+        "./bin/hushh agents data-model-audit"
       ]
     }
   ],

@@ -75,7 +75,7 @@ It owns durable admission, spend, owner custody, release provenance and cleanup.
 13. Resolve expensive PKM and reviewer-browser verification through `scripts/ci/resolve-uat-verification-plan.py`; it is the only changed-SHA selector for deterministic preservation checks in PR, queue, post-merge, and UAT. App-browser reviewer diagnostics require the explicit UAT input and do not run automatically. Preserve non-skippable authority, migration, provenance, health, and changed-surface gates. Do not add a second path classifier or run the PKM upgrade rehearsal for ordinary UI, consent, or MCP changes.
 14. When production GitHub WIF configuration is absent or drifted, use `deploy/iam/setup_production_github_wif.sh`; do not create a parallel provider, reuse UAT authority, or restore a JSON service-account key. Detect the drift with `python3 scripts/ci/verify-deploy-identity-provenance.py`, which compares that script's own literals — attribute mapping, attribute condition, deploy-account project roles — against live GCP. Its `--record-only` half needs no cloud and runs in `repo-governance-check.sh`; a refused live read reports `deploy_identity_unverifiable` and never a pass. Never restate the condition anywhere else: the setup script is the record, and a second copy is a second thing to drift.
 15. Batch CI pushes and reuse unchanged evidence; never restart a run merely to monitor it. Distinguish security workflow entries from actual alerts, and preserve credential isolation and exact-attempt authority when consolidating them. See `docs/reference/operations/ci.md`.
-16. Use `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one exact-source validation retry. The authenticated user needs live repository write access, not pipeline-editor approval. The helper observes attempt `n+1` and never dispatches another workflow. Retry authority grants no merge, protected-edit or deployment permission. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
+16. Use `./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>` for one exact-source validation retry. The authenticated user needs live repository write access, not pipeline-editor approval. The helper observes attempt `n+1` and never dispatches another workflow. Retry authority grants no merge, protected-edit or deployment permission. PRs use Gitleaks with read-only credentials; repository-wide unresolved-secret clearance runs in the separate protected Deployment Security job of an explicit release. Missing credentials, incomplete inventories and stale attempts refuse release. Never restore a repository-wide token or expose the protected credential to candidate code.
 
 The five governed destinations are `main`, `dev`, `uat`, `uat-isolated` and
 `integration/pr-train`. Ordinary maintainers use the merge queue: its trusted
@@ -137,10 +137,10 @@ functional contracts do not certify live browser behavior. Use an exact-source, 
 diagnosed failure, and keep live authority and security gates blocking.
 
 ```bash
-./bin/hushh codex ci-status
+./bin/hushh agents ci-status
 CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh
 CI_VALIDATION_LEVEL=diagnostic scripts/ci/repo-governance-check.sh
-./bin/hushh codex rca --surface uat --text
+./bin/hushh agents rca --surface uat --text
 ./bin/hushh docs verify
 ./scripts/ci/verify-main-branch-protection.sh
 ./scripts/ci/apply-governance.py

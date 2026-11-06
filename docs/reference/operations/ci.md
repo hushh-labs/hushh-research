@@ -15,7 +15,7 @@ selects a browser automatically. Unknown bases retain PKM preservation checks.
 
 > **Branch state:** `dev` is the protected development intake and default Dev
 > deployment source. UAT selects its protected branch independently, with exact
-> candidate CI; first use still requires baseline/history qualification.
+> candidate CI; deployment rechecks observed baselines, compatibility and rollback.
 > Main owns release workflows. Branch state does not prove what is serving; see
 > [branch preparation](./branch-governance.md#dev--uat-branch-preparation).
 
@@ -91,16 +91,16 @@ This page defines CI behavior; it does not redefine Admin bypass or deployment
 authority.
 
 **Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)
-**Pre-PR preparation:** [`./bin/hushh codex pre-pr`](./cli.md)
+**Pre-PR preparation:** [`./bin/hushh agents pre-pr`](./cli.md)
 **Underlying local lane:** [`./bin/hushh ci`](./cli.md)
 **Orchestrator:** [scripts/ci/orchestrate.sh](../../../scripts/ci/orchestrate.sh)
 
 Canonical pre-PR command:
 
 ```bash
-./bin/hushh codex pre-pr --base-ref origin/dev --body-file /path/to/pr-body.md
+./bin/hushh agents pre-pr --base-ref origin/dev --body-file /path/to/pr-body.md
 # Or inspect an existing, exact-head PR:
-./bin/hushh codex pre-pr --pr <number>
+./bin/hushh agents pre-pr --pr <number>
 ```
 
 Use the actual destination (`origin/main`, `origin/dev` or `origin/uat`). This
@@ -222,16 +222,15 @@ only in an explicit Main-owned deployment's protected job.
 
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 `uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
-with `sha`, `ci_run_id`, `ci_run_attempt`, `ci_base_sha` and the reviewed
-`approved_scope` PR chain. These identify the application, validation attempt,
-comparison base and approved change set separately. Do not substitute
-a PR merge-tree check, another attempt or a branch status for that exact run.
-List each approved PR and its reviewed head in order. For a landed tree that
-differs from its PR head, admission recomputes the clean merge from its approved
-parents. Queue merges require the successful GitHub Actions result from before
-landing. A regular UAT merge with no queue run can qualify its own exact SHA
-through full branch CI against the serving base if its release authority is
-unchanged. The final deployment candidate still requires separate exact CI.
+with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
+release selects that protected application SHA after full exact-candidate CI;
+ordinary Dev/UAT needs no manual PR-history chain or serving-commit ancestry.
+The base identifies changed verification inputs, not merge authority. Recheck both
+actual service revisions under the lock, including partial releases with different
+frontend/backend SHAs. Compatibility, candidate health, qualified rollback and
+Main-owned deployment security remain required. Legacy isolated-history recovery
+keeps its separately reviewed approval contract. Do not substitute a PR merge-tree
+check, another attempt or a branch status for the exact candidate run.
 The complete same-SHA dispatch inventory must identify the selected current
 attempt. A sole matching run needs no chronological ordering, so inconsistent
 provider timestamps do not discard otherwise verified evidence. Multiple runs
@@ -649,7 +648,7 @@ UAT Cloud Run provenance is a release blocker. The deploy workflow stamps each b
 Codex-first PR watcher:
 
 ```bash
-./bin/hushh codex ci-status --watch
+./bin/hushh agents ci-status --watch
 ```
 
 Use this command first for active pull-request checks because it classifies failing jobs into the right owner skill and points to the next workflow pack before dropping to raw `gh run` inspection.
@@ -668,9 +667,9 @@ The repository-level `allow_auto_merge` setting must stay enabled. On a merge-qu
 Codex-first RCA surface:
 
 ```bash
-./bin/hushh codex rca --surface uat --text
-./bin/hushh codex rca --surface runtime --text
-./bin/hushh codex rca --surface ci --text
+./bin/hushh agents rca --surface uat --text
+./bin/hushh agents rca --surface runtime --text
+./bin/hushh agents rca --surface ci --text
 ```
 
 Use this command when the failure is already on a core authority surface and the next step is classification, not generic monitoring. It preserves structured artifacts and keeps helper-only drift advisory unless it masks a runtime, deploy, DB, or semantic verification failure.
@@ -1051,7 +1050,7 @@ post-merge smoke on the actual landed SHA.
 
 Batch a set of fixes before pushing: a newer push cancels the active PR
 validation. For an eligible same-head retry, use
-`./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>`;
+`./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>`;
 live repository write access is sufficient. This retries only the canonical
 validation and verifies attempt `n+1` on the unchanged source; it grants no merge,
 protected-edit or deployment authority. Do not dispatch a standalone security worker. Release alert clearance stays in
@@ -1357,13 +1356,13 @@ Post-merge smoke remains the deployment eligibility gate for `main`.
 Practical maintainer rule:
 
 1. Use `git commit -s` for new branch commits that are headed to GitHub.
-2. Run `./bin/hushh codex pre-pr` before opening or updating a PR. Its default
+2. Run `./bin/hushh agents pre-pr` before opening or updating a PR. Its default
    focused profile checks the exact destination diff, PR impact description,
    DCO, protected edits, security and affected local owners; the report keeps
    hosted checks visible as outstanding.
 3. If unsigned commits exist, preserve shared history and repair only the owned unpublished commits against the actual PR destination. Do not rewrite another developer's shared branch.
 4. After any history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/<actual-destination> HEAD` immediately before pushing; verify that destination first.
-5. If a local edit occurs after pre-PR checks, rerun `./bin/hushh codex pre-pr`
+5. If a local edit occurs after pre-PR checks, rerun `./bin/hushh agents pre-pr`
    for the current tree. For `.agents/`, `docs/`, `config/` or `scripts/` edits,
    run the nearest owner checks. For the full governance sweep, use
    `CI_VALIDATION_LEVEL=diagnostic bash scripts/ci/orchestrate.sh governance`.
@@ -1860,7 +1859,7 @@ checks with `--include-advisory`. Choose one mode for an unchanged candidate.
 ./bin/hushh ci
 ```
 
-This command runs the full local mirror. `./bin/hushh codex pre-pr` does not call
+This command runs the full local mirror. `./bin/hushh agents pre-pr` does not call
 it by default; only its explicit `--diagnostic` mode invokes this mirror after
 the DCO check.
 
@@ -1879,7 +1878,7 @@ To include advisory checks locally:
 This advisory lane now includes the Codex operating-system audit:
 
 ```bash
-./bin/hushh codex audit
+./bin/hushh agents audit
 ```
 
 To verify the live GitHub branch gate matches the documented minimum contract:
@@ -1905,7 +1904,7 @@ Secret-scan note:
 | Frontend | `cd hushh-webapp && npm ci && npm run typecheck && npm run lint -- --max-warnings=0 && npm run build && npm run test:ci` |
 | Backend | `cd consent-protocol && uv sync --frozen --group dev && bash scripts/sync_runtime_requirements.sh --check && uv run ruff check . && uv run mypy --config-file pyproject.toml --ignore-missing-imports && uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll && bash scripts/run-test-ci.sh` |
 | Integration | `bash scripts/ci/docs-parity-check.sh` |
-| Pre-PR focused preparation | `./bin/hushh codex pre-pr --base-ref origin/<target> --body-file <draft>` or `--pr <number>` |
+| Pre-PR focused preparation | `./bin/hushh agents pre-pr --base-ref origin/<target> --body-file <draft>` or `--pr <number>` |
 | Full local CI mirror | `./bin/hushh ci` |
 
 ---
@@ -2152,7 +2151,7 @@ actual native changes.
 | Ordinary contributor to Dev/UAT | PR, independent review, combined-result queue | Relevant CI, conflicts, unresolved conversations |
 | Eligible Dev/UAT maintainer | Governed self-service after destination activation and readback | Required CI, protected-owner approval, objections and combined-result evidence |
 | Governed Main operators (`main.merge_users`) | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
-| Kushal/Ankit approving their own Main PR | `./bin/hushh codex admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
+| Kushal/Ankit approving their own Main PR | `./bin/hushh agents admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
 | Dev/UAT deployment operator | Explicit matching-branch deployment | Environment/source authority, CI, protected release security and rollback |
 | Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
 

@@ -28,7 +28,7 @@ on:
         default: false
         type: boolean
       approved_scope:
-        description: "Approved serving baselines and reviewed PR heads"
+        description: "Legacy isolated-history approval; ordinary UAT selects its exact protected SHA"
         required: false
         type: string
       ci_run_id:
@@ -813,6 +813,8 @@ jobs:
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
               --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --backend-base-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --frontend-base-revision "${{ steps.predeploy-state.outputs.frontend_revision }}" \
               --output /tmp/uat-predecessor-acceptance.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1258,6 +1260,8 @@ jobs:
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
               --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --backend-base-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --frontend-base-revision "${{ steps.predeploy-state.outputs.frontend_revision }}" \
               --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1265,7 +1269,7 @@ jobs:
               --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           fi
 
-      - name: Recheck approved PR scope and both serving revisions under deployment lock
+      - name: Recheck qualified source and both serving revisions under deployment lock
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
@@ -1273,7 +1277,8 @@ jobs:
           CI_BASE_SHA: ${{ inputs.ci_base_sha }}
         run: |
           python3 "${RUNNER_TEMP}/release-tools/uat_release_prerequisites.py" validate-scope-live \
-            --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH"
+            --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH" \
+            --predecessor /tmp/uat-predecessor-acceptance.json
 
       - name: Verify answer settlement before runtime mutation
         id: answer-settlement-admission
@@ -1555,6 +1560,8 @@ jobs:
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
               --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --backend-base-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --frontend-base-revision "${{ steps.predeploy-state.outputs.frontend_revision }}" \
               --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
