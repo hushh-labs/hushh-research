@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { NetworkPersonRow } from "@/components/connect/network-person-row";
+import { PersonProfileService } from "@/lib/services/person-profile-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ConnectionsService, ConnectionsServiceRequestError, type NetworkDegree, type NetworkPage } from "@/lib/services/connections-service";
 import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { connectPersonName } from "@/lib/connections/person-label";
@@ -36,6 +38,9 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [connecting, setConnecting] = useState<Set<string>>(() => new Set());
+  const connectionIntents = useRef(new Set<string>());
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
   const root = useRef<HTMLElement>(null);
   const restore = useRef(Boolean(saved));
   const restoreSnapshot = useRef(saved);
@@ -126,10 +131,32 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
   }, [result]);
 
   const title = mode === "discovery" ? "Explore your network" : mode === "mutuals" ? `${result?.totalCount ?? ""} mutual ${result?.totalCount === 1 ? "connection" : "connections"}`.trim() : result?.person ? `${connectPersonName(result.person)}’s connections` : "Connections";
-  const remember = (personRef: string, focusControl: "profile" | "mutual" | "request" = "profile") => {
+  const remember = (personRef: string, focusControl: "profile" | "mutual" | "request" | "connect" = "profile") => {
     const scrollTop = root.current?.closest<HTMLElement>("[data-network-scroll-owner]")?.scrollTop ?? connectListScrollTop();
     snapshot.current = { query, degree, page: result?.page ?? page, scrollTop, focusRef: personRef, focusControl };
     saveConnectListMemory(owner, memoryKey, snapshot.current);
+  };
+  // A refresh can replace rows while their explicit Connect actions are pending.
+  // Keep intent/duplicate guards with the list owner, not a transient row.
+  const connect = async (personRef: string) => {
+    if (!user || !owner || connectionIntents.current.has(personRef)) return;
+    connectionIntents.current.add(personRef);
+    setConnecting(new Set(connectionIntents.current));
+    setConnectionErrors(current => { const next = { ...current }; delete next[personRef]; return next; });
+    remember(personRef, "connect");
+    const active = () => Boolean(root.current?.isConnected) && generation === getAuthSessionGeneration();
+    try {
+      const token = await user.getIdToken();
+      if (!active()) return;
+      await PersonProfileService.connect(personRef, token);
+      // Committed writes still wake this owner after their source list closes.
+      if (generation === getAuthSessionGeneration()) CacheSyncService.onConnectionGraphMutated(owner);
+    } catch {
+      if (active()) setConnectionErrors(current => ({ ...current, [personRef]: "Could not send request. Please try again." }));
+    } finally {
+      connectionIntents.current.delete(personRef);
+      if (active()) setConnecting(new Set(connectionIntents.current));
+    }
   };
   return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-4 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
     <header className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
@@ -147,7 +174,9 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
     {busy && !result ? <p role="status" className="py-6 text-muted-foreground">Loading connections…</p> : null}
     {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRevision(value => value + 1)}>Try again</button></div> : null}
     {result ? <ul className="divide-y rounded-2xl border bg-card" aria-busy={busy}>
-      {result.items.map(person => <NetworkPersonRow key={person.publicPersonRef} person={person} onRemember={control => remember(person.publicPersonRef, control)} onOpen={element => {
+      {result.items.map(person => <NetworkPersonRow key={person.publicPersonRef} person={person}
+        connecting={connecting.has(person.publicPersonRef)} connectionError={connectionErrors[person.publicPersonRef]}
+        onConnect={() => void connect(person.publicPersonRef)} onRemember={() => remember(person.publicPersonRef, "mutual")} onOpen={element => {
         remember(person.publicPersonRef, element.dataset.networkFocus === "request" ? "request" : "profile");
         openPersonProfilePreview({ personRef: person.publicPersonRef }, element);
       }} />)}

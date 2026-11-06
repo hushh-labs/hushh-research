@@ -59,6 +59,33 @@ describe("network permission and journey return @feature_connected_profiles", ()
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it.each(["request", "token"])("retains pending intent and reconciles concurrent Connect actions while awaiting %s", async stage => {
+    const sent = new Set<string>();
+    const finish: Record<string, () => void> = {};
+    let finishToken!: () => void;
+    if (stage === "token") state.user.getIdToken.mockResolvedValueOnce("token").mockResolvedValueOnce("token").mockImplementationOnce(() => new Promise<string>(resolve => { finishToken = () => resolve("token"); }));
+    state.list.mockImplementation(async () => ({ ...page(), hasMore: false, items: ["First", "Second"].map(ref => ({ ...row(ref), relationship: sent.has(ref) ? "pending_outgoing" : "none" })) }));
+    state.connect.mockImplementation((ref: string) => new Promise<void>(resolve => { finish[ref] = () => { sent.add(ref); resolve(); }; }));
+    state.invalidate.mockImplementation(owner => dispatchConnectionGraphChanged(owner));
+    render(<NetworkPeopleList mode="discovery" visitKey="parallel-connect" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect with First" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect with Second" }));
+    await waitFor(() => expect(state.connect).toHaveBeenCalledTimes(stage === "token" ? 1 : 2));
+    await act(async () => finish.First());
+    await screen.findByText("Request sent");
+    const second = await screen.findByRole("button", { name: "Connect with Second" });
+    expect(second).toBeDisabled();
+    fireEvent.click(second);
+    if (stage === "token") {
+      await act(async () => finishToken());
+      await waitFor(() => expect(state.connect).toHaveBeenCalledTimes(2));
+    }
+    await act(async () => finish.Second());
+    await waitFor(() => expect(screen.getAllByText("Request sent")).toHaveLength(2));
+    expect(state.invalidate).toHaveBeenCalledTimes(2);
+    expect(state.connect).toHaveBeenCalledTimes(2);
+  });
+
   it("returns focus to the mutual control with its search and scroll intact", async () => {
     state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Person"), relationship: "connected", mutualConnectionCount: 3 }] });
     const opened = (event: Event) => event.preventDefault();
