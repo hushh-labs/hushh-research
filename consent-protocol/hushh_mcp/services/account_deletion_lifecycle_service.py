@@ -21,7 +21,6 @@ from api.utils.firebase_admin import (
     get_firebase_auth_app,
 )
 from db.db_client import get_db_connection
-from hushh_mcp.config import APP_SIGNING_KEY
 from hushh_mcp.services.account_deletion_cleanup_policy import (
     CleanupIntentKind as CleanupIntentKind,
 )
@@ -143,6 +142,8 @@ def account_deletion_user_hash(user_id: str) -> str:
 
 def account_deletion_phone_digest(phone_number: str) -> str:
     """Return a domain-separated keyed proof without retaining a phone number."""
+    from hushh_mcp.config import APP_SIGNING_KEY
+
     normalized = str(phone_number or "").strip()
     if not normalized:
         raise ValueError("phone_number is required")

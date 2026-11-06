@@ -53,6 +53,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
+        "scripts/ci/main-post-merge-smoke.sh",
         "scripts/ci/integration-check.sh",
         "scripts/ci/account-deletion-check.sh",
         "scripts/ci/backend-check.sh",
@@ -66,6 +67,7 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/verify-predecessor-acceptance.py",
         "scripts/ops/audit_env_toggles.py",
         "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/recover_dev_cloud_removal.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}

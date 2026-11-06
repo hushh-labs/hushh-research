@@ -6,6 +6,7 @@ import {
   decideWebHistoryBackCorrection,
   isBackwardHistoryTraversal,
   dismissProfileConfirmationOnBack,
+  dismissPersonPreviewOverlayOnBack,
   useWebHistoryBack,
   type RouteLocation,
 } from "@/lib/navigation/web-history-back";
@@ -26,6 +27,19 @@ function loc(pathname: string, search = ""): RouteLocation {
 }
 
 describe("confirmation above Profile", () => {
+  it("keeps a nested preview in place while its request overlay consumes Back, but preserves Forward", () => {
+    const doc = document.implementation.createHTMLDocument();
+    doc.body.innerHTML = '<div role="dialog" data-state="open" data-person-profile-preview></div><div role="dialog" data-state="open"></div>';
+    const close = vi.fn();
+    doc.body.lastElementChild!.addEventListener("keydown", close);
+    const preview = (key: number) => ({ __hushhPersonPreview: key });
+    expect(dismissPersonPreviewOverlayOnBack({ previousHistoryState: preview(3), revealedHistoryState: preview(2), doc })).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+    close.mockClear();
+    expect(dismissPersonPreviewOverlayOnBack({ previousHistoryState: preview(2), revealedHistoryState: preview(3), doc })).toBe(false);
+    expect(dismissPersonPreviewOverlayOnBack({ previousHistoryState: preview(3), revealedHistoryState: preview(2), previousEntryIndex: 4, revealedEntryIndex: 5, doc })).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+  });
   function paneState(depth: number) {
     return { __hushhProfilePane: { depth, returnsToOrigin: true } };
   }
@@ -75,6 +89,23 @@ describe("confirmation above Profile", () => {
       previous, previousHistoryState: paneState(2), revealedHistoryState: null, doc,
     })).toBe(true);
     expect(doc.querySelector('[role="alertdialog"]')).not.toBeNull();
+  });
+
+  it("dismisses a person preview above Profile while preserving Forward traversal", () => {
+    const doc = documentWithOverlay("dialog");
+    doc.body.lastElementChild!.setAttribute("data-person-profile-preview", "");
+    const close = vi.fn();
+    doc.body.lastElementChild!.addEventListener("keydown", close);
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+      previousEntryIndex: 4, revealedEntryIndex: 5, doc,
+    })).toBe(false);
+    expect(close).not.toHaveBeenCalled();
+    expect(dismissProfileConfirmationOnBack({
+      previous, previousHistoryState: paneState(2), revealedHistoryState: paneState(1),
+      previousEntryIndex: 4, revealedEntryIndex: 3, doc,
+    })).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
   });
 });
 

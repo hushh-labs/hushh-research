@@ -108,6 +108,19 @@ tests/services/test_google_calendar_completion.py
 tests/services/test_gmail_oauth_callbacks.py
 tests/services/test_oauth_redirect_policy.py
 tests/agents/test_calendar_agent_tools.py
+# Calendar current-turn authority and existing Follow-ups producer/read contracts.
+tests/test_calendar_routes.py
+tests/agents/test_calendar_request_scope.py
+tests/services/test_calendar_email_followup_boundaries.py
+tests/services/test_calendar_email_followup_extraction.py
+tests/services/test_calendar_email_followup_relevance.py
+tests/services/test_calendar_email_followup_scan.py
+tests/services/test_calendar_email_followup_incremental_postgres.py
+tests/services/test_calendar_email_followup_jhumma_postgres.py
+tests/services/test_calendar_email_followup_oauth_postgres.py
+tests/services/test_calendar_email_followup_reassess_postgres.py
+tests/services/test_calendar_email_followup_reminder_timing_postgres.py
+tests/services/test_calendar_email_followup_store_postgres.py
 tests/services/test_drive_live_search_parity.py
 tests/services/test_drive_live_rule_contract.py
 tests/services/test_drive_live_journey.py
@@ -778,6 +791,7 @@ tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
+tests/test_plaid_nws_vault_routes.py
 tests/test_plaid_server_custody_retire.py
 
 # Hosting, pod authority/recovery, exact-reviewed MCP and dev candidate acceptance.
@@ -1203,6 +1217,8 @@ tests/test_azure_vm_upgrade_postgres.py
 tests/test_azure_resource_teardown.py
 tests/test_azure_cleanup_lifecycle.py
 tests/test_personal_agent_cloud_removal_postgres.py
+tests/test_legacy_cloud_removal_postgres.py
+tests/test_legacy_cloud_removal_operator.py
 tests/test_azure_resource_teardown_postgres.py
 tests/test_gcp_runtime_quota_grant_postgres.py
 tests/test_azure_partial_setup_erasure_postgres.py

@@ -121,6 +121,20 @@ Owner: `hushh-webapp/lib/kai/plaid-vault/vault-sync.ts`.
   URI plus the bank's query) and then seals, or refreshes for a relink. Native shells keep
   Link in their own process and skip this.
 
+## Private Profile score
+
+The main Profile card reads the owner's encrypted financial domain and opens
+the existing Plaid Link flow. Web OAuth resumes the same owner and opens score
+details after the first successful vault save. The owner-authorized finance
+chat context and Profile use the same deterministic `plaid-nws-v1` projection.
+The report tracks linked information and distinguishes provisional cash flow,
+missing coverage, and a verified zero.
+
+New Transactions links request the configured history, capped at 730 days.
+A deployed entitlement flag controls Liabilities requests. Update mode can
+request additional product consent or let the owner select more accounts on
+the same Item. The owner token and existing snapshot ownership checks apply.
+
 ## Legacy server custody retirement status
 
 The current branch removes the previous server-stored routes and services and includes migration

@@ -42,7 +42,7 @@ def test_from_env_ignores_placeholder_webhook_and_derives_from_https_frontend(
         monkeypatch.setenv("PLAID_CLIENT_NAME", client_name)
     config = PlaidRuntimeConfig.from_env()
 
-    assert config.client_name == ("Custom app" if client_name == "Custom app" else "Agent One")
+    assert config.client_name == ("Custom app" if client_name == "Custom app" else "AgentOne")
     assert config.webhook_url == "https://one.hushh.ai/api/kai/plaid/webhook"
 
 

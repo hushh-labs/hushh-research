@@ -816,7 +816,13 @@ async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, 
     else:
         with pytest.raises(PersonalAgentDeprovisioningRequiredError):
             await service.deprovision(user_id=_UID)
-    if refusal in {"foreign_owner", "held_upgrade", "changed_reservation"}:
+    if refusal in {
+        "foreign_owner",
+        "held_upgrade",
+        "changed_reservation",
+        "old_generation",
+        "changed_image",
+    }:
         fence.assert_not_called()
         binding.assert_not_called()
         registry.retain_erasure_memory_binding.assert_not_called()

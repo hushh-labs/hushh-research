@@ -6,7 +6,7 @@ import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedSmsAlertGroup } from "@/components/feed/feed-sms-alert-group";
 import { groupFeedSmsAlerts } from "@/lib/feed/feed-sms-grouping";
 import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
-
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 function actionable(overrides: Partial<FeedActionable> = {}): FeedActionable {
   return {
     id: "a-1",

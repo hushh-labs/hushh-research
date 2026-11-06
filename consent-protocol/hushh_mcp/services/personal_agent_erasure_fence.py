@@ -148,9 +148,10 @@ async def _fence_and_retain_memory(
     return cast(dict, receipt)
 
 
-def _require_creation_provenance(
-    user_id: str, metadata: dict, receipt: dict, target: dict, backend: Any, spec: PodSpec
+def require_creation_provenance(
+    user_id: str, metadata: dict, target: dict, backend: Any, spec: PodSpec
 ) -> dict:
+    """Qualify retained host creation before reserving or fencing its live owner."""
     attempt = metadata.get("provisionAttempt") or {}
     creation = ((attempt.get("evidence") or {}).get("host_requested") or {}).get(
         "creationAcknowledgement"
@@ -162,13 +163,22 @@ def _require_creation_provenance(
         or type(creation.get("initialGeneration")) is not int
         or creation["initialGeneration"] != 1
         or not isinstance(creation.get("initialImage"), str)
-        or not receipt["memoryBinding"].get("creationProvenance")
         or creation.get("serviceUid") != target["serviceUid"]
     ):
         raise RuntimeError("erasure runtime creation provenance unavailable")
     if any(creation.get(key) != value for key, value in backend.provision_target_for(spec).items()):
         raise RuntimeError("erasure creation target changed")
     return cast(dict, creation)
+
+
+async def preflight_erasure_runtime(
+    *, user_id: str, row: dict, backend: Any, spec: PodSpec, target: dict
+) -> dict:
+    """Read-only host qualification; Memory evidence remains independently required."""
+    creation = require_creation_provenance(
+        user_id, row.get("backend_metadata") or {}, target, backend, spec
+    )
+    return await _verify_runtime_settlement(backend, spec, target, creation, None)
 
 
 async def _verify_runtime_settlement(
@@ -217,7 +227,10 @@ async def fence_reserved_erasure(owner: _Owner, *, user_id: str, reservation: di
         metadata,
         hosted_files_settled=hosted_files_settled,
     )
+    creation = require_creation_provenance(user_id, metadata, target, backend, spec)
+    await _verify_runtime_settlement(backend, spec, target, creation, provider_settlement)
     receipt = await _fence_and_retain_memory(owner, user_id, reservation, target, hushh_id=hushh_id)
-    creation = _require_creation_provenance(user_id, metadata, receipt, target, backend, spec)
+    if not receipt["memoryBinding"].get("creationProvenance"):
+        raise RuntimeError("erasure runtime memory creation provenance unavailable")
     runtime = await _verify_runtime_settlement(backend, spec, target, creation, provider_settlement)
     return {**receipt, "runtime": runtime}

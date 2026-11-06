@@ -119,11 +119,26 @@ schema requires the separately reviewed forward qualification before re-enableme
 
 ## GCP notification account-ID admission
 
-Canonical 445 and parked 976 correct the notification checkpoint validator's
+Canonical 449 and parked 976 correct the notification checkpoint validator's
 service-account local-part boundary to six through thirty characters, with a
 letter first and an alphanumeric character last. The previous expression refused
 the existing renderer's thirty-character runtime identity. Exact owner/project
 binding and the four/five-resource custody alternatives remain unchanged.
+
+The Dev Stage B reconciliation retains Calendar relevance migration 445 and
+registers the notification source at 449, leaving Main/UAT's Finance 446/447
+outside this Dev change. A target-bound Dev inspection at
+2026-11-05T19:32:59Z used a repeatable-read, read-only transaction and rollback:
+there were no accepted canonical receipts for 445–449 or baseline markers;
+parked 976 retained its applied receipt and exact SHA-256
+`ff518e4e4f7141c2a2f046799d1a872ce2080dd335d93eef3b0c3f5857a61cd8`.
+Receipt absence does not prove a replay-mode body never executed. This is
+source registration of the unaccepted canonical identity, preserving the SQL
+and rollback bytes and the accepted 976 history; no shared ledger is rewritten.
+The retained earlier candidate's proposed notification 447 is not reused because
+current Main/UAT assigns that ID to advisor handshake. Recheck lineage and
+recovery at any separately authorized deployment; this source PR executes no
+shared migration.
 
 Both forward entries are necessary: canonical replay precedes pending-only Dev
 migrations. The checksum-pinned 420 adoption adapter preserves only the exact

@@ -1,5 +1,6 @@
 "use client";
 
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProfilePaneAccountIcon, ProfilePaneInviteIcon, ProfilePaneSecurityIcon, ProfilePaneCardIcon } from "@/components/profile/profile-pane-icons";
 import { SettingsDetailPanel, SettingsGroup, SettingsPresentationProvider, SettingsRow } from "@/components/profile/settings-ui";
@@ -9,7 +10,6 @@ import { cardNetworkLabel } from "./card-network-mark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -262,7 +262,7 @@ export function WalletSavedCardSharing(props: Parameters<typeof useWalletSavedCa
           <Input aria-label="Search connections" placeholder="Search connections" value={query} disabled={busy} onChange={event => setQuery(event.target.value)} />
           <div className={styles.recipientList} aria-label="Connections">
             {loading ? <div role="status" aria-label="Finding connections"><span className="sr-only">Finding connections…</span>{[0, 1, 2].map(index => <div key={index} className="flex min-h-14 items-center gap-3 px-3 py-2"><Skeleton className="size-8 rounded-full" /><Skeleton className="h-4 w-40" /></div>)}</div> : failed ? <Button variant="secondary" size="compact" className={presentationStyles.quietAction} onClick={() => setRecipientRevision(value => value + 1)}>Retry connections</Button> : recipients.map(recipient => <label key={recipient.personRef} className="flex min-h-14 items-center gap-3 rounded-xl px-3 py-2 text-sm leading-[21px]">
-              <Avatar className="size-8"><AvatarImage src={recipient.photoUrl || undefined} alt="" /><AvatarFallback>{recipient.displayName.slice(0, 1)}</AvatarFallback></Avatar>
+              <ConnectionPersonAvatar personRef={recipient.personRef} label={recipient.displayName} photoUrl={recipient.photoUrl} className="!size-8" />
               <span className="min-w-0 flex-1 break-words">{recipient.displayName}{recipient.trusted ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><ProfilePaneSecurityIcon size={14} />Trusted Circle</span> : null}</span>
               <Checkbox aria-label={`Share with ${recipient.displayName}`} checked={Boolean(selected[recipient.personRef])} disabled={busy || (selectedCount >= MAX_CARD_SHARE_RECIPIENTS && !selected[recipient.personRef])}
                 onCheckedChange={checked => setSelected(previous => { const next = { ...previous }; if (checked === true) { if (Object.keys(previous).length < MAX_CARD_SHARE_RECIPIENTS) next[recipient.personRef] = recipient; } else delete next[recipient.personRef]; return next; })} />

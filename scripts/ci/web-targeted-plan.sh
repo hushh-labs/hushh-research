@@ -95,7 +95,17 @@ web_targeted_non_browser_owner() {
     # boundary matches above still win; an unrelated Python path is not an
     # unknown frontend dependency and must not expand every browser pack.
     consent-protocol/*|contracts/*|packages/*) return 0 ;;
+    # These exact CI selectors are exercised by the existing Node governance owner.
+    hushh-webapp/scripts/testing/affected-tests.mjs|hushh-webapp/scripts/testing/affected-tests.test.mjs) return 0 ;;
+    # Web Core owns structural checks; Governance exercises these CLI profiles.
+    hushh-webapp/scripts/architecture/verify-design-system.mjs|hushh-webapp/scripts/architecture/verify-render-performance.mjs|hushh-webapp/scripts/design/verify-apple-hierarchy.mjs) return 0 ;;
+    # The unconditional UI Contracts job runs these exact Node validators.
+    hushh-webapp/scripts/architecture/ui-review-receipts.mjs|hushh-webapp/scripts/architecture/verify-ui-contracts.mjs|hushh-webapp/scripts/architecture/back-navigation.test.mjs|hushh-webapp/scripts/voice/search-contracts.test.mjs) return 0 ;;
     hushh-webapp/__tests__/*|hushh-webapp/contracts/ui-review/*|hushh-webapp/docs/*) return 0 ;;
+    # These exact compiler outputs retain UI Contracts and their affected unit
+    # owners. Unknown JSON and generated runtime code remain conservative.
+    hushh-webapp/contracts/kai/one-capability-graph.v1.json|hushh-webapp/contracts/kai/one-route-orchestration-index.v1.json|hushh-webapp/contracts/kai/kai-action-gateway.vnext.json) return 0 ;;
+    hushh-webapp/frontend-native-surface-map.generated.json|hushh-webapp/cache-coherence-screen-manifest.generated.json) return 0 ;;
     hushh-webapp/lib/*/__tests__/*|hushh-webapp/components/*/__tests__/*|hushh-webapp/app/*/__tests__/*) return 0 ;;
     *.md) return 0 ;;
     *) return 1 ;;

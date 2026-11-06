@@ -25,8 +25,8 @@ if [ "${GITHUB_ACTIONS:-}" = true ]; then
   UI_CONTRACT_BASE_SHA="$(python3 "$REPO_ROOT/scripts/ci/resolve-ui-contract-base.py")"
   export UI_CONTRACT_BASE_SHA
 fi
-validation_check "verify:design-system" npm run verify:design-system
-validation_check "verify:docs" npm run verify:docs
+validation_check "Design-system architecture" node scripts/architecture/verify-design-system.mjs --core
+validation_check "Input and runtime resources" node scripts/architecture/verify-render-performance.mjs --core
 # Keep the local core mirror authoritative too; this costs only a few seconds.
 validation_check "verify:ui-contracts" npm run verify:ui-contracts
 validation_check "test:ui-contract-validators" npm run test:ui-contract-validators

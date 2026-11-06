@@ -82,6 +82,8 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
+    "consent-protocol/tests/helpers/plg_qualification.py",
+    "consent-protocol/tests/helpers/plg_runtime.py",
     "deploy/iam/setup_nonproduction_github_wif.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
@@ -123,12 +125,14 @@ LEGACY_REQUIRED_JOBS = {
     "Web Targeted Contracts (node)",
     *(f"Web Targeted Contracts (browser-{index}-of-4)" for index in (1, 2, 3, 4)),
 }
+UNIT_JOB = "Web Unit Contracts"
+UNIT_SHARDS = ("1/1", "1/3", "2/3", "3/3")
 REQUIRED_JOBS = {
     name for name in LEGACY_REQUIRED_JOBS
     if name != "Web Editor Performance (macOS)"
     and not name.startswith("Web Full Suite (Vitest)")
     and not name.startswith("Web Targeted Contracts (browser-")
-} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+} | {UNIT_JOB, "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
 AGGREGATE_JOBS = {"Preflight Gate", "Branch Validation Gate"}
 
@@ -349,6 +353,54 @@ def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
 
 
 
+def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate):
+    require(len(matches) in (1, 3), "UAT unit shard inventory is incomplete")
+    allowed = {f"Verify unit shard ({shard})": shard for shard in UNIT_SHARDS}
+    shards = []
+    for job in matches:
+        require(job.get("run_id") == run_id and job.get("head_sha") == candidate
+                and job.get("status") == "completed" and job.get("conclusion") == "success",
+                "UAT unit shard did not complete on the exact source")
+        steps = job.get("steps", [])
+        if isolated_candidate:
+            require(sum(step.get("name") == "Prepare isolated UAT source"
+                        and step.get("conclusion") == "success" for step in steps) == 1,
+                    "A required CI lane did not prepare the isolated application")
+        markers = [step for step in steps
+                   if step.get("name", "").startswith("Verify unit shard")]
+        # Preserve immutable predecessor evidence under its original policy.
+        # Current release qualification always requires typed coverage proof.
+        label = job.get("name")
+        if not current and len(matches) == 1 and label == UNIT_JOB and not markers:
+            try:
+                workflow = git("show", f"{candidate}:.github/workflows/ci.yml").decode("utf-8")
+            except UnicodeDecodeError:
+                raise Refused("Historical UAT workflow is not valid UTF-8") from None
+            owner = re.search(r"(?ms)^  web-full-suite-check:\n(.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)", workflow)
+            require(owner is not None
+                    and 'name: "Web Unit Contracts"' in owner[1]
+                    and 'WEB_FULL_SUITE_SHARD: ""' in owner[1]
+                    and "strategy:" not in owner[1],
+                    "Unstamped UAT unit evidence is not from the historical singleton workflow")
+            return
+        execution = [step for step in steps if step.get("name") == "Run affected unit contracts"]
+        require(len(execution) == 1 and execution[0].get("conclusion") == "success",
+                "A required UAT unit execution was not verified")
+        require(len({step.get("name") for step in markers}) == len(markers)
+                and all(step.get("name") in allowed
+                        and step.get("conclusion") in ("success", "skipped") for step in markers),
+                "UAT unit shard markers are invalid")
+        verified = [step for step in markers if step.get("conclusion") == "success"]
+        require(len(verified) == 1, "UAT unit shard coverage proof is missing or ambiguous")
+        shard = allowed[verified[0]["name"]]
+        require(label == f"{UNIT_JOB} ({shard})"
+                or (label == UNIT_JOB and len(matches) == 1 and shard == "1/1"),
+                "UAT unit job name does not match its shard marker")
+        shards.append(shard)
+    require(sorted(shards) in (["1/1"], ["1/3", "2/3", "3/3"]),
+            "UAT unit shard coverage is incomplete or duplicated")
+
+
 def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True, isolated_candidate=""):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory = api.read(f"{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
@@ -365,6 +417,12 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
     exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
     required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
     for name in required_jobs:
+        if name == UNIT_JOB:
+            unit_jobs = [job for job in jobs if job.get("name") == UNIT_JOB
+                         or (job.get("name") or "").startswith(f"{UNIT_JOB} (")]
+            _verify_unit_jobs(unit_jobs, candidate, run_id, current=current,
+                              isolated_candidate=isolated_candidate)
+            continue
         matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1

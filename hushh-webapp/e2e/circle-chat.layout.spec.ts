@@ -309,8 +309,16 @@ for (const width of [320, 393, 1440]) {
       const badge = message.getByRole("button", { name: "🇮🇳, 1 reactions, you reacted" });
       await expect(badge).toBeVisible();
       if (id === "reply") await page.screenshot({ path: test.info().outputPath(`circle-reactions-${width}.png`) });
+      const slot = page.locator("[data-circle-chat-latest-slot]");
+      const bounds = async () => ({ slot: (await slot.boundingBox())!, transcript: (await page.getByLabel("Circle messages", { exact: true }).boundingBox())! });
+      const beforeClick = await bounds();
+      expect(beforeClick.slot.height).toBe(44);
+      expect(beforeClick.slot.y).toBeGreaterThanOrEqual(beforeClick.transcript.y + beforeClick.transcript.height - 1);
       await badge.click();
       await expect(badge).toHaveCount(0);
+      const afterClick = await bounds();
+      expect(afterClick.slot.height).toBe(beforeClick.slot.height);
+      expect(afterClick.transcript.height).toBe(beforeClick.transcript.height);
       await trigger.focus(); await page.keyboard.press("Enter");
       await page.keyboard.press("Escape");
       await expect(picker).not.toBeVisible();
@@ -402,8 +410,15 @@ test("Circle smiley supports keyboard selection and reaction failure recovery", 
 
 for (const width of [320, 393, 430, 768, 1440]) {
   test(`fits long messages and a bounded keyboard composer at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 844 });
+    await page.setViewportSize({ width, height: width === 320 ? 568 : 844 });
     await mount(page, width === 430);
+    if (width === 320) {
+      const editor = page.getByRole("textbox", { name: "Message" });
+      await editor.fill("A short reply");
+      await page.evaluate(() => { document.documentElement.classList.add("kb-open", "native-keyboard-inset"); document.documentElement.style.setProperty("--kb-height", "300px"); });
+      await editor.evaluate(node => node.scrollIntoView({ block: "nearest" }));
+      await expect.poll(async () => (await page.getByLabel("Circle messages", { exact: true }).boundingBox())!.height).toBeGreaterThan(54);
+    }
     await page.getByRole("textbox", { name: "Message" }).fill("A long draft\n".repeat(120));
     await page.evaluate(() => document.documentElement.style.setProperty("--kb-height", "300px"));
     const geometry = await page.evaluate(() => {

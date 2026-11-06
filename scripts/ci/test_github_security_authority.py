@@ -221,7 +221,7 @@ class SecurityAuthorityTest(unittest.TestCase):
                         authority.produce({**env, key: value})
 
 
-def rerun_fixture(actor="operator"):
+def rerun_fixture(actor="operator", permission="write"):
     path = PATH.parents[2] / ".agents/skills/repo-operations/scripts/ci_rerun.py"
     spec = importlib.util.spec_from_file_location("security_rerun", path)
     retry = importlib.util.module_from_spec(spec)
@@ -230,12 +230,10 @@ def rerun_fixture(actor="operator"):
     repo = {"id": 10, "full_name": retry.REPOSITORY}
     source.update(repository=repo, status="completed", conclusion="failure")
     prefix = f"repos/{retry.REPOSITORY}"
-    policy = {"main": {"protected_pipeline_edit_users": ["operator"]}}
     responses = {
         "user": {"login": actor},
-        f"{prefix}/contents/config/ci-governance.json?ref=main": {
-            "encoding": "base64", "size": 100,
-            "content": base64.b64encode(json.dumps(policy).encode()).decode(),
+        f"{prefix}/collaborators/{actor}/permission": {
+            "permission": permission, "user": {"login": actor},
         },
         prefix: repo,
         f"{prefix}/actions/workflows/ci.yml": {"id": 30, "path": authority.CI_PATH},
@@ -252,6 +250,26 @@ def rerun_fixture(actor="operator"):
 
 
 class SecurityRerunTest(unittest.TestCase):
+    def test_retry_uses_live_repository_write_authority_not_pipeline_ownership(self):
+        for permission in ("admin", "write", "read", "triage", "none", None):
+            retry, expected, _, read, write, writes = rerun_fixture("ordinary-maintainer", permission)
+            with self.subTest(permission=permission):
+                if permission in {"admin", "write"}:
+                    self.assertEqual(retry.rerun_validation(read, write, expected)["attempt"], 3)
+                    self.assertEqual(len(writes), 1)
+                else:
+                    with self.assertRaises(retry.Refused):
+                        retry.rerun_validation(read, write, expected)
+                    self.assertEqual(writes, [])
+        for response in (None, {}, {"permission": "write", "user": None},
+                         {"permission": "admin", "user": {"login": "someone-else"}}):
+            retry, expected, _, read, write, writes = rerun_fixture()
+            def mismatched(path):
+                return response if "/collaborators/" in path else read(path)
+            with self.assertRaises(retry.Refused):
+                retry.rerun_validation(mismatched, write, expected)
+            self.assertEqual(writes, [])
+
     def test_one_job_retry_is_bound_to_the_exact_completed_attempt(self):
         for mismatch in (None, "attempt", "run_id", "head_sha", "status", "name", "truncated"):
             retry, expected, source, read, write, writes = rerun_fixture()
@@ -291,7 +309,7 @@ class SecurityRerunTest(unittest.TestCase):
     def test_ungoverned_stale_or_running_source_refuses_before_mutation(self):
         for scenario in ("actor", "attempt", "running", "successful"):
             retry, expected, source, read, write, writes = rerun_fixture(
-                "outsider" if scenario == "actor" else "operator"
+                permission="read" if scenario == "actor" else "write"
             )
             if scenario == "attempt":
                 source["run_attempt"] = 1

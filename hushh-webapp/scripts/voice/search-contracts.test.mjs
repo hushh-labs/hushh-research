@@ -27,7 +27,7 @@ test('source drift includes imported components and dynamic imports, independent
   } finally { await fs.rm(root, {recursive:true, force:true}); }
 });
 
-test('check never repairs stale contracts; new pages require authored route coverage', async () => {
+test('checks never mint source snapshots; new pages still require authored route coverage', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'search-contract-'));
   try {
     await fs.mkdir(path.join(root, 'app'), {recursive:true});
@@ -37,12 +37,12 @@ test('check never repairs stale contracts; new pages require authored route cove
     await fs.writeFile(path.join(root, 'app/page.tsx'), 'export default function Page() {return null;}');
     await fs.writeFile(path.join(root, 'lib/navigation/app-route-layout.contract.json'), JSON.stringify([{route:'/',shellVerification:{file:'app/page.tsx'}}]));
     const original = await fs.readFile(contract, 'utf8');
-    await assert.rejects(syncSearchContracts(root, true), /stale/);
+    await assert.doesNotReject(syncSearchContracts(root, true));
     assert.equal(await fs.readFile(contract,'utf8'),original);
     await syncSearchContracts(root);
     await syncSearchContracts(root,true);
     await fs.writeFile(path.join(root, 'app/layout.tsx'), 'export default function Layout() {return null;}');
-    await assert.rejects(syncSearchContracts(root,true), /stale/);
+    await assert.doesNotReject(syncSearchContracts(root,true));
     await syncSearchContracts(root);
     await fs.mkdir(path.join(root,'app/new'));
     await fs.writeFile(path.join(root,'app/new/page.tsx'),'export default function New() {return null;}');
@@ -70,7 +70,7 @@ test('combined UI check runs both owners and fails when either owner fails', asy
   assert.equal(await runUiChecks([['Back', async () => {}], ['Search', async () => {}]]), true);
 });
 
-test('independent reviewed UI branches merge without stamp conflicts, but combined drift still fails', async () => {
+test('independent UI source snapshots compose without blocking combined structural checks', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-merge-'));
   const git = (...args) => execFileSync('git', args, {cwd:root, env:fixtureGitEnv, stdio:'pipe'});
   const commit = () => { git('add', '.'); git('commit', '-m', 'review fixture'); };
@@ -103,7 +103,7 @@ test('independent reviewed UI branches merge without stamp conflicts, but combin
     assert.equal(git('diff', '--name-only', '--diff-filter=U').toString(), '');
     const receipts = await fs.readdir(path.join(root,'contracts/ui-review/search'));
     assert.equal(receipts.length, 3);
-    await assert.rejects(syncSearchContracts(root,true), /stale/);
+    await assert.doesNotReject(syncSearchContracts(root,true));
     assert.deepEqual(await fs.readdir(path.join(root,'contracts/ui-review/search')), receipts);
     await syncSearchContracts(root);
     await syncSearchContracts(root,true);
@@ -111,12 +111,13 @@ test('independent reviewed UI branches merge without stamp conflicts, but combin
   } finally { await fs.rm(root,{recursive:true,force:true}); }
 });
 
-test('review receipts are immutable, fail closed, and never repair evidence during check', async () => {
+test('optional source snapshots stay immutable and checks never create evidence', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-receipt-'));
   try {
     const revision = 'a'.repeat(64);
     for (const kind of ['back','search']) {
-      await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:2},true), /stale/);
+      await assert.doesNotReject(syncReviewReceipt(root,kind,revision,{source_module_count:2},true));
+      await assert.rejects(fs.access(path.join(root,'contracts/ui-review',kind,`${revision}.json`)));
       await syncReviewReceipt(root,kind,revision,{source_module_count:2});
       await syncReviewReceipt(root,kind,revision,{source_module_count:2});
       await syncReviewReceipt(root,kind,revision,{source_module_count:2},true);
@@ -126,13 +127,13 @@ test('review receipts are immutable, fail closed, and never repair evidence duri
       await syncReviewReceipt(root,kind,revision,{source_module_count:2},true);
       await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:3},true), /Invalid immutable/);
       await assert.rejects(syncReviewReceipt(root,kind,revision,{source_module_count:3}), /Invalid immutable/);
-      await assert.rejects(syncReviewReceipt(root,kind,'b'.repeat(64),{source_module_count:2},true), /stale/);
+      await assert.doesNotReject(syncReviewReceipt(root,kind,'b'.repeat(64),{source_module_count:2},true));
     }
     await assert.rejects(syncReviewReceipt(root,'back','../invalid',{}), /Invalid UI/);
   } finally { await fs.rm(root,{recursive:true,force:true}); }
 });
 
-test('unrelated PRs inherit a merged baseline without receipts; relevant and untracked drift still blocks', async () => {
+test('source snapshots stay optional across changed, untracked and unrelated histories', async () => {
   const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'ui-review-base-'));
   const root = path.join(repo, 'hushh-webapp');
   const previousBase = process.env.UI_CONTRACT_BASE_SHA;
@@ -160,7 +161,7 @@ test('unrelated PRs inherit a merged baseline without receipts; relevant and unt
     await fs.writeFile(path.join(repo, '.gitignore'), '/ignored/\n');
     await fs.writeFile(path.join(ignoredRoot, 'app/page.tsx'), 'export default function Page(){return null;}');
     for (const kind of ['back', 'search']) {
-      await assert.rejects(syncReviewReceipt(ignoredRoot, kind, revision, {}, true, ['app/page.tsx']), /stale/);
+      await assert.doesNotReject(syncReviewReceipt(ignoredRoot, kind, revision, {}, true, ['app/page.tsx']));
     }
     await fs.writeFile(path.join(root, 'app/favicon.ico'), 'new branding');
     for (const kind of ['back', 'search']) await check(kind);
@@ -173,34 +174,34 @@ test('unrelated PRs inherit a merged baseline without receipts; relevant and unt
     await fs.writeFile(process.env.GITHUB_EVENT_PATH, JSON.stringify({ merge_group: { base_sha: targetBase } }));
     for (const kind of ['back', 'search']) await check(kind);
     await fs.writeFile(process.env.GITHUB_EVENT_PATH, '{}');
-    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
     process.env.UI_CONTRACT_BASE_SHA = targetBase;
     await assert.rejects(fs.access(path.join(root, 'contracts/ui-review')));
     for (const file of [...inputs, 'lib/navigation/app-route-layout.contract.json']) {
       const original = await fs.readFile(path.join(root, file), 'utf8');
       await fs.writeFile(path.join(root, file), original + '\nchanged');
-      for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+      for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
       await fs.writeFile(path.join(root, file), original);
     }
     await fs.writeFile(path.join(root, 'components/new.tsx'), 'history.back();');
-    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
     await fs.unlink(path.join(root, 'components/new.tsx'));
     await fs.unlink(path.join(root, inputs[1]));
     // A deleted imported JSON no longer appears in the current import graph.
     for (const kind of ['back', 'search']) {
-      await assert.rejects(syncReviewReceipt(root, kind, revision, {}, true, [inputs[0]]), /stale/);
+      await assert.doesNotReject(syncReviewReceipt(root, kind, revision, {}, true, [inputs[0]]));
     }
     git('restore', '.');
     await fs.unlink(path.join(root, inputs[0]));
-    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
     git('restore', '.');
     process.env.UI_CONTRACT_BASE_SHA = 'f'.repeat(40);
-    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
     git('checkout', '--orphan', 'unrelated-history');
     git('add', '.'); git('commit', '-m', 'not an ancestor');
     process.env.UI_CONTRACT_BASE_SHA = git('rev-parse', 'HEAD').trim();
     git('checkout', 'main');
-    for (const kind of ['back', 'search']) await assert.rejects(check(kind), /stale/);
+    for (const kind of ['back', 'search']) await assert.doesNotReject(check(kind));
   } finally {
     if (previousBase === undefined) delete process.env.UI_CONTRACT_BASE_SHA;
     else process.env.UI_CONTRACT_BASE_SHA = previousBase;

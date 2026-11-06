@@ -460,6 +460,7 @@ export function SettingsRow({
   children,
   icon,
   leading,
+  leadingInteractive = false,
   title,
   description,
   trailing,
@@ -487,6 +488,8 @@ export function SettingsRow({
   children?: ReactNode;
   icon?: React.ComponentType<any>;
   leading?: ReactNode;
+  /** The leading avatar owns profile access independently of the row action. */
+  leadingInteractive?: boolean;
   title: ReactNode;
   description?: ReactNode;
   trailing?: ReactNode;
@@ -541,7 +544,7 @@ export function SettingsRow({
   const hasInteractiveTrailing =
     trailingInteractive || containsInteractiveNode(trailing);
   const splitPrimaryAction = Boolean(
-    !asChild && onClick && hasInteractiveTrailing,
+    !asChild && onClick && (hasInteractiveTrailing || leadingInteractive),
   );
   const Comp = resolvedAsChild
     ? Slot.Root
@@ -595,6 +598,7 @@ export function SettingsRow({
   // stays exposed.
   const hideSplitContent =
     splitPrimaryAction &&
+    !leadingInteractive &&
     !containsInteractiveNode(title) &&
     !containsInteractiveNode(description) &&
     !containsInteractiveNode(leading);
@@ -888,7 +892,7 @@ export function SettingsRow({
       <div className={rowShellClassName} {...rowDataProps}>
         <Comp
           {...(!resolvedAsChild
-            ? { "aria-disabled": disabled || undefined }
+            ? { "aria-disabled": (disabled && !leadingInteractive) || undefined }
             : {})}
           className={sharedClassName}
           {...voiceProps}
@@ -920,7 +924,7 @@ export function SettingsRow({
               "aria-label": ariaLabel,
               "aria-describedby": descriptionId,
             }
-          : { "aria-disabled": disabled || undefined })}
+          : { "aria-disabled": (disabled && !leadingInteractive) || undefined })}
         className={sharedClassName}
         {...voiceProps}
       >

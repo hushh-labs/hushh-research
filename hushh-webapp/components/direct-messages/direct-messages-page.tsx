@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonProfileLink } from "@/components/connections/person-profile-link";
+import { PersonSelectionSurface } from "@/components/connections/person-selection-surface";
 import { formatMessageTime, formatMessageFeedMarker, formatConversationTime } from "@/lib/direct-messages/message-timestamps";
 import { replaceMessageHistory } from "@/lib/direct-messages/message-history";
 import { writeLastMessagesSelection, type LastMessagesSelection } from "@/lib/direct-messages/last-selection";
@@ -155,12 +157,12 @@ function PeerProfileLink({ href, label, className, children }: {
   children: ReactNode;
 }) {
   if (!href) return <span className={className}>{children}</span>;
-  return <Link href={href} prefetch={false} aria-label={`View ${label}'s profile`}
+  return <PersonProfileLink href={href} prefetch={false} aria-label={`View ${label}'s profile`}
     className={cn(styles.peerProfileLink, className)}
     onPointerDown={(event) => event.stopPropagation()}
     onContextMenu={(event) => event.stopPropagation()}>
     {children}
-  </Link>;
+  </PersonProfileLink>;
 }
 
 
@@ -795,7 +797,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
   useLayoutEffect(() => {
     const input = composerRef.current;
     if (!input) return;
-    input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, 144)}px`;
+    input.style.height = "auto"; input.style.height = `${input.scrollHeight}px`;
   }, [draft, thread.canSend]);
 
   useEffect(() => {
@@ -1848,7 +1850,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     setChatDeleteRequest({ ownerId: userId, conversation });
                   }}
                 >
-                  <ConnectionPersonAvatar
+                  <ConnectionPersonAvatar personRef={conversation.peerPersonRef}
                     label={conversationLabel(conversation)}
                     photoUrl={conversation.peerPhotoUrl}
                     size="list"
@@ -2292,8 +2294,10 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                                     aria-label={`${reaction.emoji} reaction, ${reaction.count}`}
                                     onClick={() => saveReaction(message, reaction.emoji)}
                                   >
-                                    <span>{reaction.emoji}</span>
-                                    <span>{reaction.count}</span>
+                                    <span className={styles.reactionBadge}>
+                                      <span>{reaction.emoji}</span>
+                                      <span>{reaction.count}</span>
+                                    </span>
                                   </button>
                                 ))}
                               </div>
@@ -2424,6 +2428,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                     <DirectMessageEmojiPicker
                       messagesLane
                       key={draftScope}
+                      anchorToComposer
                       triggerIcon={<Smile className="h-5 w-5" />}
                       restoreTriggerFocusOnSelect={false}
                       disabled={sending || recordingVoice || !canCompose || hasUnconfirmedSend}
@@ -2559,7 +2564,7 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
             {newChatLoading && !newChatPeople.length ? <p role="status">Loading connections…</p> : null}
             {newChatError ? <p role="alert">Connections are unavailable. Try your search again.</p> : null}
             {!newChatLoading && !newChatError && !newChatPeople.length ? <p>No connections found.</p> : null}
-            {newChatPeople.map((person) => <button type="button" key={person.userId} className={styles.newChatPerson}
+            {newChatPeople.map((person) => <PersonSelectionSurface type="button" key={person.userId} className={styles.newChatPerson}
               aria-label={`Message ${person.displayName || "connection"}`}
               disabled={!person.publicPersonRef} onClick={() => {
                 if (!person.publicPersonRef) return;
@@ -2574,9 +2579,9 @@ export function DirectMessagesPage({ selection, resolvingSelection = false, rest
                 if (onSelect) onSelect({ kind: "person", ref: person.publicPersonRef });
                 else void navigateDirectMessage(router, { personRef: person.publicPersonRef });
               }}>
-              <ConnectionPersonAvatar label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
+              <ConnectionPersonAvatar userId={person.userId} label={person.displayName || "Connection"} photoUrl={person.photoUrl} size="list" />
               <span>{person.displayName || "Connection"}</span>
-            </button>)}
+            </PersonSelectionSurface>)}
             {newChatHasMore ? <Button type="button" variant="none" effect="fade" className={cn(styles.newChatMore, quietStyles.action)} disabled={newChatLoading}
               onClick={() => setNewChatPage((page) => page + 1)}>Load more</Button> : null}
           </div>

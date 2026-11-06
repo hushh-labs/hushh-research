@@ -33,6 +33,95 @@ def _module():
     return module
 
 
+def test_queue_timeout_preserves_all_other_parameters(module=None):
+    import copy
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from prepared_branch_governance import queue_rules
+    original = [{"type": "merge_queue", "parameters": {
+        "check_response_timeout_minutes": 30, "merge_method": "MERGE",
+        "max_entries_to_build": 5, "max_entries_to_merge": 1,
+        "grouping_strategy": "ALLGREEN"}}]
+    before = copy.deepcopy(original)
+    expected = copy.deepcopy(original)
+    expected[0]["parameters"]["check_response_timeout_minutes"] = 120
+    assert queue_rules({"repository": {"merge_queue_check_timeout_minutes": 120}}, original) == expected
+    assert original == before
+    assert queue_rules({}, original) == before
+    serial = copy.deepcopy(expected)
+    serial[0]["parameters"]["max_entries_to_build"] = 1
+    assert queue_rules({"repository": {"merge_queue_check_timeout_minutes": 120,
+        "merge_queue_max_entries_to_build": 1}}, original) == serial
+    assert original == before
+    for bad in (False, 0, 2, 5, "1"):
+        try:
+            queue_rules({"repository": {"merge_queue_max_entries_to_build": bad}}, original)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Unqualified speculative build concurrency was accepted")
+    for bad in (False, 0, 361, "120"):
+        try:
+            queue_rules({"repository": {"merge_queue_check_timeout_minutes": bad}}, original)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Invalid queue ceiling was accepted")
+
+
+def test_queue_timeout_repair_preserves_authority_and_refuses_concurrent_change(module):
+    import copy
+    from unittest.mock import patch
+    import prepared_branch_governance
+    policy = _policy()
+    rows = [{"id": index, "name": f"{branch} merge queue"} for index, branch in enumerate(("main", "dev", "uat"), 1)]
+    records = {row["id"]: {**row, "target": "branch", "enforcement": "active",
+        "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+        "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30,
+                  "merge_method": "MERGE", "max_entries_to_build": 5}}],
+        "bypass_actors": [{"actor_id": 40542375, "actor_type": "User", "bypass_mode": "pull_request"}]}
+        for row, branch in zip(rows, ("main", "dev", "uat"))}
+    writes = []
+    def read(args):
+        if args[1].endswith("?per_page=100"): return rows
+        return copy.deepcopy(records[int(args[1].rsplit("/", 1)[1])])
+    def write(endpoint, body, method):
+        assert method == "PUT"
+        index = int(endpoint.rsplit("/", 1)[1])
+        original = records[index]
+        assert all(body[k] == original[k] for k in original if k not in ("rules", "id"))
+        assert body["rules"][0]["parameters"] == {**original["rules"][0]["parameters"], "check_response_timeout_minutes": 120, "max_entries_to_build": 1}
+        records[index] = {**body, "id": index}
+        writes.append(endpoint)
+    with patch.object(module, "gh_json", side_effect=read), patch.object(prepared_branch_governance, "_write", side_effect=write):
+        assert module.reconcile_queue_timeouts(policy, apply=False)
+        assert not writes
+        assert module.reconcile_queue_timeouts(policy, apply=True)
+        assert len(writes) == 3
+        assert not module.reconcile_queue_timeouts(policy, apply=True)
+    records[1]["rules"][0]["parameters"]["check_response_timeout_minutes"] = 30
+    observed = [rows, *[copy.deepcopy(records[i]) for i in (1,2,3)], {"changed": True}]
+    with patch.object(module, "gh_json", side_effect=observed), patch.object(prepared_branch_governance, "_write") as mutation:
+        try:
+            module.reconcile_queue_timeouts(policy, apply=True)
+        except SystemExit as error:
+            assert "changed before repair" in str(error)
+        else:
+            raise AssertionError("Concurrent ruleset change was overwritten")
+        mutation.assert_not_called()
+
+
+def test_codeowners_use_the_protected_team_for_every_protected_path(module):
+    content = (REPO_ROOT / ".github/CODEOWNERS").read_text()
+    entries = {line.split()[0]: line.split()[1:] for line in content.splitlines()
+               if line.strip() and not line.startswith("#")}
+    assert "*" not in entries
+    assert entries and all(owners == ["@hushh-labs/pipeline-editors"] for owners in entries.values())
+    for rule in _policy()["main"]["protected_pipeline_paths"]:
+        assert entries[f"/{rule}"] == ["@hushh-labs/pipeline-editors"]
+    assert "@kushaltrivedi5" not in content and "@ankitkumarsingh1702" not in content
+
+
 def _policy() -> dict:
     return json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
 
@@ -520,6 +609,9 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     import prepared_branch_governance
 
     policy = _policy()
+    # Retain coverage of the prior immutable human-writer policy, including
+    # its array-shaped REST endpoint contract.
+    policy["main"]["restrict_writes_to_merge_users"] = True
     policy["main"]["merge_queue_bypass_users"] = []
     policy["main"].pop("owner_admin_ruleset_name", None)
     protection = {
@@ -534,7 +626,7 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     }
     queue = {"name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
              "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-             "rules": [{"type": "merge_queue"}],
+             "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30}}],
              "bypass_actors": [{"actor_id": 7, "actor_type": "Team", "bypass_mode": "pull_request"}]}
     for scope in ("refs/heads/main", "~DEFAULT_BRANCH"):
         queue["conditions"]["ref_name"]["include"] = [scope]
@@ -561,6 +653,122 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
             else:
                 raise AssertionError("Unverified default branch authorized a Main ruleset mutation")
             write.assert_not_called()
+
+    # The individual restriction endpoints accept arrays, unlike /protection.
+    # Exercise real serialization so a dict-shaped stub cannot conceal HTTP 422.
+    from types import SimpleNamespace
+
+    queue["conditions"] = {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
+    queue["bypass_actors"] = []
+    queue["rules"][0]["parameters"]["check_response_timeout_minutes"] = 120
+    queue["rules"][0]["parameters"]["max_entries_to_build"] = 1
+    protection["required_status_checks"]["strict"] = False
+    protection["restrictions"]["users"] = [{"login": "retired-operator"}]
+    requests = []
+
+    def put(command, **kwargs):
+        assert command[:4] == ["gh", "api", "--method", "PUT"]
+        assert command[4].endswith("/restrictions/users")
+        assert json.loads(kwargs["input"]) == sorted(policy["main"]["merge_users"])
+        requests.append(command)
+        return SimpleNamespace(returncode=0, stderr="")
+
+    with patch.object(module, "gh_json", side_effect=[protection, [{"id": 1, "name": queue["name"]}], queue]), \
+         patch.object(prepared_branch_governance.subprocess, "run", side_effect=put):
+        assert module.reconcile_main_merge_policy(policy, apply=True)
+    assert len(requests) == 1
+
+
+def test_native_main_queue_writer_removal_preserves_guards_and_refuses_races(module) -> None:
+    import copy
+    from unittest.mock import patch
+    from prepared_branch_governance import queue_rules
+
+    policy = _policy()
+    policy["main"]["restrict_writes_to_merge_users"] = False
+    owners = policy["main"]["merge_queue_bypass_users"]
+    identities = {login: {"login": login, "type": "User", "id": 100 + i}
+                  for i, login in enumerate(owners)}
+    base = {
+        "required_pull_request_reviews": {
+            "require_code_owner_reviews": True, "require_last_push_approval": True,
+            "required_approving_review_count": 1,
+            "bypass_pull_request_allowances": {"users": [{"login": login} for login in owners]},
+        },
+        "enforce_admins": {"enabled": True},
+        "required_conversation_resolution": {"enabled": True},
+        "required_status_checks": {"strict": False, "checks": [{"context": "CI Status Gate", "app_id": 15368}]},
+        "restrictions": {"users": [{"login": login} for login in policy["main"]["merge_users"]], "teams": [], "apps": []},
+    }
+    queue = {"name": policy["main"]["merge_queue_ruleset_name"], "target": "branch",
+             "enforcement": "active", "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+             "rules": queue_rules(policy, [{"type": "merge_queue", "parameters": {"merge_method": "MERGE"}}]),
+             "bypass_actors": [{"actor_id": identities[login]["id"], "actor_type": "User", "bypass_mode": "pull_request"} for login in sorted(owners)]}
+    endpoint = f"repos/{module.REPO}/branches/main/protection"
+    queue_endpoint = f"repos/{module.REPO}/rulesets/1"
+    for fault in (None, "reordered", "after_omits_restrictions", "after_empty_restrictions", "duplicate_actor", "bad_actor_mode", "already_active", "protection_race", "queue_race", "foreign_writer", "missing_review", "missing_check", "missing_native_guard", "unlanded_policy", "main_race", "after_only_field"):
+        protection, observed_queue = copy.deepcopy(base), copy.deepcopy(queue)
+        writes, verified, reads = [], [], {"protection": 0, "queue": 0, "main": 0}
+        if fault == "already_active": protection["restrictions"] = None
+        if fault == "foreign_writer": protection["restrictions"]["teams"] = [{"slug": "unreviewed"}]
+        if fault == "missing_review": protection["required_pull_request_reviews"]["required_approving_review_count"] = 0
+        if fault == "missing_check": protection["required_status_checks"]["checks"][0]["app_id"] = None
+        if fault == "reordered": observed_queue["bypass_actors"].reverse()
+        if fault == "duplicate_actor": observed_queue["bypass_actors"].append(copy.deepcopy(observed_queue["bypass_actors"][0]))
+        if fault == "bad_actor_mode": observed_queue["bypass_actors"][0]["bypass_mode"] = "always"
+
+        def read(args):
+            path = args[1]
+            if path.endswith("git/ref/heads/main"):
+                reads["main"] += 1
+                return {"object": {"sha": ("b" if fault == "main_race" and reads["main"] > 1 else "a") * 40}}
+            if "/contents/config/ci-governance.json?ref=" in path:
+                import base64
+                captured = copy.deepcopy(policy)
+                if fault == "unlanded_policy": captured["main"]["restrict_writes_to_merge_users"] = True
+                return {"content": base64.b64encode(json.dumps(captured).encode()).decode()}
+            if path == endpoint:
+                reads["protection"] += 1
+                result = copy.deepcopy(protection)
+                if fault == "protection_race" and reads["protection"] > 1: result["unowned"] = True
+                return result
+            if path == queue_endpoint:
+                reads["queue"] += 1
+                result = copy.deepcopy(observed_queue)
+                if fault == "queue_race" and reads["queue"] > 1: result["bypass_actors"] = []
+                return result
+            if path.endswith("rulesets?per_page=100"): return [{"id": 1, "name": queue["name"]}]
+            if path.startswith("users/"): return identities[path.split("/")[1]]
+            raise AssertionError(path)
+
+        def guard(*args, **kwargs):
+            assert kwargs.get("verify_only") is True and not kwargs.get("apply")
+            verified.append(True)
+            if fault == "missing_native_guard": raise SystemExit("Native protected guard is absent")
+
+        def write(args):
+            assert args == ["api", "--method", "DELETE", endpoint + "/restrictions"]
+            writes.append(args)
+            protection["restrictions"] = None
+            if fault == "after_omits_restrictions": protection.pop("restrictions")
+            if fault == "after_empty_restrictions": protection["restrictions"] = {}
+            if fault == "after_only_field": protection["unowned"] = True
+
+        with patch.object(module, "gh_json", side_effect=read), patch.object(module, "gh", side_effect=write), \
+             patch.object(module, "reconcile_protected_pipeline_review", side_effect=guard), \
+             patch.object(module, "reconcile_owner_admin_ruleset", side_effect=guard), \
+             patch("prepared_branch_governance._write", side_effect=AssertionError("Unexpected queue mutation")):
+            if fault in (None, "reordered", "after_omits_restrictions", "already_active"):
+                assert module.reconcile_main_merge_policy(policy, apply=True) is (fault != "already_active")
+                assert len(writes) == (0 if fault == "already_active" else 1)
+                assert protection.get("restrictions") is None
+                assert {key: value for key, value in protection.items() if key != "restrictions"} == {key: value for key, value in base.items() if key != "restrictions"}
+                assert len(verified) == (2 if fault == "already_active" else 4)
+            else:
+                try: module.reconcile_main_merge_policy(policy, apply=True)
+                except SystemExit: pass
+                else: raise AssertionError(f"{fault} authorized writer removal")
+                assert len(writes) == (1 if fault in ("after_only_field", "after_empty_restrictions") else 0)
 
 
 def test_prepared_rollout_rejects_bypass_with_non_strict_checks(module) -> None:
@@ -761,6 +969,9 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
     import prepared_branch_governance
 
     policy = _policy()
+    # This test owns the legacy guard-before-grant transition, not the new
+    # writer-only removal once that guard is already installed.
+    policy["main"]["restrict_writes_to_merge_users"] = True
     protection = {
         "enforce_admins": {"enabled": True},
         "required_pull_request_reviews": {
@@ -784,7 +995,7 @@ def test_owner_admin_grant_follows_verified_strict_guard(module) -> None:
         "target": "branch",
         "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
-        "rules": [{"type": "merge_queue"}],
+        "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 30}}],
         "bypass_actors": [],
     }
     calls = []

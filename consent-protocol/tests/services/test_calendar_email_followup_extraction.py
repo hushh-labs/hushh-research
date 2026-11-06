@@ -64,6 +64,9 @@ async def test_five_paragraph_tail_yields_two_distinct_requests():
                     "due_relation": "before",
                     "responsibility": "owner",
                     "ambiguities": ["time"],
+                    "relevance": "actionable",
+                    "category": "deliverable_deadline",
+                    "evidence_reason": "The sender asks the owner to send a document by a date.",
                 },
                 {
                     "local_index": 1,
@@ -75,6 +78,10 @@ async def test_five_paragraph_tail_yields_two_distinct_requests():
                     "proposed_date": "2026-10-27",
                     "responsibility": "owner",
                     "ambiguities": ["time", "duration"],
+                    "relevance": "actionable",
+                    "category": "meeting_request",
+                    "meeting_state": "proposed",
+                    "evidence_reason": "The sender proposes a call on a specific day.",
                 },
             ],
             "updates": [],
@@ -129,6 +136,9 @@ def test_unoffered_quote_and_update_are_rejected():
         "source_quote": "Not in this mail",
         "title": "Invented",
         "responsibility": "owner",
+        "relevance": "actionable",
+        "category": "response_needed",
+        "evidence_reason": "Claimed by the model, but the quote is not in the mail.",
     }
     with pytest.raises(ValueError, match="unsupported_source_quote"):
         validate_chunk(

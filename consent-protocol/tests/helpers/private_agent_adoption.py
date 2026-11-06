@@ -370,7 +370,7 @@ def notification_validator_catalog(connection):
 
 def assert_notification_successor_survives_420_replay(connection, server, database, entry):
     """Preserve the exact corrected validator through replay; refuse unknown bodies."""
-    corrected = (_ROOT / "db/migrations/445_gcp_notification_account_id_limit.sql").read_text()
+    corrected = (_ROOT / "db/migrations/449_gcp_notification_account_id_limit.sql").read_text()
     with connection.cursor() as cursor:
         cursor.execute(corrected)
     before = notification_validator_catalog(connection)

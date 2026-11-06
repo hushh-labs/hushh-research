@@ -1013,7 +1013,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
             APP_SHELL_FRAME_CLASSNAME,
             "pointer-events-none relative flex w-full flex-col",
           )}
-          style={topShellBreadcrumb?.width === "profile" ? APP_MEASURE_STYLES.reading : { ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }}
+          style={
+            topShellBreadcrumb?.width === "profile"
+              ? APP_MEASURE_STYLES.reading
+              : topShellBreadcrumb?.width === "mutuals"
+                ? { maxWidth: "70rem" }
+                : { ...APP_SHELL_FRAME_STYLE, maxWidth: "80rem" }
+          }
         >
           <div
             data-testid="top-app-bar-header"
