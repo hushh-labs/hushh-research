@@ -3,12 +3,12 @@ const state = vi.hoisted(() => ({
   auth: { currentUser: null as any },
   capacitor: { isNativePlatform: vi.fn(), getPlatform: () => "ios" },
   phoneProvider: vi.fn(),
-  proof: { startPhoneVerificationProof: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn(), reauthenticateAppleIdentity: vi.fn(), signIn: vi.fn() },
+  proof: { startPhoneVerificationProof: vi.fn(), startPhoneLinkVerification: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn(), reauthenticateAppleIdentity: vi.fn(), signIn: vi.fn() },
   native: { addListener: vi.fn(), linkWithPhoneNumber: vi.fn(),
-    confirmVerificationCode: vi.fn(), unlink: vi.fn() },
+    confirmVerificationCode: vi.fn(), reload: vi.fn(), unlink: vi.fn() },
 }));
 vi.mock("@capacitor/core", () => ({ Capacitor: state.capacitor }));
-vi.mock("@/lib/firebase/config", () => ({ auth: state.auth, app: { options: {} } }));
+vi.mock("@/lib/firebase/config", () => ({ auth: state.auth, app: { options: { apiKey: "demo-key" } } }));
 vi.mock("@/lib/capacitor", () => ({ HushhAuth: state.proof }));
 vi.mock("@capacitor-firebase/authentication", () => ({
   FirebaseAuthentication: state.native, ProviderId: { PHONE: "phone" },
@@ -36,7 +36,7 @@ describe("AuthService phone proof integration", () => {
     mockCapacitor.isNativePlatform.mockReturnValue(true);
     state.native.confirmVerificationCode.mockResolvedValue({});
   });
-  afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
   it("uses fresh native Apple reauthentication only for the captured current owner", async () => {
     state.proof.reauthenticateAppleIdentity.mockResolvedValue({ userId: "owner", idToken: "fresh-apple-proof" });
@@ -74,30 +74,30 @@ describe("AuthService phone proof integration", () => {
     const owner = { uid: "new-native-owner", phoneNumber: null };
     const restore = vi.spyOn(AuthService, "restoreNativeSession").mockReturnValueOnce(oldRestore.promise).mockResolvedValue(owner as any);
     state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
     mockAuth.currentUser = owner;
     let failure: any;
     const pending = AuthService.startPhoneLinkVerification("+16505550101").catch(error => { failure = error; });
     await vi.advanceTimersByTimeAsync(120_000);
     expect(failure).toMatchObject({ code: "phone-verification-start-timeout" });
     await pending;
-    expect(state.proof.startPhoneVerificationProof).not.toHaveBeenCalled();
+    expect(state.proof.startPhoneLinkVerification).not.toHaveBeenCalled();
     const controller = new AbortController();
     await expect(AuthService.startPhoneLinkVerification("+16505550101", { signal: controller.signal })).resolves.toMatchObject({ autoVerified: false });
     oldRestore.resolve({ uid: "retired-native-owner" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledTimes(1);
     expect(restore).toHaveBeenCalledTimes(2);
     controller.abort();
   });
 
   it("uses one send deadline across restore and a stalled previous cancellation", async () => {
     vi.useFakeTimers();
-    const owner = { uid: "native-owner", phoneNumber: null } as any;
+    const owner = { uid: "native-owner", phoneNumber: null, getIdToken: vi.fn().mockResolvedValue("native-email-session") } as any;
     mockAuth.currentUser = owner;
     const restore = vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(owner);
     state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
     await AuthService.startPhoneLinkVerification("+16505550101");
     const restoring = deferred<any>(), cancelling = deferred<void>();
     restore.mockReturnValueOnce(restoring.promise);
@@ -110,92 +110,101 @@ describe("AuthService phone proof integration", () => {
     await vi.advanceTimersByTimeAsync(20_000);
     expect(failure).toMatchObject({ code: "phone-verification-start-timeout" });
     await pending;
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledTimes(1);
     const controller = new AbortController();
     await AuthService.startPhoneLinkVerification("+16505550101", { signal: controller.signal });
     cancelling.resolve();
     await vi.advanceTimersByTimeAsync(0);
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(2);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledTimes(2);
     controller.abort();
   });
 
   it("aborts a pending SDK send promptly without letting its callback replace a resent challenge", async () => {
-    const owner = { uid: "native-owner", phoneNumber: null } as any;
+    const owner = { uid: "native-owner", phoneNumber: null, getIdToken: vi.fn().mockResolvedValue("native-email-session") } as any;
     mockAuth.currentUser = owner;
     vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(owner);
     state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
     const late = deferred<any>();
     let oldAttempt = "";
-    state.proof.startPhoneVerificationProof.mockImplementationOnce(({ attemptId }) => { oldAttempt = attemptId; return late.promise; });
+    state.proof.startPhoneLinkVerification.mockImplementationOnce(({ attemptId }) => { oldAttempt = attemptId; return late.promise; });
     const retired = new AbortController();
     const pending = AuthService.startPhoneLinkVerification("+16505550101", { signal: retired.signal });
     await vi.waitFor(() => expect(oldAttempt).not.toBe(""));
     const rejected = expect(pending).rejects.toMatchObject({ code: "session_changed" });
     retired.abort();
     await rejected;
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
     const current = new AbortController();
     const fresh = await AuthService.startPhoneLinkVerification("+16505550101", { resendCode: true, signal: current.signal });
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenLastCalledWith(expect.objectContaining({ resendCode: true }));
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenLastCalledWith(expect.objectContaining({ resendCode: true }));
     late.resolve({ attemptId: oldAttempt, verificationId: oldAttempt });
     await Promise.resolve();
-    state.proof.confirmPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, phoneIdToken: "current-proof" }));
-    await expect(AuthService.getPhoneClaimIdToken({ verificationId: fresh.verificationId, verificationCode: "123456" })).resolves.toBe("current-proof");
+    const linked = { ...owner, phoneNumber: "+16505550101" };
+    vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue(linked);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ localId: owner.uid, phoneNumber: linked.phoneNumber })));
+    await expect(AuthService.confirmPhoneLinkVerification({
+      verificationId: fresh.verificationId, verificationCode: "123456", expectedUserId: owner.uid,
+      phoneNumber: linked.phoneNumber,
+    })).resolves.toBe(linked);
     current.abort();
   });
-  it("@feature_auth_reliability @trace_loop keeps a native verification challenge available after three minutes without a local expiry", async () => {
+  it.each(["link", "replace"] as const)("confirms a native %s on the captured Firebase UID", async intent => {
     vi.useFakeTimers();
-    const primary = { uid: "native-user", phoneNumber: null } as any;
+    const primary = { uid: "native-user", phoneNumber: intent === "replace" ? "+16505550100" : null, getIdToken: vi.fn().mockResolvedValue("native-email-session") } as any;
+    const linked = { ...primary, phoneNumber: "+16505550101" };
     mockAuth.currentUser = primary;
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
-    state.proof.confirmPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, phoneIdToken: "isolated-phone-proof" }));
-    state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
-    const restore = vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(primary);
-    try {
-      const start = await AuthService.startPhoneLinkVerification("+16505550101");
-      await vi.advanceTimersByTimeAsync(180_000);
-      await expect(AuthService.getPhoneClaimIdToken({ verificationId: start.verificationId, verificationCode: "123456" })).resolves.toBe("isolated-phone-proof");
-      // Persistence may be temporarily unavailable after the provider proof is
-      // minted; retry uses that proof without consuming another native code.
-      await expect(AuthService.getPhoneClaimIdToken({ verificationId: start.verificationId, verificationCode: "123456" })).resolves.toBe("isolated-phone-proof");
-      expect(state.proof.confirmPhoneVerificationProof).toHaveBeenCalledTimes(1);
-      expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
-      expect(mockAuth.currentUser).toBe(primary);
-      expect(FirebaseAuthentication.linkWithPhoneNumber).not.toHaveBeenCalled();
-      expect(FirebaseAuthentication.unlink).not.toHaveBeenCalled();
-    } finally { restore.mockRestore(); vi.useRealTimers(); }
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({
+      attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent,
+    }));
+    vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(primary);
+    const start = intent === "replace"
+      ? await AuthService.startPhoneReplacementVerification(linked.phoneNumber, { expectedUserId: primary.uid })
+      : await AuthService.startPhoneLinkVerification(linked.phoneNumber, { expectedUserId: primary.uid });
+    await vi.advanceTimersByTimeAsync(180_000);
+    vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue(linked);
+    const exchange = vi.fn().mockResolvedValue(Response.json({
+      localId: primary.uid, phoneNumber: linked.phoneNumber,
+      idToken: "unadopted-phone-id-token", refreshToken: "unadopted-phone-refresh-token",
+    }));
+    vi.stubGlobal("fetch", exchange);
+    const params = {
+      verificationId: start.verificationId, verificationCode: "123456", expectedUserId: primary.uid,
+      phoneNumber: linked.phoneNumber,
+    };
+    const result = intent === "replace"
+      ? await AuthService.confirmPhoneReplacementVerification(params)
+      : await AuthService.confirmPhoneLinkVerification(params);
+    expect(result).toBe(linked);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledWith(expect.objectContaining({
+      linkIntent: intent, expectedUserId: primary.uid,
+    }));
+    expect(JSON.parse(exchange.mock.calls[0][1].body)).toEqual({
+      idToken: "native-email-session", code: "123456", sessionInfo: "native-provider-challenge",
+    });
+    expect(state.proof.confirmPhoneVerificationProof).not.toHaveBeenCalled();
+    expect(state.proof.signIn).not.toHaveBeenCalled();
+    expect(FirebaseAuthentication.confirmVerificationCode).not.toHaveBeenCalled();
+    expect(FirebaseAuthentication.unlink).not.toHaveBeenCalled();
   });
 
-  it("@feature_auth_reliability @trace_loop allows a fresh web proof for the linked phone only when explicitly requested and enabled", async () => {
+  it("refuses to confirm on an older native bridge that can only mint a separate phone session", async () => {
+    vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue({ uid: "native-user", phoneNumber: null } as any);
+    state.proof.startPhoneLinkVerification.mockRejectedValue({ code: "UNIMPLEMENTED" });
+    await expect(AuthService.startPhoneLinkVerification("+16505550101")).rejects.toMatchObject({
+      code: "phone-link-upgrade-required",
+    });
+    expect(state.proof.startPhoneVerificationProof).not.toHaveBeenCalled();
+    expect(state.proof.cancelPhoneVerificationProof).toHaveBeenCalled();
+    expect(state.proof.confirmPhoneVerificationProof).not.toHaveBeenCalled();
+  });
+
+  it("does not request a new web OTP for the same already-linked provider phone", async () => {
     mockCapacitor.isNativePlatform.mockReturnValue(false);
-    mockAuth.currentUser = { uid: "web-user", phoneNumber: "+16505550101" } as any;
-    const verifyPhoneNumber = vi.fn().mockResolvedValue("fresh-linked-phone-proof");
-    mockPhoneAuthProvider.mockImplementation(function () { return { verifyPhoneNumber }; });
+    mockAuth.currentUser = { uid: "web-user", phoneNumber: "+16505550101" };
     await expect(AuthService.startPhoneLinkVerification("+16505550101")).rejects.toMatchObject({
       code: "phone-already-linked-to-current-user",
     });
-    await expect(AuthService.startPhoneLinkVerification("+16505550101", {
-      recaptchaVerifier: {} as any, allowLinkedPhoneProof: true,
-    })).resolves.toEqual({ autoVerified: false, verificationId: "fresh-linked-phone-proof" });
-    vi.stubEnv("NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED", "false");
-    await expect(AuthService.startPhoneLinkVerification("+16505550101", {
-      recaptchaVerifier: {} as any, allowLinkedPhoneProof: true,
-    })).rejects.toMatchObject({ code: "phone-already-linked-to-current-user" });
-    expect(verifyPhoneNumber).toHaveBeenCalledTimes(1);
-    expect(FirebaseAuthentication.linkWithPhoneNumber).not.toHaveBeenCalled();
+    expect(mockPhoneAuthProvider).not.toHaveBeenCalled();
     expect(linkWithCredential).not.toHaveBeenCalled();
-  });
-
-  it("allows an explicitly requested isolated native proof for the same phone", async () => {
-    const primary = { uid: "native-user", phoneNumber: "+16505550101" } as any;
-    mockAuth.currentUser = primary;
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
-    state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
-    const restore = vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(primary);
-    try {
-      await expect(AuthService.startPhoneLinkVerification("+16505550101", { allowLinkedPhoneProof: true })).resolves.toMatchObject({ autoVerified: false });
-      expect(FirebaseAuthentication.linkWithPhoneNumber).not.toHaveBeenCalled();
-      expect(FirebaseAuthentication.unlink).not.toHaveBeenCalled();
-    } finally { restore.mockRestore(); }
   });
 });

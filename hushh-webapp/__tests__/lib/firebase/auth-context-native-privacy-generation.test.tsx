@@ -31,16 +31,16 @@ describe("AuthProvider native privacy generations", () => {
     expect(mocks.apiDeleteSession).not.toHaveBeenCalled();
   });
 
-  it.each(["manual", "replacement", "automatic"])("waits for backend persistence before native %s verification succeeds", async (mode) => {
+  it.each(["manual", "replacement", "provider-already-linked"])("waits for backend persistence before native %s verification succeeds", async (mode) => {
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
     mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
     const saved = deferred<void>();
     mocks.phoneFinalize.mockReturnValueOnce(saved.promise);
-    if (mode === "automatic") mocks.phoneStart.mockResolvedValue({ autoVerified: true, user: makeUser() });
+    if (mode === "provider-already-linked") mocks.restoreNativeSession.mockResolvedValue({ ...makeUser(), phoneNumber: "+12025550101" });
     render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
     await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("native-account-owner"));
     fireEvent.click(screen.getByRole("button", { name: mode === "replacement" ? "Start native replacement" : "Start native phone" }));
-    if (mode !== "automatic") {
+    if (mode !== "provider-already-linked") {
       await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("code ready"));
       fireEvent.click(screen.getByRole("button", { name: mode === "replacement" ? "Confirm native replacement" : "Confirm native phone" }));
     }
@@ -79,34 +79,32 @@ describe("AuthProvider native privacy generations", () => {
     expect(mocks.phoneFinalize).not.toHaveBeenCalled();
   });
 
-  it.each(["link-confirm", "replacement-confirm", "link-restart", "replacement-restart", "automatic", "automatic-restored"])("retries only persistence after native provider success and a save outage: %s", async (mode) => {
+  it.each(["link-confirm", "replacement-confirm", "link-restart", "replacement-restart"])("retries only persistence after native provider success and a save outage: %s", async (mode) => {
     const linked = { ...makeUser(), phoneNumber: "+12025550101" };
     const replacement = mode.startsWith("replacement");
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
     mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    mocks.identityPeek.mockReturnValue({
+      data: { user_id: "native-account-owner", phone_number: "+14155550100", phone_verified: true },
+      isStale: false,
+    });
     mocks.phoneFinalize.mockRejectedValueOnce(new Error("save temporarily unavailable"));
     const providerSucceeded = () => { mocks.restoreNativeSession.mockResolvedValue(linked); return linked; };
     mocks.phoneConfirm.mockImplementation(async () => providerSucceeded());
-    if (mode.startsWith("automatic")) mocks.phoneStart.mockImplementation(async () => {
-      const user = providerSucceeded();
-      return { autoVerified: true, ...(mode === "automatic" ? { user } : {}) };
-    });
     render(<AuthProvider><SessionProbe /><NativePhoneProbe /></AuthProvider>);
     await waitFor(() => expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("native-account-owner"));
     const start = screen.getByRole("button", { name: replacement ? "Start native replacement" : "Start native phone" });
     const confirm = screen.getByRole("button", { name: replacement ? "Confirm native replacement" : "Confirm native phone" });
     fireEvent.click(start);
-    if (!mode.startsWith("automatic")) {
-      await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("code ready"));
-      fireEvent.click(confirm);
-    }
+    await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("code ready"));
+    fireEvent.click(confirm);
     await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("save temporarily unavailable"));
     expect(screen.getByTestId("native-phone-status")).not.toHaveTextContent("verified");
     expect(screen.getByTestId("native-published-phone")).toHaveTextContent("+14155550100");
     fireEvent.click(mode.endsWith("confirm") ? confirm : start);
     await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("verified"));
     expect(mocks.phoneStart).toHaveBeenCalledTimes(1);
-    expect(mocks.phoneConfirm).toHaveBeenCalledTimes(mode.startsWith("automatic") ? 0 : 1);
+    expect(mocks.phoneConfirm).toHaveBeenCalledTimes(1);
     expect(mocks.phoneFinalize).toHaveBeenCalledTimes(2);
     expect(mocks.restoreNativeSession).toHaveBeenCalledWith({ nativeOnly: true });
   });
