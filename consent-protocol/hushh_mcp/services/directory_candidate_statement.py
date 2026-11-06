@@ -4,6 +4,29 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+DIRECTORY_PROFILE_ELIGIBILITY_SQL = """
+profile.public_profile_status = 'active'
+AND NOT EXISTS (SELECT 1 FROM connection_requests blocked
+  WHERE blocked.status = 'rejected' AND blocked.metadata ->> 'blocked_by' IS NOT NULL
+    AND ((blocked.requester_user_id = :owner_user_id AND blocked.addressee_user_id = profile.user_id)
+      OR (blocked.addressee_user_id = :owner_user_id AND blocked.requester_user_id = profile.user_id)))
+AND (
+  profile.directory_listed = TRUE
+  OR (profile.directory_listed IS NULL AND EXISTS (
+    SELECT 1 FROM vault_keys vault WHERE vault.user_id = profile.user_id
+      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL))
+  OR EXISTS (SELECT 1 FROM connections related WHERE related.status = 'active'
+    AND ((related.user_a_id = :owner_user_id AND related.user_b_id = profile.user_id)
+      OR (related.user_b_id = :owner_user_id AND related.user_a_id = profile.user_id)))
+  OR EXISTS (SELECT 1 FROM connection_requests pending WHERE pending.status = 'pending'
+    AND ((pending.requester_user_id = :owner_user_id AND pending.addressee_user_id = profile.user_id)
+      OR (pending.addressee_user_id = :owner_user_id AND pending.requester_user_id = profile.user_id)))
+  OR EXISTS (SELECT 1 FROM trusted_connections edge WHERE edge.status = 'active'
+    AND ((edge.owner_user_id = :owner_user_id AND edge.trusted_user_id = profile.user_id)
+      OR (edge.trusted_user_id = :owner_user_id AND edge.owner_user_id = profile.user_id)))
+)
+"""
+
 DIRECTORY_CANDIDATE_SQL = """
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
@@ -73,46 +96,7 @@ DIRECTORY_CANDIDATE_SQL = """
               LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
               WHERE profile.user_id <> :owner_user_id
                 AND ({mutual_filter_clause})
-                AND profile.public_profile_status = 'active'
-                AND (
-                  profile.directory_listed = TRUE
-                  OR (profile.directory_listed IS NULL AND EXISTS (
-                    SELECT 1 FROM vault_keys vault
-                    WHERE vault.user_id = profile.user_id
-                      AND vault.vault_status = 'active' AND vault.environment_enrolled_at IS NOT NULL
-                  ))
-                  OR EXISTS (
-                    SELECT 1
-                    FROM connections related
-                    WHERE related.status = 'active'
-                      AND (
-                        (related.user_a_id = :owner_user_id AND related.user_b_id = profile.user_id)
-                        OR (related.user_b_id = :owner_user_id AND related.user_a_id = profile.user_id)
-                      )
-                  )
-                  OR EXISTS (
-                    SELECT 1
-                    FROM connection_requests pending
-                    WHERE pending.status = 'pending'
-                      AND (
-                        (pending.requester_user_id = :owner_user_id
-                          AND pending.addressee_user_id = profile.user_id)
-                        OR (pending.addressee_user_id = :owner_user_id
-                          AND pending.requester_user_id = profile.user_id)
-                      )
-                  )
-                  OR EXISTS (
-                    SELECT 1
-                    FROM trusted_connections edge
-                    WHERE edge.status = 'active'
-                      AND (
-                        (edge.owner_user_id = :owner_user_id
-                          AND edge.trusted_user_id = profile.user_id)
-                        OR (edge.trusted_user_id = :owner_user_id
-                          AND edge.owner_user_id = profile.user_id)
-                      )
-                  )
-                )
+                AND ({profile_eligibility})
                 AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
                 AND (CAST(:candidate_user_ids AS TEXT[]) IS NULL
                      OR profile.user_id = ANY(CAST(:candidate_user_ids AS TEXT[])))
@@ -188,4 +172,5 @@ def build_directory_candidate_statement(
         all_tokens_match_sql=all_tokens_match_sql,
         verified_email_clause=verified_email_clause,
         mutual_filter_clause=mutual_filter_clause,
+        profile_eligibility=DIRECTORY_PROFILE_ELIGIBILITY_SQL,
     )  # nosec B608 # All substitutions are internal static SQL fragments.
