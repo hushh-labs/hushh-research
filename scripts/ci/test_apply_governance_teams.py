@@ -1145,7 +1145,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     desired_rules = module.protected_pipeline_review_rulesets(policy, read=read)
     desired = desired_rules[0]
     assert [item["name"] for item in desired_rules] == ["protected pipeline review 1", "protected pipeline review 2", "protected pipeline review 3", "protected pipeline review inherited 1", "protected pipeline review inherited 2", "protected pipeline review inherited 3"]
-    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, 7, 15, 15, 7]
+    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, len(policy["main"]["protected_pipeline_paths"]) - 30] * 2
     patterns = [pattern for item in desired_rules[:2] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]]
     assert patterns == sorted({"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][:30]})
     assert len(patterns) == len(set(patterns)) == 30
@@ -1165,7 +1165,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     assert rule["required_approving_review_count"] == 0 and rule["require_code_owner_review"] is False
     reviewer = rule["required_reviewers"][0]
     assert reviewer["minimum_approvals"] == 1 and reviewer["reviewer"] == {"id": 42, "type": "Team"}
-    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md"]
+    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md", ".agents/config.toml", ".agents/config.json"]
     negative = [".GITHUB/workflows/check.yml", "scripts/CI/guard.py", "unrelated/scripts/ci/guard.py", "agents.md", "hushh-webapp/app/page.tsx"]
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     with tempfile.TemporaryDirectory(prefix="native-review-patterns-") as scratch:
@@ -1355,11 +1355,12 @@ def test_native_review_partial_resume_rolls_back_only_new_partition(module) -> N
 
 
 def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module) -> None:
+    import base64
     import copy
     import prepared_branch_governance as prepared
     from unittest.mock import patch
 
-    for branch in ("dev", "uat"):
+    for branch in ("dev", "uat", "uat-isolated"):
         for fault in (None, "reordered", "duplicate_actor", "bad_actor_mode", "missing_native", "changed_queue", "changed_protection", "bad_guard", "unknown_bypass", "stale_authority", "main_advanced"):
             policy, state, base_read, _, _ = _native_review_fixture(module)
             state["grant"] = "push"
@@ -1409,6 +1410,11 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                     return {"object": {"type": "commit", "sha": sha * 40}}
                 if "/contents/" in path:
                     filename = path.split("/contents/", 1)[1].split("?ref=", 1)[0]
+                    if branch == "uat-isolated":
+                        assert filename == "config/ci-governance.json" and not path.endswith("b" * 40)
+                        document = {} if fault == "stale_authority" else policy
+                        return {"path": filename, "encoding": "base64",
+                                "content": base64.b64encode(json.dumps(document).encode()).decode()}
                     stale = fault == "stale_authority" and path.endswith("b" * 40)
                     return {"path": filename, "type": "file", "sha": ("e" if stale else "d") * 40}
                 return base_read(args)
@@ -1452,6 +1458,11 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                 if fault in (None, "reordered"):
                     prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
                     assert prepared._same_protection(state["protections"][branch], prepared.protection_payload(prepared.branch_policy(policy, branch)))
+                    if branch == "uat-isolated":
+                        final = state["protections"][branch]
+                        assert final["required_status_checks"] == baseline["required_status_checks"]
+                        for key in ("required_approving_review_count", "require_code_owner_reviews", "require_last_push_approval"):
+                            assert final["required_pull_request_reviews"][key] == baseline["required_pull_request_reviews"][key]
                     assert [method for _, _, method in state["writes"]] == ["POST", "PUT", "PUT"]
                     if fault == "reordered":
                         state["writes"].clear()
@@ -1476,7 +1487,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
     import tempfile
     import prepared_branch_governance as prepared
 
-    for branch in ("dev", "uat"):
+    for branch in ("dev", "uat", "uat-isolated"):
         policy, _, _, _, _ = _native_review_fixture(module)
         owners = policy["main"]["protected_pipeline_edit_users"]
         cohort = policy["pr_train"]["review_bypass_users"]
@@ -1507,7 +1518,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
         for key in ("enforce_admins", "required_linear_history", "allow_force_pushes", "allow_deletions", "required_conversation_resolution"):
             protection[key] = {"enabled": protection[key]}
         protection["required_pull_request_reviews"]["bypass_pull_request_allowances"]["users"] = [{"login": owner} for owner in sorted(owners)]
-        for target in ("main", "dev", "uat"):
+        for target in ("main", "dev", "uat", "uat-isolated"):
             responses[f"repos/{module.REPO}/branches/{target}/protection"] = copy.deepcopy(protection)
         for target, revision in (("main", "a" * 40), (branch, "b" * 40)):
             responses[f"repos/{module.REPO}/git/ref/heads/{target}"] = {"object": {"type": "commit", "sha": revision}}
@@ -1520,7 +1531,9 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
             policy_file.write_text(json.dumps(policy))
             environment = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ["PATH"],
                 GITHUB_BRANCH=branch, GITHUB_REPO=module.REPO, GITHUB_CI_GOVERNANCE_FILE=str(policy_file))
-            for fault in (None, "missing_native", "guard_disabled", "unknown_actor", "blanket_review", "stale_authority"):
+            faults = [None, "missing_native", "guard_disabled", "unknown_actor", "blanket_review"]
+            faults += ["wrong_ci_app", "app_review_bypass"] if branch == "uat-isolated" else ["stale_authority"]
+            for fault in faults:
                 sample = copy.deepcopy(responses)
                 if fault == "missing_native":
                     sample[f"repos/{module.REPO}/rulesets?per_page=100"] = [rule for rule in sample[f"repos/{module.REPO}/rulesets?per_page=100"] if rule["id"] != 13]
@@ -1540,7 +1553,11 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
                     else:
                         raise AssertionError("Stale authority permitted review activation")
                 elif fault == "blanket_review":
-                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["require_code_owner_reviews"] = True
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["require_code_owner_reviews"] = branch != "uat-isolated"
+                elif fault == "wrong_ci_app":
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_status_checks"]["checks"][0]["app_id"] = 999
+                elif fault == "app_review_bypass":
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["bypass_pull_request_allowances"]["apps"] = [{"slug": "synthetic"}]
                 environment["SYNTHETIC_GITHUB_RESPONSES"] = json.dumps(sample)
                 result = subprocess.run(["bash", str(Path(__file__).parent / "verify-main-branch-protection.sh")],
                                         env=environment, text=True, capture_output=True, timeout=60)

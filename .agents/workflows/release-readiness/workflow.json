@@ -21,7 +21,7 @@
     "docs/reference/kai/kai-runtime-smoke-checklist.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task release-readiness",
+    "./bin/hushh agents route-task release-readiness",
     "./bin/hushh ci --include-advisory",
     "./bin/hushh docs verify"
   ],

@@ -169,7 +169,17 @@ class CloudRemovalStore(AzureTeardownStore):
                 "SELECT public.legacy_cloud_removal_complete(:owner,:attempt) AS value",
                 {"owner": owner, "attempt": operation["attempt"]},
             )
-            return recovery_view({**recovery, "qualifiedComplete": qualified is True})
+            # Receipts use PostgreSQL's jsonb text encoding, not Python JSON.
+            identity_hashes = await self._value(
+                "SELECT jsonb_object_agg((r->>'type')||':'||(r->>'id'),"
+                "encode(sha256(convert_to((r->'identity')::text,'UTF8')),'hex')) AS value "
+                "FROM jsonb_array_elements(CAST(:plan AS jsonb)->'resources') r",
+                {"plan": json.dumps(recovery["plan"])},
+            )
+            return recovery_view(
+                {**recovery, "qualifiedComplete": qualified is True},
+                identity_hashes=identity_hashes,
+            )
         review = operation.get("review") or {}
         row = await self.registry.get(owner) or {}
         snapshot = (

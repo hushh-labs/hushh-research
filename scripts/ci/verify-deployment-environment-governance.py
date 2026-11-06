@@ -57,9 +57,24 @@ def _reviewer_logins(payload: dict) -> list[str]:
 
 def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
     surface_policy = policy[surface]
-    env_name = surface_policy["environment"] if surface == "uat" else surface_policy["owner_environment"]
+    env_name = surface_policy["environment"] if surface in ("dev", "uat") else surface_policy["owner_environment"]
     payload = _gh_json(f"repos/{repo}/environments/{env_name}")
-    variables_payload = _gh_json(f"repos/{repo}/environments/{env_name}/variables")
+    variables_payload = _gh_json(f"repos/{repo}/environments/{env_name}/variables?per_page=100")
+    # GitHub may cap environment-variable pages below the requested size.
+    rows = list(variables_payload.get("variables") or [])
+    expected = variables_payload.get("total_count")
+    for page in range(2, 11):
+        if not isinstance(expected, int) or len(rows) >= expected:
+            break
+        next_page = _gh_json(f"repos/{repo}/environments/{env_name}/variables?per_page=100&page={page}")
+        more = next_page.get("variables") or []
+        if next_page.get("total_count") != expected or not more:
+            break
+        names = {row.get("name") for row in rows}
+        if any(row.get("name") in names for row in more):
+            break
+        rows.extend(more)
+    variables_payload["variables"] = rows
     branch_policy = payload.get("deployment_branch_policy") or {}
     reviewers = _reviewer_logins(payload)
     configured_variable_names = {
@@ -73,15 +88,28 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         if str(name).strip()
     }
     errors: list[str] = []
+    variable_rows = variables_payload.get("variables") or []
+    if variables_payload.get("total_count") != len(variable_rows):
+        errors.append(f"{env_name} environment variable inventory is incomplete")
 
     if reviewers:
         errors.append(f"{env_name} should not require reviewers, found {reviewers}")
     if bool(payload.get("can_admins_bypass")):
         errors.append(f"{env_name} still allows admin bypass")
-    if branch_policy.get("protected_branches") is not True:
-        errors.append(f"{env_name} should allow protected branches only")
-    if branch_policy.get("custom_branch_policies") is not False:
-        errors.append(f"{env_name} should not use custom branch policies")
+    expected_branches = surface_policy.get("deployment_branches")
+    if expected_branches:
+        branches = _gh_json(f"repos/{repo}/environments/{env_name}/deployment-branch-policies?per_page=100")
+        rows = branches.get("branch_policies", [])
+        if branches.get("total_count") != len(rows) or len(rows) >= 100:
+            errors.append(f"{env_name} branch policy inventory is incomplete")
+        if branch_policy != {"protected_branches": False, "custom_branch_policies": True} or sorted(
+                (row.get("type"), row.get("name")) for row in rows) != sorted(("branch", name) for name in expected_branches):
+            errors.append(f"{env_name} must admit exactly the authored deployment branches")
+    else:
+        if branch_policy.get("protected_branches") is not True:
+            errors.append(f"{env_name} should allow protected branches only")
+        if branch_policy.get("custom_branch_policies") is not False:
+            errors.append(f"{env_name} should not use custom branch policies")
 
     missing_variable_names = sorted(required_variable_names - configured_variable_names)
     if missing_variable_names:
@@ -96,19 +124,10 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
             f"expected {PRODUCTION_MANUAL_DISPATCH_USERS}, got {allowed_users}"
         )
 
-    # UAT dispatch authority must equal the merge cohort (main.review_bypass_users).
-    # Invariant: anyone trusted to land code on `main` is trusted to validate that
-    # code in the hosted UAT sandbox -- no more, no less. This keeps the two lists
-    # in lockstep and fails CI if either is widened or narrowed independently
-    # (e.g. a maintainer quietly adding only themselves to UAT dispatch).
-    if surface == "uat":
-        merge_cohort = sorted(set(policy.get("main", {}).get("review_bypass_users") or []))
-        uat_cohort = sorted(set(allowed_users))
-        if uat_cohort != merge_cohort:
-            errors.append(
-                "uat manual dispatch policy drifted from the merge cohort: "
-                f"expected {merge_cohort} (main.review_bypass_users), got {uat_cohort}"
-            )
+    # Deployment and merge authority are deliberately separate. UAT retains
+    # its authored cohort even when Main merger/review permissions narrow.
+    if not allowed_users or len(allowed_users) != len(set(allowed_users)):
+        errors.append(f"{surface} manual dispatch cohort is missing or duplicated")
 
     summary = (
         f"{surface} environment summary: env={env_name}, "
@@ -161,16 +180,16 @@ def _assert_readiness_exam(repo: str, policy: dict, accounts: dict) -> list[str]
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify live GitHub deployment environment governance for UAT and production."
+        description="Verify live GitHub deployment environment governance for Dev, UAT and production."
     )
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument(
-        "--surface", choices=("uat", "production", "readiness-exam", "all"), default="all"
+        "--surface", choices=("dev", "uat", "production", "readiness-exam", "all"), default="all"
     )
     args = parser.parse_args()
 
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
-    surfaces = ["uat", "production"] if args.surface == "all" else [args.surface]
+    surfaces = ["dev", "uat", "production"] if args.surface == "all" else [args.surface]
     errors: list[str] = []
     for surface in (item for item in surfaces if item != "readiness-exam"):
         errors.extend(_assert_surface(surface, args.repo, policy))

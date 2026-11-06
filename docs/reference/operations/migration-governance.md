@@ -526,7 +526,7 @@ Do not use as:
 ./bin/hushh db verify-release-contract
 ./bin/hushh db verify-uat-schema
 ./bin/hushh db report-prod-posture
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 python3 consent-protocol/db/migrate.py --release --release-environment production --migration-mode observe
 python3 consent-protocol/db/migrate.py --release --release-environment uat --migration-mode observe
 ```
@@ -565,7 +565,7 @@ When a new numbered migration lands:
 4. keep production and dev on the base head when a change is explicitly UAT-only
 5. follow the maintainer SOP in [data-model-governance.md](../architecture/data-model-governance.md)
 6. update [runtime-db-data-plane-contract.json](../architecture/runtime-db-data-plane-contract.json) when the migration creates or renames tables
-7. run `./bin/hushh codex data-model-audit` before claiming the migration is production-ready
+7. run `./bin/hushh agents data-model-audit` before claiming the migration is production-ready
 
 Every new table must have a declared owner, data class, primary access path, expected row-growth posture, retention policy, deletion behavior, and plaintext/ciphertext posture. Prefer adding the table to an existing family. Create a new family only when the table cannot honestly fit an existing bounded context.
 

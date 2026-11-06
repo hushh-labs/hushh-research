@@ -25,6 +25,7 @@ export type CloudCleanupView = {
   canCancel?: boolean;
   executionStarted?: boolean;
   legacyRecovery?: boolean;
+  nextEligibleAt?: string | null;
 };
 
 type CleanupRequest =
@@ -154,6 +155,10 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
     canCancel: data.canCancel === true && data.executionStarted !== true && !canFinalize,
     executionStarted: data.executionStarted === true,
     ...(data.legacyRecovery === true ? { legacyRecovery: true } : {}),
+    ...(typeof data.nextEligibleAt === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(data.nextEligibleAt) &&
+      Number.isFinite(Date.parse(data.nextEligibleAt))
+      ? { nextEligibleAt: data.nextEligibleAt } : {}),
     ...(data.provider ? { provider: data.provider as "gcp" | "azure" } : {}),
     ...(typeof data.confirmation === "string" ? { confirmation: data.confirmation } : {}),
     ...(typeof data.keepAccount === "boolean" ? { keepAccount: data.keepAccount } : {}),

@@ -15,7 +15,12 @@ import pytest
 import requests
 
 from hushh_mcp.services.azure_teardown_inventory import AzureTeardownRefused
-from hushh_mcp.services.legacy_cloud_removal import resource_key, resource_state, sha256
+from hushh_mcp.services.legacy_cloud_removal import (
+    recovery_view,
+    resource_key,
+    resource_state,
+    sha256,
+)
 from hushh_mcp.services.legacy_cloud_removal_executor import LegacyGcpRemoval
 from hushh_mcp.services.legacy_cloud_removal_teardown import (
     delete_remaining,
@@ -114,6 +119,37 @@ def terminal(worker, kind):
             "operationDone": kind in {"cloud_run_service", "reasoning_engine"},
         },
     )
+
+
+def test_retention_view_exposes_only_qualified_native_recheck_time_without_completing(worker):
+    bucket = worker._resource("gcs_bucket")
+    observation = {
+        "status": "waiting_for_provider",
+        "identitySha256": worker.journal.identity_sha256(bucket),
+        "coverage": {
+            "providerRetention": True,
+            "inventoryComplete": True,
+            "nextEligibleAt": "2099-11-13T07:03:50.404Z",
+        },
+    }
+    worker.journal.append(resource_key(bucket), "observation", observation)
+    recovery = {**worker.journal.read(), "planSha256": "a" * 64}
+    hashes = {resource_key(bucket): observation["identitySha256"]}
+    view = recovery_view(recovery, identity_hashes=hashes)
+    assert view["nextEligibleAt"] == "2099-11-13T07:03:50.404Z"
+    assert view["canFinalize"] is False and view["approvalRequired"] is True
+    for field, value in (
+        ("inventoryComplete", False),
+        ("nextEligibleAt", "unknown"),
+        ("nextEligibleAt", "2099-11-13T07:03:50"),
+    ):
+        original = observation["coverage"][field]
+        observation["coverage"][field] = value
+        assert recovery_view(recovery, identity_hashes=hashes)["nextEligibleAt"] is None
+        observation["coverage"][field] = original
+    observation["identitySha256"] = "b" * 64
+    assert recovery_view(recovery, identity_hashes=hashes)["nextEligibleAt"] is None
+    assert recovery_view(recovery)["nextEligibleAt"] is None
 
 
 @pytest.mark.parametrize(

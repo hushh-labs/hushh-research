@@ -28,25 +28,16 @@
     "docs/reference/quality/definition-of-done.md"
   ],
   "required_commands": [
-    "cd hushh-webapp && npm run test:ci",
-    "cd hushh-webapp && npm run verify:service-boundary",
-    "cd consent-protocol && python3 -m pytest tests/quality -q",
-    "./bin/hushh codex data-model-audit"
+    "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh"
   ],
   "verification_bundles": [
     {
       "id": "quality-contracts",
       "commands": [
-        "cd hushh-webapp && npm run test:ci",
-        "cd hushh-webapp && npm run verify:service-boundary",
-        "cd consent-protocol && python3 -m pytest tests/quality -q",
-        "./bin/hushh codex data-model-audit"
+        "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh"
       ],
       "tests": [
-        "cd hushh-webapp && npm run test:ci",
-        "cd hushh-webapp && npm run verify:service-boundary",
-        "cd consent-protocol && python3 -m pytest tests/quality -q",
-        "./bin/hushh codex data-model-audit"
+        "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh"
       ]
     }
   ],

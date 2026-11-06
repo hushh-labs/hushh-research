@@ -31,7 +31,7 @@
   ],
   "required_commands": [
     "./scripts/ci/pkm-upgrade-gate.sh",
-    "./bin/hushh codex data-model-audit",
+    "./bin/hushh agents data-model-audit",
     "./scripts/ci/reviewer-app-testing-check.sh"
   ],
   "verification_bundles": [
@@ -39,7 +39,7 @@
       "id": "pkm-upgrade-rehearsal",
       "commands": [
         "./scripts/ci/pkm-upgrade-gate.sh",
-        "./bin/hushh codex data-model-audit",
+        "./bin/hushh agents data-model-audit",
         "./scripts/ci/reviewer-app-testing-check.sh"
       ],
       "tests": [

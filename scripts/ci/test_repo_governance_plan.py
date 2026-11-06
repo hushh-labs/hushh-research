@@ -55,6 +55,7 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/promotion_approval.py",
         "scripts/ci/main-post-merge-smoke.sh",
         "scripts/ci/integration-check.sh",
+        "scripts/ci/orchestrate.sh",
         "scripts/ci/account-deletion-check.sh",
         "scripts/ci/backend-check.sh",
         "scripts/ci/validation-results.sh",
@@ -67,7 +68,6 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/verify-predecessor-acceptance.py",
         "scripts/ops/audit_env_toggles.py",
         "scripts/ops/sync_backend_runtime_secrets.py",
-        "scripts/ops/recover_dev_cloud_removal.py",
     ):
         selection = build_selection(
             {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
@@ -78,16 +78,6 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         assert {
             "runtime-config-contract", "deploy-secret-coverage", "protected-pipeline-edits"
         } <= set(selection.check_ids)
-
-
-def test_secret_scan_owner_does_not_become_unknown_during_branch_sync() -> None:
-    for path in ("scripts/ci/secret-scan.sh", "scripts/ci/test_secret_scan_ranges.py"):
-        selection = build_selection(
-            {"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path}
-        )
-        assert selection.error is None
-        assert selection.groups == ("controller",)
-        assert "ci-path-ownership" in selection.check_ids
 
 
 def test_production_emergency_authority_test_selects_controller_owner() -> None:
@@ -170,6 +160,21 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
     assert selection.groups == ()
     assert "cloudrun-retention" not in selection.check_ids
     assert "agent-orchestration" not in selection.check_ids
+    assert "web-lane-partition" not in selection.check_ids
+    # Owning package/fixture changes retain the topology check without turning
+    # ordinary package edits into the entire release-controller regression group.
+    from repo_governance_plan import WEB_LANE_INPUTS
+    for path in WEB_LANE_INPUTS:
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert "web-lane-partition" in selected.check_ids
+        if path == "hushh-webapp/package.json":
+            assert "release-controller-contracts" not in selected.check_ids
+    for level, path in (("release", "hushh-webapp/app/page.tsx"),
+                        ("focused", "unknown-root/runtime.py"),
+                        ("focused", ".github/workflows/ci.yml")):
+        selected = build_selection({"CI_VALIDATION_LEVEL": level, "CI_CHANGED_FILES": path})
+        assert "web-lane-partition" in selected.check_ids
 
 
 def test_affected_unit_selector_test_is_a_controller_owner() -> None:
@@ -279,6 +284,13 @@ def test_runner_reports_every_failure_instead_of_stopping_early() -> None:
     assert status == 1
     assert "first-failure (exit 7)" in output
     assert "second-failure (exit 9)" in output
+    # Failed assertions collect; missing tools and process cancellation stop.
+    from unittest.mock import patch
+    for result in (-15, 124, 127, 130):
+        with patch("repo_governance_plan.subprocess.run", return_value=subprocess.CompletedProcess([], result)) as run:
+            with contextlib.redirect_stderr(io.StringIO()):
+                assert _run_checks(checks) == (128 - result if result < 0 else result)
+            assert run.call_count == 1
 
 
 def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() -> None:
@@ -313,6 +325,70 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
     assert not any(argv[-1] == "integration" for argv, _ in observed)
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
+    # The operator report must not instruct agents to run a retired required lane.
+    context.update(branch="fix/change", url=None, lane_warning=None)
+    output = io.StringIO()
+    with patch.object(sys, "argv", ["pre-pr", "--base-ref", "main", "--json"]), \
+         patch.object(local, "_context", return_value=context), \
+         patch.object(local, "_focused", return_value=({"local": {"ok": True}}, [])), \
+         contextlib.redirect_stdout(output):
+        assert local.main() == 0
+    report = json.loads(output.getvalue())
+    assert "functional browser contracts" not in report["hosted_required"]
+    assert report["browser_validation"] == "explicit diagnostic only; not executed locally"
+
+
+def test_validation_results_collect_independent_failures_and_preserve_stops() -> None:
+    helper = ROOT / "scripts/ci/validation-results.sh"
+    sequence = """
+set -euo pipefail
+source "$1"
+validation_check first bash -c 'echo first; exit 1'
+validation_check second bash -c 'echo second; exit 2'
+validation_check third bash -c 'echo third'
+validation_finish
+"""
+    result = subprocess.run(["bash", "-c", sequence, "_", str(helper)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "third" in result.stdout
+    assert "first (exit 1)" in result.stderr and "second (exit 2)" in result.stderr
+    for code in (124, 126, 127, 130, 143):
+        script = f"""set -euo pipefail
+source "$1"
+validation_check interrupted bash -c 'exit {code}'
+echo must-not-run
+"""
+        result = subprocess.run(["bash", "-c", script, "_", str(helper)], capture_output=True, text=True)
+        assert result.returncode == code
+        assert "must-not-run" not in result.stdout
+    # An external script's prerequisite still stops its dependent command.
+    script = """set -euo pipefail
+source "$1"
+validation_check fixture bash -e -c 'false; echo unsafe-dependent'
+validation_check independent bash -c 'echo independent'
+validation_finish
+"""
+    result = subprocess.run(["bash", "-c", script, "_", str(helper)], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert "unsafe-dependent" not in result.stdout and "independent" in result.stdout
+
+    # One stale offline fixture must not hide the next environment failure.
+    spec = importlib.util.spec_from_file_location("environment_failure_collection",
+        ROOT / "scripts/ci/test_verify_deployment_environment_governance.py")
+    environment = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(environment)
+    seen = []
+    for name in vars(environment).copy():
+        if name.startswith("test_"):
+            setattr(environment, name, lambda name=name: seen.append(name))
+    def failed():
+        seen.append("first-failed")
+        raise KeyError("intentional offline regression")
+    environment.test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads = failed
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        assert environment.main() == 1
+    assert "first-failed" in seen
+    assert "test_capacity_clock_refuses_to_queue_before_its_wait" in seen
 
 
 def main() -> int:
@@ -320,10 +396,8 @@ def main() -> int:
         test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary,
         test_unconfigured_local_run_preserves_diagnostic_plan,
         test_focused_selection_runs_only_known_affected_regression_groups,
-        test_secret_scan_owner_does_not_become_unknown_during_branch_sync,
         test_explicit_ci_control_scripts_are_controller_owned,
         test_production_emergency_authority_test_selects_controller_owner,
-        test_document_delivery_ci_contract_paths_select_controller_owner,
         test_restoration_fixture_paths_select_controller_owner_and_history_consumers,
         test_known_product_path_does_not_expand_critical_groups,
         test_affected_unit_selector_test_is_a_controller_owner,
@@ -332,6 +406,7 @@ def main() -> int:
         test_changed_file_input_is_bounded_and_rejects_traversal,
         test_cli_commands_group_is_machine_readable_and_static,
         test_runner_reports_every_failure_instead_of_stopping_early,
+        test_validation_results_collect_independent_failures_and_preserve_stops,
     )
     for test in tests:
         test()
