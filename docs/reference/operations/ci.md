@@ -1788,6 +1788,8 @@ Blocking backend manifest:
 
 When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
 
+When promoting an already assembled UAT tree to Main, the actual Main comparison still runs freshly, including when graph revisions match. If that comparison proves identical semantic indexes, the generator can preserve the committed UAT comparison only by replaying every recorded diff field from its exact, ancestor-validated predecessor using current declarations. The predecessor must already be in the bounded merge-history set; missing or ambiguous history refuses promotion. Workflow history passes through the same compatibility and rejection checks, and all three current mirrors and source digests must still match. This preserves identical-tree approval without substituting historical evidence for a nonzero Main change.
+
 ---
 
 ## Integration Check (Route and Docs Contract)
