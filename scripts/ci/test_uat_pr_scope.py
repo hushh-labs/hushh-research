@@ -15,6 +15,14 @@ from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attemp
 
 
 class ApprovedUatScopeTest(unittest.TestCase):
+    def test_ci_ready_inspection_still_requires_explicit_scope_approval(self):
+        report = prerequisites.render({"ready": True, "candidate_sha": "a" * 40,
+            "base_sha": "b" * 40, "authority_sha": "c" * 40,
+            "ci_run_id": 123, "ci_run_attempt": 2})
+        self.assertIn("approved_scope=BACKEND:FRONTEND:PR=HEAD", report)
+        self.assertIn("CI success does not select or approve this delta", report)
+        self.assertIn("Inspection grants no deployment authority", report)
+
     def test_accumulated_pr_chain_checks_every_link_and_keeps_a_bound(self):
         for count in (11, 20):
             with self.subTest(count=count):

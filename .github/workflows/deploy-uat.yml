@@ -31,7 +31,7 @@ on:
           - backend
           - frontend
       sha:
-        description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
+        description: "Exact qualified application SHA; blank only verifies an already-serving no-op"
         required: false
         type: string
       source_branch:
@@ -76,7 +76,7 @@ on:
         default: false
         type: boolean
       repeat_reviewer_byok:
-        description: "Repeat a selected read-only reviewer BYOK rehearsal for independent RCA acceptance"
+        description: "Explicit read-only app-browser diagnostic (two passes); off by default"
         required: false
         default: false
         type: boolean
