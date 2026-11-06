@@ -384,6 +384,22 @@ def _select_groups(files: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]
     return tuple(group for group in REGRESSION_GROUPS if group in groups), None
 
 
+# Inputs read by the lane-topology regression owner, not product behavior.
+WEB_LANE_INPUTS = frozenset({
+    'hushh-webapp/package.json',
+    'hushh-webapp/playwright.config.ts',
+    'hushh-webapp/scripts/testing/playwright-shard.cjs',
+    'scripts/ci/test_web_ci_lane_partition.py',
+    'scripts/ci/web_ci_lane_fixture.py',
+    'scripts/ci/web_lane_topology_contract.py',
+    'scripts/ci/web-targeted-check.sh',
+    'scripts/ci/web-targeted-plan.sh',
+    'scripts/ci/web-common.sh',
+    'scripts/ci/web-full-suite-check.sh',
+    'scripts/ci/web-browser-core.py',
+})
+
+
 def build_selection(env: dict[str, str]) -> Selection:
     raw_level = env.get("CI_VALIDATION_LEVEL")
     level = raw_level.strip().lower() if raw_level and raw_level.strip() else "diagnostic"
@@ -410,6 +426,13 @@ def build_selection(env: dict[str, str]) -> Selection:
         and (
             not check.groups.intersection({"controller", "retention", "agent", "release"})
             or bool(check.groups.intersection(requested_groups))
+        )
+        and (
+            check.check_id != "web-lane-partition"
+            or level == "release"
+            or selection_error
+            or "controller" in requested_groups
+            or bool(WEB_LANE_INPUTS.intersection(files))
         )
     )
     return Selection(

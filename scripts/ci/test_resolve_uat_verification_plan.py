@@ -21,7 +21,7 @@ def load_module():
 
 def plan_for(
     monkeypatch_files: set[str], *, backend: bool = True,
-    frontend: bool = False, live: bool = False,
+    frontend: bool = False, live: bool = False, browser: bool = False,
 ):
     resolver = load_module()
     resolver._git_diff = lambda _base, _target: set(monkeypatch_files)
@@ -32,6 +32,7 @@ def plan_for(
         deploy_backend=backend,
         deploy_frontend=frontend,
         run_live_model_checks=live,
+        run_browser_diagnostics=browser,
     )
 
 
@@ -115,7 +116,13 @@ def test_unknown_base_preserves_authority_without_implicit_live_calls() -> None:
         assert plan.pkm_evaluator_runs == int(live)
         assert lanes["candidate_pkm_evaluator"]["required"] is live
         assert lanes["pkm_upgrade"]["required"] is True
-        assert lanes["reviewer_byok"]["required"] is True
+        assert lanes["reviewer_byok"]["required"] is False
+        requested = resolver.resolve_plan(
+            target_sha="target", backend_base_sha="", frontend_base_sha="",
+            deploy_backend=True, deploy_frontend=True, run_browser_diagnostics=True,
+        )
+        assert requested.run_reviewer_byok is True
+        assert requested.run_pkm_upgrade_gate is True
 
 
 def test_selector_change_relies_on_always_on_policy_contract_tests() -> None:
@@ -136,20 +143,24 @@ def test_unknown_path_keeps_expensive_lanes_skipped() -> None:
     assert plan.run_pkm_upgrade_gate is False
 
 
-def test_frontend_vault_change_requires_byok_browser() -> None:
+def test_frontend_vault_browser_requires_explicit_diagnostic_request() -> None:
     plan = plan_for({"hushh-webapp/lib/services/vault-service.ts"}, backend=False, frontend=True)
     assert plan.pkm_evaluator_runs == 0
-    assert plan.run_reviewer_byok is True
-    assert plan.as_dict()["requires_web_dependencies"] is True
+    assert plan.run_reviewer_byok is False
+    assert plan.as_dict()["requires_web_dependencies"] is False
+    explicit = plan_for(set(), backend=False, frontend=True, browser=True)
+    assert explicit.run_reviewer_byok is True
+    assert explicit.as_dict()["requires_web_dependencies"] is True
+    assert explicit.as_dict()["lanes"]["reviewer_byok"]["reason"] == "browser_diagnostics_explicitly_requested"
 
 
-def test_world_model_background_driver_requires_read_only_byok_browser() -> None:
+def test_world_model_background_driver_does_not_select_app_browser() -> None:
     for path in (
         "hushh-webapp/components/profile/world-model-provider.tsx",
         "hushh-webapp/lib/services/world-model-research-service.ts",
     ):
         plan = plan_for({path}, backend=False, frontend=True)
-        assert plan.run_reviewer_byok is True
+        assert plan.run_reviewer_byok is False
         assert plan.pkm_evaluator_runs == 0
         assert plan.run_pkm_upgrade_gate is False
 
@@ -223,7 +234,7 @@ def test_divergent_service_bases_preserve_owned_and_shared_protected_changes() -
     )
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
-    assert plan.run_reviewer_byok is True
+    assert plan.run_reviewer_byok is False
 
 
 def test_missing_deployed_sha_fails_closed() -> None:
@@ -237,10 +248,10 @@ def test_missing_deployed_sha_fails_closed() -> None:
     )
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
-    assert plan.run_reviewer_byok is True
+    assert plan.run_reviewer_byok is False
     lanes = plan.as_dict()["lanes"]
     assert lanes["pkm_upgrade"]["reason"] == "comparison_base_unproven_fail_closed"
-    assert lanes["reviewer_byok"]["reason"] == "comparison_base_unproven_fail_closed"
+    assert lanes["reviewer_byok"]["reason"] == "browser_diagnostics_not_requested"
 
 
 def test_one_missing_service_base_fails_closed_for_all_service_deploy() -> None:
@@ -254,7 +265,7 @@ def test_one_missing_service_base_fails_closed_for_all_service_deploy() -> None:
     )
     assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
-    assert plan.run_reviewer_byok is True
+    assert plan.run_reviewer_byok is False
     assert plan.reason == "conservative:comparison_base_unproven"
     assert plan.as_dict()["lanes"]["candidate_pkm_evaluator"]["required"] is False
 
@@ -274,7 +285,7 @@ def test_unresolvable_comparison_base_fails_closed() -> None:
         deploy_frontend=False,
     )
     assert plan.run_pkm_upgrade_gate is True
-    assert plan.run_reviewer_byok is True
+    assert plan.run_reviewer_byok is False
     assert plan.reason == "conservative:comparison_base_unproven"
 
 
@@ -292,8 +303,8 @@ def main() -> int:
         test_selector_change_relies_on_always_on_policy_contract_tests,
         test_pkm_gate_policy_change_relies_on_always_on_contract_tests,
         test_unknown_path_keeps_expensive_lanes_skipped,
-        test_frontend_vault_change_requires_byok_browser,
-        test_world_model_background_driver_requires_read_only_byok_browser,
+        test_frontend_vault_browser_requires_explicit_diagnostic_request,
+        test_world_model_background_driver_does_not_select_app_browser,
         test_divergent_service_bases_do_not_reselect_already_deployed_vault_change,
         test_divergent_service_bases_preserve_owned_and_shared_protected_changes,
         test_missing_deployed_sha_fails_closed,
