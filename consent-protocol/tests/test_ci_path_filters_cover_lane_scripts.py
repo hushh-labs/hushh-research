@@ -795,6 +795,40 @@ def test_public_email_risk_integrity_command_checks_the_actual_blob(tmp_path, fa
         assert "unowned input" in result.stderr
 
 
+def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner():
+    helper = "consent-protocol/tests/helpers/drive_worker_gcloud.py"
+    consumers = {
+        "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    }
+    observed = set()
+    for path in (ROOT / "consent-protocol/tests").rglob("test_*.py"):
+        source = path.read_text()
+        if "drive_worker_gcloud" not in source:
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and (
+                    node.module == "tests.helpers.drive_worker_gcloud"
+                    or node.module == "tests.helpers"
+                    and any(item.name == "drive_worker_gcloud" for item in node.names)
+                )
+                or isinstance(node, ast.Import)
+                and any(item.name == "tests.helpers.drive_worker_gcloud" for item in node.names)
+            ):
+                observed.add(str(path.relative_to(ROOT)))
+
+    assert observed == consumers
+    filters = _filters()
+    for path in (helper, *consumers):
+        assert not filters["backend"].match_file(path)
+        plan = _governance_plan((path,))
+        commands = {check["id"]: check["argv"] for check in plan["commands"]}
+        assert consumers.issubset(commands["release-controller-contracts"])
+    assert filters["backend"].match_file("consent-protocol/tests/helpers/unknown_worker_gcloud.py")
+
+
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
         "consent-protocol/tests/test_runtime_config_retention.py",
@@ -824,6 +858,7 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
         "consent-protocol/tests/test_drive_v1_worker_lane.py",
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_drive_worker_release_rollback.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
         "consent-protocol/tests/test_hushh_tech_client_migration.py",

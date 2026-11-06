@@ -82,6 +82,7 @@ ISOLATED_CI_PATHS = (
     # The isolated checkout receives Main's portable .agents manifests.
     "consent-protocol/tests/test_memory_judge.py",
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/helpers/drive_worker_gcloud.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
     "consent-protocol/tests/helpers/plg_qualification.py",

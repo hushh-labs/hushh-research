@@ -224,6 +224,8 @@ The two bundled public email-risk data files use actual-blob digest/bounds check
 and the existing domain-policy cases in Governance. Their runtime parser, test
 module, schema and unrecognized neighboring inputs retain backend validation.
 This data-only owner does not replace full application release qualification.
+The synthetic worker CLI fixture retains both deployment and rollback consumer
+suites in the controller owner. Unknown helpers retain conservative selection.
 
 Read-only UAT inspection checks the selected candidate's public email-risk snapshot
 when email authentication is enabled. Expired or malformed inputs require a pinned
