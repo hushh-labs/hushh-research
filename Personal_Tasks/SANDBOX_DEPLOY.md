@@ -13,7 +13,7 @@ tunnel also needs that account's normal `gcloud auth login` session.
 # Read-only identity, permission and resource-isolation verification:
 bash Personal_Tasks/akshat-sandbox.sh check
 
-# Commit and push New_memory_architecutre first; the tree must be clean.
+# Commit and push Akshat_Working_branch first; the tree must be clean.
 bash Personal_Tasks/akshat-sandbox.sh deploy
 
 # After a successful deployment, start the matching clean frontend and tunnel:
@@ -43,15 +43,19 @@ out the deployed commit, and requires the existing dedicated Firebase web config
 and impersonated localhost signing credentials under
 `~/.codex/private/akshat-sandbox/`. It refuses ordinary frontend `.env` files.
 
-## Current activation blocker
+## Access and timing
 
-Live permission checks on 2026-11-06 confirmed the caller can view/invoke the
-sandbox, upload/read its source bucket, and act as both dedicated identities.
-Direct deployment is missing:
+Live permission checks on 2026-11-06 passed for source uploads, builds, service
+updates, invocation and the dedicated identities. The required deployment grants are:
 
 - `cloudbuild.builds.create` in `hushh-pda-uat` for the dedicated sandbox builder.
 - `run.services.update` on `backend-dev-akshat` only.
 
-An authorized cloud operator must grant the bounded permissions or provide an
-approved sandbox-only executor. GitHub Owner status does not grant GCP permissions.
-Image deployment, Azure calls and the new frontend connection are not yet verified.
+The launcher permits only `Akshat_Working_branch`, including its merged Main and
+memory changes. The separate `New_memory_architecutre` branch is not modified.
+No changes to shared pipelines or shared services are needed for this local path.
+
+Deployment receipts record source preparation/upload, Cloud Build queue and
+execution, revision rollout and total deployment time. Frontend startup timings
+are saved separately in `direct-frontend.json`, including authenticated tunnel
+and first successful login-page response. These are measured durations, not estimates.

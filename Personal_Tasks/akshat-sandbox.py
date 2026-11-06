@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT = "hushh-pda-uat"
 REGION = "us-central1"
 SERVICE = "backend-dev-akshat"
-BRANCH = "New_memory_architecutre"
+BRANCH = "Akshat_Working_branch"
 ACCOUNT = "i-akshat@hush1one.com"
 AUTH = "hushh-akshat-sandbox-auth"
 BUCKET = f"{PROJECT}-{SERVICE}-builds"
@@ -273,7 +273,8 @@ def save(path, data):
     temporary.replace(path)
 
 
-def deploy(cloud, service):
+def deploy(cloud, service, started):
+    stage_started = time.monotonic()
     require(git("branch", "--show-current") == BRANCH, "Switch to " + BRANCH)
     require(not git("status", "--porcelain"), "Commit working changes before deployment")
     sha = git("rev-parse", "HEAD")
@@ -300,6 +301,8 @@ def deploy(cloud, service):
         "tag": tag,
         "revision": revision,
         "stage": "upload",
+        "started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "timings_seconds": {"authorization_preflight": round(stage_started - started, 3)},
     }
     save(pending, intent)
     with tempfile.TemporaryDirectory(prefix="akshat-sandbox-") as directory:
@@ -315,6 +318,7 @@ def deploy(cloud, service):
             f"https://storage.googleapis.com/upload/storage/v1/b/{BUCKET}/o?uploadType=media&ifGenerationMatch=0&name={object_name}",
             upload=archive,
         )
+    intent["timings_seconds"]["source_archive_and_upload"] = round(time.monotonic() - stage_started, 3)
     recipe = yaml.safe_load(git("show", sha + ":deploy/personal-backend-image.cloudbuild.yaml"))
     recipe.update(
         source={
@@ -334,6 +338,7 @@ def deploy(cloud, service):
     }
     intent.update(stage="build-submit", source_generation=stored["generation"])
     save(pending, intent)
+    stage_started = time.monotonic()
     operation = cloud.request(f"https://cloudbuild.googleapis.com/v1/projects/{PROJECT}/builds", recipe)
     build_id = operation["metadata"]["build"]["id"]
     intent.update(stage="build", build_id=build_id)
@@ -352,6 +357,19 @@ def deploy(cloud, service):
         time.sleep(15)
     else:
         raise RuntimeError("Build is still unresolved; inspect recorded build ID")
+    intent["timings_seconds"]["build_submit_and_wait"] = round(time.monotonic() - stage_started, 3)
+    for label, first, last in [
+        ("cloud_build_queue", "createTime", "startTime"),
+        ("cloud_build_execution", "startTime", "finishTime"),
+    ]:
+        if build.get(first) and build.get(last):
+            intent["timings_seconds"][label] = round(
+                (
+                    datetime.datetime.fromisoformat(build[last].replace("Z", "+00:00"))
+                    - datetime.datetime.fromisoformat(build[first].replace("Z", "+00:00"))
+                ).total_seconds(),
+                3,
+            )
     import base64
 
     metadata = json.loads(base64.b64decode(build["results"]["buildStepOutputs"][1]))
@@ -417,6 +435,7 @@ def deploy(cloud, service):
     }
     intent.update(stage="deploy-submit", digest=digest)
     save(pending, intent)
+    stage_started = time.monotonic()
     operation = cloud.request(
         f"https://run.googleapis.com/v2/{RESOURCE}?updateMask=template,traffic,labels",
         body,
@@ -451,13 +470,16 @@ def deploy(cloud, service):
         observed["template"]["containers"][0]["image"] == IMAGE + "@" + digest,
         "Deployed image differs",
     )
+    intent["timings_seconds"]["revision_rollout_and_verification"] = round(time.monotonic() - stage_started, 3)
+    intent["timings_seconds"]["total_deployment_command"] = round(time.monotonic() - started, 3)
+    intent["ready_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     intent["stage"] = "ready"
     save(STATE / "direct-deployment.json", intent)
     pending.unlink()
     print("Deployment ready:", json.dumps(intent), flush=True)
 
 
-def frontend(cloud, service):
+def frontend(cloud, service, started):
     receipt = json.loads((STATE / "direct-deployment.json").read_text())
     require(
         receipt.get("stage") == "ready"
@@ -586,6 +608,7 @@ def frontend(cloud, service):
         require(not value, "Remove gcloud authentication override: " + name)
     children = []
     try:
+        tunnel_started = time.monotonic()
         children.append(
             subprocess.Popen(
                 [
@@ -625,12 +648,14 @@ def frontend(cloud, service):
             time.sleep(1)
         else:
             raise RuntimeError("Authenticated sandbox tunnel did not become healthy")
+        tunnel_seconds = round(time.monotonic() - tunnel_started, 3)
+        web_started = time.monotonic()
         children.append(
             subprocess.Popen(
                 [
                     "npm",
                     "run",
-                    "dev",
+                    "dev:webpack",
                     "--",
                     "--hostname",
                     "127.0.0.1",
@@ -642,6 +667,31 @@ def frontend(cloud, service):
                 start_new_session=True,
             )
         )
+        deadline = time.monotonic() + 240
+        while time.monotonic() < deadline:
+            require(all(child.poll() is None for child in children), "A sandbox runtime process exited")
+            response = subprocess.run(
+                ["curl", "-fsS", "--max-time", "10", "-o", "/dev/null", "http://localhost:3000/login"],
+                capture_output=True,
+            )
+            if response.returncode == 0:
+                break
+            time.sleep(1)
+        else:
+            raise RuntimeError("Local frontend did not become ready")
+        startup = {
+            "sha": sha,
+            "revision": receipt["revision"],
+            "ready_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "timings_seconds": {
+                "authenticated_tunnel": tunnel_seconds,
+                "frontend_process_to_login": round(time.monotonic() - web_started, 3),
+                "total_frontend_command": round(time.monotonic() - started, 3),
+            },
+            "owned_processes": [child.pid for child in children],
+        }
+        save(STATE / "direct-frontend.json", startup)
+        print("Startup timings:", json.dumps(startup["timings_seconds"]), flush=True)
         print(
             "Frontend: http://localhost:3000 — sandbox revision " + receipt["revision"],
             flush=True,
@@ -663,6 +713,7 @@ def frontend(cloud, service):
 
 
 def main():
+    started = time.monotonic()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["check", "deploy", "frontend"])
@@ -672,9 +723,9 @@ def main():
         STATE.mkdir(parents=True, exist_ok=True)
         with (STATE / "direct.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            deploy(cloud, check(cloud))
+            deploy(cloud, check(cloud), started)
     elif args.operation == "frontend":
-        frontend(cloud, check(cloud, deployment=False))
+        frontend(cloud, check(cloud, deployment=False), started)
     else:
         check(cloud)
 
