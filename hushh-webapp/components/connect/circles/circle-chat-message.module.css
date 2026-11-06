@@ -37,10 +37,14 @@
 .messageOptions { position: absolute; top: 0; left: calc(100% + 48px); width: 44px; height: 44px; opacity: 0; transition: opacity 150ms ease-out; }
 .own .messageOptions { right: calc(100% + 48px); left: auto; }
 .stack:hover .addReaction, .stack:focus-within .addReaction, .addReaction[aria-expanded="true"], .stack:hover .messageOptions, .stack:focus-within .messageOptions, .messageOptions:has([aria-expanded="true"]) { opacity: 1; }
-.quote { display: block; width: 100%; min-height: 44px; margin-bottom: 6px; padding: 6px 8px; border-left: 3px solid var(--app-accent); border-radius: 5px; background: var(--app-accent-tint); color: inherit; text-align: start; font-size: 12px; line-height: 16px; overflow-wrap: anywhere; }
-.quote strong { display: block; }
-.quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.quote { display: block; width: fit-content; max-width: min(100%, 18rem); min-height: 44px; margin-bottom: 4px; padding-block: 2px; padding-inline: 8px 0; border-inline-start: 2px solid color-mix(in oklab, currentColor 55%, transparent); border-radius: 0; background: transparent; color: inherit; text-align: start; font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.quote strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; opacity: .78; }
 .quote:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
+.messageMenu { min-width: 11.75rem; padding: 4px; border-radius: 8px; }
+.messageMenu [role="menuitem"] { min-height: 44px; gap: 8px; padding: 4px 8px; }
+.messageMenu [data-variant="destructive"] svg { fill: currentColor; }
+.messageMenu [data-variant="destructive"][data-highlighted] { background: color-mix(in oklab, var(--destructive) 8%, transparent); color: var(--destructive); }
 .pill { display: inline-grid; place-items: center; min-width: 44px; min-height: 44px; padding: 0; background: transparent; }
 .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border: 1px solid var(--chat-line, var(--border)); border-radius: 999px; background: var(--chat-surface, var(--card)); color: var(--chat-text, var(--foreground)); font-size: 12px; }
 .mine .badge { border-color: var(--chat-accent, var(--app-accent)); }
