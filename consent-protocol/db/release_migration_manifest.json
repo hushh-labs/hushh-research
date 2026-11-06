@@ -384,7 +384,8 @@
     "448_connection_network_visibility.sql",
     "449_gcp_notification_account_id_limit.sql",
     "450_one_attempt_email_outbox.sql",
-    "451_one_attempt_email_feedback.sql"
+    "451_one_attempt_email_feedback.sql",
+    "452_direct_calls.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -815,6 +816,7 @@
     "445_calendar_email_followup_relevance.sql": "rollback/445_calendar_email_followup_relevance.rollback.sql",
     "449_gcp_notification_account_id_limit.sql": "rollback/449_gcp_notification_account_id_limit.rollback.sql",
     "450_one_attempt_email_outbox.sql": "rollback/450_one_attempt_email_outbox.rollback.sql",
-    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql"
+    "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
+    "452_direct_calls.sql": "rollback/452_direct_calls.rollback.sql"
   }
 }
