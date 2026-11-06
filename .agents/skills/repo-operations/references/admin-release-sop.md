@@ -138,6 +138,13 @@ It rechecks before mutation and verifies the landed parents and tree. An uncerta
 response is reconciled, never automatically replayed. Main merges additionally
 require landed Main smoke. Merging any destination never dispatches deployment.
 
+The direct PR-merge API guards the head SHA, not the captured destination atomically.
+Repeated snapshots and native strict status do not remove that race. If another PR
+lands during submission, the receipt records `merged_unqualified` and the actual
+landed parents/tree before refusing. Do not retry or claim that combined source
+passed CI. Preserve both changes and qualify the actual landed revision before any
+deployment. Use the native queue when pre-merge combined-result proof is required.
+
 For this direct route only, reconcile the PR's actual current destination if its
 tested base changed. Ordinary eligible contributors can use the queue without
 this ancestry requirement. A changed source needs its own validation. Missing or failed evidence
