@@ -39,7 +39,7 @@ const auth = vi.hoisted(() => ({
   },
   loading: false,
   sessionVerificationRequired: false,
-  phoneNumber: null,
+  phoneNumber: null as string | null,
   phoneNumberStatus: "missing",
   signOut: async () => undefined,
   startPhoneVerification: vi.fn().mockResolvedValue({ autoVerified: false }),
@@ -109,9 +109,12 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
 import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { ReferralService } from "@/lib/services/referral-service";
+import { AuthService } from "@/lib/services/auth-service";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  auth.phoneNumber = null;
+  auth.phoneNumberStatus = "missing";
   publishValidatedAuthSessionPrincipal({ firebaseUid: auth.user.uid, ownerId: auth.userId, accountGeneration: 0 });
   nav.query = "profile_pane=1&profile_panel=world-model";
   // Profile's own background reads (identity, vault, discoverability) answer
@@ -139,11 +142,17 @@ function activeScreen() {
 }
 
 describe("Profile pane: Personal World Model", () => {
-  it("keeps an occupied phone linked to its existing account in native Profile", async () => {
+  it("reverifies an app-only phone in native Profile without taking it from its Firebase owner", async () => {
     const { ApiError } = await import("@/lib/services/api-client");
     nav.query = "profile_pane=1&profile_panel=account&profile_detail=phone";
     window.history.replaceState(null, "", `/one?${nav.query}`);
+    auth.phoneNumber = "+16505550101";
+    auth.phoneNumberStatus = "verified";
     const close = vi.fn();
+    vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
+      ...auth.user, phoneNumber: null,
+    } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
+    const start = vi.spyOn(auth, "startPhoneVerification");
     vi.spyOn(auth, "confirmPhoneVerification").mockRejectedValue(new ApiError("Occupied", 409, { code: "PHONE_ALREADY_VERIFIED" }));
     const transfer = vi.spyOn(auth, "confirmPhoneTransfer");
     render(<StepProgressProvider><ProfilePage presentation="native-page" nativeMenuOpen
@@ -151,6 +160,7 @@ describe("Profile pane: Personal World Model", () => {
     const input = await screen.findByRole("textbox", { name: "Phone number" });
     fireEvent.change(input, { target: { value: "6505550101" } }); fireEvent.submit(input.closest("form")!);
     const code = await screen.findByRole("textbox", { name: "One-time code" });
+    expect(start).toHaveBeenCalledWith("+16505550101", expect.objectContaining({ transport: "sms" }));
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     await screen.findByRole("button", { name: "Delete my previous account" });
     expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();

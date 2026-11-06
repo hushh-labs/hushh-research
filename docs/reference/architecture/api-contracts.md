@@ -736,10 +736,12 @@ confirmation in flight per Firebase UID through both writes. Concurrent
 replacements on separate devices can require another read and retry.
 
 Account restore and phone consumers use the committed application claim. A raw
-Firebase phone does not establish that claim. A confirmed same-owner number
-can remain visible during a temporary lookup failure. The fixed-code fixture
-transport remains application-only. The isolated phone proof and claim endpoints
-remain available to the recovery and compatibility flows that use them. An
+Firebase phone does not establish that claim. The auth context can retain a
+known same-owner app claim during a temporary lookup failure. The fixed-code
+fixture transport remains application-only. Isolated phone proof remains
+available to recovery flows. A legacy client cannot write a new claim through
+`/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
+the updated native clients and frontend before rolling out that enforcement. An
 expired challenge retires only its captured owner and attempt. Missing local
 state is `phone-verification-required`, distinct from provider `code-expired`.
 
@@ -3710,12 +3712,13 @@ Cached hints alone never authorize completion. This preserves the native
 same-number/linked Continue path without requiring an SDK phone link for an
 already saved backend-only claim.
 
-Web verification's app-level phone need not be linked to the primary social
-Firebase user. Auth state publishes a fresh verified identity-cache phone after
-the backend claim commits, including same-user Firebase republication, and never
-uses stale/unverified cache evidence or a previous user's cache. Historical
-missing phone bindings are not reconstructed from email verification or OTP log
-messages; account owners restore them through the existing phone verification flow.
+Account settings on web, iOS, and Android show a phone as linked when a fresh
+Firebase read for the signed-in UID matches the verified application claim.
+An existing app-only or mismatched phone shows a verification action. The
+Account editor uses the existing provider-link flow, including when the user
+enters the same number already saved in Hussh. A provider link pending app
+persistence can be retried without another SMS through the exact-phone finalizer.
+Legacy claims remain available to flows that use the application identity.
 An identity lookup failure is retryable availability uncertainty, not a removed
 phone. Auth state retains the known same-session claim, accepts later exact-owner
 cache updates, and fences delayed responses against account changes and newer
@@ -3726,7 +3729,7 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/account/identity/refresh`                   | Refresh backend identity shadow from Firebase Auth                                                                                                                                                       |
-| POST   | `/api/account/phone/claim`                        | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim, then delete the safe phone-only secondary Firebase user when it differs from the signed-in UID |
+| POST   | `/api/account/phone/claim`                        | Compatibility endpoint. Verify phone proof for the signed-in Firebase UID and finalize only the exact phone linked to that UID. A different proof UID cannot create an application claim. Safe phone-only proof users remain eligible for guarded cleanup. |
 | GET    | `/api/account/session-status`                     | Linearized, no-store account lifecycle probe. `401 AUTH_ACCOUNT_NOT_FOUND` is terminal; `423 AUTH_ACCOUNT_DELETION_IN_PROGRESS` means the client must retain its privacy gate and re-probe after `Retry-After`; general lookup failure is `503 AUTH_ACCOUNT_STATUS_UNAVAILABLE` |
 | GET    | `/api/account/email-aliases`                      | List vault-owner account email aliases                                                                                                                                                                   |
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
