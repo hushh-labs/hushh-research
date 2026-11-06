@@ -2149,3 +2149,13 @@ A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operatio
 for the canonical commands and live-policy activation. Do not ask a self-approving
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
+
+### Capacity maintenance job labels
+
+The clock decides when work is due; the worker inspects or performs bounded cleanup
+under the environment mutation lock. These remain separate authorities. Static
+UAT/Production revision-maintenance labels stay readable even when skipped. Each
+executed job records an explicit inspection or cleanup mode; only cleanup plus the
+existing successful guarded steps can establish a mutation checkpoint. Missing or
+ambiguous mode evidence refuses. Historical inspection/cleanup receipts retain
+their original names and verification rules. No cadence or resource policy changes.

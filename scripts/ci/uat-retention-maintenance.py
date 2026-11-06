@@ -1252,7 +1252,8 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
         jobs = result.get("jobs")
         if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
             raise retention.UnsafeState("maintenance job inventory is incomplete")
-        matched = [job for job in jobs if job.get("name") == name]
+        current_name = ("UAT" if environment == "uat" else "Production") + " revision maintenance"
+        matched = [job for job in jobs if job.get("name") in {name, current_name}]
         if len(matched) != 1 or matched[0].get("status") != "completed":
             continue
         authored = matched[0].get("steps", [])
@@ -1261,6 +1262,9 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             "Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
             f"Authenticate to {environment}", f"Save {environment} cleanup checkpoint",
         )):
+            continue
+        if (matched[0].get("name") == current_name
+                and importlib.import_module("retention_publication").maintenance_mode(steps) != "cleanup"):
             continue
         if artifact is not None:
             saved = steps[f"Save {environment} cleanup checkpoint"]
