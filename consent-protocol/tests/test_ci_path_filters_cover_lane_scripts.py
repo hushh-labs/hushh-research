@@ -11,6 +11,7 @@ from functools import cache
 from pathlib import Path
 
 import pathspec
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -147,7 +148,7 @@ def _filters(patterns: dict[str, list[str]] | None = None) -> dict[str, _Filter]
 
 
 def _resolve_path_outputs(
-    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool
+    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool, level="focused"
 ) -> dict[str, str]:
     """Run the workflow's real resolver with bounded synthetic filter outputs."""
     step = next(
@@ -176,7 +177,7 @@ def _resolve_path_outputs(
     env = {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
-        "CI_VALIDATION_LEVEL": "focused",
+        "CI_VALIDATION_LEVEL": level,
         "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
         "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
     }
@@ -301,6 +302,27 @@ def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
         assert quantifier == "some-with-excludes", (
             f"Filters use negated patterns {negated} but predicate-quantifier is {quantifier!r}"
         )
+
+
+@pytest.mark.parametrize(
+    "path,ios,android",
+    [
+        ("hushh-webapp/app/login/page.tsx", "false", "false"),
+        ("consent-protocol/config/email-auth/risk-manifest.json", "false", "false"),
+        ("hushh-webapp/ios/App/App/AppDelegate.swift", "true", "false"),
+        ("hushh-webapp/android/app/build.gradle", "false", "true"),
+        ("hushh-webapp/lib/capacitor/index.ts", "true", "true"),
+        ("hushh-webapp/package-lock.json", "true", "true"),
+    ],
+)
+def test_release_core_keeps_native_work_affected(path, ios, android, tmp_path):
+    outputs = {name: str(owner.match_file(path)).lower() for name, owner in _filters().items()}
+    resolved = _resolve_path_outputs(
+        "workflow_dispatch", outputs, tmp_path, override=False, level="release"
+    )
+    assert all(resolved[name] == "true" for name in ("frontend", "backend", "document"))
+    assert resolved["ios"] == ios
+    assert resolved["android"] == android
 
 
 def _auth_health_decision(paths, tmp_path, event="pull_request", override=False):
