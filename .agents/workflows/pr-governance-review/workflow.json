@@ -34,7 +34,7 @@
     "python3 .agents/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
     "python3 .agents/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --pr <number> --text",
     "python3 .agents/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --selection-order oldest --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md",
-    "./bin/hushh codex audit --text"
+    "./bin/hushh agents audit --text"
   ],
   "verification_bundle": {
     "id": "pr-governance-review",
@@ -44,7 +44,7 @@
       "python3 -m py_compile .agents/skills/pr-governance-review/scripts/build_runtime_schematics.py",
       "python3 .agents/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
       "python3 .agents/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
-      "./bin/hushh codex audit --text",
+      "./bin/hushh agents audit --text",
       "./bin/hushh docs verify"
     ],
     "tests": [
@@ -53,7 +53,7 @@
       "python3 -m py_compile .agents/skills/pr-governance-review/scripts/build_runtime_schematics.py",
       "python3 .agents/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow pr-governance-review --phase start --prompt \"review a PR touching voice, vault, and CI\" --paths \"hushh-webapp/lib/voice/foo.ts,hushh-webapp/lib/vault/foo.ts,.github/workflows/ci.yml\" --text",
       "python3 .agents/skills/pr-governance-review/scripts/build_runtime_schematics.py --text",
-      "./bin/hushh codex audit --text",
+      "./bin/hushh agents audit --text",
       "./bin/hushh docs verify"
     ]
   },

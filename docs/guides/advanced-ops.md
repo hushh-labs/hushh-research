@@ -56,13 +56,13 @@ The blocking CI surface stays intentionally small:
 Canonical local parity run:
 
 ```bash
-./bin/hushh codex pre-pr
+./bin/hushh agents pre-pr
 ```
 
 Advisory checks remain opt-in:
 
 ```bash
-./bin/hushh codex pre-pr --include-advisory
+./bin/hushh agents pre-pr --include-advisory
 ```
 
 ## Deploy

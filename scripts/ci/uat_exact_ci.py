@@ -190,15 +190,30 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
                 "UAT tip changed; qualify the current protected candidate")
     git("merge-base", "--is-ancestor", authority, "origin/main")
-    git("merge-base", "--is-ancestor", base, candidate)
-    for source in (candidate, authority):
+    for source in (candidate, base, authority):
         git("cat-file", "-e", f"{source}^{{commit}}")
+    # Ordinary protected UAT can replace an accepted release from another
+    # history. The observed base selects affected verification; ancestry does
+    # not authorize the candidate. Preserve the legacy isolated-history gate.
     if branch == "uat-isolated":
+        try:
+            git("merge-base", "--is-ancestor", base, candidate)
+        except Refused:
+            raise Refused("Isolated UAT serving base is not an ancestor of its candidate; reconcile the reviewed source transition") from None
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
     def execution_tree(revision):
         entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
-        return [entry for entry in entries if entry.partition(b"\t")[2] != BACKEND_TEST_MANIFEST.encode()]
+        def required(entry):
+            metadata, _, name = entry.partition(b"\t")
+            if name == BACKEND_TEST_MANIFEST.encode():
+                return False  # The existing invocation guard checks its identities separately.
+            # Prose is not privileged execution. Keep executable/symlink Markdown,
+            # metadata, controllers and every existing build/migration input bound.
+            prose = (name.startswith(b".agents/") and name.endswith((b".md", b".markdown"))
+                     or re.search(rb"(?:^|/)README\.(?:md|markdown)$", name, re.I))
+            return not (metadata.startswith(b"100644 blob ") and prose)
+        return [entry for entry in entries if required(entry)]
     expected = execution_tree(authority)
     observed = execution_tree(candidate)
     require(
@@ -639,11 +654,26 @@ def issue_predecessor(args) -> dict:
     require(args.environment == "uat", "Direct CI admission is UAT-only")
     require(args.scope in {"all", "backend", "frontend"}, "Resolved UAT scope is required")
     services = {"backend", "frontend"} if args.scope == "all" else {args.scope}
-    verify_serving_bases(args.base_sha, args.scope, args.backend_base_sha, args.frontend_base_sha)
-    serving = live_serving_bases(args.scope)
-    require(all(value["sha"] == args.base_sha for value in serving.values()),
-            "Actual UAT serving baseline changed before mutation")
     branch = getattr(args, "source_branch", "uat")
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
+    if branch == "uat-isolated":
+        verify_serving_bases(args.base_sha, args.scope, args.backend_base_sha, args.frontend_base_sha)
+        serving = live_serving_bases(args.scope)
+        require(all(value["sha"] == args.base_sha for value in serving.values()),
+                "Actual UAT serving baseline changed before mutation")
+    else:
+        # Snapshot both services even for a partial release. Different accepted
+        # frontend/backend SHAs are legitimate; changed revisions are not.
+        expected = {
+            "backend": {"sha": args.backend_base_sha, "revision": getattr(args, "backend_base_revision", "")},
+            "frontend": {"sha": args.frontend_base_sha, "revision": getattr(args, "frontend_base_revision", "")},
+        }
+        require(all(SHA.fullmatch(value["sha"] or "") and re.fullmatch(r"[a-z][a-z0-9-]{1,127}", value["revision"])
+                    for value in expected.values())
+                and args.base_sha in {value["sha"] for value in expected.values()},
+                "UAT qualification base must identify captured service SHAs and revisions")
+        serving = live_serving_bases("all")
+        require(serving == expected, "Actual UAT serving baseline changed before mutation")
     record = {"schema_version": 1, "kind": "uat-exact-ci", "status": "accepted", "environment": "uat",
               "repository": REPOSITORY, "sha": args.sha, "base_sha": args.base_sha,
               "authority_sha": args.authority_sha, "services": sorted(services), "serving": serving,

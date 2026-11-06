@@ -112,7 +112,7 @@ Those are real, but they are not part of the normal first-PR path. If you need t
 
 Common checks:
 ```bash
-./bin/hushh codex pre-pr
+./bin/hushh agents pre-pr
 ./bin/hushh docs verify
 cd hushh-webapp && npm run verify:docs
 ```

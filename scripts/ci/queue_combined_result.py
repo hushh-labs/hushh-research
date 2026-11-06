@@ -377,8 +377,9 @@ def exact_selection(base):
         return False
     actual = set(paths)
     # Web, governance and integration now select against the tested merge.
-    # Renames with a differing old-path inventory still refuse reuse.
-    return actual == set(git("diff", "--name-only", "-z", base, "HEAD").split("\0")) - {""}
+    # paths-filter exposes renames as deleted+added. Compare the same complete
+    # inventory; dropping the old path would obscure a changed owner boundary.
+    return actual == set(git("diff", "--no-renames", "--name-only", "-z", base, "HEAD").split("\0")) - {""}
 
 
 def record_receipt():
