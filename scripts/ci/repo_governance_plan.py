@@ -21,6 +21,7 @@ REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_runtime_config_retention.py",
+    "consent-protocol/tests/test_plg_deploy_bindings.py",
     "consent-protocol/tests/test_uat_application_selection.py",
     "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
@@ -353,6 +354,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ops/audit_env_toggles.py",
             "scripts/ops/sync_backend_runtime_secrets.py",
+            "scripts/ops/runtime_config_retention.py",
         }:
             return frozenset({"controller"}), None
         if path in {
