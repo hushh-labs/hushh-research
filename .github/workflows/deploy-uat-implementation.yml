@@ -127,6 +127,8 @@ concurrency:
 jobs:
   inspect-prerequisites:
     name: Inspect UAT prerequisites (no deployment)
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
     if: inputs.operation == 'inspect'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -217,6 +219,11 @@ jobs:
 
   select-target:
     name: Select UAT target
+    environment:
+      name: uat
+      deployment: false
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     permissions:

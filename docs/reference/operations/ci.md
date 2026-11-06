@@ -220,6 +220,23 @@ as part of each merge task, following the [downstream completion procedure](../.
 scanning remains in PR validation and privileged unresolved-secret clearance runs
 only in an explicit Main-owned deployment's protected job.
 
+The two bundled public email-risk data files use actual-blob digest/bounds checks
+and the existing domain-policy cases in Governance. Their runtime parser, test
+module, schema and unrecognized neighboring inputs retain backend validation.
+This data-only owner does not replace full application release qualification.
+The synthetic worker CLI fixture retains both deployment and rollback consumer
+suites in the controller owner. The database connection-ceiling reader also runs
+there when deployment controls change, including configuration-driven worker
+capacity. It remains in backend validation for runtime changes. Unknown helpers
+retain conservative selection.
+
+Read-only UAT inspection checks the selected candidate's public email-risk snapshot
+when email authentication is enabled. Expired or malformed inputs require a pinned
+upstream refresh before qualification; the full integrity and activation checks
+remain enforced during deployment. Base-pinned release `scope=all` keeps web/backend core
+qualification, selecting native lanes only from their existing ownership filters
+against that candidate and serving base. Explicit diagnostic scopes are unchanged.
+
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 `uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
