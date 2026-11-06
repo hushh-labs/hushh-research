@@ -8,7 +8,7 @@ import binascii
 from email.message import Message
 from typing import Any
 
-from hushh_mcp.services.gmail_message_text import _html_to_text, _normalize, cap_utf8
+from hushh_mcp.services.gmail_message_text import _html_to_text_and_links, _normalize, cap_utf8
 
 from .execution_types import (
     _MAX_BODY_BYTES,
@@ -82,9 +82,9 @@ def _decode_text_part(part, data, decode_part):
 
 def _mime_projection(
     payload: Any, *, decode_body: bool, decode_part=extract_message_part
-) -> tuple[list[dict], str, bool]:
+) -> tuple[list[dict], str, bool, list[dict[str, str]]]:
     """Inventory every returned part; prefer plain alternatives; never fetch files."""
-    attachments, plain, html = [], [], []
+    attachments, plain, html, links = [], [], [], []
     stack = [(payload, 0, False)]
     visited = 0
     complete = True
@@ -141,19 +141,22 @@ def _mime_projection(
         ):
             continue
         decoded = _decode_text_part(part, data, decode_part)
-        (plain if mime_type.lower() == "text/plain" else html).append(decoded)
-    body = (
-        "\n\n".join(plain)
-        if any(x.strip() for x in plain)
-        else "\n\n".join(_html_to_text(x) for x in html)
-    )
-    return attachments, _normalize(body), complete
+        if mime_type.lower() == "text/plain":
+            plain.append(decoded)
+        else:
+            cleaned, extracted = _html_to_text_and_links(decoded)
+            html.append(cleaned)
+            for link in extracted:
+                if link not in links and len(links) < 8:
+                    links.append(link)
+    body = "\n\n".join(plain) if any(x.strip() for x in plain) else "\n\n".join(html)
+    return attachments, _normalize(body), complete, links
 
 
 def _project_message(value: Any, *, include_body: bool, decode_part=extract_message_part) -> dict:
     message = _payload(value)
     headers = _headers(message)
-    attachments, body, complete = _mime_projection(
+    attachments, body, complete, links = _mime_projection(
         message.get("payload", {}), decode_body=include_body, decode_part=decode_part
     )
     result = {
@@ -180,4 +183,6 @@ def _project_message(value: Any, *, include_body: bool, decode_part=extract_mess
             result[key] = value
     if include_body:
         result["body"], result["body_truncated"] = cap_utf8(body, _MAX_BODY_BYTES)
+        if links:
+            result["extracted_links"] = links
     return result

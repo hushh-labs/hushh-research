@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -39,6 +41,7 @@ class OwnerGmailExecution:
     ) -> None:
         self.gmail, self.user_id, self.require_access = gmail, user_id, require_access
         self.grant_binding: tuple[str, ...] | None = None
+        self.account_email: str | None = None
         self.observed_messages: dict[str, dict] = {}
         self.page_context = page_context
         self.telemetry = {
@@ -75,8 +78,10 @@ class OwnerGmailExecution:
             raise PermissionError(
                 "A reviewed action must execute through its existing action owner"
             )
-        token, observed = await self.gmail.get_bound_read_access_token(
-            user_id=self.user_id, compose=operation == "create_draft"
+        token, observed, account_email = await self.gmail.get_bound_read_access_token(
+            user_id=self.user_id,
+            compose=operation == "create_draft",
+            include_account_email=True,
         )
         if observed is None or (
             self.grant_binding is not None and self.grant_binding[:4] != observed[:4]
@@ -84,6 +89,7 @@ class OwnerGmailExecution:
             raise PermissionError("The Gmail account or grant changed")
         # Refresh may repin this token generation, never the connected account.
         self.grant_binding = observed
+        self.account_email = account_email
         if operation == "search_threads" and arguments.get("page_token"):
             previous = self.page_context or {}
             if (
@@ -145,6 +151,19 @@ class OwnerGmailExecution:
             rows = [result]
         for row in rows:
             if isinstance(row, dict) and isinstance(row.get("id"), str):
+                account = self.account_email
+                thread_id = row.get("thread_id")
+                if (
+                    isinstance(account, str)
+                    and len(account) <= 320
+                    and re.fullmatch(r"[^\s@<>,]+@[^\s@<>,]+", account)
+                    and isinstance(thread_id, str)
+                    and re.fullmatch(r"[A-Za-z0-9_-]{1,256}", thread_id)
+                ):
+                    row["gmail_web_link"] = (
+                        f"https://mail.google.com/mail/u/{quote(account, safe='')}/"
+                        f"#all/{quote(thread_id, safe='')}"
+                    )
                 if len(self.observed_messages) < 100 or row["id"] in self.observed_messages:
                     self.observed_messages[row["id"]] = {
                         key: row.get(key)
@@ -155,6 +174,7 @@ class OwnerGmailExecution:
                             "from",
                             "date",
                             "internal_date_ms",
+                            "gmail_web_link",
                         )
                     }
 
