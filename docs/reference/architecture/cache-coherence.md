@@ -207,8 +207,18 @@ durable transaction journal. Initial connection, listener recovery, and Feed
 queue overflow send `feed_reset`; authenticated reads recover the current state.
 Legacy consent queues remain separate from Feed-only burst/reset handling.
 
+Migration 453 also wakes the existing stream after committed changes to
+connection requests, request-linked Drive search and delivery jobs, and Drive
+checkout and refund states. It sends only a fixed reason when the projected
+state changes.
+Ordinary consent decisions reuse the existing owner and requester delivery
+checks. The client fences old responses, retains visible rows while rereading,
+and refreshes incoming connections separately from consent and Drive progress.
+New consent and connection outcomes join history immediately while the reader's
+visible history row stays anchored.
+
 Deleting a participant chat emits the owner-only `history_mutated` reason on a
-general Feed hint. The stream admits only that exact enum and discards other
+general Feed hint. The stream admits a closed set of reasons and discards other
 producer fields. `CacheSyncService.onFeedHistoryMutated` advances the Feed
 presentation revision, evicts its saved pages, and invalidates list/count reads.
 The next authoritative page drops previously loaded deleted rows; a stale

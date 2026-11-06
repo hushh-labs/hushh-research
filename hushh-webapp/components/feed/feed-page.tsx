@@ -66,7 +66,7 @@ import {
   type FeedActionable,
 } from "@/lib/feed/use-feed-actionables";
 import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
-import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useFeedLiveRefresh, type FeedRefreshScope } from "@/lib/feed/use-feed-live-refresh";
 import { useFeedHistoryPresentation } from "@/lib/feed/use-feed-history-presentation";
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -611,7 +611,8 @@ function FeedPageSession({
   // from another session after this session removed a row. The service seeds
   // the shared Feed cache, so the page and the profile preview update together.
   useFeedLiveRefresh(
-    useCallback(() => {
+    useCallback((scope?: FeedRefreshScope) => {
+      if (scope === "connections") return;
       if (!userId || dismissedGroupsRef.current.size === 0) {
         void refresh({ force: true });
         return;
@@ -674,6 +675,8 @@ function FeedPageSession({
 
   const markSeen = useCallback(() => {
     const latestId = latestIdRef.current;
+    // A newly published outcome above the viewport remains unread until seen.
+    if ((getAppScrollRoot()?.scrollTop ?? 0) > 100) return;
     if (!userId || !latestId || markedReadUpToRef.current === latestId)
       return;
     markedReadUpToRef.current = latestId;
@@ -701,6 +704,8 @@ function FeedPageSession({
   // newer live row. Keep the hidden/unmount calls as a final settlement path
   // for platforms that suspend network work while the page is active.
   useEffect(() => {
+    const root = getAppScrollRoot();
+    root?.addEventListener("scroll", markSeen, { passive: true });
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         markSeen();
@@ -710,6 +715,7 @@ function FeedPageSession({
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      root?.removeEventListener("scroll", markSeen);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       markSeen();
     };

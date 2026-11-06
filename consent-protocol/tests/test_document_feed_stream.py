@@ -275,8 +275,17 @@ async def test_v2_ends_with_a_reconnect_hint_at_its_lifetime(owner_queue):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reason", [None, "history_mutated", "private headline"])
-async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue, reason):
+@pytest.mark.parametrize(
+    ("reason", "expected"),
+    [
+        (None, {}),
+        ("history_mutated", {"reason": "history_mutated"}),
+        ("connection_mutated", {"reason": "connection_mutated"}),
+        ("consent_mutated", {"reason": "consent_mutated"}),
+        ("private headline", {}),
+    ],
+)
+async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue, reason, expected):
     frames = document_feed_event_generator(
         "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
     )
@@ -287,7 +296,28 @@ async def test_general_feed_writes_ring_a_content_free_feed_changed(owner_queue,
     )
     event = await _next(frames)
     assert event["event"] == "feed_changed"
-    assert _payload(event) == ({"reason": "history_mutated"} if reason == "history_mutated" else {})
+    assert _payload(event) == expected
+    await frames.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "consent", [{"action": "CONSENT_DENIED"}, {"type": "information_request_updated"}]
+)
+async def test_consent_events_wake_the_owner_snapshot_without_private_fields(owner_queue, consent):
+    frames = document_feed_event_generator(
+        "owner", CONNECTED, version=2, lifetime_seconds=30, timing=FAST
+    )
+    await _next(frames)
+    await _next(frames)
+    owner_queue.queue.put_nowait({"action": "EXPORT_READ", "user_id": "owner"})
+    owner_queue.queue.put_nowait(
+        {**consent, "user_id": "owner", "scope": "private scope", "request_id": REQUEST}
+    )
+    assert await _next(frames) == {
+        "event": "feed_changed",
+        "data": '{"reason":"consent_mutated"}',
+    }
     await frames.aclose()
 
 
