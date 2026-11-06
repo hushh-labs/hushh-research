@@ -500,7 +500,7 @@ def execution_sql(
 
     if entry.migration_id == "987":
         return firebase_erasure.installation_sql(entry)
-    if entry.migration_id in {"419", "437"}:
+    if entry.migration_id in {"418", "419", "437"}:
         return firebase_erasure.replay_sql(entry)
 
     if entry.migration_id in {"985", "986"}:

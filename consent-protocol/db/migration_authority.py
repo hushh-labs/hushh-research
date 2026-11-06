@@ -657,7 +657,7 @@ def _replay_sql(entry: MigrationManifestEntryV2) -> str:
     from db.firebase_mutation_replay import phone_mutation_replay_sql
     from db.private_action_replay import SOURCES, private_action_replay_sql
 
-    if entry.migration_id in {"419", "437"}:
+    if entry.migration_id in {"418", "419", "437"}:
         from db.firebase_erasure_adoption import replay_sql
 
         return replay_sql(entry)

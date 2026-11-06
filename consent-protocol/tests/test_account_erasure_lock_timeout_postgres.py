@@ -2269,7 +2269,12 @@ async def test_isolated_firebase_erasure_survives_lost_ack_and_database_rollback
         legacy.run(conn, installation_sql(entry))
         legacy.run(conn, installation_sql(entry))
         for predecessor in build_manifest_entries(
-            ROOT / "db/migrations", ["419_account_generations.sql", legacy.CANONICAL]
+            ROOT / "db/migrations",
+            [
+                "418_account_provider_cleanup_staging.sql",
+                "419_account_generations.sql",
+                legacy.CANONICAL,
+            ],
         ):
             legacy.run(conn, replay_sql(predecessor))
         legacy.run(conn, qualification_sql(required=True))

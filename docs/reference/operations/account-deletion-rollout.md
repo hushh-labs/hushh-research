@@ -105,6 +105,14 @@ retirement in disposable PostgreSQL. The fixture is absent and its local cluster
 is stopped. This qualifies that provider/database boundary; the live interface
 and native client cutover still require their own evidence.
 
+Read-only lifecycle inventory extends the scoped source cohort to 160 identities,
+including four beyond vault roots. None has been imported. A Dev-only canonical
+SDK credential is staged in `DEV_FIREBASE_SDK_CREDENTIALS_JSON`; native permission
+readback grants Dev user management and none of the tested production Auth
+permissions. The live services still use their previous credential. Apple rejects
+the new Dev return URL while accepting the production URL; eight cohort identities
+have an Apple link. Complete Apple provider/callback qualification before cutover.
+
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email
 nor phone. Of 61 unmatched vault owners, 42 have Firebase-shaped UIDs, two have

@@ -86,7 +86,7 @@ END $qualify_firebase_erasure$;
 
 
 def replay_sql(entry) -> str:
-    """Keep the exact successor instead of replacing it during419/437 replay."""
+    """Keep the exact successor during418/419/437 replay."""
     from db.migration_authority import MigrationAuthorityError
 
     expected = HISTORICAL_SHA256.get(entry.migration_id)
@@ -96,12 +96,16 @@ def replay_sql(entry) -> str:
         or hashlib.sha256(entry.sql.encode()).hexdigest() != expected
     ):
         raise MigrationAuthorityError("Firebase erasure predecessor checksum changed")
-    names = ["guard_account_generation_history"]
+    names = (
+        ["account_provider_cleanup_qualified"]
+        if entry.migration_id == "418"
+        else ["guard_account_generation_history"]
+    )
     if entry.migration_id == "419":
         names.append("retire_erased_account_generation")
     sql = entry.sql
     for name in names:
-        pattern = rf"CREATE OR REPLACE FUNCTION public\.{name}\(\).*?\$\$;"
+        pattern = rf"CREATE OR REPLACE FUNCTION public\.{name}\([^;]*?\)\s*RETURNS.*?\$\$;"
         matches = list(re.finditer(pattern, sql, flags=re.DOTALL))
         if len(matches) != 1:
             raise MigrationAuthorityError("Firebase erasure predecessor shape changed")
@@ -274,6 +278,7 @@ TRIGGERS = [
 ]
 SOURCE_SHA256 = "4bc5e466f787ff388ccdcf9abde5899b9fbf4ee2e781735671b91fd232439248"
 HISTORICAL_SHA256 = {
+    "418": "f75c6906339c62ea1d899e78391daa3f3b2188d27a7e2989113cb9d229734139",
     "419": "80ef582856e88fde3c0eaff882575e3b31d9252e54f2979ab133597a30c7af5e",
     "437": "ec88c716ba150978c605fb8b90c97526c89fbcea77a1a99abae829b1ed91638d",
 }
