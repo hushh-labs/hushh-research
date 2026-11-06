@@ -16,7 +16,8 @@ import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { useChatOnboardingSession } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { reduceChatOnboarding } from "@/lib/agent/chat-onboarding/chat-onboarding-machine";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
-import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import type { ChatMemoryMessage } from "@/lib/agent/chat-memory-runtime";
 import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 
 beforeEach(() => resetCalendarChatFixture());
@@ -24,6 +25,40 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); publishValidatedAuthSessionPr
 
 function workspace() {
   return render(<AgentDockProvider><AgentDockVoiceBoundary><AgentBarSurface /></AgentDockVoiceBoundary><AgentChatWorkspace /></AgentDockProvider>);
+}
+
+async function chatMemoryPorts() {
+  const [markdown, durable, rewrites] = await Promise.all([
+    import("@/lib/pkm/markdown-memory"),
+    import("@/lib/services/secure-durable-resource-service"),
+    import("@/lib/agent/chat-memory-rewrite"),
+  ]);
+  let revision = 0;
+  let pending: { messages: ChatMemoryMessage[] } | null = null;
+  let memory = {
+    userId: "owner", vaultEpoch: snapshotVaultSessionEpoch(), markdown: "- Existing owner fact\n",
+    updatedAt: null, persisted: true,
+    chatMemoryCheckpoint: { version: 1 as const, editGeneration: 0,
+      conversations: {} as Record<string, string[]>, requests: [] as string[] },
+  };
+  vi.spyOn(markdown, "loadMarkdownMemory").mockImplementation(async () => {
+    if (fixture.memoryReadFails) throw new Error("read failed");
+    return structuredClone(memory);
+  });
+  const replace = vi.spyOn(markdown, "replaceChatMarkdownMemory").mockImplementation(async params => {
+    await params.beforeEffect?.();
+    memory = { ...memory, markdown: params.markdown, chatMemoryCheckpoint: structuredClone(params.checkpoint) };
+    return { success: true };
+  });
+  vi.spyOn(durable.SecureDurableResourceService, "read").mockResolvedValue(null);
+  vi.spyOn(durable.SecureDurableResourceService, "version").mockImplementation(async () => ({ generation: 0, revision }));
+  vi.spyOn(durable.SecureDurableResourceService, "write").mockImplementation(async params => {
+    if (!params.isCurrent?.()) throw new DOMException("Memory session changed.", "AbortError");
+    pending = structuredClone(params.value) as { messages: ChatMemoryMessage[] };
+    return { generation: 0, revision: ++revision };
+  });
+  const rewrite = vi.spyOn(rewrites, "rewriteChatMemory").mockResolvedValue({ markdown: "- Updated owner fact\n" });
+  return { rewrite, replace, pendingMessages: () => pending?.messages ?? [] };
 }
 
 it.each(["Create new chat", "Start new chat"])("allows %s to reset a locked-vault draft without reading saved history", async entry => {
@@ -615,60 +650,57 @@ it.each(["navigation", "vault lock", "owner change", "verification required"])(
   "finishes pasted-profile capture after %s only while its original vault session is authorized",
   async boundary => {
     const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
-    const markdown = await import("@/lib/pkm/markdown-memory");
+    const memory = await chatMemoryPorts();
+    const legacyPreparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm");
     fixture.captureReady = true;
     const profile = Array.from({ length: 33 }, (_, index) =>
       `Synthetic profile line ${index}: I study mechanical engineering and build robots.`).join("\n");
-    let finish!: (value: Awaited<ReturnType<typeof ingestion.prepareNaturalLanguagePkm>>) => void;
-    const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockImplementation(
+    let finish!: (value: { markdown: string }) => void;
+    memory.rewrite.mockImplementation(
       () => new Promise(resolve => { finish = resolve; }),
     );
-    const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts").mockImplementation(async params => {
-      await params.beforeEffect?.();
-      return { success: true, saved: 1, markdown: "## Facts\n- I build robots.\n" };
-    });
     const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
     const view = workspace();
     const composer = await screen.findByRole("textbox", { name: "Message One" });
     fireEvent.change(composer, { target: { value: "Save this about me" } });
     fireEvent.paste(composer, { clipboardData: { getData: () => profile } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-    await waitFor(() => expect(preparation).toHaveBeenCalledOnce());
+    await waitFor(() => expect(memory.rewrite).toHaveBeenCalledOnce());
     await waitFor(() => expect(stream).toHaveBeenCalledOnce());
-    expect(preparation.mock.calls[0][0].message).toBe(`Save this about me\n\n${profile}`);
+    expect(memory.rewrite.mock.calls[0][1].messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: `Save this about me\n\n${profile}` }),
+    ]));
+    expect(legacyPreparation).not.toHaveBeenCalled();
     // The answer can finish while the independent semantic preparation is pending.
     await screen.findByRole("button", { name: "Schedule meeting" });
     view.unmount();
     if (boundary === "vault lock") advanceVaultSessionEpoch();
     if (boundary === "owner change") publishValidatedAuthSessionPrincipal({ firebaseUid: "replacement", ownerId: "replacement", accountGeneration: 0 });
     if (boundary === "verification required") fixture.tokenAccess.available = false;
-    await act(async () => finish({ cards: [{
-      card_id: "robotics", source_text: "I build robots.", write_mode: "can_save",
-      candidate_payload: { soul_section: "Facts", soul_text: "I build robots." },
-    }] } as never));
-    expect(stage).toHaveBeenCalledTimes(boundary === "navigation" ? 1 : 0);
+    await act(async () => finish({ markdown: "## Facts\n- I build robots.\n" }));
+    expect(memory.replace).toHaveBeenCalledTimes(boundary === "navigation" ? 1 : 0);
   },
   15_000,
 );
 
 it.each(["capture", "read", "locked"] as const)("keeps a background memory %s failure out of the answer unless the vault is locked", async failure => {
-  const [ingestion, markdown, { morphyToast }, observability] = await Promise.all([import("@/lib/pkm/pkm-natural-language-ingestion"),
-    import("@/lib/pkm/markdown-memory"), import("@/lib/morphy-ux/morphy"), import("@/lib/observability/client")]);
+  const [{ morphyToast }, observability] = await Promise.all([
+    import("@/lib/morphy-ux/morphy"), import("@/lib/observability/client")]);
+  const memory = await chatMemoryPorts();
   const [failureToast, track] = [vi.spyOn(morphyToast, "error"), vi.spyOn(observability, "trackEvent")];
   Object.assign(fixture, { captureReady: true, memoryReadFails: failure !== "capture" });
   if (failure === "locked") fixture.vault.vaultKey = null as never;
-  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [], previews: [], sourceCoverage: [{ sourceBlockId: "profile",
-    preparationIssue: "preparation_timeout", disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0 }] } as never);
-  const stage = vi.spyOn(markdown, "stageMarkdownMemoryFacts");
+  memory.rewrite.mockRejectedValue(new Error("Synthetic memory rewrite failure"));
   const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
   workspace();
-  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "I study robotics at Example University." } });
+  fireEvent.change(await screen.findByRole("textbox", { name: "Message One" }), { target: { value: "Remember that I study robotics at Example University." } });
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
   const blocked = "One couldn't load your private memory for this turn. Keep your vault unlocked and try again.";
   await (failure === "locked" ? screen.findByText(blocked) : screen.findByRole("button", { name: "Schedule meeting" }));
-  expect(preparation).toHaveBeenCalledTimes(failure === "capture" ? 1 : 0);
-  expect(stage).not.toHaveBeenCalled(); expect(failureToast).not.toHaveBeenCalled();
-  if (failure === "capture") expect(track).toHaveBeenCalledWith("agent_pkm_save_confirmation_completed", expect.objectContaining({ result: "error" }));
+  if (failure === "capture") await waitFor(() => expect(memory.rewrite).toHaveBeenCalled());
+  else expect(memory.rewrite).not.toHaveBeenCalled();
+  expect(memory.replace).not.toHaveBeenCalled(); expect(failureToast).not.toHaveBeenCalled();
+  expect(screen.queryByText("Synthetic memory rewrite failure")).not.toBeInTheDocument();
   expect(stream).toHaveBeenCalledTimes(failure === "locked" ? 0 : 1);
   expect(Boolean(screen.queryByText(blocked))).toBe(failure === "locked");
   expect(screen.queryByText(/memory\.md status/)).toBeNull(); expect(Boolean(screen.queryByText("Private memory could not load."))).toBe(failure === "read");
@@ -680,9 +712,8 @@ it.each(["capture", "read", "locked"] as const)("keeps a background memory %s fa
 
 it("meeting context continues the current conversation with source attachments and no automatic PKM capture", async () => {
   const { CalendarInsightsService } = await import("@/lib/services/calendar-insights-service");
-  const ingestion = await import("@/lib/pkm/pkm-natural-language-ingestion");
+  const memory = await chatMemoryPorts();
   fixture.captureReady = true;
-  const preparation = vi.spyOn(ingestion, "prepareNaturalLanguagePkm").mockResolvedValue({ cards: [] } as never);
   const contextRead = vi.spyOn(CalendarInsightsService, "read").mockResolvedValue({ title: "QA Review", sources: [{ title: "Verified notes", url: "https://docs.google.com/document/d/verified", text: "Private meeting source", truncated: false }] });
   const stream = vi.spyOn(ApiService, "apiFetchStream").mockImplementation(async () => sse("tool"));
   workspace();
@@ -691,8 +722,9 @@ it("meeting context continues the current conversation with source attachments a
   fireEvent.click(screen.getByRole("button", { name: "Send message" }));
   await waitFor(() => expect(stream).toHaveBeenCalledTimes(1));
   await screen.findByRole("button", { name: "Schedule meeting" });
-  await waitFor(() => expect(preparation).toHaveBeenCalledTimes(1));
-  preparation.mockClear();
+  await waitFor(() => expect(memory.pendingMessages()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ content: "Earlier conversation" }),
+  ])));
   const earlierThread = JSON.parse(String(stream.mock.calls[0][1]?.body)).threadId;
   act(() => { useOneConversationSession.getState().createHandoff({ reason: "user_requested", calendarRequest: { ownerId: "owner", request: "Summarize this meeting.", meeting: { calendar_id: "primary", event_id: "verified-event", expected_account_email: "owner@example.com" } } }); });
   await waitFor(() => expect(stream).toHaveBeenCalledTimes(2));
@@ -703,11 +735,19 @@ it("meeting context continues the current conversation with source attachments a
   const source = Buffer.from(wire.messages.at(-1).content.find((part: { type: string }) => part.type === "document").source.value, "base64").toString("utf8");
   expect(source).toContain("Private meeting source");
   expect(source).toContain("https://docs.google.com/document/d/verified");
-  expect(preparation).not.toHaveBeenCalled();
+  expect(memory.rewrite).not.toHaveBeenCalled();
   expect(useOneConversationSession.getState().pendingHandoff).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /Meeting sources.txt/ }));
   await screen.findByTestId("text-attachment-viewer");
   expect(screen.queryByRole("button", { name: "Edit and send again" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open chat history" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Create new chat" }));
+  await waitFor(() => expect(memory.rewrite).toHaveBeenCalledOnce());
+  const remembered = memory.rewrite.mock.calls[0][1].messages.map(message => message.content).join("\n");
+  expect(remembered).toContain("Earlier conversation");
+  expect(remembered).not.toContain("Private meeting source");
+  expect(remembered).not.toContain("Summarize this meeting.");
 });
 
 it("discards pending meeting context when the workspace owner changes", async () => {

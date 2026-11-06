@@ -46,6 +46,8 @@ DOOR_SPECIALIST_PATH = ROOT / "hushh_mcp" / "one_adk" / "pod_data_door_specialis
 POD_RELAY_PATH = ROOT / "api" / "routes" / "one" / "pod_relay.py"
 POD_SPECIALIST_ROUTE_PATH = ROOT / "api" / "routes" / "one" / "pod_specialist.py"
 TEXT_RUNTIME_PATH = ROOT / "hushh_mcp" / "one_adk" / "text_runtime.py"
+MEMORY_ROUTE_PATH = ROOT / "api" / "routes" / "one" / "pod_pkm_preparation.py"
+MEMORY_SERVICE_PATH = ROOT / "hushh_mcp" / "services" / "chat_memory_manager.py"
 DELEGATION_PATH = ROOT / "hushh_mcp" / "adk_bridge" / "delegation.py"
 LEDGER_PATH = REPO_ROOT / "config" / "pod-completion-ledger.yaml"
 LEDGER_ITEM_ID = "specialists-run-in-pod"
@@ -58,6 +60,8 @@ DERIVED_SOURCE_PATHS = (
     POD_RELAY_PATH,
     POD_SPECIALIST_ROUTE_PATH,
     TEXT_RUNTIME_PATH,
+    MEMORY_ROUTE_PATH,
+    MEMORY_SERVICE_PATH,
     DELEGATION_PATH,
 )
 
@@ -362,6 +366,47 @@ def local_agent_tools() -> set[str]:
     return result
 
 
+def local_memory_helpers() -> set[str]:
+    """Derive preparation execution from its bound route, service and manifest.
+
+    These helpers have no specialist dispatch or independent write authority.
+    A declaration alone must never establish that the pod invokes one.
+    """
+    route = _module(MEMORY_ROUTE_PATH)
+    bound = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "hushh_mcp.services.chat_memory_manager"
+        and any(
+            alias.name == "rewrite_chat_memory" and alias.asname is None for alias in node.names
+        )
+        for node in route.body
+    )
+    if not bound:
+        return set()
+    handler = _function_named(route, "rewrite_memory")
+    invokes = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "rewrite_chat_memory"
+        and any(keyword.arg == "model" for keyword in node.keywords)
+        for node in ast.walk(handler)
+    )
+    service = _function_named(_module(MEMORY_SERVICE_PATH), "rewrite_chat_memory")
+    loads_manifest = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "ManifestLoader"
+        and node.func.attr == "load"
+        and any(
+            isinstance(part, ast.Constant) and part.value == "agents/chat_memory_manager/agent.yaml"
+            for part in ast.walk(node)
+        )
+        for node in ast.walk(service)
+    )
+    return {"agent_chat_memory_manager"} if invokes and loads_manifest else set()
+
+
 def build_matrix(declarations: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     if declarations is None:
         declarations = declaration_table()
@@ -369,6 +414,7 @@ def build_matrix(declarations: dict[str, dict[str, Any]] | None = None) -> dict[
     registered = registered_specialists()
     accepted = service_for_accepts()
     agent_tools = local_agent_tools()
+    memory_helpers = local_memory_helpers()
     ports = pod_port_hub_reads()
     doors = specialist_door_names()
     door_names = pod_data_door_names()
@@ -405,6 +451,7 @@ def build_matrix(declarations: dict[str, dict[str, Any]] | None = None) -> dict[
             "registered_specialist": manifest.id in registered,
             "pod_dispatchable": manifest.id in accepted,
             "pod_agent_tool": manifest.id in agent_tools,
+            "pod_memory_helper": manifest.id in memory_helpers,
             "hub_doors": sorted(hub_doors_by_agent.get(manifest.id, set())),
             "door": doors.get(manifest.id),
             "door_required_scope": door_scopes.get(doors.get(manifest.id, ""), None),

@@ -435,6 +435,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/ai-selection",
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/status",
+        "/api/one/pod/memory/rewrite",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
     }

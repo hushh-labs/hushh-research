@@ -509,7 +509,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The owner's consented memory for this turn: Soul.md, then the bounded
     # Live Mirror facts packet. Popped before the bridge can copy forwarded
     # props; only an unlocked owner turn stores it (below).
-    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")[:20000]
+    raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
+    if len(raw_pkm_context) > 128_000:
+        raise HTTPException(413, detail="Private memory context exceeds the request budget")
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
@@ -560,7 +562,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context) if token else "",
+        STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
+        if token
+        else "",
         STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),

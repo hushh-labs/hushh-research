@@ -958,6 +958,8 @@ export async function loadAgentPkmContext(params: {
    * Personal-memory requests fail closed until the decrypted Soul is available.
    */
   requireDecrypted?: boolean;
+  /** V1 chat uses only the complete Markdown LTM, without legacy recall packets. */
+  markdownOnly?: boolean;
 }): Promise<AgentPkmContext> {
   if (params.requireDecrypted && (!params.vaultKey || params.metadataOnly)) {
     throw new AgentPkmContextNotReadyError(
@@ -997,10 +999,11 @@ export async function loadAgentPkmContext(params: {
         }).catch(() => null);
         if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
           return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
-        const context = withLiveMirrorFacts(params.userId, vaultEpoch, {
+        const base = {
           ...markdownMemoryToAgentContext(peekMarkdownMemory(params.userId) ?? markdownMemory),
           communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(style?.data?.[OWNER_STYLE_BRANCH])),
-        });
+        };
+        const context = params.markdownOnly ? base : withLiveMirrorFacts(params.userId, vaultEpoch, base);
         if (!isVaultSessionEpochCurrent(vaultEpoch) || !isMarkdownMemoryGenerationCurrent(memoryGeneration))
           return { text: "", domains: [], totalAttributes: 0, updatedAt: null };
         return context;
@@ -1055,16 +1058,18 @@ export function peekAgentPkmContext(params: {
   userId: string;
   message?: string;
   maxChars?: number;
+  markdownOnly?: boolean;
 }): AgentPkmContext | null {
   const markdownMemory = peekMarkdownMemory(params.userId);
   if (!markdownMemory) return null;
   const vaultEpoch = snapshotVaultSessionEpoch();
-  const context = withLiveMirrorFacts(params.userId, vaultEpoch, {
+  const base = {
     ...markdownMemoryToAgentContext(markdownMemory),
     communicationPreferences: ownerStyleRequestField(ownerStyleFromBranch(
       PkmDomainResourceService.peek({ userId: params.userId, domain: OWNER_STYLE_DOMAIN })?.data?.data?.[OWNER_STYLE_BRANCH],
     )),
-  });
+  };
+  const context = params.markdownOnly ? base : withLiveMirrorFacts(params.userId, vaultEpoch, base);
   return isVaultSessionEpochCurrent(vaultEpoch) ? context : null;
 }
 
