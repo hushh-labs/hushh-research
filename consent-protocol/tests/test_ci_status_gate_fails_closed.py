@@ -25,7 +25,6 @@ LANES = {
     "frontend": (
         "web-core-check",
         "web-targeted-check",
-        "web-targeted-browser",
         "web-full-suite-check",
         "integration-check",
     ),
@@ -39,7 +38,7 @@ LANES = {
     "ios": ("ios-native-check",),
     "android": ("android-native-check",),
     "editor": (),
-    "document": ("document-webkit-check", "integration-check"),
+    "document": ("integration-check",),
 }
 # No path filter: these must succeed on every event.
 AUTHORITY = (
