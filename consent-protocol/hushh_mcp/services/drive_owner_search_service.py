@@ -1831,6 +1831,7 @@ class DriveOwnerSearchService:
             user_id=user_id, job_id=state["jobId"], require_current=require_current
         )
 
+    @drive_operation(job_key="request_id")
     async def create_for_request(
         self,
         *,
@@ -1844,6 +1845,7 @@ class DriveOwnerSearchService:
         authority_mode="owner",
         requested_at: datetime | None = None,
         after_page=None,
+        on_search_committed=None,
         evidence_route=None,
         v1_live_request=False,
         planner_fallback=None,
@@ -2149,16 +2151,29 @@ class DriveOwnerSearchService:
         )
         if not created:
             return state
+        if semantic_plan is not None:
+            logger.info("drive_request.plan_committed")
         await self.store.align_request_expiry(user_id=user_id, request_id=request_id)
-        await self.run_one(
-            user_id=user_id,
-            job_id=state["jobId"],
-            max_pages=1,
-            deadline_seconds=15,
-            **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
-            require_current=require_current,
-            **({"after_page": after_page} if after_page is not None else {}),
+        checkout_wake = (
+            asyncio.create_task(on_search_committed()) if on_search_committed is not None else None
         )
+        try:
+            await self.run_one(
+                user_id=user_id,
+                job_id=state["jobId"],
+                max_pages=1,
+                deadline_seconds=15,
+                **({} if direct_originals else {"initial_page_size": PAGE_SIZE}),
+                require_current=require_current,
+                **({"after_page": after_page} if after_page is not None else {}),
+            )
+        except BaseException:
+            if checkout_wake is not None:
+                checkout_wake.cancel()
+                await asyncio.gather(checkout_wake, return_exceptions=True)
+            raise
+        if checkout_wake is not None:
+            await checkout_wake
         await wake_drive_work("v1" if v1_statement_search else "suggestions")
         return await self.status(
             user_id=user_id, job_id=state["jobId"], require_current=require_current

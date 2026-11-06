@@ -264,9 +264,9 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--no-allow-unauthenticated" in release
     assert "--depends-on=clamav" in release
     assert "--startup-probe=tcpSocket.port=3310" in release
-    assert "--max-instances=2 --min-instances=0" in release
+    assert "--max-instances=4 --min-instances=0" in release
     # The candidate attestation holds the revision to the budgeted scale.
-    assert "EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1" in release
+    assert "EXPECTED_MAX_INSTANCES=4 EXPECTED_CONCURRENCY=1" in release
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
@@ -608,6 +608,10 @@ def test_worker_deploy_traffic_flags_match_service_state(
 
     assert result.returncode != 0  # The fake deploy intentionally stops before any GCP write.
     assert len(deploys) == int(expect_deploy), result.stderr
+    if worker_state == "existing":
+        restore = next(call for call in calls if call[:3] == ["run", "services", "update"])
+        assert "--min=2" in restore and "--max=2" in restore
+        assert "restoration could not be verified" not in result.stderr
     if expect_deploy:
         deploy = deploys[0]
         assert ("--no-traffic" in deploy) is expect_no_traffic
@@ -618,7 +622,7 @@ def test_worker_deploy_traffic_flags_match_service_state(
         assert "--container=drive-worker" in deploy
         assert "--container=clamav" in deploy
         # Scaling flags precede the first container, so they bind the service
-        # and revision. Both budgeted instances stay warm through the
+        # and revision. All budgeted instances stay warm through the
         # service-level floor; the revision keeps no floor and one request.
         first_container = deploy.index("--container=drive-worker")
         scaling = {
@@ -628,10 +632,10 @@ def test_worker_deploy_traffic_flags_match_service_state(
         }
         assert scaling == {
             "--concurrency": "1",
-            "--max-instances": "2",
+            "--max-instances": "4",
             "--min-instances": "0",
-            "--max": "2",
-            "--min": "2",
+            "--max": "4",
+            "--min": "4",
         }
         # Pre-deploy admission reserves the profile's candidate, so the cap,
         # launcher workers and pools must equal it; the floor never exceeds it.
