@@ -396,6 +396,7 @@ jobs:
               - '!scripts/ci/web-targeted-check.sh'
               - '!consent-protocol/scripts/test-ci.manifest.txt'
               # Synthetic release-controller tests have a focused Governance owner.
+              - '!consent-protocol/tests/test_runtime_config_retention.py'
               - '!consent-protocol/tests/test_direct_uat_acceptance.py'
               - '!consent-protocol/tests/test_advisors_runtime_config_wiring.py'
               - '!consent-protocol/tests/test_cloudbuild_step_arg_limit.py'
