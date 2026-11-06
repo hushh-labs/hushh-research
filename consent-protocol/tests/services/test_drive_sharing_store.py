@@ -2086,3 +2086,18 @@ async def test_new_semantic_request_policy_survives_creation_kill_switch(sharing
                 connection, request_id=identity, requester_user_id="recipient"
             )
     stripe_api.checkout.Session.create.assert_not_called()
+
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:id"),
+            {"id": identity},
+        )
+    assert (await owner_allow(sharing, created, 50))["_checkout_after_plan"] is True
+    assert (await owner_allow(sharing, created, 50))["_checkout_after_plan"] is True
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp()
+              WHERE request_id=:id"""),
+            {"id": identity},
+        )
+    assert "_checkout_after_plan" not in await owner_allow(sharing, created, 50)
