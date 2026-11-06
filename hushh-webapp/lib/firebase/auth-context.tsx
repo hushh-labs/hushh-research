@@ -2048,17 +2048,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [phoneRecovery, requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
     const principal = principalRef.current;
+    const releaseProof = () => {
+      phoneRecovery.cancelNativeStart();
+      phoneTransferProofRef.current = null;
+      setPhoneVerificationAttempt(null);
+      if (!Capacitor.isNativePlatform()) resetRecaptcha();
+      phoneVerificationOwnerRef.current = null;
+    };
     return confirmLinkedDeletion(input, {
       user: () => userRef.current,
       retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
       requireOwner: requirePhoneVerificationOwner,
+      releaseProof,
       finalize: (verified) => {
-        phoneRecovery.cancelNativeStart();
-        phoneTransferProofRef.current = null;
-        setPhoneVerificationAttempt(null);
-        if (!Capacitor.isNativePlatform()) resetRecaptcha();
+        releaseProof();
         applyAuthUser(verified, principal);
-        phoneVerificationOwnerRef.current = null;
       },
     });
   }, [applyAuthUser, phoneRecovery, requirePhoneVerificationOwner]);

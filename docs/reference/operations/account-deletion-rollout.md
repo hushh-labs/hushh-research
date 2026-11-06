@@ -109,9 +109,16 @@ Read-only lifecycle inventory extends the scoped source cohort to 160 identities
 including four beyond vault roots. None has been imported. A Dev-only canonical
 SDK credential is staged in `DEV_FIREBASE_SDK_CREDENTIALS_JSON`; native permission
 readback grants Dev user management and none of the tested production Auth
-permissions. The live services still use their previous credential. Apple rejects
-the new Dev return URL while accepting the production URL; eight cohort identities
-have an Apple link. Complete Apple provider/callback qualification before cutover.
+permissions. The live services still use their previous credential. The existing
+Apple service now retains all 13 prior website entries plus the Dev domain and
+return URL. Native preflight accepts both Dev and production callbacks and rejects
+an unregistered URL. The Dev Apple provider is configured with native readback;
+actual owner sign-in remains unqualified. Eight cohort identities have an Apple link.
+
+The existing Dev project also has iOS `com.hushh.app` and Android `com.hussh.app`
+Firebase app registrations. Their downloaded configurations match the Dev project,
+sender and app identifiers. No native build or live client uses them yet; provider
+and installed-device acceptance remain cutover gates.
 
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email

@@ -11,6 +11,7 @@ export type LinkedDeletionPorts = {
   user: () => User | null;
   retained: () => RetainedProof;
   requireOwner: (uid: string, epoch: number) => void;
+  releaseProof: () => void;
   finalize: (user: User) => void;
 };
 
@@ -91,6 +92,9 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   // Admission is not erasure or phone release. The consumed SMS proof belongs
   // to the previous UID and cannot authorize the ordinary same-owner writer.
   if (!input.testCode) {
+    if (!current()) throw new Error("Your account changed. Sign in again.");
+    ports.requireOwner(retained!.userId, retained!.epoch);
+    ports.releaseProof();
     throw linkedError(deleted ? "PHONE_LINKED_CLAIM_REQUIRED" : "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED");
   }
   try {

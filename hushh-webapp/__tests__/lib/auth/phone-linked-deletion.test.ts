@@ -10,7 +10,7 @@ const input = { operationId: "op-1", phoneNumber: "+16505550101" };
 const verified = { user_id: "owner", phone_number: "+16505550101", phone_verified: true };
 
 function ports(retained: { token: string; userId: string; epoch: number } | null = { token: "sms-proof", userId: "owner", epoch: 3 }) {
-  return { user: () => user, retained: () => retained, requireOwner: vi.fn(), finalize: vi.fn() } satisfies LinkedDeletionPorts;
+  return { user: () => user, retained: () => retained, requireOwner: vi.fn(), releaseProof: vi.fn(), finalize: vi.fn() } satisfies LinkedDeletionPorts;
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -32,6 +32,7 @@ describe("confirmLinkedDeletion", () => {
     expect(status).toHaveBeenCalledOnce();
     expect(claim).not.toHaveBeenCalled();
     expect(owner.requireOwner).toHaveBeenCalledWith("owner", 3);
+    expect(owner.releaseProof).toHaveBeenCalledOnce();
     expect(owner.finalize).not.toHaveBeenCalled();
   });
 
@@ -44,6 +45,19 @@ describe("confirmLinkedDeletion", () => {
     await expect(confirmLinkedDeletion({ ...input, testCode: "123456" }, owner)).resolves.toBe(user);
     expect(claim).not.toHaveBeenCalled();
     expect(owner.finalize).toHaveBeenCalledExactlyOnceWith(user);
+  });
+
+  it("does not release a newer same-owner attempt after a late deletion admission", async () => {
+    let admit!: (value: { operation_id: string; state: "admitted" }) => void;
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockReturnValue(new Promise(resolve => { admit = resolve; }));
+    const owner = ports();
+    const result = confirmLinkedDeletion(input, owner).catch(error => error);
+    expect(owner.requireOwner).toHaveBeenCalledOnce();
+    owner.requireOwner.mockImplementation(() => { throw new Error("Phone attempt changed"); });
+    admit({ operation_id: "op-1", state: "admitted" });
+    expect((await result).message).toBe("Phone attempt changed");
+    expect(owner.releaseProof).not.toHaveBeenCalled();
+    expect(owner.finalize).not.toHaveBeenCalled();
   });
 
   it("keeps a lost response that still reads back pending unconfirmed, never refused", async () => {
