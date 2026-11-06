@@ -150,7 +150,7 @@ function StatCard({
   return (
     <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-[13px] py-3 shadow-[var(--app-card-shadow-standard)]">
       <p className="text-[12px] font-medium text-[color:var(--one-fg2)]">{label}</p>
-      <p className="mt-1.5 text-[17px] font-semibold text-[color:var(--one-fg)] tabular-nums">{value}</p>
+      <p className="mt-1.5 ui-text-row-label-emphasized tabular-nums">{value}</p>
       <p
         className={cn(
           "mt-0.5 text-[12px] font-semibold tabular-nums",
@@ -355,7 +355,7 @@ function KaiSheet({
           <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">One</b>
+          <b className="block ui-text-row-label-emphasized">One</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Personal intelligence - works only for you</span>
         </span>
         <button
@@ -435,7 +435,7 @@ function NotificationsSheet({
       <div className="mx-auto mt-[9px] h-[5px] w-9 rounded-full bg-[color:var(--one-fg3)]/35" />
       <header className="flex items-center gap-[11px] border-b border-[color:var(--one-line)] px-[18px] pb-3 pt-3">
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Notifications</b>
+          <b className="block ui-text-row-label-emphasized">Notifications</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Signals and receipts</span>
         </span>
         <button
@@ -527,7 +527,7 @@ export function KaiAnalysisPreviewView() {
       </style>
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-col">
+      <div className="app-type-compact mx-auto flex min-h-0 w-full max-w-[1080px] flex-col">
         <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(32px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -537,7 +537,7 @@ export function KaiAnalysisPreviewView() {
               <div className={cn("mt-1.5", kaiPreviewPageTitleClassName)} role="heading" aria-level={1}>
                 Analysis
               </div>
-              <p className="mt-2 max-w-[34ch] text-[17px] leading-[1.42] text-[color:var(--one-fg2)]">
+              <p className="mt-2 max-w-[34ch] ui-text-row-description">
                 How your portfolio is performing.
               </p>
             </div>
@@ -582,7 +582,7 @@ export function KaiAnalysisPreviewView() {
           <div className="mt-5 flex items-start justify-between gap-3">
             <div>
               <p className="text-[13px] font-medium text-[color:var(--one-fg2)]">Portfolio value</p>
-              <p className="mt-1 text-[30px] font-medium leading-none tracking-normal text-[color:var(--one-fg)] tabular-nums sm:text-[34px]">
+              <p className="mt-1 ui-text-row-label-emphasized tabular-nums">
                 {rangeMeta.value}
               </p>
             </div>

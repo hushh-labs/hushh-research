@@ -14,7 +14,7 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
   invested?: number | null; cash?: number | null;
 }) {
   return <SurfaceCard data-testid="portfolio-value-card" className={styles.detail}>
-    <SurfaceCardContent className="space-y-5 p-5 sm:p-6">
+    <SurfaceCardContent className="flex h-full flex-col justify-between gap-2 p-4">
       <div className="flex items-center justify-between gap-3">
         <p className={styles.description}>{source} portfolio value</p>
         {action}
@@ -26,7 +26,7 @@ export function PortfolioValueCard({ source, value, change, changePct, period, h
         </p> : null}
         {change !== null ? <p className={cn(styles.description, "mt-1")}>Period balance change · includes cash flows</p> : null}
       </div>
-      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : <p className={styles.description}>Dated balance history unavailable.</p>}
+      {history.length >= 2 ? <PortfolioHistoryChart data={history} height={220} /> : null}
       {invested !== undefined || cash !== undefined ? <dl className={styles.summaryFacts}>
         <div><dt>Invested</dt><dd>{money(invested ?? null)}</dd></div>
         <div><dt>Cash</dt><dd>{money(cash ?? null)}</dd></div>

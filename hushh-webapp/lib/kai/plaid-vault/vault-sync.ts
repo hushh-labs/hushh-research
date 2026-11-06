@@ -102,6 +102,7 @@ async function readSnapshotPages(params: {
       vaultOwnerToken: params.vaultOwnerToken,
       accessToken: params.accessToken,
       transactionsCursor: cursor,
+      includeCountryOnFile: pages.length === 0,
       ...(pages.length > 0 ? { transactionsContinuation: true } : {}),
     });
     if (snapshot.item?.error) return [snapshot];

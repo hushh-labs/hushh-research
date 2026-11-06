@@ -493,7 +493,7 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
       <div className="space-y-3" data-consensus-summary>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-28 flex-1">
-            <p className="text-2xl font-semibold tracking-tight text-foreground">{agreePct}%</p>
+            <p className="ui-text-row-label-emphasized tabular-nums">{agreePct}%</p>
             <p className="text-xs text-muted-foreground">Agents align with the final call</p>
           </div>
           <div className="rounded-xl border border-amber-500/15 bg-amber-500/[0.08] px-3 py-2 text-right">
@@ -848,7 +848,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "text-lg font-semibold tracking-normal",
+                "ui-text-row-label-emphasized tabular-nums",
                 isBuy
                     ? "text-emerald-700 dark:text-emerald-400"
                     : isReduce
@@ -952,7 +952,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
                         <Icon icon={BarChart3} size="xs" className="text-accent-strong" />
                         <span className="text-[10px] font-semibold uppercase tracking-widest text-foreground/80 dark:text-foreground/80">Sentiment</span>
                     </div>
-                    <Badge variant="outline" className="border-border/40 bg-muted/30 text-[10px] font-mono text-foreground/85 dark:text-foreground/85">
+                    <Badge variant="outline" className="border-border/40 bg-muted/30 text-[10px] text-foreground/85 dark:text-foreground/85">
                         {sentimentPct >= 0 ? "+" : ""}
                         {sentimentPct.toFixed(0)}%
                     </Badge>

@@ -306,9 +306,9 @@ describe("shared page/chat Invitations with real typed transport", () => {
 
   it("uses page-to-chat context without performing an attendance write", async () => {
     const onOfferTimes = vi.fn();
-    render(view({ onOfferTimes })); fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
+    render(view({ onOfferTimes, accountId: "account-c" })); fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline & offer another time" }));
-    expect(onOfferTimes).toHaveBeenCalledWith({ ownerId: "owner", accountEmail: "owner@example.test", calendarId: pending.calendar_id, eventId: pending.id });
+    expect(onOfferTimes).toHaveBeenCalledWith({ ownerId: "owner", accountId: "account-c", accountEmail: "owner@example.test", calendarId: pending.calendar_id, eventId: pending.id });
     expect(preparations()).toHaveLength(0); expect(mutations()).toHaveLength(0);
     act(() => { expect(unwindBackLayer("/")).toBe(true); });
     expect(screen.queryByRole("article")).not.toBeInTheDocument();

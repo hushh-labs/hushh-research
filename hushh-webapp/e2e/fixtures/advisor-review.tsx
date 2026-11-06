@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { PortfolioAgentReview } from "@/components/kai/advisor/portfolio-agent-review";
+import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
+import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioAnalysis } from "@/components/kai/views/portfolio-briefing";
 import { sharingModel } from "./finance-sharing-boundaries";
 import { AdvisorWorkspace } from "@/components/kai/advisor/advisor-workspace";
@@ -17,22 +18,19 @@ export function AdvisorReviewFixture() {
 export function PortfolioAnalysisFixture() {
   const [open, setOpen] = useState(false);
   const [model, setModel] = useState(sharingModel);
-  const [advisor, setAdvisor] = useState(false);
   return (
-    <section>
+    <section className={financeStyles.workspace}>
       <button onClick={() => setOpen((previous) => !previous)}>Toggle sample analysis</button>
       <button onClick={() => {
         document.body.dataset.portfolioReviewChanged = "true";
         setModel({ ...sharingModel, hero: { ...sharingModel.hero, totalValue: 12000 } });
       }}>Update sample portfolio</button>
       {open ? (
-        <>
-          <PortfolioAgentReview context={ownerContext} source={{ kind: "statement", snapshotId: null }}
-            model={model} scope="synthetic-epoch" personaRevision={0} onFindAdvisor={() => setAdvisor(true)} />
-          <PortfolioAnalysis model={model} source="Sample statement" />
-          {advisor ? <AdvisorRequestFlow context={ownerContext} source={{ kind: "statement", snapshotId: null }}
-            onClose={() => setAdvisor(false)} onSent={() => setAdvisor(false)} /> : null}
-        </>
+        <AdvisorReviewHub
+          model={model}
+          source={{ kind: "statement", snapshotId: null }}
+          renderAnalysis={(advisorCard) => <PortfolioAnalysis model={model} advisorCard={advisorCard} />}
+        />
       ) : null}
     </section>
   );

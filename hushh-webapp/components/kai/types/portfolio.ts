@@ -4,6 +4,7 @@ export interface Holding {
   currency?: string;
   iso_currency_code?: string;
   price_unavailable?: boolean;
+  market_value_unavailable?: boolean;
   symbol: string;
   symbol_cusip?: string;
   identifier_type?: "ticker" | "cusip" | "derived";
@@ -63,6 +64,9 @@ export interface AccountSummary {
   ending_value: number;
   change_in_value?: number;
   cash_balance?: number;
+  declared_security_count?: number;
+  securities_market_value?: number;
+  pending_receivables?: number;
   equities_value?: number;
   total_change?: number;
   net_deposits_withdrawals?: number;

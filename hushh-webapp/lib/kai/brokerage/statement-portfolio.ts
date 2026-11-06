@@ -9,10 +9,16 @@ export function normalizeStatementPortfolio(candidate: Record<string, unknown>, 
   const source = record(snapshot?.source);
   const account = { ...record(snapshot?.account_info), ...record(candidate.account_info) };
   const period = record(account.statement_period);
-  return normalizeStoredPortfolio({ ...candidate, account_info: {
-    ...account,
-    brokerage_name: account.brokerage_name ?? account.brokerage ?? source.brokerage,
-    statement_period_start: account.statement_period_start ?? source.statement_period_start ?? period.start,
-    statement_period_end: account.statement_period_end ?? source.statement_period_end ?? period.end,
-  }, historical_values: candidate.historical_values ?? snapshot?.historical_values ?? record(snapshot?.raw_extract_v2).historical_values }, { preserveEntries: true }) as PortfolioData;
+  return normalizeStoredPortfolio({
+    ...candidate,
+    account_info: {
+      ...account,
+      brokerage_name: account.brokerage_name ?? account.brokerage ?? source.brokerage,
+      statement_period_start: account.statement_period_start ?? source.statement_period_start ?? period.start,
+      statement_period_end: account.statement_period_end ?? source.statement_period_end ?? period.end,
+    },
+    account_summary: { ...record(snapshot?.account_summary), ...record(candidate.account_summary) },
+    quality_report_v2: candidate.quality_report_v2 ?? snapshot?.quality_report_v2,
+    historical_values: candidate.historical_values ?? snapshot?.historical_values ?? record(snapshot?.raw_extract_v2).historical_values,
+  }, { preserveEntries: true }) as PortfolioData;
 }

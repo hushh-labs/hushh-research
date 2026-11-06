@@ -135,7 +135,8 @@ def _transport(body: str, page_tokens: list[str | None]):
 
 
 @pytest.mark.asyncio
-async def test_paged_scan_resumes_failed_section_without_dropping_tail(monkeypatch):
+@pytest.mark.parametrize("legacy_partial", [False, True])
+async def test_paged_scan_resumes_failed_section_without_dropping_tail(monkeypatch, legacy_partial):
     body = ("Earlier context. " * 1600) + "\n\nPlease send the document before 26 October."
     store = _Store()
     page_tokens: list[str | None] = []
@@ -161,7 +162,7 @@ async def test_paged_scan_resumes_failed_section_without_dropping_tail(monkeypat
     monkeypatch.setattr(scan, "assess_section", assess_section)
     transport = _transport(body, page_tokens)
     outcomes = []
-    for _ in range(15):
+    for step in range(15):
         result = await scan.scan_once(
             user_id="synthetic-owner",
             account_id="account-b",
@@ -171,17 +172,46 @@ async def test_paged_scan_resumes_failed_section_without_dropping_tail(monkeypat
             max_sections=1,
         )
         outcomes.append(result["state"])
+        if legacy_partial and step == 0:
+            # A sealed pre-relevance checkpoint already assessed section zero.
+            # Its old candidate must not receive the new verdict/version merely
+            # by resuming the remaining sections. The current model drops it.
+            checkpoint = store.current.checkpoint
+            assert checkpoint["section_index"] == 1
+            checkpoint.pop("assessment_version", None)
+            checkpoint["partial_candidates"] = [
+                {
+                    "evidence_key": "legacy-evidence",
+                    "message_id": "msg-one",
+                    "thread_id": "thread-one",
+                    "body_digest": checkpoint["partial_body_digest"],
+                    "source_internal_date_ms": 1791590400000,
+                    "kind": "action",
+                    "global_quote_start": 0,
+                    "quote": "Earlier context.",
+                    "title": "Legacy false positive",
+                    "original_due_wording": None,
+                    "due_date": None,
+                    "due_relation": None,
+                    "proposed_date": None,
+                    "proposed_at": None,
+                    "time_zone": None,
+                    "responsibility": "owner",
+                    "ambiguities": [],
+                }
+            ]
         if result["state"] == "complete":
             break
     assert "partial" in outcomes
     assert outcomes[-1] == "complete"
-    assert assessed.count(0) == 1
+    assert assessed.count(0) == (2 if legacy_partial else 1)
     assert assessed.count(1) == 2
     assert len(store.committed) == 1
     message, assessment, at = store.committed[0]
     assert at == datetime(2026, 10, 11, tzinfo=UTC)
     assert message.body.endswith("Please send the document before 26 October.")
     assert assessment.completed_sections == assessment.expected_sections == len(message.sections)
+    assert assessment.candidates == ()
     assert page_tokens == [None, "cursor-two"]
 
 

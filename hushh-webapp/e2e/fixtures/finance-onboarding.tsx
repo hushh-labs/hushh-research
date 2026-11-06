@@ -33,7 +33,6 @@ export function FinanceOnboardingFixture() {
             <FinancePersonaForm
               onboarding
               onSave={async () => {}}
-              onSkip={() => setPhase("source")}
               onDone={() => setPhase("source")}
             />
           ) : phase === "source" ? (
