@@ -7,6 +7,11 @@ certified by those non-browser results; use the existing explicit document/brows
 commands when that qualification is requested. One's Browser capability tests are
 separate runtime authority checks and remain selected when affected.
 
+Dev deployment performs no app-browser rehearsal. Use the existing reviewer
+diagnostic command explicitly when needed. UAT may explicitly request its
+reviewer diagnostic; neither changed paths nor an unknown comparison base
+selects a browser automatically. Unknown bases retain PKM preservation checks.
+
 
 > **Branch state:** `dev` is the protected development intake and default Dev
 > deployment source. UAT selects its protected branch independently, with exact

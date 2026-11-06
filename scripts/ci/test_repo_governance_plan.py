@@ -156,6 +156,21 @@ def test_known_product_path_does_not_expand_critical_groups() -> None:
     assert selection.groups == ()
     assert "cloudrun-retention" not in selection.check_ids
     assert "agent-orchestration" not in selection.check_ids
+    assert "web-lane-partition" not in selection.check_ids
+    # Owning package/fixture changes retain the topology check without turning
+    # ordinary package edits into the entire release-controller regression group.
+    from repo_governance_plan import WEB_LANE_INPUTS
+    for path in WEB_LANE_INPUTS:
+        selected = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": path})
+        assert selected.error is None
+        assert "web-lane-partition" in selected.check_ids
+        if path == "hushh-webapp/package.json":
+            assert "release-controller-contracts" not in selected.check_ids
+    for level, path in (("release", "hushh-webapp/app/page.tsx"),
+                        ("focused", "unknown-root/runtime.py"),
+                        ("focused", ".github/workflows/ci.yml")):
+        selected = build_selection({"CI_VALIDATION_LEVEL": level, "CI_CHANGED_FILES": path})
+        assert "web-lane-partition" in selected.check_ids
 
 
 def test_affected_unit_selector_test_is_a_controller_owner() -> None:
