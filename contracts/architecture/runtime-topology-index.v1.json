@@ -1048,6 +1048,22 @@
       "primary_access_path": "developer app registration, token issuance, and MCP/developer API access"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals",
+        "direct_call_voip_tokens",
+        "direct_call_voip_outbox"
+      ],
+      "id": "direct_call_control",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Signed, active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification."
+    },
+    {
       "data_class": "personal_encrypted",
       "exact_tables": [
         "messages",
