@@ -94,8 +94,9 @@ the activation PR is insufficient:
    helper. The activation PR itself cannot certify a helper fix absent from its
    base.
 4. Apply the reviewed merger/review restrictions and read back the result.
-   Ordinary queue intake is non-strict; the named owner direct route retains
-   its independent strict-CI/PR guard.
+   Dev and shared UAT queue intake is non-strict. Isolated UAT keeps strict
+   classic CI and independent review. The named owner direct route retains its
+   independent strict CI and PR guard.
 
 These are source and policy operations only. They do not deploy an application.
 
@@ -470,7 +471,7 @@ queue entry without blanket review. Protected CI and fundamental guidance still
 require Kushal/Ankit authority on every destination.
 
 The named-owner Admin route lets Kushal or Ankit explicitly approve their own
-exact-head PR on Main, Dev or UAT without a second owner. Its native strict CI/PR
+exact-head PR on Main, Dev, UAT or isolated UAT without a second owner. Its native strict CI/PR
 guard and canonical command preserve current-base evidence, resolved conversations
 and landed-tree verification. Other maintainers use the ordinary queue.
 Historical bootstrap exceptions are not reusable approval.
