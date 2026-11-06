@@ -3,49 +3,26 @@
 Use this SOP when a reviewer handles more than one PR, chooses the next batch,
 revisits `changes_requested`, or scales throughput without weakening quality.
 
-## Decision Philosophy — Autonomous Intelligence, No Human-Review Limbo
+## Review decisions and authority
 
-The governance engine takes every decision autonomously based on one question:
-**does this change make the codebase stronger and is it verifiably safe?** There
-is no "defer to human review" terminal state and no parking lot. Verdicts are
-driven by the *direction and content* of the diff, never by proxies like file
-count or the mere presence of a security keyword:
+Assess behavior, security boundaries and integration evidence. A green check or
+an apparently strengthening diff does not grant merge permission. Follow the
+canonical Admin Merge and Release SOP for team membership, protected-owner
+approval, exact-head evidence and queue admission. Record a missing required
+approval as an actionable hold; never bypass it or repeatedly request people.
 
-- A diff that **strengthens** a boundary (adds validation, null-safety, format/
-  length checks, stricter typing, redaction, a11y/security attributes) and is
-  CI-green is **merged** — it improves the codebase.
-- A diff that **weakens** a boundary (removes validation, adds bypass/skip-auth,
-  `catch(err: any)`, allow-all, `verify=False`) is **refused** with a concrete
-  change request — it makes the codebase weaker.
-- File count and line count are **not** risk proxies. A 1-file change to vault
-  crypto gets real diff reasoning; a 12-file a11y sweep is not "broad". Only a
-  genuinely unreviewable mega-diff (>25 files / >1500 lines) is asked to split.
-- The merge queue runs CI and auto-ejects failures, so a strengthening change
-  that breaks a test cannot reach main. Safety comes from CI + directional diff
-  analysis, not from a human gate.
+## Branch intake
 
-## Branch Intake Model
+Review each PR against its intended destination. Dev integrates features; UAT
+assembles selected changes and can qualify directly; Main holds the production
+baseline and reviewed operations fixes. Ordinary work does not require
+`integration/pr-train`. Preserve that branch only for explicitly scoped legacy
+campaigns. Do not retarget an existing PR without a concrete destination reason.
 
-This SOP uses the PR governance subagent train as the default maintainer
-workflow. Contributor experience can stay simple: contributors may open PRs
-against `main` if that is the familiar GitHub default. Before any maintainer
-review, approval, patch, harvest, queue, or merge action, normal PR intake must
-be retargeted to `integration/pr-train`.
-
-The canonical path is:
-
-```text
-contributor branch -> PR opened to main or integration/pr-train
-maintainer/automation retargets normal intake to integration/pr-train
-integration/pr-train is reviewed, tested, merged, and manually validated
-integration/pr-train -> main promotion PR
-exact green main SHA -> UAT/production deploy
-```
-
-`main` is the stable promotion lane. Governed maintainers shipping their own
-branches cut from `origin/main` may open directly into `main`; non-maintainer
-feature, contributor, or agent PRs use `integration/pr-train`. Apply the actor
-lane in `config/ci-governance.json` before retargeting or queue action.
+Main fixes propagate to UAT/Dev and UAT fixes to Dev through reviewed source syncs
+completed by the coding agent. Complete tooling sync before qualification that
+depends on it. Resolve conflicts by behavior and preserve unique application and
+test changes. Neither sync nor merge dispatches deployment.
 
 ## Async Train Default / Async Subagent Train Default
 
@@ -116,9 +93,9 @@ Move a PR to `Dormant Current Holds` without deep re-review when all are true:
 
 ## Preflight
 
-Fetch `origin/integration/pr-train`, inspect worktree, confirm no dirty local file overlaps a PR under review, and use only a fresh scoped live report. For any normal PR that currently targets `main`, retarget to `integration/pr-train` before approval, queue, merge, maintainer patch, or harvest. High-volume (`>20` PRs scanned, `>5` acted on, mixed trains, repasses, or throughput maximization) requires the delegation router and read-only subagent lanes.
+Fetch the actual destination, inspect the worktree, confirm no dirty local file overlaps a PR under review, and use a fresh scoped live report. Preserve the intended destination; do not retarget ordinary work to a train branch. High-volume (`>20` PRs scanned, `>5` acted on, mixed trains, repasses, or throughput maximization) requires the delegation router and read-only subagent lanes.
 
-Record the starting developer branch before any worktree, PR checkout, detached HEAD, or temporary review branch operation. If the parent session switches away, the train is not complete until it returns to that branch or reports the exact blocker. Fetch `origin/integration/pr-train` before any PR-train state-changing wave or branch switch so decisions are based on the current train ref. Fetch `origin/main` only for train-to-main promotion, hotfix, or deploy-authority checks.
+Record the starting developer branch before any worktree, PR checkout, detached HEAD, or temporary review branch operation. If the parent session switches away, the train is not complete until it returns to that branch or reports the exact blocker. Fetch the selected destination before each state-changing wave. Check relevant Main/UAT fixes for downstream source synchronization; do not deploy as part of a merge task.
 
 ## Branch And Worktree Hygiene
 
@@ -129,7 +106,7 @@ Record the starting developer branch before any worktree, PR checkout, detached 
 5. Never leave final governance changes only on a temporary branch. Move or replay accepted changes onto the operator-approved development branch before final handoff.
 6. Do not switch branches with dirty user work unless that work is first preserved with an explicit stash, commit, or operator-approved worktree handoff.
 7. Attempt temporary branch and worktree cleanup before final handoff. If cleanup fails, report the exact branch or worktree, current ref, why it remains, and the next cleanup command.
-8. A final handoff after branch operations must state the current branch, whether `origin/integration/pr-train` and any required `origin/main` promotion ref were fetched, what temporary branches/worktrees remain, and where the accepted changes live.
+8. A final handoff after branch operations must state the current branch, which destination and required upstream source refs were fetched, what temporary branches/worktrees remain, and where the accepted changes live.
 9. Before final handoff, run a read-only worktree inventory:
    `git worktree list --porcelain`, `git worktree prune --dry-run`, and
    `git -C <worktree> status --short --branch` for non-primary worktrees.
@@ -191,7 +168,7 @@ Identify every train in the reviewed scope before any state change:
 
 Large OSS-style contribution queues often contain stacked work. Treat this as a sequencing input, not as automatic drift.
 
-1. Review every normal PR against current `integration/pr-train`, then check whether it has a proven predecessor in the open PR set.
+1. Review each PR against its current intended destination, then check whether it has a proven predecessor in the open PR set.
 2. Proven stack evidence includes explicit dependency language in the PR title/body, branch ancestry, imports/callers that point to files introduced by another open PR, or tests that only make sense after a named predecessor lands.
 3. Hints such as same author, similar title, nearby creation time, or same broad theme are not enough by themselves.
 4. If a follow-up PR depends on a predecessor, put both in one sequential train, set `must_wait_for`, and process the initializer first.

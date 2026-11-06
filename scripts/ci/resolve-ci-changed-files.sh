@@ -39,7 +39,7 @@ file="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hushh-ci-changed-files-${GITHUB_RUN_ID:-lo
 umask 077
 git diff --name-only "$base" "$head" > "$file"
 if [ -n "${GITHUB_ENV:-}" ]; then
-  printf 'CI_CHANGED_FILES_FILE=%s\n' "$file" >> "$GITHUB_ENV"
+  printf 'CI_CHANGED_FILES_FILE=%s\nCI_IMPACT_BASE_SHA=%s\nCI_IMPACT_HEAD_SHA=%s\n' "$file" "$base" "$head" >> "$GITHUB_ENV"
 else
   printf '%s\n' "$file"
 fi

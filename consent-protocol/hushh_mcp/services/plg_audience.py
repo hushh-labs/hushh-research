@@ -20,6 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.utils.firebase_admin import get_firebase_auth_app
+from api.utils.firebase_auth import current_auth_lane
 from db.connection import get_pool
 from hushh_mcp.services import plg_audience_index
 from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
@@ -27,10 +28,37 @@ from hushh_mcp.services.actor_identity_service import ActorIdentityService, reso
 from hushh_mcp.services.plg_audience_identity import current_records
 from hushh_mcp.services.plg_catalog import activity_catalog, public_activity_catalog
 from hushh_mcp.services.plg_outcomes import value_summaries
+from hushh_mcp.services.plg_read_secrets import read_secret, secret_in_use, uat_directory_enabled
 from hushh_mcp.services.plg_reporting import reporting_identifiers, reporting_policy
-from hushh_mcp.services.product_activity import enabled_for
+from hushh_mcp.services.product_activity import enabled_for, registered_uat_enabled
 
 PAGE_SIZE = 25
+
+
+def uat_audience_secret() -> str | None:
+    """Directory identity authority is separate from owner reads and delivery."""
+    secret = read_secret("ONE_PLG_UAT_AUDIENCE_SECRET")
+    if (
+        not registered_uat_enabled()
+        or current_auth_lane() != "uat"
+        or os.getenv("GOOGLE_CLOUD_PROJECT") != "hushh-pda-uat"
+        or not uat_directory_enabled()
+        or len(secret) < 32
+        or secret_in_use(
+            secret,
+            (
+                "ONE_PLG_AUDIENCE_SECRET",
+                "ONE_PLG_EXPORT_SECRET",
+                "ONE_PLG_OWNER_EXPORT_SECRET",
+                "ONE_PLG_DEV_EXPORT_SECRET",
+                "ONE_PLG_UAT_EXPORT_SECRET",
+                "ONE_PLG_SUBSCRIPTION_SECRET",
+                "ONE_PLG_ATTEMPT_EMAIL_SECRET",
+            ),
+        )
+    ):
+        return None
+    return secret
 
 
 class AudienceCursorError(ValueError):
@@ -78,7 +106,9 @@ def _binding(request: AudienceRequest) -> str:
     ).hexdigest()
 
 
-def _cursor(request: AudienceRequest, secret: str, now: datetime) -> tuple[str | None, datetime]:
+def _cursor(
+    request: AudienceRequest, secret: str, now: datetime, project: str = "hushh-pda"
+) -> tuple[str | None, datetime]:
     if request.cursor is None:
         return None, now
     try:
@@ -92,7 +122,7 @@ def _cursor(request: AudienceRequest, secret: str, now: datetime) -> tuple[str |
         at = datetime.fromisoformat(payload["asOf"])
         if (
             payload["v"] != 1
-            or payload["project"] != "hushh-pda"
+            or payload["project"] != project
             or payload["binding"] != _binding(request)
             or payload["size"] != PAGE_SIZE
             or not isinstance(payload["page"], str)
@@ -112,7 +142,11 @@ def _cursor(request: AudienceRequest, secret: str, now: datetime) -> tuple[str |
 
 
 def _next_cursor(
-    page: str | None, request: AudienceRequest, secret: str, at: datetime
+    page: str | None,
+    request: AudienceRequest,
+    secret: str,
+    at: datetime,
+    project: str = "hushh-pda",
 ) -> str | None:
     if not page:
         return None
@@ -123,7 +157,7 @@ def _next_cursor(
             json.dumps(
                 {
                     "v": 1,
-                    "project": "hushh-pda",
+                    "project": project,
                     "page": page,
                     "size": PAGE_SIZE,
                     "binding": _binding(request),
@@ -141,11 +175,11 @@ def _next_cursor(
     return f"{raw}.{signature}"
 
 
-def _firebase_page(page: str | None):
+def _firebase_page(page: str | None, project: str = "hushh-pda"):
     from firebase_admin import auth
 
     app = get_firebase_auth_app()
-    if app is None or app.project_id != "hushh-pda":
+    if project not in {"hushh-pda", "hushh-pda-uat"} or app is None or app.project_id != project:
         raise RuntimeError("audience identity source unavailable")
     source = auth.list_users(page_token=page, max_results=PAGE_SIZE, app=app)
     if os.getenv("ACCOUNT_GENERATION_ADMISSION_ENABLED", "").strip().lower() == "true":
@@ -311,12 +345,15 @@ def summarize_attempts(
     }
 
 
+def _identity_matches(identity: dict, query: str) -> bool:
+    return not query or any(
+        query in str(identity.get(k) or "").casefold() for k in ("name", "email", "phoneNumber")
+    )
+
+
 def _matches(row: dict, request: AudienceRequest) -> bool:
     identity, activity = row["identity"], row["activity"]
-    query = request.query.strip().casefold()
-    if query and not any(
-        query in str(identity.get(k) or "").casefold() for k in ("name", "email", "phoneNumber")
-    ):
+    if not _identity_matches(identity, request.query.strip().casefold()):
         return False
     if request.segment == "all":
         return True
@@ -347,6 +384,10 @@ async def _registered_customers(conn, eligible, policy):
         conn, candidates={uid: str(eligible[uid].phone_number or "") for uid in active}
     )
     identities = await identity_service.get_many(active, conn=conn)
+    # UAT includes registered team/test accounts after the same deletion and
+    # identity barriers. It never receives a production customer-reporting proof.
+    if policy is None:
+        return active, identities, phones, excluded
     aliases = await identity_service.get_many_verified_email_aliases(active, conn=conn)
     customers = {
         uid
@@ -367,7 +408,18 @@ async def _registered_customers(conn, eligible, policy):
 async def _audience_rows(conn, eligible, active, identities, phones, request, at):
     result = []
     since = at - timedelta(days=7)
-    ids = sorted(active)
+    query = request.query.strip().casefold()
+    matched = {}
+    for uid in eligible:
+        if uid in active:
+            identity = _identity(eligible[uid], identities.get(uid), phones.get(uid))
+            if _identity_matches(identity, query):
+                matched[uid] = identity
+    # Search canonical identity before reading seven days of activity/value
+    # ledgers. Traversal counts/cursors still describe the original source page.
+    if not matched:
+        return []
+    ids = sorted(matched)
     epochs = {
         r["user_id"]: r
         for r in await conn.fetch(
@@ -394,12 +446,12 @@ async def _audience_rows(conn, eligible, active, identities, phones, request, at
     }
     verified = await value_summaries(conn, ids, request.agentId, since, at)
     for uid in eligible:
-        if uid not in active:
+        if uid not in matched:
             continue
         row = {
             "accountId": uid,
             "agentId": request.agentId,
-            "identity": _identity(eligible[uid], identities.get(uid), phones.get(uid)),
+            "identity": matched[uid],
             "activity": summarize_attempts(
                 [r for r in observations if r["user_id"] == uid],
                 agent_id=request.agentId,
@@ -416,13 +468,28 @@ async def _audience_rows(conn, eligible, active, identities, phones, request, at
     return result
 
 
-async def audience_page(request: AudienceRequest, secret: str, now: datetime) -> dict:
-    policy = reporting_policy()
-    page, at = _cursor(request, secret, now)
+async def audience_page(
+    request: AudienceRequest,
+    secret: str,
+    now: datetime,
+    *,
+    environment: Literal["production", "uat"] = "production",
+) -> dict:
+    if environment not in {"production", "uat"}:
+        raise ValueError("unsupported audience environment")
+    uat = environment == "uat"
+    if uat and (not uat_audience_secret() or secret != uat_audience_secret()):
+        raise ValueError("UAT audience unavailable")
+    policy = None if uat else reporting_policy()
+    project = "hushh-pda-uat" if uat else "hushh-pda"
+    page, at = _cursor(request, secret, now, project)
+    project_arg = {"project": project} if uat else {}
     source = (
-        await plg_audience_index.source_page(request, page, at, PAGE_SIZE)
+        await plg_audience_index.source_page(request, page, at, PAGE_SIZE, **project_arg)
         if request.segment in plg_audience_index.SEGMENTS
-        else await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
+        else await asyncio.wait_for(
+            asyncio.to_thread(_firebase_page, page, **project_arg), timeout=6
+        )
     )
     records = list(source.users)
     scanned = getattr(source, "scanned", len(records))
@@ -447,9 +514,10 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
             excluded += withheld
             result = await _audience_rows(conn, eligible, active, identities, phones, request, at)
     return {
-        "version": 1,
-        "environment": "production",
-        "customerReporting": policy.proof(),
+        "version": 2 if uat else 1,
+        "environment": environment,
+        "customerReporting": policy.proof() if policy is not None else False,
+        **({"deliveryAuthorized": False} if uat else {}),
         "catalog": public_activity_catalog(),
         "asOf": _iso(at),
         "windowStart": _iso(since),
@@ -459,6 +527,6 @@ async def audience_page(request: AudienceRequest, secret: str, now: datetime) ->
         "scanned": scanned,
         "excluded": excluded,
         "rows": result,
-        "nextCursor": _next_cursor(source.next_page_token, request, secret, at),
+        "nextCursor": _next_cursor(source.next_page_token, request, secret, at, project),
         "campaignEnrollmentChanged": False,
     }

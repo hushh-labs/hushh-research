@@ -73,7 +73,8 @@ def _run(script: Path, env_overrides: dict[str, str], *, stub_diagrams: bool = F
             + diagrams + f'esac\nexec {real_node} "$@"\n', encoding="utf-8"
         )
         node.chmod(node.stat().st_mode | stat.S_IEXEC)
-        env = dict(os.environ)
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("GIT_", "GITHUB_", "GH_"))}
         env.update(
             {
                 "PATH": f"{stub_dir}{os.pathsep}{env['PATH']}",
