@@ -608,7 +608,7 @@ def test_shared_work_and_real_leave_block_in_every_zone(monkeypatch, zone, durat
     ],
 )
 def test_full_day_defaults_query_civil_boundaries_in_worldwide_zones(monkeypatch, zone, day, hours):
-    _freeze_clock(monkeypatch, "2025-01-01T00:00:00+00:00")
+    _freeze_clock(monkeypatch, f"{day[:4]}-01-01T00:00:00+00:00")
     calendar = _WindowsCalendar({"personal": {"busy": []}, "shared": {"busy": []}})
     result = asyncio.run(
         CalendarScheduleService(calendar=calendar, db=_Db(), mail=object()).free_windows(

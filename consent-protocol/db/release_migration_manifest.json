@@ -386,6 +386,7 @@
     "448_connection_network_visibility.sql",
     "450_one_attempt_email_outbox.sql",
     "451_one_attempt_email_feedback.sql",
+    "452_direct_calls.sql",
     "454_calendar_email_followup_temporal.sql"
   ],
   "environment_overlays": {
@@ -819,6 +820,7 @@
     "448_connection_network_visibility.sql": "rollback/448_connection_network_visibility.rollback.sql",
     "450_one_attempt_email_outbox.sql": "rollback/450_one_attempt_email_outbox.rollback.sql",
     "451_one_attempt_email_feedback.sql": "rollback/451_one_attempt_email_feedback.rollback.sql",
-    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql"
+    "454_calendar_email_followup_temporal.sql": "rollback/454_calendar_email_followup_temporal.rollback.sql",
+    "452_direct_calls.sql": "rollback/452_direct_calls.rollback.sql"
   }
 }
