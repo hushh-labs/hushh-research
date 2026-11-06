@@ -483,13 +483,13 @@ async def audience_page(
     policy = None if uat else reporting_policy()
     project = "hushh-pda-uat" if uat else "hushh-pda"
     page, at = _cursor(request, secret, now, project)
-    project_arg = {"project": project} if uat else {}
+    # One shares the hushh-pda sign-in authority across environments. Only the
+    # identity lookup is shared; the runtime DB, signed cursor and catalog stay
+    # bound to the admitted application environment.
     source = (
-        await plg_audience_index.source_page(request, page, at, PAGE_SIZE, **project_arg)
+        await plg_audience_index.source_page(request, page, at, PAGE_SIZE)
         if request.segment in plg_audience_index.SEGMENTS
-        else await asyncio.wait_for(
-            asyncio.to_thread(_firebase_page, page, **project_arg), timeout=6
-        )
+        else await asyncio.wait_for(asyncio.to_thread(_firebase_page, page), timeout=6)
     )
     records = list(source.users)
     scanned = getattr(source, "scanned", len(records))
@@ -518,7 +518,7 @@ async def audience_page(
         "environment": environment,
         "customerReporting": policy.proof() if policy is not None else False,
         **({"deliveryAuthorized": False} if uat else {}),
-        "catalog": public_activity_catalog(),
+        "catalog": public_activity_catalog(environment),
         "asOf": _iso(at),
         "windowStart": _iso(since),
         "graceMinutes": request.graceMinutes,
