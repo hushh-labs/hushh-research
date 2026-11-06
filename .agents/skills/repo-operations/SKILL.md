@@ -96,9 +96,10 @@ script edits. Backend test additions/comments stay ordinary; removing existing
 CI identities needs owner authority, and malformed/option-like entries refuse.
 These controls protect authored pipeline authority, not arbitrary hostile product
 or test code executing inside a test process.
-`uat-isolated` and the legacy train retain their existing blanket safeguards.
+`uat-isolated` retains strict classic CI and blanket review, with named-owner
+Admin exceptions applied through the SOP. The legacy train retains its existing safeguards.
 
-When the approving user is Kushal or Ankit and authored a Main/Dev/UAT PR, use the
+When the approving user is Kushal or Ankit and authored a Main, Dev, UAT or isolated UAT PR, use the
 existing `queue_combined_result.py owner-merge` Admin SOP. GitHub's native queue
 still refuses the author-only bypass despite a separate path-review exception;
 do not remove the named-owner direct route or weaken required CI to evade it.

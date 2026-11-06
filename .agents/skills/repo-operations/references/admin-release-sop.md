@@ -102,7 +102,7 @@ execute its reviewed implementation; generic admin credentials alone are not.
 its review-bypass allowance for an author. Do not request another owner merely
 because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
 Kushal and Ankit have a separate, explicitly approved owner Admin PR route on
-Main, Dev and UAT. Ordinary Main PRs retain independent/latest-push review,
+Main, Dev, UAT and isolated UAT. Ordinary Main and isolated UAT PRs retain independent/latest-push review,
 CODEOWNER review where protected paths require it, and the combined-result queue. Eligible Dev/UAT authors use ordinary
 maintainer self-approval through the queue as described in §3B.
 
@@ -144,10 +144,13 @@ this ancestry requirement. A changed source needs its own validation. Missing or
 is a refusal, not permission to run `gh --admin` directly.
 
 Main activation uses `apply-governance.py --main-merge-policy`. Dev/UAT use
-`--branch dev` or `--branch uat` only after native protected review and exact Main
-authority sources are verified on the destination. Reconcile live changes serially
-and read back the result. Each path installs the strict owner CI/PR guard before
-granting owner queue exceptions; retain that guard while an exception is enabled.
+`--branch dev` or `--branch uat` after native protected review and exact Main
+authority sources are verified on the destination. Isolated UAT uses
+`--branch uat-isolated` from the landed Main policy. It keeps strict classic CI,
+CODEOWNER and latest-push reviews, narrows existing exceptions to the named
+owners, and leaves the ordinary queue's destination authority in place. Install
+and verify the owner guard before granting queue exceptions, then read back the
+result. Keep the guard active while any exception is enabled.
 
 The bootstrap of PR #8825 was a separately authorized one-time Admin exception:
 the exact merge tree was proven by CI, server-side strict CI was enabled, only the
