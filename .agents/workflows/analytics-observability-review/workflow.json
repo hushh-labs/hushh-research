@@ -23,7 +23,7 @@
     "consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task analytics-observability-review",
+    "./bin/hushh agents route-task analytics-observability-review",
     "python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py validate",
     "python3 .agents/skills/analytics-observability-governance/scripts/inspect_analytics_surface.py health",
     "cd hushh-webapp && npm run verify:analytics",

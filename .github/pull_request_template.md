@@ -66,7 +66,7 @@ production-code proof, and a title/body that match the diff.
   - [ ] Route/spec/command listed below:
 
 - Verification commands executed:
-  - [ ] `./bin/hushh codex pre-pr`
+  - [ ] `./bin/hushh agents pre-pr`
   - [ ] `cd hushh-webapp && npm run typecheck`
   - [ ] `cd hushh-webapp && npm test`
   - [ ] `cd hushh-webapp && npm run build`

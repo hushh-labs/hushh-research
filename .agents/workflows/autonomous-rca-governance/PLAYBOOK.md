@@ -8,7 +8,7 @@ Classify core runtime and release failures into a small RCA taxonomy, run the sm
 
 ## Steps
 
-1. Start with `autonomous-rca-governance` and run `./bin/hushh codex rca --surface <uat|runtime|ci>`.
+1. Start with `autonomous-rca-governance` and run `./bin/hushh agents rca --surface <uat|runtime|ci>`.
 2. Separate the blocking class before editing anything:
    `secret_missing`, `runtime_mount_missing`, `runtime_mount_legacy`, `runtime_behavior_failed`, `smoke_overlay_dependency_leak`, `db_contract_drift`.
 3. Route the fix to the smallest owner skill that can actually remediate the blocking class.

@@ -170,6 +170,6 @@ single-user dev load, suspect a re-introduced blocking call on the loop.
 1. If the slow surface is a frontend cache/coherence problem rather than a
    backend block, route to `frontend-cache-coherence`.
 2. If the slowness is a UAT/CI runtime failure, start with
-   `./bin/hushh codex rca --surface runtime --text`.
+   `./bin/hushh agents rca --surface runtime --text`.
 3. If the blocking call is consent/trust/vault policy logic, keep the offload
    here but route the policy decision to `security-audit`.

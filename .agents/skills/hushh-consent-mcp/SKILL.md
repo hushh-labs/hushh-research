@@ -77,6 +77,6 @@ Non-owned surfaces:
 
 ```bash
 python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
-./bin/hushh codex audit
+./bin/hushh agents audit
 cd packages/hushh-mcp && npm run print-config
 ```

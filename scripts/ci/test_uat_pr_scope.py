@@ -3,6 +3,8 @@
 """Verify PR scope and protected-source binding before shared UAT mutation."""
 
 from pathlib import Path
+import copy
+import json
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -15,6 +17,47 @@ from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attemp
 
 
 class ApprovedUatScopeTest(unittest.TestCase):
+    def test_ci_ready_inspection_selects_exact_sha_without_a_manual_pr_chain(self):
+        report = prerequisites.render({"ready": True, "candidate_sha": "a" * 40,
+            "base_sha": "b" * 40, "authority_sha": "c" * 40,
+            "ci_run_id": 123, "ci_run_attempt": 2})
+        self.assertNotIn("approved_scope=", report)
+        self.assertIn("Explicit deployment selects this protected SHA", report)
+        self.assertIn("Inspection grants no deployment authority", report)
+
+    def test_protected_sha_admission_rechecks_captured_revisions_and_current_ci(self):
+        candidate, base, other = (letter * 40 for letter in "abc")
+        api = SimpleNamespace(read=lambda _: {"protected": True, "commit": {"sha": candidate}})
+        serving = {"backend": {"sha": base, "revision": "consent-protocol-old"},
+                   "frontend": {"sha": other, "revision": "hushh-webapp-old"}}
+        prior = {"kind": "uat-exact-ci", "status": "accepted", "environment": "uat",
+                 "repository": subject.REPOSITORY, "sha": candidate, "base_sha": base,
+                 "serving": serving}
+        # No PR inventory or manual approval chain is needed for ordinary UAT.
+        with patch.object(prerequisites, "verify_approved_scope", side_effect=AssertionError("legacy chain invoked")):
+            prerequisites.verify_release_scope(api, candidate, base, "")
+            with tempfile.TemporaryDirectory() as directory, patch.object(subject, "verify_predecessor") as verify:
+                record = Path(directory) / "admission.json"
+                record.write_text(json.dumps(prior))
+                options = {"read_live": lambda _: copy.deepcopy(serving), "predecessor": record}
+                prerequisites.verify_release_scope(api, candidate, base, "", **options)
+                verify.assert_called_once_with(prior, current=True)
+                for service in serving:
+                    serving[service]["revision"] += "-replaced"
+                    with self.subTest(service=service), self.assertRaisesRegex(subject.Refused, "revisions changed"):
+                        prerequisites.verify_release_scope(api, candidate, base, "", **options)
+                    serving[service]["revision"] = prior["serving"][service]["revision"].removesuffix("-replaced")
+                with patch.object(subject, "verify_predecessor", side_effect=subject.Refused("newer CI failed")), self.assertRaisesRegex(subject.Refused, "newer CI failed"):
+                    prerequisites.verify_release_scope(api, candidate, base, "", **options)
+                record.write_text(json.dumps({**prior, "sha": other}))
+                with self.assertRaisesRegex(subject.Refused, "another source"):
+                    prerequisites.verify_release_scope(api, candidate, base, "", **options)
+                with self.assertRaises(subject.Refused):
+                    prerequisites.verify_release_scope(api, candidate, base, "", read_live=options["read_live"])
+        api.read = lambda _: {"protected": False, "commit": {"sha": candidate}}
+        with self.assertRaises(subject.Refused):
+            prerequisites.verify_release_scope(api, candidate, base, "")
+
     def test_accumulated_pr_chain_checks_every_link_and_keeps_a_bound(self):
         for count in (11, 20):
             with self.subTest(count=count):
