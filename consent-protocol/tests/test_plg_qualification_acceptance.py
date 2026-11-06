@@ -21,11 +21,13 @@ def test_hosted_isolated_acceptance_has_distinct_type_and_source_consumer(monkey
 
 
 @pytest.mark.parametrize("environment", ["dev", "uat"])
-@pytest.mark.parametrize("identity", ["actor", "triggering_actor"])
-def test_hosted_consumer_rejects_removed_operator(monkeypatch, environment, identity):
+@pytest.mark.parametrize("actor_field", ["actor", "triggering_actor"])
+def test_isolated_acceptance_refuses_removed_production_operator(
+    monkeypatch, environment, actor_field
+):
     hosted = HostedAcceptance(monkeypatch)
     run = hosted.responses[f"runs/{hosted.runs[environment]}"]
-    run[identity] = {"login": "DamriaNeelesh"}
+    run[actor_field] = {"login": "DamriaNeelesh"}
     with pytest.raises(ValueError, match="qualification_run_identity_unverified"):
         hosted.module.verify(environment, hosted.runs[environment], github=hosted)
 

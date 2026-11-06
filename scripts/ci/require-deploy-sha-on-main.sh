@@ -193,7 +193,11 @@ def producer_runs(name, *, fresh=False):
             raise SystemExit("Refusing deploy: incomplete bounded workflow-run inventory.")
         candidates.extend(run for run in runs if run.get("head_sha") == sha
                       and run.get("path") == f".github/workflows/{workflow}"
-                      and run.get("event") == event and type(run.get("id")) is int)
+                      and run.get("event") == event and type(run.get("id")) is int
+                      and (os.environ.get("REQUIRE_CI_HEAD_BRANCH") != "1"
+                           or (run.get("head_branch") == branch
+                               and (run.get("head_repository") or {}).get("full_name")
+                               == os.environ["GITHUB_REPOSITORY"])))
     return candidates
 
 
@@ -234,6 +238,11 @@ def verified_check(check):
             if not any(step.get("name") == "Verify smoke source identity"
                        and step.get("conclusion") == "success"
                        for step in job.get("steps", [])):
+                continue
+        required_step = os.environ.get("REQUIRED_CI_JOB_STEP")
+        if required_step:
+            matches = [step for step in job.get("steps", []) if step.get("name") == required_step]
+            if len(matches) != 1 or matches[0].get("conclusion") != "success":
                 continue
         if not unchanged_runs(observed):
             return False

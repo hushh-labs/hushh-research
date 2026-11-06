@@ -157,8 +157,8 @@ class HostedAcceptance:
             "conclusion": "success",
             "repository": {"full_name": m.validation.transport.REPOSITORY},
             "head_repository": {"full_name": m.validation.transport.REPOSITORY},
-            "actor": {"login": "imsharukhan"},
-            "triggering_actor": {"login": "imsharukhan"},
+            "actor": {"login": "kushaltrivedi5"},
+            "triggering_actor": {"login": "kushaltrivedi5"},
             "updated_at": "2026-10-28T02:00:00Z",
         }
         job = {

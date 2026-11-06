@@ -364,6 +364,7 @@ def test_profile_and_shortcut_inputs_schedule_connections_browser_pack() -> None
         "hushh-webapp/components/icons/ui/shortcut-action-icons.tsx",
         "hushh-webapp/components/icons/ui/shortcut-icon-motion.module.css",
         "hushh-webapp/lib/navigation/web-history-back.ts",
+        "hushh-webapp/lib/connections/person-profile-preview.ts",
         "hushh-webapp/lib/navigation/profile-pane.ts",
         "hushh-webapp/lib/morphy-ux/hooks/use-shortcut-icon-motion.ts",
         "hushh-webapp/app/globals.css",
