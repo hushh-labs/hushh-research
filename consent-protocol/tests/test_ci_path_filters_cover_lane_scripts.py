@@ -827,6 +827,13 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
         commands = {check["id"]: check["argv"] for check in plan["commands"]}
         assert consumers.issubset(commands["release-controller-contracts"])
     assert filters["backend"].match_file("consent-protocol/tests/helpers/unknown_worker_gcloud.py")
+    launcher_plan = _governance_plan(("deploy/drive/deploy_worker_service.sh",))
+    controller = next(
+        check
+        for check in launcher_plan["commands"]
+        if check["id"] == "release-controller-contracts"
+    )
+    assert "consent-protocol/tests/test_database_connection_ceiling.py" in controller["argv"]
 
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
@@ -859,6 +866,7 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_v1_worker_lane.py",
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
         "consent-protocol/tests/test_drive_worker_release_rollback.py",
+        "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
         "consent-protocol/tests/test_hushh_tech_client_migration.py",
