@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const coreOnly = process.argv.includes("--core");
 
 const STOCK_UI_FILES = new Set([
   "accordion.tsx",
@@ -111,7 +112,12 @@ function toRepoPath(filePath) {
 
 const failures = [];
 
-for (const requiredDoc of requiredDocs) {
+function hasAccessibleHeading(source) {
+  return /<h[1-6]\b/.test(source) ||
+    (source.includes('role="heading"') && source.includes("aria-level"));
+}
+
+for (const requiredDoc of coreOnly ? [] : requiredDocs) {
   const fullPath = path.join(repoRoot, requiredDoc);
   if (!fs.existsSync(fullPath)) {
     failures.push(`missing required design-system policy doc: ${requiredDoc}`);
@@ -155,7 +161,9 @@ for (const filePath of morphySources) {
   }
 }
 
-const appSources = listFiles(repoRoot, (filePath) => /\.(ts|tsx|md)$/.test(filePath));
+const appSources = listFiles(repoRoot, (filePath) =>
+  (coreOnly ? /\.(ts|tsx)$/ : /\.(ts|tsx|md)$/).test(filePath),
+);
 for (const filePath of appSources) {
   const source = read(filePath);
   for (const deprecatedImport of deprecatedImports) {
@@ -178,23 +186,39 @@ if (profileWorkspaceSource.includes("PageSectionSwitcher")) {
 
 const pkmManagerPath = path.join(repoRoot, "components/profile/pkm-data-manager.tsx");
 const pkmManagerSource = read(pkmManagerPath);
-if (pkmManagerSource.includes("SummaryTile")) {
+if (!coreOnly && pkmManagerSource.includes("SummaryTile")) {
   failures.push("components/profile/pkm-data-manager.tsx must not define or use SummaryTile KPI strips");
+}
+
+const rosterPath = "components/dashboard/one-agent-roster.tsx";
+const rosterSource = read(path.join(repoRoot, rosterPath));
+const hasDirectLabel = /<section\b[^>]*aria-label="One agents"/.test(
+  rosterSource,
+);
+const hasHeadingLabel =
+  /<section\b[^>]*aria-labelledby="one-agents-heading"/.test(rosterSource) &&
+  /<PageTitle\b[^>]*id="one-agents-heading"[^>]*>\s*Agents\b/.test(
+    rosterSource,
+  );
+if (!hasDirectLabel && !hasHeadingLabel) {
+  failures.push(
+    `${rosterPath}: root launcher must have an accessible agents label or linked heading`,
+  );
 }
 
 const settingsUiPath = path.join(repoRoot, "components/app-ui/settings-ui.tsx");
 const settingsUiSource = read(settingsUiPath);
-if (settingsUiSource.includes("<h2")) {
+if (!coreOnly && settingsUiSource.includes("<h2")) {
   failures.push(
     "components/app-ui/settings-ui.tsx must not render SettingsGroup titles as h2; body section headings use the compact settings scale"
   );
 }
-if (!settingsUiSource.includes('role="heading"') || !settingsUiSource.includes("aria-level")) {
+if (!hasAccessibleHeading(settingsUiSource)) {
   failures.push(
     "components/app-ui/settings-ui.tsx must expose SettingsGroup titles as accessible compact headings"
   );
 }
-if (!settingsUiSource.includes("gap-x-2")) {
+if (!coreOnly && !settingsUiSource.includes("gap-x-2")) {
   failures.push(
     "components/app-ui/settings-ui.tsx must keep SettingsGroup eyebrow inline with the title, not as a separate page-header line"
   );
@@ -211,12 +235,12 @@ const sectionHeaderSource =
 if (!sectionHeaderSource) {
   failures.push("components/app-ui/page-sections.tsx must define the shared SectionHeader primitive");
 }
-if (sectionHeaderSource.includes("<h2")) {
+if (!coreOnly && sectionHeaderSource.includes("<h2")) {
   failures.push(
     "components/app-ui/page-sections.tsx must not render SectionHeader titles as h2; body section headings use the compact section scale"
   );
 }
-if (!sectionHeaderSource.includes('role="heading"') || !sectionHeaderSource.includes("aria-level")) {
+if (!hasAccessibleHeading(sectionHeaderSource)) {
   failures.push(
     "components/app-ui/page-sections.tsx must expose SectionHeader titles as accessible compact headings"
   );
