@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -188,6 +189,63 @@ class UiGateTests(unittest.TestCase):
         source = (ROOT / "scripts/ci/web-core-check.sh").read_text()
         self.assertIn('UI_CONTRACT_BASE_SHA="$(python3 "$REPO_ROOT/scripts/ci/resolve-ui-contract-base.py")"', source)
         self.assertIn("export UI_CONTRACT_BASE_SHA\n", source)
+
+    def test_core_scanner_keeps_architecture_and_accessibility_not_appearance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / "scripts/architecture/verify-design-system.mjs"
+            script.parent.mkdir(parents=True)
+            shutil.copyfile(ROOT / "hushh-webapp/scripts/architecture/verify-design-system.mjs", script)
+            sources = {
+                "components/ui/button.tsx": "export const Button = () => <button />;",
+                "lib/morphy-ux/index.ts": "export {};",
+                "components/profile/profile-workspace-page.tsx": "export {};",
+                "components/profile/pkm-data-manager.tsx": "const SummaryTile = () => null;",
+                "components/dashboard/one-agent-roster.tsx": '<section aria-label="One agents" />',
+                "components/app-ui/settings-ui.tsx": "<h2>Settings</h2>",
+                "components/app-ui/page-sections.tsx": "export function SectionHeader() { return <h2>Section</h2>; }\nexport function ContentSurface() {}",
+            }
+            for name, source in sources.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+            def run(*args):
+                return subprocess.run(["node", str(script), *args], text=True, capture_output=True, check=False)
+            self.assertEqual(run("--core").returncode, 0)
+            self.assertIn("missing required design-system policy doc", run().stderr)
+            for name, broken, reason in (
+                ("components/ui/button.tsx", 'import "@/lib/vault/session";', "forbidden app-specific code"),
+                ("components/dashboard/one-agent-roster.tsx", "<section />", "accessible agents label"),
+                ("components/app-ui/settings-ui.tsx", "<div>Settings</div>", "accessible compact headings"),
+            ):
+                with self.subTest(name=name):
+                    (root / name).write_text(broken)
+                    result = run("--core")
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(reason, result.stderr)
+                    (root / name).write_text(sources[name])
+
+    def test_core_runtime_ratchet_ignores_appearance_but_preserves_input_and_baseline(self):
+        script = ROOT / "hushh-webapp/scripts/architecture/verify-render-performance.mjs"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "components").mkdir()
+            component = root / "components/example.tsx"
+            component.write_text('const c = "transition-all";\n')
+            def run(*args):
+                return subprocess.run(["node", str(script), *args], cwd=root, text=True, capture_output=True, check=False)
+            self.assertEqual(run("--core").returncode, 0)
+            self.assertIn("[transition-all]", run().stderr)
+            component.write_text('window.addEventListener("touchmove", () => {}, { passive: false });\n')
+            self.assertIn("[non-passive-touch-on-root]", run("--core").stderr)
+            self.assertEqual(run("--write-allowlist").returncode, 0)
+            baseline = root / "scripts/architecture/render-performance-allowlist.json"
+            saved = baseline.read_bytes()
+            self.assertEqual(run("--core").returncode, 0)
+            self.assertEqual(run("--core", "--write-allowlist").returncode, 2)
+            self.assertEqual(baseline.read_bytes(), saved)
+            component.write_text("")
+            self.assertIn("Tighten the entry", run("--core").stderr)
 
 
 if __name__ == "__main__":
