@@ -113,8 +113,14 @@ import { AuthService } from "@/lib/services/auth-service";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  auth.startPhoneVerification.mockReset().mockResolvedValue({ autoVerified: false });
+  auth.confirmPhoneVerification.mockReset();
+  auth.confirmPhoneTransfer.mockReset();
   auth.phoneNumber = null;
   auth.phoneNumberStatus = "missing";
+  vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
+    ...auth.user, phoneNumber: null,
+  } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
   publishValidatedAuthSessionPrincipal({ firebaseUid: auth.user.uid, ownerId: auth.userId, accountGeneration: 0 });
   nav.query = "profile_pane=1&profile_panel=world-model";
   // Profile's own background reads (identity, vault, discoverability) answer
@@ -191,8 +197,10 @@ describe("Profile pane: Personal World Model", () => {
     expect(start).toHaveBeenCalledWith("+16505550101", expect.objectContaining({ transport: "sms" }));
     fireEvent.change(code, { target: { value: "123456" } }); fireEvent.submit(code.closest("form")!);
     await screen.findByRole("button", { name: "Delete my previous account" });
-    expect(screen.queryByRole("button", { name: "Use this number on this account" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Recover my previous account" })).toBeNull();
+    const transferReview = screen.getByRole("button", { name: "Use this number on this account" });
+    expect(transferReview).toBeDisabled();
+    fireEvent.click(transferReview);
+    expect(screen.getByRole("button", { name: "Recover my previous account" })).toBeVisible();
     expect(transfer).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Page Close Profile" }));
     expect(close).toHaveBeenCalledOnce();
