@@ -352,8 +352,8 @@ def reusable(state, validations, read=api):
 
 
 
-def exact_selection(base, head):
-    """Prove equality of the actual API, merged-tree and integration inventories.
+def exact_selection(base):
+    """Prove the actual API inventory matches the tested merge inventory.
 
     Branch ancestry alone is neither necessary nor sufficient. Keep unknown
     inputs conservative, including the PR-only backend suppression profile.
@@ -376,10 +376,9 @@ def exact_selection(base, head):
                    or any(char in path for char in ("\0", "\n", "\r")) for path in paths)):
         return False
     actual = set(paths)
-    # These are the same two-dot diffs used by the current web/governance and
-    # integration selectors. Renames with a differing old-path inventory refuse.
-    return all(actual == set(git("diff", "--name-only", "-z", base, source).split("\0")) - {""}
-               for source in ("HEAD", head))
+    # Web, governance and integration now select against the tested merge.
+    # Renames with a differing old-path inventory still refuse reuse.
+    return actual == set(git("diff", "--name-only", "-z", base, "HEAD").split("\0")) - {""}
 
 
 def record_receipt():
@@ -391,7 +390,7 @@ def record_receipt():
             and git("rev-parse", "HEAD") == os.environ["GITHUB_SHA"]
             and len(parents) == 2 and parents[1] == head,
             "Receipt requires the actual tested PR merge")
-    exact = parents[0] == base and exact_selection(base, head)
+    exact = parents[0] == base and exact_selection(base)
     print("PR selection matches the tested combined inputs." if exact else
           "PR selection is not reusable; queue will validate its combined inputs.")
     return {"version": 2, "repository": os.environ["GITHUB_REPOSITORY"],
