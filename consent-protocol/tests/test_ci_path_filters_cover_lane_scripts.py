@@ -496,8 +496,11 @@ def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
     focused = {
         "scripts/ops/sync_backend_runtime_secrets.py",
         "scripts/ops/runtime_config_retention.py",
+        "scripts/ops/upsert_gcp_secret.py",
+        "scripts/ops/prune_gcp_secret_versions.py",
     }
     for path in focused:
+        assert not filters["backend"].match_file(path), path
         plan = _governance_plan((path,))
         assert plan["selection_error"] is None
         commands = {row["id"]: row["argv"] for row in plan["commands"]}
