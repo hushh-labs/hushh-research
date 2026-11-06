@@ -4,6 +4,7 @@ import copy
 import base64
 import json
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -309,14 +310,14 @@ def test_owner_queue_request_refuses_incomplete_review_inventory():
 def receipt_fixture():
     state = {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}
     validation = {"run": 5, "attempt": 2, "number": 1, "head": HEAD1}
-    receipt = {"version": 1, "repository": state["repository"], "event": "pull_request",
+    receipt = {"version": 2, "repository": state["repository"], "event": "pull_request",
                "run": 5, "attempt": 2, "pr": 1, "head": HEAD1, "base": BASE,
                "tree": FIRST, "selection_exact": True, "level": "focused", "result": "success"}
     return state, validation, receipt
 
 
 @pytest.mark.parametrize("field,value", [
-    ("tree", SECOND), ("base", SECOND), ("attempt", 1), ("selection_exact", False),
+    ("version", 1), ("tree", SECOND), ("base", SECOND), ("attempt", 1), ("selection_exact", False),
     ("head", HEAD2), ("result", "cancelled"), ("level", "diagnostic"),
 ])
 def test_only_identical_tested_inputs_can_be_reused(field, value):
@@ -331,6 +332,52 @@ def test_two_individually_green_prs_require_combined_execution():
     state, validation, _ = receipt_fixture()
     assert not queue.reusable(state, [validation, {**validation, "number": 2}],
                               read=lambda _: pytest.fail("Must not use a single-PR artifact"))
+
+
+def test_recorded_receipt_requires_actual_selected_inventory(tmp_path, monkeypatch):
+    selected = tmp_path / "selection.json"
+    selected.write_text(json.dumps(json.dumps(["deploy/plg/bind_secrets.sh"])))
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"pull_request": {"number": 9025,
+        "head": {"sha": HEAD1}, "base": {"sha": BASE}}}))
+    environment = {"GITHUB_EVENT_PATH": str(event), "GITHUB_EVENT_NAME": "pull_request",
+                   "GITHUB_REPOSITORY": "hushh-labs/hushh-research", "GITHUB_SHA": FIRST,
+                   "GITHUB_RUN_ID": "7", "GITHUB_RUN_ATTEMPT": "1",
+                   "CI_VALIDATION_LEVEL": "focused", "QUEUE_AUTH_HEALTH_ONLY": "false",
+                   "QUEUE_SELECTION_FILE": str(selected)}
+    for key, value in environment.items():
+        monkeypatch.setenv(key, value)
+    values = {("show", "-s", "--format=%P", "HEAD"): f"{BASE} {HEAD1}",
+              ("rev-parse", "HEAD"): FIRST, ("rev-parse", "HEAD^{tree}"): SECOND,
+              ("diff", "--no-renames", "--name-only", "-z", BASE, "HEAD"):
+                  "deploy/plg/bind_secrets.sh\0"}
+    monkeypatch.setattr(queue, "git", lambda *args: values[args])
+    receipt = queue.record_receipt()
+    assert receipt["version"] == 2 and receipt["selection_exact"] is True
+    selected.write_text(json.dumps(json.dumps(["some-other-file"])))
+    assert queue.record_receipt()["selection_exact"] is False
+    selected.write_text(json.dumps(json.dumps(["deploy/plg/bind_secrets.sh"])))
+    monkeypatch.setenv("QUEUE_AUTH_HEALTH_ONLY", "true")
+    assert queue.record_receipt()["selection_exact"] is False
+
+
+def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
+    paths = jobs["paths"]
+    selector = next(step for step in paths["steps"] if step.get("id") == "filter")
+    assert selector["with"]["list-files"] == "json"
+    assert yaml.safe_load(selector["with"]["filters"])["queue_selection"] == ["**"]
+    assert paths["outputs"]["queue_selection_files"] == "${{ steps.filter.outputs.queue_selection_files }}"
+    record = next(step for step in jobs["ci-status"]["steps"]
+                  if step.get("name") == "Record tested merge inputs")
+    assert record["env"] == {
+        "QUEUE_SELECTION_FILE": "${{ runner.temp }}/queue-selection.json",
+        "QUEUE_AUTH_HEALTH_ONLY": "${{ needs.paths.outputs.auth_health_only }}"}
+    assert "${{ toJSON(needs.paths.outputs.queue_selection_files) }}" in record["run"]
+    assert "<<'HUSSH_QUEUE_SELECTION_JSON'" in record["run"]
 
 
 def test_missing_legacy_receipt_requests_checks_instead_of_branch_sync():
