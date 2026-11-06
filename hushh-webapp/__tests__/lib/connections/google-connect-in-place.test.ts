@@ -364,6 +364,31 @@ describe("connectCalendarInPlace", () => {
     await expect(start.result).resolves.toBe(expected);
   });
 
+  it.each(["account-b", "account-c"])("reconnects only %s and rejects a successful primary grant", async accountId => {
+    mocks.calendarStatus.mockResolvedValue({ connected: true, status: "connected", access_level: "manage", accounts: [
+      { account_id: "default", connected: true, status: "connected", access_level: "manage" },
+      { account_id: accountId, connected: false, status: "needs_reauth", access_level: "manage" },
+    ] });
+    const start = connectCalendarInPlace({ owner, accountId, accessLevel: "manage" });
+    await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());
+    expect(mocks.calendarStartConnect).toHaveBeenCalledWith(expect.objectContaining({ accountId, additional: true }));
+    const { attemptId } = attemptIn(popup, GOOGLE_ATTEMPT_KEY);
+    post(calendarSettlement(attemptId), popup);
+    await expect(start.result).resolves.toBe("not_connected");
+  });
+
+  it("verifies the same additional account after native consent", async () => {
+    mocks.native = true;
+    mocks.calendarStartNative.mockResolvedValue({ server_client_id: "native-client", access_level: "manage", state: "selected-state" });
+    mocks.connectCalendar.mockResolvedValue({ serverAuthCode: "synthetic-auth-code" });
+    mocks.calendarCompleteNative.mockResolvedValue({ connected: false, accounts: [
+      { account_id: "account-b", connected: true, status: "connected", access_level: "manage" },
+    ] });
+    const start = connectCalendarInPlace({ owner, accountId: "account-b", accessLevel: "manage" });
+    await expect(start.result).resolves.toBe("connected");
+    expect(mocks.calendarStartNative).toHaveBeenCalledWith(expect.objectContaining({ accountId: "account-b", additional: true }));
+  });
+
   it("does not report connected after denied Calendar consent", async () => {
     const start = connectCalendarInPlace({ owner, accessLevel: "manage" });
     await vi.waitFor(() => expect(popup.location.replace).toHaveBeenCalled());

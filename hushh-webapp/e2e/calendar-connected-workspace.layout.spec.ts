@@ -102,7 +102,7 @@ test("three-account Board keeps its measure, heading roles and account actions a
   expect(errors).toEqual([]);
 });
 
-test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
+test("@presentation a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "broken");
   const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
   const avatar = account.locator("[data-photo-source=hussh]");
@@ -115,7 +115,7 @@ test("a broken HUSSH portrait keeps the Calendar account initial and size", asyn
   expect(errors).toEqual([]);
 });
 
-test("Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
+test("@presentation Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "transparent");
   for (const section of ["Insights", "Invitations"]) {
     await page.getByRole("tab", { name: section, exact: true }).click();

@@ -1,5 +1,45 @@
 # API Contracts
 
+## Connection network discovery
+
+These Firebase-authenticated reads bind the viewer to the verified session and
+return `private, no-store`. Web uses the existing `/api/one/[...path]` proxy;
+iOS and Android use the same endpoints through `ApiService.apiFetch`.
+
+| Endpoint | Contract |
+| --- | --- |
+| `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
+| `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
+
+A wider list requires its owner's explicit opt-in and the viewer's current active
+direct connection. Every page rechecks owner permission, peer edges, profile
+lifecycle and blocks after directory work. Unavailable, blocked and unauthorized
+targets share a neutral 404. Mid-read invalidation returns retryable 503 instead
+of disclosing a stale page or silently thinning pagination.
+
+Mutuals remain people directly connected to both viewer and target; their existing
+count can exceed the number of viewable profiles. Pending requests, contact books,
+trusted designations and Circle membership alone do not count as graph edges.
+First degree is a direct active connection. Second degree follows the existing
+shared-neighbor visibility contract. Third degree requires both intermediaries
+to enable sharing; it exposes a distance only. `null` does not prove that no
+connection exists. Anonymous public profiles remain unchanged.
+
+Discovery admits at most 4,000 live eligible nodes and 12,000 edges, uses a
+cooperative twelve-second traversal budget and scoped eight-second SQL statement
+timeouts, and fails retryably when it cannot qualify the result. Firebase account
+eligibility retains the canonical directory's bounded cache semantics. No graph
+inventory is persisted in the browser or returned as connecting paths.
+
+The new visibility write remains an unbound discovered API in the capability
+catalog. The existing evolution ledger retires Connections setup graph revisions
+`9ea5b914a24b6f47` and `ac971edb713a113d` rather than carrying an older workflow's
+authority into a new write inventory. This also retires the first revision's
+compatible predecessors for that workflow. Existing persisted connections and
+setup state are unchanged; an old workflow must be freshly admitted.
+
 ## Owner-local Calendar and email tasks
 
 One's To-do list reads private Google metadata directly from the owner's signed,
@@ -2583,18 +2623,23 @@ revocation/reauthorization ordering is not proven by local transaction tests.
 
 New Calendar connections, including additional accounts, do not request
 `contacts.readonly` solely for guest photos. Calendar account and booking
-surfaces retain their existing verified Connection and signed-in owner photo
-context. Invitations keep the signed-in owner's verified primary/linked email
-photo and match the fetched event's organizer and
+surfaces use the current visible Hussh profile matched to each verified account
+email, including accounts with no events. Connecting a Google account does not
+assign that address the signed-in owner's Hussh identity or portrait. The owner
+photo applies only to the owner's verified primary/linked email. Invitations
+match the fetched event's organizer and
 attendee emails to the Connect directory's active, visible profiles, including
 people in Find People who are not Connections. This server-side lookup requires
 a unique exact verified email from both the identity cache and the target's
 current Firebase account, plus contact listing eligibility; it returns only
 the matching user ID and the profile name and photo Connect shows (either may
-be absent, never both), keyed by an email already in the event.
+be absent, never both), keyed by an email already in the event or a connected
+account whose current Google userinfo email is verified. Board cards, account
+pickers and booking share that same current profile projection.
 Invitation peers use only that fresh result, so a stale Connection email cannot
 override a changed Firebase identity.
-It is bounded to 100 event emails and fails to initials if lookup is unavailable.
+It is bounded to 100 emails, prioritizes verified account addresses before event
+participants, and fails to initials if lookup is unavailable.
 Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
 The Connections list adds `emailVerified` from the authoritative actor profile;
 an absent field is unverified. An account card also requires
@@ -2672,6 +2717,25 @@ cancellation and authorization never execute an event. Calendar Join uses the
 event's account email for an explicit Meet pre-join reminder; the external Meet
 app or browser still chooses its own signed-in account. Other meeting providers
 open their original validated links directly.
+Calendar booking reviews retain the exact `account_id` (default, second or third
+connected account), `calendar_id`, event ID, recurring-instance identity and
+OAuth grant generation from preparation through confirmation. Mutation support
+currently accepts only `calendar_id: "primary"` within the explicitly selected
+account; a secondary calendar is rejected before provider access. Recurring
+series changes require an occurrence selection. Event changes recheck occurrence,
+ETag and grant identity before their conditional PATCH or DELETE.
+
+For rescheduling, omitted guest, location and description fields remain unchanged;
+`attendees: []`, `location: ""` and `description: ""` explicitly remove permitted
+guests or clear the named field. Reviews show removals and retain organizer,
+self, room and unrelated attendee metadata. An incomplete guest list cannot be
+reviewed. Chat's legacy and structured reviews share complete account, event,
+time, guest and notification details; incomplete or expired reviews cannot be
+confirmed. Older proposals without sealed account/calendar/grant facts require
+a new review. Invalid, missing, DST-ambiguous or nonexistent local times ask for
+clarification before provider access; explicit offsets retain their UTC instant
+and the review retains the IANA display zone.
+
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -2688,6 +2752,93 @@ proposals show busy-period warnings across the included calendars and reject
 changed availability at confirmation. Google must return an event identifier
 before creation is reported as successful; mutations are never automatically
 retried.
+
+Calendar Chat reads accept an exact `account_id`. When a fresh request has
+multiple connected accounts and no selection, the tool returns the owner-scoped
+account choices for clarification. Event, subscribed-calendar and invitation
+references retain their own account, calendar, complete opaque grant binding,
+conversation and five-minute expiry. Another account's read cannot redirect a
+reference; a conflicting explicit account is rejected. Invitation handoffs,
+inline reviews, confirmations and reconnect controls preserve this account ID,
+including when two observations have the same email. Additional accounts remain
+unsupported on single-account owner-cloud and data-door ports; those paths
+never resolve shared credentials as a fallback. Organizer Mail preparation
+requires its existing sending grant to prove the same Google subject as the
+selected Calendar grant. A different sender requires a new matching-account
+review; Calendar never changes Mail's selected account automatically.
+
+Before Calendar provider reads, the existing Calendar manifest independently
+assesses authenticated current-turn messages through a tool-free, history-free
+call on the owner's admitted model. Its exact-quote-validated action ceiling is
+bound to owner, conversation, invocation and message digest. Read-only, ambiguous,
+failed or expired assessments authorize no booking or invitation review; proposal
+tools enforce this before staging, account lookup or manage-permission controls.
+This ceiling does not grant OAuth access or replace explicit browser confirmation.
+Provider content and earlier assistant messages cannot widen it. The private
+receipt is omitted from public and durable session projections. Create,
+reschedule and cancellation converge at `_propose`; non-view invitation decisions
+check `respond` before source/account lookup. Shared Agent Chat, private pod Chat,
+private text turns and `AgentChatService.stream_one_turn` use the same One head.
+Read-only rejection leaves successful read results available for the answer;
+existing post-read restrictions remain. Read offers and context-only slot/email
+attachments establish source identity, never booking authority.
+
+An explicit booking that needs a guest uses the existing proposal tool's
+`clarification="guests"` mode before asking. This mode stages no proposal. Its
+typed pending question lives privately in the existing owner-encrypted ADK
+session for five minutes, bound to owner, app, conversation, session, originating
+invocation, authenticated message digest and exact account/grant. Only the next
+authenticated reply may complete that create review, after the same model assesses
+both owner messages. Read-only, unrelated, expired or source-changed replies fail
+closed; prose questions, provider text and attachments cannot mint this context.
+Reasking does not renew expiry, and the issuing turn cannot bypass its question.
+The root model receives request-only bounded origin words, ISO clock, local dates
+and separate requested/browser zones after restoration; the new turn's clock is
+unchanged. Grant binding stays pinned through review staging, and normal explicit
+confirmation still precedes execution. Stateless text turns cannot recover this
+authority from browser-carried history and require the booking to be restated.
+Expiry or grant loss yields one specific recovery explanation. The content-free,
+invocation-bound recovery hint stays private and grants no authority; retries do
+not repeat grant lookups. Complete requests go directly to review, and personal
+blocks require no guest. Only genuinely missing or ambiguous details need one
+grouped question; verified details are retained.
+
+Calendar event reads expose additive `local_start_at`/`local_end_at` fields in
+`display_time_zone`, preserving provider instants and all-day dates. Explicit
+`time_zone` on summary, events, event detail, busy intervals, windows and invitation
+reads/reviews overrides the current turn's display zone. Slot detail defaults to
+its saved offer zone; an explicit redisplay does not alter the private reference.
+The projection covers local and data-door reads, opening details and busy intervals.
+Relative
+dates use one server-captured user-turn timestamp, retained across regional
+failover, independently of Mail admission; explicit dates stay unchanged.
+
+`calendar_free_slots` retains completed openings in the existing encrypted ADK
+session as a private five-minute offer. It records the selected account,
+destination, exact checked calendar coverage, query window, elapsed duration,
+canonical IANA zone and ordered UTC intervals. Current typed opening searches
+check that account's Board-included subscribed calendars and expand each free
+interval into duration-sized, non-overlapping options. `coverage_complete`
+describes successful provider coverage; `suggestion_limit`, `suggestions_limited`
+and `available_slot_count` separately describe bounded options. Unreadable included
+calendars yield no verified suggestions. These are neither invitee nor all-account
+checks. One pure `opening_options` calculation also expands legacy/Voice service
+openings, batched invitation/date availability and all-account Chat suggestions.
+Board free windows remain continuous intervals; their intersections compare
+absolute instants, including fractional seconds. Shared suggestions expose
+`future_only=true`; no future options is not proof a past interval was busy.
+`propose_calendar_event(slot_ordinal=...)` resolves a
+one-based choice from this offer and rejects replacement times or a different
+target. Session recovery retains the original creation time, without renewing
+expiry. Failed or empty replacement searches retire previous offers. Public
+state snapshots and deltas exclude this private state.
+
+Slot-backed proposals recheck complete free/busy coverage before issuing a
+review and immediately before confirmed execution. Expired, past, reconnected,
+partially checked or newly busy slots require fresh openings rather than a
+"Schedule anyway" confirmation. Existing proposal expiry, single-use claims,
+included-calendar checks and explicit browser confirmation still apply.
+Availability checks do not reserve provider time atomically.
 
 The visible Schedule view refreshes every thirty seconds and on return to the
 page or network recovery, coalescing requests within three seconds. Superseded
@@ -3915,7 +4066,7 @@ These fields are additive to the canonical decision payload and mirrored in `raw
 
 Terminal payload from `POST /api/kai/portfolio/import/stream` now includes:
 
-- `portfolio_data_v2` (canonical app-consumed portfolio payload)
+- `portfolio_data_v2` (canonical portfolio payload with separate statement holding entries in `holdings`. The app groups matching entries for review. Position-level analytics and quality counters use their existing aggregation.)
 - `raw_extract_v2` (raw single-pass LLM extraction snapshot)
 - `analytics_v2` (materialized dashboard/debate/optimize metrics)
 - `quality_report_v2` (deterministic quality report and gate output)

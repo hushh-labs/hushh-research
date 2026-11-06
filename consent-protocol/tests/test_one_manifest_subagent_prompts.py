@@ -255,9 +255,19 @@ def test_one_keeps_device_memory_capture_silent():
     assert "with the exact passage to keep" not in authored
 
 
-def test_one_writes_without_em_dashes_and_within_its_prompt_budget():
+@pytest.mark.parametrize("zone", [None, "Asia/Kolkata", "America/Argentina/ComodRivadavia"])
+def test_one_writes_without_em_dashes_and_within_its_prompt_budget(zone):
     authored = str(agent_tree._ONE_MANIFEST.system_instruction)
-    composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    context = (
+        SimpleNamespace(
+            state={"hussh:timezone": zone, "temp:hussh:turn_started_at": 1_800_000_000},
+            invocation_id="current",
+            session=SimpleNamespace(events=[]),
+        )
+        if zone
+        else SimpleNamespace(state={})
+    )
+    composed = agent_tree._one_runtime_instruction(context)
     assert "\u2014" not in composed and "\u2013" not in composed
     assert "Never use an em dash or en dash as punctuation" in authored
     assert "The company is Hussh" in authored

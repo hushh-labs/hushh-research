@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 447,
+  "expected_migration_version": 448,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -516,6 +516,7 @@
       "phone_binding_revision"
     ],
     "actor_profiles": [
+      "connection_list_shared",
       "contact_discoverable",
       "contact_sync_consent_contract_version",
       "contact_sync_consent_enabled_at",
@@ -4919,5 +4920,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 447
+  "expected_schema_head": 448
 }

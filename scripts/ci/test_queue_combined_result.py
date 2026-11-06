@@ -280,6 +280,62 @@ def test_queue_finish_refuses_when_main_authority_changes(tmp_path):
             queue.main()
 
 
+@pytest.mark.parametrize("branch,change,allowed", [
+    ("uat", "main_commit", True), ("dev", "main_commit", True),
+    ("uat", "main_writer", True), ("dev", "main_writer", True),
+    ("main", "main_writer", False),
+    ("uat", "mergers", False), ("uat", "protected_owners", False),
+    ("uat", "maintainers", False), ("uat", "unknown_policy", False),
+    ("uat", "base", False), ("uat", "head", False), ("uat", "tree", False),
+    ("uat", "members", False), ("uat", "attempt", False),
+    ("uat", "missing_fingerprint", False), ("uat", "malformed_fingerprint", False),
+])
+def test_queue_finish_distinguishes_policy_inputs_from_main_provenance(tmp_path, monkeypatch, branch, change, allowed):
+    policy = {"main": {"restrict_writes_to_merge_users": True,
+                       "merge_users": ["merger"], "protected_pipeline_edit_users": ["owner"]},
+              "uat_merge": {"review_bypass_users": ["maintainer"]}}
+    original = {"branch": branch, "base": BASE, "head": HEAD1, "tree": FIRST,
+                "members": [{"requester": "maintainer", "protected_approvals": ["owner"]}],
+                "policy_revision": HEAD1, "policy_fingerprint": queue.policy_fingerprint(policy, branch)}
+    updated = copy.deepcopy(policy)
+    current = copy.deepcopy(original)
+    current["policy_revision"] = HEAD2
+    validations = [{"run": 1, "attempt": 1}]
+    if change == "main_writer":
+        updated["main"]["restrict_writes_to_merge_users"] = False
+    if change == "mergers":
+        updated["main"]["merge_users"] = ["replacement"]
+    if change == "protected_owners":
+        updated["main"]["protected_pipeline_edit_users"] = ["replacement"]
+    if change == "maintainers":
+        updated["uat_merge"]["review_bypass_users"] = []
+    if change == "unknown_policy":
+        updated["new_authority"] = True
+    current["policy_fingerprint"] = queue.policy_fingerprint(updated, branch)
+    if change in ("base", "head", "tree"):
+        current[change] = SECOND
+    if change == "members":
+        current["members"][0]["protected_approvals"] = []
+    if change == "attempt":
+        validations[0]["attempt"] = 2
+    if change == "missing_fingerprint":
+        original.pop("policy_fingerprint")
+    if change == "malformed_fingerprint":
+        original["policy_fingerprint"] = "invalid"
+    receipt = tmp_path / "queue.json"
+    receipt.write_text(json.dumps({"state": original, "validations": [{"run": 1, "attempt": 1}], "reuse": False}))
+    monkeypatch.setenv("COMBINED_RESULT", "success")
+    with patch.object(sys, "argv", ["queue_combined_result.py", "finish", "--receipt", str(receipt)]), \
+         patch.object(queue, "snapshot", return_value=current) as snapshot, \
+         patch.object(queue, "current_validations", return_value=validations):
+        if allowed:
+            queue.main()
+        else:
+            with pytest.raises(queue.Refused, match="changed"):
+                queue.main()
+        snapshot.assert_called_once()
+    assert policy["main"]["restrict_writes_to_merge_users"] is True
+
 @pytest.mark.parametrize("state", ["CHANGES_REQUESTED", "DISMISSED", "unknown"])
 def test_owner_queue_request_cannot_silently_override_review_history(state):
     guard = queue._module("verify-protected-pipeline-edits.py", "owner_review_history")
@@ -543,6 +599,73 @@ def test_trusted_queue_requires_owner_only_for_ci_manifest_script_changes(script
         else:
             with pytest.raises(queue.Refused, match="current-head approval"):
                 queue.authorize("hushh-labs/hushh-research", "dev", BASE, included, policy=null_review_policy())
+
+
+def test_pr_semantic_guard_attributes_authored_manifest_changes_not_destination_additions(tmp_path, monkeypatch):
+    import subprocess
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "authored_semantic_guard")
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repository, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Synthetic reviewer")
+    git("config", "user.email", "synthetic@example.invalid")
+    manifest = "consent-protocol/scripts/test-ci.manifest.txt"
+    (repository / "consent-protocol/scripts").mkdir(parents=True)
+    (repository / "config").mkdir()
+    (repository / "config/ci-governance.json").write_text(json.dumps({"main": {
+        "protected_pipeline_edit_users": ["kushaltrivedi5"], "protected_pipeline_paths": ["scripts/ci/"]}}))
+
+    def commit(tests):
+        (repository / manifest).write_text(tests)
+        git("add", ".")
+        git("-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
+        return git("rev-parse", "HEAD")
+
+    seed = commit("tests/a.py\n")
+    target = commit("tests/a.py\ntests/b.py\n")
+    git("checkout", "-qb", "feature", seed)
+    head = commit("tests/a.py\ntests/c.py\n")
+    monkeypatch.chdir(repository)
+    monkeypatch.setattr(guard, "REPO_ROOT", repository)
+    monkeypatch.setattr(guard, "_files_from_event", lambda _args: [manifest])
+    with patch.object(guard, "_owner_approvals", return_value=[]) as approvals:
+        event = tmp_path / "event.json"
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hushh-labs/hushh-research")
+        monkeypatch.setattr(sys, "argv", ["verify-protected-pipeline-edits.py"])
+
+        def request(candidate):
+            event.write_text(json.dumps({"pull_request": {
+                "number": 1, "user": {"login": "imsharukhan"},
+                "base": {"sha": target}, "head": {"sha": candidate}}}))
+            return guard.main()
+
+        # The prior direct-tip comparison mistakes B's absence for a deletion.
+        assert guard.semantic_pipeline_changes([manifest], base=target, head=head) == [manifest]
+        semantic = guard.semantic_pipeline_changes
+        with patch.object(guard, "semantic_pipeline_changes", wraps=semantic) as classification:
+            assert request(head) == 0
+        assert classification.call_args.kwargs["base"] == seed
+        assert classification.call_args.kwargs["authority"] == target
+        approvals.assert_not_called()
+        removed = commit("tests/c.py\n")
+        assert request(removed) == 1
+        assert approvals.call_count == 1
+        with pytest.raises(guard.GuardResolutionError, match="unavailable"):
+            request("f" * 40)
+
+
+def test_authored_manifest_comparison_refuses_ambiguous_history(tmp_path):
+    guard = queue._module("verify-protected-pipeline-edits.py", "ambiguous_semantic_guard")
+    with patch("process_group.bounded_stdout", return_value=f"{BASE}\n{HEAD1}\n".encode()):
+        with pytest.raises(guard.GuardResolutionError, match="ambiguous"):
+            guard.authored_change_base(BASE, HEAD1, repository_root=tmp_path)
 
 
 def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(tmp_path):

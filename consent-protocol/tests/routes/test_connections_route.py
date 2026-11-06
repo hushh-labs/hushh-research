@@ -17,6 +17,57 @@ def _client():
     return TestClient(app)
 
 
+def test_network_routes_bind_viewer_and_validate_private_read_contract():
+    person_ref = "42b3ecac-959f-47ab-9352-12a694be1ae9"
+    client = _client()
+    with patch("api.routes.one.connections.ConnectionNetworkService") as service:
+        service.return_value.__enter__.return_value = service.return_value
+        service.return_value.browse.return_value = {"items": [], "page": 2, "hasMore": False}
+        response = client.get(
+            "/api/one/connections/network",
+            params={"person_ref": person_ref, "page": 2, "degree": 3, "query": "Alice"},
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.return_value.browse.assert_called_once_with(
+            "user-a", person_ref=person_ref, degree=3, query="Alice", page=2, limit=20
+        )
+        for params in (
+            {"degree": 0},
+            {"degree": 4},
+            {"person_ref": "invalid"},
+            {"limit": 51},
+            {"query": "a" * 161},
+            {"page": 0},
+        ):
+            assert client.get("/api/one/connections/network", params=params).status_code == 422
+        service.return_value.set_preference.return_value = {"shareConnectionList": True}
+        response = client.patch(
+            "/api/one/connections/network/visibility",
+            json={"share_connection_list": True, "user_id": "someone-else"},
+        )
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        service.return_value.set_preference.assert_called_once_with("user-a", True)
+
+
+def test_network_routes_require_auth_and_return_neutral_permission_failure():
+    app = FastAPI()
+    app.include_router(router)
+    assert TestClient(app).get("/api/one/connections/network").status_code in (401, 403)
+    with patch("api.routes.one.connections.ConnectionNetworkService") as service:
+        service.return_value.__enter__.return_value = service.return_value
+        service.return_value.browse.side_effect = ConnectionsError(
+            "CONNECTION_NETWORK_NOT_FOUND", "This network is unavailable.", status_code=404
+        )
+        response = _client().get(
+            "/api/one/connections/network",
+            params={"person_ref": "42b3ecac-959f-47ab-9352-12a694be1ae9"},
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["message"] == "This network is unavailable."
+
+
 def test_mutual_list_binds_viewer_and_bounds_pagination_without_public_caching():
     person_ref = "42b3ecac-959f-47ab-9352-12a694be1ae9"
     client = _client()

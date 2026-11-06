@@ -9,7 +9,7 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import { PORTFOLIO_REVIEW_UPSTREAM_TIMEOUT_MS, resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
@@ -136,6 +136,7 @@ function resolveOneUpstreamTimeoutMs(
   acceptHeader: string | null,
 ): number | null {
   if (path === "world-model/source-reviews") return 170_000;
+  if (path === "finance/advisor-reviews/portfolio-analysis") return PORTFOLIO_REVIEW_UPSTREAM_TIMEOUT_MS;
   if (path === "agent-chat/proposals") return ONE_LOCATION_PROPOSAL_TIMEOUT_MS;
   if (path === "pod/lifecycle/stream") {
     return null;

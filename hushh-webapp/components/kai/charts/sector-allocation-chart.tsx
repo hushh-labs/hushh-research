@@ -164,7 +164,7 @@ const SectorBarChart = memo(function SectorBarChart({
                       <span className="text-sm font-semibold">
                         {payload.name}
                       </span>
-                      <span className="text-base font-bold text-foreground">
+                      <span className="text-sm font-semibold text-foreground">
                         {formatCurrency(payload.value)}
                       </span>
                       <span className="text-xs text-muted-foreground">

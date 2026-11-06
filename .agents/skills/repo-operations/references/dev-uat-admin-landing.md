@@ -8,6 +8,9 @@ maintainer mirror; the target's canonical policy and live branch exceptions must
 both authorize the operator. Team membership does not grant Main or production
 permission. If an ordinary review is requested, use the maintainer team rather than
 requesting Kushal/Ankit personally.
+Automatic CODEOWNERS requests are reserved for protected changes. Mixed PRs
+containing CI or fundamental guidance use only the pipeline-editor review route;
+the ordinary maintainer team cannot override it.
 
 Use this bounded preflight before requesting the queue:
 

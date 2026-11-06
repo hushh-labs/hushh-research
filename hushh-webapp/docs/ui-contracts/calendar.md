@@ -955,7 +955,9 @@ any encrypted To-do information.
 | Missing conversation recovery | **Open the conversation containing your Calendar request to continue.** |
 | Optional generic clarification card | Question/options are dynamic. Default confirm **Yes**, selected-option commit **Confirm**, cancel **Cancel**; no built-in No button. Single option answers on tap; multi-select waits minimum selections/Confirm. Cancel clears directive and sends cancelled status. This is shared optional UI, not a guaranteed Calendar step. |
 
-Active ADK tools are `calendar_summary,calendar_invitations,open_calendar_invitation,calendar_calendars,calendar_events,calendar_event_detail,calendar_availability,calendar_free_slots,propose_calendar_event,propose_calendar_reschedule,propose_calendar_cancellation`.
+Active ADK tools are `calendar_summary,calendar_invitations,open_calendar_invitation,calendar_calendars,calendar_events,calendar_event_detail,calendar_availability,calendar_free_slots,calendar_shared_free_slots,calendar_opening_detail,propose_calendar_event,propose_calendar_reschedule,propose_calendar_cancellation`.
+Shared free-time reads and saved-option detail use the existing Google Calendar
+activity presentation in live and restored Chat. Showing an option is read-only.
 They call backend services directly, not the connected-tab HTTP read helpers.
 Exact tools/manifest own dynamic question policy and25-second read bound.
 Proposal tool malformed response: **Could not prepare that calendar change.

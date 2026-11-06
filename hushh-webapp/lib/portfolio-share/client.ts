@@ -1,5 +1,5 @@
 import { formatCurrency, formatSignedCurrency, formatSignedPercent } from "@/lib/portfolio-share/format";
-import { drawPortfolioReportSummary, type PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
+import { drawPortfolioReportHoldings, drawPortfolioReportSummary, type PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
 export type { PortfolioReportContext } from "@/lib/portfolio-share/report-summary";
 
 import { Capacitor } from "@capacitor/core";
@@ -10,6 +10,7 @@ import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
   blobToBase64String,
   downloadBlobFile,
+  downloadFileBlob,
 } from "@/lib/utils/native-download";
 import { ApiService } from "@/lib/services/api-service";
 import {
@@ -413,7 +414,7 @@ export async function generatePortfolioReportPdf(payloadInput: unknown, context?
   doc.setFont("helvetica", "bold");
   doc.setFontSize(13);
   doc.setTextColor(15, 23, 42);
-  doc.text("Performance Graph", left, y);
+  doc.text("Balance history", left, y);
 
   y += 16;
   const chartTop = y;
@@ -459,9 +460,10 @@ export async function generatePortfolioReportPdf(payloadInput: unknown, context?
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);
-    doc.text("Not enough performance points to render graph.", chartLeft, chartTop + 16);
+    doc.text("Fewer than two dated balances are available.", chartLeft, chartTop + 16);
   }
 
+  if (context?.positions) drawPortfolioReportHoldings(doc, context.positions, left, right);
   return doc.output("blob") as Blob;
 }
 
@@ -478,11 +480,15 @@ export async function sharePortfolioSnapshot(payloadInput: unknown): Promise<Sha
 }
 
 export async function exportPortfolioPdf(payloadInput: unknown, context?: PortfolioReportContext): Promise<ShareDelivery> {
-  const payload = sanitizePortfolioSharePayload(payloadInput);
-  const blob = await generatePortfolioReportPdf(payload, context);
+  const blob = await generatePortfolioReportPdf(payloadInput, context);
+  const filename = `portfolio-report-${Date.now()}.pdf`;
+  if (context?.positions) {
+    if (!await downloadFileBlob(blob, filename)) throw new Error("Portfolio PDF export cancelled");
+    return Capacitor.isNativePlatform() ? "native-share" : "download";
+  }
   return deliverBlob(
     blob,
-    `portfolio-report-${Date.now()}.pdf`,
+    filename,
     "application/pdf",
     "Portfolio report",
     "Portfolio Report"

@@ -61,7 +61,7 @@ export function OnboardingPlaceScreen({
       <div className="grid min-h-0 flex-1 grid-rows-[minmax(136px,1fr)_auto] gap-3 md:grid-cols-[minmax(0,1fr)_340px] md:grid-rows-1 md:gap-6">
         <div className="relative min-h-0 overflow-hidden rounded-[20px]" data-testid="onboarding-place-map">
           {hasPoint ? map : (
-            <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] bg-[color:var(--app-secondary-surface)] px-5 text-center text-muted-foreground">
+            <div role="status" aria-live="polite" className="flex h-full min-h-0 flex-col items-center justify-center gap-2 rounded-[20px] bg-[color:var(--app-secondary-surface)] px-5 text-center text-muted-foreground">
               {capturing ? <Loader2 className="h-7 w-7 animate-spin" aria-hidden /> : <MapPin className="h-7 w-7" aria-hidden />}
               <p data-location-type-role="row-description">{capturing ? "Finding your location…" : "Choose a starting point. Nothing is shared."}</p>
             </div>
@@ -86,7 +86,7 @@ export function OnboardingPlaceScreen({
             <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
           </button>
           {!saved ? categoryPicker : null}
-          <p data-location-type-role="row-description" className="text-center text-muted-foreground">{saved ? "Place saved." : "Private until you share."}</p>
+          {saved ? <p data-location-type-role="row-description" className="text-center text-muted-foreground">Place saved.</p> : null}
           {error ? <p role="status" data-location-type-role="status" className="text-center text-[color:var(--app-destructive)]">{error}</p> : null}
           <footer className="shrink-0 pt-1">
             <Button
@@ -99,7 +99,7 @@ export function OnboardingPlaceScreen({
               className="mx-auto flex w-full max-w-[244px]"
             >
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-              {capturing ? "Finding location…" : busy ? "Saving…" : saved ? "Continue" : !hasPoint ? "Use my location" : error ? "Try saving again" : "Save & continue"}
+              {capturing ? "Finding location…" : busy ? "Saving…" : saved ? "Continue" : !hasPoint ? (error ? "Try again" : "Use my location") : error ? "Try saving again" : "Save & continue"}
             </Button>
             <button type="button" onClick={onLater} disabled={busy} data-location-type-role="utility-action" className="mx-auto block min-h-11 px-5 text-[color:var(--app-accent)] disabled:opacity-50">Set up later</button>
           </footer>

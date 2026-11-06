@@ -127,7 +127,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
   if (!invite) {
     return (
       <div className="mx-auto flex min-h-[70vh] w-full max-w-md items-center px-5">
-        <SurfaceCard className="w-full">
+        <SurfaceCard className="app-type-compact w-full">
           <SurfaceCardContent className="p-6 text-center">
             <p className="text-sm text-muted-foreground">
               {error || "Invite not found."}
@@ -141,7 +141,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 pb-24 pt-4">
       <SurfaceCard tone="feature">
-        <SurfaceCardContent className="space-y-8 p-6">
+        <SurfaceCardContent className="app-type-compact space-y-8 p-6">
           <div className="flex flex-wrap gap-2">
             {STEPS.map((label, index) => (
               <div
@@ -165,7 +165,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-700/90 dark:text-amber-300/90">
                   Invited by {title}
                 </p>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
+                <h1 className="mt-3 ui-text-page-title">
                   Your finances, quietly understood
                 </h1>
                 <p className="mt-3 text-sm leading-7 text-muted-foreground">
@@ -177,11 +177,11 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
 
             {step === 1 ? (
               <div className="space-y-4">
-                <h2 className="text-2xl font-semibold text-foreground">
+                <h2 className="ui-text-section-label">
                   Confirm your advisor
                 </h2>
                 <SurfaceInset className="p-5">
-                  <p className="text-lg font-semibold text-foreground">
+                  <p className="ui-text-row-label-emphasized">
                     {invite.ria.display_name}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -202,7 +202,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
 
             {step === 2 ? (
               <div className="space-y-4">
-                <h2 className="text-2xl font-semibold text-foreground">
+                <h2 className="ui-text-section-label">
                   A little about you
                 </h2>
                 <input
@@ -227,7 +227,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
 
             {step === 3 ? (
               <div className="space-y-4">
-                <h2 className="text-2xl font-semibold text-foreground">
+                <h2 className="ui-text-section-label">
                   Advisor permissions
                 </h2>
                 <p className="text-sm leading-7 text-muted-foreground">
@@ -264,7 +264,7 @@ export function KaiInviteHandshake({ inviteToken }: { inviteToken: string }) {
 
             {step === 4 ? (
               <div className="space-y-4 text-center">
-                <h2 className="text-3xl font-semibold tracking-tight text-foreground">
+                <h2 className="ui-text-section-label">
                   Invite accepted
                 </h2>
                 <p className="text-sm leading-7 text-muted-foreground">

@@ -65,7 +65,9 @@ class Run:
     event: str
     attempt: int = 1
     base_ref: str = ""
+    ref: str = ""
     scope: str = ""
+    inputs: dict[str, str] = field(default_factory=dict)
     outputs: dict[str, str] = field(default_factory=dict)
     results: dict[str, str] = field(default_factory=dict)
 
@@ -127,6 +129,10 @@ def _resolve(text: str, run: Run) -> str:
             "github.sha": HEAD_SHA,
             "github.token": "stub-token",
             "inputs.scope": run.scope,
+            **{
+                f"inputs.{name}": run.inputs.get(name, "")
+                for name in ("uat_base_sha", "uat_candidate_sha", "uat_candidate_tree")
+            },
         }
         assert expression in contexts, (
             f"CI Status Gate reads ${{{{ {expression} }}}}, which this harness does not "
@@ -170,6 +176,10 @@ def _verdict(run: Run, tmp_path: Path) -> tuple[bool, str]:
             conditions = {
                 "github.event_name == 'workflow_dispatch'": run.event == "workflow_dispatch",
                 "github.run_attempt > 1": run.attempt > 1,
+                "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/New_memory_architecutre'": (
+                    run.event == "workflow_dispatch"
+                    and run.ref == "refs/heads/New_memory_architecutre"
+                ),
             }
             assert condition in conditions, f"unmodelled step condition: {condition}"
             if not conditions[condition]:
@@ -290,6 +300,16 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
     assert passed, (
         f"{name}: CI Status Gate failed a green run, so the failures above prove nothing:\n{output}"
     )
+
+
+@pytest.mark.parametrize("override", ["uat_base_sha", "uat_candidate_sha", "uat_candidate_tree"])
+def test_sandbox_branch_gate_rejects_overrides_to_its_actual_source(tmp_path: Path, override: str):
+    sandbox = replace(DISPATCH, ref="refs/heads/New_memory_architecutre")
+    assert _verdict(sandbox, tmp_path)[0]
+
+    passed, output = _verdict(replace(sandbox, inputs={override: HEAD_SHA}), tmp_path)
+    assert not passed
+    assert "without UAT source overrides" in output
 
 
 def test_summary_reports_selected_unselected_blocked_and_first_failure(

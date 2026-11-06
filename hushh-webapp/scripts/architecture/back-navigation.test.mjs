@@ -33,7 +33,7 @@ test('fast history prefilter cannot hide escaped Back methods or aliases', () =>
   }
 });
 
-test('Back receipts retain drift, authored-case and bypass gates without rewriting route authority', async () => {
+test('Back source snapshots remain diagnostic without weakening route and bypass checks', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(),'back-receipt-'));
   try {
     await fs.mkdir(path.join(root,'app'),{recursive:true});
@@ -52,14 +52,14 @@ test('Back receipts retain drift, authored-case and bypass gates without rewriti
     assert.equal(Object.hasOwn(JSON.parse(authored)[0].backVerification,'sourceRevision'),false);
     await verifyBackNavigation(root);
     await fs.writeFile(hub,source+'\n// changed UI');
-    await assert.rejects(verifyBackNavigation(root),/stale/);
+    await verifyBackNavigation(root);
     assert.equal(await fs.readFile(contract,'utf8'),authored);
     await verifyBackNavigation(root,true);
     assert.equal(await fs.readFile(contract,'utf8'),authored);
     const reviewed = JSON.parse(authored);
     reviewed[0].backVerification.cases[0].expected = {href:'/one'};
     await fs.writeFile(contract,JSON.stringify(reviewed));
-    await assert.rejects(verifyBackNavigation(root),/stale/);
+    await verifyBackNavigation(root);
     await verifyBackNavigation(root,true);
     await fs.writeFile(hub,source+'\nhistory.back();');
     await assert.rejects(verifyBackNavigation(root,true),/hierarchy bypass/);

@@ -22,6 +22,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -234,6 +235,21 @@ def test_production_tripwire_matches_committed_policy() -> None:
         "scripts/ci/verify-deployment-environment-governance.py must be updated "
         "in the same PR"
     )
+
+
+def test_production_dispatch_accepts_only_the_approved_three_operators() -> None:
+    root = Path(__file__).resolve().parents[2]
+    expected = {"kushaltrivedi5", "ankitkumarsingh1702", "imsharukhan"}
+    policy = json.loads((root / "config/ci-governance.json").read_text())
+    assert set(policy["main"]["merge_users"]) == expected
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+    for actor in sorted(expected | {"msainani", "RGlodAkshat", "DamriaNeelesh"}):
+        result = subprocess.run(
+            [sys.executable, str(root / "scripts/ci/assert-governed-actor.py"),
+             "--surface", "production", "--actor", actor],
+            env=env, capture_output=True, text=True, check=False,
+        )
+        assert (result.returncode == 0) == (actor in expected), (actor, result.stderr)
 
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
@@ -509,6 +525,7 @@ def main() -> int:
         test_production_cohort_drift_is_reported,
         test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
+        test_production_dispatch_accepts_only_the_approved_three_operators,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
         test_fixed_bridge_requires_governed_manual_production_apply,

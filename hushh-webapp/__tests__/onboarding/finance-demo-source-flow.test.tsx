@@ -40,7 +40,10 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: {}, userId: "owner", loading: false }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultOwnerToken: "memory-only" }),
+  useVault: () => ({
+    vaultOwnerToken: "memory-only",
+    getVaultKey: () => null,
+  }),
 }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
   useFinanceShareContext: () => ({
@@ -102,6 +105,7 @@ beforeEach(() => {
   state.resumed = false;
   state.bootstrap.mockResolvedValue(state.journey);
   state.sync.mockResolvedValue(undefined);
+  state.finish.mockResolvedValue({ status: "succeeded" });
   state.savePreferences.mockImplementation(
     async ({ updates, beforeEffect }) => {
       await beforeEffect();
@@ -110,37 +114,45 @@ beforeEach(() => {
   );
 });
 
-it("keeps the demo local and waits for source confirmation and explicit terminal finish", async () => {
+it("keeps the demo local and shows Plaid confirmation before automatic settlement", async () => {
   render(<FinanceImportOnboardingSetupClient showIntroduction />);
   expect(
     screen.getByRole("heading", { name: "Follow the market." }),
   ).toBeTruthy();
   expect(state.ready).toBe(false);
   expect(state.blocked).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
-  fireEvent.click(
-    screen.getByRole("button", { name: "Skip for now", exact: true }),
-  );
-  expect(screen.getByText("Real source workflow")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  for (const choice of screen.getAllByRole("radio", { name: "I’m not sure yet" })) {
+    fireEvent.click(choice);
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
+  expect(await screen.findByText("Real source workflow")).toBeTruthy();
   expect(state.bootstrap).not.toHaveBeenCalled();
   await act(async () => {
     expect(await state.source!("plaid", "wrong-attempt")).toBe(false);
   });
   expect(state.sync).not.toHaveBeenCalled();
-  await act(async () => {
-    expect(await state.source!("plaid", "attempt")).toBe(true);
-  });
-  expect(screen.getByRole("heading", { name: "You're all set" })).toBeTruthy();
-  expect(state.ready).toBe(true);
-  expect(state.blocked).toBe(false);
-  expect(state.finish).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
-  expect(state.finish).toHaveBeenCalledOnce();
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      expect(await state.source!("plaid", "attempt")).toBe(true);
+    });
+    expect(screen.getByRole("heading", { name: "Account connected" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Continuing setup");
+    expect(state.ready).toBe(true);
+    expect(state.blocked).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(1499));
+    expect(state.finish).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(state.finish).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("saves the persona before import and keeps risk comfort separate from near-term needs", async () => {
   render(<FinanceImportOnboardingSetupClient showIntroduction />);
-  fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
   expect(
     screen.getByRole("heading", { name: "Let’s build your financial persona" }),
   ).toBeVisible();
@@ -150,7 +162,7 @@ it("saves the persona before import and keeps risk comfort separate from near-te
   expect(
     screen.getByRole("heading", { name: "Follow the market." }),
   ).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Skip", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
   for (const label of [
     "Less than 3 years",
     "Consider investing more if my plan still fits",
@@ -160,10 +172,7 @@ it("saves the persona before import and keeps risk comfort separate from near-te
     fireEvent.click(screen.getByRole("radio", { name: label }));
   }
   fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
-  expect(await screen.findByText("Growth-oriented")).toBeVisible();
-  expect(
-    screen.getByText("One will look first at the money you may need soon."),
-  ).toBeVisible();
+  expect(await screen.findByText("Real source workflow")).toBeVisible();
   expect(state.savePreferences).toHaveBeenCalledWith(
     expect.objectContaining({
       userId: "owner",
@@ -176,7 +185,6 @@ it("saves the persona before import and keeps risk comfort separate from near-te
     }),
   );
   expect(state.ready).toBe(false);
-  fireEvent.click(screen.getByRole("button", { name: "Continue to import" }));
   expect(screen.getByText("Real source workflow")).toBeVisible();
 });
 
@@ -188,6 +196,7 @@ it("recovers the explicit completion screen from a verified persisted source cal
   expect(state.blocked).toBe(false);
   expect(state.finish).not.toHaveBeenCalled();
 });
+
 
 it("does not show completion or mutate the journey when the owner retires during the read", async () => {
   let resolve!: (value: typeof state.journey) => void;
@@ -232,7 +241,7 @@ it("retakes a saved persona in Portfolio Analysis and updates its badge", async 
     />,
   );
   expect(await screen.findByText("Careful")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Retake questions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit persona" }));
   expect(
     screen.getByRole("radio", { name: "More than 7 years" }),
   ).toBeChecked();
@@ -276,8 +285,9 @@ it("saves the 13-question assessment and lets the owner retake it", async () => 
     />,
   );
   fireEvent.click(
-    await screen.findByRole("button", { name: "Refine your persona" }),
+    await screen.findByRole("button", { name: "Edit persona" }),
   );
+  fireEvent.click(screen.getByRole("button", { name: "Open detailed assessment" }));
   for (let index = 0; index < 13; index++) {
     expect(screen.getByText(`Question ${index + 1} of 13`)).toBeVisible();
     fireEvent.click(screen.getAllByRole("radio")[index < 8 ? 2 : 0]);
@@ -303,6 +313,6 @@ it("saves the 13-question assessment and lets the owner retake it", async () => 
   expect(onSaved).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole("button", { name: "Back to analysis" }));
   expect(screen.getByText("Growth-oriented")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Retake assessment" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit persona" }));
   expect(screen.getAllByRole("radio")[2]).toBeChecked();
 });

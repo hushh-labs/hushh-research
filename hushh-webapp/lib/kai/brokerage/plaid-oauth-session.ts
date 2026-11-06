@@ -5,6 +5,12 @@ import {
   removeSessionItem,
   setSessionItem,
 } from "@/lib/utils/session-storage";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+  type AuthSessionOwnerSnapshot,
+} from "@/lib/auth/session-owner";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const PLAID_OAUTH_SESSION_KEY = "kai_plaid_oauth_resume_v2";
 // A bank login takes minutes; after half an hour the person starts again
@@ -100,4 +106,22 @@ export function loadPlaidOAuthResumeSession(now: Date = new Date()): PlaidOAuthR
 
 export function clearPlaidOAuthResumeSession(): void {
   removeSessionItem(PLAID_OAUTH_SESSION_KEY);
+}
+
+// One client navigation after a verified save. A URL or a refresh cannot
+// replay the confirmation or settle setup for a different owner.
+let financeSetupSuccess: { owner: AuthSessionOwnerSnapshot; pathname: string } | null = null;
+
+export function rememberFinanceSetupPlaidSuccess(userId: string, returnPath: string): void {
+  const pathname = returnPath.split("?")[0];
+  if (pathname !== ROUTES.ONE_SETUP_FINANCE && pathname !== ROUTES.ONE_SETUP_FINANCE_IMPORT) return;
+  const owner = snapshotValidatedAuthSessionOwner();
+  if (owner?.userId === userId) financeSetupSuccess = { owner, pathname };
+}
+
+export function takeFinanceSetupPlaidSuccess(pathname: string): boolean {
+  const success = financeSetupSuccess;
+  if (success?.pathname !== pathname) return false;
+  financeSetupSuccess = null;
+  return isValidatedAuthSessionOwnerCurrent(success.owner);
 }

@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, X } from "@/components/icons";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import {
@@ -46,6 +47,7 @@ import {
   type DebateRunTask,
 } from "@/lib/services/debate-run-manager";
 import {
+  extractTickerMarketSnapshotFromKaiHome,
   fetchLatestMarketSnapshot,
   getLatestMarketSnapshotFromCache,
   marketSnapshotForTicker,
@@ -164,7 +166,7 @@ export function KaiAnalysisPageContent() {
 
   const { user, userId } = useAuth();
   const { vaultKey, vaultOwnerToken } = useVault();
-  const { activePickSource } = useKaiMarketHome();
+  const { activePickSource, payload: marketHomePayload } = useKaiMarketHome();
 
   const analysisParams = useKaiSession((s) => s.analysisParams);
   const analysisParamsUpdatedAt = useKaiSession((s) => s.analysisParamsUpdatedAt);
@@ -209,7 +211,7 @@ export function KaiAnalysisPageContent() {
   );
   const [headerSnapshotState, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
   const [headerSnapshotLoading, setHeaderSnapshotLoading] = useState(false);
-  const [stockPreview, setStockPreview] = useState<KaiStockPreviewResponse | null>(null);
+  const [stockPreviewResult, setStockPreview] = useState<{ ticker: string; payload: KaiStockPreviewResponse } | null>(null);
   const [stockPreviewLoading, setStockPreviewLoading] = useState(false);
   const [stockPreviewError, setStockPreviewError] = useState<string | null>(null);
   const [previewPickSource, setPreviewPickSource] = useState("default");
@@ -726,6 +728,12 @@ export function KaiAnalysisPageContent() {
     if (showWorkspace) return "";
     return rawTicker;
   }, [searchParams, showWorkspace]);
+  const stockPreview = stockPreviewResult?.ticker === previewTickerFromQuery ? stockPreviewResult.payload : null;
+  const previewMarketSnapshot = previewTickerFromQuery
+    ? extractTickerMarketSnapshotFromKaiHome(marketHomePayload, previewTickerFromQuery)
+    : null;
+  const previewCompany = [stockPreview?.quote?.company_name, previewMarketSnapshot?.company_name]
+    .find((name) => name && name.toUpperCase() !== previewTickerFromQuery);
   const showStockBrowser = !showWorkspace && !previewTickerFromQuery && !analysisEntryId && !debateId && !resolvingEntry;
 
   useEffect(() => {
@@ -1126,7 +1134,7 @@ export function KaiAnalysisPageContent() {
           pickSource: previewPickSource,
         });
         if (!cancelled) {
-          setStockPreview(payload);
+          setStockPreview({ ticker: previewTickerFromQuery, payload });
           if (payload.active_pick_source && payload.active_pick_source !== previewPickSource) {
             setPreviewPickSource(payload.active_pick_source);
           }
@@ -1203,8 +1211,8 @@ export function KaiAnalysisPageContent() {
           errorMessage="Vault locked"
         />
         <SurfaceCard>
-          <SurfaceCardContent className="p-5 text-center">
-          <h2 className="text-lg font-semibold">Unlock your Vault to continue</h2>
+          <SurfaceCardContent className="p-4 text-center">
+          <h2 className="ui-text-section-label">Unlock your Vault to continue</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             Your portfolio and saved analysis stay encrypted in Vault. Unlock it to reopen analysis,
             review history, or start a new debate with your stored holdings context.
@@ -1284,13 +1292,13 @@ export function KaiAnalysisPageContent() {
                   <div
                     role="heading"
                     aria-level={2}
-                    className="ui-text-major-section-title"
+                    className="ui-text-section-label"
                   >
                     {activeTicker}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium tabular-nums text-muted-foreground sm:text-base">
+                  <span className="text-sm font-medium tabular-nums text-muted-foreground">
                     {headerPriceLabel}
                   </span>
                   {headerChangePct !== null ? (
@@ -1482,8 +1490,8 @@ export function KaiAnalysisPageContent() {
           />} />
           {missingEntryRouteId && missingEntryRouteId === (analysisEntryId || debateId) ? (
             <SurfaceCard className="w-full" data-testid="kai-analysis-unavailable">
-              <SurfaceCardContent className="p-5 text-center">
-                <h2 className="text-lg font-semibold">This analysis is no longer available</h2>
+              <SurfaceCardContent className="p-4 text-center">
+                <h2 className="ui-text-section-label">This analysis is no longer available</h2>
                 <p className="mt-2 text-sm text-muted-foreground">
                   It may have expired, been deleted, or never finished saving to your history.
                 </p>
@@ -1505,33 +1513,32 @@ export function KaiAnalysisPageContent() {
               previewTickerFromQuery ? (
                 <SymbolAvatar
                   symbol={previewTickerFromQuery}
-                  name={previewTickerFromQuery}
+                  name={previewCompany || previewTickerFromQuery}
                   size="lg"
                 />
               ) : null
             }
             eyebrow="Stock analysis"
-            title={previewTickerFromQuery || "Stock preview"}
-            description="Confirm the live quote and research source before starting the debate."
-            bodyClassName="!p-0"
-            surfaceClassName="!max-h-[calc(100dvh-var(--kb-height,0px))]"
+            title={previewCompany || previewTickerFromQuery || "Stock preview"}
+            description={previewCompany ? previewTickerFromQuery : undefined}
+            headerTextOverflow="wrap"
+            surfaceClassName="app-type-compact !max-h-[calc(100dvh-var(--kb-height,0px))]"
             showMobileCloseButton={false}
             footer={
-              <div className="flex w-full justify-end">
-                <MorphyButton
-                  variant="blue-gradient"
-                  effect="fill"
-                  className="w-full sm:w-auto sm:min-w-40"
+              <div className="flex w-full justify-center">
+                <Button
+                  size="standard"
                   onClick={handleStartDebateFromPreview}
                   disabled={stockPreviewLoading || startingPreviewDebate || !stockPreview}
                 >
                   {startingPreviewDebate ? "Preparing debate..." : "Start analysis debate"}
-                </MorphyButton>
+                </Button>
               </div>
             }
           >
             <StockComparisonPreview
               preview={stockPreview}
+              marketSnapshot={previewMarketSnapshot}
               loading={stockPreviewLoading}
               error={stockPreviewError}
               onStartDebate={handleStartDebateFromPreview}

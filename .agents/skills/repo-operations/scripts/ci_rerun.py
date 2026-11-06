@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 from pathlib import Path
 import subprocess
@@ -72,13 +71,18 @@ def rerun_validation(
     if not isinstance(expected.get("head_sha"), str) or not SHA.fullmatch(expected["head_sha"]):
         raise Refused("An exact source SHA is required")
     prefix = f"repos/{REPOSITORY}"
-    actor = read("user").get("login")
-    policy_file = read(f"{prefix}/contents/config/ci-governance.json?ref=main")
-    if policy_file.get("encoding") != "base64" or policy_file.get("size", 0) > 256 * 1024:
-        raise Refused("Canonical main governance unavailable")
-    policy = json.loads(base64.b64decode("".join(policy_file["content"].split()), validate=True))
-    if not actor or actor not in policy["main"]["protected_pipeline_edit_users"]:
-        raise Refused("CI rerun requires a governed operator")
+    identity = read("user")
+    actor = identity.get("login") if isinstance(identity, dict) else None
+    if not isinstance(actor, str) or not actor or not all(char.isalnum() or char == "-" for char in actor):
+        raise Refused("Authenticated GitHub identity unavailable")
+    permission = read(f"{prefix}/collaborators/{actor}/permission")
+    user = permission.get("user") if isinstance(permission, dict) else None
+    if (
+        not isinstance(user, dict) or not isinstance(user.get("login"), str)
+        or user["login"].lower() != actor.lower()
+        or permission.get("permission") not in {"write", "admin"}
+    ):
+        raise Refused("Validation retry requires current repository write access")
     source = verify_source(read, REPOSITORY, expected)
     source_path = f"{prefix}/actions/runs/{expected['run_id']}"
     before = read(source_path)
@@ -110,7 +114,7 @@ def rerun_validation(
         if observed.get("head_sha") != expected["head_sha"] or attempt not in {
             expected["attempt"], current["attempt"],
         }:
-            raise Refused("Unexpected source attempt or SHA; security dispatch refused")
+            raise Refused("Unexpected source attempt or SHA; rerun refused")
         if attempt == current["attempt"]:
             verify_source(read, REPOSITORY, current)
             break

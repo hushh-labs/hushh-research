@@ -1,14 +1,14 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import { formatCurrency } from "@/lib/kai/market-value-format";
 import { cn } from "@/lib/utils";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { toHoldingViewModel, type HoldingsListItem } from "./holding-view-model";
+import { HoldingGainLoss } from "./holding-gain-loss";
 
-const money = (value: number | null) => value === null ? "—" : new Intl.NumberFormat("en-US", {
-  style: "currency", currency: "USD", maximumFractionDigits: 2,
-}).format(value);
+const money = (value: number | null, currency?: string) => value === null ? "—" : formatCurrency(value, currency);
 const numeric = "block whitespace-nowrap text-right text-sm tabular-nums";
 
 /** Table and detail use the same statement values, missing-value and gain rules. */
@@ -33,17 +33,13 @@ export function holdingTableColumns(total: number, onEntries?: (id: string) => v
     { id: "shares", header: () => <span className={numeric}>Shares</span>, cell: ({ row }) =>
       <span className={numeric}>{toHoldingViewModel(row.original, total).shares.toLocaleString("en-US", { maximumFractionDigits: 4 })}</span> },
     { accessorKey: "price", header: () => <span className={numeric}>Price</span>, cell: ({ row }) =>
-      <span className={numeric}>{money(toHoldingViewModel(row.original, total).currentPrice)}</span> },
+      <span className={numeric}>{money(toHoldingViewModel(row.original, total).currentPrice, row.original.currency || row.original.iso_currency_code)}</span> },
     { accessorKey: "market_value", header: () => <span className={numeric}>Market value</span>, cell: ({ row }) =>
-      <span className={cn(numeric, "font-semibold")}>{money(toHoldingViewModel(row.original, total).marketValue)}</span> },
+      <span className={cn(numeric, "font-semibold")}>{money(toHoldingViewModel(row.original, total).marketValue, row.original.currency || row.original.iso_currency_code)}</span> },
     { id: "weight", header: () => <span className={numeric}>Weight</span>, cell: ({ row }) =>
       <span className={cn(numeric, "text-muted-foreground")}>{toHoldingViewModel(row.original, total).portfolioWeightPct.toFixed(1)}%</span> },
-    { id: "gain_loss", header: () => <span className={numeric}>Gain / loss</span>, cell: ({ row }) => {
-      const gain = toHoldingViewModel(row.original, total).gainLossValue;
-      return <span className={cn(numeric, gain === null || row.original.pending_delete ? "text-muted-foreground" : gain >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
-        {gain === null ? "—" : `${gain > 0 ? "+" : gain < 0 ? "−" : ""}${money(Math.abs(gain))}`}
-      </span>;
-    } },
+    { id: "gain_loss", header: () => <span className={numeric}>Gain / loss</span>, cell: ({ row }) =>
+      <HoldingGainLoss className={numeric} holding={toHoldingViewModel(row.original, total)} /> },
   ];
   if (onEntries) columns.unshift({ id: "entries", header: "Entries", cell: ({ row }) =>
     <ShellActionSurface variant="pill" className="h-11 text-sm sm:text-sm" onClick={event => {

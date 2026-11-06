@@ -180,6 +180,29 @@ redacted readiness, distribution, and timing evidence; keys,
 review-contact details, signed URLs, audio, transcripts, Vault material, and
 model bytes are removed or never uploaded.
 
+### Ship an accepted UAT candidate
+
+Use `source_branch=uat` or `source_branch=uat-isolated` and supply the full SHA
+of that protected branch tip. Dispatch from `main` after the scoped UAT release
+has completed. The deployment must have accepted the backend for that branch
+and SHA using exact UAT CI. Set `verify_candidate_before_promotion=true` on the
+`uat` deployment when candidate health and text recovery must complete before
+traffic changes. The Ubuntu preflight verifies the current successful UAT
+deployment attempt, the retained acceptance artifact, and the revision and image
+serving all backend traffic. It also compares the native release controls with
+the Main dispatch commit and uses the graph verifier from the accepted CI
+authority. The archive uses the selected application SHA and
+checks the serving revision again before export. This mode supports the
+standard build with `require_hardware=false`.
+
+Exact UAT upload receipts record their source branch. Existing upload recovery
+continues from the original build and source even after UAT traffic moves.
+
+For an individual access check, configure `TESTFLIGHT_TESTER_EMAIL` in the
+protected UAT environment and dispatch with `verify_tester_access=true`.
+The distribution receipt records a redacted eligibility result for the exact
+build and configured groups. It does not include the address or tester ID.
+
 ## Common failures
 
 | Failure | Meaning and safe response |
@@ -199,8 +222,10 @@ Public App Store submission remains a separate, explicitly authorized workflow.
 ### Recover a processed upload without rebuilding
 
 If Apple processing finishes after the wait expires, or metadata/distribution fails,
-use **Resume TestFlight Distribution** (`resume-ios-testflight.yml`) from `main`,
-with `upload_run_id` set to the original upload run. It reads the upload receipt,
+use **Ship iOS to TestFlight** (`ship-ios-testflight.yml`) from `main`,
+with only `upload_run_id` set to the original upload run. Leave build options at
+their defaults; recovery rejects source/version changes and dry-run/build flags.
+It reads the upload receipt,
 validates its source is on main, reconciles the same version/build with Apple,
 and repeats the idempotent group assignment. It does not archive, upload another
 binary, run App Intent tests, or submit beta review. A still-processing build can

@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Activity } from "@/components/icons";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import type { DashboardViewModel } from "@/components/kai/views/dashboard-data-mapper";
 import { topPortfolioWeights } from "@/components/kai/views/portfolio-analysis-facts";
-import { advisorRequest } from "@/lib/advisor-review/service";
+import { AdvisorReviewError, advisorRequest } from "@/lib/advisor-review/service";
 import {
   financeDigest,
   type FinanceSource,
@@ -17,6 +24,7 @@ import {
   portfolioPlanningSignals,
 } from "@/lib/kai/investing-persona";
 import { subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { isRequestTimeoutError } from "@/lib/utils/request-timeouts";
 import styles from "./advisor-review.module.css";
 
 type Review = {
@@ -27,7 +35,34 @@ type Review = {
   advisor_reason: string | null;
 };
 
-type ReviewSession = { scope: string; digest?: string; review?: Review };
+type ReviewApproval = { scope: string };
+type ReviewSession = { approval: ReviewApproval; cached?: { digest: string; review: Review } };
+type ReviewRequest = {
+  approval: ReviewApproval;
+  context: FinanceShareContext;
+  model: DashboardViewModel;
+  revision: number;
+  kind: FinanceSource["kind"];
+  snapshotId: FinanceSource["snapshotId"];
+};
+const reviewFailureMessages = {
+  source: "The saved portfolio could not be read. Refresh the portfolio source and try again.",
+  timeout: "The review timed out. You can try again.",
+  rateLimit: "The review service is busy. Wait a moment and try again.",
+  access: "Review access could not be confirmed. Check that your vault is unlocked and try again.",
+  unavailable: "Agent One couldn’t finish this review.",
+};
+type ReviewFailure = keyof typeof reviewFailureMessages;
+
+function classifyReviewFailure(error: unknown, readingSource: boolean): ReviewFailure {
+  if (isRequestTimeoutError(error) || (error instanceof AdvisorReviewError && error.status === 504)) return "timeout";
+  if (readingSource) return "source";
+  if (error instanceof AdvisorReviewError) {
+    if (error.status === 429) return "rateLimit";
+    if ([401, 403, 409].includes(error.status)) return "access";
+  }
+  return "unavailable";
+}
 let approved: ReviewSession | null = null;
 if (typeof window !== "undefined") {
   subscribeVaultSessionEpoch(() => {
@@ -101,6 +136,7 @@ export function PortfolioAgentReview({
   model,
   scope,
   personaRevision,
+  persona,
   onFindAdvisor,
 }: {
   context: FinanceShareContext;
@@ -108,43 +144,71 @@ export function PortfolioAgentReview({
   model: DashboardViewModel;
   scope: string;
   personaRevision: number;
+  persona?: ReactNode;
   onFindAdvisor: () => void;
 }) {
-  const [enabled, setEnabled] = useState(() => approved?.scope === scope);
+  const disclosureId = useId();
+  const [request, setRequest] = useState<ReviewRequest | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [settled, setSettled] = useState<{
-    model: DashboardViewModel;
-    revision: number;
+    request: ReviewRequest;
     attempt: number;
-    source: string;
     review: Review | null;
+    failure?: ReviewFailure;
   } | null>(null);
   const { kind, snapshotId } = source;
-  const sourceKey = `${kind}:${snapshotId ?? ""}`;
-  const result =
-    settled?.model === model &&
-    settled.revision === personaRevision &&
-    settled.attempt === attempt &&
-    settled.source === sourceKey
-      ? settled
-      : null;
+  const active = request &&
+    request.approval === approved?.approval &&
+    request.approval.scope === scope &&
+    request.context === context &&
+    request.model === model &&
+    request.revision === personaRevision &&
+    request.kind === kind &&
+    request.snapshotId === snapshotId &&
+    context.isCurrent() ? request : null;
+  if (request && !active) {
+    setRequest(null);
+    setSettled(null);
+  }
+  const result = active && settled?.request === active && settled.attempt === attempt
+    ? settled
+    : null;
+
+  function closeReview() {
+    setRequest(null);
+    setSettled(null);
+  }
+
+  function askForReview(open: boolean) {
+    if (!open) {
+      closeReview();
+      return;
+    }
+    if (!context.isCurrent()) return;
+    const approval = approved?.approval.scope === scope ? approved.approval : { scope };
+    if (approved?.approval !== approval) approved = { approval };
+    setAttempt(0);
+    setRequest({ approval, context, model, revision: personaRevision, kind, snapshotId });
+  }
 
   useEffect(() => {
-    if (!enabled || !context.isCurrent() || approved?.scope !== scope) return;
-    const approval = approved;
+    const request = active;
+    if (!request) return;
+    const { approval, context, kind, snapshotId } = request;
     const abort = new AbortController();
     const current = () =>
-      !abort.signal.aborted && context.isCurrent() && approved === approval;
-    const timeout = window.setTimeout(async () => {
+      !abort.signal.aborted && context.isCurrent() && approved?.approval === approval;
+
+    const runReview = async () => {
+      let readingSource = true;
       try {
-        const { payload, digest } = await reviewInput(context, {
-          kind,
-          snapshotId,
-        });
+        const { payload, digest } = await reviewInput(context, { kind, snapshotId });
         if (!current()) return;
+        readingSource = false;
+        const cached = approved?.approval === approval ? approved.cached : undefined;
         const review =
-          approval.digest === digest && approval.review
-            ? approval.review
+          cached?.digest === digest
+            ? cached.review
             : await advisorRequest<Review>(
                 context,
                 "/portfolio-analysis",
@@ -153,149 +217,115 @@ export function PortfolioAgentReview({
                 abort.signal,
               );
         if (!current()) return;
-        approval.digest = digest;
-        approval.review = review;
-        setSettled({
-          model,
-          revision: personaRevision,
-          attempt,
-          source: sourceKey,
-          review,
-        });
-      } catch {
-        if (current())
+        approved = { approval, cached: { digest, review } };
+        setSettled({ request, attempt, review });
+      } catch (error) {
+        if (current()) {
           setSettled({
-            model,
-            revision: personaRevision,
+            request,
             attempt,
-            source: sourceKey,
             review: null,
+            failure: classifyReviewFailure(error, readingSource),
           });
+        }
       }
-    }, 350);
-    return () => {
-      window.clearTimeout(timeout);
-      abort.abort();
     };
-  }, [
-    enabled,
-    context,
-    kind,
-    snapshotId,
-    sourceKey,
-    model,
-    scope,
-    personaRevision,
-    attempt,
-  ]);
+
+    void runReview();
+    return () => abort.abort();
+  }, [active, attempt]);
 
   const review = result?.review;
   return (
-    <section className={styles.card} aria-label="Agent One portfolio review">
-      <div className={styles.row}>
-        <h2 className="flex items-center gap-2 ui-text-section-label">
-          <Activity
-            className="size-4 text-[var(--app-accent)]"
-            aria-hidden="true"
-          />
-          Agent One’s review
-        </h2>
-        {review ? (
-          <span role="status" className="ui-text-helper-text">
-            Up to date
-          </span>
-        ) : null}
-        {enabled ? (
-          <ShellActionSurface
-            variant="pill"
-            onClick={() => {
-              approved = null;
-              setEnabled(false);
-              setSettled(null);
-            }}
-          >
-            Turn off auto-review
+    <Sheet modal open={active !== null} onOpenChange={askForReview}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <SheetTrigger asChild>
+          <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" aria-describedby={disclosureId}>
+            Ask Agent One to review
           </ShellActionSurface>
-        ) : (
-          <ShellActionSurface
-            variant="pill"
-            className={styles.primary}
-            onClick={() => {
-              if (!context.isCurrent()) return;
-              approved = { scope };
-              setEnabled(true);
-            }}
-          >
-            Enable auto-review
-          </ShellActionSurface>
-        )}
-      </div>
-      {!enabled ? (
-        <p className="ui-text-helper-text">
-          Let Agent One review holding weights, allocation and your persona
-          while One is unlocked.
+        </SheetTrigger>
+        <p id={disclosureId} className="ui-text-helper-text">
+          Uses a summary of your holdings, allocation and investing preferences.
         </p>
-      ) : !result ? (
-        <p role="status">Reviewing your saved portfolio…</p>
-      ) : !review ? (
-        <div className={styles.row}>
-          <p role="status">Agent One couldn’t finish this review.</p>
-          <ShellActionSurface
-            variant="pill"
-            onClick={() => setAttempt((value) => value + 1)}
-          >
-            Retry
-          </ShellActionSurface>
-        </div>
-      ) : (
-        <div className={styles.reviewSummary}>
-          <div>
-            <h3 className="text-lg font-semibold">{review.takeaway}</h3>
-            <p className="ui-text-helper-text">{review.reason}</p>
-            <p>
-              <strong>Next step</strong> · {review.next_step}
-            </p>
-          </div>
-          {review.score !== null ? (
-            <div className={styles.reviewScore}>
-              <span>Snapshot score</span>
-              <strong>
-                {review.score}
-                <small> / 100</small>
-              </strong>
-              <meter
-                min={0}
-                max={100}
-                value={review.score}
-                aria-label="Snapshot score"
-              />
+      </div>
+      <SheetContent
+        side="bottom"
+        className={`${styles.reviewSheet} mx-auto max-h-[85dvh] max-w-2xl overflow-y-auto`}
+        data-app-type-context="overlay"
+      >
+        <SheetHeader>
+          <SheetTitle>Agent One’s review</SheetTitle>
+          <SheetDescription className="ui-text-row-description">Based on your saved portfolio.</SheetDescription>
+        </SheetHeader>
+        <div className="space-y-4 px-4 pb-6">
+          {!result ? (
+            <p role="status">Reviewing your saved portfolio…</p>
+          ) : !review ? (
+            <div className={styles.row}>
+              <p role="status">{reviewFailureMessages[result.failure ?? "unavailable"]}</p>
+              <button
+                type="button"
+                className={styles.quietAction}
+                onClick={() => setAttempt((value) => value + 1)}
+              >
+                Retry
+              </button>
             </div>
           ) : (
-            <p className="ui-text-helper-text">Score unavailable</p>
+            <div className={styles.reviewSummary}>
+              <div>
+                <h3 className="ui-text-section-label">{review.takeaway}</h3>
+                <p className="ui-text-helper-text">{review.reason}</p>
+                <p>
+                  <strong>Next step</strong> · {review.next_step}
+                </p>
+              </div>
+              {review.score !== null ? (
+                <div className={styles.reviewScore}>
+                  <span>Snapshot score</span>
+                  <strong>
+                    {review.score}
+                    <small> / 100</small>
+                  </strong>
+                  <meter
+                    min={0}
+                    max={100}
+                    value={review.score}
+                    aria-label="Snapshot score"
+                  />
+                </div>
+              ) : (
+                <p className="ui-text-helper-text">Score unavailable</p>
+              )}
+            </div>
           )}
+          {review?.score != null ? (
+            <details className="ui-text-helper-text">
+              <summary>How the score works</summary>
+              <p>
+                Agent One weighs position spread (40 points), asset mix (30), and
+                fit with your withdrawal timing and ability to absorb losses (30).
+                The score reflects this saved snapshot.
+              </p>
+            </details>
+          ) : null}
+          {result && (!review || review.advisor_reason) ? (
+            <div className={`${styles.notice} ${styles.row} mt-3`}>
+              <p className="ui-text-helper-text">
+                {review?.advisor_reason ??
+                  "A verified advisor can review this portfolio with you."}
+              </p>
+              <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={() => {
+                closeReview();
+                onFindAdvisor();
+              }}>
+                Talk to an advisor
+              </ShellActionSurface>
+            </div>
+          ) : null}
+          {persona}
         </div>
-      )}
-      {review?.score != null ? (
-        <details className="ui-text-helper-text">
-          <summary>How the score works</summary>
-          <p>
-            Agent One weighs position spread (40 points), asset mix (30), and
-            fit with your withdrawal timing and ability to absorb losses (30).
-            The score reflects this saved snapshot.
-          </p>
-        </details>
-      ) : null}
-      {result && (!review || review.advisor_reason) ? (
-        <div className={`${styles.notice} ${styles.row} mt-3`}>
-          <p className="ui-text-helper-text">
-            {review?.advisor_reason ??
-              "A verified advisor can review this portfolio with you."}
-          </p>
-          <ShellActionSurface variant="pill" onClick={onFindAdvisor}>
-            Talk to an advisor
-          </ShellActionSurface>
-        </div>
-      ) : null}
-    </section>
+      </SheetContent>
+    </Sheet>
   );
 }

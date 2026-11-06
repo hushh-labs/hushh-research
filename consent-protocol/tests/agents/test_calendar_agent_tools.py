@@ -2,14 +2,32 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
 
 from hushh_mcp.agents.calendar import tools
 from hushh_mcp.agents.calendar.read_offer import (
     STATE_CALENDAR_OFFER,
     STATE_EVENT_OFFER,
     current_calendar_read_offer,
+    make_calendar_read_offer,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+
+@pytest.fixture(autouse=True)
+def admitted_review_scope(monkeypatch):
+    # These leaf tests isolate target/grant/slot and rendering contracts.
+    # The real invocation-bound assessment is exercised by test_calendar_request_scope.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.request_scope",
+        AsyncMock(return_value=("create", "reschedule", "cancel", "respond")),
+    )
 
 
 class _Calendar:
@@ -42,7 +60,13 @@ class _Calendar:
     async def find_openings(self, **kwargs: object) -> dict[str, object]:
         return {
             "duration_minutes": kwargs["duration_minutes"],
-            "openings": [{"start_at": "2026-08-11T10:00:00Z", "end_at": "2026-08-11T10:30:00Z"}],
+            "openings": [
+                {
+                    "start_at": "2026-08-11T10:00:00Z",
+                    "end_at": "2026-08-11T10:30:00Z",
+                    "available_until": kwargs["end_at"],
+                }
+            ],
         }
 
     async def propose(self, **kwargs: object) -> dict[str, object]:
@@ -326,6 +350,7 @@ def test_calendar_free_slots_uses_authenticated_owner_state(monkeypatch) -> None
 def test_calendar_conflict_requires_an_explicit_schedule_anyway_choice(monkeypatch) -> None:  # noqa: ANN001
     context = _context()
     calendar = _Calendar()
+    _seed_event_offer(context, calendar)
 
     async def propose(**kwargs: object) -> dict[str, object]:
         return {
@@ -504,6 +529,7 @@ def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_even
     calendar.propose = propose  # type: ignore[method-assign]
     monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
 
+    _seed_event_offer(context, calendar)
     asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
 
     payload = context.state["hussh:pending_directive:calendar"]["payload"]
@@ -592,9 +618,21 @@ def _current_event_with_guests() -> dict[str, object]:
     }
 
 
+def _seed_event_offer(context, calendar, event_id="evt-1", calendar_id="primary"):
+    context.state[STATE_EVENT_OFFER] = make_calendar_read_offer(
+        kind="events",
+        owner_id="user-1",
+        conversation_id="conversation-1",
+        grant_binding=asyncio.run(calendar._read_grant_binding()),
+        ids=[event_id],
+        calendar_id=calendar_id,
+    )
+
+
 def _review(monkeypatch, plan: dict[str, object]) -> tuple[str, dict[str, object]]:  # noqa: ANN001
     context = _context()
     calendar = _Calendar()
+    _seed_event_offer(context, calendar)
 
     async def propose(**kwargs: object) -> dict[str, object]:
         calendar.proposal_payload = kwargs["payload"]  # type: ignore[assignment]
@@ -639,6 +677,8 @@ def test_a_reschedule_review_counts_the_events_real_guests(monkeypatch) -> None:
     ]
     # Omitted fields are never sent as empty values that would clear them.
     assert set(calendar.proposal_payload) == {  # type: ignore[arg-type]
+        "account_id",
+        "calendar_id",
         "event_id",
         "start_at",
         "end_at",
@@ -765,6 +805,7 @@ def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_b
         "calendarId": "selected-calendar",
         "eventId": "instance-id",
         "decision": "accepted",
+        "accountId": "default",
         "accountEmail": "owner@example.com",
         "timeZone": "Asia/Kolkata",
         "startAt": "2030-10-14T00:00:00Z",
@@ -803,3 +844,475 @@ def test_invitation_ordinal_review_is_client_only_and_owner_conversation_grant_b
     )
     assert changed["status"] == "connection_changed"
     assert ctx.state[STATE_INVITATION_OFFER] is None
+
+
+@pytest.mark.parametrize(
+    "value", ["", "invalid", "2026-03-08T02:30:00", "2026-11-01T01:30:00", "2026-11-01"]
+)
+@pytest.mark.parametrize(
+    "name",
+    [
+        "propose_calendar_event",
+        "propose_calendar_reschedule",
+        "calendar_events",
+        "calendar_availability",
+        "calendar_free_slots",
+    ],
+)
+def test_calendar_invalid_times_need_clarification_without_provider_calls(monkeypatch, value, name):
+    def unavailable():
+        raise AssertionError("Invalid input must be rejected before resolving a provider")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", unavailable)
+    context = _context()
+    context.state["hussh:timezone"] = "America/New_York"
+    kwargs = {"start_at": value, "end_at": "2026-12-01T15:30:00Z"}
+    if name == "calendar_free_slots":
+        kwargs["duration_minutes"] = 30
+    if name == "propose_calendar_event":
+        kwargs["title"] = "Planning"
+    if name == "propose_calendar_reschedule":
+        kwargs["event_id"] = "evt-1"
+    result = asyncio.run(getattr(tools, name)(context, **kwargs))
+    assert result["status"] == "input_required"
+    assert f"{tools._STATE_PENDING_DIRECTIVE}:calendar" not in context.state
+
+
+def test_calendar_explicit_removals_survive_tool_and_review(monkeypatch):
+    calendar = _Calendar()
+    context = _context()
+    plan = {
+        "event_id": "evt-1",
+        "account_id": "default",
+        "calendar_id": "primary",
+        "start_at": "2026-12-02T16:00:00Z",
+        "end_at": "2026-12-02T16:30:00Z",
+        "attendees": [],
+        "description": "",
+        "location": "",
+        "send_updates": True,
+        "current_event": {
+            "title": "Planning",
+            "description": "Old agenda",
+            "location": "Room 4",
+            "attendees": [{"email": "guest@example.com"}],
+        },
+        "attendee_change": {"added": [], "removed": ["guest@example.com"], "result_count": 0},
+    }
+
+    async def propose(**kwargs):
+        calendar.proposal_payload = kwargs["payload"]
+        return {"proposal_id": "gcal_review", "expires_at": "2099-12-02T16:00:00Z", "plan": plan}
+
+    calendar.propose = propose
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    _seed_event_offer(context, calendar)
+    result = asyncio.run(
+        tools.propose_calendar_reschedule(
+            context,
+            event_id="evt-1",
+            start_at=plan["start_at"],
+            end_at=plan["end_at"],
+            attendees=[],
+            description="",
+            location="",
+        )
+    )
+    assert calendar.proposal_payload["attendees"] == []
+    assert calendar.proposal_payload["description"] == calendar.proposal_payload["location"] == ""
+    review = result["directive"]["payload"]
+    assert review["description"] == review["location"] == ""
+    assert review["attendees"] == []
+    assert review["locationCleared"] is True and review["descriptionCleared"] is True
+    assert review["attendeesRemoved"] == ["guest@example.com"]
+
+
+@pytest.mark.parametrize("change", ["missing", "expired", "grant", "event"])
+def test_chat_mutations_refuse_unverified_source_without_primary_fallback(monkeypatch, change):
+    calendar = _Calendar()
+    context = _context()
+    _seed_event_offer(context, calendar, calendar_id="secondary@example.com")
+    if change == "missing":
+        context.state.pop(STATE_EVENT_OFFER)
+    elif change == "expired":
+        context.state[STATE_EVENT_OFFER]["created_at_ms"] = 1
+    elif change == "grant":
+        context.state[STATE_EVENT_OFFER]["grant_binding"][-1] = "stale"
+    else:
+        context.state[STATE_EVENT_OFFER]["ids"] = ["another-event"]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    result = asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    assert result["status"] == "input_required"
+    assert calendar.proposal_payload is None
+
+
+def test_owner_cloud_additional_booking_never_resolves_shared_service(monkeypatch):
+    from hushh_mcp.services import calendar_account_board_service, pod_google_connections
+
+    monkeypatch.setattr(pod_google_connections, "calendar_runs_locally", lambda: True)
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: _Calendar())
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Shared account factory must not run on owner cloud")
+
+    monkeypatch.setattr(calendar_account_board_service, "account_schedule", forbidden)
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            _context(),
+            title="Planning",
+            start_at="2026-12-02T16:00:00Z",
+            end_at="2026-12-02T16:30:00Z",
+            account_id="account-b",
+        )
+    )
+    assert (
+        result["status"] == "input_required"
+        and result["reason_code"] == "calendar_account_unavailable"
+    )
+
+
+def test_invalid_declared_calendar_zone_does_not_fall_back_to_utc(monkeypatch):
+    context = _context()
+    context.state["hussh:timezone"] = "Invalid/Zone"
+
+    def forbidden():
+        raise AssertionError("Invalid zone must be rejected before provider resolution")
+
+    monkeypatch.setattr(tools, "get_google_calendar_service", forbidden)
+    result = asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Planning",
+            start_at="2026-12-02T16:00:00Z",
+            end_at="2026-12-02T16:30:00Z",
+        )
+    )
+    assert result["status"] == "input_required"
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        ("owner", "calendar", "subject", "connected", "connection-rev", "grant-rev", "account-b"),
+        (
+            "owner",
+            "calendar",
+            "subject",
+            "credential",
+            "grant",
+            "calendar.events",
+            "calendar.freebusy",
+        ),
+    ],
+)
+def test_mutation_references_preserve_every_account_and_owner_cloud_grant_component(
+    monkeypatch, binding
+):
+    calendar = _Calendar()
+
+    async def read_binding(**kwargs):
+        return binding
+
+    calendar._read_grant_binding = read_binding
+    calendar.connections.read_grant_binding = read_binding
+    context = _context()
+    _seed_event_offer(context, calendar)
+    seen = []
+
+    async def propose(**kwargs):
+        seen.append(kwargs)
+        return {"proposal_id": "gcal_example"}
+
+    calendar.propose = propose
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+    asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    assert seen[0]["expected_binding"] == binding
+    assert context.state[STATE_EVENT_OFFER]["grant_binding"] == list(binding)
+    context.state[STATE_EVENT_OFFER]["grant_binding"][-1] = "replaced"
+    seen.clear()
+    result = asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+    assert result["status"] == "input_required"
+    assert seen == []
+
+
+class _AccountCalendar(_Calendar):
+    def __init__(self, account_id):
+        super().__init__()
+        self.account_id = account_id
+        self.revision = "generation-1"
+        self.connections.account_id = account_id
+        self.last_propose = None
+
+    async def _read_grant_binding(self, **_):
+        return (
+            "user-1",
+            "calendar",
+            self.account_id,
+            "subject",
+            "connected",
+            self.revision,
+            "scopes",
+        )
+
+    async def propose(self, **kwargs):
+        self.last_propose = kwargs
+        self.proposal_payload = kwargs["payload"]
+        return {
+            "proposal_id": "gcal_account",
+            "expires_at": "2099-11-04T12:00:00Z",
+            "plan": {
+                **kwargs["payload"],
+                "account_email": self.account_id + "@example.test",
+                "connection_binding": list(await self._read_grant_binding()),
+                "conflicts": [],
+            },
+        }
+
+    async def invitations(self, **kwargs):
+        return {
+            "account_email": self.account_id + "@example.test",
+            "start_at": "2099-11-04T00:00:00Z",
+            "end_at": "2099-11-05T00:00:00Z",
+            "complete": True,
+            "pending_count": 1,
+            "events": [
+                {"calendar_id": "primary", "id": "event-1", "response_status": "needsAction"}
+            ],
+        }
+
+    async def find_openings(self, **kwargs):
+        return {
+            "duration_minutes": 30,
+            "openings": [
+                {
+                    "start_at": "2099-11-04T10:00:00Z",
+                    "end_at": "2099-11-04T10:30:00Z",
+                    "available_until": "2099-11-04T11:00:00Z",
+                },
+                {
+                    "start_at": "2099-11-04T12:00:00Z",
+                    "end_at": "2099-11-04T12:30:00Z",
+                    "available_until": "2099-11-04T13:00:00Z",
+                },
+            ],
+        }
+
+
+def _account_ports(monkeypatch):
+    ports = {key: _AccountCalendar(key) for key in ("default", "account-b", "account-c")}
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: ports["default"])
+    monkeypatch.setattr(
+        "hushh_mcp.services.calendar_account_board_service.account_schedule",
+        lambda account_id: SimpleNamespace(calendar=ports[account_id]),
+    )
+    return ports
+
+
+def test_calendar_account_references_keep_their_own_sources_across_other_reads(monkeypatch):
+    ports = _account_ports(monkeypatch)
+    context = _context()
+    assert (
+        asyncio.run(tools.calendar_summary(context, account_id="account-b"))["account_id"]
+        == "account-b"
+    )
+    asyncio.run(tools.calendar_calendars(context, account_id="account-c"))
+    assert asyncio.run(tools.calendar_event_detail(context, ordinal=1))["account_id"] == "account-b"
+    assert ports["account-b"].last_detail["event_id"] == "event-1"
+    assert ports["default"].last_detail is None
+    changed = asyncio.run(tools.propose_calendar_cancellation(context, event_id="event-1"))
+    assert changed["status"] == "confirmation_required"
+    assert ports["account-b"].proposal_payload["account_id"] == "account-b"
+    assert ports["account-b"].last_propose["expected_binding"] == asyncio.run(
+        ports["account-b"]._read_grant_binding()
+    )
+    mismatch = asyncio.run(tools.calendar_event_detail(context, ordinal=1, account_id="account-c"))
+    assert mismatch["status"] == "input_required"
+    assert ports["account-c"].last_detail is None
+    # A calendar ordinal separately retains C, even though the latest event read was B.
+    result = asyncio.run(
+        tools.calendar_events(
+            context,
+            start_at="2099-11-04T00:00:00Z",
+            end_at="2099-11-05T00:00:00Z",
+            calendar_ordinal=1,
+        )
+    )
+    assert result["account_id"] == "account-c"
+    assert ports["account-c"].last_list["calendar_id"] == "team@example.com"
+
+
+def test_calendar_invitation_reference_survives_a_read_on_another_account(monkeypatch):
+    ports = _account_ports(monkeypatch)
+    context = _context()
+    listed = asyncio.run(tools.calendar_invitations(context, account_id="account-b"))
+    assert listed["directive"]["payload"]["accountId"] == "account-b"
+    asyncio.run(tools.calendar_summary(context, account_id="account-c"))
+    opened = asyncio.run(tools.open_calendar_invitation(context, ordinal=1, decision="accepted"))
+    assert opened["directive"]["payload"]["accountId"] == "account-b"
+    assert (
+        asyncio.run(tools.open_calendar_invitation(context, ordinal=1, account_id="account-c"))[
+            "status"
+        ]
+        == "input_required"
+    )
+    ports["account-b"].revision = "reconnected"
+    assert (
+        asyncio.run(tools.open_calendar_invitation(context, ordinal=1))["status"]
+        == "input_required"
+    )
+
+
+def test_calendar_fresh_ambiguous_account_requires_selection_without_provider_read(monkeypatch):
+    ports = _account_ports(monkeypatch)
+
+    async def inventory(**_):
+        return {
+            "accounts": [
+                {"account_id": key, "google_email": key + "@example.test", "status": "connected"}
+                for key in ports
+            ]
+        }
+
+    ports["default"].connections.calendar_accounts_status = inventory
+    result = asyncio.run(tools.calendar_summary(_context()))
+    assert result["reason_code"] == "calendar_account_required"
+    assert [item["account_id"] for item in result["accounts"]] == list(ports)
+    assert all(port.last_list is None for port in ports.values())
+
+
+def test_calendar_additional_account_permission_control_preserves_its_target(monkeypatch):
+    ports = _account_ports(monkeypatch)
+
+    async def missing(**_):
+        raise GoogleConnectionError(
+            "Renew access", status_code=403, reason_code="calendar_permission_required"
+        )
+
+    ports["account-b"].list_events = missing
+    result = asyncio.run(tools.calendar_summary(_context(), account_id="account-b"))
+    assert result["status"] == "connection_required"
+    assert result["directive"]["payload"]["accountId"] == "account-b"
+    assert ports["default"].last_list is None
+
+
+async def _offered_openings(monkeypatch, zone="America/New_York"):
+    ports = _account_ports(monkeypatch)
+    context = _context()
+    context.state["hussh:timezone"] = zone
+    result = await tools.calendar_free_slots(
+        context,
+        start_at="2099-11-04T09:00:00Z",
+        end_at="2099-11-04T17:00:00Z",
+        duration_minutes=30,
+        account_id="account-b",
+    )
+    assert result["status"] == "ok"
+    return ports, context
+
+
+@pytest.mark.parametrize("zone", ["America/New_York", "Asia/Calcutta"])
+def test_calendar_slot_reference_retains_exact_account_interval_and_zone_after_restore(
+    monkeypatch, zone
+):
+    import copy
+
+    from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
+
+    ports, context = asyncio.run(_offered_openings(monkeypatch, zone))
+    original = copy.deepcopy(context.state[STATE_OPENING_OFFER])
+    restored = SimpleNamespace(state=copy.deepcopy(context.state))
+    restored.state["hussh:timezone"] = "Pacific/Auckland"
+    result = asyncio.run(tools.propose_calendar_event(restored, title="Planning", slot_ordinal=2))
+    assert result["status"] == "confirmation_required"
+    payload = ports["account-b"].proposal_payload
+    assert payload["start_at"] == "2099-11-04T12:00:00+00:00"
+    assert payload["end_at"] == "2099-11-04T12:30:00+00:00"
+    assert payload["account_id"] == "account-b"
+    assert payload["opening_selection"]["calendar_ids"] == ["primary"]
+    assert (
+        payload["time_zone"]
+        == result["directive"]["payload"]["timeZone"]
+        == ("Asia/Kolkata" if zone == "Asia/Calcutta" else zone)
+    )
+    assert restored.state[STATE_OPENING_OFFER] == original
+    assert ports["default"].last_propose is None
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "expired",
+        "future",
+        "owner",
+        "chat",
+        "binding",
+        "account",
+        "calendar",
+        "boolean",
+        "range",
+        "mixed",
+    ],
+)
+def test_calendar_slot_reference_rejects_invalid_or_substituted_selection(monkeypatch, change):
+    from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
+
+    ports, context = asyncio.run(_offered_openings(monkeypatch))
+    offer = context.state[STATE_OPENING_OFFER]
+    kwargs = {"title": "Planning", "slot_ordinal": 1}
+    if change == "expired":
+        offer["created_at_ms"] -= 300_001
+    elif change == "future":
+        offer["created_at_ms"] += 60_000
+    elif change == "owner":
+        context.state["hussh:user_id"] = "another-owner"
+    elif change == "chat":
+        context.state["hussh:conversation_id"] = "another-chat"
+    elif change == "binding":
+        ports["account-b"].revision = "new-grant"
+    elif change == "account":
+        kwargs["account_id"] = "account-c"
+    elif change == "calendar":
+        kwargs["calendar_id"] = "other"
+    elif change == "boolean":
+        kwargs["slot_ordinal"] = True
+    elif change == "range":
+        kwargs["slot_ordinal"] = 3
+    elif change == "mixed":
+        kwargs["start_at"] = "2099-11-04T10:00:00Z"
+    result = asyncio.run(tools.propose_calendar_event(context, **kwargs))
+    assert result["status"] in {"input_required", "failed"}
+    assert all(port.last_propose is None for port in ports.values())
+    assert context.state.get("hussh:pending_directive:calendar") is None
+
+
+@pytest.mark.parametrize("replacement", ["empty", "failure", "invalid", "grant_change"])
+def test_calendar_failed_opening_replacement_never_leaves_old_slot_usable(monkeypatch, replacement):
+    from hushh_mcp.agents.calendar.read_offer import STATE_OPENING_OFFER
+
+    ports, context = asyncio.run(_offered_openings(monkeypatch))
+
+    async def replaced(**_):
+        if replacement == "failure":
+            raise TimeoutError()
+        if replacement == "grant_change":
+            ports["account-b"].revision = "new-grant"
+        return {"openings": []}
+
+    ports["account-b"].find_openings = replaced
+    asyncio.run(
+        tools.calendar_free_slots(
+            context,
+            start_at="bad" if replacement == "invalid" else "2099-11-04T09:00:00Z",
+            end_at="2099-11-04T17:00:00Z",
+            duration_minutes=30,
+            account_id="account-b",
+        )
+    )
+    assert context.state[STATE_OPENING_OFFER] is None
+    assert (
+        asyncio.run(tools.propose_calendar_event(context, title="Planning", slot_ordinal=1))[
+            "status"
+        ]
+        == "input_required"
+    )
+    assert ports["account-b"].last_propose is None

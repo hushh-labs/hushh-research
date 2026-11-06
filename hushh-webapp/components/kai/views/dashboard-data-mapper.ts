@@ -361,7 +361,8 @@ export function mapPortfolioToDashboardViewModel(
     ? (analytics?.allocation_mix as Array<Record<string, unknown>>)
     : [];
   const allocation =
-    allocationMix.length > 0
+    allocationMix.length > 0 && !canonicalModel.allocation.some((bucket) =>
+      bucket.key === "receivables" || (bucket.key === "cash_equivalent" && canonicalModel.counts.cashPositions === 0))
       ? allocationMix
           .map((row) => {
             const bucket = String(row.bucket || "").trim();

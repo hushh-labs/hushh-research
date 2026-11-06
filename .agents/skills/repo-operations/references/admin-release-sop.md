@@ -28,6 +28,25 @@ deployment, rollback, or environment-promotion decision must route here through
 
 ## State machine
 
+### Review routing on every destination
+
+Review requests identify whom to ask; they do not grant merge or deployment
+authority. Apply the same precedence on Main, Dev and UAT:
+
+| Change | Review route |
+|---|---|
+| CI, release authority or protected core guidance, including mixed product/docs PRs | `@hushh-labs/pipeline-editors` only |
+| Ordinary Dev/UAT product work | Eligible maintainer self-service after required checks; request `@hushh-labs/allowed-maintainers-to-approve` only when a peer review is needed |
+| Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
+
+CODEOWNERS auto-requests only protected owners. Do not add the ordinary team to
+a protected PR or request individual people merely to route it. Semantic
+protected edits still follow the pipeline-editor route when their containing file
+also allows ordinary changes. The existing classifier and native protected-path
+rules enforce that authority independently of the reviewer labels. Explicit
+owner-authored approval follows the bounded Admin procedure below; it does not
+waive CI. No review or merge implies permission to deploy.
+
 ### 1. Preserve and refresh
 
 1. Record `git branch --show-current` and `git status --short --branch`.
@@ -83,18 +102,21 @@ execute its reviewed implementation; generic admin credentials alone are not.
 its review-bypass allowance for an author. Do not request another owner merely
 because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
 Kushal and Ankit have a separate, explicitly approved owner Admin PR route on
-Main, Dev and UAT. Ordinary Main PRs retain independent/latest-push/CODEOWNER
-review and the combined-result queue. Eligible Dev/UAT authors use ordinary
+Main, Dev and UAT. Ordinary Main PRs retain independent/latest-push review,
+CODEOWNER review where protected paths require it, and the combined-result queue. Eligible Dev/UAT authors use ordinary
 maintainer self-approval through the queue as described in §3B.
 
 The named-owner route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
-  resolution and the six-person Main merger restriction remain active.
+  resolution and the approved Main merger restriction remain active.
 - Each destination's `<branch> owner validated merge` guard requires a PR and
   strict current-base CI for the two owners. Other authorized mergers bypass
   this additional freshness layer only; they cannot bypass the ordinary queue
-  or baseline CI. Main retains its six-person merger restriction.
+  or baseline CI. Main's trusted queue restricts the actual requester to the
+  approved merger cohort. Its native queue writer must not inherit a human-only
+  push filter; the reviewed writer-policy rollout preserves native PR/review/CI
+  and protected-change guards before removing that filter.
 - Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
   general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
@@ -216,9 +238,11 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    push. Never collapse those labels.
 2. Report PR, workflow, run, and artifact links; exact PR head and landed/deployed
    SHAs; environment; scope; revisions; traffic; and remaining risk.
-3. Restore the preserved developer branch, back-sync landed `main` when needed,
-   remove only temporary branches created by this session, and leave the tree
-   clean.
+3. Complete the [agent-owned downstream source syncs](maintainer-branch-freshness.md#agent-owned-downstream-completion)
+   in this merge task: Main → UAT/Dev; UAT → Dev. Record landed syncs or the exact
+   unresolved reconciliation; source propagation never authorizes deployment.
+4. Restore the preserved developer branch and remove only completed task-owned
+   temporary resources after preserving their work and evidence. Preserve peer edits.
 
 ### Lessons from the 2026-09-02 Wallet release
 
