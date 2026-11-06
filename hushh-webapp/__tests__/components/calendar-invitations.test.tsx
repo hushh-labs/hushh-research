@@ -219,19 +219,19 @@ describe("shared page/chat Invitations with real typed transport", () => {
     }
   });
 
-  it("lets a locked workspace owner review a Calendar-only decline", async () => {
+  it("sends a composed decline with a reason from the locked workspace", async () => {
     mock.token = null;
-    outcome.calendar = "declined";
+    outcome.calendar = "declined"; outcome.email = "sent";
     render(view({ workspaceLayout: true }));
     fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Review decline" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Confirm decline" }));
+    fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "busy testing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     await waitFor(() => expect(mutations()).toHaveLength(1));
-    expect(preparations()[0]?.[0]).toBe("/api/one/calendar/attendance/rsvp/review");
-    expect(JSON.parse(preparations()[0]?.[1].body)).toMatchObject({ response_status: "declined" });
-    expect(JSON.parse(preparations()[0]?.[1].body)).not.toHaveProperty("message");
+    expect(preparations()[0]?.[0]).toBe("/api/one/calendar/attendance/workspace/review");
+    expect(JSON.parse(preparations()[0]?.[1].body)).toMatchObject({ response_status: "declined", decline_reason: "busy testing", compose_message: true, send_message: true });
     expect(mutations()[0]?.[1].headers).not.toHaveProperty("X-Hushh-Consent");
+    expect(screen.queryByText("Decline invitation?")).toBeNull();
   });
 
   it.each(["GMAIL_NOT_CONNECTED", "GMAIL_SEND_PERMISSION_REQUIRED", "GMAIL_REAUTH_REQUIRED", "GMAIL_SEND_DISABLED", "GMAIL_SENDER_UNAVAILABLE"])("offers Gmail recovery without losing the proposal for %s", async reasonCode => {
@@ -263,19 +263,17 @@ describe("shared page/chat Invitations with real typed transport", () => {
     }
   });
 
-  it("declines only after confirmation and moves the response to Responded", async () => {
-    outcome.calendar = "declined";
+  it("declines and emails once without preview then moves to Responded", async () => {
+    outcome.calendar = "declined"; outcome.email = "sent";
     render(view()); fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     expect(mutations()).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Review decline email" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Decline", exact: true })).toBeDisabled();
     fireEvent.change(screen.getByRole("textbox", { name: "Reason for declining" }), { target: { value: "Family commitment." } });
-    fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
-    await screen.findByText("Decline invitation?");
-    expect(mutations()).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
+    await waitFor(() => expect(mutations()).toHaveLength(1));
     expect(JSON.parse(preparations()[0][1].body).message).toContain("Family commitment.");
-    expect(screen.getByText(/I’m sorry, but I can’t attend/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Decline & send email" }));
+    expect(screen.queryByText("Decline invitation?")).toBeNull();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole("tab", { name: "Pending (0)" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("tab", { name: "Responded" }));
@@ -294,7 +292,7 @@ describe("shared page/chat Invitations with real typed transport", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
     fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "I am unavailable." } });
-    fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
+    fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
     expect(await screen.findByText(/This invitation changed while the email was prepared/)).toBeInTheDocument();
     expect(mutations()).toHaveLength(0);
   });
@@ -445,7 +443,7 @@ it("hands an authorized settlement to chat once and survives page unmount", asyn
   fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
   fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "Unavailable." } });
-  const submit = screen.getByRole("button", { name: "Decline & send email" });
+  const submit = screen.getByRole("button", { name: "Decline", exact: true });
   fireEvent.click(submit); fireEvent.click(submit);
   await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
   const handoff = onSend.mock.calls[0][0];
@@ -475,20 +473,18 @@ it("requires conflict acknowledgement before sending a proposed busy time", asyn
   await waitFor(() => expect(mutations()).toHaveLength(1));
 });
 
-it("discards an expired token, preserves the reason and requires fresh review", async () => {
+it("preserves the reason and prepares a fresh action after expiry", async () => {
   const original = mock.apiFetch.getMockImplementation()!;
   mock.apiFetch.mockImplementation(async (path: string, init: RequestInit) => path.endsWith("/attendance/confirm") ? response({ detail: { message: "Review expired. Check Calendar before retrying.", reason_code: "calendar_review_expired" } }, 410) : original(path, init));
   render(view());
   fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
   fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "Unavailable." } });
-  fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
-  fireEvent.click(await screen.findByRole("button", { name: "Decline & send email" }));
-  await screen.findByRole("button", { name: "Review email again" });
+  fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
+  await screen.findByText("Review expired. Check Calendar before retrying.");
   expect(screen.getByLabelText("Reason for declining")).toHaveValue("Unavailable.");
-  fireEvent.click(screen.getByRole("button", { name: "Review email again" }));
-  await screen.findByText("Decline invitation?");
-  expect(mutations()).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
+  await waitFor(() => expect(preparations()).toHaveLength(2));
 });
 
 
@@ -502,7 +498,7 @@ it("rejects a decline email if the organizer changed since the form opened", asy
   fireEvent.click(await screen.findByRole("button", { name: "Open invitation: Client Sync" }));
   fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
   fireEvent.change(screen.getByLabelText("Reason for declining"), { target: { value: "Unavailable." } });
-  fireEvent.click(screen.getByRole("button", { name: "Review decline email" }));
+  fireEvent.click(screen.getByRole("button", { name: "Decline", exact: true }));
   await screen.findByText(/This invitation changed while the email was prepared/);
   expect(mutations()).toHaveLength(0);
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import { sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
+
 import { CalendarLoading } from "./calendar-loading";
 import { CalendarAccountBoard } from "./calendar-account-board";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -157,7 +159,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const selected = selectedEmail === status.google_email ? storedSelected : null;
   const [step, setStep] = useState<"details" | "choice" | "review" | "result">("details");
   const [offerTimes, setOfferTimes] = useState(false);
-  const [message, setMessage] = useState("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
+  const [message, setMessage] = useState("");
   const [review, setReview] = useState<CalendarAttendanceReview | null>(null);
   const [result, setResult] = useState<CalendarAttendanceResult | null>(null);
   const [actionError, setActionError] = useState<Error | null>(null);
@@ -315,30 +317,31 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const prepareReview = () => runAction(async () => {
     if (!selected?.id) throw new Error("Calendar access changed. Reload this invitation.");
     const owner = snapshotValidatedAuthSessionOwner();
-    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
+    const selectedAtSubmit = selection.current;
+    const isCurrent = () => selection.current === selectedAtSubmit && !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
     const firebaseIdToken = await getIdToken?.();
     if (!isCurrent()) return;
     if (!firebaseIdToken) throw new Error("Sign in again to review attendance changes.");
-    const next = offerTimes
-      ? await GoogleCalendarService.reviewWorkspaceAttendance({ ...windowParams, firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id, responseStatus: "declined", offerTimes: true, exactTime: false, sendMessage: true, message })
-      : await GoogleCalendarService.reviewRsvp({ firebaseIdToken, isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id || "primary", responseStatus: "declined", timeZone: zone });
+    const next = await GoogleCalendarService.reviewWorkspaceAttendance({ ...windowParams, firebaseIdToken,
+      isEffectCurrent: isCurrent, eventId: selected.id, calendarId: selected.calendar_id,
+      expectedAccountEmail: status.google_email || undefined, responseStatus: "declined",
+      offerTimes, exactTime: false, sendMessage: true, message, declineReason: message, composeMessage: true });
     if (!isCurrent()) return;
-    setReview(next); setStep("review");
+    if (!sameCalendarInvitationOccurrence(selected, next)) throw new Error("The organiser changed. Refresh the invitation before declining.");
+    if (next.conflicts?.length || next.unchecked_calendars?.length) throw new Error("The proposed time could not be confirmed as available. Choose another time or try again.");
+    const confirmationToken = await getIdToken?.();
+    if (!isCurrent()) return;
+    if (!confirmationToken) throw new Error("Sign in again to confirm attendance changes.");
+    const outcome = await GoogleCalendarService.confirmWorkspaceAttendance({ firebaseIdToken: confirmationToken,
+      isEffectCurrent: isCurrent, reviewId: next.review_id, reviewToken: next.review_token });
+    if (!isCurrent()) return;
+    setResult(outcome); setStep("result");
+    if (outcome.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
+    if (outcome.calendar === "declined" && outcome.email === "sent") {
+      selection.current = null; setSelected(null); setReview(null); setResult(null); setStep("details");
+    }
   });
-  const confirm = () => runAction(async () => {
-    if (!review) return;
-    const owner = snapshotValidatedAuthSessionOwner();
-    const isCurrent = () => !lifetime.current?.signal.aborted && (!owner || isValidatedAuthSessionOwnerCurrent(owner));
-    const firebaseIdToken = await getIdToken?.();
-    if (!isCurrent()) return;
-    if (!firebaseIdToken) throw new Error("Sign in again to confirm attendance changes.");
-    const next = offerTimes
-      ? await GoogleCalendarService.confirmWorkspaceAttendance({ firebaseIdToken, isEffectCurrent: isCurrent, reviewId: review.review_id, reviewToken: review.review_token })
-      : await GoogleCalendarService.confirmRsvp({ firebaseIdToken, isEffectCurrent: isCurrent, reviewId: review.review_id, reviewToken: review.review_token });
-    if (!isCurrent()) return;
-    setResult(next); setStep("result");
-    if (next.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
-  });
+
   const saveSettings = () => {
     try {
       if (!/^\d{2}:\d{2}$/.test(settingsStart) || !/^\d{2}:\d{2}$/.test(settingsEnd) || settingsStart >= settingsEnd) throw new Error("Availability end must be after start.");
@@ -378,7 +381,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     detailTrigger.current = trigger; setSelectedEmail(status.google_email); setSelected(event); setStep("details"); setActionError(null);
     setAlternativeDate(date);
     setOfferTimes(false); setReview(null); setResult(null);
-    setMessage("I can't attend our meeting. Please choose another time using the link below and update the invitation.");
+    setMessage("");
   };
   const providerUrl = calendarProviderDayUrl(date, status.google_email);
   const openSettings = (trigger?: HTMLButtonElement) => { settingsTrigger.current = trigger || accountMenuButton.current; setSettingsStart(startTime); setSettingsEnd(endTime); setSettingsError(""); setSelectionDraft({ key: calendarAccountKey, overrides: JSON.parse(selectionJson) }); setPendingExclusion(null); setSettingsOpen(true); };
@@ -479,15 +482,11 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
           {isCalendarEventEnded(selected, now, zone) ? <p className={`${presentationStyles.status} text-muted-foreground`}>Ended</p> : safeMeetingUrl(selected.conference_url) ? <CalendarJoinLink className={presentationStyles.joinLink} url={selected.conference_url} accountEmail={status.google_email} /> : null}
           {selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); setReview(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
         </div> : step === "choice" ? <div className="space-y-4">
-          <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline only</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
+          <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
           <p className="text-sm text-muted-foreground">Only your attendance response changes. The organizer keeps the meeting.</p>
-          {offerTimes ? <><label className="block space-y-[var(--app-form-field-gap)]"><span className="text-sm font-semibold">Message to organizer</span><Textarea disabled={submitting || busy} aria-label="Message to organizer" rows={4} value={message} onChange={event => setMessage(event.target.value)} /></label>{windowControls("Alternative")}<p className="text-xs text-muted-foreground">A recipient-accessible link to checked alternatives will be included for review. The organizer chooses a time and updates the invitation.</p></> : null}
-          {status.access_level !== "manage" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage")}>Allow attendance changes</CalendarCompactAction> : <CalendarCompactAction disabled={submitting || busy} onClick={() => void prepareReview()}>{submitting ? "Preparing review…" : "Review"}</CalendarCompactAction>}
-        </div> : step === "review" && review ? <div className="space-y-4">
-          <p>Decline your attendance at <strong>{review.title}</strong>.</p>
-          {review.message ? <><p className="break-all text-sm">From: {review.sender_label}<br />To: {review.recipient}</p><p className="text-sm font-semibold">{review.subject}</p><p className="whitespace-pre-wrap break-words text-sm">{review.rescheduling_link ? review.message.replace(review.rescheduling_link, "").trim() : review.message}</p>{review.rescheduling_link ? <a href={review.rescheduling_link} target="_blank" rel="noopener noreferrer" className={presentationStyles.sourceLink}>Review recipient rescheduling link</a> : null}<p className="text-xs text-muted-foreground">Link expires in 3 days. The organizer can view the offered times without signing in to One and reply with a choice.</p></> : <p className="text-sm text-muted-foreground">Google Calendar will record your declined attendance.</p>}
-          <div className="flex flex-wrap gap-2"><Button variant="ghost" size="compact" className={presentationStyles.utility} disabled={submitting} onClick={() => { setStep("choice"); setReview(null); }}>Edit</Button><Button disabled={submitting || busy} onClick={() => void confirm()}>{submitting ? "Confirming…" : "Confirm"}</Button></div>
-        </div> : result ? <div role="status" className="space-y-3"><p>{result.calendar === "declined" ? "Your attendance was declined." : result.calendar === "unknown" ? "Calendar response could not be confirmed. Check the invitation before trying again." : "Your attendance could not be declined."}</p>{result.calendar_error ? <p className="text-sm text-muted-foreground">{result.calendar_error}</p> : null}{result.email === "sent" ? <p>The organizer's email was sent.</p> : result.email === "failed" || result.email === "unknown" ? <p className="text-sm text-destructive">{result.email_error || "Organizer email delivery could not be confirmed. Check Sent Mail before trying again."}</p> : offerTimes ? <p className="text-sm text-muted-foreground">The organizer's email was not sent.</p> : null}<Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={closeDetails}>Done</Button></div> : null}
+          <><label className="block space-y-[var(--app-form-field-gap)]"><span className="text-sm font-semibold">Message to organizer</span><Textarea disabled={submitting || busy} aria-label="Message to organizer" rows={4} value={message} onChange={event => setMessage(event.target.value)} /></label>{offerTimes ? <>{windowControls("Alternative")}<p className="text-xs text-muted-foreground">A recipient-accessible link to checked alternatives will be included for review. The organizer chooses a time and updates the invitation.</p></> : null}</>
+          {status.access_level !== "manage" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage")}>Allow attendance changes</CalendarCompactAction> : <CalendarCompactAction disabled={submitting || busy || !message.trim()} onClick={() => void prepareReview()}>{submitting ? "Sending your response…" : offerTimes ? "Decline & offer another time" : "Decline"}</CalendarCompactAction>}
+        </div> : result ? <div role="status" className="space-y-3"><p>{result.calendar === "declined" ? "Your attendance was declined." : result.calendar === "unknown" ? "Calendar response could not be confirmed. Check the invitation before trying again." : "Your attendance could not be declined."}</p>{result.calendar_error ? <p className="text-sm text-muted-foreground">{result.calendar_error}</p> : null}{result.email === "sent" ? <p>The organizer's email was sent.</p> : result.email === "failed" || result.email === "unknown" ? <p className="text-sm text-destructive">{result.email_error || "Organizer email delivery could not be confirmed. Check Sent Mail before trying again."}</p> : <p className="text-sm text-muted-foreground">The organizer's email was not sent.</p>}<Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={closeDetails}>Done</Button></div> : null}
         {actionError ? <div role="alert" className="space-y-2"><p className="text-sm text-destructive">{actionError.message}</p>{actionError instanceof GoogleCalendarError && actionError.reasonCode?.startsWith("GMAIL") && onMailConnect ? <CalendarCompactAction disabled={submitting} onClick={() => void runAction(onMailConnect)}>Enable Mail sending</CalendarCompactAction> : actionError instanceof GoogleCalendarError && actionError.recovery === "permission" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", true)}>Allow Calendar access</CalendarCompactAction> : null}</div> : null}
         </> : <DialogHeader><DialogTitle>Calendar</DialogTitle><DialogDescription>Calendar access is being restored.</DialogDescription></DialogHeader>}
       </DialogContent>
