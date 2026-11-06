@@ -319,8 +319,7 @@ def test_editor_performance_stays_local_without_an_automatic_job() -> None:
     ci = _load_workflow(MONO_WORKFLOW_PATH)
     jobs = ci["jobs"]
     assert "web-editor-performance-check" not in jobs
-    assert jobs["document-webkit-check"]["name"] == "Protected Document WebKit (macOS)"
-    assert "outputs.editor" not in str(jobs["document-webkit-check"].get("if") or "")
+    assert "document-webkit-check" not in jobs
     assert "editor" in ci["jobs"]["paths"]["outputs"]
     assert not any("outputs.editor" in str(job.get("if") or "") for job in jobs.values())
 

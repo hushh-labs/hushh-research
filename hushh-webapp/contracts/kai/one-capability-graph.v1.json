@@ -34151,6 +34151,462 @@
     },
     {
       "aliases": [
+        "Choose activity emails"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.attempt_email.choose",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person chooses an activity email choice on screen. Changing the draft does not subscribe or save it.",
+      "execution": {
+        "binding_ref": "render:profile.attempt_email.choose",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.attempt_email.choose",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Choose activity emails",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save activity email choice"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.attempt_email.save",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person explicitly saves the activity email choice reviewed on screen. One may explain or open the form but cannot choose or submit activity email permission.",
+      "execution": {
+        "binding_ref": "render:profile.attempt_email.save",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.attempt_email.save",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save activity email choice",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Retry activity email choice"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.attempt_email.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person retries reading their saved activity email choice. This changes no subscription.",
+      "execution": {
+        "binding_ref": "render:profile.attempt_email.retry",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.attempt_email.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry activity email choice",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Email preferences",
         "email preferences",
         "email updates",
@@ -50123,7 +50579,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "733ec6a1390687dfe2db70d3b36101c59af7a5df3afe3bd4b87a230cedfd4d8d",
+      "projection_digest": "4413f70f040e16a9e42a89a1c9673ec1feebdbc0e61776fa93a670e019d86596",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50133,7 +50589,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "beb8478deb2d415b3377aedc03365c9fc9f07ada3cdeb1775702bc79addffee2",
+        "capability_graph_evolution": "f4c40337fc244d54072b4a3ff372a3aea48e9dbd14165bfd9fa4caa71fc37cc1",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50142,7 +50598,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "3e761f3cb5bebeaf",
+      "source_revision": "329aa425edaeda92",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51660,7 +52116,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "3e761f3cb5bebeaf",
+    "source_revision": "329aa425edaeda92",
     "web": {
       "actions": [
         {
@@ -51703,7 +52159,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "815066b234f287680b2bd8f83dea9f1e925dc84b1686fd17ad2330f256414720",
+      "projection_digest": "3ca30c3a51c2fb4bb6581f2cf8094c11d24bcc86a89e6d87c0f4e4c992e091f8",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51713,7 +52169,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "beb8478deb2d415b3377aedc03365c9fc9f07ada3cdeb1775702bc79addffee2",
+        "capability_graph_evolution": "f4c40337fc244d54072b4a3ff372a3aea48e9dbd14165bfd9fa4caa71fc37cc1",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -51722,7 +52178,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "3e761f3cb5bebeaf",
+      "source_revision": "329aa425edaeda92",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -53279,7 +53735,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "3e761f3cb5bebeaf",
+  "revision": "329aa425edaeda92",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -55273,12 +55729,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.attempt_email.choose",
+      "actions:profile.attempt_email.retry",
+      "actions:profile.attempt_email.save"
+    ],
     "breaking": [],
     "changed": [],
     "compatible": [],
     "deprecated": [],
-    "from_revision": null,
+    "from_revision": "76530a3b0879313f",
     "migrated": [],
     "removed": []
   },
@@ -57634,10 +58094,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "beb8478deb2d415b3377aedc03365c9fc9f07ada3cdeb1775702bc79addffee2",
+    "capability_graph_evolution": "f4c40337fc244d54072b4a3ff372a3aea48e9dbd14165bfd9fa4caa71fc37cc1",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "2e872ee594cf4f82a3edb58af736fb555ac8b068280b40797dbbda7337143df8",
+    "kai_action_gateway": "072eb5a8b08650681fe314c97697c7e5589d6ae76ce849bafc122b1052aa849b",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -57646,9 +58106,9 @@
     "route_orchestration_index": "b9b55fb607d8160c2e5a0f04d0c115db3f1c1ebd2303c7b2bae1ecc820573cb7",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "3e761f3cb5bebeaf",
+  "source_revision": "329aa425edaeda92",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "3e761f3cb5bebeaf",
+    "current_graph_revision": "329aa425edaeda92",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57732,6 +58192,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -58100,6 +58561,7 @@
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "41ce76d431046107",
           "427976fdc9c31f85",
           "43c428db7505bdee",
@@ -58230,6 +58692,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "3e761f3cb5bebeaf",
           "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "83fa96225592a2c4",
@@ -58671,6 +59134,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -59020,6 +59484,7 @@
           "366da54ed07dd315",
           "3adc9c7720dda6e7",
           "3c485e1154148116",
+          "3e761f3cb5bebeaf",
           "41ce76d431046107",
           "4537aaec23a4d8c6",
           "458153bdfb331613",
@@ -59508,6 +59973,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -59923,6 +60389,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -60336,6 +60803,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",

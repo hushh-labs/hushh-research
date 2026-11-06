@@ -45,11 +45,11 @@ ORDER BY user_id LIMIT $9
 """
 
 
-def registered_records(ids: list[str]):
+def registered_records(ids: list[str], project: str = "hushh-pda"):
     from firebase_admin import auth
 
     app = get_firebase_auth_app()
-    if app is None or app.project_id != "hushh-pda":
+    if project not in {"hushh-pda", "hushh-pda-uat"} or app is None or app.project_id != project:
         raise RuntimeError("audience identity source unavailable")
 
     def lookup(identities):
@@ -58,9 +58,13 @@ def registered_records(ids: list[str]):
     return captured_records(ids, lookup)
 
 
-async def source_page(request, page: str | None, at, size: int):
+async def source_page(request, page: str | None, at, size: int, *, project: str = "hushh-pda"):
     """Bound each indexed read and preserve continuation through excluded rows."""
-    if request.segment not in SEGMENTS or not 1 <= size <= 25:
+    if (
+        project not in {"hushh-pda", "hushh-pda-uat"}
+        or request.segment not in SEGMENTS
+        or not 1 <= size <= 25
+    ):
         raise ValueError("unsupported attempt search")
     if page is not None and (
         not page.startswith(PREFIX) or not 1 <= len(page.removeprefix(PREFIX)) <= 128
@@ -98,7 +102,14 @@ async def source_page(request, page: str | None, at, size: int):
         raise ValueError("invalid attempt search result")
     selected = ids[:size]
     records = (
-        await asyncio.wait_for(asyncio.to_thread(registered_records, selected), timeout=6)
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                registered_records,
+                selected,
+                **({"project": project} if project != "hushh-pda" else {}),
+            ),
+            timeout=6,
+        )
         if selected
         else []
     )

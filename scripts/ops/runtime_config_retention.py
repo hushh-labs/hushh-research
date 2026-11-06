@@ -60,6 +60,12 @@ def _retained_plg_config(
         "one_plg_activity_all_registered",
         "one_plg_audience_enabled",
         "one_plg_subscription_enabled",
+        "one_plg_dev_export_enabled",
+        "one_plg_activity_dev_enabled",
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_owner_export_enabled",
+        "one_plg_attempt_email_enabled",
     ):
         if key not in existing:
             continue
@@ -70,14 +76,40 @@ def _retained_plg_config(
             retained[key] = value == "true"
         else:
             raise ValueError("PLG activation must be an explicit boolean")
-    if any(retained.values()) and (
-        environment != "production"
-        or project != "hushh-pda"
-        or existing.get("environment") != "production"
-        or existing.get("google_cloud_project") != "hushh-pda"
+    if not any(retained.values()):
+        return retained
+    expected_project = {
+        "dev": "hushh-pda-dev",
+        "uat": "hushh-pda-uat",
+        "production": "hushh-pda",
+    }.get(environment)
+    common = {"one_plg_activity_enabled", "one_plg_attempt_email_enabled"}
+    permitted = common | (
+        {
+            "one_plg_export_enabled",
+            "one_plg_activity_all_registered",
+            "one_plg_audience_enabled",
+            "one_plg_subscription_enabled",
+            "one_plg_owner_export_enabled",
+        }
+        if environment == "production"
+        else {
+            f"one_plg_{environment}_export_enabled",
+            f"one_plg_activity_{environment}_enabled",
+        }
+    )
+    if (
+        not expected_project
+        or project != expected_project
+        or existing.get("environment") != environment
+        or existing.get("google_cloud_project") != project
+        or any(value and key not in permitted for key, value in retained.items())
+        or environment in {"dev", "uat"}
+        and retained.get("one_plg_activity_enabled")
+        and not retained.get(f"one_plg_activity_{environment}_enabled")
     ):
         raise ValueError(
-            "PLG activation belongs only to the production environment and project"
+            "PLG activation belongs only to its verified dev, uat or production environment and project"
         )
     return retained
 
@@ -125,20 +157,26 @@ def _retained_document_delivery(
     values = {key: existing.get(key, "") for key in keys}
     if not enabled and not any(values.values()):
         return {enabled_key: False}
-    expected_project = {"uat": "hushh-pda-uat", "production": "hushh-pda"}.get(environment)
+    expected_project = {"uat": "hushh-pda-uat", "production": "hushh-pda"}.get(
+        environment
+    )
     if (
         expected_project is None
         or project != expected_project
         or existing.get("environment") != environment
         or existing.get("google_cloud_project") != project
     ):
-        raise ValueError("Document delivery belongs to a different environment and project")
+        raise ValueError(
+            "Document delivery belongs to a different environment and project"
+        )
     if (
         values[keys[0]] != f"{project}-document-delivery"
         or not isinstance(values[keys[1]], str)
         or not re.fullmatch(r"[0-9a-f]{64}", values[keys[1]])
     ):
-        raise ValueError("Document delivery requires an explicit qualified storage binding")
+        raise ValueError(
+            "Document delivery requires an explicit qualified storage binding"
+        )
     return {enabled_key: enabled, **values}
 
 
@@ -151,7 +189,9 @@ def retained_settings(
         **_retained_dev_inference_bridge(
             existing, project=project, environment=environment
         ),
-        **_retained_document_delivery(existing, project=project, environment=environment),
+        **_retained_document_delivery(
+            existing, project=project, environment=environment
+        ),
     }
     key = "auth_db_listener_isolation_enabled"
     if key in existing:
