@@ -11,6 +11,7 @@ candidate. Both phases include retained revisions, jobs and administrative reser
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import re
@@ -40,6 +41,72 @@ _CLI_SPEC.loader.exec_module(_cli)
 DEFAULT_PROFILE = Path(__file__).resolve().parents[2] / "config/runtime-capacity.json"
 CAPACITY_PHASES = ("pre-deploy", "post-release")
 CapacityPhase = Literal["pre-deploy", "post-release"]
+
+
+def selected_uat_profile(profile: dict[str, Any], target_sha: str) -> dict[str, Any]:
+    """Keep Main's admission policy; bind worker size to the approved source."""
+    if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
+        raise BudgetError("selected capacity requires a full application SHA")
+    reference = f"{target_sha}:config/runtime-capacity.json"
+    try:
+        size = int(
+            subprocess.check_output(
+                ["git", "cat-file", "-s", reference], stderr=subprocess.PIPE, timeout=15
+            )
+        )
+    except (subprocess.SubprocessError, ValueError):
+        raise BudgetError("selected capacity profile is unavailable") from None
+    if not 0 < size <= 131072:
+        raise BudgetError("selected capacity profile exceeds its bound")
+    try:
+        source = json.loads(
+            subprocess.check_output(
+                ["git", "show", reference], stderr=subprocess.PIPE, timeout=15
+            )
+        )
+    except (subprocess.SubprocessError, ValueError, UnicodeError):
+        raise BudgetError(
+            "selected capacity profile is unavailable or malformed"
+        ) from None
+    if not all(
+        isinstance(value, dict) and type(value.get("schema_version")) is int
+        and value["schema_version"] == 1 for value in (profile, source)
+    ):
+        raise BudgetError("selected capacity profile schema is unsupported")
+    try:
+        trusted = profile["environments"]["uat"]
+        selected = source["environments"]["uat"]
+        if profile["region"] != source["region"] or any(
+            trusted[key] != selected[key] for key in ("project", "database_instance")
+        ):
+            raise BudgetError("selected worker capacity identifies another environment")
+        name = "consent-protocol-drive-worker"
+        expected, observed = trusted["services"][name], selected["services"][name]
+        if any(
+            type(expected[key]) is not type(observed[key])
+            or expected[key] != observed[key]
+            for key in ("container", "workers_per_instance")
+        ):
+            raise BudgetError("selected worker identity differs from admission policy")
+        ceiling, desired = expected["candidate"], observed["candidate"]
+        if set(ceiling) != set(desired) or any(
+            type(ceiling[key]) is not type(desired[key]) or ceiling[key] != desired[key]
+            for key in ceiling
+            if key != "max_instances"
+        ):
+            raise BudgetError("selected worker pools differ from admission policy")
+        maximum = positive_int(desired["max_instances"], "selected worker maximum")
+        if maximum > positive_int(ceiling["max_instances"], "reviewed worker ceiling"):
+            raise BudgetError(
+                "selected worker size exceeds the reviewed admission ceiling"
+            )
+    except (KeyError, TypeError):
+        raise BudgetError("selected worker capacity contract is incomplete") from None
+    effective = copy.deepcopy(profile)
+    effective["environments"]["uat"]["services"][name]["candidate"]["max_instances"] = (
+        maximum
+    )
+    return effective
 POOL_KEYS = (
     "DB_POOL_MAX_SIZE",
     "DB_SQLALCHEMY_POOL_SIZE",
@@ -705,6 +772,15 @@ def main() -> int:
     args = _cli.parse_args(__doc__, CAPACITY_PHASES, DEFAULT_PROFILE)
     try:
         profile = json.loads(args.profile.read_text())
+        if args.target_sha:
+            if args.environment != "uat":
+                raise BudgetError("source-bound worker capacity is UAT-only")
+            profile = selected_uat_profile(profile, args.target_sha)
+        if args.resolve_profile_only:
+            if not args.target_sha:
+                raise BudgetError("profile resolution requires an approved source")
+            print(json.dumps(profile, sort_keys=True, indent=2))
+            return 0
         if args.frontend_only:
             if args.additional_candidate_service:
                 raise BudgetError("frontend-only admission cannot reserve a fallback")

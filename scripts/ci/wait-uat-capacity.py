@@ -218,7 +218,7 @@ def resolved_scope(target_sha: str, requested_scope: str) -> Any:
         raise AdmissionError("UAT deploy scope cannot be verified") from exc
 
 
-def capacity_args(mode: str, decision: Any | None) -> list[str]:
+def capacity_args(mode: str, decision: Any | None, target_sha: str | None = None) -> list[str]:
     args = [sys.executable, str(ROOT / "scripts/ci/runtime-capacity-budget.py"),
             "--environment", "uat", "--report-only", "--output", "json"]
     if mode == "one-chat":
@@ -226,6 +226,8 @@ def capacity_args(mode: str, decision: Any | None) -> list[str]:
     if decision is None:
         raise AdmissionError("full UAT admission lacks a resolved scope")
     if decision.deploy_backend:
+        if target_sha is not None:
+            args += ["--target-sha", target_sha]
         return [*args, "--candidate-service", "consent-protocol",
                 "--candidate-service", "consent-protocol-drive-worker"]
     if decision.deploy_frontend:
@@ -233,8 +235,8 @@ def capacity_args(mode: str, decision: Any | None) -> list[str]:
     raise AdmissionError("UAT deploy scope has no candidate lane")
 
 
-def capacity_report(mode: str, decision: Any | None) -> dict[str, Any]:
-    result = command(capacity_args(mode, decision))
+def capacity_report(mode: str, decision: Any | None, target_sha: str | None = None) -> dict[str, Any]:
+    result = command(capacity_args(mode, decision, target_sha))
     # A temporary extra job can disappear while this bounded observer waits.
     # Only this exact inventory shape is retryable. Missing profiled jobs,
     # malformed output and authentication/query failures remain fatal.
@@ -339,7 +341,7 @@ def _wait_for_capacity(
             and not decision.deploy_backend
         )
         try:
-            report = capacity_report(mode, decision)
+            report = capacity_report(mode, decision, target_sha)
         except TransientJobInventoryDrift as exc:
             report = None
             last_projection = str(exc)
@@ -367,7 +369,7 @@ def _wait_for_capacity(
                 )
                 continue
             try:
-                final_report = capacity_report(mode, final_decision)
+                final_report = capacity_report(mode, final_decision, target_sha)
             except TransientJobInventoryDrift as exc:
                 final_report = None
                 last_projection = str(exc)
