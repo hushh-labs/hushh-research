@@ -916,6 +916,12 @@ model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
   operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
   released identity. A stale replacement, uncertain outcome or changed approval
   returns a bounded 409 and retains recovery custody.
+  Historical recovery status may include `nextEligibleAt`, a UTC recheck hint
+  derived from complete native retention observations bound to the recorded
+  resource identities. It never establishes absence, approval or completion.
+  The interface retains verified progress and defers repeat approval while that
+  wait is active. Historical operator recovery retains its separate executor
+  qualification; status and refresh do not start or replay provider work.
 - `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
   control-plane observation of the recorded service and historical receipt
   coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,

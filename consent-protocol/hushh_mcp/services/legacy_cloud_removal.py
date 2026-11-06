@@ -211,7 +211,7 @@ def operator_source(recovery: dict) -> str:
     )
 
 
-def recovery_view(recovery: dict) -> dict:
+def recovery_view(recovery: dict, *, identity_hashes: dict | None = None) -> dict:
     plan = recovery["plan"]
     states = {
         resource_key(item): resource_state(recovery, resource_key(item))
@@ -250,6 +250,31 @@ def recovery_view(recovery: dict) -> dict:
         > datetime.now(timezone.utc) - timedelta(minutes=10)
         for event in events
     )
+    # This is a native recheck boundary, never evidence that erasure finished.
+    waiting = [
+        item
+        for item in plan["resources"]
+        if states[resource_key(item)].get("observation", {}).get("status") == "waiting_for_provider"
+    ]
+    eligible = []
+    for item in waiting:
+        observation = states[resource_key(item)]["observation"]
+        coverage = observation.get("coverage", {})
+        value = coverage.get("nextEligibleAt")
+        if (
+            not identity_hashes
+            or observation.get("identitySha256") != identity_hashes.get(resource_key(item))
+            or coverage.get("providerRetention") is not True
+            or coverage.get("inventoryComplete") is not True
+            or not isinstance(value, str)
+            or not value.endswith("Z")
+        ):
+            break
+        try:
+            instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            break
+        eligible.append((instant, value))
     return {
         "operationId": plan["attemptId"],
         "provider": "gcp",
@@ -275,6 +300,7 @@ def recovery_view(recovery: dict) -> dict:
         if failure
         else None,
         "legacyRecovery": True,
+        "nextEligibleAt": min(eligible)[1] if waiting and len(eligible) == len(waiting) else None,
     }
 
 
