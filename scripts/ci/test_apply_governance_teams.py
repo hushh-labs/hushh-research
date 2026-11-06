@@ -48,6 +48,18 @@ def test_queue_timeout_preserves_all_other_parameters(module=None):
     assert queue_rules({"repository": {"merge_queue_check_timeout_minutes": 120}}, original) == expected
     assert original == before
     assert queue_rules({}, original) == before
+    serial = copy.deepcopy(expected)
+    serial[0]["parameters"]["max_entries_to_build"] = 1
+    assert queue_rules({"repository": {"merge_queue_check_timeout_minutes": 120,
+        "merge_queue_max_entries_to_build": 1}}, original) == serial
+    assert original == before
+    for bad in (False, 0, 2, 5, "1"):
+        try:
+            queue_rules({"repository": {"merge_queue_max_entries_to_build": bad}}, original)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("Unqualified speculative build concurrency was accepted")
     for bad in (False, 0, 361, "120"):
         try:
             queue_rules({"repository": {"merge_queue_check_timeout_minutes": bad}}, original)
@@ -78,7 +90,7 @@ def test_queue_timeout_repair_preserves_authority_and_refuses_concurrent_change(
         index = int(endpoint.rsplit("/", 1)[1])
         original = records[index]
         assert all(body[k] == original[k] for k in original if k not in ("rules", "id"))
-        assert body["rules"][0]["parameters"] == {**original["rules"][0]["parameters"], "check_response_timeout_minutes": 120}
+        assert body["rules"][0]["parameters"] == {**original["rules"][0]["parameters"], "check_response_timeout_minutes": 120, "max_entries_to_build": 1}
         records[index] = {**body, "id": index}
         writes.append(endpoint)
     with patch.object(module, "gh_json", side_effect=read), patch.object(prepared_branch_governance, "_write", side_effect=write):
@@ -649,6 +661,7 @@ def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> N
     queue["conditions"] = {"ref_name": {"include": ["refs/heads/main"], "exclude": []}}
     queue["bypass_actors"] = []
     queue["rules"][0]["parameters"]["check_response_timeout_minutes"] = 120
+    queue["rules"][0]["parameters"]["max_entries_to_build"] = 1
     protection["required_status_checks"]["strict"] = False
     protection["restrictions"]["users"] = [{"login": "retired-operator"}]
     requests = []

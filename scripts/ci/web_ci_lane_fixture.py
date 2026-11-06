@@ -266,6 +266,31 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         assert calls == []
 
 
+    # Connect fixture dependencies are executable browser inputs, not a reason
+    # to expand every unrelated pack (UAT run 42119804426).
+    dependencies = (
+        "hushh-webapp/e2e/fixtures/connect-page.tsx",
+        "hushh-webapp/e2e/fixtures/connect-page-boundaries.tsx",
+        "hushh-webapp/e2e/helpers/mutual-list-layout.ts",
+        "hushh-webapp/lib/connections/person-profile-preview.ts",
+    )
+    for changed in (*dependencies, "\n".join((*dependencies,
+            "consent-protocol/tests/test_connections.py",
+            "hushh-webapp/contracts/ui-review/back/review.json"))):
+        code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
+        assert code == 0, output[-2000:]
+        assert values == {"selection_known": "true", "browser_required": "true"}, output
+        assert calls == []
+        assert "Layout owner: e2e/connect-page-grid.layout.spec.ts" in output, output
+        assert "e2e/circle-discovery.layout.spec.ts" not in output, output
+        assert "Unclassified application impact" not in output, output
+    for changed in ("hushh-webapp/e2e/fixtures/connect-page-future.tsx",
+                    "hushh-webapp/lib/connections/unreviewed-preview.ts"):
+        code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
+        assert code == 0 and calls == [], output
+        assert values == {"selection_known": "false", "browser_required": "true"}, output
+
+
 def test_browser_plan_unknown_full_scope_and_missing_metadata_fail_closed() -> None:
     # A known no-browser diff still qualifies the named release core, without
     # changing the selection into the complete historical browser archive.
