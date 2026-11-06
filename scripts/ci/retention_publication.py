@@ -60,6 +60,18 @@ def _steps(owner, job):
     return indexed
 
 
+
+def maintenance_mode(steps):
+    """Static job labels need explicit mode evidence; never infer mutation."""
+    states = [steps.get(f"Maintenance mode: {mode}", {}).get("conclusion")
+              for mode in ("inspection", "cleanup")]
+    if states == ["success", "skipped"]:
+        return "inspection"
+    if states == ["skipped", "success"]:
+        return "cleanup"
+    return None
+
+
 def _current(run, number, job, environment):
     return (
         str(run["id"]) == os.getenv("GITHUB_RUN_ID")
@@ -218,7 +230,8 @@ def _attempt(owner, repository, run, number, environment):
             "pre-policy maintenance rerun requires reconciliation",
         )
         return _publication_time(owner, historical[0], historical[0])
-    selected = [row for row in rows if row.get("name") == name]
+    current_name = ("UAT" if environment == "uat" else "Production") + " revision maintenance"
+    selected = [row for row in rows if row.get("name") in {name, current_name}]
     _require(owner, len(selected) <= 1, "maintenance cleanup job is ambiguous")
     if not selected:
         return False
@@ -235,6 +248,11 @@ def _attempt(owner, repository, run, number, environment):
     steps = _steps(owner, job)
     if job.get("conclusion") == "skipped" and not steps:
         return False
+    if job.get("name") == current_name:
+        mode = maintenance_mode(steps)
+        _require(owner, mode is not None, "maintenance mode is missing or ambiguous")
+        if mode == "inspection":
+            return False  # Read-only failure cannot claim a mutation checkpoint.
     _require(
         owner,
         f"Prepare or finish eligible {environment} revision cleanup" in steps,

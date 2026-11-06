@@ -389,10 +389,12 @@ class ExactUatAttemptTest(unittest.TestCase):
 
         def leg(shard):
             result = copy.deepcopy(unit)
+            result["name"] = f"Web Unit Contracts ({shard})"
             result["steps"][-1]["name"] = f"Verify unit shard ({shard})"
             return result
 
         verify([unit])
+        verify([leg("1/1")])
         complete = [leg(shard) for shard in ("1/3", "2/3", "3/3")]
         verify(complete)
         old = copy.deepcopy(unit)
@@ -402,11 +404,19 @@ class ExactUatAttemptTest(unittest.TestCase):
         with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
             verify([old], current=False)
             observed.assert_called_once_with("show", f"{candidate}:.github/workflows/ci.yml")
+        decorated_without_marker = {**old, "name": "Web Unit Contracts (1/1)"}
+        with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
+            with self.assertRaises(subject.Refused):
+                verify([decorated_without_marker], current=False)
+            observed.assert_not_called()
         with patch.object(subject, "git", return_value=(historical_workflow + "    strategy: {}\n").encode()):
             with self.assertRaises(subject.Refused):
                 verify([old], current=False)
         cases = [[], [old], complete[:2], [leg("1/3")] * 3,
                  [leg("1/1"), leg("2/3"), leg("3/3")], [leg("4/4")]]
+        mismatched = copy.deepcopy(complete)
+        mismatched[0]["name"], mismatched[1]["name"] = mismatched[1]["name"], mismatched[0]["name"]
+        cases.extend([mismatched, [unit, *complete], [leg("1/1"), leg("4/4")]])
         for field, value in (("run_id", 999), ("head_sha", "c" * 40),
                              ("status", "in_progress"), ("conclusion", "cancelled")):
             bad = copy.deepcopy(complete)
