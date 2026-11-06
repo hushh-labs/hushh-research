@@ -38,7 +38,7 @@ import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-req
 import { CalendarJoinLink } from "./calendar-join-link";
 import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
-import { GoogleCalendarService, GoogleCalendarError, calendarFailure, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceReview, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
+import { GoogleCalendarService, GoogleCalendarError, calendarFailure, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, MAIN_TABS, SCHEDULE_TABS, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
 export { calendarDate } from "./calendar-schedule-presentation";
 import { earliestCalendarSlot, type CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
@@ -157,10 +157,9 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   const [storedSelected, setSelected] = useState<CalendarEventSummary | null>(null);
   const [selectedEmail, setSelectedEmail] = useState(status.google_email);
   const selected = selectedEmail === status.google_email ? storedSelected : null;
-  const [step, setStep] = useState<"details" | "choice" | "review" | "result">("details");
+  const [step, setStep] = useState<"details" | "choice" | "result">("details");
   const [offerTimes, setOfferTimes] = useState(false);
   const [message, setMessage] = useState("");
-  const [review, setReview] = useState<CalendarAttendanceReview | null>(null);
   const [result, setResult] = useState<CalendarAttendanceResult | null>(null);
   const [actionError, setActionError] = useState<Error | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -209,8 +208,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
         if (prior && prior.email === status.google_email) {
           const fresh = response.events.find(event => event.id === prior.event.id && event.calendar_id === prior.event.calendar_id);
           selection.current = fresh ? { event: fresh, email: status.google_email } : null;
-          setSelected(fresh || null); setSelectedEmail(status.google_email); setReview(null);
-          setStep(current => current === "review" ? "choice" : current);
+          setSelected(fresh || null); setSelectedEmail(status.google_email);
         }
       }
     } catch (error) {
@@ -288,20 +286,19 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
   }, [tab, view, selected, loadEvents, checkAvailability, availabilityError]);
   useEffect(() => {
     if (selection.current && selection.current.email !== status.google_email) {
-      selection.current = null; setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details");
+      selection.current = null; setSelected(null); setResult(null); setActionError(null); setStep("details");
     }
   }, [status.google_email]);
 
   const closeDetails = () => {
     if (submittingRef.current) return;
     selection.current = null;
-    setSelected(null); setReview(null); setResult(null); setActionError(null); setStep("details");
+    setSelected(null); setResult(null); setActionError(null); setStep("details");
   };
   useBackLayer("/one/calendar", settingsActive ? pendingExclusion ? 2 : 1 : selected ? (step === "details" ? 1 : 2) : 0, () => {
     if (submittingRef.current) return true;
     if (settingsActive) { if (pendingExclusion) setPendingExclusion(null); else setSettingsOpen(false); return true; }
-    if (step === "review") { setStep("choice"); setReview(null); }
-    else if (step === "choice") setStep("details");
+    if (step === "choice") setStep("details");
     else closeDetails();
     return true;
   });
@@ -338,7 +335,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     setResult(outcome); setStep("result");
     if (outcome.calendar === "declined") { notifyCalendarChanged(userId); void loadEvents(); }
     if (outcome.calendar === "declined" && outcome.email === "sent") {
-      selection.current = null; setSelected(null); setReview(null); setResult(null); setStep("details");
+      selection.current = null; setSelected(null); setResult(null); setStep("details");
     }
   });
 
@@ -380,7 +377,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     selection.current = { event, email: status.google_email };
     detailTrigger.current = trigger; setSelectedEmail(status.google_email); setSelected(event); setStep("details"); setActionError(null);
     setAlternativeDate(date);
-    setOfferTimes(false); setReview(null); setResult(null);
+    setOfferTimes(false); setResult(null);
     setMessage("");
   };
   const providerUrl = calendarProviderDayUrl(date, status.google_email);
@@ -473,14 +470,14 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
     <Dialog modal open={Boolean(selected)} onOpenChange={open => { if (!open) closeDetails(); }}>
       <DialogContent className={`${presentationStyles.portal} max-h-[80dvh] overflow-y-auto`} data-profile-type-scale="calendar" onCloseAutoFocus={event => { event.preventDefault(); if (detailTrigger.current?.isConnected) detailTrigger.current.focus(); else refreshButton.current?.focus(); }} onEscapeKeyDown={event => { if (submittingRef.current) event.preventDefault(); }} onInteractOutside={event => { if (submittingRef.current) event.preventDefault(); }}>
         {selected ? <>
-        <DialogHeader><DialogTitle>{step === "review" ? "Review your response" : step === "result" ? "Your response" : selected?.title}</DialogTitle><DialogDescription>{selected ? eventTime(selected, zone) : "Invitation details"}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{step === "result" ? "Your response" : selected?.title}</DialogTitle><DialogDescription>{selected ? eventTime(selected, zone) : "Invitation details"}</DialogDescription></DialogHeader>
         {connectionNotice}
         {step === "details" && selected ? <div className="space-y-4">
           {selected.description ? <p className="whitespace-pre-wrap break-words text-sm">{selected.description}</p> : null}
           {selected.location ? <p className="text-sm">{selected.location}</p> : null}
           {selected.organizer?.email ? <p className="break-all text-sm text-muted-foreground">Organizer: {selected.organizer.email}</p> : null}
           {isCalendarEventEnded(selected, now, zone) ? <p className={`${presentationStyles.status} text-muted-foreground`}>Ended</p> : safeMeetingUrl(selected.conference_url) ? <CalendarJoinLink className={presentationStyles.joinLink} url={selected.conference_url} accountEmail={status.google_email} /> : null}
-          {selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); setReview(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
+          {selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
         </div> : step === "choice" ? <div className="space-y-4">
           <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
           <p className="text-sm text-muted-foreground">Only your attendance response changes. The organizer keeps the meeting.</p>
