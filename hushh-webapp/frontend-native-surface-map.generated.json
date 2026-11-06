@@ -5380,6 +5380,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -11068,5 +11069,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0919bb7f6a13b398fa15ca62bed73c8495d9d9f5c2a825942b73db99fcd2ecd1"
+  "content_sha256": "57fdf0e5ad22847f3473474f0afd46856a7622b9b2befd4a8d927d95738df642"
 }

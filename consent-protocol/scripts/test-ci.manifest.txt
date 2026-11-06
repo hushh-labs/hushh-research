@@ -791,6 +791,7 @@ tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
 tests/test_plaid_vault_routes.py
+tests/test_plaid_nws_vault_routes.py
 tests/test_plaid_server_custody_retire.py
 
 # Hosting, pod authority/recovery, exact-reviewed MCP and dev candidate acceptance.

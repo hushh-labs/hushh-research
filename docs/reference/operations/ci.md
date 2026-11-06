@@ -976,7 +976,9 @@ Feature and hotfix branches intentionally rely on `pull_request` CI only. `Base 
 Batch a set of fixes before pushing: a newer push cancels the active PR
 validation. For an eligible same-head retry, use
 `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>`;
-do not dispatch a standalone security worker. Release alert clearance stays in
+live repository write access is sufficient. This retries only the canonical
+validation and verifies attempt `n+1` on the unchanged source; it grants no merge,
+protected-edit or deployment authority. Do not dispatch a standalone security worker. Release alert clearance stays in
 the protected Deployment Security job of the explicit release workflow.
 
 ### Base freshness on pull requests
@@ -1222,8 +1224,8 @@ Practical maintainer rule:
    focused profile checks the exact destination diff, PR impact description,
    DCO, protected edits, security and affected local owners; the report keeps
    hosted checks visible as outstanding.
-3. If unsigned commits already exist on the branch, repair them before push with `git rebase --signoff <base>` or a clean signed squash onto `origin/main` when subtree sync or merge repair made the branch history noisy.
-4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
+3. If unsigned commits exist, preserve shared history and repair only the owned unpublished commits against the actual PR destination. Do not rewrite another developer's shared branch.
+4. After any history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/<actual-destination> HEAD` immediately before pushing; verify that destination first.
 5. If a local edit occurs after pre-PR checks, rerun `./bin/hushh codex pre-pr`
    for the current tree. For `.agents/`, `docs/`, `config/` or `scripts/` edits,
    run the nearest owner checks. For the full governance sweep, use
@@ -1503,9 +1505,10 @@ or when a restore stops looking up the path and key its saver writes.
 |------|--------------------|-----------|
 | Validate files | `package-lock.json` exists and valid JSON; `next.config.ts` exists | Yes |
 | Install | `npm ci` | Yes |
-| Design system | `npm run verify:design-system` | Yes |
+| UI architecture and accessibility | `node scripts/architecture/verify-design-system.mjs --core` | Yes |
+| Input and runtime resources | `node scripts/architecture/verify-render-performance.mjs --core` | Yes |
 | Cache coherence | `npm run verify:cache` | Yes |
-| Docs/runtime parity | `npm run verify:docs` | Yes |
+| Appearance and documentation diagnostics | `npm run verify:design-system`; `npm run verify:docs` | No; developer diagnostics |
 | TypeScript | `npm run typecheck` | Yes |
 | Lint | `npm run lint -- --max-warnings=${WEB_LINT_WARNING_BUDGET}` | Yes |
 | Phone verification regression | `npm run verify:phone-verification` | Yes |

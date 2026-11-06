@@ -326,6 +326,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/main-post-merge-smoke.sh",
             "scripts/ci/integration-check.sh",
             "scripts/ci/account-deletion-check.sh",
             "scripts/ci/backend-check.sh",

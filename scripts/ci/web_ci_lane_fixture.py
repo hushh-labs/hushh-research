@@ -258,6 +258,7 @@ def test_browser_plan_skips_only_known_no_browser_selection() -> None:
         ("hushh-webapp/lib/services/pre-vault-sensitive-draft-service.ts", "true"),
         ("hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts\nhushh-webapp/lib/utils/request-timeouts.ts", "false"),
         ("hushh-webapp/scripts/testing/affected-tests.mjs\nhushh-webapp/scripts/testing/affected-tests.test.mjs", "false"),
+        ("hushh-webapp/scripts/architecture/verify-design-system.mjs\nhushh-webapp/scripts/architecture/verify-render-performance.mjs\nhushh-webapp/scripts/design/verify-apple-hierarchy.mjs", "false"),
         ("hushh-webapp/scripts/architecture/ui-review-receipts.mjs\nhushh-webapp/scripts/architecture/verify-ui-contracts.mjs\nhushh-webapp/scripts/architecture/back-navigation.test.mjs\nhushh-webapp/scripts/voice/search-contracts.test.mjs", "false"),
     ):
         code, values, calls, output = _browser_plan(changed, CI_VALIDATION_LEVEL="focused")
