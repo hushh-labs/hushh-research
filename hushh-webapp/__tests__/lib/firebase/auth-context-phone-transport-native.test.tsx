@@ -16,7 +16,7 @@ describe("explicit native phone proof selection", () => {
     await waitFor(() => expect(screen.getByTestId("native-phone-status")).toHaveTextContent("code ready"));
     expect(mocks.phoneTestStart).not.toHaveBeenCalled();
     expect(mocks.phoneStart).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
-      allowLinkedPhoneProof: true, signal: expect.any(AbortSignal),
+      expectedUserId: "native-account-owner", signal: expect.any(AbortSignal),
     }));
     expect(mocks.phoneTestConfirm).not.toHaveBeenCalled();
   });
