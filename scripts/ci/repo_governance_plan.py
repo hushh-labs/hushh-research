@@ -375,7 +375,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "deploy", "release", "uat", "production", "environment", "identity",
             "security", "governance", "scope", "artifact", "passkey", "places",
             "readiness", "protocol", "queue", "protected", "branch", "main_sync",
-            "live_memory", "verification", "rollback",
+            "live_memory", "verification", "rollback", "secret",
         )
         if any(token in lower for token in controller_tokens):
             return frozenset({"controller"}), None
