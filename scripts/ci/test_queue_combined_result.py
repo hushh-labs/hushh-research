@@ -808,7 +808,8 @@ def test_integration_inventory_difference_requires_combined_checks(tested_pr_mer
     ("QUEUE_SELECTION_FILES", '[null]'), ("QUEUE_SELECTION_FILES", '["line\\nname"]'),
     ("QUEUE_SELECTION_FILES", '["' + "x" * 500_000 + '"]'),
     ("QUEUE_AUTH_HEALTH_ONLY", "true"), ("QUEUE_AUTH_HEALTH_ONLY", ""),
-])
+], ids=("missing", "malformed", "wrong-shape", "empty", "wrong-path", "rename",
+        "null-path", "newline", "oversized", "pr-only-profile", "unknown-profile"))
 def test_missing_ambiguous_or_pr_only_selection_is_not_reusable(tested_pr_merge, monkeypatch, key, value):
     tested_pr_merge()
     if key == "QUEUE_SELECTION_FILES":
