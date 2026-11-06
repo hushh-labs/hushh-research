@@ -1551,6 +1551,7 @@ tests/test_workos_enterprise_sso_flow.py
 
 tests/services/test_calendar_schedule_service.py
 tests/services/test_calendar_schedule_boundaries.py
+tests/services/test_calendar_insights_service.py
 tests/services/test_calendar_attendance_service.py
 tests/services/test_calendar_invitations.py
 tests/services/test_calendar_meeting_artifacts.py
