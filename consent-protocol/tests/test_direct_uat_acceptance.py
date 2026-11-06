@@ -216,6 +216,12 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
 
     subject, api, _, serving = prerequisite_fixture(monkeypatch)
     api.changed_tip = case == "tip"
+    if case == "tip":
+
+        def missing_history(*_args):
+            raise subject.Refused("The replacement tip does not contain the selected source")
+
+        monkeypatch.setattr(subject.exact, "git", missing_history)
     if case in {"mixed", "unknown"}:
         serving["frontend"]["sha"] = "d" * 40 if case == "mixed" else ""
     if case == "authority":

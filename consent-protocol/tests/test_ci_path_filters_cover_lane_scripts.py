@@ -695,6 +695,8 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_runtime_config_retention.py",
+        "consent-protocol/tests/test_uat_application_selection.py",
         "consent-protocol/tests/test_direct_uat_acceptance.py",
         "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
         "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",

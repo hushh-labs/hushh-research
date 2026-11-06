@@ -298,12 +298,6 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_plg_activity_all_registered": False,
         "one_plg_audience_enabled": False,
         "one_plg_subscription_enabled": False,
-        "one_plg_dev_export_enabled": False,
-        "one_plg_activity_dev_enabled": False,
-        "one_plg_uat_export_enabled": False,
-        "one_plg_activity_uat_enabled": False,
-        "one_plg_owner_export_enabled": False,
-        "one_plg_attempt_email_enabled": False,
         "email_auth_enabled": getattr(args, "email_auth_enabled", "false"),
         "email_auth_risk_manifest": "/app/config/email-auth/risk-manifest.json",
         "email_auth_mail_api_endpoint": "https://hushh-mail-api-646258530541.us-central1.run.app",
@@ -387,6 +381,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
+    if args.environment == "uat":
+        config.update(dict.fromkeys(_runtime_config_retention["UAT_PLG_FLAGS"], False))
     return _scope_commerce_runtime_policy()["apply_policy"](
         _drop_empty(config), getattr(args, "scope_commerce_policy", {})
     )
