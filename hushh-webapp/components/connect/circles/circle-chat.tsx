@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { ConversationComposer } from "@/components/app-ui/conversation-composer";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { MessageCircle, ImageIcon, ArrowDown, Plus, X } from "@/components/icons";
+import { MessageCircle, ImageIcon, ArrowDown, Plus, Smile, X } from "@/components/icons";
 import { CircleChatService, type CircleChatSession, type CircleChatState, type CircleChatReceipt, type CircleMembershipEvent, type CircleChatPage, type CircleMessageState, type ChatMutationResult } from "@/lib/services/circle-chat-service";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { MAX_CHAT_IMAGE_BYTES, MAX_CHAT_TEXT, validateChatAttachmentBytes, type ChatImageThumbnail, type ChatMessage, type SealedChatMessage } from "@/lib/circle-chat/crypto";
@@ -166,7 +166,7 @@ export function CircleChat({ session, circleName, initialOpen = false, onOpenInt
   }, [session, revision]);
 
   return <><section ref={surface} data-one-chat-surface data-circle-chat-lane={chatLane || undefined} data-circle-chat-inline={!chatLane || undefined} data-messages-type-scale={chatLane || undefined} aria-label={`${circleName} chat`} className={chatLane
-    ? "flex h-full min-h-0 flex-col overflow-visible bg-transparent"
+    ? `${laneStyles.surface} flex h-full min-h-0 flex-col overflow-visible bg-transparent`
     : `${inlineStyles.surface} overflow-clip rounded-[var(--app-card-radius-standard)] border border-border bg-card`}>
     {!chatLane ? <div className={`flex min-w-0 items-center justify-between gap-2 px-3 py-2 sm:px-5 ${open ? "border-b border-border/60" : ""}`}>
       {collapsible ? <Button variant="ghost" className="min-h-11" onClick={() => { setOpen(!open); setStarted(true); }} disabled={revoked || !state} aria-expanded={open}>
@@ -603,10 +603,16 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       }
     } finally { if (sendAttempt.current === attempt) sendAttempt.current = null; sendLock.current = false; if (active.current) setSending(false); }
   };
+  const latestControl = anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className={chatLane ? quietStyles.action : "min-h-11 rounded-full border border-border bg-card shadow-sm"} onClick={() => {
+      if (anchored.current) { void showWindow(); return; }
+      atBottomRef.current = true;
+      if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
+      window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
+    }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null;
   return <div className={`${file ? "[--chat-preview-height:5rem]" : "[--chat-preview-height:0px]"} ${chatLane ? "flex h-full min-h-0 flex-col" : inlineStyles.body}`}>
     <div ref={transcript} tabIndex={0} aria-label="Circle messages" style={chatLane ? { height: "auto", minHeight: 0, flex: "1 1 0", paddingBottom: "10rem" } : undefined}
       className={chatLane
-        ? "overflow-y-auto overscroll-contain bg-transparent px-3 py-4 sm:px-6 sm:py-5"
+        ? `${laneStyles.transcript} overflow-y-auto overscroll-contain bg-transparent py-4 sm:py-5`
         : `${inlineStyles.transcript} h-[min(36rem,max(10rem,calc(50dvh-var(--kb-height,0px)-var(--chat-preview-height))))] overflow-y-auto overscroll-contain bg-muted/30 px-3 py-4 sm:h-[min(36rem,max(10rem,calc(48dvh-var(--kb-height,0px)-var(--chat-preview-height))))] sm:px-5 sm:py-5`}>
       {hasOlder ? <Button variant="ghost" size="sm" className={`min-h-11 ${chatLane ? quietStyles.action : ""}`} disabled={loadingOlder || refreshing || jumping} onClick={async () => {
         if (!messages.length || loadingOlder || running.current) return;
@@ -654,14 +660,10 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
           onViewerChange={viewerChanged} onMediaError={(error) => { if (unavailable(error)) fail(error); }} />)}</ol></div>
       <div ref={bottom} className="h-1" />
     </div>
+    {!chatLane ? <div className={inlineStyles.latestControlSlot} data-circle-chat-latest-slot>{latestControl}</div> : null}
     <AgentDockPortal enabled={chatLane} visible={visible}>
     <div className={chatLane ? laneStyles.composer : "relative space-y-2 border-t border-border/60 p-3 sm:px-5 sm:py-4"} data-theme={chatLane ? chatLaneTheme : undefined} data-circle-chat-composer data-messages-type-scale={chatLane || undefined}>
-    {anchored.current || !atBottom && messages.length ? <Button variant="ghost" size="sm" disabled={jumping} className={`absolute bottom-full left-1/2 -translate-x-1/2 z-10 mb-3 min-h-11 rounded-full border border-border bg-card shadow-sm ${chatLane ? quietStyles.action : ""}`} onClick={() => {
-      if (anchored.current) { void showWindow(); return; }
-      atBottomRef.current = true;
-      if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
-      window.dispatchEvent(new CustomEvent(CIRCLE_CHAT_CHANGED, { detail: { userId: session.userId, circleId: session.circleId } }));
-    }}><ArrowDown className="size-4" aria-hidden="true" />Go to latest messages</Button> : null}
+    {chatLane && latestControl ? <div className={laneStyles.latestControl}>{latestControl}</div> : null}
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     {jumping ? <p role="status" className="text-sm text-muted-foreground">Loading messages…</p> : null}
     {reply ? <div className="flex min-w-0 items-center gap-2 rounded-lg border-l-2 border-primary bg-muted/50 px-3 py-2" aria-label="Replying to message">
@@ -688,7 +690,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
       busy={sending} locked={Boolean(pending)} sendLabel={pending ? "Retry message" : "Send message"}
       sendDisabled={loading || jumping || (!pending && Boolean(file) && validFile !== file) || (!text.trim() && !file && !pending)}
       showSend={!chatLane || Boolean(text.trim() || file || pending || sending)}
-      trailingAction={chatLane ? <DirectMessageEmojiPicker messagesLane restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
+      trailingAction={chatLane ? <DirectMessageEmojiPicker messagesLane triggerIcon={<Smile className="size-5" />} restoreTriggerFocusOnSelect={false} disabled={sending || Boolean(pending)} dismissSignal={pickerDismissSignal} onEmojiSelect={(emoji) => {
         const editor = composerEditor.current;
         const start = editor?.selectionStart ?? text.length;
         const end = editor?.selectionEnd ?? start;
@@ -696,7 +698,7 @@ function CircleChatThread({ circleName, session, visible, onRead, onRevoked, rea
         requestAnimationFrame(() => { editor?.focus(); editor?.setSelectionRange(start + emoji.length, start + emoji.length); });
       }} /> : undefined}
       emptyAction={chatLane ? <ChatLaneMicAction /> : undefined}
-      leadingAction={<ShellActionSurface className="size-11" aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
+      leadingAction={<ShellActionSurface className={chatLane ? laneStyles.attachButton : "size-11"} aria-label="Attach photo, video, or document" disabled={sending || Boolean(pending)} onClick={() => fileInput.current?.click()}>{chatLane ? <Plus aria-hidden="true" className="size-5" /> : <ImageIcon aria-hidden="true" className="size-5" />}</ShellActionSurface>} />
     {pending && !sending ? <p className="text-xs text-muted-foreground">Delivery is unconfirmed. Retry sends the same message safely.</p> : null}
     </div>
     </AgentDockPortal>
