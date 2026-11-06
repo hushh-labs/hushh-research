@@ -58,7 +58,7 @@ SELECT candidate_id, COUNT(DISTINCT peer_id) AS mutual_count,
        MIN(peer_id) AS preview_user_id
 FROM visible_shared
 GROUP BY candidate_id
-"""
+"""  # nosec B608 -- module-owned literals; request values remain bound.
 )
 
 PAGE_MUTUAL_CONNECTIONS_SQL = (
@@ -67,7 +67,7 @@ PAGE_MUTUAL_CONNECTIONS_SQL = (
 SELECT candidate_id, COUNT(DISTINCT peer_id) AS mutual_count,
        (ARRAY_AGG(DISTINCT peer_id ORDER BY peer_id))[1:2] AS preview_user_ids
 FROM visible_shared GROUP BY candidate_id
-"""
+"""  # nosec B608 -- module-owned literals; request values remain bound.
 )
 
 # Public metadata only, bounded by the already-paginated candidate IDs. Both

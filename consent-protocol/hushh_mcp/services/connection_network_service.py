@@ -403,7 +403,7 @@ class ConnectionNetworkService:
         page_ids = [str(p["userId"]) for p in result["items"]]
         if target:
             payloads = metadata.settle(
-                f"SELECT user_id, degree, FALSE AS overflow FROM ({QUALIFIED_TARGET_ROWS_SQL}) target_rows",
+                f"SELECT user_id, degree, FALSE AS overflow FROM ({QUALIFIED_TARGET_ROWS_SQL}) target_rows",  # nosec B608 -- module-owned literal; request values remain bound.
                 {"viewer": viewer, "target": target["userId"], "candidates": page_ids},
             )
         else:
