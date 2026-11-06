@@ -4,6 +4,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -214,6 +215,106 @@ def test_firebase_project_contract_accepts_matching_admin_and_client_projects(
         "status": "valid",
         "credentials": "valid",
     }
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["valid", "partial", "wrong_credential", "wrong_primary", "foreign_runtime", "wrong_expected"],
+)
+def test_isolated_auth_qualification_never_uses_the_messaging_project(monkeypatch, mode):
+    project = "hushh-pda-dev"
+    runtime = {
+        "environment": "dev",
+        "google_cloud_project": project,
+        "firebase_auth_project_id": project,
+    }
+    values = {
+        "BACKEND_RUNTIME_CONFIG_JSON": json.dumps(runtime),
+        "FIREBASE_ADMIN_CREDENTIALS_JSON": '{"project_id":"hushh-pda"}',
+        "NEXT_PUBLIC_FIREBASE_PROJECT_ID": "hushh-pda",
+        "NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID": project,
+        "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY": "synthetic-key",
+        "NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN": project + ".firebaseapp.com",
+        "NEXT_PUBLIC_AUTH_FIREBASE_APP_ID": "synthetic-app",
+    }
+    if mode == "partial":
+        values.pop("NEXT_PUBLIC_AUTH_FIREBASE_API_KEY")
+    elif mode == "wrong_credential":
+        values["FIREBASE_AUTH_CREDENTIALS_JSON"] = '{"project_id":"hushh-pda"}'
+    elif mode == "wrong_primary":
+        values["FIREBASE_ADMIN_CREDENTIALS_JSON"] = '{"project_id":"hushh-tech-prod"}'
+    elif mode == "foreign_runtime":
+        values["BACKEND_RUNTIME_CONFIG_JSON"] = json.dumps({**runtime, "environment": "uat"})
+    monkeypatch.setattr(parity, "_read_secret_value", lambda _project, name: values.get(name))
+    result = parity._firebase_project_contract(
+        project, expected_project="hushh-pda" if mode == "wrong_expected" else project
+    )
+    assert result["status"] == (
+        "valid"
+        if mode == "valid"
+        else "unexpected_project"
+        if mode == "wrong_expected"
+        else "mismatch"
+        if mode in {"wrong_credential", "wrong_primary"}
+        else "invalid_auth_selection"
+    )
+    if mode == "valid":
+        assert result["credentials"] == "adc_selected"
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_auth_build_entrypoint_only_reads_the_selected_realm(
+    monkeypatch, tmp_path, capsys, selected
+):
+    path = REPO_ROOT / "scripts/ops/firebase_auth_build_selection.py"
+    spec = importlib.util.spec_from_file_location("firebase_auth_build_selection", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    project = "hushh-pda-dev"
+    runtime = {"environment": "dev", "google_cloud_project": project}
+    if selected:
+        runtime["firebase_auth_project_id"] = project
+    values = {
+        "BACKEND_RUNTIME_CONFIG_JSON": json.dumps(runtime),
+        "NEXT_PUBLIC_AUTH_FIREBASE_API_KEY": "synthetic-key-do-not-log",
+        "NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN": project + ".firebaseapp.com",
+        "NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID": project,
+        "NEXT_PUBLIC_AUTH_FIREBASE_APP_ID": "synthetic-app-do-not-log",
+    }
+    reads = []
+
+    def run(command, **kwargs):
+        assert "--project=" + project in command
+        name = next(
+            arg.removeprefix("--secret=DEV_") for arg in command if arg.startswith("--secret=")
+        )
+        reads.append(name)
+        assert selected or name == "BACKEND_RUNTIME_CONFIG_JSON"
+        return SimpleNamespace(returncode=0, stdout=values[name])
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(path),
+            "--project",
+            project,
+            "--prefix",
+            "DEV_",
+            "--output-dir",
+            str(tmp_path / "auth"),
+        ],
+    )
+    module.main()
+    assert reads == ["BACKEND_RUNTIME_CONFIG_JSON"] + (
+        list(module.AUTH_FIELDS.values()) if selected else []
+    )
+    for name in module.AUTH_FIELDS.values():
+        output = tmp_path / "auth" / name
+        assert output.read_text() == (values[name] if selected else "")
+        assert output.stat().st_mode & 0o777 == 0o600
+    assert json.loads(capsys.readouterr().out) == {"isolated_auth_selected": selected}
 
 
 def test_firebase_project_contract_fails_closed_on_project_mismatch(monkeypatch) -> None:

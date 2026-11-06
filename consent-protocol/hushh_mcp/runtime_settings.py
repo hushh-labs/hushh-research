@@ -49,6 +49,8 @@ OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"  # n
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
+FIREBASE_AUTH_PROJECT_ID_ENV = "FIREBASE_AUTH_PROJECT_ID"
+FIREBASE_AUTH_CREDENTIALS_JSON_ENV = "FIREBASE_AUTH_CREDENTIALS_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 # Server-held Plaid custody is retired. These two keys exist solely so
 # scripts/ops/plaid_server_custody_retire.py can decrypt the remaining stored
@@ -78,6 +80,7 @@ BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     **runtime_environment.SCOPE_COMMERCE_ENV_MAP,
+    "firebase_auth_project_id": FIREBASE_AUTH_PROJECT_ID_ENV,
     "auth_db_listener_isolation_enabled": "AUTH_DB_LISTENER_ISOLATION_ENABLED",
     "pod_dev_inference_bridge_json": "HUSSH_POD_DEV_INFERENCE_BRIDGE_JSON",
     "hussh_shared_files_enabled": "HUSSH_SHARED_FILES_ENABLED",
@@ -1245,6 +1248,8 @@ def get_firebase_credential_settings() -> FirebaseCredentialSettings:
     )
     return FirebaseCredentialSettings(
         admin_credentials_json=admin_credentials_json,
+        auth_project_id=_clean_env(FIREBASE_AUTH_PROJECT_ID_ENV),
+        auth_credentials_json=_clean_env(FIREBASE_AUTH_CREDENTIALS_JSON_ENV),
     )
 
 

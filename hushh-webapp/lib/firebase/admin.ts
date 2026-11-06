@@ -16,25 +16,44 @@ import * as path from "path";
 import {
   FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
   resolveServerFirebaseAdminCredentialsJson,
+  resolveServerFirebaseAuthCredentialsJson,
 } from "@/lib/runtime/settings";
 
 const DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV;
 
 // Initialize Firebase Admin (only once)
 function initializeFirebaseAdmin() {
-  const expectedProject = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
+  const selectedAuthProject = process.env.NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID?.trim();
+  const primaryProject = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
+  const authCredentials = resolveServerFirebaseAuthCredentialsJson();
+  if (authCredentials && !selectedAuthProject) throw new Error("Firebase Auth requires an explicit project");
+  const isolatedAuth = !!selectedAuthProject && (selectedAuthProject !== primaryProject || !!authCredentials);
+  const expectedProject = selectedAuthProject || primaryProject;
   if (!expectedProject) {
     throw new Error("Firebase Admin requires an explicit client identity project");
   }
   const assertProject = (project: unknown) => {
     if (project !== expectedProject) throw new Error("Firebase Admin identity project mismatch");
   };
-  if (admin.apps.length > 0) {
-    const existing = admin.apps[0]!;
+  let parsedAuthCredentials;
+  if (authCredentials) {
+    try { parsedAuthCredentials = JSON.parse(authCredentials); } catch { throw new Error("Invalid Firebase Auth credentials"); }
+    assertProject(parsedAuthCredentials?.project_id);
+  }
+  const appName = isolatedAuth ? "hushh-auth" : "[DEFAULT]";
+  const existing = admin.apps.find(candidate => candidate && (candidate.name || "[DEFAULT]") === appName);
+  if (existing) {
     const credentialProject = (existing.options.credential as { projectId?: string } | undefined)?.projectId;
     assertProject(existing.options.projectId ?? credentialProject);
     if (credentialProject) assertProject(credentialProject);
     return existing;
+  }
+
+  if (isolatedAuth) {
+    const credential = parsedAuthCredentials
+      ? admin.credential.cert(parsedAuthCredentials)
+      : admin.credential.applicationDefault();
+    return admin.initializeApp({ credential, projectId: expectedProject }, appName);
   }
 
   // Try to read from file first (more reliable than env variable for complex JSON)

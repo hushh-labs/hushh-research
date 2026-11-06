@@ -19,15 +19,13 @@ retains its disclosed boundary.
 
 ## Dev deletion incident — 5 November 2026
 
-**Operational, cleanup pending.** PR [8998](https://github.com/hushh-labs/hushh-research/pull/8998)
-passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42172053675)
-and the governed [backend-only Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42175570881).
-Native readback confirms source `9dcabd53478f`, revision `consent-protocol-00353-5t2`,
-image `sha256:e334899027c7996fc9b4e681a77b772f72a27e06c8634413f77af15e59d06da2`,
-Ready at 100% traffic. The frontend remains `hushh-webapp-00305-pbw` on the prior
-`d87aeb168dcc` repair; no pod image was built. Migration 986 qualified the complete
-function/ACL/trigger family and preserved all 81 earlier ledger rows and applied
-985's checksum.
+**Operational, cleanup pending.** PR [9017](https://github.com/hushh-labs/hushh-research/pull/9017)
+passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42276334032)
+and the governed [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42281354953).
+Native readback confirmed source `534354d6a374`, backend
+`consent-protocol-00358-t55` and frontend `hushh-webapp-00308-dmm`, both Ready at
+100% traffic. No pod image was built. Migration 986 remains qualified; the
+retained removal executor stays pinned to `9dcabd53478f`.
 
 Fresh owner approval and append-only operator-source adoption preserved the
 original removal plan. The resumed worker used the existing compute-first writer
@@ -44,9 +42,12 @@ Apple Events with foreground focus unchanged. The original request keeps the
 account. Full erasure is not complete.
 
 The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
-owns the exact continuation and phone-audit boundaries. No Firebase identity was
-mutated. Seven phone-only candidates own production vaults; a missing email is
-insufficient deletion authority. PR8975 remains a separate draft forward fix.
+owns the exact continuation and phone-audit boundaries. Its
+[Auth separation section](../operations/account-deletion-rollout.md#firebase-auth-separation)
+records current source preparation and native fixture proof. Existing Dev/UAT
+users have not been cut over. UID continuity, all client paths, production
+credential isolation and project-bound erasure qualification remain release
+gates. Phone-only or missing source identities are not deletion authority.
 The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
 below are historical acceptance; this owner-requested GCP removal does not establish
 managed-pilot or production readiness.
