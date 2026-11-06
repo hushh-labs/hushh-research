@@ -35,6 +35,7 @@ type Props = {
   onUnlock: () => void;
   onFinish: () => Promise<unknown>;
   onCancel?: () => void;
+  onLeave?: () => Promise<void>;
   purpose?: CloudCleanupPurpose;
   provider?: "gcp" | "azure";
   continueAccountDeletion?: boolean;
@@ -172,28 +173,30 @@ export function AccountCloudCleanup(props: Props) {
   const keepAccount = props.purpose === "remove_cloud" && !props.continueAccountDeletion;
   const gcp = props.provider === "gcp" || view?.provider === "gcp";
   const executing = !!view?.inProgress && !view.needsAttention && !view.canFinalize;
+  const retentionPending = view?.attentionCode === "CLOUD_REMOVAL_PROVIDER_RETENTION_PENDING";
   return <div className="space-y-4" data-testid="account-cloud-cleanup" aria-busy={busy || finishing || executing}>
     <div role="status" aria-live="polite" className="space-y-1 rounded-xl bg-muted/50 p-3">
-      <p className="text-sm font-medium">{finishing ? "Finishing removal" : busy ? "Checking your cloud" : view?.canFinalize ? "Cloud cleanup verified" : executing ? "Removing approved resources" : view?.needsAttention ? "Cleanup needs your attention" : view?.approvalRequired ? "Review before removing" : "Prepare cloud cleanup"}</p>
+      <p className="text-sm font-medium">{finishing ? "Finishing removal" : busy ? "Checking your cloud" : view?.canFinalize ? "Cloud cleanup verified" : retentionPending ? "Waiting for your cloud provider" : executing ? "Removing approved resources" : view?.needsAttention ? "Cleanup needs your attention" : view?.approvalRequired ? "Review before removing" : "Prepare cloud cleanup"}</p>
       <p className="text-sm text-muted-foreground">{executing
-        ? "Cloud providers can take several minutes. You can refresh or close this view and return to check; completed removals cannot be undone."
+        ? "Your cloud provider has not confirmed removal yet. You can close this view or sign out and return to check; completed removals cannot be undone."
         : view?.needsAttention ? "Your account is kept. Review the issue below, then resume the same cleanup request."
         : "We check your resources, ask for approval, remove only what you approved, then verify the result."}</p>
     </div>
     <p className="text-sm text-muted-foreground">{keepAccount ? "Your Hussh account and vault stay. Files and agent history stored only in this cloud are removed. You’ll choose Shared or a new cloud afterward." : `Review your agent’s ${gcp ? "Google Cloud" : "Azure"} resources before deleting your account.`} Inspection pauses new agent work; it does not delete files or keys.</p>
     {view?.canFinalize ? <p role="status" className="text-sm">{keepAccount ? "Cloud cleanup is verified. Finish removal to choose hosting again." : "Cloud cleanup is verified. You can now finish deleting your account."}</p>
       : view?.planDigest ? <>
-        <p role="status" className="text-sm">{view.needsAttention ? cloudCleanupAttentionMessage(view.attentionCode) : view.progressKnown === false ? "Cleanup is not yet verified. Refresh status or resume the reviewed request." : `${view.removed} of ${view.total} cloud resources verified removed.`}</p>
+        <p role="status" className="text-sm">{view.needsAttention ? cloudCleanupAttentionMessage(view.attentionCode) : view.progressKnown === false ? "Cleanup is not yet verified. Refresh status or resume the reviewed request." : `${view.removed} of ${view.total} cleanup checks verified.`}</p>
         <details className="text-sm"><summary className="min-h-11 cursor-pointer content-center">Review affected resources</summary>
           <ul className="max-h-40 space-y-1 overflow-auto break-words text-muted-foreground">{view.resources.map((resource) => <li key={resource.id}>{resource.id.split("/").slice(-2).join(" / ")}</li>)}</ul>
         </details>
         {view.approvalRequired ? <CleanupTerms key={`${view.operationId}:${view.planDigest}`} view={view} busy={busy} approve={(group) => void run("approve", group)} />
-          : <p className="text-sm text-muted-foreground">{gcp ? "Your reviewed request can be performed or resumed." : "Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it."}</p>}
+          : <p className="text-sm text-muted-foreground">{view.legacyRecovery ? "Your approval is saved. Cleanup progress will appear here; you can close this view or sign out." : gcp ? "Your reviewed request can be performed or resumed." : "Your exact cleanup plan is approved. Continue with Microsoft to perform or resume it."}</p>}
       </> : <p className="text-sm text-muted-foreground">{gcp ? "Inspect the resources recorded for your agent, then review what will be removed." : "Sign in to Microsoft for a read-only inspection, then return here to review."}</p>}
     <AlertDialogFooter className="flex-wrap gap-2">
+      {props.onLeave ? <Button className="min-h-11" variant="outline" onClick={() => void props.onLeave?.()}>Sign out</Button> : null}
       {keepAccount && view?.canCancel && props.onCancel ? <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("cancel")}>Cancel removal and resume agent</Button> : null}
       <Button className="min-h-11" variant="outline" disabled={busy || finishing} onClick={() => void run("refresh")} data-testid="cloud-cleanup-refresh">Refresh status</Button>
-      {!view?.planDigest || !view.approvalRequired || view.canFinalize ? <AlertDialogAction className="min-h-11" variant={view?.planDigest ? "destructive" : "default"}
+      {(!view?.planDigest || !view.approvalRequired || view.canFinalize) && (!view?.legacyRecovery || view.canFinalize) ? <AlertDialogAction className="min-h-11" variant={view?.planDigest ? "destructive" : "default"}
         disabled={busy || finishing || executing} data-testid="cloud-cleanup-continue" onClick={(event) => {
           event.preventDefault();
           if (executing) return;
