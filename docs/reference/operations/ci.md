@@ -230,6 +230,13 @@ there when deployment controls change, including configuration-driven worker
 capacity. It remains in backend validation for runtime changes. Unknown helpers
 retain conservative selection.
 
+UAT admission retains Main’s connection limits and workload inventory while
+binding the worker size to the immutable selected application profile, bounded
+by Main’s reviewed ceiling. Both admission reads and the preserved checkout
+overlay use that effective profile; a different Main default cannot silently
+resize UAT. Environment, process and pool mismatches require correction before
+cloud mutation.
+
 Read-only UAT inspection checks the selected candidate's public email-risk snapshot
 when email authentication is enabled. Expired or malformed inputs require a pinned
 upstream refresh before qualification; the full integrity and activation checks
