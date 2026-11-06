@@ -9,9 +9,10 @@ import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -94,6 +95,12 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
         monkeypatch.setattr(activity, "get_db_connection", connection)
         monkeypatch.setattr(activity, "enabled_for", lambda uid: uid in {"owner", "other"})
         monkeypatch.setattr(values, "get_db_connection", connection)
+        with monkeypatch.context() as attempt_patch:
+            asyncio.run(
+                _assert_attempt_email_outbox(
+                    url.set(database=database), browser_role, attempt_patch
+                )
+            )
         asyncio.run(
             _assert_email_permission_lifecycle(
                 url.set(database=database), browser_role, monkeypatch
@@ -306,6 +313,14 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             )
         monkeypatch.setenv("ONE_PLG_ACTIVITY_ALL_REGISTERED", "true")
         assert activity.admission("other") is None
+        with monkeypatch.context() as uat_patch:
+            uat_patch.setenv("ENVIRONMENT", "uat")
+            uat_patch.delenv("APP_RUNTIME_PROFILE", raising=False)
+            uat_patch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+            uat_patch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+            uat_patch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+            uat_patch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")
+            assert activity.admission("other") is None
         assert not activity.observe(
             "other",
             other_generation,
@@ -320,6 +335,8 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             )
         assert activity.admission("other") is not None
         monkeypatch.delenv("ONE_PLG_ACTIVITY_ALL_REGISTERED")
+        with monkeypatch.context() as uat_patch:
+            asyncio.run(_assert_registered_uat_owner_lookup(url.set(database=database), uat_patch))
         assert values._calendar_receipt("owner", "proposal", "before-account-deletion", current)
         with engine.begin() as conn:
             conn.execute(text("DELETE FROM actor_profiles WHERE user_id='owner'"))
@@ -361,6 +378,464 @@ def test_observation_lifecycle_on_disposable_postgres(monkeypatch):
             conn.exec_driver_sql(f'DROP DATABASE "{database}"')
             conn.exec_driver_sql(f'DROP ROLE IF EXISTS "{browser_role}"')
         admin.dispose()
+
+
+async def _assert_registered_uat_owner_lookup(url, monkeypatch):
+    import asyncpg
+
+    from hushh_mcp.services import plg_evidence as evidence
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_ENABLED", "true")
+    monkeypatch.setenv("ONE_PLG_ACTIVITY_UAT_ENABLED", "true")
+    pool = await asyncpg.create_pool(
+        url.set(drivername="postgresql").render_as_string(hide_password=False),
+        min_size=1,
+        max_size=2,
+    )
+    current_email = "registered@hushhtech.com"
+    requested_hash = marketing._email_hash(current_email)
+
+    async def get_pool():
+        return pool
+
+    async def verified(uid):
+        assert uid == "other"
+        return {"email": current_email, "email_hash": marketing._email_hash(current_email)}
+
+    monkeypatch.setattr(evidence, "get_pool", get_pool)
+    monkeypatch.setattr(marketing, "verified_recipient", verified)
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE actor_identity_cache SET email=$1 WHERE user_id='other'",
+                " Registered@hushhtech.com ",
+            )
+        scope = await evidence.session_owner_scope(None, requested_hash, datetime.now(timezone.utc))
+        assert (
+            scope and scope["accountId"] == "other" and scope["readAuthority"] == "verified_owner"
+        )
+        current_email = "changed@hushhtech.com"
+        assert (
+            await evidence.session_owner_scope(None, requested_hash, datetime.now(timezone.utc))
+            is None
+        )
+        current_email = "registered@hushhtech.com"
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO actor_identity_cache(user_id,email) VALUES('duplicate-alias',$1)",
+                current_email,
+            )
+        assert (
+            await evidence.session_owner_scope(None, requested_hash, datetime.now(timezone.utc))
+            is None
+        )
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM actor_identity_cache WHERE user_id='duplicate-alias'")
+    finally:
+        await pool.close()
+
+
+async def _assert_cleanup_preserves_settlement(
+    pool, monkeypatch, owner, delivery, claim, email_hash
+):
+    from hushh_mcp.services import attempt_email as emails
+    from hushh_mcp.services import attempt_email_feedback as feedback
+
+    provider_id = "concurrent_provider_acceptance"
+    async with asyncio.TaskGroup() as race, pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE one_attempt_email_outbox SET claimed_at=NOW()-INTERVAL '3 minutes' WHERE id=$1",
+            delivery,
+        )
+
+        @asynccontextmanager
+        async def acquire(**_kwargs):
+            yield conn
+
+        async def get_settlement_pool():
+            return SimpleNamespace(acquire=acquire)
+
+        async with conn.transaction():
+            with monkeypatch.context() as patch:
+                patch.setattr(emails, "get_pool", get_settlement_pool)
+                assert await emails.settle(owner, delivery, claim, provider_id)
+            maintenance = race.create_task(emails.pending())
+            # Wait until cleanup has selected the previously committed row.
+            async with pool.acquire() as observer, asyncio.timeout(4):
+                while not await observer.fetchval(
+                    """SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+                    WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid)))""",
+                    conn.get_server_pid(),
+                ):
+                    await asyncio.sleep(0.01)
+        assert await maintenance == []
+
+    assert await feedback.apply(
+        submissions=[
+            {
+                "providerId": provider_id,
+                "messageId": "<concurrent-acceptance@example.invalid>",
+                "recipientHash": email_hash,
+            }
+        ],
+        bounces=[],
+    )
+
+
+async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
+    import asyncpg
+
+    from db.attempt_email_adoption import attempt_email_qualification_sql
+    from hushh_mcp.services import attempt_email as emails
+    from hushh_mcp.services import attempt_email_feedback as feedback
+    from hushh_mcp.services.account_deletion_lifecycle_service import account_deletion_user_hash
+    from hushh_mcp.services.plg_catalog import activity_catalog
+    from tests.services.plg_attempt_adoption_cases import assert_attempt_erasure_qualification
+    from tests.services.plg_attempt_feedback_cases import (
+        assert_bounce_survives_unrelated_feedback_gap,
+    )
+
+    pool = await asyncpg.create_pool(
+        url.set(drivername="postgresql").render_as_string(hide_password=False),
+        min_size=1,
+        max_size=4,
+    )
+    owner = "attempt-owner"
+    identity = {
+        "email": "attempt@example.invalid",
+        "email_hash": marketing._email_hash("attempt@example.invalid"),
+    }
+    migration = (ROOT / "db/migrations/450_one_attempt_email_outbox.sql").read_text()
+    rollback = (
+        ROOT / "db/migrations/rollback/450_one_attempt_email_outbox.rollback.sql"
+    ).read_text()
+    feedback_migration = (ROOT / "db/migrations/451_one_attempt_email_feedback.sql").read_text()
+    feedback_rollback = (
+        ROOT / "db/migrations/rollback/451_one_attempt_email_feedback.rollback.sql"
+    ).read_text()
+
+    async def get_pool():
+        return pool
+
+    async def recipient(uid):
+        assert uid == owner
+        return identity
+
+    monkeypatch.setattr(emails, "get_pool", get_pool)
+    monkeypatch.setattr(feedback, "get_pool", get_pool)
+    monkeypatch.setattr(emails, "allowed_accounts", lambda: {owner})
+    monkeypatch.setattr(
+        emails,
+        "worker_authority",
+        lambda: ("uat", "test-only-attempt-email-worker-secret-32-characters"),
+    )
+    monkeypatch.setattr(activity, "enabled_for", lambda uid: uid == owner)
+    monkeypatch.setattr(marketing, "verified_recipient", recipient)
+    action = next(
+        row["id"]
+        for row in activity_catalog()["actions"]
+        if row["proof"] == "client_reported"
+        and row["kind"] == "action"
+        and not row["id"].startswith("observation:")
+    )
+
+    async def choose(revision, enabled=True):
+        return await emails.choose(
+            owner, enabled=enabled, expected_revision=revision, disclosure=emails.DISCLOSURE
+        )
+
+    async def emit(phase, operation, generation):
+        return await asyncio.to_thread(
+            activity.observe, owner, generation, action, phase, "client_reported", operation
+        )
+
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(attempt_email_qualification_sql())
+            await conn.execute(migration)
+            await conn.execute(migration)
+            await conn.execute(feedback_migration)
+            await conn.execute(feedback_migration)
+            await assert_attempt_erasure_qualification(conn)
+            await conn.execute("INSERT INTO actor_profiles VALUES($1)", owner)
+            await conn.execute("INSERT INTO vault_keys VALUES($1)", owner)
+        generation = (await asyncio.to_thread(activity.admission, owner))["generation"]
+        assert (await emails.preference(owner))["enabled"] is False
+        await emit("returned", "before-choice", generation)
+        assert await emails.pending() == []
+        selected = await choose(0)
+        assert selected["enabled"] and selected["revision"] == 1
+        with pytest.raises(marketing.PreferenceConflict):
+            await choose(0, False)
+        await emit("started", "first-attempt", generation)
+        assert await emails.pending() == []
+        # Both distinct terminal phases and repeated callback delivery must
+        # retain one notification for the same correlated attempt.
+        await emit("returned", "first-attempt", generation)
+        await emit("failed", "first-attempt", generation)
+        assert not await emit("returned", "first-attempt", generation)
+        jobs = await emails.pending()
+        assert len(jobs) == 1
+        delivery = UUID(jobs[0]["id"])
+        monkeypatch.setattr(emails, "allowed_accounts", lambda: set())
+        assert await emails.pending() == []
+        assert await emails.claim(owner, delivery, uuid4()) is None
+        # All-UAT admission still uses the same durable preference, claim,
+        # duplicate, revocation and uncertain-submission checks below.
+        monkeypatch.setattr(emails, "allowed_accounts", lambda: None)
+        assert await emails.pending() == jobs
+        claims = await asyncio.gather(*(emails.claim(owner, delivery, uuid4()) for _ in range(2)))
+        assert sum(item is not None for item in claims) == 1
+        claim = next(item for item in claims if item)
+        assert claim["phase"] == "returned" and claim["to"] == identity["email"]
+        token = claim["unsubscribeUrl"].split("token=")[1]
+        with pytest.raises(ValueError):
+            await emails.unsubscribe(token[:-1] + ("0" if token[-1] != "0" else "1"))
+        assert await emails.claim(owner, delivery, UUID(claim["claimId"])) is None
+        assert await emails.settle(owner, delivery, UUID(claim["claimId"]), None)
+        assert not await emails.settle(
+            owner, delivery, UUID(claim["claimId"]), None, not_submitted=True
+        )
+        assert not await feedback.apply(submissions=[], bounces=[])
+        assert await emails.pending() == []
+        assert await emails.claim(owner, delivery, uuid4()) is None
+        # Durable positive reconciliation is idempotent; a foreign claim cannot settle.
+        assert not await emails.settle(owner, delivery, uuid4(), "provider_fixture")
+        assert not await emails.acknowledge(delivery, uuid4(), "provider_fixture")
+        assert await emails.settle(owner, delivery, UUID(claim["claimId"]), "provider_fixture")
+        assert await emails.settle(owner, delivery, UUID(claim["claimId"]), "provider_fixture")
+        assert await emails.acknowledge(delivery, UUID(claim["claimId"]), "provider_fixture")
+        binding = {
+            "providerId": "provider_fixture",
+            "messageId": "<actual-fixture@mail.example.invalid>",
+            "recipientHash": identity["email_hash"],
+        }
+        assert len((await feedback.read())["unbound"]) == 1
+        assert not await feedback.apply(
+            submissions=[{**binding, "recipientHash": "f" * 64}], bounces=[]
+        )
+        assert await feedback.apply(submissions=[binding], bounces=[])
+        with pytest.raises(ValueError, match="conflict"):
+            await feedback.apply(
+                submissions=[{**binding, "messageId": "<conflicting@example.invalid>"}], bounces=[]
+            )
+        # A known unsubmitted rejection may release a current claim, bounded
+        # to three reservations. A stale release cannot undo a newer claim.
+        await emit("returned", "definite-provider-rejection", generation)
+        retry = (await emails.pending())[0]
+        old_claim = None
+        for _ in range(3):
+            current_claim = uuid4()
+            assert await emails.claim(owner, UUID(retry["id"]), current_claim)
+            if old_claim:
+                assert not await emails.settle(
+                    owner, UUID(retry["id"]), old_claim, None, not_submitted=True
+                )
+            assert await emails.settle(
+                owner, UUID(retry["id"]), current_claim, None, not_submitted=True
+            )
+            assert await emails.settle(
+                owner, UUID(retry["id"]), current_claim, None, not_submitted=True
+            )
+            old_claim = current_claim
+        assert await emails.pending() == []
+        await emit("cancelled", "optout-race", generation)
+        stale = (await emails.pending())[0]
+        started, resume = asyncio.Event(), asyncio.Event()
+
+        async def delayed_recipient(uid):
+            started.set()
+            await resume.wait()
+            return await recipient(uid)
+
+        monkeypatch.setattr(marketing, "verified_recipient", delayed_recipient)
+        racing_claim = asyncio.create_task(emails.claim(owner, UUID(stale["id"]), uuid4()))
+        await asyncio.wait_for(started.wait(), 5)
+        await emails.unsubscribe(token)
+        resume.set()
+        assert await racing_claim is None
+        monkeypatch.setattr(marketing, "verified_recipient", recipient)
+        assert not (await emails.preference(owner))["enabled"]
+        assert await emails.claim(owner, UUID(stale["id"]), uuid4()) is None
+        assert await emails.pending() == []
+        await choose(2)
+        await emails.unsubscribe(token)
+        assert (await emails.preference(owner))["enabled"]
+        assert not await emit("returned", "first-attempt", generation)
+        assert await emails.pending() == []
+        await emit("blocked", "address-change", generation)
+        stale = (await emails.pending())[0]
+        identity["email_hash"] = "f" * 64
+        assert await emails.claim(owner, UUID(stale["id"]), uuid4()) is None
+        identity["email_hash"] = marketing._email_hash(identity["email"])
+        await emit("returned", "concurrent-settlement", generation)
+        settling = UUID((await emails.pending())[0]["id"])
+        settlement_claim = uuid4()
+        assert await emails.claim(owner, settling, settlement_claim)
+        await _assert_cleanup_preserves_settlement(
+            pool, monkeypatch, owner, settling, settlement_claim, identity["email_hash"]
+        )
+        await emit("failed", "lost-worker", generation)
+        abandoned = (await emails.pending())[0]
+        assert await emails.claim(owner, UUID(abandoned["id"]), uuid4())
+        await emit("returned", "expired", generation)
+        expired = (await emails.pending())[0]
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE one_attempt_email_outbox SET claimed_at=NOW()-INTERVAL '3 minutes' WHERE id=$1",
+                UUID(abandoned["id"]),
+            )
+            await conn.execute(
+                "UPDATE one_attempt_email_outbox SET expires_at=NOW()-INTERVAL '1 second' WHERE id=$1",
+                UUID(expired["id"]),
+            )
+        assert await emails.pending() == []
+        async with pool.acquire() as conn:
+            assert (
+                await conn.fetchval(
+                    "SELECT status FROM one_attempt_email_outbox WHERE id=$1", UUID(abandoned["id"])
+                )
+                == "uncertain"
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT status FROM one_attempt_email_outbox WHERE id=$1", UUID(expired["id"])
+                )
+                == "suppressed"
+            )
+            assert not await conn.fetchval(
+                "SELECT has_table_privilege($1,'one_attempt_email_outbox','SELECT')", browser_role
+            )
+            with pytest.raises(
+                asyncpg.PostgresError, match="rollback_refused_nonempty_attempt_email_state"
+            ):
+                await conn.execute(rollback)
+            await conn.execute("ROLLBACK")
+            await conn.execute(
+                "UPDATE one_product_activity_epochs SET generation=gen_random_uuid() WHERE user_id=$1",
+                owner,
+            )
+            assert not await conn.fetchval(
+                "SELECT enabled FROM one_attempt_email_preferences WHERE user_id=$1", owner
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT COUNT(*) FROM one_attempt_email_outbox WHERE user_id=$1", owner
+                )
+                == 0
+            )
+        assert not await emit("returned", "late-before-reset", generation)
+        # A full tombstone also erases rows before an old application version
+        # gets around to deleting identity tables. Phone-orphan intent does not.
+        current_revision = (await emails.preference(owner))["revision"]
+        await choose(current_revision)
+        new_generation = (await asyncio.to_thread(activity.admission, owner))["generation"]
+        await emit("returned", "post-reset-choice", new_generation)
+        assert len(await emails.pending()) == 1
+        # Prove the schema cascades independently of the tombstone trigger.
+        # Roll back this probe so the same populated owner still exercises
+        # full tombstone erasure and feedback below.
+        async with pool.acquire() as conn:
+            transaction = conn.transaction()
+            await transaction.start()
+            try:
+                assert await conn.fetchval(
+                    "SELECT enabled FROM one_attempt_email_preferences WHERE user_id=$1", owner
+                )
+                await conn.execute("DELETE FROM actor_profiles WHERE user_id=$1", owner)
+                for table in ("one_attempt_email_preferences", "one_attempt_email_outbox"):
+                    assert (
+                        await conn.fetchval(f"SELECT COUNT(*) FROM {table} WHERE user_id=$1", owner)
+                        == 0
+                    )
+            finally:
+                await transaction.rollback()
+        assert (await emails.preference(owner))["enabled"]
+        assert len(await emails.pending()) == 1
+        reset_job = (await emails.pending())[0]
+        reset_claim = uuid4()
+        assert await emails.claim(owner, UUID(reset_job["id"]), reset_claim)
+        assert await emails.settle(
+            owner, UUID(reset_job["id"]), reset_claim, "provider_after_reset"
+        )
+        reset_binding = {
+            **binding,
+            "providerId": "provider_after_reset",
+            "messageId": "<after-reset@example.invalid>",
+        }
+        assert await feedback.apply(submissions=[reset_binding], bounces=[])
+        report = {"messageId": reset_binding["messageId"], "recipientHash": identity["email_hash"]}
+        owner_hash = account_deletion_user_hash(owner)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO account_deletion_tombstones(user_id_hash,cleanup_intent_kind) VALUES($1,'phone_orphan')",
+                owner_hash,
+            )
+            assert await conn.fetchval(
+                "SELECT enabled FROM one_attempt_email_preferences WHERE user_id=$1", owner
+            )
+            assert not await feedback.apply(submissions=[], bounces=[report])
+            await conn.execute(
+                "DELETE FROM account_deletion_tombstones WHERE user_id_hash=$1", owner_hash
+            )
+        assert await feedback.apply(submissions=[], bounces=[{**report, "recipientHash": "f" * 64}])
+        assert (await emails.preference(owner))["enabled"]
+        await assert_bounce_survives_unrelated_feedback_gap(pool, monkeypatch, owner, report)
+        assert await feedback.apply(submissions=[], bounces=[report])
+        assert not (await emails.preference(owner))["enabled"]
+        revision = (await emails.preference(owner))["revision"]
+        assert await feedback.apply(submissions=[], bounces=[report])
+        assert (await emails.preference(owner))["revision"] == revision
+        with pytest.raises(PermissionError, match="held"):
+            await choose(revision)
+        async with pool.acquire() as conn:
+            with pytest.raises(
+                asyncpg.PostgresError, match="rollback_refused_nonempty_attempt_email_feedback"
+            ):
+                await conn.execute(feedback_rollback)
+            await conn.execute("ROLLBACK")
+            await conn.execute(
+                "DELETE FROM account_deletion_tombstones WHERE user_id_hash=$1", owner_hash
+            )
+            await conn.execute(
+                "INSERT INTO account_deletion_tombstones(user_id_hash) VALUES($1)", owner_hash
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT COUNT(*) FROM one_attempt_email_preferences WHERE user_id=$1", owner
+                )
+                == 0
+            )
+            assert (
+                await conn.fetchval(
+                    "SELECT COUNT(*) FROM one_attempt_email_outbox WHERE user_id=$1", owner
+                )
+                == 0
+            )
+        with pytest.raises(PermissionError):
+            await choose(0)
+        assert (await feedback.read())["oldestAt"] is None
+        assert await emails.acknowledge(delivery, UUID(claim["claimId"]), "provider_fixture")
+        assert await feedback.apply(submissions=[reset_binding], bounces=[report])
+        assert (await feedback.read())["unbound"] == []
+        # Empty rollback/replay proves the actual down path without discarding
+        # live choices or acceptance receipts.
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM actor_profiles WHERE user_id=$1", owner)
+            await conn.execute("DELETE FROM vault_keys WHERE user_id=$1", owner)
+            await conn.execute(feedback_rollback)
+            await conn.execute(rollback)
+            await conn.execute(migration)
+            await conn.execute(feedback_migration)
+            # The enclosing observation fixture tests its earlier migrations'
+            # down paths independently; remove this empty additive dependant.
+            await conn.execute(feedback_rollback)
+            await conn.execute(rollback)
+    finally:
+        await pool.close()
 
 
 async def _assert_email_permission_lifecycle(url, browser_role, monkeypatch):

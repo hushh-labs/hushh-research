@@ -18,8 +18,11 @@ def _runtime_name(value: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", value.lower()).strip("_")
 
 
-@lru_cache(maxsize=1)
-def activity_catalog() -> dict:
+@lru_cache(maxsize=4)
+def activity_catalog(environment: str = "production") -> dict:
+    if environment not in {"dev", "uat", "production"}:
+        raise ValueError("Invalid activity catalog environment")
+    registry_environment = "development" if environment == "dev" else environment
     registry = json.loads(
         generated_contract_path("agents", "product-agent-registry.v2.json").read_text()
     )
@@ -33,7 +36,7 @@ def activity_catalog() -> dict:
         public = agent_id == "agent_one" or bool(exposure)
         enabled = (
             public
-            and "production" in agent["availability"]["environments"]
+            and registry_environment in agent["availability"]["environments"]
             and exposure.get("exposure_status") != "disabled"
         )
         agents.append(
@@ -45,6 +48,23 @@ def activity_catalog() -> dict:
                 "outcome": outcome_coverage(agent_id, public=public),
             }
         )
+        # Closed measurement identities for the existing One chat entrypoints.
+        # They do not register chat executors or infer a delegated effect.
+        if agent_id in {
+            "agent_one",
+            "agent_email",
+            "agent_location",
+            "agent_personal_information",
+            "agent_kai",
+        }:
+            key = f"chat:{agent_id}"
+            actions[key] = {
+                "id": key,
+                "agentId": agent_id,
+                "label": f"{agent['name']} conversation",
+                "kind": "action",
+                "proof": "client_reported",
+            }
 
         def add_execution(node, agent_id=agent_id, exposure=exposure):
             node_id = node["id"]
@@ -161,8 +181,8 @@ def activity_catalog() -> dict:
     return {"revision": revision, **public, "aliases": aliases}
 
 
-def public_activity_catalog() -> dict:
-    catalog = activity_catalog()
+def public_activity_catalog(environment: str = "production") -> dict:
+    catalog = activity_catalog(environment)
     return {key: catalog[key] for key in ("revision", "agents", "actions")}
 
 

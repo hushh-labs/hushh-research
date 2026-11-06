@@ -35,6 +35,70 @@ def test_ci_smoke_and_uat_share_the_selector() -> None:
         require(workflow, selector, "verification-plan")
 
 
+def test_pr_integration_selects_the_tested_merge_not_destination_only_paths() -> None:
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    step = re.search(
+        r"(?ms)^      - name: Resolve change-aware verification plan\n.*?^        run: \|\n(.*?)(?=^      - name: )",
+        workflow,
+    )
+    assert step
+    script = textwrap.dedent(step.group(1))
+    for feature_path, expected in (
+        ("docs/feature.md", (False, False)),
+        ("consent-protocol/hushh_mcp/services/personal_knowledge_model_service.py", (True, False)),
+        ("hushh-webapp/lib/vault/feature.ts", (False, True)),
+    ):
+        with tempfile.TemporaryDirectory() as raw:
+            temp = Path(raw)
+            repo = temp / "repo"
+            repo.mkdir()
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("GIT_", "GITHUB_", "GH_"))}
+
+            def git(*args: str) -> str:
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=ci", "-c", "user.email=ci@example.invalid",
+                     "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", *args],
+                    cwd=repo, env=env, text=True, stderr=subprocess.DEVNULL,
+                ).strip()
+
+            def commit(path: str) -> str:
+                target = repo / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("fixture\n")
+                git("add", ".")
+                git("commit", "-qm", path)
+                return git("rev-parse", "HEAD")
+
+            git("init", "-q")
+            (repo / "scripts/ci").mkdir(parents=True)
+            for name in ("resolve-ui-contract-base.py", "resolve-uat-verification-plan.py"):
+                shutil.copy(ROOT / "scripts/ci" / name, repo / "scripts/ci")
+            seed = commit("seed.txt")
+            commit("consent-protocol/hushh_mcp/services/pkm_upgrade_service.py")
+            base = commit("hushh-webapp/lib/vault/destination.ts")
+            git("checkout", "-q", "--detach", seed)
+            head = commit(feature_path)
+            git("checkout", "-q", "--detach", base)
+            git("merge", "--no-ff", "--no-edit", head)
+            merged = git("rev-parse", "HEAD")
+            event = temp / "event.json"
+            event.write_text(json.dumps({"pull_request": {"base": {"sha": base}, "head": {"sha": head}}}))
+            expressions = {"github.event_name": "pull_request", "github.sha": merged,
+                           "github.event.pull_request.base.sha": base,
+                           "github.event.pull_request.head.sha": head}
+            rendered = re.sub(r"\$\{\{\s*(.*?)\s*\}\}", lambda m: expressions.get(m[1], ""), script)
+            result = subprocess.run(
+                ["bash", "-c", rendered], cwd=repo, capture_output=True, text=True,
+                env={**env, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event),
+                     "GITHUB_SHA": merged, "GITHUB_OUTPUT": str(temp / "output"), "RUNNER_TEMP": str(temp)},
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            plan = json.loads((temp / "ci-verification-plan.json").read_text())
+            assert plan["changed_files"] == [feature_path]
+            assert (plan["run_pkm_upgrade_gate"], plan["run_reviewer_byok"]) == expected
+
+
 def test_ci_passes_selector_decision_to_integration() -> None:
     for workflow in (".github/workflows/ci.yml",):
         require(
@@ -455,6 +519,7 @@ def main() -> int:
     tests = (
         test_ci_smoke_and_uat_share_the_selector,
         test_ci_passes_selector_decision_to_integration,
+        test_pr_integration_selects_the_tested_merge_not_destination_only_paths,
         test_uat_plan_steps_bind_only_their_inputs,
         test_uat_plan_compares_only_from_accepted_serving_shas,
         test_smoke_receives_selector_decision_without_reclassification,

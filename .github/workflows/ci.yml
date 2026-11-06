@@ -1704,8 +1704,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
-            target_sha="${{ github.event.pull_request.head.sha }}"
+            base_sha="$(python3 scripts/ci/resolve-ui-contract-base.py)"
+            target_sha="$(git rev-parse HEAD)"
           elif [ "${{ github.event_name }}" = merge_group ]; then
             base_sha="${{ github.event.merge_group.base_sha }}"
             target_sha="${{ github.event.merge_group.head_sha }}"
