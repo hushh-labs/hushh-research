@@ -146,6 +146,12 @@ def _run(tmp_path: Path, **overrides: str) -> list[str]:
     # _CLOUD_RUN_CAPACITY carries several substitutions in one value, so expanding the
     # value, not just naming it, is what keeps this run faithful to a real deploy).
     substitutions = {**_yaml_substitution_defaults(), **overrides}
+    project = {
+        "dev": "hushh-pda-dev",
+        "uat": "hushh-pda-uat",
+        "production": "hushh-pda",
+    }[substitutions["_DEPLOY_ENV"]]
+    env["PROJECT_ID"] = project
 
     def _expand(value: str) -> str:
         return re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m: substitutions.get(m.group(1), ""), value)
@@ -153,7 +159,7 @@ def _run(tmp_path: Path, **overrides: str) -> list[str]:
     for entry in _yaml_env_entries():
         name, _, value = entry.partition("=")
         env.setdefault(name, _expand(value))
-    env["_RUNTIME_SERVICE_ACCOUNT"] = RUNTIME_SA
+    env["_RUNTIME_SERVICE_ACCOUNT"] = f"consent-protocol-runtime@{project}.iam.gserviceaccount.com"
     env.update({k: v for k, v in overrides.items() if k not in env or k in substitutions})
 
     result = subprocess.run(  # noqa: S603 - fixed argv, no shell, hermetic stub PATH

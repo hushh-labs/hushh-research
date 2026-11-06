@@ -52,6 +52,23 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 
 ## 1. Backend Producer
 
+The authenticated shared Agent Chat client records a bounded, metadata-only
+attempt observation for One and its four authored specialist tabs. A server
+`RUN_STARTED` records the start; an uninterrupted `RUN_FINISHED` or `RUN_ERROR`
+records the first reported terminal. These are client reports, not proof of a
+tool effect. Confirmation and receipt continuations share the original capture
+and activity epoch. A recovered interrupt without that capture remains unknown.
+Transport loss, detached readers, missing terminals and a conversation-wide Stop
+acknowledgement never supply an inferred terminal. No prompt, result, attachment
+or free-form message identifier enters this observation path. The volatile
+buffer and server collection budget still limit completeness; this contract
+does not promise durable capture or within-minutes email delivery.
+
+SDK run observations likewise distinguish a recoverable model-call error from
+an unhandled runner error. Only the latter emits failed-run metadata, with the
+original capture epoch; neither callback reads error bodies or grants email
+authority. Failed runs release their in-memory capture just like completed runs.
+
 - Kai producers emit SSE using the canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`. Agent Chat uses its existing AG-UI bridge; do not wrap AG-UI events in a second Kai envelope.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
