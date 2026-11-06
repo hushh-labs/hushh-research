@@ -292,6 +292,9 @@ def test_uat_plg_flags_default_off_and_survive_the_deployment_writer(
     [
         ("uat", "hushh-pda-uat", {"one_plg_activity_enabled": True}),
         ("uat", "hushh-pda-uat", {"one_plg_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_dev_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_activity_dev_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_owner_export_enabled": True}),
         ("production", "hushh-pda", {"one_plg_attempt_email_enabled": True}),
         ("dev", "hushh-pda-dev", {"one_plg_uat_export_enabled": True}),
     ],
