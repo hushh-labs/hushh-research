@@ -5721,3 +5721,169 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 `GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
+
+## Own activity evidence
+
+The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
+are read-only and require the exact UAT project, runtime lane, collection/export
+flags and separate credential. UAT admits all registered owners without an
+account-ID tester list; anonymous identities cannot enter activity collection.
+The production all-registered flag remains off in UAT. The Matrix
+session supplies only its verified email hash; cached identity data selects a
+candidate through a bounded two-row hash lookup, but current Firebase verified identity and lifecycle/epoch checks
+authorize the result. Ambiguous candidates fail closed. Owner reads require no
+marketing subscription and carry `readAuthority=verified_owner` plus the hashed
+`ownerEpoch`; they never carry delivery authority. Identity changes and account
+reset during a snapshot invalidate it. No raw email or private content is exported.
+Production marketing/reporting contracts remain separate.
+
+Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
+`snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
+`ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
+`ONE_PLG_ACTIVITY_ENABLED=true`, `ONE_PLG_ACTIVITY_DEV_ENABLED=true`,
+`ONE_PLG_DEV_EXPORT_ENABLED=true`, a separate `ONE_PLG_DEV_EXPORT_SECRET`, and
+`ONE_PLG_ACTIVITY_DEV_ACCOUNT_IDS` (1–100 explicit owners). All-registered
+collection stays off. No UAT, Production, marketing or worker key can authorize
+Dev reads. A legacy Dev revision labelled UAT fails closed; canonical Dev rollout
+must establish the correct lane before activation. Local mocks do not prove that
+rollout, and no environment is enabled by these source defaults.
+
+Production own reads use separate `owner`, `permission-owner` and `snapshot-owner`
+routes, signed with `owner.production.{owner,permission,snapshot}` purposes. They
+require the production lane/project, `ONE_PLG_OWNER_EXPORT_ENABLED=true`, enabled
+activity collection, `ONE_PLG_OWNER_ACCOUNT_IDS` (1–100 owners), and a distinct
+`ONE_PLG_OWNER_EXPORT_SECRET`. Marketing, UAT read and email-worker credentials
+cannot authorize them. They apply the same verified-owner and reset-epoch checks;
+no marketing opt-in is needed to see one's own activity. These flags are off by
+default and this contract does not establish a deployed source or complete capture.
+
+## Optional agent-attempt emails
+
+The account screen owns an explicit, default-off activity-email choice at
+`GET/PUT /api/one/plg/attempt-email/preferences`. It is separate from marketing
+permission and accepts no recipient or account override. A fresh verified owner
+email, current activity epoch and environment/project
+admission are required to enable it. Opt-out remains available when rollout is off.
+UAT permits every registered owner to make that choice; Dev and Production keep
+their configured recipient cohorts. Removing the UAT list never enables a
+preference automatically. Selection remains bounded to 20 pending deliveries,
+and every claim rechecks the current preference, recipient and lifecycle.
+The worker accepts exact Dev, UAT or Production project/lane pairs. Dev responses,
+signatures and unsubscribe links bind only to the Dev backend
+`https://consent-protocol-aqahj4iyha-uc.a.run.app`; it cannot borrow UAT authority.
+Manual-only controls cannot be submitted by an agent. The setting is operational
+permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
+
+Migration 450 atomically queues the first accepted correlated client terminal
+report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
+SDK/tool reports and uncorrelated observations do not enqueue. This inherits
+best-effort observation coverage and its existing collection limits. It does not
+establish universal attempt capture or a delivery-time guarantee.
+
+Separately signed, environment-bound `attempt-email/pull`, `claim` and `settle`
+ports give a trusted worker one send grant after checking current permission,
+verified recipient, lifecycle and epoch. Read-export keys cannot call them. Only
+closed catalog labels and reported status are returned; no prompts, tool inputs,
+results or freeform mail fields. A lost claim or submission becomes uncertain and
+is never automatically retried. Provider acceptance must not be called Inbox delivery.
+The Matrix worker uses these ports and the existing fixed single-recipient Gmail
+sender. Deployment, actual Inbox/feedback evidence and delivery latency remain
+release prerequisites; these source ports alone do not send email.
+Settlement carries only delivery/claim IDs and provider outcome. One derives the
+owner from its durable row, validates the exact claim and retires acknowledgements
+for reset/erased rows without recreating state. Matrix durably retains bounded
+opaque receipts before acknowledgement and replays them after restart before new
+provider work; no owner identity or message content is needed in that queue.
+
+Migration 451 adds actual provider-message binding and durable bounce suppression.
+Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
+provider references, RFC message IDs and recipient hashes. A matched hard-failure
+report disables future activity emails, including re-enrollment; reports cannot
+enroll anyone or assert positive Inbox delivery. A sending/uncertain reservation
+without a durable acceptance holds feedback progression. Positively correlated
+hard failures still suppress their current owners while unrelated unsettled,
+unbound or lifecycle-blocked reports keep the page replayable. Replaying that
+page cannot increment an already-blocked preference again. Exact acceptance binding
+precedes history processing so out-of-order reports remain replayable. The worker
+may acknowledge receipts and stop reports after new enrollment is disabled.
+
+Only a definite pre-submission/provider rejection may settle with
+`notSubmitted=true` and no provider ID. It releases the exact current claim for a
+later paced cycle, at most three claims total. It cannot release an uncertain or
+accepted submission, or a newer claim. Ambiguous sends remain held. The rollback
+refuses to discard retry counts, bindings or suppression evidence.
+
+Unsubscribe links bind the exact permission generation. GET shows confirmation;
+POST revokes that choice, so email scanners and stale links cannot disable a later
+re-enrollment. Reset disables the preference and erases its outbox. Full account
+tombstones erase both; phone-orphan intent does not revoke an established choice.
+The down migration refuses nonempty state. Disable admission/dispatch for a
+behavioral rollback; do not discard preferences or uncertain-send receipts.
+### Isolated UAT people and attempt directory
+
+`POST /api/one/plg/audience-uat` is a private, read-only directory for the
+authenticated Matrix UAT workspace. It uses the same bounded filters, identity
+projection, seven-day attempt summaries and cursor expiry as `/audience`, with
+the distinct HMAC purpose `audience-uat` and project-bound UAT cursors. It requires
+the UAT auth lane, project `hushh-pda-uat`, enabled UAT activity admission,
+an explicit directory activation and a separate 32+ character directory key.
+The legacy pair is `ONE_PLG_UAT_AUDIENCE_ENABLED=true` with
+`ONE_PLG_UAT_AUDIENCE_SECRET`; the mounted UAT configuration below carries the
+same separate authority without an additional deploy binding. Owner-read, delivery and Production keys cannot
+authorize this directory. Firebase traversal and indexed identity lookups must
+use the UAT project; there is no fallback to Production.
+
+All current registered UAT accounts, including team accounts, are eligible after
+deletion/generation barriers. Disabled, deleted and anonymous accounts remain
+excluded. The version 2 response has `environment: "uat"`,
+`customerReporting: false` and `deliveryAuthorized: false`. Registration and
+directory visibility never opt anyone into email. Only whitelisted identity and
+activity metadata is returned; prompts, provider payloads and auth export fields
+are excluded. Missing or capped capture remains unknown. This source addition
+does not enable any runtime flag, provision secrets, or change release tooling.
+
+### PLG release configuration
+
+The existing `ONE_PLG_UAT_EXPORT_SECRET` mount also accepts a bounded JSON
+envelope with exactly `version: 1`, `environment: "uat"`,
+`project: "hushh-pda-uat"`, `ownerReadKey`, `audienceReadKey` and the boolean
+`audienceEnabled`. Generate independent random owner and directory keys and
+store the envelope only in that UAT Secret Manager resource. Configure Matrix's
+separate UAT owner and audience secret resources with their respective key,
+never the envelope. Neither value may equal a delivery or Production key.
+
+This is application configuration through the existing mounted secret; no
+workflow, deployment binder or runtime-config writer change is needed. Existing
+UAT collection/export flags and exact lane/project checks still apply. The
+directory is off unless `audienceEnabled` is explicitly true. Activity emails
+retain their independent worker key, runtime switch and per-owner choice.
+Malformed/duplicate/foreign-lane fields, extra fields, oversized values, reused
+keys or mixed envelope and legacy audience settings close the reads. Flat owner
+keys and the legacy explicit directory pair retain their previous behavior.
+Disabling only `audienceEnabled` preserves owner reads; rotating the envelope
+requires matching the independent Matrix keys before accepting live reads.
+
+Dev/UAT own-activity rollout uses the canonical backend runtime configuration
+writer and `deploy/plg/bind_secrets.sh`. The structured flags
+`one_plg_dev_export_enabled`, `one_plg_activity_dev_enabled`,
+`one_plg_uat_export_enabled`, `one_plg_activity_uat_enabled`,
+`one_plg_owner_export_enabled` (Production only) and
+`one_plg_attempt_email_enabled` default false. Explicit existing choices survive
+sync only for their exact environment/project; foreign-lane activation is
+rejected. The common `one_plg_activity_enabled` flag still applies, and Dev/UAT
+also require their own activity flag with all-registered off.
+
+Secrets and account cohorts are direct Secret Manager mounts, never fields in
+the structured runtime configuration. Dev mounts only its DEV read/cohort
+names, UAT only UAT, and Production retains its existing campaign mounts plus
+independent OWNER names. Each project may mount its own
+`ONE_PLG_ATTEMPT_EMAIL_SECRET` and `ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS` only when
+the versions are enabled. UAT no longer requires or uses its activity/attempt account-ID
+cohort mounts; Dev/Production retain those restrictions. Existing deployment
+preflight may still require the older cohort setup until its owner reconciles
+that separately; no CI/CD changes are included in this application change.
+Preview secret namespaces cannot borrow canonical PLG credentials.
+A mount cannot enroll an owner or activate delivery; current
+verified identity, owner epoch, explicit per-attempt choice and the separately
+qualified Matrix worker remain required. Keep the attempt key available for
+generation-bound unsubscribe even when new delivery is disabled.

@@ -80,6 +80,10 @@ async def test_a_metadata_read_issues_an_observation_that_revalidates_locally(ag
 
     assert page["metadata_only"] is True
     assert len(page["untrusted_external_content"]) == 2
+    first = page["untrusted_external_content"][0]
+    assert first["gmail_web_link"] == "https://mail.google.com/mail/u/owner%40example.com/#all/t-m1"
+    assert first["thread_ref"] == "thread:1"
+    assert "body" not in first
 
 
 async def test_owner_read_settles_only_returned_notification_ids_and_fences_replay(

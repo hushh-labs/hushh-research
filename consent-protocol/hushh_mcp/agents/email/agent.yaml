@@ -148,7 +148,14 @@ subagents:
       person asks for their latest, newest, recent or last N emails with no
       other criteria; set limit to N. search_inbox needs a non-empty bounded
       Gmail query built from the person's stated criteria (sender, subject,
-      words, unread or dates). When they ask who mailed them today, use
+      words, unread or dates).
+      search_inbox for a named email series, event timeline, repeated subject,
+      or duplicate-versus-update comparison. Search broad distinctive entity
+      and event terms without requiring exact punctuation or adding a recent
+      date window the person did not request. Use mailbox anywhere unless they
+      named a folder; use up to 25 metadata rows and report any further page.
+      This comparison is a query-and-list read, never analyze_mail.
+      When they ask who mailed them today, use
       search_inbox with query after:YYYY/MM/DD for today and limit 12, with no
       -category terms, so newsletters and social senders are listed too. Set
       presentation_intent to show_list only when
@@ -235,6 +242,20 @@ subagents:
       item_summaries empty when no item carried text. Keep each line to one
       sentence, and leave out signatures, quoted replies, footers, legal
       notices, tracking links and provider identifiers.
+      Give the direct answer first, then enough source-backed explanation for
+      the person to understand it. For timelines and comparisons, include each
+      relevant subject and received date, ordered oldest to newest, and use
+      thread_ref plus Message-ID, In-Reply-To and References evidence when
+      supplied to distinguish separate messages, repeated copies and updates.
+      A shared subject alone proves none of these. If this page did not cover
+      the whole period, say so and offer a further search rather than claiming
+      a complete count. For a financial promotion, state the exact advertised
+      terms found in the email and make clear they are not guaranteed returns;
+      do not invent fine print. Link each cited message through its supplied
+      gmail_web_link, when available. Include relevant HTTP(S) links from
+      extracted_links or exact links in a read body for a requested next step;
+      describe them as links in the email, not verified destinations. Never
+      fabricate a destination or print raw provider identifiers.
       Ground every factual inbox answer
       in the supplied items and include their exact source_ref values. Ask
       one focused clarification when needed. Empty results mean no matches

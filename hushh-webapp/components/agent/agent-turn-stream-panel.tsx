@@ -431,7 +431,11 @@ export function AgentTurnStreamPanel({
     return () => window.clearInterval(timer);
   }, [isStreaming, timingPhase]);
   const visibleEvents = useMemo(
-    () => streamEvents.filter((event) => isInformativeActivityEvent(event, clockMs)),
+    () => streamEvents.filter((event) =>
+      // Successful Mail reads are evidence for the answer, not an Activity log.
+      // Keep blocked/error/review steps visible and retain all diagnostics in telemetry.
+      !(event.brand === "gmail" && (event.status === "running" || event.status === "done")) &&
+      isInformativeActivityEvent(event, clockMs)),
     [streamEvents, clockMs],
   );
   const progressItems = useMemo<AppStreamProgressItem[]>(
@@ -447,7 +451,12 @@ export function AgentTurnStreamPanel({
       })),
     [visibleEvents]
   );
-  const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
+  const specialistItems = useMemo(
+    () => normalizeSpecialistSources(sources.filter((source) => source.agentId !== "agent_email")),
+    [sources],
+  );
+  const checkingMail = isStreaming && streamEvents.some((event) =>
+    event.brand === "gmail" && event.status === "running");
   const currentBatchProgress = [...streamEvents].reverse().find((event) =>
     event.status === "running" && event.batchProgress,
   )?.batchProgress;
@@ -493,8 +502,10 @@ export function AgentTurnStreamPanel({
       // A running turn shows its elapsed time. A finished turn shows none:
       // its timing is never stored, so a reopened chat could not repeat it,
       // and a completed answer must look the same live and restored.
-      statusMessage={isStreaming && timingPhase === "running" && elapsedMs !== null
-        ? `Working for ${Math.floor(elapsedMs / 1000)}s`
+      statusMessage={checkingMail
+        ? "Checking your email…"
+        : isStreaming && timingPhase === "running" && elapsedMs !== null
+          ? `Working for ${Math.floor(elapsedMs / 1000)}s`
         : undefined}
       responseText={responseText}
       response={response}
@@ -522,7 +533,7 @@ export function AgentTurnStreamPanel({
         ) : null
       }
       responsePendingLabel={
-        preparingPrivateMemory || currentBatchProgress
+        checkingMail || preparingPrivateMemory || currentBatchProgress
           ? undefined
           : "One is preparing your response."
       }
