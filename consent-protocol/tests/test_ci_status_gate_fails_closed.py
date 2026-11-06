@@ -194,7 +194,7 @@ def _failing_runs() -> list[tuple[str, Run]]:
     runs: list[tuple[str, Run]] = []
     for name, lanes in LANES.items():
         for lane in lanes:
-            for result in ("skipped", "cancelled"):
+            for result in ("skipped", "cancelled", "failure"):
                 runs.append(
                     (
                         f"{name}-selects-{lane}-{result}",
@@ -246,6 +246,10 @@ def _passing_runs() -> list[tuple[str, Run]]:
         ),
         ("dispatch-auto", DISPATCH),
         ("dispatch-all", replace(DISPATCH, scope="all")),
+        (
+            "release-without-native-impact",
+            replace(_dispatch(_selected(frontend=True, backend=True, document=True)), scope="all"),
+        ),
     ]
     return runs
 
