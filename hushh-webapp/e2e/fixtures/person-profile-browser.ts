@@ -58,6 +58,8 @@ export async function buildPersonProfileBrowserFixture({ includePresentation = t
     const previewScript = includePreview ? await buildFixture("person-profile-preview.tsx", "preview-fixture.js", { alias: [
       { find: "@/hooks/use-auth", replacement: previewPorts },
       { find: "@/lib/services/connections-service", replacement: previewPorts },
+      { find: "@/lib/services/person-profile-service", replacement: previewPorts },
+      { find: "@/lib/cache/cache-sync-service", replacement: previewPorts },
       { find: "next/navigation", replacement: previewPorts },
       { find: /^\.\/person-profile-page$/, replacement: previewPorts },
       { find: "@", replacement: root },
