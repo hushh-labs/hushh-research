@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hushh_mcp.services.legacy_cloud_removal import _require, resource_key, resource_state
+from hushh_mcp.services.legacy_cloud_removal import _require, resource_key, resource_state, sha256
 from hushh_mcp.services.legacy_cloud_removal_native import native_identity, resource_url
 
 
@@ -55,6 +55,21 @@ def observe_retention(worker, resource: dict) -> dict:
     """A denied/invalid cleanup is not evidence of provider retention."""
     url = resource_url(worker.project, worker.region, resource)
     if resource["type"] == "gcs_bucket":
+        retained = worker.session.get(
+            url, params={"softDeleted": True, "generation": resource["identity"]["generation"]}
+        )
+        _require(retained.status_code in {200, 404}, "CLOUD_REMOVAL_NATIVE_READ_UNAVAILABLE")
+        if retained.status_code == 200:
+            _require(
+                native_identity("gcs_bucket", retained.json()) == resource["identity"],
+                "CLOUD_REMOVAL_RESOURCE_REPLACED",
+            )
+            return {
+                "providerRetention": True,
+                "observedGenerations": 1,
+                "inventoryComplete": True,
+                "nextEligibleAt": retained.json().get("hardDeleteTime"),
+            }
         response = worker.session.get(
             url + "/o",
             params={
@@ -97,6 +112,65 @@ def observe_retention(worker, resource: dict) -> dict:
         "inventoryComplete": True,
         "nextEligibleAt": max(item["destroyTime"] for item in scheduled),
     }
+
+
+def recover_bucket_acknowledgement(worker, resource: dict) -> None:
+    """Recover only a retained authenticated response to the exact bucket DELETE."""
+    checkpoints = worker._checkpoints(resource)
+    admission = checkpoints.get("bucketAdmission")
+    state = resource_state(worker.journal.read(), resource_key(resource))
+    if admission is None or (
+        checkpoints.get("bucketAcknowledgement") is not None and "acknowledgement" in state
+    ):
+        return
+    target = sha256(
+        {
+            "method": "DELETE",
+            "url": resource_url(worker.project, worker.region, resource),
+            "params": {"ifMetagenerationMatch": admission["metageneration"]},
+            "json": None,
+        }
+    )
+    events = [
+        event
+        for event in worker.journal.read()["events"]
+        if event["resource"] == resource_key(resource)
+    ]
+    requests = {
+        event["receipt"]["requestId"]
+        for event in events
+        if event["stage"] == "provider_dispatch" and event["receipt"].get("targetSha256") == target
+    }
+    acknowledgement = next(
+        (
+            event["receipt"]
+            for event in events
+            if event["stage"] == "provider_ack"
+            and event["receipt"].get("requestId") in requests
+            and event["receipt"].get("targetSha256") == target
+            and event["receipt"].get("httpStatus") in {200, 204}
+        ),
+        None,
+    )
+    _require(
+        acknowledgement is not None and acknowledgement.get("operationName") is None,
+        "CLOUD_REMOVAL_PROVIDER_OUTCOME_UNKNOWN",
+    )
+    if "acknowledgement" not in state:
+        worker.journal.append(
+            resource_key(resource),
+            "acknowledgement",
+            {
+                "identitySha256": worker.journal.identity_sha256(resource),
+                "requestId": state["intent"]["requestId"],
+                "httpStatus": acknowledgement["httpStatus"],
+                "operationName": None,
+            },
+        )
+    if checkpoints.get("bucketAcknowledgement") is None:
+        worker._checkpoint(
+            resource, "bucketAcknowledgement", {**admission, "status": "acknowledged"}
+        )
 
 
 def delete_remaining(worker, *, token: str, reservation: dict) -> list[str]:
@@ -163,7 +237,7 @@ def delete_remaining(worker, *, token: str, reservation: dict) -> list[str]:
             _require(current.status_code == 200)
             worker._observe(resource, current, "retained_shared")
             continue
-        if current.status_code == 404:
+        if current.status_code == 404 and kind != "gcs_bucket":
             if "intent" not in state:
                 worker._observe(resource, current, "observed_absent")
             else:
@@ -171,7 +245,9 @@ def delete_remaining(worker, *, token: str, reservation: dict) -> list[str]:
                 worker._observe(resource, current, "deleted")
             continue
         _require(
-            native_identity(kind, current.json()) == resource["identity"],
+            current.status_code == 404
+            and kind == "gcs_bucket"
+            or native_identity(kind, current.json()) == resource["identity"],
             "CLOUD_REMOVAL_RESOURCE_REPLACED",
         )
         worker._intent(resource)
@@ -182,6 +258,8 @@ def delete_remaining(worker, *, token: str, reservation: dict) -> list[str]:
                     proof is not None and proof["identity"] == resource["identity"],
                     "CLOUD_REMOVAL_CREATION_EVIDENCE_REQUIRED",
                 )
+                if kind == "gcs_bucket":
+                    recover_bucket_acknowledgement(worker, resource)
                 kwargs = {
                     "bucket_erasure_state"
                     if kind == "gcs_bucket"

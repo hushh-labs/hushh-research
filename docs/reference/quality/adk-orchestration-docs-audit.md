@@ -28,7 +28,9 @@ offers a usable exit and works in a background tab. The personal project remains
 
 Local qualification passed 190 backend cases, 38 UI cases and 513 Back cases;
 the actual 18-resource native inspection passes the migration-985 plan validator
-in disposable PostgreSQL. Migration 985, CI, Dev deployment and the live owner
+in disposable PostgreSQL. Fourteen additional operator regressions and independent
+source review close historical-bucket absence, Memory-binding drift and interrupted
+cleanup resume. Migration 985, CI, Dev deployment and the live owner
 journey are still pending. No cleanup or Firebase identity mutation has occurred.
 The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
 owns the recovery procedure and historical phone-identity findings. Seven

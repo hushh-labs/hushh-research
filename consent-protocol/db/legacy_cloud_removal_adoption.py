@@ -10,13 +10,13 @@ FOOTPRINT = """EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('pub
  AND (p.proname LIKE 'legacy_cloud_removal_%' OR p.proname='retain_legacy_cloud_removal'))"""
 
 
-SOURCE_985_SHA256 = "8988d4fce12de68a9ed821575757a85697f12424e4e6569e10e53c6490da60e4"
+SOURCE_985_SHA256 = "c53c72451d16b1f1cd282f9bb39bc0b6d4222cf538793dc8c30d2cadbfaa9fb0"
 PINS = {
     "assert_project_grant_admission(text)": "2d702143880933dad5bfa7e2e24edd02691f964e45b0f6b64ded12bfb3862a36",
     "guard_personal_agent_cloud_removal()": "b4ce03f6eca358014dd92ec8aa563451ad46661546bf8627d9bb611780359516",
     "finalize_personal_agent_cloud_removal(text,text,text)": "4b903616500da196c1bc2dc6972104a44a5618500ce4e2cd5d61f6a844e99dad",
     "legacy_cloud_removal_plan_valid(jsonb,jsonb)": "f23c1739d33b901c89723bdd39d5824665b7b4850317559812ad1321ff90bd2c",
-    "legacy_cloud_removal_event_valid(jsonb,jsonb)": "e6de60a2c14524b1602fc47d414cae3f6e8f4704b210245d3371114734043c2d",
+    "legacy_cloud_removal_event_valid(jsonb,jsonb)": "467cd3be25eb9920286158ba9ad286f4690b5da2a1715443f6af570d800ec67b",
     "legacy_cloud_removal_append_valid(jsonb,jsonb,jsonb)": "d86f32b42ea86407c1688fd9c9a436e2e2c0ac6edbbd350da29d3bbfa578ad90",
     "legacy_cloud_removal_complete(text,text)": "e3742d02c03e82dd34bf414fd08875dbdae2deba500b5e444e01756af80d4c70",
     "legacy_cloud_removal_archive(jsonb,jsonb,jsonb)": "0d1de7d26bdadaf53c3d221544d158ce779875528d56b951d1247774e53d3b03",

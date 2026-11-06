@@ -8,8 +8,39 @@ from urllib.parse import quote
 
 import requests
 
-from hushh_mcp.services.legacy_cloud_removal import _require, resource_key, sha256
+from hushh_mcp.services.legacy_cloud_removal import _require, resource_key, resource_state, sha256
 from hushh_mcp.services.legacy_cloud_removal_native import native_identity, resource_url
+
+
+def verify_disabled_writer(worker) -> None:
+    """A completed identity deletion resumes from its retained drain proofs."""
+    resource = worker._resource("service_account", worker.plan["runtime"]["principal"]["email"])
+    state = resource_state(worker.journal.read(), resource_key(resource))
+    _require("writer_disabled" in state)
+    current = worker.session.get(resource_url(worker.project, worker.region, resource))
+    if current.status_code == 200:
+        _require(
+            current.json().get("disabled") is True
+            and native_identity("service_account", current.json()) == resource["identity"]
+        )
+        return
+    _require(
+        current.status_code == 404
+        and state.get("observation", {}).get("status") == "deleted"
+        and state["observation"].get("identitySha256") == worker.journal.identity_sha256(resource)
+    )
+    for kind in ("cloud_run_service", "reasoning_engine"):
+        compute = worker._resource(kind)
+        evidence = resource_state(worker.journal.read(), resource_key(compute)).get(
+            "observation", {}
+        )
+        _require(
+            evidence.get("status") == "deleted"
+            and evidence.get("operationDone") is True
+            and evidence.get("identitySha256") == worker.journal.identity_sha256(compute)
+            and worker.session.get(resource_url(worker.project, worker.region, compute)).status_code
+            == 404
+        )
 
 
 def cached_writer_probe(worker, *, actor: str) -> str:

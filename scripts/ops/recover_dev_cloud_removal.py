@@ -38,26 +38,16 @@ def dev_database(port: int, *, readonly: bool):
 
         def get(url):
             response = session.get(url, timeout=25, allow_redirects=False)
-            _require(
-                response.status_code == 200, "CLOUD_REMOVAL_DEV_ACCESS_UNAVAILABLE"
-            )
+            _require(response.status_code == 200, "CLOUD_REMOVAL_DEV_ACCESS_UNAVAILABLE")
             return response.json()
 
         base = "https://us-central1-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/hushh-pda-dev/"
         service = get(base + "services/consent-protocol")
-        traffic = [
-            entry for entry in service["status"]["traffic"] if entry.get("percent", 0)
-        ]
+        traffic = [entry for entry in service["status"]["traffic"] if entry.get("percent", 0)]
         _require(len(traffic) == 1 and traffic[0]["percent"] == 100)
         runtime = get(base + "revisions/" + traffic[0]["revisionName"])
-        env = {
-            entry["name"]: entry for entry in runtime["spec"]["containers"][0]["env"]
-        }
-        _require(
-            env["ENVIRONMENT"].get("value")
-            == env["HUSHH_DEPLOY_ENV"].get("value")
-            == "dev"
-        )
+        env = {entry["name"]: entry for entry in runtime["spec"]["containers"][0]["env"]}
+        _require(env["ENVIRONMENT"].get("value") == env["HUSHH_DEPLOY_ENV"].get("value") == "dev")
         source = env["HUSHH_DEPLOY_SHA"]["value"]
 
         def secret(name):
@@ -71,8 +61,7 @@ def dev_database(port: int, *, readonly: bool):
         config = json.loads(secret("BACKEND_RUNTIME_CONFIG_JSON"))
         _require(
             (
-                config.get("cloudsql_instance_connection_name")
-                or config.get("db_unix_socket", "")
+                config.get("cloudsql_instance_connection_name") or config.get("db_unix_socket", "")
             ).removeprefix("/cloudsql/")
             == "hushh-pda-dev:us-central1:hushh-dev-pg"
         )
@@ -130,9 +119,7 @@ def retained(engine, owner: str, attempt: str):
         identity = AccountGenerationService.identity_in_transaction(conn, owner)
         row = (
             conn.execute(
-                text(
-                    "SELECT generation,retired_at FROM account_generations WHERE owner_id=:owner"
-                ),
+                text("SELECT generation,retired_at FROM account_generations WHERE owner_id=:owner"),
                 {"owner": owner},
             )
             .mappings()
@@ -209,14 +196,11 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
         resource_state,
     )
     from hushh_mcp.services.legacy_cloud_removal_executor import LegacyGcpRemoval
-    from hushh_mcp.services.legacy_cloud_removal_native import (
-        RecoverySession,
-        native_identity,
-        resource_url,
-    )
+    from hushh_mcp.services.legacy_cloud_removal_native import RecoverySession
     from hushh_mcp.services.legacy_cloud_removal_writer import (
         cached_writer_probe,
         disable_writer,
+        verify_disabled_writer,
     )
     from hushh_mcp.services.legacy_cloud_removal_teardown import delete_remaining
 
@@ -238,24 +222,14 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
             )
             state = resource_state(journal.read(), resource_key(runtime))
             if "writer_disabled" in state:
-                observed = session.get(
-                    resource_url(args.project, worker.region, runtime)
-                )
-                _require(
-                    observed.status_code == 200
-                    and observed.json().get("disabled") is True
-                    and native_identity("service_account", observed.json())
-                    == runtime["identity"]
-                )
+                verify_disabled_writer(worker)
             else:
                 token = cached_writer_probe(worker, actor=args.account)
                 disable_writer(worker, cached_token=token)
                 del token
             worker.delete_compute(credentials=credentials)
             worker.delete_memory()
-            pending = delete_remaining(
-                worker, token=credentials.token, reservation=reservation
-            )
+            pending = delete_remaining(worker, token=credentials.token, reservation=reservation)
             if pending:
                 journal.append(
                     "$executor",
@@ -284,8 +258,13 @@ def execute(args, engine, source, reservation, credentials, started_pipe):
 
 
 def require_cleanup_authority(worker):
-    from hushh_mcp.services.legacy_cloud_removal import _require
+    from hushh_mcp.services.legacy_cloud_removal import (
+        _require,
+        resource_key,
+        resource_state,
+    )
     from hushh_mcp.services.legacy_cloud_removal_native import resource_url
+    from hushh_mcp.services.legacy_cloud_removal_teardown import recover_bucket_acknowledgement
 
     permissions = {
         "aiplatform.reasoningEngines.delete",
@@ -304,6 +283,39 @@ def require_cleanup_authority(worker):
     )
     # Storage grants are evaluated on the retained bucket, not its project.
     bucket = worker._resource("gcs_bucket", worker.plan["memory"]["bucket"])
+    bucket_state = resource_state(worker.journal.read(), resource_key(bucket))
+    if bucket_state.get("observation", {}).get("status") == "deleted":
+        _require(
+            bucket_state["observation"].get("identitySha256")
+            == worker.journal.identity_sha256(bucket)
+            and bucket_state.get("checkpoint", {}).get("stage") == "bucketDeletion"
+        )
+        for params in (
+            {},
+            {"softDeleted": True, "generation": bucket["identity"]["generation"]},
+        ):
+            current = worker.session.get(
+                resource_url(worker.project, worker.region, bucket), params=params
+            )
+            _require(current.status_code == 404, "CLOUD_REMOVAL_RESOURCE_REPLACED")
+        return
+    if worker._checkpoints(bucket).get("bucketAdmission") is not None:
+        recover_bucket_acknowledgement(worker, bucket)
+        current = worker.session.get(resource_url(worker.project, worker.region, bucket))
+        _require(current.status_code == 404, "CLOUD_REMOVAL_RESOURCE_REPLACED")
+        historical = worker.session.get(
+            resource_url(worker.project, worker.region, bucket),
+            params={"softDeleted": True, "generation": bucket["identity"]["generation"]},
+        )
+        _require(historical.status_code in {200, 404}, "CLOUD_REMOVAL_NATIVE_READ_UNAVAILABLE")
+        if historical.status_code == 200:
+            from hushh_mcp.services.legacy_cloud_removal_native import native_identity
+
+            _require(
+                native_identity("gcs_bucket", historical.json()) == bucket["identity"],
+                "CLOUD_REMOVAL_RESOURCE_REPLACED",
+            )
+        return
     permissions = {
         "storage.objects.delete",
         "storage.objects.list",
@@ -318,6 +330,35 @@ def require_cleanup_authority(worker):
         and set(authority.json().get("permissions", [])) == permissions,
         "CLOUD_REMOVAL_INDEPENDENT_AUTHORITY_UNAVAILABLE",
     )
+
+
+def require_operator_source(expected_source):
+    from hushh_mcp.services.legacy_cloud_removal import _require
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    _require(head == expected_source, "CLOUD_REMOVAL_SOURCE_CHANGED")
+    _require(
+        not subprocess.run(
+            [
+                "git",
+                "diff",
+                "--quiet",
+                "HEAD",
+                "--",
+                "consent-protocol",
+                "scripts/ops/recover_dev_cloud_removal.py",
+            ],
+            cwd=ROOT,
+        ).returncode,
+        "CLOUD_REMOVAL_SOURCE_CHANGED",
+    )
+    return head
 
 
 def arguments():
@@ -379,8 +420,7 @@ def supervise(journal, payload):
                     event["receipt"]
                     for event in journal.read()["events"]
                     if event["stage"] == "executor_started"
-                    and event["receipt"]["executionId"]
-                    == payload["args"]["execution_id"]
+                    and event["receipt"]["executionId"] == payload["args"]["execution_id"]
                 ),
                 None,
             )
@@ -405,19 +445,13 @@ def main():
     _require(not mutation or args.apply and args.manifest_sha256 is not None)
     with dev_database(args.port, readonly=not mutation) as (engine, source):
         row = retained(engine, args.owner, args.attempt)
-        _require(
-            row["reservation"]["registrySnapshot"]["user_cloud_project"] == args.project
-        )
+        _require(row["reservation"]["registrySnapshot"]["user_cloud_project"] == args.project)
         if args.action == "status":
-            print(
-                json.dumps({"source": source, "recovery": row["recovery"]}, default=str)
-            )
+            print(json.dumps({"source": source, "recovery": row["recovery"]}, default=str))
             return 0
         credentials = owner_credentials(args)
         if args.action == "inspect":
-            with RecoverySession(
-                token=credentials.token, project=args.project
-            ) as session:
+            with RecoverySession(token=credentials.token, project=args.project) as session:
                 plan = observe_plan(
                     session,
                     reservation=row["reservation"],
@@ -438,30 +472,12 @@ def main():
                 ).scalar_one()
             print(json.dumps({"planSha256": digest, "plan": plan}, indent=2))
             return 0
-        _require(
+        expected_source = (
             source
-            == subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.strip()
+            if args.action == "prepare"
+            else (row.get("recovery") or {}).get("plan", {}).get("sourceRevision")
         )
-        _require(
-            not subprocess.run(
-                [
-                    "git",
-                    "diff",
-                    "--quiet",
-                    "HEAD",
-                    "--",
-                    "consent-protocol",
-                    "scripts/ops/recover_dev_cloud_removal.py",
-                ],
-                cwd=ROOT,
-            ).returncode
-        )
+        operator_source = require_operator_source(expected_source)
         with engine.begin() as conn:
             from sqlalchemy import text
 
@@ -471,9 +487,7 @@ def main():
         raw = engine.raw_connection()
         raw.driver_connection.autocommit = True
         try:
-            journal = LegacyRemovalJournal(
-                raw.driver_connection, args.owner, args.attempt
-            )
+            journal = LegacyRemovalJournal(raw.driver_connection, args.owner, args.attempt)
             if args.action == "prepare":
                 _require(args.plan is not None)
                 saved = json.loads(args.plan.read_text())
@@ -484,9 +498,7 @@ def main():
                     and plan["sourceRevision"] == source
                     and plan["actor"] == args.account
                 )
-                with RecoverySession(
-                    token=credentials.token, project=args.project
-                ) as session:
+                with RecoverySession(token=credentials.token, project=args.project) as session:
                     current = observe_plan(
                         session,
                         reservation=row["reservation"],
@@ -496,14 +508,8 @@ def main():
                         actor=args.account,
                     )
                 _require(
-                    {
-                        key: value
-                        for key, value in current.items()
-                        if key != "observedAt"
-                    }
-                    == {
-                        key: value for key, value in plan.items() if key != "observedAt"
-                    },
+                    {key: value for key, value in current.items() if key != "observedAt"}
+                    == {key: value for key, value in plan.items() if key != "observedAt"},
                     "CLOUD_REMOVAL_PLACEMENT_CHANGED",
                 )
                 prepared = journal.prepare(plan)
@@ -526,7 +532,7 @@ def main():
             payload = {
                 "args": vars(args),
                 "token": credentials.token,
-                "source": source,
+                "source": operator_source,
                 "reservation": row["reservation"],
             }
             payload["args"]["plan"] = str(args.plan) if args.plan else None
@@ -547,12 +553,16 @@ if __name__ == "__main__":
             os.fdopen(payload["startedFd"], "w") as pipe,
             dev_database(args.port, readonly=False) as (engine, source),
         ):
-            if source != payload["source"]:
-                raise SystemExit("CLOUD_REMOVAL_SOURCE_CHANGED")
+            require_operator_source(payload["source"])
+            from sqlalchemy import text
+            from db.legacy_cloud_removal_adoption import qualification_sql
+
+            with engine.begin() as conn:
+                conn.execute(text(qualification_sql()))
             result = execute(
                 args,
                 engine,
-                source,
+                payload["source"],
                 payload["reservation"],
                 Credentials(token=payload["token"]),
                 pipe,

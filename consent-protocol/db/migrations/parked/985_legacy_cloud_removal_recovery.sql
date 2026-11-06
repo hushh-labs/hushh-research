@@ -171,6 +171,9 @@ BEGIN
    AND coalesce(receipt->>'requestId','') ~ '^[0-9a-f]{32}$'
    AND coalesce(receipt->>'targetSha256','') ~ '^[0-9a-f]{64}$'
    AND receipt->>'method' IN ('DELETE','POST','PATCH','PUT')
+   AND (item->>'type'<>'reasoning_engine' OR EXISTS(SELECT 1 FROM jsonb_array_elements(recovery->'events') e
+    WHERE e->>'resource'=key AND e->>'stage'='checkpoint' AND e->'receipt'->>'stage'='memoryBinding'
+     AND e->'receipt'->'value' IS NOT DISTINCT FROM p->'memory'))
    AND EXISTS(SELECT 1 FROM jsonb_array_elements(recovery->'events') e WHERE e->>'resource'=key AND e->>'stage' IN ('intent','writer_intent'))
    AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(recovery->'events') e WHERE e->>'resource'=key AND e->>'stage'='provider_dispatch'
     AND e->'receipt'->>'targetSha256'=receipt->>'targetSha256'
@@ -189,8 +192,13 @@ BEGIN
  IF stage='checkpoint' THEN
   RETURN item->>'type' IN ('gcs_bucket','kms_key','service_account','project_iam_policy','reasoning_engine')
    AND receipt-ARRAY['identitySha256','stage','value']='{}'::jsonb
-   AND receipt->>'stage' IN ('bucketAdmission','bucketAcknowledgement','bucketDeletion','inventory','admission','acknowledgement','destruction','completion','temporaryGrant','temporaryGrantRemoved')
+   AND receipt->>'stage' IN ('bucketAdmission','bucketAcknowledgement','bucketDeletion','memoryBinding','inventory','admission','acknowledgement','destruction','completion','temporaryGrant','temporaryGrantRemoved')
    AND jsonb_typeof(receipt->'value')='object'
+   AND (receipt->>'stage'<>'memoryBinding' OR (item->>'type'='reasoning_engine' AND receipt->'value' IS NOT DISTINCT FROM p->'memory'))
+   AND (receipt->>'stage' NOT IN ('bucketAdmission','bucketAcknowledgement','bucketDeletion') OR
+    (item->>'type'='gcs_bucket' AND receipt->'value'->'bucketIdentity' IS NOT DISTINCT FROM item->'identity'
+     AND receipt->'value'->>'status'=CASE receipt->>'stage' WHEN 'bucketAdmission' THEN 'admitted' WHEN 'bucketAcknowledgement' THEN 'acknowledged' ELSE 'deleted' END
+     AND coalesce(receipt->'value'->>'metageneration','') ~ '^[1-9][0-9]*$'))
    AND EXISTS(SELECT 1 FROM jsonb_array_elements(recovery->'events') e WHERE e->>'resource'=key AND e->>'stage' IN ('intent','writer_intent'));
  END IF;
  IF stage IN ('intent','writer_intent') THEN
@@ -233,7 +241,7 @@ BEGIN
   IF receipt-ARRAY['identitySha256','status','httpStatus','nativeReadbackSha256','operationName','operationDone','coverage']<>'{}'::jsonb
   OR coalesce(receipt->>'nativeReadbackSha256','') !~ '^[0-9a-f]{64}$'
   OR coalesce(receipt->>'status','') NOT IN ('observed_absent','deleted','retained_shared','waiting_for_provider') THEN RETURN false; END IF;
-  IF receipt->>'status'='observed_absent' THEN RETURN receipt->'httpStatus'='404'::jsonb AND prior IS NULL; END IF;
+  IF receipt->>'status'='observed_absent' THEN RETURN item->>'type'<>'gcs_bucket' AND receipt->'httpStatus'='404'::jsonb AND prior IS NULL; END IF;
   IF receipt->>'status'='retained_shared' THEN RETURN item->>'authority'='retain_shared' AND item->>'type'='artifact_repository' AND receipt->'httpStatus'='200'::jsonb AND prior IS NULL; END IF;
   IF receipt->>'status'='waiting_for_provider' THEN RETURN prior IS NOT NULL; END IF;
   IF item->>'type' IN ('project_iam_policy','bootstrap_access') AND receipt->>'status'='deleted' THEN
@@ -246,8 +254,16 @@ BEGIN
     AND EXISTS(SELECT 1 FROM jsonb_array_elements(recovery->'events') e WHERE e->>'resource'=key
      AND e->>'stage'='checkpoint' AND e->'receipt'->>'stage'='completion');
   END IF;
+  IF item->>'type'='gcs_bucket' AND receipt->>'status'='deleted' AND NOT EXISTS(
+   SELECT 1 FROM jsonb_array_elements(recovery->'events') e WHERE e->>'resource'=key
+    AND e->>'stage'='checkpoint' AND e->'receipt'->>'stage'='bucketDeletion'
+    AND e->'receipt'->'value'->>'status'='deleted'
+    AND e->'receipt'->'value'->'bucketIdentity' IS NOT DISTINCT FROM item->'identity') THEN RETURN false; END IF;
   IF prior IS NULL OR receipt->'httpStatus'<>'404'::jsonb THEN RETURN false; END IF;
   IF item->>'type' IN ('cloud_run_service','reasoning_engine') THEN
+   IF item->>'type'='reasoning_engine' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(recovery->'events') e
+    WHERE e->>'resource'=key AND e->>'stage'='checkpoint' AND e->'receipt'->>'stage'='memoryBinding'
+     AND e->'receipt'->'value' IS NOT DISTINCT FROM p->'memory') THEN RETURN false; END IF;
    IF receipt->'operationDone' IS DISTINCT FROM 'true'::jsonb OR coalesce(receipt->>'operationName','')=''
    OR receipt->'coverage'->'complete' IS DISTINCT FROM 'true'::jsonb
    OR receipt->'coverage'->'pendingOperations' IS DISTINCT FROM '0'::jsonb THEN RETURN false; END IF;

@@ -19,8 +19,11 @@ Use `scripts/ops/recover_dev_cloud_removal.py inspect --dev` with the exact owne
 attempt, project and named credential. The report pins native project number,
 Dev markers, service UID/generation/image/etag, runtime principal, Memory engine
 incarnation and each resource's readback. `prepare` and `execute` require `--apply`
-and the reviewed manifest digest, a clean source matching the serving Dev SHA,
-qualified installed schema, and owner approval through the existing interface.
+and the reviewed manifest digest, qualified installed schema, and owner approval
+through the existing interface. Preparation requires clean source matching the
+serving Dev SHA. Resume requires the original immutable operator source; an
+unrelated Hub update does not change that executor identity. The child reattests
+Dev, database and the complete installed schema independently.
 Keep credentials in memory and private pipes. Never put tokens in CLI arguments.
 
 Execution retains intent before provider writes and every original operation
@@ -32,13 +35,20 @@ IAM release use the existing exclusive project admission, exact reviewed grants
 and etags, preserving unrelated bindings. The reservation survives session loss.
 The personal project and shared image repository remain; scheduled KMS material
 destruction and soft-deleted objects remain pending until native terminal proof.
+Engine deletion rechecks the approved Memory control-object generation/hash after
+writer and compute stop. Bucket absence requires the original historical generation
+to be absent too. Interrupted acknowledgments recover only from the exact retained
+native response; already-deleted buckets and identities resume from their qualified
+receipts and fresh native absence, without repeating their deletion.
 
 The cleanup interface exposes Sign out and reports retained-provider waiting
 without offering an ineffective second execution button. A background Profile
 pane admits its content without waiting for browser animation frames. Focused
 local evidence: 190 backend cases, 38 UI cases, 513 Back cases, complete UI
 contract verification, and an 18-entry native plan accepted by the actual 985
-validator in disposable PostgreSQL. These do not establish a successful live
+validator in disposable PostgreSQL. Fourteen additional operator regressions pass,
+including retention expiry and interrupted bootstrap recovery; independent source
+review approved those corrected paths. These do not establish a successful live
 deletion; exact-source CI, Dev deployment and owner approval remain required.
 
 ### Phone-only Firebase identities

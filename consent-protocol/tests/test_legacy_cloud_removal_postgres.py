@@ -392,6 +392,22 @@ def test_legacy_recovery_finalization_requires_every_resource_and_actual_exit(le
                 "intent",
                 {"identitySha256": identity, "requestId": request, "method": "DELETE"},
             )
+            if resource["type"] == "reasoning_engine":
+                with pytest.raises(AzureTeardownRefused):
+                    journal.append(
+                        resource_key(resource),
+                        "checkpoint",
+                        {
+                            "identitySha256": identity,
+                            "stage": "memoryBinding",
+                            "value": {**plan["memory"], "generation": "foreign"},
+                        },
+                    )
+                journal.append(
+                    resource_key(resource),
+                    "checkpoint",
+                    {"identitySha256": identity, "stage": "memoryBinding", "value": plan["memory"]},
+                )
             journal.append(
                 resource_key(resource),
                 "acknowledgement",
@@ -402,6 +418,39 @@ def test_legacy_recovery_finalization_requires_every_resource_and_actual_exit(le
                     "operationName": operation,
                 },
             )
+            if resource["type"] == "gcs_bucket":
+                with pytest.raises(AzureTeardownRefused):
+                    journal.append(
+                        resource_key(resource),
+                        "observation",
+                        {
+                            "identitySha256": identity,
+                            "status": "deleted",
+                            "httpStatus": 404,
+                            "nativeReadbackSha256": "d" * 64,
+                            "operationName": None,
+                            "operationDone": False,
+                            "coverage": {},
+                        },
+                    )
+                for stage, status in [
+                    ("bucketAdmission", "admitted"),
+                    ("bucketAcknowledgement", "acknowledged"),
+                    ("bucketDeletion", "deleted"),
+                ]:
+                    journal.append(
+                        resource_key(resource),
+                        "checkpoint",
+                        {
+                            "identitySha256": identity,
+                            "stage": stage,
+                            "value": {
+                                "bucketIdentity": resource["identity"],
+                                "metageneration": "1",
+                                "status": status,
+                            },
+                        },
+                    )
             journal.append(
                 resource_key(resource),
                 "observation",

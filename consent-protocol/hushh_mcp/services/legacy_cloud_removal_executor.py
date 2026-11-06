@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from urllib.parse import quote
 from uuid import uuid4
 
 from hushh_mcp.services.legacy_cloud_removal import (
@@ -216,6 +217,37 @@ class LegacyGcpRemoval:
             resource, response, "deleted", operation=operation, complete=True, coverage=coverage
         )
 
+    def qualify_memory_binding(self, resource: dict) -> None:
+        """Re-read the approved control record after writers and compute stop."""
+        memory = self.plan["memory"]
+        bucket = self._resource("gcs_bucket", memory["bucket"])
+        url = (
+            resource_url(self.project, self.region, bucket)
+            + "/o/"
+            + quote(memory["object"], safe="")
+        )
+        current = self.session.get(url)
+        _require(
+            current.status_code == 200 and current.json().get("generation") == memory["generation"],
+            "CLOUD_REMOVAL_MEMORY_BINDING_CHANGED",
+        )
+        content = self.session.get(
+            url,
+            params={
+                "alt": "media",
+                "generation": memory["generation"],
+                "ifGenerationMatch": memory["generation"],
+            },
+        )
+        _require(
+            content.status_code == 200
+            and len(content.content) <= 65536
+            and hashlib.sha256(content.content).hexdigest() == memory["sha256"]
+            and content.json().get("erasure", {}).get("attemptId") == self.plan["attemptId"],
+            "CLOUD_REMOVAL_MEMORY_BINDING_CHANGED",
+        )
+        self._checkpoint(resource, "memoryBinding", memory)
+
     def delete_memory(self) -> None:
         resource = self._resource("reasoning_engine")
         self.session.resource = resource
@@ -232,6 +264,7 @@ class LegacyGcpRemoval:
             )
             coverage = self._operations(engine=True)
             self._intent(resource)
+            self.qualify_memory_binding(resource)
             self._checkpoint(resource, "inventory", coverage)
             response = self.session.delete(url, params={"force": "true"})
             _require(response.status_code == 200)
