@@ -26,7 +26,7 @@ _PLAID_BASE_URLS = {
 _TX_HISTORY_DAYS_DEFAULT = 730
 _DEFAULT_COUNTRY_CODES = ["US"]
 _DEFAULT_LANGUAGE = "en"
-_DEFAULT_CLIENT_NAME = "Agent One"
+_DEFAULT_CLIENT_NAME = "AgentOne"
 _DEFAULT_MANUAL_ENTRY_ENABLED = False
 _DEFAULT_CRYPTO_WALLET_ENABLED = False
 _DEFAULT_REDIRECT_PATH = "/one/kai/plaid/oauth/return"
@@ -52,7 +52,9 @@ def _clean_text(value: Any, *, default: str = "") -> str:
 def _normalize_client_name(value: Any) -> str:
     # Older deployments still supply the former public brand as an override.
     name = _clean_text(value, default=_DEFAULT_CLIENT_NAME)
-    return _DEFAULT_CLIENT_NAME if name.casefold() in {"hushh kai", "hussh kai"} else name
+    return (
+        _DEFAULT_CLIENT_NAME if name.casefold() in {"hushh kai", "hussh kai", "agent one"} else name
+    )
 
 
 def _to_bool(value: Any, *, default: bool = False) -> bool:

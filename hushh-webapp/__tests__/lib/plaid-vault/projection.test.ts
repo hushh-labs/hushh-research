@@ -1,7 +1,7 @@
+import { EARLIER, link, linkedFirstPlatypus } from "./projection-fixture";
 import { describe, expect, it } from "vitest";
 
 import {
-  applyConnectionLink,
   applySnapshot,
   amountBand,
   recomputeDerived,
@@ -36,32 +36,6 @@ import {
   smallInstitutionSnapshot,
   tartanSandboxSnapshot,
 } from "./fixtures";
-
-const EARLIER = "2026-09-23T11:00:00.000Z";
-
-function link(
-  financial: FinancialDomain | null,
-  itemId: string,
-  institution: { id: string; name: string },
-  now = EARLIER
-): FinancialDomain {
-  return applyConnectionLink(
-    financial,
-    {
-      item_id: itemId,
-      access_token: `access-sandbox-${itemId}-secret`,
-      institution,
-      products: ["transactions", "investments"],
-    },
-    now
-  );
-}
-
-function linkedFirstPlatypus(itemId = "item_fp_a", prefix = "fpa", base: FinancialDomain | null = null) {
-  const snapshot = firstPlatypusSnapshot(itemId, prefix);
-  const linked = link(base, itemId, FIRST_PLATYPUS);
-  return { snapshot, financial: applySnapshot(linked, itemId, snapshot, NOW) };
-}
 
 describe("applyConnectionLink", () => {
   it("writes the connection with the sealed token and an empty cursor", () => {

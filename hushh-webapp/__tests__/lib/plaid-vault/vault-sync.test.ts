@@ -1,41 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ACCESS_TOKEN,
+  client,
+  coordinator,
+  domainResource,
+  linkLoader,
+  linkPlatform,
+  nativeRuntime,
+  pendingSeal,
+  plans,
+  saveRunsBuild,
+  snapshot,
+} from "./vault-sync-test-fixture";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
-const client = vi.hoisted(() => ({
-  createVaultLinkToken: vi.fn(),
-  exchangeVaultPublicToken: vi.fn(),
-  fetchVaultSnapshot: vi.fn(),
-  removeVaultItem: vi.fn(),
-}));
-const coordinator = vi.hoisted(() => ({ saveMergedDomain: vi.fn() }));
-const domainResource = vi.hoisted(() => ({ prepareDomainWriteContext: vi.fn() }));
-const linkLoader = vi.hoisted(() => ({ loadPlaidLink: vi.fn() }));
-const pendingSeal = vi.hoisted(() => ({
-  recordPendingSeal: vi.fn(),
-  clearPendingSeal: vi.fn(),
-  recoverPendingSeals: vi.fn(),
-}));
-const linkPlatform = vi.hoisted(() => ({ value: "ios" as "ios" | "android" | "web" }));
-const nativeRuntime = vi.hoisted(() => ({
-  isNativePlatform: vi.fn(() => false),
-  get: vi.fn(),
-}));
-
-vi.mock("@/lib/kai/plaid-vault/vault-client", () => client);
-vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: (...args: unknown[]) => nativeRuntime.isNativePlatform(...args) } }));
-vi.mock("@capacitor/preferences", () => ({ Preferences: { get: (...args: unknown[]) => nativeRuntime.get(...args) } }));
-vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: coordinator }));
-vi.mock("@/lib/capacitor/plaid-link", () => ({ resolvePlaidLinkPlatform: async () => linkPlatform.value }));
-vi.mock("@/lib/kai/brokerage/plaid-redirect-uri", async (importActual) => ({
-  ...(await importActual<typeof import("@/lib/kai/brokerage/plaid-redirect-uri")>()),
-  resolvePlaidRedirectUri: () => "https://uat.one.hushh.ai/one/kai/plaid/oauth/return",
-}));
-vi.mock("@/lib/kai/brokerage/plaid-link-loader", () => linkLoader);
-vi.mock("@/lib/kai/plaid-vault/pending-seal", () => pendingSeal);
-vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: domainResource }));
-
 import { loadPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
-import { PLAID_VAULT_SOURCE_MANAGED_BRANCHES } from "@/lib/kai/plaid-vault/types";
+import { readFinancialNws } from "@/lib/kai/plaid-vault/nws-financial-report";
+import { PLAID_VAULT_SOURCE_MANAGED_BRANCHES, type FinancialDomain } from "@/lib/kai/plaid-vault/types";
 import {
   buildVaultPlaidStatus,
   completeVaultOAuthReturn,
@@ -47,63 +28,6 @@ import {
   revokeAllVaultPlaidAtPlaid,
   sealVaultPlaidConnection,
 } from "@/lib/kai/plaid-vault/vault-sync";
-
-const ACCESS_TOKEN = "access-sandbox-0000aaaa-1111-2222-3333-444455556666";
-
-function snapshot(overrides: Record<string, unknown> = {}) {
-  return {
-    item: { item_id: "item_1", institution_id: "ins_109508", products: ["transactions"], consented_products: [], error: null },
-    accounts: [
-      {
-        account_id: "acc_chk",
-        persistent_account_id: null,
-        name: "Plaid Checking",
-        official_name: "Plaid Gold Standard 0% Interest Checking",
-        mask: "0000",
-        type: "depository",
-        subtype: "checking",
-        balances: { available: 100, current: 110, limit: null, iso_currency_code: "USD" },
-      },
-    ],
-    investments: { unavailable: "PRODUCTS_NOT_SUPPORTED" },
-    transactions: { added: [], modified: [], removed: [], next_cursor: "cursor-1", has_more: false, pages: 1 },
-    ...overrides,
-  };
-}
-
-/** Run the coordinator's build against a given current memory, like the real one. */
-const plans: Array<{ domainData: unknown; mergeDecision?: { merge_mode?: string } }> = [];
-
-function saveRunsBuild(current: Record<string, unknown> = {}) {
-  coordinator.saveMergedDomain.mockImplementation(async (params: { build: (c: unknown) => unknown }) => {
-    const plan = params.build({ currentDomainData: current }) as (typeof plans)[number];
-    plans.push(plan);
-    return { success: true, fullBlob: { financial: plan.domainData } };
-  });
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.unstubAllEnvs();
-  linkPlatform.value = "ios";
-  window.sessionStorage.clear();
-  nativeRuntime.isNativePlatform.mockReturnValue(false);
-  nativeRuntime.get.mockResolvedValue({ value: null });
-  plans.length = 0;
-  client.exchangeVaultPublicToken.mockResolvedValue({
-    access_token: ACCESS_TOKEN,
-    item_id: "item_1",
-    institution: { id: "ins_109508", name: "First Platypus Bank" },
-    products: ["transactions"],
-    consented_products: ["transactions", "investments"],
-  });
-  client.fetchVaultSnapshot.mockResolvedValue(snapshot());
-  client.removeVaultItem.mockResolvedValue({ removed: true });
-});
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
 
 describe("local Plaid sandbox proof marker", () => {
   it("keeps ordinary Link-token requests unmarked", async () => {
@@ -204,6 +128,27 @@ describe("sealing a new Plaid connection", () => {
     expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
     expect(client.fetchVaultSnapshot.mock.calls[1]![0].transactionsCursor).toBe("c1");
     expect(sealed.financial.connections_v1?.["item_1"]?.transactions_cursor).toBe("c2");
+  });
+
+  it("restarts from the original cursor after a mutation across snapshot requests", async () => {
+    saveRunsBuild();
+    client.fetchVaultSnapshot
+      .mockResolvedValueOnce(snapshot({ transactions: { added: [], modified: [], removed: [], next_cursor: "stale", has_more: true, pages: 10 } }))
+      .mockResolvedValueOnce(snapshot({ transactions: { unavailable: "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION" } }))
+      .mockResolvedValueOnce(snapshot({ transactions: { added: [], modified: [], removed: [], next_cursor: "fresh", has_more: false, pages: 1 } }));
+
+    const sealed = await sealVaultPlaidConnection({
+      userId: "owner",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      publicToken: "public-sandbox-abc",
+      surface: "web",
+    });
+
+    expect(client.fetchVaultSnapshot.mock.calls.map(([request]) => [
+      request.transactionsCursor, request.transactionsContinuation === true,
+    ])).toEqual([[null, false], ["stale", true], [null, false]]);
+    expect(sealed.financial.connections_v1?.item_1?.transactions_cursor).toBe("fresh");
   });
 });
 
@@ -584,11 +529,17 @@ describe("a bank's OAuth login on the web", () => {
     expect(loadPlaidOAuthResumeSession()).toBeNull();
   });
 
-  it("finishes on the return page: re-opens Link with the bank's parameters and seals", async () => {
+  it("returns a Profile link to the score with usable balances before history completes", async () => {
     linkThat("leaves");
-    void connectVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+    const successReturnPath = "/one/profile?panel=net-worth-score";
+    void connectVaultPlaid({
+      userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot",
+      originSurface: "profile_nws", successReturnPath,
+    });
     await vi.waitFor(() => expect(received).toHaveLength(1));
     const session = loadPlaidOAuthResumeSession()!;
+    expect(session).toMatchObject({ originSurface: "profile_nws", successReturnPath });
+    expect(client.createVaultLinkToken.mock.calls[0]![0].request.origin_surface).toBe("profile_nws");
 
     linkThat("success");
     const outcome = await completeVaultOAuthReturn({
@@ -602,6 +553,9 @@ describe("a bank's OAuth login on the web", () => {
     expect(outcome).toMatchObject({ kind: "connect", result: { status: "connected", itemId: "item_1" } });
     expect(received.at(-1)).toMatchObject({ token: "link-web", receivedRedirectUri: `${REDIRECT}?oauth_state_id=abc` });
     expect(coordinator.saveMergedDomain.mock.calls[0]![0].confirmation.surface).toBe("web");
+    expect(readFinancialNws(plans.at(-1)?.domainData as FinancialDomain)).toMatchObject({
+      score: 895, netWorth: 110, coverageReasons: expect.arrayContaining(["history_incomplete"]),
+    });
     // Single use.
     expect(loadPlaidOAuthResumeSession()).toBeNull();
   });
@@ -630,8 +584,7 @@ describe("a bank's OAuth login on the web", () => {
   });
 
   it("finishes a relink with a forced refresh and seals nothing new", async () => {
-    domainResource.prepareDomainWriteContext.mockResolvedValue({
-      domainData: {
+    const financial = {
         connections_v1: {
           item_1: {
             access_token: ACCESS_TOKEN,
@@ -643,8 +596,9 @@ describe("a bank's OAuth login on the web", () => {
             status: "needs_relink",
           },
         },
-      },
-    });
+    };
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: financial });
+    saveRunsBuild(financial);
     client.fetchVaultSnapshot.mockResolvedValue(snapshot());
     linkThat("success");
     const outcome = await completeVaultOAuthReturn({

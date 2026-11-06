@@ -18417,6 +18417,153 @@
     },
     {
       "aliases": [
+        "Net Worth Score",
+        "open my net worth score",
+        "connect bank for score"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.profile_net_worth_score",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens the owner\u2019s private Net Worth Score in Profile for bank connections and score coverage.",
+      "execution": {
+        "binding_ref": "route:/one/profile?panel=net-worth-score",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/profile?panel=net-worth-score"
+        }
+      },
+      "goal_id": "goal.route.profile_net_worth_score",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Net Worth Score",
+      "navigation": {
+        "fallback": "/one/profile?panel=net-worth-score",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": false,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "net worth",
+        "financial score",
+        "Plaid bank"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Payouts",
         "link my bank",
         "set up payouts",
@@ -51855,7 +52002,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "635f939ece741a45842d90768aecf47f6f44929bd1e22ca159e725982af00b83",
+      "projection_digest": "31f5bb68e0a93823b5222f09d1aaa2432043bda5c57ee62bd8f0b45873530dda",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51874,7 +52021,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "dc6ce006c8528745",
+      "source_revision": "3c84b78e51438c4a",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -53392,7 +53539,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "dc6ce006c8528745",
+    "source_revision": "3c84b78e51438c4a",
     "web": {
       "actions": [
         {
@@ -53435,7 +53582,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "5f4a28dfc56ca0ede17c96901a4db67c7c7b259ef3ddd8604426ee1b64cb4b96",
+      "projection_digest": "71feb8e2e95c511063a7498abb6bcfa5bb7f099bd8d6d44d3d53154ade0242b5",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53454,7 +53601,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "dc6ce006c8528745",
+      "source_revision": "3c84b78e51438c4a",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -55011,7 +55158,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "dc6ce006c8528745",
+  "revision": "3c84b78e51438c4a",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -56010,6 +56157,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -56064,6 +56212,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -56100,6 +56249,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",
@@ -57006,21 +57156,17 @@
   ],
   "semantic_diff": {
     "added": [
-      "actions:connect.explore_network",
-      "actions:people.profile.browse_network",
-      "actions:profile.network_visibility.choose"
+      "actions:route.profile_net_worth_score"
     ],
     "breaking": [],
     "changed": [
-      "screens:screen:/one/connect",
-      "services:service.connections",
-      "workflows:workflow.setup.connections"
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone"
     ],
     "compatible": [],
-    "deprecated": [
-      "workflows:workflow.setup.connections"
-    ],
-    "from_revision": "3279e59cde1d20fa",
+    "deprecated": [],
+    "from_revision": "dc6ce006c8528745",
     "migrated": [],
     "removed": []
   },
@@ -59379,18 +59525,18 @@
     "capability_graph_evolution": "09efd70e46a57ab620988855c65c0bf4a0ae7d811525372a98a279a2d0b03d25",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "3212bbe9c43c041049c076c70ece38c0d47e0ef07a15cd9e8af8b29950f5c96f",
+    "kai_action_gateway": "334f8d054892ad62ac5d3a0b75a2c82e09ac82c47142030dd4ae86460d3306f1",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "30061f8d855f401f5bc0b084146ca97fa9f53a0046d1de74ee955de2e67adb54",
-    "route_orchestration_index": "712937cbad6ea121e1e308f66973c5c5f66420a4425aa80dcc0b8b5e52ea2f37",
+    "product_agent_registry": "8f07cc26adb1ad9ec8a1abfa9a230f57467c6a381447e67cccbcd63ff489c7f2",
+    "route_orchestration_index": "6fa03e0e1eaf08e87e69a5a01920e6e8ece8de5e394c63689985dc33238736aa",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "dc6ce006c8528745",
+  "source_revision": "3c84b78e51438c4a",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "dc6ce006c8528745",
+    "current_graph_revision": "3c84b78e51438c4a",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -59720,6 +59866,7 @@
           "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
+          "dc6ce006c8528745",
           "dc84474d7b197bb0",
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
@@ -59895,6 +60042,7 @@
           "da2d10114db8c364",
           "da71e0a6ad9e3e1d",
           "db2187647b28df19",
+          "dc6ce006c8528745",
           "dc84beb721eb8553",
           "dd0bf20a1ad852d3",
           "de6d576a06f1dde6",
@@ -59926,6 +60074,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "dc6ce006c8528745",
           "fdf3e8c081a8528a"
         ],
         "migration_required_graph_revisions": [],
@@ -60539,6 +60688,7 @@
           "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
+          "dc6ce006c8528745",
           "dc84474d7b197bb0",
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
@@ -60991,6 +61141,7 @@
           "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
+          "dc6ce006c8528745",
           "dc84474d7b197bb0",
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
@@ -61383,6 +61534,7 @@
           "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
+          "dc6ce006c8528745",
           "dc84474d7b197bb0",
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
@@ -61773,6 +61925,7 @@
           "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
+          "dc6ce006c8528745",
           "dc84474d7b197bb0",
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
@@ -62165,6 +62318,7 @@
           "db2187647b28df19",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
+          "dc6ce006c8528745",
           "dc84474d7b197bb0",
           "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
