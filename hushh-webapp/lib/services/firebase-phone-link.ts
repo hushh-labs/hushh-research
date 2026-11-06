@@ -1,3 +1,5 @@
+export type PhoneLinkConflict = { temporaryProof: string; phoneNumber: string };
+
 /** Confirm an SMS against an existing Firebase user without adopting a phone session. */
 export async function linkFirebasePhone({
   apiKey, tenantId, idToken, uid, phoneNumber, sessionInfo, code,
@@ -9,7 +11,7 @@ export async function linkFirebasePhone({
   phoneNumber: string;
   sessionInfo: string;
   code: string;
-}): Promise<void> {
+}): Promise<PhoneLinkConflict | void> {
   const fail = (code: string) => Object.assign(new Error("Phone verification did not complete."), { code });
   if (!apiKey || !idToken) throw fail("phone_verification_failed");
 
@@ -47,7 +49,11 @@ export async function linkFirebasePhone({
         default: throw fail(response.status >= 500 ? "network-request-failed" : "phone_verification_failed");
       }
     }
-    if (reply?.temporaryProof) throw fail("credential-already-in-use");
+    if (reply?.temporaryProof) {
+      if (reply.phoneNumber !== phoneNumber || reply.isNewUser === true) throw fail("phone_verification_failed");
+      // Continue this verified SMS in memory; never replay a consumed code.
+      return { temporaryProof: reply.temporaryProof, phoneNumber };
+    }
     if (reply?.localId !== uid || reply.phoneNumber !== phoneNumber || reply.isNewUser === true) {
       throw fail("phone_verification_failed");
     }

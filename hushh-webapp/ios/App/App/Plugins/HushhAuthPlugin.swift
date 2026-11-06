@@ -120,6 +120,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "authorizeGoogleContacts", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reauthenticateAppleIdentity", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startPhoneLinkVerification", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmPhoneVerificationProof", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelPhoneVerificationProof", returnType: CAPPluginReturnPromise),
@@ -168,6 +169,10 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func startPhoneVerificationProof(_ call: CAPPluginCall) {
+        startPhoneDeletionVerification(call)
+    }
+
+    @objc func startPhoneLinkVerification(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             guard let proof = self.deletionPhoneProof else {
                 call.reject("Phone verification is unavailable.", "phone_verification_failed"); return

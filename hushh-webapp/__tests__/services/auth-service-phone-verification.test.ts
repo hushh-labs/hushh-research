@@ -3,7 +3,7 @@ const state = vi.hoisted(() => ({
   auth: { currentUser: null as any },
   capacitor: { isNativePlatform: vi.fn(), getPlatform: () => "ios" },
   phoneProvider: vi.fn(),
-  proof: { startPhoneVerificationProof: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn(), reauthenticateAppleIdentity: vi.fn(), signIn: vi.fn() },
+  proof: { startPhoneVerificationProof: vi.fn(), startPhoneLinkVerification: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn(), reauthenticateAppleIdentity: vi.fn(), signIn: vi.fn() },
   native: { addListener: vi.fn(), linkWithPhoneNumber: vi.fn(),
     confirmVerificationCode: vi.fn(), reload: vi.fn(), unlink: vi.fn() },
 }));
@@ -74,19 +74,19 @@ describe("AuthService phone proof integration", () => {
     const owner = { uid: "new-native-owner", phoneNumber: null };
     const restore = vi.spyOn(AuthService, "restoreNativeSession").mockReturnValueOnce(oldRestore.promise).mockResolvedValue(owner as any);
     state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
     mockAuth.currentUser = owner;
     let failure: any;
     const pending = AuthService.startPhoneLinkVerification("+16505550101").catch(error => { failure = error; });
     await vi.advanceTimersByTimeAsync(120_000);
     expect(failure).toMatchObject({ code: "phone-verification-start-timeout" });
     await pending;
-    expect(state.proof.startPhoneVerificationProof).not.toHaveBeenCalled();
+    expect(state.proof.startPhoneLinkVerification).not.toHaveBeenCalled();
     const controller = new AbortController();
     await expect(AuthService.startPhoneLinkVerification("+16505550101", { signal: controller.signal })).resolves.toMatchObject({ autoVerified: false });
     oldRestore.resolve({ uid: "retired-native-owner" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledTimes(1);
     expect(restore).toHaveBeenCalledTimes(2);
     controller.abort();
   });
@@ -97,7 +97,7 @@ describe("AuthService phone proof integration", () => {
     mockAuth.currentUser = owner;
     const restore = vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(owner);
     state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
     await AuthService.startPhoneLinkVerification("+16505550101");
     const restoring = deferred<any>(), cancelling = deferred<void>();
     restore.mockReturnValueOnce(restoring.promise);
@@ -110,12 +110,12 @@ describe("AuthService phone proof integration", () => {
     await vi.advanceTimersByTimeAsync(20_000);
     expect(failure).toMatchObject({ code: "phone-verification-start-timeout" });
     await pending;
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(1);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledTimes(1);
     const controller = new AbortController();
     await AuthService.startPhoneLinkVerification("+16505550101", { signal: controller.signal });
     cancelling.resolve();
     await vi.advanceTimersByTimeAsync(0);
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledTimes(2);
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledTimes(2);
     controller.abort();
   });
 
@@ -126,17 +126,17 @@ describe("AuthService phone proof integration", () => {
     state.proof.cancelPhoneVerificationProof.mockResolvedValue(undefined);
     const late = deferred<any>();
     let oldAttempt = "";
-    state.proof.startPhoneVerificationProof.mockImplementationOnce(({ attemptId }) => { oldAttempt = attemptId; return late.promise; });
+    state.proof.startPhoneLinkVerification.mockImplementationOnce(({ attemptId }) => { oldAttempt = attemptId; return late.promise; });
     const retired = new AbortController();
     const pending = AuthService.startPhoneLinkVerification("+16505550101", { signal: retired.signal });
     await vi.waitFor(() => expect(oldAttempt).not.toBe(""));
     const rejected = expect(pending).rejects.toMatchObject({ code: "session_changed" });
     retired.abort();
     await rejected;
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({ attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent }));
     const current = new AbortController();
     const fresh = await AuthService.startPhoneLinkVerification("+16505550101", { resendCode: true, signal: current.signal });
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenLastCalledWith(expect.objectContaining({ resendCode: true }));
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenLastCalledWith(expect.objectContaining({ resendCode: true }));
     late.resolve({ attemptId: oldAttempt, verificationId: oldAttempt });
     await Promise.resolve();
     const linked = { ...owner, phoneNumber: "+16505550101" };
@@ -153,7 +153,7 @@ describe("AuthService phone proof integration", () => {
     const primary = { uid: "native-user", phoneNumber: intent === "replace" ? "+16505550100" : null, getIdToken: vi.fn().mockResolvedValue("native-email-session") } as any;
     const linked = { ...primary, phoneNumber: "+16505550101" };
     mockAuth.currentUser = primary;
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId, linkIntent }) => ({
+    state.proof.startPhoneLinkVerification.mockImplementation(async ({ attemptId, linkIntent }) => ({
       attemptId, verificationId: attemptId, providerVerificationId: "native-provider-challenge", linkIntent,
     }));
     vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue(primary);
@@ -175,7 +175,7 @@ describe("AuthService phone proof integration", () => {
       ? await AuthService.confirmPhoneReplacementVerification(params)
       : await AuthService.confirmPhoneLinkVerification(params);
     expect(result).toBe(linked);
-    expect(state.proof.startPhoneVerificationProof).toHaveBeenCalledWith(expect.objectContaining({
+    expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledWith(expect.objectContaining({
       linkIntent: intent, expectedUserId: primary.uid,
     }));
     expect(JSON.parse(exchange.mock.calls[0][1].body)).toEqual({
@@ -189,10 +189,11 @@ describe("AuthService phone proof integration", () => {
 
   it("refuses to confirm on an older native bridge that can only mint a separate phone session", async () => {
     vi.spyOn(AuthService, "restoreNativeSession").mockResolvedValue({ uid: "native-user", phoneNumber: null } as any);
-    state.proof.startPhoneVerificationProof.mockImplementation(async ({ attemptId }) => ({ attemptId, verificationId: attemptId }));
+    state.proof.startPhoneLinkVerification.mockRejectedValue({ code: "UNIMPLEMENTED" });
     await expect(AuthService.startPhoneLinkVerification("+16505550101")).rejects.toMatchObject({
       code: "phone-link-upgrade-required",
     });
+    expect(state.proof.startPhoneVerificationProof).not.toHaveBeenCalled();
     expect(state.proof.cancelPhoneVerificationProof).toHaveBeenCalled();
     expect(state.proof.confirmPhoneVerificationProof).not.toHaveBeenCalled();
   });

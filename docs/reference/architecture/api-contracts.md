@@ -713,9 +713,16 @@ Web, iOS, and Android confirm ordinary SMS challenges with Identity Platform.
 Clients include the current user's ID token so Firebase links or updates the
 number on that UID. Clients check the returned UID and number and discard the
 returned session tokens. They reload the existing user to keep its independent
-sign-in. Native starts bind the challenge to the captured user, attempt, and
-link intent. A bridge that cannot acknowledge the intent cannot confirm the
-challenge through this flow.
+sign-in. Native `startPhoneLinkVerification` binds the challenge to the captured
+user, attempt and link intent. Older binaries lack this distinct method and
+refuse before SMS dispatch; clients never fall back to the legacy proof method.
+The legacy Android proof method remains manual-only.
+
+On a provider link conflict, the verified `temporaryProof` continues through the
+existing isolated proof service instead of replaying the SMS code. Its phone
+ID token stays in memory, bound to the current user, phone and verification
+attempt. It is cleared on resend, retirement, owner change, unmount or success.
+Ordinary successful links never create a secondary sign-in session.
 
 After linking, clients send `{ "verified_phone_number": "+…" }` through the
 existing account proxy or shared native transport. The backend reads the current
