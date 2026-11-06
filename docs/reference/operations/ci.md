@@ -107,7 +107,7 @@ Mark appearance-only browser cases with `@presentation` so explicit diagnostic
 commands retain them while required functional runs exclude them. Do not apply
 that tag to interaction, accessibility, consent, identity or recovery contracts.
 
-## Queue response ceiling
+## Queue response and build limits
 
 Main, Dev and UAT allow 120 minutes for required queue checks to return. This is
 an expiry ceiling, not a runtime target: GitHub previously removed valid entries
@@ -118,7 +118,12 @@ or cancelled required checks into success to avoid expiry.
 The bounded repair command is `python3 scripts/ci/apply-governance.py --queue-timeouts`
 for inspection, followed by `--apply` for an approved policy change. It validates
 all three scopes first, preserves every other rule and actor, refuses intervening
-changes and verifies each write. It does not deploy or alter team membership.
+changes and verifies each write. It does not deploy or alter team membership. Its retained
+`--queue-timeouts` flag applies only the reviewed response ceiling and build
+concurrency; merge method, merge limits, reviews, bypasses and conditions stay
+unchanged. Missing build policy preserves historical scheduling. Apply only after
+the reviewed policy lands and active groups settle; record native readback.
+
 
 ## Manual deployment paths
 
@@ -1081,6 +1086,16 @@ A dispatch publishes **Branch Validation Gate**, while a pull request retains **
 `deploy-dev.yml` accepts a qualified Dev branch gate. Exact full-scope UAT qualification also verifies its Branch Validation Gate through `uat_exact_ci.py`; partial diagnostics cannot qualify a release. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. Production does not accept an arbitrary manual branch check; its predecessor must be the corresponding accepted UAT release. Queue and PR branch protection do not substitute a manual branch check for PR evidence. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
+
+GitHub build concurrency is one group per destination. The current admission
+contract roots each group at the landed tip: validate `Head + A`, land it only
+on success, then validate the next candidate against the updated tip. A failed A
+never becomes B's base. Different destination queues remain independent; valid
+exact-input receipts can still avoid another test run. Parallel speculative
+`Head + A + B` builds remain unqualified until the complete predecessor chain
+and its settlement are verified. Do not enable them merely by raising the
+GitHub limit. Finish active ordinary groups before nonurgent owner Admin syncs;
+batch operations deltas to avoid repeatedly invalidating their tested base.
 
 Queue admission reads its authority helpers from the protected destination. Git
 parents and the complete queue inventory establish every included PR and actual

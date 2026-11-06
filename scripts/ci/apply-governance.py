@@ -1069,7 +1069,7 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
 
 
 def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
-    """Repair response ceilings without changing membership or merge protections."""
+    """Repair reviewed queue limits without changing membership or merge protections."""
     from prepared_branch_governance import _write, queue_rules
 
     index = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
@@ -1096,7 +1096,7 @@ def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
     for branch, endpoint, before, desired in plans:
         differs = before["rules"] != desired["rules"]
         changed |= differs
-        print(f"  {branch}: queue response ceiling change={differs}")
+        print(f"  {branch}: queue limit change={differs}")
         if apply and differs:
             # Never replace another operator's intervening policy change.
             if gh_json(["api", endpoint]) != before:
@@ -1122,7 +1122,7 @@ def main() -> int:
     ap.add_argument("--protected-pipeline-review-policy", action="store_true",
                     help="Stage A: add independent native path review while retaining all existing safeguards.")
     ap.add_argument("--queue-timeouts", action="store_true",
-                    help="Reconcile only Main/Dev/UAT queue response ceilings; preserve every other control.")
+                    help="Reconcile reviewed queue response/build limits; preserve merge and review authority.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
@@ -1130,7 +1130,7 @@ def main() -> int:
     policy = load_policy()
     if args.queue_timeouts:
         if args.branch or args.main_review_policy or args.main_merge_policy or args.protected_pipeline_review_policy:
-            raise SystemExit("Queue timeout repair cannot be combined with another governance operation")
+            raise SystemExit("Queue limit repair cannot be combined with another governance operation")
         reconcile_queue_timeouts(policy, apply=args.apply)
         return 0
 
