@@ -500,6 +500,7 @@ jobs:
           cp deploy/drive/document_reader_compatibility.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
@@ -1054,15 +1055,17 @@ jobs:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           RUN_LIVE_MODEL_CHECKS: ${{ inputs.run_live_model_checks && 'true' || 'false' }}
+          RUN_BROWSER_DIAGNOSTICS: ${{ inputs.repeat_reviewer_byok && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/resolve-uat-verification-plan.py \
+          python3 "${RUNNER_TEMP}/release-tools/resolve-uat-verification-plan.py" \
             --target-sha "${TARGET_SHA}" \
             --backend-base-sha "${BACKEND_BASE_SHA}" \
             --frontend-base-sha "${FRONTEND_BASE_SHA}" \
             --deploy-backend "${DEPLOY_BACKEND}" \
             --deploy-frontend "${DEPLOY_FRONTEND}" \
             --run-live-model-checks "${RUN_LIVE_MODEL_CHECKS}" \
+            --run-browser-diagnostics "${RUN_BROWSER_DIAGNOSTICS:-false}" \
             --github-output "$GITHUB_OUTPUT" \
             --json-output /tmp/uat-verification-plan.json
 
