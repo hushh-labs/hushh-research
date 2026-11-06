@@ -17,6 +17,26 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
+## Dev deletion incident — 5 November 2026
+
+The managed pilot and its PR workflow remain paused. The current work repairs
+an already-fenced personal GCP cloud removal before resuming pilot work. The
+minimal fresh-path correction refuses unsupported legacy custody before fencing;
+an explicit Dev-only recovery journals native identity, owner approval, provider
+settlement and supervised writer exit on the existing lifecycle row. The UI
+offers a usable exit and works in a background tab. The personal project remains.
+
+Local qualification passed 190 backend cases, 38 UI cases and 513 Back cases;
+the actual 18-resource native inspection passes the migration-985 plan validator
+in disposable PostgreSQL. Fourteen additional operator regressions and independent
+source review close historical-bucket absence, Memory-binding drift and interrupted
+cleanup resume. Migration 985, CI, Dev deployment and the live owner
+journey are still pending. No cleanup or Firebase identity mutation has occurred.
+The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
+owns the recovery procedure and historical phone-identity findings. Seven
+phone-only Firebase candidates have production vaults and require protection;
+a missing email is insufficient authority for historical deletion.
+
 ## Dev owner-cloud acceptance — 2 November 2026
 
 The existing GCP and Azure storage/custody architecture is retained. Configured
