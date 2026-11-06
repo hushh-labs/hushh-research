@@ -136,6 +136,35 @@ def test_uat_directory_and_index_refuse_production_firebase_before_query(monkeyp
     lookup.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_uat_directory_uses_shared_sign_in_with_uat_catalog_and_cursor(uat, monkeypatch):
+    from firebase_admin import auth
+
+    app = SimpleNamespace(project_id="hushh-pda")
+    monkeypatch.setattr(audience, "get_firebase_auth_app", lambda: app)
+    listing = Mock(
+        return_value=SimpleNamespace(users=[], **{"next_page_token": "next-identity-page"})
+    )
+    monkeypatch.setattr(auth, "list_users", listing)
+    monkeypatch.setattr(
+        audience, "reporting_policy", Mock(side_effect=AssertionError("No Production reporting"))
+    )
+    monkeypatch.setattr(
+        audience, "get_pool", AsyncMock(side_effect=AssertionError("Empty page needs no data read"))
+    )
+    request = audience.AudienceRequest()
+    result = await audience.audience_page(request, KEY, NOW, environment="uat")
+    listing.assert_called_once_with(page_token=None, max_results=25, app=app)
+    assert result["environment"] == "uat" and result["customerReporting"] is False
+    assert result["deliveryAuthorized"] is False and result["rows"] == []
+    available = {agent["id"]: agent["available"] for agent in result["catalog"]["agents"]}
+    assert available["agent_documents"] is True and available["agent_files"] is False
+    following = request.model_copy(update={"cursor": result["nextCursor"]})
+    assert audience._cursor(following, KEY, NOW, "hushh-pda-uat")[0] == "next-identity-page"
+    with pytest.raises(audience.AudienceCursorError):
+        audience._cursor(following, KEY, NOW, "hushh-pda")
+
+
 class Context:
     def __init__(self, value):
         self.value = value
@@ -191,7 +220,7 @@ async def test_uat_directory_includes_team_but_excludes_deleted_disabled_and_ano
         AsyncMock(return_value={uid: {"count": 0} for uid in ("team", "user")}),
     )
     result = await audience.audience_page(audience.AudienceRequest(), KEY, NOW, environment="uat")
-    source.assert_called_once_with(None, project="hushh-pda-uat")
+    source.assert_called_once_with(None)
     assert set(active.await_args.kwargs["user_ids"]) == {"team", "user", "deleted"}
     assert result["environment"] == "uat" and result["version"] == 2
     assert result["customerReporting"] is False and result["deliveryAuthorized"] is False
@@ -205,7 +234,7 @@ async def test_uat_directory_includes_team_but_excludes_deleted_disabled_and_ano
     await audience.audience_page(
         audience.AudienceRequest(segment="failed"), KEY, NOW, environment="uat"
     )
-    assert filtered.await_args.kwargs == {"project": "hushh-pda-uat"}
+    assert filtered.await_args.kwargs == {}
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda")
     with pytest.raises(ValueError, match="unavailable"):
         await audience.audience_page(audience.AudienceRequest(), KEY, NOW, environment="uat")

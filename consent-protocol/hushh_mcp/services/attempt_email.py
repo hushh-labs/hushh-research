@@ -275,7 +275,7 @@ async def claim(uid: str, delivery_id: UUID, claim_id: UUID):
         )
         if not row or row["status"] != "pending":
             return None
-        catalog = activity_catalog()
+        catalog = activity_catalog(lane)
         action = next((a for a in catalog["actions"] if a["id"] == row["action_id"]), None)
         agent = next((a for a in catalog["agents"] if a["id"] == row["agent_id"]), None)
         current = (
