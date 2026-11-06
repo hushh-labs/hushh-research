@@ -69,7 +69,7 @@ Non-owned surfaces:
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
 7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
 8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
-9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, and the paid candidate evaluator runs only with `run_live_model_checks=true`; reviewer BYOK is independently selected for vault/reviewer contracts. A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted one fails closed, and the artifact keeps each accepted base's receipt. Never replace this selector with a workflow-local path list.
+9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, and the paid candidate evaluator runs only with `run_live_model_checks=true`; app-browser reviewer BYOK runs only when explicitly requested with `repeat_reviewer_byok=true` (two read-only passes). A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted one fails closed, and the artifact keeps each accepted base's receipt. Never replace this selector with a workflow-local path list.
 
 ## Handoff Rules
 

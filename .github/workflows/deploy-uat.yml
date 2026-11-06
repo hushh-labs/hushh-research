@@ -76,7 +76,7 @@ on:
         default: false
         type: boolean
       repeat_reviewer_byok:
-        description: "Explicitly run read-only app-browser diagnostics; no automatic browser rehearsal"
+        description: "Explicit read-only app-browser diagnostic (two passes); off by default"
         required: false
         default: false
         type: boolean

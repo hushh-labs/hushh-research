@@ -4262,7 +4262,7 @@ jobs:
                   "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
                   "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
                   "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
-                  "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
+                  "reviewer_byok_required": "${{ inputs.repeat_reviewer_byok }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
                   "parity_success": "${{ steps.classify-uat-release.outputs.parity_success }}",
@@ -4274,7 +4274,7 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
-                  "reviewer_byok_passes_requested": "${{ steps.verification-plan.outputs.run_reviewer_byok == 'true' && (inputs.repeat_reviewer_byok && '2' || '1') || '0' }}",
+                  "reviewer_byok_passes_requested": "${{ inputs.repeat_reviewer_byok && '2' || '0' }}",
                   "reviewer_byok_passes_completed": "${{ steps.verify-reviewer-byok.outputs.passes_completed || '0' }}",
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
@@ -4466,7 +4466,7 @@ jobs:
             echo "- PKM evaluator runs: \`${{ steps.verification-plan.outputs.pkm_evaluator_runs }}\`"
             echo "- Candidate PKM evaluator outcome (advisory): \`${{ steps.verify-candidate-pkm-evaluator.outputs.outcome || (steps.verification-plan.outputs.pkm_evaluator_runs == '0' && 'skipped' || 'not_run') }}\`"
             echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
-            echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"
+            echo "- Reviewer BYOK diagnostic requested: \`${{ inputs.repeat_reviewer_byok }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
             echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"

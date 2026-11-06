@@ -435,6 +435,14 @@ def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
             i for i, step in enumerate(steps) if step.get("id") == consumer
         )
     assert install["timeout-minutes"] == 8
+    # Published acceptance must describe the requested diagnostic, not the old
+    # changed-path recommendation after its automatic execution was removed.
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
+    assert '"reviewer_byok_required": "${{ inputs.repeat_reviewer_byok }}"' in workflow
+    assert (
+        "\"reviewer_byok_passes_requested\": \"${{ inputs.repeat_reviewer_byok && '2' || '0' }}\""
+        in workflow
+    )
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert "uat-chromium" in cache["with"]["key"]
     assert cache["if"] == "inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
