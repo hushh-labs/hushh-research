@@ -912,7 +912,7 @@ describe("CalendarConnectedWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Previous day", exact: true }));
     await waitFor(() => expect(mocks.today).toHaveBeenLastCalledWith(expect.objectContaining({ date: "2026-10-14" })));
     fireEvent.change(screen.getByLabelText("Selected date"), { target: { value: "2026-10-18" } });
-    fireEvent.click(screen.getByRole("button", { name: "Today", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to today", exact: true }));
     expect(screen.getByLabelText("Selected date")).toHaveValue("2026-10-14");
   });
 

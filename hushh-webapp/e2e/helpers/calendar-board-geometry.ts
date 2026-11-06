@@ -11,15 +11,18 @@ export async function assertCalendarBoardGeometry(page: Page, width: number) {
   if (width >= 901) expect(Math.abs(box!.x - (width - box!.width) / 2)).toBeLessThanOrEqual(1);
 }
 
-export async function assertCalendarAccountLabel(label: Locator, width: number) {
-  const name = label.locator("div").first();
-  const domain = label.locator("span").first();
-  // Profile row label.
-  await expect(name).toHaveCSS("font-size", "13px");
-  await expect(domain).toHaveCSS("font-size", "12px");
-  expect(`${await name.textContent()}${await domain.textContent()}`).toBe(await label.getAttribute("title"));
-  if (width < 901) return;
-  expect(await label.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(40);
+export async function assertCalendarAccountLabel(label: Locator, _width: number) {
+  const address = label;
+  await expect(address).toHaveCSS("font-size", "13px");
+  await expect(address).toHaveCSS("white-space", "nowrap");
+  await expect(address).toHaveCSS("text-overflow", "ellipsis");
+  expect(await address.textContent()).toBe(await label.locator("..").getAttribute("title"));
+  expect(await address.evaluate(element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(await address.evaluate(element => parseFloat(getComputedStyle(element).lineHeight)) + 1);
+  await expect(address).toHaveCSS("overflow", "hidden");
+  const bounds = (await address.boundingBox())!;
+  const container = (await address.locator("../..").boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(container.x);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(container.x + container.width);
 }
 
 /** Verify the three-row cap across meeting and imported-event groups. */
@@ -36,6 +39,14 @@ export async function assertCalendarAccountScroll(page: Page, width: number, scr
   await expect(card.getByText("3 meetings", { exact: true })).toBeVisible();
   await expect(page.getByText("Connected", { exact: true })).toHaveCount(3);
   await expect(page.getByText(/Awaiting your response/i)).toHaveCount(0);
+  const first = events.getByRole("listitem").first();
+  const row = (await first.boundingBox())!;
+  const copy = (await first.getByRole("button", { name: /^Open QA Client Call/ }).boundingBox())!;
+  const action = (await first.getByRole("link", { name: /^Join meeting:/ }).boundingBox())!;
+  expect(copy.x - row.x).toBeGreaterThanOrEqual(9);
+  expect(action.x).toBeGreaterThanOrEqual(copy.x + copy.width);
+  expect(row.x + row.width - action.x - action.width).toBeGreaterThanOrEqual(9);
+  expect(action.height).toBeGreaterThanOrEqual(44);
   const geometry = await events.evaluate(node => ({
     height: node.clientHeight, contentHeight: node.scrollHeight, overflow: getComputedStyle(node).overflowY,
     titleInsets: Array.from(node.querySelectorAll("li")).map(row => row.querySelector("strong")!.getBoundingClientRect().top - row.getBoundingClientRect().top),
