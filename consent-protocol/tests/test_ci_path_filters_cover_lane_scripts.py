@@ -51,9 +51,7 @@ ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 EXPECTED_JOBS = {
     "web-core-check": {"frontend"},
     "web-targeted-check": {"frontend"},
-    "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
-    "document-webkit-check": {"document"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
     "protocol-database-check-two": {"backend"},

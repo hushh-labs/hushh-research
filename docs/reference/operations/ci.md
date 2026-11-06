@@ -1,5 +1,13 @@
 # CI Configuration Reference
 
+App-browser automation is an explicit diagnostic, not a required PR, merge-queue
+or release lane. Required web validation covers build/type correctness and affected
+unit/runtime contracts. Browser-engine-specific document/phone behavior is not
+certified by those non-browser results; use the existing explicit document/browser
+commands when that qualification is requested. One's Browser capability tests are
+separate runtime authority checks and remain selected when affected.
+
+
 > **Branch state:** `dev` is the protected development intake and default Dev
 > deployment source. UAT selects its protected branch independently, with exact
 > candidate CI; first use still requires baseline/history qualification.
@@ -59,9 +67,8 @@ its exact changed-file list. `focused` keeps authority/security checks and
 affected owners; `release` adds core release-authority checks; `diagnostic`
 runs the retained historical full set, including optional hygiene. A full local
 core mirror is for cross-stage dependency changes or diagnosis, not a required
-pre-push step. Safari presentation/performance checks are developer-local. The separate
-Protected Document WebKit check remains required for its native cryptography
-boundary, until the pinned Linux engine passes those regression vectors. Native
+pre-push step. Browser journeys and engine-specific cryptography are explicit
+diagnostics; required runtime/API/database checks do not claim browser-engine proof. Native
 app checks run when native source or its contract changes. Unknown selection stays
 conservative, and security/source-authority gates remain blocking. Dev can
 deploy an exact CI-green branch SHA without merging application content to main.
@@ -93,21 +100,32 @@ Canonical pre-PR command:
 
 Use the actual destination (`origin/main`, `origin/dev` or `origin/uat`). This
 runs affected local owners, validates the PR body and protects core edits. Its
-report lists hosted browser, database and native checks still required; a local
+report lists affected runtime, database and native checks still required; a local
 pass cannot satisfy exact-head hosted admission. Use `--diagnostic` for the
 retained full mirror, optionally with `--include-advisory`.
 
-The browser plan reports unclassified paths before installation. An unclassified
-application dependency retains conservative coverage; known helpers must attach
-to their existing functional browser, unit or compiler owner instead. Shared
-request timeouts retain their direct cancellation/timeout tests, and generated
-workflow cards retain compiler and behavior checks. Pure portrait/frame/geometry
-comparisons stay diagnostic; real interaction and renderer lifecycle checks remain.
-Mark appearance-only browser cases with `@presentation` so explicit diagnostic
-commands retain them while required functional runs exclude them. Do not apply
-that tag to interaction, accessibility, consent, identity or recovery contracts.
+Unknown application impact retains conservative unit/service coverage. Known
+helpers belong to their existing test or compiler owner. Request timeouts retain
+direct cancellation tests. App-browser tests, including layout and interaction
+journeys, run only when explicitly requested; they do not block ordinary PRs,
+combined-result queue checks or release qualification.
 
-## Queue response ceiling
+## Queue response and build limits
+
+PR Validation runs before queue admission. Queue Validation then verifies the
+current combined code; it does not merge or deploy first. A single-PR group can
+reuse its latest successful PR attempt only when the tested base/tree and the
+actual API, merged-tree and integration selection inventories agree. A behind
+branch alone does not disqualify reuse. Changed code, PR-only lane profiles,
+multiple PRs, missing proof or legacy receipts require combined validation.
+
+Main/Dev/UAT use one native queue build at a time. Their CI concurrency is scoped
+to the destination so a rebuilt temporary ref cancels obsolete checks. Legacy
+speculative destinations retain independent per-ref execution. GitHub does not
+guarantee event ordering: a late obsolete event can cancel a newer run, requiring
+rebuild/retry; current-source admission still refuses stale results. Inspect the
+current native group before retrying, rather than repeatedly pushing unchanged
+source. This cancellation policy never applies to deployments or maintenance.
 
 Main, Dev and UAT allow 120 minutes for required queue checks to return. This is
 an expiry ceiling, not a runtime target: GitHub previously removed valid entries
@@ -118,7 +136,12 @@ or cancelled required checks into success to avoid expiry.
 The bounded repair command is `python3 scripts/ci/apply-governance.py --queue-timeouts`
 for inspection, followed by `--apply` for an approved policy change. It validates
 all three scopes first, preserves every other rule and actor, refuses intervening
-changes and verifies each write. It does not deploy or alter team membership.
+changes and verifies each write. It does not deploy or alter team membership. Its retained
+`--queue-timeouts` flag applies only the reviewed response ceiling and build
+concurrency; merge method, merge limits, reviews, bypasses and conditions stay
+unchanged. Missing build policy preserves historical scheduling. Apply only after
+the reviewed policy lands and active groups settle; record native readback.
+
 
 ## Manual deployment paths
 
@@ -697,16 +720,10 @@ jobs.
 
 1. `Web Core` retains install, preflight, docs/design contracts, typecheck, lint
    and the required Next production build for frontend changes.
-2. `Web Targeted Contracts (node)` and `Web Targeted Contracts (browser)` use
-   the same changed-path selector in separate unsharded jobs. The Node job runs
-   selected Node checks without browser setup. The browser job plans before
-   cache restore or installation; a known no-browser selection skips browser
-   work, while unknown selection or planner failure keeps all browser packs
-   enabled. The `CI Status Gate` requires both jobs when frontend paths select
-   them. `scripts/ci/test_web_ci_lane_partition.py` protects the split.
-   Functional planning retains every authored Chromium or mobile-Chrome project,
-   including commands that also name WebKit. Repeated `--project` flags do not
-   replace an earlier selection; unknown projects and unresolved specs refuse.
+2. `Web Targeted Contracts (node)` runs the existing selected non-browser
+   commands. It installs no browser, runs no layout matrix and emits no synthetic
+   browser artifacts. `CI Status Gate` still requires successful selected Node
+   contracts. Browser npm commands remain available as explicit diagnostics.
 3. `Web Unit Contracts` runs affected Vitest cases and contract verifiers from
    `hushh-webapp/scripts/testing/affected-tests.mjs`. Local runs with no explicit
    validation level retain historical full-suite behavior. Governance uses that
@@ -766,30 +783,12 @@ Android-scope verifier and Node failure tests remain in the targeted Node job.
 their owning job. Standalone focused npm commands retain their complete
 behavior; the lane-partition contract protects these boundaries.
 
-The integration document gate installs Chromium on Linux and runs the document
-and Google-phone journeys there. The required macOS `document-webkit-check` job
-runs the document and Apple-phone WebKit journeys. Their exact test identities
-form a complete, non-overlapping partition; local `all` mode retains both engines.
-Installing one engine must never leave another engine's case selected.
-
-Flake budget: in CI each Playwright test gets one retry (`retries` in
-`hushh-webapp/playwright.config.ts`), so a test that fails twice fails its
-browser job; local Safari diagnostics use the same config and budget. The
-browser job's `Install Playwright browsers` step, which
-also runs the web dependency install, is bounded at 8 minutes and retries a
-failed browser install once, so a stalled apt mirror or browser download
-fails the job early instead of holding a runner to the job limit.
-
-Failed synthetic Wallet, connected Calendar, direct-chat and Feed layout runs
-retain `synthetic-layout-failures-<role>` for seven days. The allowlist
-contains only those fixtures' traces, failure screenshots and error context;
-the direct-chat 768x852 keyboard case also retains its synthetic geometry JSON.
-Uploads on cancellation are best-effort because a hard job timeout can stop the
-runner before the upload step. Targeted browser jobs combine GitHub annotations
-with Playwright's line reporter so the active test title remains visible in the
-runner log. Protected reviewer journeys must never enter these artifacts.
-Earlier commands can clear their output; this does not prove retention for
-preceding packs or failures that pass on retry.
+Integration's required `--ci-core` mode retains runtime, account-deletion and
+applicable database contracts without starting an app browser. The existing
+`document-delivery-check.sh` modes are explicit engine-specific diagnostics:
+`all`, `--ci-linux-document` and `--ci-macos-webkit`. Those commands retain their
+actual browser/SQL assertions and platform prerequisites. Their results are not
+implied by a normal CI pass.
 
 Calendar's lock regression holds the next Schedule response while asserting that
 the prior private view is cleared, then releases distinct fresh information.
@@ -1050,7 +1049,9 @@ post-merge smoke on the actual landed SHA.
 Batch a set of fixes before pushing: a newer push cancels the active PR
 validation. For an eligible same-head retry, use
 `./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha>`;
-do not dispatch a standalone security worker. Release alert clearance stays in
+live repository write access is sufficient. This retries only the canonical
+validation and verifies attempt `n+1` on the unchanged source; it grants no merge,
+protected-edit or deployment authority. Do not dispatch a standalone security worker. Release alert clearance stays in
 the protected Deployment Security job of the explicit release workflow.
 
 ### Base freshness on pull requests
@@ -1081,6 +1082,16 @@ A dispatch publishes **Branch Validation Gate**, while a pull request retains **
 `deploy-dev.yml` accepts a qualified Dev branch gate. Exact full-scope UAT qualification also verifies its Branch Validation Gate through `uat_exact_ci.py`; partial diagnostics cannot qualify a release. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. Production does not accept an arbitrary manual branch check; its predecessor must be the corresponding accepted UAT release. Queue and PR branch protection do not substitute a manual branch check for PR evidence. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
+
+GitHub build concurrency is one group per destination. The current admission
+contract roots each group at the landed tip: validate `Head + A`, land it only
+on success, then validate the next candidate against the updated tip. A failed A
+never becomes B's base. Different destination queues remain independent; valid
+exact-input receipts can still avoid another test run. Parallel speculative
+`Head + A + B` builds remain unqualified until the complete predecessor chain
+and its settlement are verified. Do not enable them merely by raising the
+GitHub limit. Finish active ordinary groups before nonurgent owner Admin syncs;
+batch operations deltas to avoid repeatedly invalidating their tested base.
 
 Queue admission reads its authority helpers from the protected destination. Git
 parents and the complete queue inventory establish every included PR and actual
@@ -1326,8 +1337,8 @@ Practical maintainer rule:
    focused profile checks the exact destination diff, PR impact description,
    DCO, protected edits, security and affected local owners; the report keeps
    hosted checks visible as outstanding.
-3. If unsigned commits already exist on the branch, repair them before push with `git rebase --signoff <base>` or a clean signed squash onto `origin/main` when subtree sync or merge repair made the branch history noisy.
-4. After subtree sync, branch merge, rebase, queue repair, or any other history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/main HEAD` immediately before pushing.
+3. If unsigned commits exist, preserve shared history and repair only the owned unpublished commits against the actual PR destination. Do not rewrite another developer's shared branch.
+4. After any history-changing operation, rerun `bash scripts/ci/check-dco-signoff.sh origin/<actual-destination> HEAD` immediately before pushing; verify that destination first.
 5. If a local edit occurs after pre-PR checks, rerun `./bin/hushh codex pre-pr`
    for the current tree. For `.agents/`, `docs/`, `config/` or `scripts/` edits,
    run the nearest owner checks. For the full governance sweep, use
@@ -1676,9 +1687,10 @@ or when a restore stops looking up the path and key its saver writes.
 |------|--------------------|-----------|
 | Validate files | `package-lock.json` exists and valid JSON; `next.config.ts` exists | Yes |
 | Install | `npm ci` | Yes |
-| Design system | `npm run verify:design-system` | Yes |
+| UI architecture and accessibility | `node scripts/architecture/verify-design-system.mjs --core` | Yes |
+| Input and runtime resources | `node scripts/architecture/verify-render-performance.mjs --core` | Yes |
 | Cache coherence | `npm run verify:cache` | Yes |
-| Docs/runtime parity | `npm run verify:docs` | Yes |
+| Appearance and documentation diagnostics | `npm run verify:design-system`; `npm run verify:docs` | No; developer diagnostics |
 | TypeScript | `npm run typecheck` | Yes |
 | Lint | `npm run lint -- --max-warnings=${WEB_LINT_WARNING_BUDGET}` | Yes |
 | Phone verification regression | `npm run verify:phone-verification` | Yes |
@@ -2093,6 +2105,14 @@ but expanded to 1,535 unit files because its JSON fixture was unclassified; this
 was a selector gap, not missing branch synchronization. Compare the actual tested
 checkout and script blobs before attributing future delays to stale branches.
 
+PR Integration selects against the validated checkout's merge parent and tested
+tree, rather than comparing the destination with the unmerged feature head.
+Destination-only PKM or vault changes therefore do not select those expensive
+lanes again. Actual PR changes still select them. Queue reuse also requires the
+captured PR path inventory to match that tested merge, plus the existing exact
+base, tree, current-attempt and authority checks; an unknown comparison runs
+combined verification instead.
+
 The protected-document and phone browser contract selects both Linux Chromium
 and native macOS WebKit from the same `document` decision. Styling and unrelated
 application changes do not select that macOS job. The route-layout metadata JSON
@@ -2116,3 +2136,22 @@ A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operatio
 for the canonical commands and live-policy activation. Do not ask a self-approving
 owner for another person just to satisfy GitHub's native self-review restriction.
 Do not grant ordinary contributors broader bypass to solve an owner-only problem.
+
+Automatic review requests are reserved for protected paths and route to
+`pipeline-editors`. An ordinary product PR can have no requested reviewer team;
+only the authorized maintainer cohort retains governed self-service. Outside
+contributors cannot self-approve: they need an independent authorized review.
+Organization membership alone is not self-approval authority. When an ordinary
+independent review is requested, use `allowed-maintainers-to-approve`.
+A blank reviewer list does not waive
+required checks, queue admission or protected approval on a mixed PR.
+
+### Capacity maintenance job labels
+
+The clock decides when work is due; the worker inspects or performs bounded cleanup
+under the environment mutation lock. These remain separate authorities. Static
+UAT/Production revision-maintenance labels stay readable even when skipped. Each
+executed job records an explicit inspection or cleanup mode; only cleanup plus the
+existing successful guarded steps can establish a mutation checkpoint. Missing or
+ambiguous mode evidence refuses. Historical inspection/cleanup receipts retain
+their original names and verification rules. No cadence or resource policy changes.

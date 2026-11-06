@@ -125,12 +125,15 @@ LEGACY_REQUIRED_JOBS = {
     "Web Targeted Contracts (node)",
     *(f"Web Targeted Contracts (browser-{index}-of-4)" for index in (1, 2, 3, 4)),
 }
+UNIT_JOB = "Web Unit Contracts"
+UNIT_SHARDS = ("1/1", "1/3", "2/3", "3/3")
 REQUIRED_JOBS = {
     name for name in LEGACY_REQUIRED_JOBS
     if name != "Web Editor Performance (macOS)"
     and not name.startswith("Web Full Suite (Vitest)")
     and not name.startswith("Web Targeted Contracts (browser-")
-} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+} | {UNIT_JOB}
+PRE_BROWSER_REMOVAL_JOBS = REQUIRED_JOBS | {"Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
 AGGREGATE_JOBS = {"Preflight Gate", "Branch Validation Gate"}
 
@@ -353,8 +356,7 @@ def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
 
 def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate):
     require(len(matches) in (1, 3), "UAT unit shard inventory is incomplete")
-    allowed = {f"Verify unit shard ({shard})": shard
-               for shard in ("1/1", "1/3", "2/3", "3/3")}
+    allowed = {f"Verify unit shard ({shard})": shard for shard in UNIT_SHARDS}
     shards = []
     for job in matches:
         require(job.get("run_id") == run_id and job.get("head_sha") == candidate
@@ -369,7 +371,8 @@ def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate
                    if step.get("name", "").startswith("Verify unit shard")]
         # Preserve immutable predecessor evidence under its original policy.
         # Current release qualification always requires typed coverage proof.
-        if not current and len(matches) == 1 and not markers:
+        label = job.get("name")
+        if not current and len(matches) == 1 and label == UNIT_JOB and not markers:
             try:
                 workflow = git("show", f"{candidate}:.github/workflows/ci.yml").decode("utf-8")
             except UnicodeDecodeError:
@@ -390,7 +393,11 @@ def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate
                 "UAT unit shard markers are invalid")
         verified = [step for step in markers if step.get("conclusion") == "success"]
         require(len(verified) == 1, "UAT unit shard coverage proof is missing or ambiguous")
-        shards.append(allowed[verified[0]["name"]])
+        shard = allowed[verified[0]["name"]]
+        require(label == f"{UNIT_JOB} ({shard})"
+                or (label == UNIT_JOB and len(matches) == 1 and shard == "1/1"),
+                "UAT unit job name does not match its shard marker")
+        shards.append(shard)
     require(sorted(shards) in (["1/1"], ["1/3", "2/3", "3/3"]),
             "UAT unit shard coverage is incomplete or duplicated")
 
@@ -409,13 +416,16 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
     # inventory. Current qualification requires the new release-core policy.
     legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
     exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
-    required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
+    historical_browser = not current and any(job.get("name") == "Web Targeted Contracts (browser)" for job in jobs)
+    required_jobs = LEGACY_REQUIRED_JOBS if legacy else PRE_BROWSER_REMOVAL_JOBS if historical_browser else REQUIRED_JOBS
     for name in required_jobs:
-        matches = [job for job in jobs if job.get("name") == name]
-        if name == "Web Unit Contracts":
-            _verify_unit_jobs(matches, candidate, run_id, current=current,
+        if name == UNIT_JOB:
+            unit_jobs = [job for job in jobs if job.get("name") == UNIT_JOB
+                         or (job.get("name") or "").startswith(f"{UNIT_JOB} (")]
+            _verify_unit_jobs(unit_jobs, candidate, run_id, current=current,
                               isolated_candidate=isolated_candidate)
             continue
+        matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1
             and matches[0].get("run_id") == run_id

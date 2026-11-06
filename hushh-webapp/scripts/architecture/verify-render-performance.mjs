@@ -26,6 +26,10 @@ import path from "node:path";
 
 const root = path.resolve(process.cwd());
 const args = new Set(process.argv.slice(2));
+if (args.has("--core") && args.has("--write-allowlist")) {
+  console.error("render-performance: --core cannot rewrite the complete diagnostic allowlist.");
+  process.exit(2);
+}
 const allowlistPath = path.join(root, "scripts/architecture/render-performance-allowlist.json");
 const SCAN_DIRS = ["app", "components", "lib", "hooks"];
 const SKIP_DIRS = new Set(["node_modules", ".next", ".next-native-uat", "out", "public", "__tests__", "e2e"]);
@@ -255,6 +259,17 @@ const RULES = [
   },
 ];
 
+const CORE_RULE_IDS = new Set([
+  "root-custom-property-write",
+  "body-subtree-mutation-observer",
+  "non-passive-touch-on-root",
+  "recharts-tooltip-touch-tracking",
+  "interval-state-tick",
+  "continuous-float-store-in-react",
+  "perf-probe-static-import",
+]);
+const selectedRules = args.has("--core") ? RULES.filter((rule) => CORE_RULE_IDS.has(rule.id)) : RULES;
+
 function scan() {
   const files = SCAN_DIRS.flatMap((dir) => walk(path.join(root, dir)));
   const counts = {};
@@ -268,7 +283,7 @@ function scan() {
       ? raw.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
       : raw;
     const lines = source.split(/\r?\n/);
-    for (const rule of RULES) {
+    for (const rule of selectedRules) {
       const subject = rule.scopeRelative ? relative : file;
       if (!rule.files.test(subject)) continue;
       const hits = rule.find(lines, source).filter((index) => !suppressed(lines, index, rule.id));
@@ -302,7 +317,7 @@ function main() {
   }
   const allow = readAllowlist().rules ?? {};
   const problems = [];
-  for (const rule of RULES) {
+  for (const rule of selectedRules) {
     const actual = counts[rule.id] ?? {};
     const allowed = allow[rule.id] ?? {};
     for (const [file, count] of Object.entries(actual)) {
@@ -323,7 +338,7 @@ function main() {
     console.error(`render-performance: ${problems.length} problem(s)\n${problems.join("\n\n")}`);
     process.exit(1);
   }
-  console.log(`render-performance: OK (${findings.length} known findings held by the allowlist, ${RULES.length} rules).`);
+  console.log(`render-performance: OK (${findings.length} known findings held by the allowlist, ${selectedRules.length} rules).`);
 }
 
 main();

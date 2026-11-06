@@ -3,8 +3,6 @@
 import subprocess
 from pathlib import Path
 
-import yaml
-
 from tests.helpers.deployment_cli import document_installer_environment
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -79,36 +77,6 @@ def assert_document_platform(tmp_path, ci, mode, runner, expected):
     elif mode == ("--ci-macos-webkit",):
         selection.extend(("-k", "webkit"))
     assert test_calls.read_text().splitlines() == [f"-m pytest -q {' '.join(selection)}"]
-
-
-def assert_document_platform_wiring():
-    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
-    mac = jobs["document-webkit-check"]
-    integration = jobs["integration-check"]
-    assert mac["name"] == "Protected Document WebKit (macOS)"
-    assert mac["runs-on"] == "macos-15" and mac["timeout-minutes"] == 20
-    selected = "needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true' || needs['preflight-gate'].outputs.document == 'true'"
-    document_selected = "needs['preflight-gate'].outputs.document == 'true'"
-    assert document_selected in " ".join(mac["if"].split())
-    assert selected in " ".join(integration["if"].split())
-    steps = {step.get("id"): step for step in mac["steps"] if step.get("id")}
-    assert set(steps) == {"document-python", "document-postgres", "document-webkit"}
-    for step in steps.values():
-        assert step["if"] == document_selected
-        assert not step.get("continue-on-error")
-    assert (
-        steps["document-webkit"]["run"]
-        == "bash scripts/ci/document-delivery-check.sh --ci-macos-webkit"
-    )
-    assert steps["document-python"]["uses"] == "./consent-protocol/.github/actions/setup-python-uv"
-    assert 'echo "$pg_bin" >> "$GITHUB_PATH"' in steps["document-postgres"]["run"]
-    execution = next(
-        step
-        for step in integration["steps"]
-        if step.get("name") == "Run integration check script (single source of truth)"
-    )
-    assert execution["run"] == "bash scripts/ci/integration-check.sh --ci-linux-document"
-    assert not execution.get("continue-on-error")
 
 
 def assert_integration_mode(tmp_path, mode, runner, expected, document="true"):
