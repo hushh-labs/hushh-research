@@ -225,6 +225,9 @@ For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
 release selects that protected application SHA after full exact-candidate CI;
 ordinary Dev/UAT needs no manual PR-history chain or serving-commit ancestry.
+Once selected, that frozen ordinary UAT SHA remains eligible after newer merges
+while it remains in protected UAT history; CI, current authority and live-baseline
+checks still apply. Never silently substitute the new tip.
 The base identifies changed verification inputs, not merge authority. Recheck both
 actual service revisions under the lock, including partial releases with different
 frontend/backend SHAs. Compatibility, candidate health, qualified rollback and

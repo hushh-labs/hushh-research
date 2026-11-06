@@ -292,6 +292,9 @@ def test_uat_plg_flags_default_off_and_survive_the_deployment_writer(
     [
         ("uat", "hushh-pda-uat", {"one_plg_activity_enabled": True}),
         ("uat", "hushh-pda-uat", {"one_plg_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_dev_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_activity_dev_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_owner_export_enabled": True}),
         ("production", "hushh-pda", {"one_plg_attempt_email_enabled": True}),
         ("dev", "hushh-pda-dev", {"one_plg_uat_export_enabled": True}),
     ],
@@ -305,6 +308,20 @@ def test_uat_plg_rejects_foreign_flags_and_activity_without_its_lane(
             project=project,
             environment=environment,
         )
+
+
+def test_retained_uat_fields_do_not_activate_main_legacy_runtime(monkeypatch):
+    keys = (
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_attempt_email_enabled",
+    )
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in keys:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(dict.fromkeys(keys, True)))
+    runtime_settings.hydrate_runtime_environment()
+    assert all(key.upper() not in os.environ for key in keys)
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
