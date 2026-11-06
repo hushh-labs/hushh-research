@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or update a GCP Secret Manager secret from file or stdin."""
+"""Create or update a secret without removing versions needed for recovery."""
 
 from __future__ import annotations
 
@@ -59,59 +59,10 @@ def _get_latest_payload(project: str, secret: str) -> str | None:
     return None
 
 
-def _prune_older_versions(project: str, secret: str, keep: int = 1) -> None:
-    """Destroy older enabled versions, keeping only the newest `keep` versions."""
-    res = subprocess.run(
-        [
-            "gcloud",
-            "secrets",
-            "versions",
-            "list",
-            secret,
-            f"--project={project}",
-            "--filter=state=ENABLED",
-            "--format=value(name)",
-        ],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
-    if res.returncode != 0 or not res.stdout.strip():
-        return
-    version_ids = []
-    for line in res.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        v_num = line.split("/")[-1]
-        try:
-            version_ids.append(int(v_num))
-        except ValueError:
-            continue
-    version_ids.sort()
-    if len(version_ids) > keep:
-        for v in version_ids[:-keep]:
-            subprocess.run(
-                [
-                    "gcloud",
-                    "secrets",
-                    "versions",
-                    "destroy",
-                    str(v),
-                    f"--secret={secret}",
-                    f"--project={project}",
-                    "--quiet",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
     parser.add_argument("--secret", required=True)
-    parser.add_argument("--keep", type=int, default=1, help="Number of latest versions to keep")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--value-file", type=Path)
     group.add_argument("--stdin", action="store_true")
@@ -125,7 +76,6 @@ def main() -> int:
     if _secret_exists(args.project, args.secret):
         current_payload = _get_latest_payload(args.project, args.secret)
         if current_payload is not None and current_payload == payload:
-            _prune_older_versions(args.project, args.secret, keep=args.keep)
             return 0
     else:
         _run(
@@ -153,7 +103,6 @@ def main() -> int:
         ],
         input_text=payload,
     )
-    _prune_older_versions(args.project, args.secret, keep=args.keep)
     return 0
 
 

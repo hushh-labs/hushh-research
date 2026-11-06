@@ -402,6 +402,7 @@ jobs:
               # Deployment-only writers are verified by the release-controller owner.
               - '!scripts/ops/sync_backend_runtime_secrets.py'
               - '!scripts/ops/runtime_config_retention.py'
+              - '!scripts/ops/upsert_gcp_secret.py'
               - '!deploy/plg/bind_secrets.sh'
               # Synthetic release-controller tests have a focused Governance owner.
               - '!consent-protocol/tests/test_runtime_config_retention.py'
