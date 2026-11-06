@@ -126,6 +126,7 @@ public final class OneVoiceMicrophoneCapture {
         guard Self.activeOwner == nil else {
             return false
         }
+        guard NativeAudioOwnership.claim(self) else { return false }
         Self.activeOwner = ObjectIdentifier(self)
         return true
     }
@@ -135,6 +136,7 @@ public final class OneVoiceMicrophoneCapture {
         defer { Self.ownershipLock.unlock() }
         if Self.activeOwner == ObjectIdentifier(self) {
             Self.activeOwner = nil
+            NativeAudioOwnership.release(self)
         }
     }
 }

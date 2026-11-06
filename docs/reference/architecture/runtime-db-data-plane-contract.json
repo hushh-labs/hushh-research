@@ -2481,6 +2481,27 @@
       "expected_row_growth": "One preference per explicitly opted-in allowlisted owner and at most one outbox entry per accepted correlated client attempt; first terminal wins; bounded by activity admission.",
       "utilization_policy": "No default enrollment, historical backfill or retries of uncertain provider submissions. API acceptance is not Inbox delivery. A missing observation is unknown.",
       "trust_boundary": "Separate explicit attempt-email choice; marketing permission cannot authorize it. Environment/project/cohort gates, current verified recipient, lifecycle and epoch barriers, generation-bound unsubscribe. No raw email, prompt, result, tool arguments, private names or rendered content in these tables. SDK reports cannot create duplicate notifications. RLS denies browser roles. Worker sees a verified recipient only after claiming; no freeform/BCC request field. Preferences are manual-only and outside Live Memory/attr scopes."
+    },
+    {
+      "id": "direct_call_control",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "direct_communication_keys",
+        "direct_calls",
+        "direct_call_slots",
+        "direct_call_commands",
+        "direct_call_signals",
+        "direct_call_voip_tokens",
+        "direct_call_voip_outbox"
+      ],
+      "primary_access_path": "Signed, active-device and conversation-participant commands through /api/one/messages/calls; governed direct_call_retention maintenance entrypoint. Release admission remains disabled until encrypted-history and native qualification.",
+      "retention_policy": "Public device keys follow canonical device/account lifetime. Signaling is erased on terminal actions. Bounded direct_call_retention maintenance erases expired signaling and compacts terminal metadata after 24 hours; scheduler installation and live erasure proof are release prerequisites, not performed by this PR. Replay nonces expire after at most 120 seconds and are compacted in bounded batches. PushKit tokens follow active calling-installation lifetime and are removed on token invalidation, bounded authenticated logout cleanup, ownership transfer or provider invalidation. The opaque outbox is erased on terminal call cleanup/expiry; token rotation discards superseded work.",
+      "deletion_behavior": "Actor, conversation and trusted-device FK cascades remove dependent state; install_account_deletion_write_guards applies existing tombstone barriers. A block prevents signaling and credentials but still allows signed local-device end/cleanup. No message history is removed.",
+      "trust_boundary": "Media and plaintext SDP never enter these tables. HPKE ciphertext is bound to purpose, conversation, call, exact device keys and sequence; commands use canonical registered-device ECDSA proof with expiry and replay fencing. Peer identity comparison precedes accepting remote SDP. Keys here are public encryption/signing bindings, never private device keys, TURN shared secrets or vault keys. Server-readable PushKit tokens are delivery credentials, distinct from message/call contents; access is service-only. APNs delivery rechecks exact target-device status, relationship/block authority and token generation; HTTP telemetry is suppressed and token paths redacted.",
+      "plaintext_posture": "ciphertext_and_bounded_call_metadata",
+      "expected_row_growth": "bounded_per_call_and_device; terminal metadata requires governed compaction"
     }
   ]
 }
