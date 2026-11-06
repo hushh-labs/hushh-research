@@ -34,6 +34,7 @@ def test_isolated_acceptance_refuses_removed_production_operator(monkeypatch, ac
         "ordinary-artifact",
         "shared",
         "fork",
+        "unapproved-trigger",
         "skipped",
         "source",
         "authority",
