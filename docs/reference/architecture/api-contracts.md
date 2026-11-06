@@ -1,5 +1,62 @@
 # API Contracts
 
+## Visual Map
+
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
+  end
+
+  fb --> vo
+  fb --> dev
+  fb --> commerce
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  proxy --> commerce
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
+```
+
+---
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
@@ -134,63 +191,6 @@ ciphertext is cleared on access/history reconciliation; dormant ciphertext and
 confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
-
-## Visual Map
-
-Which credential plane authorizes which FastAPI route family, and how first-party
-clients reach them through the Next.js proxy layer.
-
-```mermaid
-flowchart TB
-  subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
-    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
-    devtok["Developer Token<br/>Authorization Bearer"]
-    hct["Consent Token HCT<br/>app-bound scoped grant"]
-    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
-    anon["No auth<br/>public reads"]
-  end
-
-  subgraph client["First-party client transport"]
-    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
-    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
-  end
-
-  subgraph api["FastAPI route families in consent-protocol/api/routes"]
-    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
-    con["consent.py and sse.py<br/>/api/consent"]
-    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
-    vault["db_proxy.py<br/>/db/vault wrappers"]
-    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
-    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
-    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
-    ria["ria.py and account.py<br/>/api/ria and /api/account"]
-    dev["developer.py<br/>/api/v1 and /api/developer"]
-    commerce["scope_commerce.py<br/>/api/scope-commerce"]
-  end
-
-  fb --> vo
-  fb --> dev
-  fb --> commerce
-  anon --> pub
-  vo --> svc
-  svc --> proxy
-  proxy --> con
-  proxy --> pkm
-  proxy --> vault
-  proxy --> kai
-  proxy --> one
-  proxy --> fabric
-  proxy --> ria
-  proxy --> commerce
-  devtok --> dev
-  devtok --> fabric
-  con --> hct
-  hct --> dev
-  maint --> one
-```
-
----
 
 ## V1 chat memory preparation
 
