@@ -17,6 +17,7 @@ from hushh_mcp.services.calendar_account_board_service import account_schedule
 from hushh_mcp.services.calendar_email_followup_account import (
     SelectedMailAccessError,
     open_selected_mail_grant,
+    selected_mail_epoch_digest,
     selected_mail_status,
 )
 from hushh_mcp.services.calendar_email_followup_crypto import FollowupCryptoError
@@ -25,6 +26,7 @@ from hushh_mcp.services.calendar_email_followup_reader import (
     read_complete_message,
 )
 from hushh_mcp.services.calendar_email_followup_scan import scan_once
+from hushh_mcp.services.calendar_email_followup_status import monitor_status
 from hushh_mcp.services.calendar_email_followup_store import (
     CalendarEmailFollowupStore,
     FollowupStateError,
@@ -159,18 +161,20 @@ async def status(payload: _Selection, firebase_uid: str = Depends(hub_content_fi
         monitor = await CalendarEmailFollowupStore().monitor(
             user_id=firebase_uid, account_id=payload.account_id
         )
+        # Whether the stored monitor still matches the live grant. When it does
+        # not (a reconnect elsewhere), the client can silently rebind it instead
+        # of asking the owner to connect mail again.
+        epoch = (
+            await selected_mail_epoch_digest(user_id=firebase_uid, account_id=payload.account_id)
+            if mail_connected
+            else None
+        )
         return {
             "account_id": payload.account_id,
             "mail_connected": mail_connected,
-            "monitoring_enabled": bool(monitor),
-            "background_available": _background_available(),
-            "scan_state": monitor.scan_state if monitor else "off",
-            "incomplete_source_count": len((monitor.checkpoint or {}).get("incomplete_sources", {}))
-            if monitor
-            else 0,
-            "notifications_enabled": monitor.notifications_enabled if monitor else False,
-            "historical_start_at": monitor.historical_start_at.isoformat() if monitor else None,
-            "time_zone": monitor.time_zone if monitor else None,
+            **monitor_status(
+                monitor, current_epoch=epoch, background_available=_background_available()
+            ),
         }
     except Exception as exc:
         raise _http(exc) from None

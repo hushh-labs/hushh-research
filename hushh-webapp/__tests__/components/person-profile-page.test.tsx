@@ -12,6 +12,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 beforeEach(() => {
+  mocks.peekPublic.mockReset().mockReturnValue(null);
   CacheService.getInstance().clear();
   mocks.getRelationship.mockReset().mockImplementation(() => new Promise(() => {}));
   mocks.getVaultOwnerToken.mockReset().mockImplementation(() => mocks.vaultOwnerToken);
@@ -86,6 +87,28 @@ describe("PersonProfilePage native profile route", () => {
     rendered.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     await act(async () => { resolveViewer(viewerProfile({ contactPhoneNumber: "+919876543210" })); });
     expect(await screen.findByRole("link", { name: "+919876543210" })).toHaveAttribute("href", "tel:+919876543210");
+  });
+
+  it.each([false, true])("waits for profile body and history before restoring a network visit (cached read failure %s)", async (cachedReadFailure) => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    if (cachedReadFailure) {
+      mocks.peekPublic.mockReturnValue({ personRef: "actual-public-ref", displayName: "Actual Person", photoUrl: null, verifiedRole: null });
+      mocks.getPublic.mockRejectedValue(new Error("Public revalidation unavailable"));
+    }
+    let finishViewer!: (value: unknown) => void;
+    let finishHistory!: (value: unknown) => void;
+    mocks.getViewer.mockImplementationOnce(() => new Promise(resolve => { finishViewer = resolve; }));
+    // Identity initialization retires the first cursor read; hold the current read too.
+    mocks.getRequestHistory.mockImplementation(() => new Promise(resolve => { finishHistory = resolve; }));
+    const ready = vi.fn();
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} embedded onNetworkReady={ready} />);
+    await screen.findByRole("heading", { name: "Actual Person" });
+    await waitFor(() => expect(finishHistory).toBeDefined());
+    expect(ready).not.toHaveBeenCalled();
+    await act(async () => finishViewer(viewerProfile()));
+    expect(ready).not.toHaveBeenCalled();
+    await act(async () => finishHistory({ bundles: [], hasMore: false, nextCursor: null }));
+    await waitFor(() => expect(ready).toHaveBeenCalled());
   });
 
   it("clears contact details on connection changes and ignores late profile reads", async () => {

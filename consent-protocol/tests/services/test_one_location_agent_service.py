@@ -4580,6 +4580,7 @@ def test_directory_candidate_search_filters_before_pagination(
         "candidate_user_id": None,
         "candidate_user_ids": None,
         "mutual_target_user_id": None,
+        "network_user_ids": None,
         "query": "cara",
         "name_search": True,
         "email_contains": "%cara%",

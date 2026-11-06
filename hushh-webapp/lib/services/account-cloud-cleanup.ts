@@ -24,6 +24,7 @@ export type CloudCleanupView = {
   keepAccount?: boolean;
   canCancel?: boolean;
   executionStarted?: boolean;
+  legacyRecovery?: boolean;
 };
 
 type CleanupRequest =
@@ -106,6 +107,7 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
       (data.confirmation != null && (typeof data.confirmation !== "string" || data.confirmation.length > 1024)) ||
       (data.keepAccount != null && typeof data.keepAccount !== "boolean") ||
       (data.canCancel != null && typeof data.canCancel !== "boolean") ||
+      (data.legacyRecovery != null && typeof data.legacyRecovery !== "boolean") ||
       (data.executionStarted != null && typeof data.executionStarted !== "boolean")) throw new Error("CLOUD_CLEANUP_RESPONSE_INVALID");
   if (
     typeof operationId !== "string" ||
@@ -151,6 +153,7 @@ export function parseCloudCleanupView(value: unknown): CloudCleanupView {
     ...cleanupProgress(data, canFinalize),
     canCancel: data.canCancel === true && data.executionStarted !== true && !canFinalize,
     executionStarted: data.executionStarted === true,
+    ...(data.legacyRecovery === true ? { legacyRecovery: true } : {}),
     ...(data.provider ? { provider: data.provider as "gcp" | "azure" } : {}),
     ...(typeof data.confirmation === "string" ? { confirmation: data.confirmation } : {}),
     ...(typeof data.keepAccount === "boolean" ? { keepAccount: data.keepAccount } : {}),
@@ -225,7 +228,14 @@ export function cloudCleanupErrorMessage(error: unknown): string {
 }
 
 export function cloudCleanupAttentionMessage(code: string | null): string {
+  if (code === "CLOUD_REMOVAL_PROVIDER_RETENTION_PENDING")
+    return "Your cloud provider is retaining protected copies. You can sign out and return later to check cleanup.";
   switch (code) {
+    case "CLOUD_REMOVAL_RECOVERY_OPERATOR_REQUIRED":
+    case "CLOUD_REMOVAL_RECOVERY_CHANGED":
+      return "Cleanup needs a compatibility repair. You can close this view or sign out and return later.";
+    case "CLOUD_REMOVAL_RECOVERY_INTERRUPTED":
+      return "Cleanup paused. Your request is saved. You can close this view or sign out.";
     case "POD_ERASURE_COMPATIBILITY_REQUIRED":
       return "Update your agent in Software updates before cloud cleanup.";
     case "AZURE_CLEANUP_NOT_AVAILABLE":

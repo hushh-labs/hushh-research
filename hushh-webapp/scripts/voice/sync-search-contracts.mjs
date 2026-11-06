@@ -90,7 +90,7 @@ export async function syncSearchContracts(root, check = false, index = createUiS
       if (!coveredRoutes.has(route || '/')) throw new Error(`New page ${page} needs a web route/search contract.`);
     }
   }
-  // Include the entire route UI import graph. Shared changes require a new review receipt.
+  // Include the route UI import graph for control coverage and optional source snapshots.
   // Hashes detect drift; they never claim to infer the meaning of a new interaction.
   const sources = await collectSources(root, uiEntries.map(file => path.relative(root, file)), index);
   validateControlCoverage(sources, await Promise.all(contracts.map(async file => JSON.parse(await fs.readFile(file, 'utf8')))));

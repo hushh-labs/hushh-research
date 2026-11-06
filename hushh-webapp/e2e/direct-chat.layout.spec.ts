@@ -7,6 +7,7 @@ import { proveMessagesInboxBack, proveMessagesBackLayers } from "./fixtures/mess
 import { registerMessagesPresentationCases } from "./fixtures/messages-presentation-cases";
 import { registerMessagesReactionCases } from "./fixtures/messages-reaction-cases";
 import { registerMessagesVoiceCases } from "./fixtures/messages-voice-cases";
+import emojiCatalogue from "../lib/circle-chat/emoji-reactions.generated.json";
 
 // Production components/styles with synthetic auth/navigation/service ports.
 // Device keyboards, signed-in routes and push delivery have separate proofs.
@@ -186,7 +187,7 @@ for (const lane of ["People", "Circles"] as const) {
       await page.getByRole("button", { name: /Weekend friends/ }).click();
     }
     const list = page.getByRole("complementary", { name: lane === "People" ? "Conversations" : "Circles" });
-    const lastRow = list.getByRole("button", { name: lane === "People" ? /Connection 30/ : /Circle 30/ });
+    const lastRow = list.getByRole("button", { name: lane === "People" ? /^Connection 30/ : /Circle 30/ });
     await expect(lastRow).toBeAttached();
     for (const inset of [0, 300]) {
       if (inset) await page.evaluate((height) => {
@@ -231,7 +232,7 @@ for (const width of [768, 820, 1024]) {
 test("native session opens a conversation without a browser Firebase user", async ({ page }) => {
   await mount(page, false, false, true);
   await page.evaluate(() => (window as any).directChatAuthFixture.useNativeSession());
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: "Message Arjun Mehta with a very long display name" })).toBeVisible();
   expect(await page.evaluate(() => (window as any).directChatAuthFixture.tokenRequests)).toEqual(["fixture-owner"]);
   await expect(page.getByText("This conversation could not be opened. Try again.")).toHaveCount(0);
@@ -246,7 +247,7 @@ for (const failure of ["token unavailable", "route mint failed"] as const) {
     } else {
       await fixture(page, "fixture.failNextRouteMint()");
     }
-    const row = page.getByRole("button", { name: /Arjun Mehta/ });
+    const row = page.getByRole("button", { name: /^Arjun Mehta/ });
     await row.click();
     await expect(page.getByText("This conversation could not be opened. Try again.")).toBeVisible();
     await expect(page.getByRole("searchbox", { name: "Search conversations" })).toBeVisible();
@@ -294,7 +295,7 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await expect(chat).toHaveAttribute("data-theme", "light");
   await expect(page.getByRole("button", { name: "Switch to dark mode" })).toBeVisible();
 
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(chat).toHaveAttribute("data-chat-open", "true");
   await expect(page.locator("[data-direct-message-composer-input]")).toBeVisible();
   expect(await navigation.innerText()).toBe(navLabels);
@@ -317,7 +318,7 @@ for (const [inset, width, height] of [[0, 393, 844], [59, 393, 844], [72, 393, 8
     const canvas = page.locator("[data-direct-message-page]");
     await expect.poll(async () => (await page.getByRole("heading", { name: "Messages" }).boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
     expect((await canvas.boundingBox())!.y).toBe(minimumTop);
-    await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+    await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
     const title = page.getByRole("heading", { name: "Arjun Mehta with a very long display name", exact: true });
     await expect(title).toBeVisible();
     expect((await title.boundingBox())!.y).toBeGreaterThanOrEqual(minimumTop);
@@ -387,6 +388,118 @@ for (const width of [393, 1440]) {
 
 test.describe("touch emoji sending", () => {
   test.use({ hasTouch: true, isMobile: true });
+  for (const width of [320, 336, 337, 393, 449, 464, 465, 768, 1440]) {
+    test(`emoji picker keeps categories and grid aligned above the composer at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 320 ? 568 : 900 });
+      if (width === 320) await page.addInitScript((values) => {
+        localStorage.setItem("hushh.direct-messages.recent-emojis", JSON.stringify(values));
+      }, emojiCatalogue.categories[0]!.entries.slice(0, 10).map((entry) => entry[0]!));
+      const errors = await mount(page, width === 393);
+      const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
+      await page.getByRole("button", { name: "Choose emoji", exact: true }).tap();
+      const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
+      await expect(picker).toBeVisible();
+      if (width === 320) await expect(picker.getByRole("region", { name: "Recently used emoji" }).getByRole("button")).toHaveCount(10);
+      await expect.poll(() => picker.evaluate((element) => parseFloat(element.parentElement!.style.getPropertyValue("--radix-popper-anchor-width")))).toBeGreaterThan(0);
+      // Opening the picker must not focus Search and raise a phone keyboard
+      // before the person's first emoji tap. Search is an explicit choice.
+      await expect.soft(picker).toBeFocused();
+      await picker.getByRole("tab").first().click({ trial: true });
+      const geometry = await picker.evaluate((element) => {
+        const tabs = element.querySelector('[role="tablist"]')!;
+        const grid = element.querySelector('[role="tabpanel"]')!;
+        const rect = (node: Element) => {
+          const box = node.getBoundingClientRect();
+          return { x: box.x, y: box.y, width: box.width, height: box.height };
+        };
+        const choices = [...grid.querySelectorAll("button")].slice(0, 9);
+        const firstY = choices[0]!.getBoundingClientRect().y;
+        const columns = choices.filter((choice) => Math.abs(choice.getBoundingClientRect().y - firstY) < 1);
+        return {
+          horizontalOverflow: tabs.scrollWidth - tabs.clientWidth,
+          tabs: [...tabs.querySelectorAll("button")].map(rect),
+          columns: columns.map(rect),
+          targets: [...tabs.querySelectorAll("button"), ...choices].map((button) => {
+            const box = button.getBoundingClientRect();
+            return button.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+          }),
+        };
+      });
+      expect.soft(geometry.horizontalOverflow).toBeLessThanOrEqual(1);
+      expect(geometry.tabs).toHaveLength(9);
+      for (const column of geometry.columns) {
+        expect.soft(column.width).toBeGreaterThanOrEqual(44);
+        expect.soft(column.height).toBeGreaterThanOrEqual(44);
+      }
+      for (const [index, tab] of geometry.tabs.entries()) {
+        expect.soft(tab.width).toBeGreaterThanOrEqual(44);
+        expect.soft(tab.height).toBeGreaterThanOrEqual(44);
+        const column = geometry.columns[index % geometry.columns.length]!;
+        expect.soft(Math.abs(tab.x + tab.width / 2 - column.x - column.width / 2)).toBeLessThanOrEqual(1);
+      }
+      expect.soft(geometry.targets.every(Boolean), "all categories and initial emoji choices can receive a real tap").toBe(true);
+      const box = (await picker.boundingBox())!;
+      const form = (await page.locator("form").filter({ has: composer }).boundingBox())!;
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(form.y);
+      await picker.getByRole("searchbox").tap();
+      await expect(picker.getByRole("searchbox")).toBeFocused();
+      const categories = picker.getByRole("tablist", { name: "Emoji categories" });
+      await categories.getByRole("tab").first().focus();
+      await expect(categories.getByRole("tab").first()).toBeFocused();
+      await page.keyboard.press("End");
+      await expect(categories.getByRole("tab", { name: "Flags", exact: true })).toBeFocused();
+      await expect(picker.getByRole("tabpanel", { name: "Flags", exact: true })).toBeVisible();
+      await page.keyboard.press("Home");
+      await expect(categories.getByRole("tab").first()).toHaveAttribute("aria-selected", "true");
+      await page.screenshot({ path: test.info().outputPath(`emoji-picker-${width}.png`), animations: "disabled" });
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: "Choose emoji", exact: true })).toBeFocused();
+      expect(errors).toEqual([]);
+    });
+  }
+  for (const category of emojiCatalogue.categories) {
+    test(`emoji picker inserts the first and last ${category.label} choices exactly once`, async ({ page }) => {
+      await page.setViewportSize({ width: 393, height: 844 });
+      const errors = await mount(page);
+      const composer = page.getByRole("textbox", { name: "Message Maya Rao" });
+      const trigger = page.getByRole("button", { name: "Choose emoji", exact: true });
+      const first = category.entries[0]![0]!;
+      const last = category.entries.at(-1)![0]!;
+      await composer.fill("Keep this");
+      // Exercise insertion into an existing draft, rather than only appending.
+      await composer.evaluate((input: HTMLTextAreaElement) => input.setSelectionRange(0, 4));
+      await trigger.tap();
+      const picker = page.getByRole("dialog", { name: "Emoji picker", exact: true });
+      await picker.getByRole("tab", { name: category.label, exact: true }).tap();
+      let grid = picker.getByRole("tabpanel", { name: category.label, exact: true });
+      await expect(grid.getByRole("button").first()).toHaveAccessibleName(`Use ${first}`);
+      await grid.getByRole("button").first().tap();
+      await expect(composer).toHaveValue(`${first} this`);
+      await expect(composer).toBeFocused();
+      await trigger.tap();
+      await picker.getByRole("region", { name: "Recently used emoji" }).getByRole("button").first().tap();
+      await expect(composer).toHaveValue(`${first}${first} this`);
+      await trigger.tap();
+      grid = picker.getByRole("tabpanel", { name: category.label, exact: true });
+      // Reach the true final entry, including categories longer than one batch.
+      const finalChoice = grid.getByRole("button", { name: `Use ${last}`, exact: true });
+      for (let batch = 0; batch < Math.ceil(category.entries.length / 128) && !await finalChoice.count(); batch += 1) {
+        const previous = await grid.getByRole("button").count();
+        await grid.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+        await expect.poll(() => grid.getByRole("button").count()).toBeGreaterThan(previous);
+      }
+      await expect(composer).toHaveValue(`${first}${first} this`);
+      await finalChoice.tap();
+      await expect(composer).toHaveValue(`${first}${first}${last} this`);
+      await expect(composer).toBeFocused();
+      await expect(picker).toHaveCount(0);
+      expect(await page.evaluate(() => (window as any).directChatFixture.sends)).toEqual([]);
+      expect(errors).toEqual([]);
+    });
+  }
   test("New chat sends the first recent and grid emojis as separate messages", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("hushh.direct-messages.recent-emojis", JSON.stringify(["😊", "👋", "😀"])));
     await page.setViewportSize({ width: 393, height: 844 });
@@ -765,7 +878,7 @@ test("retries a committed send with the same id and keeps older history availabl
 test("a late send cannot redirect another conversation or erase its draft", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page); await fixture(page, "fixture.holdSend()");
   await page.locator("[data-direct-message-composer-input]").fill("Message for Maya"); await page.getByRole("button", { name: "Send message" }).click();
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   await page.locator("[data-direct-message-composer-input]").fill("Arjun’s separate draft");
   await fixture(page, "fixture.releaseSend()");
@@ -829,7 +942,7 @@ test.describe("compact message layout", () => {
 test("hidden encrypted selections survive browser history and refresh", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page);
   await expect.poll(() => page.url()).toBe("http://localhost/one/messages");
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole("textbox", { name: "Message Maya Rao" })).toBeVisible();
@@ -888,7 +1001,7 @@ for (const width of [320, 1440]) {
     await page.getByRole("menuitem", { name: "Delete chat" }).click();
     await page.getByRole("button", { name: "Delete chat", exact: true }).click();
     await expect(chat).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toBeVisible();
     await fixture(page, "fixture.incoming('maya')");
     await expect(chat).toBeVisible();
     await row.click();
@@ -936,7 +1049,7 @@ for (const width of [320, 1440]) {
 test("returning to Messages restores the last People thread until Back closes it", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await mount(page);
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun/ })).toBeVisible();
 
   // A new document has no conversation token in its URL or history.state.
@@ -968,7 +1081,7 @@ test("background refreshes do not read new messages; changing owner clears prior
   await fixture(page, "fixture.lifecycle('active')"); await expect(page.locator('[data-chat-message]').filter({ hasText: "New message 81" })).toHaveCount(1);
   await expect.poll(() => page.evaluate(() => (window as any).directChatFixture.reads.length)).toBeGreaterThan(readCount);
   await fixture(page, "fixture.changeOwner()");
-  await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toHaveCount(0);
   await fixture(page, "fixture.releaseInbox()");
 });
 
@@ -1141,7 +1254,7 @@ for (const width of [390, 1440]) test(`visited conversations stay readable durin
   await page.setViewportSize({ width, height: 900 });
   const errors = await mount(page);
   await page.getByRole("button", { name: "Back to messages" }).click();
-  await page.getByRole("button", { name: /Arjun Mehta/ }).click();
+  await page.getByRole("button", { name: /^Arjun Mehta/ }).click();
   await expect(page.getByRole("textbox", { name: /Message Arjun Mehta/ })).toBeEnabled();
   await page.getByRole("button", { name: "Back to messages" }).click();
   await fixture(page, "fixture.holdHistory(); fixture.holdRouteMint()");
@@ -1177,9 +1290,9 @@ for (const width of [390, 1440]) test(`visited conversations stay readable durin
 
 test("cold route resolution completes an already pending inbox request", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 }); await mount(page, false, true);
-  await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toHaveCount(0);
   await fixture(page, "fixture.releaseInbox()");
-  await expect(page.getByRole("button", { name: /Arjun Mehta/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Arjun Mehta/ })).toBeVisible();
 });
 
 for (const width of [320, 393, 1440]) {

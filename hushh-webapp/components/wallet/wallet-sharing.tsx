@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonProfileButton } from "@/components/connections/person-profile-button";
+
 import { useEffect, useRef, useState } from "react";
 
 import { Lock, ShieldCheck, ArrowUpRight } from "@/components/icons";
@@ -136,7 +138,7 @@ export function WalletSharing({ cardDetails = false, active = true, getHistoryCo
           const details = walletSharingKind(entry) === "details";
           const name = entry.counterpart_label || "Requester";
           return <div key={entry.request_id || entry.id} className={styles.row}>
-            <div aria-hidden="true" className={styles.avatar}>{name.slice(0, 1).toUpperCase()}</div>
+            <PersonProfileButton userId={["person", "investor", "ria"].includes(entry.counterpart_type) ? entry.counterpart_id : undefined} label={name} className={styles.avatar}>{name.slice(0, 1).toUpperCase()}</PersonProfileButton>
             <div className="min-w-0 flex-1 space-y-1">
               <p className="break-words text-sm font-semibold">{name}</p>
               <p className="text-sm">{details ? "Card details" : "Card summary"}</p>

@@ -76,7 +76,7 @@ def pg(monkeypatch):
         _seed_upgrade(server)
         server.apply_file(migrations / "parked/963_personal_agent_operator_mail_custody.sql")
         server.apply_file(migrations / "parked/969_gcp_browser_update_admission.sql")
-        server.apply_file(migrations / "445_gcp_notification_account_id_limit.sql")
+        server.apply_file(migrations / "449_gcp_notification_account_id_limit.sql")
         server.apply_file(migrations / "parked/976_gcp_notification_account_id_limit.sql")
         yield server
     finally:

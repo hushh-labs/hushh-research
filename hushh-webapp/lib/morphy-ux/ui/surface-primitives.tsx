@@ -14,6 +14,8 @@
  * Molten Gold under html[data-accent="gold"]). Never hardcode accent hexes.
  */
 
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
+
 import type { ReactNode } from "react";
 import Image from "next/image";
 import { AlertTriangle, ChevronRight, ShieldCheck } from "@/components/icons";
@@ -120,22 +122,31 @@ export function StatusPill({
 }
 
 export function AvatarBubble({
+  userId,
+  personRef,
   initials,
   size = 36,
   imageUrl,
 }: {
+  userId?: string | null;
+  personRef?: string | null;
   initials: string;
   size?: number;
   imageUrl?: string | null;
 }) {
+  const interactive = Boolean(userId || personRef);
+  const Root = interactive ? "button" : "span";
   return (
-    <span
+    <Root
       className={cn(AVATAR_BUBBLE, "relative overflow-hidden")}
       style={{
         width: size,
         height: size,
       }}
-      aria-hidden
+      type={interactive ? "button" : undefined}
+      aria-hidden={interactive ? undefined : true}
+      aria-label={interactive ? "View person profile" : undefined}
+      onClick={interactive ? event => { event.preventDefault(); event.stopPropagation(); openPersonProfilePreview({ userId, personRef }, event.currentTarget); } : undefined}
     >
       {initials}
       {imageUrl ? (
@@ -149,7 +160,7 @@ export function AvatarBubble({
           onError={(event) => event.currentTarget.remove()}
         />
       ) : null}
-    </span>
+    </Root>
   );
 }
 

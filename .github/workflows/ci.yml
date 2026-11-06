@@ -33,7 +33,7 @@ on:
           - backend
           - all
       uat_base_sha:
-        description: "Current UAT application SHA for exact-source qualification (optional)"
+        description: "Optional comparison SHA; serving UAT SHA required for UAT qualification"
         required: false
         default: ""
         type: string
@@ -227,9 +227,13 @@ jobs:
   repo-governance:
     name: "Governance"
     needs: [paths]
-    if: always()
+    # Keep independent failure collection, but release superseded/cancelled work.
+    # The final required status gate still runs always and refuses cancellation.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -258,6 +262,14 @@ jobs:
           CI_IMPACT_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
           CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
+
+      - name: Plan unit concurrency
+        id: unit-plan
+        env:
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+        run: |
+          matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
@@ -297,6 +309,7 @@ jobs:
       document: ${{ steps.resolve.outputs.document }}
       auth_health_only: ${{ steps.resolve.outputs.auth_health_only }}
       auth_health: ${{ steps.filter.outputs.auth_health }}
+      queue_selection_files: ${{ steps.filter.outputs.queue_selection_files }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -326,6 +339,7 @@ jobs:
           # 'some'. Without this setting a '!' pattern would match every other
           # file in the repository.
           predicate-quantifier: 'some-with-excludes'
+          list-files: json
           # scripts/ci is split by the lane that executes each script.
           # The web lanes run orchestrate.sh, its web-*.sh scripts and the
           # shared UI review-base resolver. The shared web-common.sh
@@ -338,6 +352,9 @@ jobs:
           # Guarded by
           # consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py
           filters: |
+            # Capture the existing selector's actual inventory for queue reuse.
+            queue_selection:
+              - '**'
             frontend:
               - 'hushh-webapp/**'
               - '!hushh-webapp/scripts/testing/affected-tests.mjs'
@@ -405,6 +422,10 @@ jobs:
               - '!consent-protocol/tests/test_phone_schema_legacy_job.py'
               - '!consent-protocol/tests/test_pkm_v7_recovery_migration.py'
               - '!consent-protocol/tests/test_plg_qualification_producer.py'
+              - '!consent-protocol/tests/test_plg_qualification_bootstrap.py'
+              - '!consent-protocol/tests/test_plg_qualification_acceptance.py'
+              - '!consent-protocol/tests/test_plg_qualification_candidate.py'
+              - '!consent-protocol/tests/helpers/plg_qualification.py'
               - '!consent-protocol/tests/test_scheduled_mail_scheduler_contract.py'
               - '!consent-protocol/tests/test_uat_connector_rollout_contract.py'
               - '!consent-protocol/tests/test_uat_deploy_no_traffic_contract.py'
@@ -1090,14 +1111,17 @@ jobs:
 
   web-full-suite-check:
     name: "Web Unit Contracts"
-    needs: [preflight-gate]
+    needs: [preflight-gate, repo-governance]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Unknown change coverage runs the full unit suite on this job.
+    # Unknown impact retains all tests through native Vitest sharding.
     timeout-minutes: 45
-    # One affected/core unit owner; full historical shards remain a diagnostic command.
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.repo-governance.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1134,10 +1158,26 @@ jobs:
       - name: Run affected unit contracts
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
-          WEB_FULL_SUITE_SHARD: ""
+          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
           CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+
+      - name: Verify unit shard (1/1)
+        if: matrix.shard == '1/1'
+        run: echo 'Unit shard 1/1 completed successfully'
+
+      - name: Verify unit shard (1/3)
+        if: matrix.shard == '1/3'
+        run: echo 'Unit shard 1/3 completed successfully'
+
+      - name: Verify unit shard (2/3)
+        if: matrix.shard == '2/3'
+        run: echo 'Unit shard 2/3 completed successfully'
+
+      - name: Verify unit shard (3/3)
+        if: matrix.shard == '3/3'
+        run: echo 'Unit shard 3/3 completed successfully'
 
   ios-native-check:
     name: "iOS Native (Xcode)"
@@ -2118,6 +2158,19 @@ jobs:
           fi
           echo "All required CI jobs passed or were intentionally skipped."
 
+      - name: Verify Akshat sandbox CI inputs
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/New_memory_architecutre'
+        shell: bash
+        env:
+          CUSTOM_BASE: ${{ inputs.uat_base_sha }}
+          CUSTOM_SOURCE: ${{ inputs.uat_candidate_sha }}
+          CUSTOM_TREE: ${{ inputs.uat_candidate_tree }}
+        run: |
+          if [[ -n "${CUSTOM_BASE}${CUSTOM_SOURCE}${CUSTOM_TREE}" ]]; then
+            echo "::error::Validate the exact sandbox branch without UAT source overrides."
+            exit 1
+          fi
+
       # A manual branch verdict has its own name and cannot satisfy PR branch
       # protection. The same full selected lanes remain required for dev.
       - name: Refuse diagnostic-only dispatch scopes
@@ -2145,8 +2198,17 @@ jobs:
         with:
           fetch-depth: 0
       - name: Record tested merge inputs
+        env:
+          QUEUE_SELECTION_FILE: ${{ runner.temp }}/queue-selection.json
+          QUEUE_AUTH_HEALTH_ONLY: ${{ needs.paths.outputs.auth_health_only }}
         if: github.event_name == 'pull_request' && !github.event.pull_request.draft
-        run: python3 scripts/ci/queue_combined_result.py record --receipt "$RUNNER_TEMP/ci-combined-inputs.json"
+        # Serialize as a JSON string into a quoted heredoc, never shell code or
+        # one large environment value (Linux limits each value to about 128 KiB).
+        run: |
+          cat > "$QUEUE_SELECTION_FILE" <<'HUSSH_QUEUE_SELECTION_JSON'
+          ${{ toJSON(needs.paths.outputs.queue_selection_files) }}
+          HUSSH_QUEUE_SELECTION_JSON
+          python3 scripts/ci/queue_combined_result.py record --receipt "$RUNNER_TEMP/ci-combined-inputs.json"
       - uses: actions/upload-artifact@v7
         if: github.event_name == 'pull_request' && !github.event.pull_request.draft
         with:

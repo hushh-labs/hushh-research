@@ -39,6 +39,7 @@ CREATE TABLE actor_profiles (
   public_person_ref TEXT,
   public_profile_status TEXT NOT NULL DEFAULT 'active',
   directory_listed BOOLEAN,
+  connection_list_shared BOOLEAN NOT NULL DEFAULT FALSE,
   role_label TEXT,
   contact_discoverable BOOLEAN NOT NULL DEFAULT FALSE,
   contact_sync_consent_enabled_at TIMESTAMPTZ,
@@ -212,6 +213,282 @@ def _requested(conn: Connection, requester: str, addressee: str, status: str = "
         ),
         {"requester": requester, "addressee": addressee, "status": status},
     )
+
+
+def _network(connection: Connection):
+    from hushh_mcp.services.connection_network_service import ConnectionNetworkService
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    service = ConnectionsService.__new__(ConnectionsService)
+    service._transaction_connection = connection
+    directory = _Directory(connection)
+    network = ConnectionNetworkService(service)
+    network._directory = directory
+    return network
+
+
+def _network_edge(connection: Connection, a: str, b: str, status: str = "active") -> None:
+    a, b = sorted((a, b))
+    connection.execute(
+        text("INSERT INTO connections VALUES (:a, :b, :status)"), {"a": a, "b": b, "status": status}
+    )
+
+
+def test_extended_network_shortest_degrees_require_shared_paths_and_live_accounts(connection):
+    network = _network(connection)
+    for uid in (OWNER, "alice", "bob", "carol", "dave", "hidden", "disabled", "stranger"):
+        _person(connection, uid, uid.title())
+    for a, b in (
+        (OWNER, "alice"),
+        ("alice", "bob"),
+        ("bob", "carol"),
+        ("carol", "dave"),
+        (OWNER, "bob"),
+        ("bob", "hidden"),
+        ("hidden", "stranger"),
+        ("alice", "disabled"),
+        ("disabled", "dave"),
+    ):
+        _network_edge(connection, a, b)
+    _network_edge(connection, OWNER, "stranger", "revoked")
+    _requested(connection, OWNER, "dave")  # pending is not a graph edge
+    connection.execute(
+        text("UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id='hidden'")
+    )
+    directory = _Directory(connection)
+    directory._active_directory_user_ids = lambda ids: set(ids) - {"disabled"}
+    network._directory = directory
+    assert network.preference(OWNER) == {"shareConnectionList": False}
+    # Mutual existence is retained even when full lists are private.
+    assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2}
+    for uid in ("bob", "carol"):
+        network.set_preference(uid, True)
+    assert network.degrees(OWNER) == {"alice": 1, "bob": 1, "carol": 2, "dave": 3}
+    network.set_preference("carol", False)
+    assert "dave" not in network.degrees(OWNER)
+    network.set_preference("carol", True)
+    # Any blocked path segment is excluded in either direction.
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES ('carol','dave','rejected', '{\"blocked_by\":\"carol\"}')"
+        )
+    )
+    assert "dave" not in network.degrees(OWNER)
+
+
+def test_network_cycles_do_not_extend_degrees_or_include_viewer(connection):
+    network = _network(connection)
+    for uid in (OWNER, "a", "b", "c", "d"):
+        _person(connection, uid, f"Person {uid}")
+        network.set_preference(uid, True)
+    for a, b in ((OWNER, "a"), ("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")):
+        _network_edge(connection, a, b)
+    assert network.degrees(OWNER) == {"a": 1, "b": 2, "c": 2, "d": 3}
+
+
+def test_network_directory_filter_applies_before_pagination(connection):
+    ids = []
+    for index in range(125):
+        uid = f"network-{index:03}"
+        _person(connection, uid, f"Network {index:03}")
+        ids.append(uid)
+    _person(connection, "stranger", "A Stranger")
+    directory = _Directory(connection)
+    result = directory.search_directory_candidates(
+        owner_user_id=OWNER, network_user_ids=ids, page=2, limit=20
+    )
+    assert [p["userId"] for p in result["items"]] == ids[20:40]
+    assert result["hasMore"] is True
+    assert (
+        directory.search_directory_candidates(owner_user_id=OWNER, network_user_ids=[], limit=20)[
+            "items"
+        ]
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "change", ["opt_out", "disconnect", "block", "peer_disconnect", "peer_block"]
+)
+def test_shared_network_rechecks_permission_after_directory_work(connection, change):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "target", "peer"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text(
+            "ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID USING public_person_ref::uuid"
+        )
+    )
+    target_ref = str(uuid4())
+    connection.execute(
+        text(
+            "UPDATE actor_profiles SET public_person_ref = CAST(:ref AS UUID) WHERE user_id='target'"
+        ),
+        {"ref": target_ref},
+    )
+    connection.execute(
+        text(
+            "UPDATE actor_profiles SET public_person_ref = gen_random_uuid() WHERE public_person_ref IS NULL"
+        )
+    )
+    _network_edge(connection, OWNER, "target")
+    _network_edge(connection, "target", "peer")
+    assert network.preference("target") == {"shareConnectionList": False}
+    with pytest.raises(ConnectionsError) as private:
+        network.browse(OWNER, person_ref=target_ref)
+    assert private.value.status_code == 404
+    network.set_preference("target", True)
+    page = network.browse(OWNER, person_ref=target_ref)
+    assert len(page["items"]) == 1
+    assert page["items"][0]["networkDegree"] == 2
+    assert set(page["items"][0]) == {"publicPersonRef", "displayName", "photoUrl", "networkDegree"}
+    original = network.directory().search_directory_candidates
+
+    def read_then_revoke(**kwargs):
+        result = original(**kwargs)
+        if "network_user_ids" in kwargs:
+            if change == "opt_out":
+                network.set_preference("target", False)
+            elif change in ("disconnect", "peer_disconnect"):
+                a, b = sorted((OWNER if change == "disconnect" else "peer", "target"))
+                connection.execute(
+                    text(
+                        "UPDATE connections SET status='revoked' WHERE user_a_id=:a AND user_b_id=:b"
+                    ),
+                    {"a": a, "b": b},
+                )
+            else:
+                a, b = (OWNER, "target") if change == "block" else ("peer", "target")
+                connection.execute(
+                    text(
+                        "INSERT INTO connection_requests VALUES (:a,:b,'rejected','{\"blocked_by\":\"test\"}')"
+                    ),
+                    {"a": a, "b": b},
+                )
+        return result
+
+    network.directory().search_directory_candidates = read_then_revoke
+    with pytest.raises(ConnectionsError) as caught:
+        network.browse(OWNER, person_ref=target_ref)
+    assert caught.value.status_code in (404, 503)
+
+
+def test_extended_discovery_rechecks_third_hop_opt_out_after_page_read(connection):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "alice", "bob", "carol"):
+        _person(connection, uid, uid.title())
+        network.set_preference(uid, True)
+    for a, b in ((OWNER, "alice"), ("alice", "bob"), ("bob", "carol")):
+        _network_edge(connection, a, b)
+    original = network.directory().search_directory_candidates
+
+    def read_then_revoke(**kwargs):
+        result = original(**kwargs)
+        if "network_user_ids" in kwargs:
+            network.set_preference("bob", False)
+        return result
+
+    network.directory().search_directory_candidates = read_then_revoke
+    with pytest.raises(ConnectionsError) as caught:
+        network.browse(OWNER, degree=3)
+    assert caught.value.status_code == 503
+
+
+def test_network_budget_refuses_partial_or_invented_degrees(connection, monkeypatch):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "a", "b", "c"):
+        _person(connection, uid, f"Person {uid}")
+    for uid in ("a", "b", "c"):
+        _network_edge(connection, OWNER, uid)
+    monkeypatch.setattr("hushh_mcp.services.connection_network_service.MAX_NETWORK_NODES", 2)
+    with pytest.raises(ConnectionsError) as caught:
+        network.degrees(OWNER)
+    assert caught.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "change", ["disconnect", "block", "disable", "preview_disconnect", "preview_disable"]
+)
+def test_network_summary_rechecks_authority_after_preview_read(connection, change):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    for uid in (OWNER, "target", "preview"):
+        _person(connection, uid, f"Person {uid}")
+    connection.execute(
+        text(
+            "ALTER TABLE actor_profiles ALTER COLUMN public_person_ref TYPE UUID USING public_person_ref::uuid"
+        )
+    )
+    connection.execute(text("UPDATE actor_profiles SET public_person_ref=gen_random_uuid()"))
+    target_ref = str(
+        connection.execute(
+            text("SELECT public_person_ref FROM actor_profiles WHERE user_id='target'")
+        ).scalar_one()
+    )
+    for a, b in ((OWNER, "target"), (OWNER, "preview"), ("preview", "target")):
+        _network_edge(connection, a, b)
+    assert network.summary(OWNER, target_ref)["networkDegree"] == 1
+    original = network.profiles
+
+    def read_then_revoke(viewer, ids):
+        people = original(viewer, ids)
+        if ids == ["preview"]:
+            if change == "block":
+                connection.execute(
+                    text(
+                        "INSERT INTO connection_requests VALUES (:owner,'target','rejected','{\"blocked_by\":\"target\"}')"
+                    ),
+                    {"owner": OWNER},
+                )
+            elif change in ("disable", "preview_disable"):
+                connection.execute(
+                    text(
+                        "UPDATE actor_profiles SET public_profile_status='disabled' WHERE user_id=:uid"
+                    ),
+                    {"uid": "target" if change == "disable" else "preview"},
+                )
+            else:
+                a, b = sorted((OWNER if change == "disconnect" else "preview", "target"))
+                connection.execute(
+                    text(
+                        "UPDATE connections SET status='revoked' WHERE user_a_id=:a AND user_b_id=:b"
+                    ),
+                    {"a": a, "b": b},
+                )
+        return people
+
+    network.profiles = read_then_revoke
+    with pytest.raises(ConnectionsError) as caught:
+        network.summary(OWNER, target_ref)
+    assert caught.value.status_code in (404, 503)
+
+
+def test_final_network_qualification_enforces_edge_budget_on_unexpanded_leaves(
+    connection, monkeypatch
+):
+    from hushh_mcp.services.connections_service import ConnectionsError
+
+    network = _network(connection)
+    ids = [OWNER, "a", "b", "c", "d"]
+    for uid in ids:
+        _person(connection, uid, f"Person {uid}")
+        network.set_preference(uid, True)
+    for a, b in ((OWNER, "a"), ("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")):
+        _network_edge(connection, a, b)
+    # Five undirected edges become nine eligible directed edges. Qualification
+    # must refuse an overflow instead of returning paths from a truncated graph.
+    network._admitted = ids
+    monkeypatch.setattr("hushh_mcp.services.connection_network_service.MAX_NETWORK_EDGES", 8)
+    with pytest.raises(ConnectionsError) as caught:
+        network.qualify_degrees(OWNER, ["c", "d"])
+    assert caught.value.status_code == 503
 
 
 def test_mutual_directory_pages_all_eligible_shared_peers_on_postgres(

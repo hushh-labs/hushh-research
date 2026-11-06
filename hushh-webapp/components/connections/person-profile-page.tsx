@@ -1,5 +1,6 @@
 "use client";
 import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
+import { PersonNetworkSummary } from "./person-network-summary";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
@@ -65,6 +66,7 @@ import {
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
+  buildPersonProfileRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -78,7 +80,7 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; onNetworkReady?: () => void };
 
 function renderCategoryIcon(domain: string) {
   const presentation = {
@@ -138,7 +140,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false, onNetworkReady }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -149,9 +151,9 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const resolvedPersonRef = useMemo(() => {
     const isNativeIOS =
       Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
-    if (!isNativeIOS) return personRef;
+    if (!isNativeIOS || embedded) return personRef;
     return resolvePersonRefFromProfilePathname(pathname) || personRef;
-  }, [pathname, personRef]);
+  }, [pathname, personRef, embedded]);
   const [profileState, setProfileState] = useState<{
     personRef: string;
     profile: PublicPersonProfile | null;
@@ -205,6 +207,14 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   } | null>(null);
   const currentHistory = historyState?.personRef === resolvedPersonRef
     && historyState.viewerUid === user?.uid && historyState.page === historyPage ? historyState : null;
+  const [networkReady, setNetworkReady] = useState(false);
+  const markNetworkReady = useCallback(() => setNetworkReady(true), []);
+  useEffect(() => {
+    const terminalUnavailable = !profile && publicProfileUnavailable;
+    const bodyReady = terminalUnavailable || (profile && !authLoading
+      && (!user || ((viewerProfile || viewerUnavailable) && (currentHistory?.result || currentHistory?.failed))));
+    if (bodyReady && (networkReady || terminalUnavailable)) onNetworkReady?.();
+  }, [profile, publicProfileUnavailable, authLoading, user, viewerProfile, viewerUnavailable, currentHistory, networkReady, onNetworkReady]);
   const historyGroups = currentHistory?.result?.bundles.map((summary) => {
     const recent = recentHistoryGroups.find((group) => group.bundleId === summary.bundleId);
     return {
@@ -241,8 +251,8 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   const searchParams = useSearchParams();
   // /connect and the agent's discovery card land here with ?request=1: bring
   // the requestable catalog into view instead of the identity header.
-  const requestIntent = searchParams?.get("request") === "1";
-  const sharedIntent = searchParams?.get("section") === "shared";
+  const requestIntent = !embedded && searchParams?.get("request") === "1";
+  const sharedIntent = !embedded && searchParams?.get("section") === "shared";
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const requestScopeReturnFocusRef = useRef<HTMLButtonElement | null>(null);
@@ -759,7 +769,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   }, [viewerProfile]);
 
   usePublishVoiceSurfaceMetadata(
-    viewerProfile
+    viewerProfile && !embedded
       ? {
           screenId: "one_person_profile",
           title: "Person profile",
@@ -780,7 +790,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           },
         }
       : null,
-    { role: "route", routeKey: "/people/[personRef]" },
+    { role: embedded ? "interaction_layer" : "route", routeKey: embedded ? undefined : "/people/[personRef]" },
   );
 
   usePublishVoiceSurfaceMetadata(
@@ -805,7 +815,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
           },
         }
       : null,
-    { role: "interaction_layer", routeKey: "/people/[personRef]" },
+    { role: "interaction_layer", routeKey: embedded ? undefined : "/people/[personRef]" },
   );
 
   if (!profile) {
@@ -827,6 +837,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
   return (
     <AppPageShell width="agent" fitContent>
       <div className={styles.page} data-native-route="native-route-person-profile">
+        <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
         <PersonProfileHero
           profile={profile}
           shareOnly={!viewerProfile}
@@ -883,7 +894,7 @@ function PersonProfileSession({ personRef, initialProfile }: Props) {
               ref={requestScopeReturnFocusRef}
               aria-label="Share profile"
               onClick={() => {
-                void navigator.clipboard.writeText(window.location.href);
+                void navigator.clipboard.writeText(new URL(buildPersonProfileRoute(resolvedPersonRef), window.location.origin).href);
                 toast.success("Profile link copied");
               }}
             >

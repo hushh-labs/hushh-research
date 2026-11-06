@@ -459,8 +459,9 @@ class InspectionPublicationTests(unittest.TestCase):
             pass
         workflow = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
         for environment, label in (("uat", "UAT"), ("production", "Production")):
-            expression = "github.event_name == 'workflow_dispatch' && !inputs.apply"
-            self.assertIn(expression + f" && '{label} revision inspection' || '{label} bounded revision cleanup'", workflow)
+            self.assertIn(f"name: {label} revision maintenance", workflow)
+            self.assertIn("name: 'Maintenance mode: inspection'", workflow)
+            self.assertIn("name: 'Maintenance mode: cleanup'", workflow)
             job = {"name": f"{label} revision inspection", "status": "completed", "conclusion": "failure", "steps": [
                 {"name": f"Prepare or finish eligible {environment} revision cleanup", "conclusion": "failure"},
                 {"name": f"Save {environment} cleanup checkpoint", "conclusion": "skipped"}]}
@@ -470,6 +471,20 @@ class InspectionPublicationTests(unittest.TestCase):
             job["name"] = f"{label} bounded revision cleanup"
             with self.assertRaisesRegex(UnsafeState, "without publishing"):
                 publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+            job["name"] = f"{label} revision maintenance"
+            original = job["steps"].copy()
+            for modes, expected in ((["inspection"], False), (["cleanup"], "without publishing"),
+                                    ([], "mode"), (["inspection", "cleanup"], "mode")):
+                with self.subTest(environment=environment, modes=modes):
+                    job["steps"] = original + [{"name": f"Maintenance mode: {mode}",
+                                                "conclusion": "success" if mode in modes else "skipped"}
+                                                for mode in ("inspection", "cleanup")]
+                    if expected is False:
+                        self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+                    else:
+                        with self.assertRaisesRegex(UnsafeState, expected):
+                            publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+
 
 
 if __name__ == "__main__":

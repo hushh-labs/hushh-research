@@ -24,6 +24,38 @@ promoted wholesale. UAT-directed work can start on UAT. Main receives reviewed
 operations/hotfix deltas and approved product content. None of these source
 operations deploys any environment. There is no sync bot or scheduled merge.
 
+## Agent-owned downstream completion
+
+The coding agent completing a merge owns its downstream source syncs as part of
+that same task. Do not hand routine sync commands back to the developer.
+
+| Landed source | Required destinations |
+|---|---|
+| Main | UAT and Dev |
+| UAT | Dev |
+| Dev | No automatic upward promotion |
+
+1. Pin the landed PR, commit and required dependencies. Reconcile that reviewed
+   change into each destination by behavior, preserving its independent work and
+   environment configuration; do not replace whole branch trees.
+2. Reuse an existing sync PR or record the destination commit when equivalent
+   content is already present. Coalesce overlapping Main/UAT syncs so the same
+   patch is carried once; do not create recursive sync PRs merely for ancestry.
+3. Use the destination's normal review, combined-result CI and authorized merge
+   route. Record each sync PR, landed commit and verification in the existing
+   release record before closing the merge task.
+4. Resolve routine conflicts and dependencies within the task. Pause only the
+   affected sync for unresolved conflicts or missing authority/evidence, including
+   migration collisions that cannot yet be reconciled. Preserve accepted SQL and
+   ledger checksums; record the exact reconciliation and owner/action needed.
+   Continue independent safe syncs; never report a pending destination as synchronized.
+
+This is an agent-owned procedure, not a GitHub bot, schedule or unattended merge
+service. A GitHub UI merge with no agent running does not itself execute it.
+Neither the original merge nor any downstream sync authorizes a deployment,
+provider mutation or database migration. Existing deployment permissions and
+explicit environment approval remain unchanged.
+
 ## What CI proves
 
 PR validation records the exact tree, source, base, selection level and attempt it

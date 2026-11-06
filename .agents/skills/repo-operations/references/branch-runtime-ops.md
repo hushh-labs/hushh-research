@@ -70,39 +70,20 @@ long-lived integration branch like `kai-voice-level3`).
    intentionally excluded, or blocking.
 2. If the user asks to push the full tree, run secret hygiene first and stage
    the full tree unless a file is unsafe to publish.
-3. Before every PR update, verify commits in `origin/main..HEAD` carry DCO
-   signoff trailers.
+3. Before every PR update, verify commits in `origin/<actual-destination>..HEAD`
+   carry DCO signoff trailers; confirm the PR target first.
 4. After subtree sync, merge, rebase, squash, or automated repair, rerun the
    DCO signoff check before pushing.
 5. For `.agents/`, docs, config, scripts, or governance surfaces, rerun the
    governance orchestrator after final local edits.
 
-## Direct Main Admin Push Preflight
+## Main source changes
 
-Use this only when the user explicitly requests a direct push to `main`.
-Maintainer bypass is an authority path, not a validation bypass; the normal
-preferred path remains a PR into `main` with green CI/queue.
-
-Before `git push origin HEAD:main`, prove all of these in the parent session:
-
-1. active GitHub login is the intended governed maintainer (`gh auth status` and
-   `gh api user --jq '.login'`)
-2. repo-local commit author name/email map to that account without exposing
-   private emails (`git config --get user.name`, `git config --get user.email`)
-3. the actor is present in `config/ci-governance.json` `main.review_bypass_users` and `main.merge_queue_bypass_users`
-4. live branch protection still matches policy
-   (`./scripts/ci/verify-main-branch-protection.sh`)
-5. latest `origin/main` is fetched and the branch is rebased or merged on top of
-   it with no unresolved conflicts
-6. every local commit in `origin/main..HEAD` has DCO signoff
-   (`bash scripts/ci/check-dco-signoff.sh origin/main HEAD`)
-7. secret hygiene is clean (`bash scripts/ci/secret-scan.sh`)
-8. changed-surface verification requested by the owning skills has passed or is
-   reported as a concrete blocker
-9. `git diff --check` passes and `git status --short` has no uncommitted files
-
-If any item fails, do not push directly to `main`; fix it, route through the PR
-path, or report the blocker.
+Current branch rules require a pull request. Use the ordinary merge queue or the
+named-owner PR route in [Admin SOP](admin-release-sop.md). Organization-admin
+credentials do not authorize bypassing the required PR, CI or applicable review.
+An emergency production deployment is a separate operation and does not permit a
+direct source push.
 
 ## Runtime Terminals
 
@@ -184,14 +165,17 @@ web origin `http://localhost:3000`, and `lsof -ti :6543` (proxy) / `:8000`
 ## Merge, Deploy, And UAT
 
 1. `merge to main` means land and monitor through `Main Post-Merge Smoke` only.
-2. **Dev intake** owns new feature work after its baseline transition. Curated
-   UAT selection is a separately authorized future transition. Governed operations/hotfix work may branch from
+2. **Dev intake** owns feature integration; protected UAT accepts selected,
+   dependency-complete work and UAT-specific changes. Governed operations/hotfix work may branch from
    `origin/main` and open a PR directly into `main` by actor identity. Required
    CI, queue/Admin SOP and landed smoke still apply. Preserve the legacy train,
    and never transplant a dependent branch onto Main without its dependencies.
    Keep repository `allow_auto_merge` enabled; a Main merge is not a deployment.
-3. `deploy to UAT` is separate: land on `main`, identify the green SHA,
-   dispatch UAT deploy for that SHA, and monitor terminal status.
+3. Deployment is separate on every branch. Explicit Dev dispatch starts from
+   `dev`, UAT from `uat`, and production from `main`. UAT qualifies its exact
+   assembled application revision without a mandatory Dev deployment. Follow
+   [Admin SOP](admin-release-sop.md) and the CI runbook's matching-branch release
+   control; source synchronization is not deployment authorization.
 4. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
    `Deploy to UAT`, and RCA-triggered release authority runs until terminal.
 5. Core runs in `queued`, `in_progress`, or `requested` state mean the task is

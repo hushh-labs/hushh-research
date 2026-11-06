@@ -8,6 +8,7 @@ import json
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -68,6 +69,12 @@ class Grant:
 
 @pytest.fixture
 def journey(monkeypatch, tmp_path, active_account_lifecycle):
+    # These real service/route tests isolate availability and confirmation.
+    # Invocation-scoped semantic admission is covered by the SDK scope suite.
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.request_scope",
+        AsyncMock(return_value=("create",)),
+    )
     grant = Grant()
     inventory = copy.deepcopy(HOLIDAY["inventory"])
     state = {"error": None, "new_conflict": False, "requests": [], "mutations": []}
@@ -288,7 +295,7 @@ def test_included_calendar_errors_block_both_callers_and_never_request_auth(jour
     assert result["status"] == "failed"
     assert result["reason_code"] == reason
     assert "directive" not in result
-    assert "hussh:pending_directive:calendar" not in context.state
+    assert context.state.get("hussh:pending_directive:calendar") is None
     response = journey.client.post(
         "/api/one/calendar/schedule/availability",
         json={"date": "2030-01-17", "time_zone": "Asia/Kolkata"},

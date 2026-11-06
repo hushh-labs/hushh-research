@@ -4,6 +4,7 @@ import copy
 import base64
 import json
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -280,6 +281,62 @@ def test_queue_finish_refuses_when_main_authority_changes(tmp_path):
             queue.main()
 
 
+@pytest.mark.parametrize("branch,change,allowed", [
+    ("uat", "main_commit", True), ("dev", "main_commit", True),
+    ("uat", "main_writer", True), ("dev", "main_writer", True),
+    ("main", "main_writer", False),
+    ("uat", "mergers", False), ("uat", "protected_owners", False),
+    ("uat", "maintainers", False), ("uat", "unknown_policy", False),
+    ("uat", "base", False), ("uat", "head", False), ("uat", "tree", False),
+    ("uat", "members", False), ("uat", "attempt", False),
+    ("uat", "missing_fingerprint", False), ("uat", "malformed_fingerprint", False),
+])
+def test_queue_finish_distinguishes_policy_inputs_from_main_provenance(tmp_path, monkeypatch, branch, change, allowed):
+    policy = {"main": {"restrict_writes_to_merge_users": True,
+                       "merge_users": ["merger"], "protected_pipeline_edit_users": ["owner"]},
+              "uat_merge": {"review_bypass_users": ["maintainer"]}}
+    original = {"branch": branch, "base": BASE, "head": HEAD1, "tree": FIRST,
+                "members": [{"requester": "maintainer", "protected_approvals": ["owner"]}],
+                "policy_revision": HEAD1, "policy_fingerprint": queue.policy_fingerprint(policy, branch)}
+    updated = copy.deepcopy(policy)
+    current = copy.deepcopy(original)
+    current["policy_revision"] = HEAD2
+    validations = [{"run": 1, "attempt": 1}]
+    if change == "main_writer":
+        updated["main"]["restrict_writes_to_merge_users"] = False
+    if change == "mergers":
+        updated["main"]["merge_users"] = ["replacement"]
+    if change == "protected_owners":
+        updated["main"]["protected_pipeline_edit_users"] = ["replacement"]
+    if change == "maintainers":
+        updated["uat_merge"]["review_bypass_users"] = []
+    if change == "unknown_policy":
+        updated["new_authority"] = True
+    current["policy_fingerprint"] = queue.policy_fingerprint(updated, branch)
+    if change in ("base", "head", "tree"):
+        current[change] = SECOND
+    if change == "members":
+        current["members"][0]["protected_approvals"] = []
+    if change == "attempt":
+        validations[0]["attempt"] = 2
+    if change == "missing_fingerprint":
+        original.pop("policy_fingerprint")
+    if change == "malformed_fingerprint":
+        original["policy_fingerprint"] = "invalid"
+    receipt = tmp_path / "queue.json"
+    receipt.write_text(json.dumps({"state": original, "validations": [{"run": 1, "attempt": 1}], "reuse": False}))
+    monkeypatch.setenv("COMBINED_RESULT", "success")
+    with patch.object(sys, "argv", ["queue_combined_result.py", "finish", "--receipt", str(receipt)]), \
+         patch.object(queue, "snapshot", return_value=current) as snapshot, \
+         patch.object(queue, "current_validations", return_value=validations):
+        if allowed:
+            queue.main()
+        else:
+            with pytest.raises(queue.Refused, match="changed"):
+                queue.main()
+        snapshot.assert_called_once()
+    assert policy["main"]["restrict_writes_to_merge_users"] is True
+
 @pytest.mark.parametrize("state", ["CHANGES_REQUESTED", "DISMISSED", "unknown"])
 def test_owner_queue_request_cannot_silently_override_review_history(state):
     guard = queue._module("verify-protected-pipeline-edits.py", "owner_review_history")
@@ -309,7 +366,7 @@ def test_owner_queue_request_refuses_incomplete_review_inventory():
 def receipt_fixture():
     state = {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}
     validation = {"run": 5, "attempt": 2, "number": 1, "head": HEAD1}
-    receipt = {"version": 1, "repository": state["repository"], "event": "pull_request",
+    receipt = {"version": 2, "repository": state["repository"], "event": "pull_request",
                "run": 5, "attempt": 2, "pr": 1, "head": HEAD1, "base": BASE,
                "tree": FIRST, "selection_exact": True, "level": "focused", "result": "success"}
     return state, validation, receipt
@@ -317,7 +374,7 @@ def receipt_fixture():
 
 @pytest.mark.parametrize("field,value", [
     ("tree", SECOND), ("base", SECOND), ("attempt", 1), ("selection_exact", False),
-    ("head", HEAD2), ("result", "cancelled"), ("level", "diagnostic"),
+    ("head", HEAD2), ("result", "cancelled"), ("level", "diagnostic"), ("version", 1),
 ])
 def test_only_identical_tested_inputs_can_be_reused(field, value):
     state, validation, receipt = receipt_fixture()
@@ -365,7 +422,7 @@ def test_new_attempt_during_inspection_invalidates_old_green(later_state):
 
 
 def test_owner_admin_rechecks_inputs_before_mutation(tmp_path):
-    proof = {"state": {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}}
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "main", "base": BASE, "tree": FIRST}}
     changed = copy.deepcopy(proof)
     changed["state"]["base"] = SECOND
     with patch.object(queue, "owner_admin_snapshot", side_effect=[proof, changed]), \
@@ -378,7 +435,7 @@ def test_owner_admin_rechecks_inputs_before_mutation(tmp_path):
 @pytest.mark.parametrize("request_exit", [0, 1, "timeout"])
 def test_owner_admin_reconciles_response_without_second_merge(tmp_path, request_exit):
     from types import SimpleNamespace
-    proof = {"state": {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}}
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "main", "base": BASE, "tree": FIRST}}
     commit = {"tree": {"sha": FIRST}, "parents": [{"sha": BASE}, {"sha": HEAD1}]}
     with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
          patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=request_exit),
@@ -392,7 +449,7 @@ def test_owner_admin_reconciles_response_without_second_merge(tmp_path, request_
 
 def test_owner_admin_never_replays_unconfirmed_merge(tmp_path):
     from types import SimpleNamespace
-    proof = {"state": {"repository": "hushh-labs/hushh-research", "base": BASE, "tree": FIRST}}
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "main", "base": BASE, "tree": FIRST}}
     with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
          patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=1)) as write, \
          patch.object(queue, "api", return_value={"merged": False}):
@@ -545,6 +602,73 @@ def test_trusted_queue_requires_owner_only_for_ci_manifest_script_changes(script
                 queue.authorize("hushh-labs/hushh-research", "dev", BASE, included, policy=null_review_policy())
 
 
+def test_pr_semantic_guard_attributes_authored_manifest_changes_not_destination_additions(tmp_path, monkeypatch):
+    import subprocess
+
+    guard = queue._module("verify-protected-pipeline-edits.py", "authored_semantic_guard")
+    repository = tmp_path / "repository"
+    repository.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=repository, text=True).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Synthetic reviewer")
+    git("config", "user.email", "synthetic@example.invalid")
+    manifest = "consent-protocol/scripts/test-ci.manifest.txt"
+    (repository / "consent-protocol/scripts").mkdir(parents=True)
+    (repository / "config").mkdir()
+    (repository / "config/ci-governance.json").write_text(json.dumps({"main": {
+        "protected_pipeline_edit_users": ["kushaltrivedi5"], "protected_pipeline_paths": ["scripts/ci/"]}}))
+
+    def commit(tests):
+        (repository / manifest).write_text(tests)
+        git("add", ".")
+        git("-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
+        return git("rev-parse", "HEAD")
+
+    seed = commit("tests/a.py\n")
+    target = commit("tests/a.py\ntests/b.py\n")
+    git("checkout", "-qb", "feature", seed)
+    head = commit("tests/a.py\ntests/c.py\n")
+    monkeypatch.chdir(repository)
+    monkeypatch.setattr(guard, "REPO_ROOT", repository)
+    monkeypatch.setattr(guard, "_files_from_event", lambda _args: [manifest])
+    with patch.object(guard, "_owner_approvals", return_value=[]) as approvals:
+        event = tmp_path / "event.json"
+        monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+        monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+        monkeypatch.setenv("GITHUB_REPOSITORY", "hushh-labs/hushh-research")
+        monkeypatch.setattr(sys, "argv", ["verify-protected-pipeline-edits.py"])
+
+        def request(candidate):
+            event.write_text(json.dumps({"pull_request": {
+                "number": 1, "user": {"login": "imsharukhan"},
+                "base": {"sha": target}, "head": {"sha": candidate}}}))
+            return guard.main()
+
+        # The prior direct-tip comparison mistakes B's absence for a deletion.
+        assert guard.semantic_pipeline_changes([manifest], base=target, head=head) == [manifest]
+        semantic = guard.semantic_pipeline_changes
+        with patch.object(guard, "semantic_pipeline_changes", wraps=semantic) as classification:
+            assert request(head) == 0
+        assert classification.call_args.kwargs["base"] == seed
+        assert classification.call_args.kwargs["authority"] == target
+        approvals.assert_not_called()
+        removed = commit("tests/c.py\n")
+        assert request(removed) == 1
+        assert approvals.call_count == 1
+        with pytest.raises(guard.GuardResolutionError, match="unavailable"):
+            request("f" * 40)
+
+
+def test_authored_manifest_comparison_refuses_ambiguous_history(tmp_path):
+    guard = queue._module("verify-protected-pipeline-edits.py", "ambiguous_semantic_guard")
+    with patch("process_group.bounded_stdout", return_value=f"{BASE}\n{HEAD1}\n".encode()):
+        with pytest.raises(guard.GuardResolutionError, match="ambiguous"):
+            guard.authored_change_base(BASE, HEAD1, repository_root=tmp_path)
+
+
 def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(tmp_path):
     import importlib.util
     import os
@@ -604,3 +728,137 @@ def test_semantic_guard_reads_candidate_objects_from_separate_shallow_authority(
     command[command.index("--head-sha") + 1] = clean_head
     result = subprocess.run(command, cwd=candidate, text=True, capture_output=True, env=env)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.fixture
+def tested_pr_merge(tmp_path, monkeypatch):
+    """Real merge of a behind feature, with edits on independent lines."""
+    import subprocess
+
+    monkeypatch.chdir(tmp_path)
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null",
+                                       "-c", "commit.gpgsign=false", *args], text=True).strip()
+    git("init", "-q")
+    git("config", "user.name", "Synthetic reviewer")
+    git("config", "user.email", "synthetic@example.invalid")
+    content = [f"line {number}\n" for number in range(30)]
+    (tmp_path / "shared.txt").write_text("".join(content))
+    git("add", ".")
+    git("commit", "-qm", "seed")
+    seed = git("rev-parse", "HEAD")
+
+    def merge(destination_file="shared.txt"):
+        git("checkout", "-q", "--detach", seed)
+        if destination_file == "shared.txt":
+            changed = content.copy()
+            changed[2] = "destination edit\n"
+            (tmp_path / destination_file).write_text("".join(changed))
+        else:
+            (tmp_path / destination_file).write_text("destination only\n")
+        git("add", ".")
+        git("commit", "-qm", "destination")
+        base = git("rev-parse", "HEAD")
+        git("checkout", "-q", "--detach", seed)
+        changed = content.copy()
+        changed[28] = "feature edit\n"
+        (tmp_path / "shared.txt").write_text("".join(changed))
+        git("add", ".")
+        git("commit", "-qm", "feature")
+        head = git("rev-parse", "HEAD")
+        git("checkout", "-q", "--detach", base)
+        git("merge", "--no-ff", "--no-edit", head)
+        event = tmp_path / "event.json"
+        event.write_text(json.dumps({"pull_request": {"number": 1,
+                         "base": {"sha": base}, "head": {"sha": head}}}))
+        for key, value in {"GITHUB_EVENT_PATH": str(event), "GITHUB_EVENT_NAME": "pull_request",
+                           "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+                           "GITHUB_SHA": git("rev-parse", "HEAD"), "GITHUB_RUN_ID": "5",
+                           "GITHUB_RUN_ATTEMPT": "2", "CI_VALIDATION_LEVEL": "focused",
+                           "QUEUE_AUTH_HEALTH_ONLY": "false",
+                           "QUEUE_SELECTION_FILE": str(tmp_path / "selection.json")}.items():
+            monkeypatch.setenv(key, value)
+        (tmp_path / "selection.json").write_text(json.dumps('["shared.txt"]'))
+        return base, head
+    return merge
+
+
+def test_behind_pr_reuses_only_identical_actual_selection(tested_pr_merge):
+    base, head = tested_pr_merge()
+    # The old ancestry shortcut rejects this real, correctly tested merge.
+    import subprocess
+    assert subprocess.run(["git", "merge-base", "--is-ancestor", base, head]).returncode == 1
+    receipt = queue.record_receipt()
+    assert receipt["selection_exact"] is True
+    assert queue.receipt_matches(receipt, {"repository": receipt["repository"],
+                                "base": base, "tree": receipt["tree"]},
+                                {"run": 5, "attempt": 2, "number": 1, "head": head})
+
+
+def test_integration_inventory_difference_requires_combined_checks(tested_pr_merge):
+    tested_pr_merge("destination.txt")
+    assert queue.record_receipt()["selection_exact"] is False
+
+
+@pytest.mark.parametrize("key,value", [
+    ("QUEUE_SELECTION_FILES", ""), ("QUEUE_SELECTION_FILES", "not json"),
+    ("QUEUE_SELECTION_FILES", "{}"), ("QUEUE_SELECTION_FILES", "[]"),
+    ("QUEUE_SELECTION_FILES", '["wrong.txt"]'),
+    ("QUEUE_SELECTION_FILES", '["old.txt", "shared.txt"]'),
+    ("QUEUE_SELECTION_FILES", '[null]'), ("QUEUE_SELECTION_FILES", '["line\\nname"]'),
+    ("QUEUE_SELECTION_FILES", '["' + "x" * 500_000 + '"]'),
+    ("QUEUE_AUTH_HEALTH_ONLY", "true"), ("QUEUE_AUTH_HEALTH_ONLY", ""),
+], ids=("missing", "malformed", "wrong-shape", "empty", "wrong-path", "rename",
+        "null-path", "newline", "oversized", "pr-only-profile", "unknown-profile"))
+def test_missing_ambiguous_or_pr_only_selection_is_not_reusable(tested_pr_merge, monkeypatch, key, value):
+    tested_pr_merge()
+    if key == "QUEUE_SELECTION_FILES":
+        import os
+        Path(os.environ["QUEUE_SELECTION_FILE"]).write_text(json.dumps(value))
+    else:
+        monkeypatch.setenv(key, value)
+    assert queue.record_receipt()["selection_exact"] is False
+
+
+def test_event_base_must_be_actual_tested_merge_parent(tested_pr_merge, monkeypatch):
+    _, head = tested_pr_merge()
+    import os
+    event = Path(os.environ["GITHUB_EVENT_PATH"])
+    value = json.loads(event.read_text())
+    value["pull_request"]["base"]["sha"] = head
+    event.write_text(json.dumps(value))
+    assert queue.record_receipt()["selection_exact"] is False
+
+
+def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    jobs = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]
+    paths = jobs["paths"]
+    selector = next(step for step in paths["steps"] if step.get("id") == "filter")
+    assert selector["with"]["list-files"] == "json"
+    assert yaml.safe_load(selector["with"]["filters"])["queue_selection"] == ["**"]
+    assert paths["outputs"]["queue_selection_files"] == "${{ steps.filter.outputs.queue_selection_files }}"
+    record = next(step for step in jobs["ci-status"]["steps"]
+                  if step.get("name") == "Record tested merge inputs")
+    assert record["env"] == {
+        "QUEUE_SELECTION_FILE": "${{ runner.temp }}/queue-selection.json",
+        "QUEUE_AUTH_HEALTH_ONLY": "${{ needs.paths.outputs.auth_health_only }}"}
+    assert "!github.event.pull_request.draft" in record["if"]
+    assert "${{ toJSON(needs.paths.outputs.queue_selection_files) }}" in record["run"]
+    assert "<<'HUSSH_QUEUE_SELECTION_JSON'" in record["run"]
+
+
+def test_superseded_queue_cancellation_preserves_legacy_parallel_groups():
+    import yaml
+
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/queue-validation.yml").read_text())
+    concurrency = workflow["concurrency"]
+    assert concurrency["cancel-in-progress"] is True
+    assert concurrency["group"] == (
+        'queue-${{ contains(fromJSON(\'["refs/heads/main","refs/heads/dev","refs/heads/uat"]\'), '
+        'github.event.merge_group.base_ref) && github.event.merge_group.base_ref || github.ref }}')
+    policy = json.loads((root / "config/ci-governance.json").read_text())
+    assert policy["repository"]["merge_queue_max_entries_to_build"] == 1

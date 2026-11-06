@@ -1,5 +1,6 @@
 // Synthetic profile transport and vault boundaries; tests render the production page.
 import type { ComponentProps, ReactNode, TextareaHTMLAttributes } from "react";
+import { useEffect } from "react";
 import { vi } from "vitest";
 import { currentGrantFixture } from "./fixtures";
 
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   getInformationRequest: vi.fn(),
   getRequestHistory: vi.fn(),
   getPublic: vi.fn(),
+  peekPublic: vi.fn(),
   getViewer: vi.fn(),
   getRelationship: vi.fn(),
   getVaultOwnerToken: vi.fn(),
@@ -46,6 +48,13 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: mocks.user, userId: mocks.user?.uid ?? null, loading: mocks.authLoading }),
 }));
 
+vi.mock("@/components/connections/person-network-summary", () => ({
+  PersonNetworkSummary: ({ onReady }: { onReady?: () => void }) => {
+    useEffect(() => { onReady?.(); }, [onReady]);
+    return null;
+  },
+}));
+
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     vaultKey: mocks.vaultKey ?? null,
@@ -58,6 +67,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/lib/services/person-profile-service", () => ({
   PersonProfileService: {
     getPublic: mocks.getPublic,
+    peekPublic: mocks.peekPublic,
     getViewer: mocks.getViewer,
     getRelationship: mocks.getRelationship,
     createInformationRequest: vi.fn(),

@@ -491,7 +491,7 @@ export function InviteToCircleFlow({
                           onCheckedChange={() => toggle(connection.userId)}
                           aria-label={`Add ${connection.displayName}`}
                         />
-                        <AvatarBubble
+                        <AvatarBubble userId={connection.userId}
                           initials={initialsFor(connection.displayName)}
                           imageUrl={connection.photoUrl}
                           size={32}
@@ -600,7 +600,7 @@ export function InviteToCircleFlow({
                     )}
                     data-testid="invite-row"
                   >
-                    <AvatarBubble
+                    <AvatarBubble userId={invite.inviteeUserId}
                       initials={initialsFor(invite.inviteeDisplayName ?? "?")}
                       imageUrl={invite.inviteePhotoUrl}
                       size={32}

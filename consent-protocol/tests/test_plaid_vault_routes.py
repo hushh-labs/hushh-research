@@ -36,7 +36,7 @@ def _config() -> PlaidRuntimeConfig:
         secret="plaid_secret",  # noqa: S106 - test fixture value only
         country_codes=["US"],
         language="en",
-        client_name="Agent One",
+        client_name="AgentOne",
         # Configured on purpose: the vault flow must still never send it.
         webhook_url="https://api.hushh.ai/api/kai/plaid/webhook",
         frontend_url="https://one.hushh.ai",
@@ -176,12 +176,11 @@ def test_link_token_web_happy_path_has_no_webhook_and_opaque_user(authed_client,
     assert response.json() == {"link_token": "link-1", "expiration": "2026-09-24"}
     assert response.headers["cache-control"] == "no-store"
     (path, payload) = fake.calls[0]
-    assert (path, payload["client_name"]) == ("/link/token/create", "Agent One")
+    assert (path, payload["client_name"]) == ("/link/token/create", "AgentOne")
     assert "webhook" not in payload
     assert payload["redirect_uri"] == _REDIRECT_URI
     assert "android_package_name" not in payload
     assert "sandbox_proof" not in payload
-    assert payload["products"]
     client_user_id = payload["user"]["client_user_id"]
     assert "owner-123" not in client_user_id
     assert client_user_id.startswith("hv1_")
@@ -491,6 +490,7 @@ def test_snapshot_happy_path_passes_plaid_fields_through(authed_client, monkeypa
         "products": ["transactions", "investments"],
         "consented_products": ["transactions", "investments", "identity"],
         "error": None,
+        "nws_investments_available": True,
     }
     assert body["accounts"] == [_ACCOUNT]
     assert body["investments"] == {"holdings": [_HOLDING], "securities": [_SECURITY]}

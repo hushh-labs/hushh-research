@@ -81,7 +81,7 @@ describe("CandidatePicker", () => {
       "Which Alex did you mean?",
     );
     for (const row of screen.getAllByRole("radio"))
-      expect(row.className).toContain("min-h-11");
+      expect(row.parentElement?.className).toContain("min-h-11");
     expect(screen.getByTestId("one-voice-candidate-none").className).toContain(
       "min-h-11",
     );
