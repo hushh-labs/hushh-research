@@ -15,11 +15,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hushh_mcp.one_adk.agent_tree import (  # noqa: E402
     STATE_GROUNDING_REASON,
     STATE_PKM_CONTEXT,
+    _finance_runtime_instruction,
     _one_runtime_instruction,
 )
 
@@ -96,3 +99,47 @@ def test_the_reason_is_bounded() -> None:
         _Ctx({STATE_PKM_CONTEXT: "", STATE_GROUNDING_REASON: "x" * 5000})
     )
     assert "x" * 201 not in out
+
+
+@pytest.mark.asyncio
+async def test_net_worth_projection_requires_owner_and_reaches_only_finance():
+    from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
+    from hushh_mcp.one_adk.request_secrets import consume_request_secret
+
+    report = {
+        "policyVersion": "plaid-nws-v1",
+        "score": 742,
+        "netWorth": 48200,
+        "history": "provisional",
+        "asOfTimestamp": "2026-11-04T12:00:00Z",
+        "activeWeight": 500,
+        "completenessMultiplier": 0.925,
+        "coverageReasons": ["history_incomplete"],
+        "factors": [
+            {
+                "factor": "solvency",
+                "baseWeight": 300,
+                "normalizedScore": 0.7,
+                "pointsContributed": 388.5,
+            }
+        ],
+    }
+    denied = {"nwsReport": report}
+    assert not admit_nws_report(denied, owner_admitted=False)
+    assert "nwsReport" not in denied
+
+    invalid = {"nwsReport": {**report, "account_id": "private-account"}}
+    assert not admit_nws_report(invalid, owner_admitted=True)
+    assert "nwsReport" not in invalid
+
+    admitted = {"nwsReport": report}
+    reference = admit_nws_report(admitted, owner_admitted=True)
+    try:
+        assert "nwsReport" not in admitted
+        assert "48200" not in reference
+        state = _Ctx({STATE_NWS_REPORT: reference})
+        assert '"score":742' in _finance_runtime_instruction(state)
+        assert '"pointsContributed":388.5' in _finance_runtime_instruction(state)
+        assert '"score":742' not in _one_runtime_instruction(state)
+    finally:
+        consume_request_secret(reference)

@@ -11,7 +11,7 @@ import { presentationMotionDuration, renderedDrawerOffset } from "@/components/a
 import { nativeShellOverlayBlocked, useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useNativeFullWindowOverlayReady } from "@/lib/capacitor/native-presentation-regions";
 import { customNativePresentationEnabled } from "@/lib/capacitor/native-presentation-policy";
-import { nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
+import { nativeDrawers, nativeDrawerAcknowledged, nativeDrawersPlatformEligible } from "@/lib/capacitor/native-drawers";
 import { VoiceSurfaceActivityBoundary } from "@/lib/kai/actions/voice-surface-activity";
 
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "@/components/icons";
@@ -190,7 +190,23 @@ type ProfilePaneProps = {
  * right-side presentation used by the shell and native edge gesture.
  */
 export const ProfilePane = memo(function ProfilePane(props: ProfilePaneProps) {
-  return customNativePresentationEnabled() && nativeDrawersPlatformEligible() ? <NativeProfilePane {...props} /> : <WebProfilePane {...props} />;
+  const nativeEligible = customNativePresentationEnabled() && nativeDrawersPlatformEligible();
+  const [nativeScore, setNativeScore] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!nativeEligible) return;
+    let current = true;
+    void (async () => {
+      try {
+        const capabilities = await nativeDrawerAcknowledged(nativeDrawers().getCapabilities());
+        if (current) setNativeScore(capabilities.profileNetWorthScore === true);
+      } catch {
+        if (current) setNativeScore(false);
+      }
+    })();
+    return () => { current = false; };
+  }, [nativeEligible]);
+  if (nativeEligible && nativeScore === null) return null;
+  return nativeEligible && nativeScore ? <NativeProfilePane {...props} /> : <WebProfilePane {...props} />;
 });
 
 function NativeProfilePane({ open, onOpenChange }: ProfilePaneProps) {
@@ -318,7 +334,9 @@ const WebProfilePane = memo(function WebProfilePane({ open, owner, onOpenChange,
   }, [panePresentationKey, open, isVaultUnlocked]);
   const canGoBack = canGoBackProfilePane(location);
   const panelTitle = location.panel
-    ? location.panel === "my-data"
+    ? location.panel === "net-worth-score"
+      ? "Net Worth Score"
+      : location.panel === "my-data"
       ? "Memory"
       : location.panel === "world-model"
         ? "Personal World Model"

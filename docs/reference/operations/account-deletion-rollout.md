@@ -61,6 +61,18 @@ UAT phone-orphan intents report `firebase_authority_mismatch`. These categories
 can overlap. Protect established owners and retain exact purpose-bound evidence;
 never delete by suffix, missing email, age or absence from Dev alone.
 
+The disjoint cross-plane result is seven protected vault owners, 15 additional
+verified-owner conflicts and 70 unattributed phone-only identities. Dev also
+retains two authority-mismatch cleanup intents. None of the current conflicting
+verified claimants has a full-account deletion tombstone or retired generation;
+their claims cannot be cleared as deletion leftovers. The audit mutated no
+Firebase identity. Native request logging is disabled, so the inspected activity
+surface does not establish how these UIDs were created. Firebase's current user
+list alone cannot distinguish SMS proof, phone sign-in and historical cleanup.
+Full-account deletion currently retains the shared Firebase UID; it does not
+unlink its email. Phone-orphan deletion uses a separate exact-UID, keyed-proof
+contract and revalidates the identity before mutation.
+
 [PR 8975](https://github.com/hushh-labs/hushh-research/pull/8975) links SMS proof to
 the existing email UID, but is a separate unmerged forward fix, not historical
 cleanup. Its linked-account deletion adapter discards retained SMS proof while
