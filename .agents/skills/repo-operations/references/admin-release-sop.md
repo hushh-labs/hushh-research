@@ -90,11 +90,11 @@ maintainer self-approval through the queue as described in §3B.
 The named-owner route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
-  resolution and the six-person Main merger restriction remain active.
+  resolution and the approved Main merger restriction remain active.
 - Each destination's `<branch> owner validated merge` guard requires a PR and
   strict current-base CI for the two owners. Other authorized mergers bypass
   this additional freshness layer only; they cannot bypass the ordinary queue
-  or baseline CI. Main retains its six-person merger restriction.
+  or baseline CI. Main retains its approved merger restriction.
 - Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
   general organization-admin role inherits them. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
@@ -216,9 +216,11 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
    push. Never collapse those labels.
 2. Report PR, workflow, run, and artifact links; exact PR head and landed/deployed
    SHAs; environment; scope; revisions; traffic; and remaining risk.
-3. Restore the preserved developer branch, back-sync landed `main` when needed,
-   remove only temporary branches created by this session, and leave the tree
-   clean.
+3. Complete the [agent-owned downstream source syncs](maintainer-branch-freshness.md#agent-owned-downstream-completion)
+   in this merge task: Main → UAT/Dev; UAT → Dev. Record landed syncs or the exact
+   unresolved reconciliation; source propagation never authorizes deployment.
+4. Restore the preserved developer branch and remove only completed task-owned
+   temporary resources after preserving their work and evidence. Preserve peer edits.
 
 ### Lessons from the 2026-09-02 Wallet release
 

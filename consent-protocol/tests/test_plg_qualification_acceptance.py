@@ -26,6 +26,7 @@ def test_hosted_isolated_acceptance_has_distinct_type_and_source_consumer(monkey
         "ordinary-artifact",
         "shared",
         "fork",
+        "unapproved-trigger",
         "skipped",
         "source",
         "authority",

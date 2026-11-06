@@ -1,23 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
-name: Deploy Ankit's personal backend
+name: Deploy a personal backend
 
 on:
   workflow_dispatch:
     inputs:
+      sandbox:
+        description: Approved personal sandbox
+        type: choice
+        default: ankit
+        options:
+          - ankit
+          - akshat
       sha:
         description: Full commit SHA used to create the git archive
         required: true
         type: string
       source:
-        description: Sandbox source object path with its GCS generation (personal-backend/NAME#GENERATION)
-        required: true
+        description: Legacy pinned source object with its GCS generation
+        required: false
         type: string
       source_sha256:
-        description: SHA-256 of the archive created from that commit
-        required: true
+        description: SHA-256 of the legacy pinned source archive
+        required: false
         type: string
       reuse_build_id:
-        description: Successful sandbox Cloud Build ID for the same source (optional)
+        description: Successful Ankit sandbox Cloud Build ID for the same source (optional)
         required: false
         type: string
 
@@ -25,7 +32,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-backend-dev-ankit
+  group: deploy-backend-dev-${{ inputs.sandbox }}
   cancel-in-progress: false
 
 jobs:
@@ -33,20 +40,37 @@ jobs:
     if: >-
       github.repository == 'hushh-labs/hushh-research' &&
       github.ref == 'refs/heads/main' &&
-      github.actor == 'ankitkumarsingh1702' &&
-      github.triggering_actor == 'ankitkumarsingh1702'
+      github.actor == github.triggering_actor &&
+      (github.actor == 'ankitkumarsingh1702' ||
+       (github.actor == 'RGlodAkshat' && inputs.sandbox == 'akshat'))
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     environment: uat
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - name: Confirm deploy authority
-        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+        env:
+          SANDBOX: ${{ inputs.sandbox }}
+          SOURCE_SHA: ${{ inputs.sha }}
+          REUSE_BUILD_ID: ${{ inputs.reuse_build_id }}
+          SOURCE_OBJECT: ${{ inputs.source }}
+          SOURCE_SHA256: ${{ inputs.source_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+          mode="$(bash deploy/deploy-personal-sandbox.sh --authorize)"
+          if [[ "$mode" == qualified ]]; then
+            python3 scripts/ci/qualify-akshat-sandbox-deploy-source.py "$SOURCE_SHA"
+            git -c tar.umask=0000 archive --format=tar "$SOURCE_SHA" consent-protocol contracts |
+              gzip -n > "$RUNNER_TEMP/hushh-sandbox-qualified-source.tar.gz"
+          fi
       - uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -55,13 +79,14 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v3
       - name: Build and deploy the isolated revision
         env:
+          SANDBOX: ${{ inputs.sandbox }}
           SOURCE_SHA: ${{ inputs.sha }}
           SOURCE_OBJECT: ${{ inputs.source }}
           SOURCE_SHA256: ${{ inputs.source_sha256 }}
           REUSE_BUILD_ID: ${{ inputs.reuse_build_id }}
-        run: bash scripts/ops/deploy-ankit-sandbox.sh
+        run: bash deploy/deploy-personal-sandbox.sh
       - uses: actions/upload-artifact@v7
         with:
-          name: backend-dev-ankit-receipt
+          name: backend-dev-${{ inputs.sandbox }}-receipt
           path: ${{ runner.temp }}/hushh-personal-backend
           if-no-files-found: error

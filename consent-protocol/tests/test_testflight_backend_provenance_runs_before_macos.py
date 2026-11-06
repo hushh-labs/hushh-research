@@ -52,6 +52,7 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     assert 'test "$actual_tree" = "$expected_tree"' in run
     assert 'require-deploy-sha-on-main.sh "$actual_sha"' in run
     assert "verify-predecessor-acceptance.py testflight-uat" in run
+    assert '--source-branch "$SOURCE_BRANCH"' in run
 
 
 def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check() -> None:
@@ -173,6 +174,20 @@ def test_testflight_packaging_override_preserves_archive_and_recovery_identity(t
         "marketing_version": "1.4.3",
         "bundle_id": "com.hushh.app",
     }
+    for branch in ("uat", "uat-isolated"):
+        environment.update(
+            SOURCE_BRANCH=branch,
+            ISOLATED_REVISION="consent-protocol-test",
+            ISOLATED_RUN="99",
+            GITHUB_RUN_ATTEMPT="2",
+        )
+        receipt = run_step("Preserve uploaded build identity for recovery")
+        assert receipt.returncode == 0, receipt.stderr
+        recorded = json.loads((tmp_path / "testflight-upload-receipt.json").read_text())
+        assert recorded["source_branch"] == branch
+        assert recorded["uat_backend_revision"] == "consent-protocol-test"
+        assert recorded["uat_deployment_run_id"] == 99
+        assert recorded["upload_attempt"] == 2
 
     extension = app / "PlugIns/Notifications.appex/Info.plist"
     with extension.open("wb") as handle:

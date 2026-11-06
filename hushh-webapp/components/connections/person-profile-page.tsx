@@ -1,5 +1,6 @@
 "use client";
 import { PersonRequestHistoryHeading } from "@/components/connections/person-request-history-heading";
+import { PersonNetworkSummary } from "./person-network-summary";
 
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 
@@ -71,7 +72,7 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/kai/actions/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 
-type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean };
+type Props = { personRef: string; initialProfile: PublicPersonProfile | null; embedded?: boolean; onNetworkReady?: () => void };
 
 function renderCategoryIcon(domain: string) {
   const presentation = {
@@ -131,7 +132,7 @@ export function PersonProfilePage(props: Props) {
   return <PersonProfileSession key={`${user?.uid ?? "signed-out"}:${getAuthSessionGeneration()}`} {...props} />;
 }
 
-function PersonProfileSession({ personRef, initialProfile, embedded = false }: Props) {
+function PersonProfileSession({ personRef, initialProfile, embedded = false, onNetworkReady }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, userId, loading: authLoading } = useAuth();
@@ -198,6 +199,14 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false }: P
   } | null>(null);
   const currentHistory = historyState?.personRef === resolvedPersonRef
     && historyState.viewerUid === user?.uid && historyState.page === historyPage ? historyState : null;
+  const [networkReady, setNetworkReady] = useState(false);
+  const markNetworkReady = useCallback(() => setNetworkReady(true), []);
+  useEffect(() => {
+    const terminalUnavailable = !profile && publicProfileUnavailable;
+    const bodyReady = terminalUnavailable || (profile && !authLoading
+      && (!user || ((viewerProfile || viewerUnavailable) && (currentHistory?.result || currentHistory?.failed))));
+    if (bodyReady && (networkReady || terminalUnavailable)) onNetworkReady?.();
+  }, [profile, publicProfileUnavailable, authLoading, user, viewerProfile, viewerUnavailable, currentHistory, networkReady, onNetworkReady]);
   const historyGroups = currentHistory?.result?.bundles.map((summary) => {
     const recent = recentHistoryGroups.find((group) => group.bundleId === summary.bundleId);
     return {
@@ -820,6 +829,7 @@ function PersonProfileSession({ personRef, initialProfile, embedded = false }: P
   return (
     <AppPageShell width="agent" fitContent>
       <div className={styles.page} data-native-route="native-route-person-profile">
+        <PersonNetworkSummary personRef={resolvedPersonRef} onReady={markNetworkReady} />
         <PersonProfileHero
           profile={profile}
           shareOnly={!viewerProfile}

@@ -3410,6 +3410,12 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
  * `visibility: hidden` cannot be overridden by a child's pointer-events; it
  * flips once the fade has run and returns at once. */
+/* Profile's modal blocks pointer input outside its own content. Plaid Link
+ * mounts directly under body and owns the dialog while it is above Profile. */
+body:has(.profile-pane-sheet[data-state="open"]) > iframe[id^="plaid-link-iframe"] {
+  pointer-events: auto;
+}
+
 /* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
  * inline, so on the native shell (whose WebView runs under the status bar)
  * the Link card and its close control sat under the clock and the battery
