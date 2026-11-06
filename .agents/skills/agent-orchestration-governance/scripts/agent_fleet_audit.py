@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import runpy
+
 import argparse
 import json
 import re
@@ -10,15 +12,11 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
 
-try:
-    import tomllib
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise SystemExit(f"tomllib is required: {exc}") from exc
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
 AGENTS_DIR = Path(".agents/subagents")
-CONFIG_PATH = Path(".agents/config.toml")
+CONFIG_PATH = Path(".agents/config.json")
 SKILLS_DIR = Path(".agents/skills")
 WORKFLOWS_DIR = Path(".agents/workflows")
 MIN_AGENT_COUNT = 8
@@ -83,8 +81,8 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _read_toml(path: Path) -> dict[str, Any]:
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+def _read_source(path: Path) -> dict[str, Any]:
+    return runpy.run_path(str(Path(__file__).resolve().parents[4] / ".agents/skills/agent-orchestration-governance/scripts/framework_source_boundary.py"))["read_framework_source"](path)
 
 
 def _parse_skill_block(text: str) -> list[str]:
@@ -115,8 +113,8 @@ def _load_skills(root: Path) -> dict[str, dict[str, Any]]:
 
 def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
     agents: dict[str, dict[str, Any]] = OrderedDict()
-    for path in sorted((root / AGENTS_DIR).glob("*.toml")):
-        data = _read_toml(path)
+    for path in sorted((root / AGENTS_DIR).glob("*.md")):
+        data = _read_source(path)
         name = str(data.get("name") or path.stem)
         instructions = str(data.get("developer_instructions") or "")
         craft_duplication_tokens = [
@@ -152,7 +150,7 @@ def _load_agent_runtime_budget(root: Path) -> dict[str, Any]:
     }
     if not path.exists():
         return payload
-    data = _read_toml(path)
+    data = _read_source(path)
     agents = data.get("agents")
     if isinstance(agents, dict):
         payload["max_threads"] = agents.get("max_threads")

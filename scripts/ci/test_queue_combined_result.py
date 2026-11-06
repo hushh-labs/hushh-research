@@ -750,7 +750,7 @@ def tested_pr_merge(tmp_path, monkeypatch):
     git("commit", "-qm", "seed")
     seed = git("rev-parse", "HEAD")
 
-    def merge(destination_file="shared.txt"):
+    def merge(destination_file="shared.txt", *, rename=False):
         git("checkout", "-q", "--detach", seed)
         if destination_file == "shared.txt":
             changed = content.copy()
@@ -765,6 +765,8 @@ def tested_pr_merge(tmp_path, monkeypatch):
         changed = content.copy()
         changed[28] = "feature edit\n"
         (tmp_path / "shared.txt").write_text("".join(changed))
+        if rename:
+            git("mv", "shared.txt", "renamed.txt")
         git("add", ".")
         git("commit", "-qm", "feature")
         head = git("rev-parse", "HEAD")
@@ -780,7 +782,8 @@ def tested_pr_merge(tmp_path, monkeypatch):
                            "QUEUE_AUTH_HEALTH_ONLY": "false",
                            "QUEUE_SELECTION_FILE": str(tmp_path / "selection.json")}.items():
             monkeypatch.setenv(key, value)
-        (tmp_path / "selection.json").write_text(json.dumps('["shared.txt"]'))
+        paths = ["shared.txt", "renamed.txt"] if rename else ["shared.txt"]
+        (tmp_path / "selection.json").write_text(json.dumps(json.dumps(paths)))
         return base, head
     return merge
 
@@ -795,6 +798,14 @@ def test_behind_pr_reuses_only_identical_actual_selection(tested_pr_merge):
     assert queue.receipt_matches(receipt, {"repository": receipt["repository"],
                                 "base": base, "tree": receipt["tree"]},
                                 {"run": 5, "attempt": 2, "number": 1, "head": head})
+
+
+def test_renamed_files_reuse_only_with_both_original_and_new_paths(tested_pr_merge, monkeypatch):
+    tested_pr_merge(rename=True)
+    assert queue.record_receipt()["selection_exact"] is True
+    import os
+    Path(os.environ["QUEUE_SELECTION_FILE"]).write_text(json.dumps('["renamed.txt"]'))
+    assert queue.record_receipt()["selection_exact"] is False
 
 
 def test_destination_only_paths_do_not_prevent_tested_merge_reuse(tested_pr_merge):

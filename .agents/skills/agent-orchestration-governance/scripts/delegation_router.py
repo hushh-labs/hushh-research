@@ -3,16 +3,14 @@
 
 from __future__ import annotations
 
+import runpy
+
 import argparse
 import json
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-try:
-    import tomllib
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise SystemExit(f"tomllib is required: {exc}") from exc
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
@@ -338,14 +336,14 @@ LANE_RULES: tuple[dict[str, Any], ...] = (
 )
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+def _load_source(path: Path) -> dict[str, Any]:
+    return runpy.run_path(str(Path(__file__).resolve().parents[4] / ".agents/skills/agent-orchestration-governance/scripts/framework_source_boundary.py"))["read_framework_source"](path)
 
 
 def _load_agents(root: Path) -> dict[str, dict[str, Any]]:
     agents: dict[str, dict[str, Any]] = {}
-    for path in sorted((root / AGENTS_DIR).glob("*.toml")):
-        payload = _load_toml(path)
+    for path in sorted((root / AGENTS_DIR).glob("*.md")):
+        payload = _load_source(path)
         name = payload.get("name") or path.stem
         agents[str(name)] = payload
     return agents

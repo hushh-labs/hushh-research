@@ -24,8 +24,8 @@
     "python3 .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
     "./scripts/ci/repo-governance-check.sh",
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-    "./bin/hushh codex list-workflows",
-    "./bin/hushh codex audit",
+    "./bin/hushh agents list-workflows",
+    "./bin/hushh agents audit",
     "./bin/hushh docs verify"
   ],
   "verification_bundle": {
@@ -35,8 +35,8 @@
       "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
       "./scripts/ci/repo-governance-check.sh",
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-      "./bin/hushh codex list-workflows",
-      "./bin/hushh codex audit",
+      "./bin/hushh agents list-workflows",
+      "./bin/hushh agents audit",
       "./bin/hushh docs verify"
     ],
     "tests": [
@@ -44,7 +44,7 @@
       "python3 -m py_compile .agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
       "./scripts/ci/repo-governance-check.sh",
       "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-      "./bin/hushh codex audit",
+      "./bin/hushh agents audit",
       "./bin/hushh docs verify"
     ]
   },

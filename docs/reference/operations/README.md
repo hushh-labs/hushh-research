@@ -63,14 +63,14 @@ Within the seven-layer architecture, operations is the primary Layer 1 governanc
 
 Use the root CLI for agent-first onboarding and deterministic workflow routing:
 
-- `./bin/hushh codex onboard`
-- `./bin/hushh codex list-workflows`
-- `./bin/hushh codex route-task <workflow-id>`
-- `./bin/hushh codex impact <workflow-id> [--path <repo-path>]`
-- `./bin/hushh codex pre-pr`
-- `./bin/hushh codex ci-status [--watch]`
-- `./bin/hushh codex data-model-audit`
-- `./bin/hushh codex audit`
+- `./bin/hushh agents onboard`
+- `./bin/hushh agents list-workflows`
+- `./bin/hushh agents route-task <workflow-id>`
+- `./bin/hushh agents impact <workflow-id> [--path <repo-path>]`
+- `./bin/hushh agents pre-pr`
+- `./bin/hushh agents ci-status [--watch]`
+- `./bin/hushh agents data-model-audit`
+- `./bin/hushh agents audit`
 
 Repo governance baseline:
 
@@ -78,7 +78,7 @@ Repo governance baseline:
 - DCO signoff on PR commits
 - `uv` as the canonical backend Python toolchain
 - one required aggregate PR gate: `CI Status Gate`
-- project-scoped development subagents live under `.agents/subagents/`; bounded execution defaults live in `.agents/config.toml`
+- project-scoped development subagents live under `.agents/subagents/`; bounded execution defaults live in `.agents/config.json`
 - repo-scoped custom agents inherit the runtime-selected model by default and are enforced through the existing `Governance` lane plus local Codex validation
 
 ## Codex skills
@@ -112,8 +112,8 @@ Use `.agents/skills/pkm-upgrade-rehearsal/` and workflow `pkm-upgrade-rehearsal`
 
 Use `.agents/skills/morphy-ax/` and workflow `morphy-ax-governance` for shared agent-experience snapshots, presentation posture, typed semantic-assessment validation, compatibility, and AX performance budgets.
 Workflow packs under `.agents/workflows/` are the canonical recurring task surface for routing and onboarding.
-Use `ci-watch-and-heal` plus `./bin/hushh codex ci-status` when the task depends on live PR checks or GitHub Actions state.
-Use `data-model-audit` plus `./bin/hushh codex data-model-audit` when migrations, table ownership, data classes, retention, or legacy memory write drift are in scope.
+Use `ci-watch-and-heal` plus `./bin/hushh agents ci-status` when the task depends on live PR checks or GitHub Actions state.
+Use `data-model-audit` plus `./bin/hushh agents data-model-audit` when migrations, table ownership, data classes, retention, or legacy memory write drift are in scope.
 Use `github-contribution-governance` when contribution graph visibility, verified author email, PR target branch, or merge eligibility affects the task outcome.
 
 ## Portable PDF artifacts

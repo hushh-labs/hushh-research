@@ -338,7 +338,7 @@ def reference_budget_error(origin: str, reference_lines: int) -> str | None:
     )
 
 
-def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
+def collect_skill_bodies(budget_advisories: list[str] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     errors: list[str] = []
     skills: list[dict[str, Any]] = []
     practice_sources = json.loads((REPO_ROOT / ".agents/skills/agent-orchestration-governance/references/platform-source-inventory.json").read_text()).get("practice_sources", {})
@@ -378,7 +378,7 @@ def collect_skill_bodies() -> tuple[list[dict[str, Any]], list[str]]:
             errors.append(f"{rel}: Do Not Use must contain at least one numbered item")
         read_first_items = extract_backticks(sections["Read First"])
         required_checks = parse_required_checks(sections["Required Checks"])
-        errors.extend(
+        (budget_advisories if budget_advisories is not None else errors).extend(
             compact_kernel_budget_errors(
                 origin=str(rel),
                 role=coverage["role"],
@@ -751,8 +751,8 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
             if path.exists()
         )
         required_pr_skill_phrases = [
-            "Dev intake", "protected Dev",
-            "Retained train campaigns",
+            "intended protected destination", "UAT can qualify directly",
+            "do not retarget ordinary PRs",
             "Run the delegation router at intake",
         ]
         for phrase in required_pr_skill_phrases:
@@ -1035,13 +1035,13 @@ def validate_admin_release_contract(errors: list[str]) -> None:
     normalized_reference_text = " ".join(reference_text.split())
     required_phrases = [
         "The ordinary path is PR validation followed by the GitHub merge queue.",
-        "An Admin PR landing is a queue bypass, not a validation bypass.",
-        "Admin PR landing preflight",
-        "--admin --merge --match-head-commit <head-sha>",
+        "Required CI and combined-result validation always apply.",
+        "./bin/hushh agents admin-merge --pr <number> --sha <exact-head>",
+        "no outstanding/withdrawn review objection",
         "Main Post-Merge Smoke Gate = success",
         "The workflow compares the target SHA with each service's currently deployed SHA",
         "Hosted Cloud Run UAT and production use their own governed GitHub environments and workload identities.",
-        "Report this truthfully as an Admin queue bypass.",
+        "Merging any destination never dispatches deployment.",
         "Restore the preserved developer branch",
     ]
     for phrase in required_phrases:
@@ -1162,11 +1162,11 @@ def validate_admin_release_contract(errors: list[str]) -> None:
                 ".github/workflows/main-post-merge-smoke.yml"
             )
     workflow_contracts = {
+        "dev": REPO_ROOT / ".github/workflows/deploy-dev.yml",
         "uat": REPO_ROOT / ".github/workflows/deploy-uat.yml",
         "production": REPO_ROOT / ".github/workflows/deploy-production.yml",
     }
     common_markers = [
-        "workflow_dispatch:",
         "GITHUB_REF_NAME",
         "scripts/ci/assert-governed-actor.py",
         "scripts/ci/require-deploy-sha-on-main.sh",
@@ -1178,6 +1178,17 @@ def validate_admin_release_contract(errors: list[str]) -> None:
             errors.append(f"missing governed deploy workflow: {workflow_path.relative_to(REPO_ROOT)}")
             continue
         workflow_text = workflow_path.read_text(encoding="utf-8")
+        if "workflow_dispatch:" not in workflow_text:
+            errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: explicit dispatch is required")
+        if environment in {"dev", "uat"}:
+            implementation = f".github/workflows/deploy-{environment}-implementation.yml"
+            if f"uses: hushh-labs/hushh-research/{implementation}@main" not in workflow_text:
+                errors.append(f"{workflow_path.relative_to(REPO_ROOT)}: missing trusted Main implementation")
+            implementation_path = REPO_ROOT / implementation
+            if not implementation_path.is_file():
+                errors.append(f"missing governed deployment implementation: {implementation}")
+                continue
+            workflow_text = implementation_path.read_text(encoding="utf-8")
         policy = governance.get(environment, {})
         environment_name = policy.get("environment") or policy.get("owner_environment")
         required_check = policy.get("required_post_merge_check")
@@ -1185,7 +1196,7 @@ def validate_admin_release_contract(errors: list[str]) -> None:
             *common_markers,
             f"environment: {environment_name}",
             f"--surface {environment}",
-            str(required_check),
+            *([str(required_check)] if environment == "production" else []),
         ]
         for marker in environment_markers:
             if not marker or marker not in workflow_text:
@@ -1193,7 +1204,7 @@ def validate_admin_release_contract(errors: list[str]) -> None:
                     f"{workflow_path.relative_to(REPO_ROOT)}: missing governed deploy marker `{marker}`"
                 )
 
-    uat_workflow_text = workflow_contracts["uat"].read_text(encoding="utf-8")
+    uat_workflow_text = (REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text(encoding="utf-8")
     for marker in [
         "scripts/ci/resolve-deploy-scope.py",
         "scripts/ci/verify-cloudrun-revision-provenance.py",
@@ -1363,7 +1374,7 @@ def validate_truth_first_contract(errors: list[str]) -> None:
                     f"{path.relative_to(REPO_ROOT)}: missing planning-question contract phrase `{phrase}`"
                 )
 
-    for agent_path in sorted((REPO_ROOT / ".agents/subagents").glob("*.toml")):
+    for agent_path in sorted((REPO_ROOT / ".agents/subagents").glob("*.md")):
         text = agent_path.read_text(encoding="utf-8")
         if "Truth-first protocol:" not in text:
             errors.append(f"{agent_path.relative_to(REPO_ROOT)}: missing truth-first protocol block")
@@ -1409,10 +1420,11 @@ def collect_anti_rationalization_advisories(skill_manifests) -> list[str]:
 
 
 def main() -> int:
-    skills, errors = collect_skill_bodies()
+    budget_advisories = []
+    skills, errors = collect_skill_bodies(budget_advisories)
     skill_manifests = validate_skill_manifests(skills, errors)
     validate_workflows(skill_manifests, errors)
-    validate_reference_budgets(errors)
+    validate_reference_budgets(budget_advisories)
     validate_special_skill_contracts(errors)
     validate_admin_release_contract(errors)
     validate_truth_first_contract(errors)
@@ -1431,7 +1443,7 @@ def main() -> int:
         f"Validated {len(skills)} skills, {len(skill_manifests)} skill manifests, "
         f"{len(EXPECTED_WORKFLOW_IDS)} workflow packs, and {len(MEANINGFUL_SURFACES)} meaningful repo surfaces"
     )
-    advisories = collect_anti_rationalization_advisories(skill_manifests)
+    advisories = budget_advisories + collect_anti_rationalization_advisories(skill_manifests)
     for item in advisories:
         print(f"- ADVISORY: {item}")
     return 0

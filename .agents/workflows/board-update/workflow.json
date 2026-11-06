@@ -14,12 +14,12 @@
     "docs/reference/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task board-update"
+    "./bin/hushh agents route-task board-update"
   ],
   "verification_bundle": {
     "id": "board-update",
     "commands": [
-      "./bin/hushh codex route-task board-update"
+      "./bin/hushh agents route-task board-update"
     ],
     "tests": []
   },

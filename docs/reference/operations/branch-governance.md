@@ -52,8 +52,10 @@ Cloud Build release recipes under `deploy/` remain reviewed Main authority becau
 the Main-owned UAT workflow consumes them from the candidate; any candidate delta
 there refuses until the recipe change is reviewed on Main.
 
-Source implementation is not a live qualification receipt. Reconcile the retained
-UAT history, run exact-candidate CI and verify admission before first use. No
+Source implementation is not a live qualification receipt. Run full exact-candidate
+CI on protected UAT and verify current admission before deployment. Ordinary
+Dev/UAT does not require a manual PR-history chain or serving-commit ancestry;
+recheck captured per-service revisions, compatibility and rollback under the lock. No
 application deployment is authorized by this operations change.
 
 Capability graph checks compare against each actual target or serving base.
