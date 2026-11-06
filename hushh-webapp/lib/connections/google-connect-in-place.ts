@@ -28,6 +28,7 @@ import {
 } from "@/lib/profile/gmail-oauth-popup";
 import { waitForOAuthPopup } from "@/lib/profile/drive-oauth-popup";
 import { GmailReceiptsService, type GmailConnectionStatus } from "@/lib/services/gmail-receipts-service";
+import { calendarAccountStatus } from "@/lib/calendar/calendar-account-status";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import type { GoogleConnectorConnectOptions } from '@/lib/one/google-native-connect';
 
@@ -335,28 +336,27 @@ export function connectCalendarInPlace(
   request: ConnectControls & {
     owner: InPlaceConnectOwner;
     accessLevel: "read" | "manage";
+    accountId?: string;
     includeCalendarList?: boolean;
   },
 ): InPlaceConnectStart {
   const input = bindConnectOwner(request);
   if (!input) return started("unsupported", async () => "stale");
   const { owner, accessLevel, includeCalendarList } = input;
-  const granted = (status: {
-    connected?: boolean;
-    status?: string;
-    access_level?: string | null;
-    calendar_list_access?: boolean;
-  }) =>
-    status.connected === true &&
-    status.status !== "needs_reauth" &&
-    (accessLevel !== "manage" || status.access_level === "manage") &&
-    (!includeCalendarList || status.calendar_list_access === true);
+  const accountId = input.accountId ?? "default";
+  const granted = (status: Awaited<ReturnType<typeof GoogleCalendarService.status>>) => {
+    const selected = calendarAccountStatus(status, accountId);
+    return selected?.connected === true && selected.status !== "needs_reauth" &&
+      (accessLevel !== "manage" || selected.access_level === "manage") &&
+      (!includeCalendarList || selected.calendar_list_access === true);
+  };
 
   if (Capacitor.isNativePlatform()) {
     return started("native", () =>
       fenced(input, () => undefined, async (current) => {
         const privateAgent = await ownerContentIsPrivate();
         if (!current()) return 'stale';
+        if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) {
           const connection = await connectPrivate('calendar', current, input);
           if (typeof connection === 'string') return connection;
@@ -369,6 +369,7 @@ export function connectCalendarInPlace(
         const start = await GoogleCalendarService.startNativeConnect({
           idToken,
           accessLevel,
+          ...(accountId !== "default" ? { accountId, additional: true } : {}),
           ...(includeCalendarList ? { includeCalendarList: true } : {}),
         });
         if (!current()) return "stale";
@@ -394,11 +395,13 @@ export function connectCalendarInPlace(
   const attempt = createGoogleOAuthPopupAttempt("calendar", {
     ownerId: input.applicationOwnerId,
     accessLevel,
+    ...(accountId !== "default" ? { calendarAdditional: true, targetAccountId: accountId } : {}),
   });
   const popup = openGoogleOAuthPopup(attempt);
   if (!popup) return started('checking', () => fenced(input, () => undefined, async (current) => {
     const privateAgent = await ownerContentIsPrivate();
     if (!current()) return 'stale';
+    if (privateAgent && accountId !== 'default') return 'not_connected';
     if (privateAgent) { const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
     return 'window_blocked';
   }));
@@ -407,6 +410,7 @@ export function connectCalendarInPlace(
       try {
         const privateAgent = await ownerContentIsPrivate();
         if (!current()) return 'stale';
+        if (privateAgent && accountId !== 'default') return 'not_connected';
         if (privateAgent) { popup.close(); const result = await connectPrivate('calendar', current, input); return typeof result === 'string' ? result : 'not_connected'; }
         // A popup callback settles to this window; it never routes to the
         // onboarding setup page.
@@ -417,6 +421,7 @@ export function connectCalendarInPlace(
           idToken,
           userId: input.applicationOwnerId,
           accessLevel,
+          ...(accountId !== "default" ? { accountId, additional: true } : {}),
         });
         if (!current()) return "stale";
         if (!isGoogleAuthorizeUrl(start.authorize_url)) return "failed";

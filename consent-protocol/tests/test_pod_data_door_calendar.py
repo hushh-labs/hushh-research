@@ -19,6 +19,8 @@ pod has no vault credential, and the turn degraded (and, on an older image,
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
@@ -309,12 +311,15 @@ async def test_private_door_refusal_never_reads_in_process(bridge) -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_hub_never_consults_the_door(bridge) -> None:
+async def test_the_hub_never_consults_the_door(bridge, monkeypatch) -> None:
     from hushh_mcp.agents.calendar import tools
 
     bridge["pod_mode"] = False
+    service = SimpleNamespace(connections=SimpleNamespace())
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: service)
 
-    async def _db_call(user_id: str):
+    async def _db_call(user_id: str, selected_service, account_id: str):
+        assert user_id == "u-owner" and selected_service is service and account_id == "default"
         return {"status": "ok", "events": ["hub read"]}
 
     out = await tools._run_calendar_read(_Ctx({tools._STATE_USER_ID: "u-owner"}), _db_call)

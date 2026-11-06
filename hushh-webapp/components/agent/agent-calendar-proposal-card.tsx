@@ -23,6 +23,10 @@ export type CalendarProposalConflict = {
 
 export type AgentCalendarProposalCardProps = {
   action: CalendarProposalAction;
+  accountId?: string | null;
+  locationCleared?: boolean;
+  descriptionCleared?: boolean;
+  attendeesRemoved?: string[];
   title: string | null;
   startAt: string | null;
   endAt: string | null;
@@ -98,6 +102,10 @@ function attendeeSummary(attendees: string[]): string {
  */
 export function AgentCalendarProposalCard({
   action,
+  accountId,
+  locationCleared,
+  descriptionCleared,
+  attendeesRemoved = [],
   title,
   startAt,
   endAt,
@@ -126,6 +134,7 @@ export function AgentCalendarProposalCard({
   const offset = displayZone && startAt ? endAt ? calendarTimeZoneOffsetRange(displayZone, startAt, endAt) : calendarTimeZoneOffset(displayZone, startAt) : undefined;
   const range = [formatRange(startAt, endAt, displayZone), offset, duration].filter(Boolean).join(" · ");
   const attendeeText = attendeeSummary(attendees);
+  const reviewError = validationError || (!title || !startAt || !endAt || !accountId ? "This Calendar review is incomplete. Ask One to show the meeting again." : null);
 
   return (
     <div
@@ -167,6 +176,10 @@ export function AgentCalendarProposalCard({
       </div>
 
       <div className={`${calendarPresentation.chatBody} mt-4 space-y-2 border-t border-[color:var(--app-separator)] pt-3`}>
+        {accountId ? <p className="text-muted-foreground">Calendar account: {accountId === "default" ? "Primary Google account" : accountId}</p> : null}
+        {locationCleared ? <p>Location will be cleared.</p> : null}
+        {descriptionCleared ? <p>Description will be removed.</p> : null}
+        {attendeesRemoved.length ? <p>Guests to remove: {attendeesRemoved.join(", ")}</p> : null}
         {googleMeet ? (
           <div className="flex items-start gap-2.5 text-foreground">
             <CameraIcon className="mt-0.5 size-4 shrink-0 text-[color:var(--app-accent)]" />
@@ -229,7 +242,7 @@ export function AgentCalendarProposalCard({
         </div>
       ) : null}
 
-      {validationError ? <p role="alert" className="mt-4 text-sm text-destructive">{validationError}</p> : null}
+      {reviewError ? <p role="alert" className="mt-4 text-sm text-destructive">{reviewError}</p> : null}
       {changingTime && onChangeTime ? <div className="mt-4">
         {timeOptions.length ? <Select onValueChange={value => { setChangingTime(false); onChangeTime(value); }}>
           <SelectTrigger aria-label="Choose a start inside your free window" className="w-full"><SelectValue placeholder="Choose a time" /></SelectTrigger>
@@ -252,7 +265,7 @@ export function AgentCalendarProposalCard({
           data-testid="agent-calendar-proposal-confirm"
           size="standard"
           variant={isCancel ? "destructive" : "default"}
-          disabled={busy || !!validationError || changingTime}
+          disabled={busy || !!reviewError || changingTime}
           className="w-full sm:w-auto"
           onClick={onConfirm}
         >

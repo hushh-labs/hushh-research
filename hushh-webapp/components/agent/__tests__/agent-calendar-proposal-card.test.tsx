@@ -4,9 +4,20 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentCalendarProposalCard } from "@/components/agent/agent-calendar-proposal-card";
 
 describe("AgentCalendarProposalCard", () => {
+  it("cannot confirm an incomplete review", () => {
+    const onConfirm = vi.fn();
+    render(<AgentCalendarProposalCard action="create" title={null} startAt={null} endAt={null}
+      attendees={[]} location={null} sendUpdates={false} conflicts={[]} confirmLabel="Schedule"
+      onConfirm={onConfirm} onCancel={vi.fn()} />);
+    fireEvent.click(screen.getByTestId("agent-calendar-proposal-confirm"));
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("incomplete");
+  });
+
   it("renders a create proposal with title, time range, and notify copy", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="Planning"
         startAt="2026-08-11T10:00:00+05:30"
@@ -39,6 +50,7 @@ describe("AgentCalendarProposalCard", () => {
   it("shows the no-notify copy when sendUpdates is false", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="reschedule"
         title="Client call"
         startAt="2026-08-11T10:00:00Z"
@@ -59,6 +71,7 @@ describe("AgentCalendarProposalCard", () => {
   it("shows every reviewed attendee without truncating the invitation list", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="All hands"
         startAt="2026-08-11T10:00:00Z"
@@ -79,6 +92,7 @@ describe("AgentCalendarProposalCard", () => {
   it("renders a conflicts callout when conflicts are present", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="Client call"
         startAt="2026-08-11T10:00:00Z"
@@ -105,6 +119,7 @@ describe("AgentCalendarProposalCard", () => {
     const onCancel = vi.fn();
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="cancel"
         title="Design review"
         startAt="2026-08-11T10:00:00Z"
@@ -131,6 +146,7 @@ describe("AgentCalendarProposalCard", () => {
   it("falls back to 'Untitled event' when title is missing", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="cancel"
         title={null}
         startAt={null}
@@ -151,6 +167,7 @@ describe("AgentCalendarProposalCard", () => {
   it("shows busy state on the confirm button", () => {
     render(
       <AgentCalendarProposalCard
+        accountId="account-b"
         action="create"
         title="Planning"
         startAt="2026-08-11T10:00:00Z"

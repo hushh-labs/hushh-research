@@ -1042,7 +1042,7 @@ describe("CalendarConnectedWorkspace", () => {
 
     expect(mocks.onChat).toHaveBeenCalledOnce();
     expect(mocks.onChat).toHaveBeenCalledWith(undefined, {
-      ownerId: "owner", accountEmail: status.google_email, date: "2026-11-01", timeZone: calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone),
+      ownerId: "owner", accountId: "default", accountEmail: status.google_email, date: "2026-11-01", timeZone: calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone),
       windowStart: "2026-11-01T05:30:00Z", windowEnd: "2026-11-01T06:30:00Z", durationMinutes: 15,
     });
     expect(mocks.reviewWorkspaceAttendance).not.toHaveBeenCalled();

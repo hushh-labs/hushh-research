@@ -89,6 +89,7 @@ def followup_pg(connector_postgres_url, monkeypatch):  # noqa: F811 - imported p
             "442_calendar_mail_read_grant.sql",
             "443_calendar_email_followups.sql",
             "444_calendar_email_followup_delivery.sql",
+            "445_calendar_email_followup_relevance.sql",
         ):
             sql = (MIGRATIONS / name).read_text().replace("BEGIN;", "").replace("COMMIT;", "")
             sql = sql.replace("SELECT install_account_deletion_write_guards();", "")
@@ -171,6 +172,7 @@ def test_followup_migrations_roll_back_without_live_state(followup_pg):
     _, _, engine = followup_pg
     with engine.begin() as connection:
         for name in (
+            "445_calendar_email_followup_relevance.rollback.sql",
             "444_calendar_email_followup_delivery.rollback.sql",
             "443_calendar_email_followups.rollback.sql",
             "442_calendar_mail_read_grant.rollback.sql",

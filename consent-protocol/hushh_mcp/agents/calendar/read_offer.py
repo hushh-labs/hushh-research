@@ -23,7 +23,9 @@ class CalendarReadOffer(BaseModel):
     kind: Literal["events", "calendars", "invitations"]
     owner_id: str = Field(min_length=1, max_length=256)
     conversation_id: str = Field(min_length=1, max_length=256)
-    grant_binding: list[str] = Field(min_length=6, max_length=6)
+    account_id: str = Field(default="default", min_length=1, max_length=128)
+    # Keep every opaque account/grant component, including owner-cloud scopes.
+    grant_binding: list[str] = Field(min_length=6, max_length=64)
     ids: list[str] = Field(min_length=1, max_length=250)
     calendar_id: str = Field(default="primary", min_length=1, max_length=1024)
     created_at_ms: int = Field(ge=1)
@@ -44,6 +46,7 @@ def make_calendar_read_offer(
     grant_binding: tuple[str, ...],
     ids: list[str],
     calendar_id: str = "primary",
+    account_id: str = "default",
 ) -> dict[str, Any] | None:
     """Store only positions from a successful provider read, in result order."""
 
@@ -58,6 +61,7 @@ def make_calendar_read_offer(
                 "grant_binding": list(grant_binding),
                 "ids": ids,
                 "calendar_id": calendar_id,
+                "account_id": account_id,
                 "created_at_ms": int(time.time() * 1000),
             }
         )

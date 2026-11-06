@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { legacyCalendarProposalPayload } from "@/lib/agent/calendar-proposal-review";
+
 const source = readFileSync(
   join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
   "utf8",
@@ -224,8 +226,16 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
     );
     const parser = source.slice(parserStart, parserEnd);
     expect(parser).toContain('type: "calendar.connect"');
-    expect(parser).toContain('type: "calendar.execute_proposal"');
-    expect(parser).toContain("proposalId");
+    expect(parser).toContain("legacyCalendarProposalPayload(parsed, action)");
+    expect(legacyCalendarProposalPayload({
+      proposal_id: "synthetic-proposal",
+      plan: { account_id: "account-b" },
+    }, "create")).toMatchObject({
+      type: "calendar.execute_proposal",
+      proposalId: "synthetic-proposal",
+      accountId: "account-b",
+      confirmLabel: "Schedule meeting",
+    });
     expect(parser).toContain("confirmLabel");
   });
 
@@ -240,8 +250,10 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
 
   it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {
     const connectIndex = normalized.indexOf('type === "calendar.connect"');
-    const block = normalized.slice(connectIndex, connectIndex + 1200);
-    expect(block).toContain('runDirectiveConnect("calendar");');
+    const proposalIndex = normalized.indexOf('type !== "calendar.execute_proposal"', connectIndex);
+    const block = normalized.slice(connectIndex, proposalIndex);
+    expect(block).toContain("calendarDirectiveAccountId(payload)");
+    expect(block).toContain('runDirectiveConnect("calendar", requestedAccount);');
     expect(block).not.toContain("location.assign");
     // The shared connector still owns the existing Calendar start + journey reset.
     const shared = readFileSync(
