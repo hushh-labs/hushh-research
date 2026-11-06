@@ -124,10 +124,9 @@ code blocks.
     as `emulated`, and still maintain the five-lane refill queue. Silent
     sequential parent-only evidence collection is invalid for approved async
     trains.
-24. Normal PRs opened to `main` must be listed with `retarget_to_integration_pr_train`
-    before any approval, queue, merge, maintainer patch, or harvest action.
-    Promotion PRs from `integration/pr-train` to `main` are the only normal
-    main-lane merge vehicle.
+24. Record each PR's actual intended destination. Do not retarget ordinary work
+    to a legacy train branch. Main product promotion preserves accepted UAT
+    content; operations/hotfix PRs follow their separately authorized route.
 
 ## Research And Review Standard
 
