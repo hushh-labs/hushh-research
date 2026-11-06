@@ -87,8 +87,32 @@ describe("network permission and journey return @feature_connected_profiles", ()
     await waitFor(() => expect(finish).toBeDefined());
     expect(screen.getByRole("button", { name: "Open Person 1's profile" })).toBe(first);
     expect(container.firstElementChild!.scrollTop).toBe(95);
-    await act(async () => finish(page()));
+    expect(state.list.mock.calls.map(([options]) => options.page)).toEqual([1, 2]);
+    await act(async () => finish(page(2)));
     await screen.findByRole("button", { name: "Open Person 2's profile" });
+    expect(screen.getByRole("button", { name: "Open Person 1's profile" })).toBe(first);
+  });
+
+  it.each([
+    { status: 403, message: "This connection list is unavailable." },
+    { status: 503, message: "Could not load connections. Please try again." },
+  ])("retries a rate-limited page without replay and clears rows after $status", async ({ status, message }) => {
+    render(<NetworkPeopleList mode="connections" personRef="target" visitKey="page-retry" />);
+    const first = await screen.findByRole("button", { name: "Open Person 1's profile" });
+    state.list.mockRejectedValueOnce(new state.Error(429));
+    fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
+    await screen.findByText("Could not load connections. Please try again.");
+    expect(screen.getByRole("button", { name: "Open Person 1's profile" })).toBe(first);
+
+    state.list.mockResolvedValueOnce({ ...page(2), hasMore: true });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Open Person 2's profile" });
+    expect(state.list.mock.calls.map(([options]) => options.page)).toEqual([1, 2, 2]);
+
+    state.list.mockRejectedValueOnce(new state.Error(status));
+    fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
+    await screen.findByText(message);
+    expect(screen.queryByRole("button", { name: /Open Person .* profile/ })).toBeNull();
   });
 
   it("accepts server-false after a sharing request and exposes failed updates without changing the switch", async () => {
