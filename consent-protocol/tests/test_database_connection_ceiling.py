@@ -229,9 +229,20 @@ def _companion_fleet(relative: str) -> Fleet:
         _single_int(rf"\b{key}=(\d+)", text, relative)
         for key in ("DB_POOL_MAX_SIZE", "DB_SQLALCHEMY_POOL_SIZE", "DB_SQLALCHEMY_MAX_OVERFLOW")
     )
+    if relative == "deploy/drive/deploy_worker_service.sh":
+        assert text.count('--max-instances="${WORKER_INSTANCES}"') == 1
+        service = "consent-protocol-drive-worker"
+        profile = json.loads(_read("config/runtime-capacity.json"))
+        settings = profile["environments"]["uat"]["services"][service]
+        candidate_connections = run_path(str(REPO_ROOT / "scripts/ci/runtime-capacity-budget.py"))[
+            "candidate_connections"
+        ]
+        max_instances = candidate_connections(service, settings)["max_instances"]
+    else:
+        max_instances = _single_int(r"--max-instances=(\d+)", text, relative)
     return Fleet(
         name=relative,
-        max_instances=_single_int(r"--max-instances=(\d+)", text, relative),
+        max_instances=max_instances,
         workers=_single_int(r",-w,(\d+),", text, relative),
         per_worker=pools,
     )

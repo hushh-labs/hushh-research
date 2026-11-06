@@ -584,6 +584,17 @@ class ExactUatAttemptTest(unittest.TestCase):
         self.assertEqual(
             subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1
         )
+        # Full application qualification may intentionally omit unaffected native lanes.
+        for name in ("iOS Native (Xcode)", "Android Native (Gradle)"):
+            native = next(job for job in jobs if job["name"] == name)
+            original = native["conclusion"]
+            native["conclusion"] = "skipped"
+            subject.verify_attempt(api, candidate, base, 123, 1)
+            for failure in ("failure", "cancelled"):
+                native["conclusion"] = failure
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1)
+            native["conclusion"] = original
         self._assert_clock_anomaly_requires_single_run(api, candidate, base, run, runs)
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, "d" * 40, 123, 1)

@@ -238,6 +238,15 @@ def _step_running(steps: list[dict], *fragments: str) -> dict:
     raise AssertionError(f"No step runs any of {fragments}")
 
 
+def test_release_native_filter_runs_for_all_and_uses_the_isolated_candidate():
+    step = _paths_filter_step()
+    condition = " ".join(step["if"].split())
+    assert "(inputs.scope == 'all' && inputs.uat_base_sha != '') ||" in condition
+    assert "(inputs.scope == 'auto' &&" in condition
+    assert "inputs.uat_candidate_sha || github.sha" in step["with"]["ref"]
+    assert "inputs.uat_base_sha" in step["with"]["base"]
+
+
 def test_ios_filter_patterns_are_slash_anchored_and_point_at_real_paths() -> None:
     # gitignore rules treat a slash-free pattern as "any depth" while picomatch
     # anchors it at the root. Requiring a slash keeps this test's engine and

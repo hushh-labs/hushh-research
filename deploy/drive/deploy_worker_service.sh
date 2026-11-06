@@ -18,6 +18,35 @@ case "${PROTECTED_DOCUMENT_DELIVERY_ENABLED}" in
 esac
 readonly PROTECTED_DOCUMENT_DELIVERY_ENABLED
 
+# Use the same selected-source profile reserved by release capacity admission.
+# Existing worker policy keeps every admitted slot warm; it is not a new scale offer.
+WORKER_INSTANCES="$(python3 - <<'CAPACITY'
+import importlib.util
+import json
+from pathlib import Path
+
+path = Path("scripts/ci/runtime-capacity-budget.py")
+spec = importlib.util.spec_from_file_location("worker_capacity", path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+profile = json.loads(Path("config/runtime-capacity.json").read_text())
+environment = profile["environments"]["uat"]
+settings = environment["services"]["consent-protocol-drive-worker"]
+if (profile["region"] != "us-central1" or environment["project"] != "hushh-pda-uat"
+        or environment["database_instance"] != "hushh-uat-pg"
+        or settings["container"] != "drive-worker"):
+    raise ValueError("Drive worker capacity profile identifies another workload")
+candidate = settings["candidate"]
+validated = module.candidate_connections("consent-protocol-drive-worker", settings)
+expected = {"workers_per_instance": 1, "asyncpg_pool_max": 2,
+            "sqlalchemy_pool_size": 1, "sqlalchemy_max_overflow": 0}
+if any(candidate[key] != value for key, value in expected.items()):
+    raise ValueError("Drive worker capacity profile differs from its launcher and pools")
+print(validated["max_instances"])
+CAPACITY
+)"
+readonly WORKER_INSTANCES
+
 # Managed Gemini bills to the same dedicated Vertex project as the API
 # (deploy-uat.yml _GENAI_PROJECT_ID); Cloud Run, SQL and secrets stay here.
 managed_ai_profile="$(python3 scripts/ops/managed_ai_config.py --environment uat --format json)"
@@ -95,6 +124,12 @@ service_exists="$(gcloud run services list \
   --project="${PROJECT_ID}" --region="${REGION}" --format=json \
   | SERVICE_NAME="${SERVICE}" python3 -c 'import json,os,sys; rows=json.load(sys.stdin); assert isinstance(rows,list); print("true" if any((row.get("metadata") or {}).get("name")==os.environ["SERVICE_NAME"] for row in rows) else "false")')"
 previous_revision=""
+previous_service_scale=""
+scaling_attempted=false
+
+read_service_scale() {
+  python3 -c 'import json,sys; a=json.load(sys.stdin)["metadata"]["annotations"]; print(a["run.googleapis.com/minScale"], a["run.googleapis.com/maxScale"])'
+}
 # Cloud Run limits service name + '-' + traffic tag to 46 characters. Base36
 # preserves the full numeric GitHub run ID without a collision-prone truncation.
 traffic_tag="$(python3 - "${SERVICE}" "${RELEASE_RUN_ID}" <<'PY'
@@ -121,6 +156,11 @@ if [[ "${service_exists}" == true ]]; then
   # Bind rollback traffic and scheduler capture to one service snapshot.
   service_snapshot="$(gcloud run services describe "${SERVICE}" \
     --project="${PROJECT_ID}" --region="${REGION}" --format=json)"
+  previous_service_scale="$(read_service_scale <<< "${service_snapshot}")"
+  if [[ ! "${previous_service_scale}" =~ ^[0-9]+\ [1-9][0-9]*$ ]]; then
+    echo "Drive worker service scaling is unavailable; refusing release" >&2
+    exit 1
+  fi
   serving_state="$(python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; positive=[item for item in traffic if item.get("percent",0)>0]; print("empty" if not positive else "serving:"+str(positive[0].get("revisionName")) if len(positive)==1 and positive[0].get("percent")==100 and positive[0].get("revisionName") else "ambiguous")' <<< "${service_snapshot}")"
   prior_worker_url="$(python3 -c 'import json,sys; print((json.load(sys.stdin).get("status") or {}).get("url") or "")' <<< "${service_snapshot}")"
   case "${serving_state}" in
@@ -186,6 +226,18 @@ rollback() {
     # IAM-private and unreachable by the scheduler after target restoration.
     echo "First Drive worker release has no previous revision; leave the idle private candidate for investigation" >&2
   fi
+  if [[ "${scaling_attempted}" == true && -n "${previous_service_scale}" ]]; then
+    local previous_min previous_max restored_scale
+    read -r previous_min previous_max <<< "${previous_service_scale}"
+    gcloud run services update "${SERVICE}" --project="${PROJECT_ID}" --region="${REGION}" \
+      --min="${previous_min}" --max="${previous_max}" --quiet >&2 || restore_failed=1
+    restored_scale="$(gcloud run services describe "${SERVICE}" \
+      --project="${PROJECT_ID}" --region="${REGION}" --format=json | read_service_scale)" || restore_failed=1
+    if [[ "${restored_scale}" != "${previous_service_scale}" ]]; then
+      echo "Drive worker service scaling restoration could not be verified" >&2
+      restore_failed=1
+    fi
+  fi
   if [[ "${restore_failed}" != 0 ]]; then
     echo "CRITICAL: Drive worker rollback is incomplete; investigate scheduler and traffic before enabling connectors" >&2
   fi
@@ -237,26 +289,24 @@ if [[ "${test_webhook_ready}" == true ]]; then
   payment_secret_bindings="${payment_secret_bindings},STRIPE_CONNECT_TEST_WEBHOOK_SECRET=${STRIPE_UAT_CONNECT_TEST_WEBHOOK_SECRET}:latest"
 fi
 
-# Both budgeted instances stay warm (service-level --min=2). A cold instance
-# takes about 2.5 minutes to become ready (the ClamAV signature and E5 model
-# checks gate readiness), and each instance runs one drain at a time, so without
-# a warm second instance a lane that arrives while another lane runs waits for
-# that start. The service-level floor follows the traffic split: a tagged
+# All admitted worker slots stay warm. A cold instance waits for scanner and
+# model readiness. The service-level floor follows the traffic split: a tagged
 # no-traffic candidate or a retired revision is never kept warm, and the
 # revision-level minimum stays 0 for the same reason. The connection budget
-# counts every retained revision at maxScale x workers x pool (2 x 1 x 3), so
+# counts every retained revision at the admitted maximum x 1 worker x 3 pool slots, so
 # the floor reserves no extra connections. Concurrency stays 1:
 # LocalDocumentProcessor's memory-heavy child limits are per request, and every
 # Drive store transaction shares the process's one SQLAlchemy connection.
 stage_started=${SECONDS}
+scaling_attempted=true
 gcloud --quiet run deploy "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
   --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
   --ingress=internal --no-allow-unauthenticated \
   --add-custom-audiences="${SCHEDULER_AUDIENCE}" \
   --add-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
-  --concurrency=1 --timeout=240 --max-instances=2 --min-instances=0 \
-  --max=2 --min=2 "${traffic_flags[@]}" \
+  --concurrency=1 --timeout=240 --max-instances="${WORKER_INSTANCES}" --min-instances=0 \
+  --max="${WORKER_INSTANCES}" --min="${WORKER_INSTANCES}" "${traffic_flags[@]}" \
   --labels="managed-by=hushh-github-actions,deploy-env=uat,deploy-sha=${DEPLOY_SHA},github-run-id=${RELEASE_RUN_ID}" \
   --container=drive-worker \
   --image="${IMAGE_REFERENCE}" --port=8080 --cpu=2 --memory=4Gi \
@@ -270,6 +320,12 @@ gcloud --quiet run deploy "${SERVICE}" \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
   --startup-probe=tcpSocket.port=3310,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
   --set-env-vars=CLAMD_STARTUP_TIMEOUT=180,FRESHCLAM_CHECKS=24
+service_scale="$(gcloud run services describe "${SERVICE}" \
+  --project="${PROJECT_ID}" --region="${REGION}" --format=json | read_service_scale)"
+if [[ "${service_scale}" != "${WORKER_INSTANCES} ${WORKER_INSTANCES}" ]]; then
+  echo "Drive worker service scaling differs from the admitted profile" >&2
+  exit 1
+fi
 record_stage_timing candidate_deploy "${stage_started}"
 
 stage_started=${SECONDS}
@@ -290,7 +346,7 @@ gcloud run revisions describe "${candidate_revision}" \
       EXPECTED_ACTIVITY_UNION_ENABLED="${DRIVE_REQUEST_ACTIVITY_UNION_UAT_ENABLED}" \
       EXPECTED_ACTIVITY_UNION_PAUSED="${DRIVE_REQUEST_ACTIVITY_UNION_UAT_PAUSED}" \
       EXPECTED_MANAGED_TEXT_PROVIDER="${MANAGED_TEXT_PROVIDER}" \
-      EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1 \
+      EXPECTED_MAX_INSTANCES="${WORKER_INSTANCES}" EXPECTED_CONCURRENCY=1 \
       python3 deploy/drive/verify_worker_revision.py
 record_stage_timing candidate_attestation "${stage_started}"
 
