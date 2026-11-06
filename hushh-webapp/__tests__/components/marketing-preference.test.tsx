@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
+import { useAttemptEmail } from "@/components/account/use-attempt-email";
 
 const mocks = vi.hoisted(() => ({ token: vi.fn(), fetch: vi.fn(), toast: vi.fn(), dismiss: vi.fn(), native: false, active: true, epoch: 0 }));
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { getFirebaseIdTokenForOwner: mocks.token, apiFetch: mocks.fetch } }));
@@ -25,6 +27,57 @@ beforeEach(() => {
   mocks.fetch.mockReset().mockImplementation(async () => response(empty));
 });
 afterEach(() => { cleanup(); publishValidatedAuthSessionOwner(null); });
+
+const attemptChoice = { enabled: false, available: true, frequency: "one_per_attempt", revision: 0, disclosureVersion: "one-attempt-email-v1" };
+describe("separate activity email choice", () => {
+  it("requires a fresh manual choice and sends no marketing, recipient or frequency override", async () => {
+    mocks.fetch.mockImplementation(async () => response(attemptChoice));
+    render(<AttemptEmailPanel owner="owner" />);
+    const toggle = await screen.findByRole("switch");
+    expect(toggle).not.toBeChecked();
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(toggle);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    mocks.fetch.mockResolvedValueOnce(response({ ...attemptChoice, enabled: true, revision: 1 }));
+    fireEvent.click(screen.getByRole("button", { name: "Save activity email choice" }));
+    await screen.findByText("Activity email choice saved.");
+    expect(mocks.fetch.mock.calls[1][0]).toBe("/api/one/plg/attempt-email/preferences");
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body)).toEqual({ enabled: true, expectedRevision: 0, disclosureVersion: "one-attempt-email-v1" });
+  });
+
+  it.each(["unmount", "same-owner-relogin", "other-owner", "native-background"])("cannot use a captured activity-email Save after %s", async (departure) => {
+    mocks.fetch.mockImplementation(async () => response(attemptChoice));
+    const view = renderHook(({ owner }) => useAttemptEmail(owner), { initialProps: { owner: "owner" } });
+    await waitFor(() => expect(view.result.current.value).not.toBeNull());
+    const old = view.result.current;
+    if (departure === "unmount") view.unmount();
+    if (departure === "same-owner-relogin") {
+      publishValidatedAuthSessionOwner(null); publishValidatedAuthSessionOwner("owner");
+      view.rerender({ owner: "owner" });
+      await waitFor(() => expect(view.result.current.value).not.toBeNull());
+    }
+    if (departure === "other-owner") {
+      publishValidatedAuthSessionOwner("other"); view.rerender({ owner: "other" });
+      await waitFor(() => expect(view.result.current.value).not.toBeNull());
+    }
+    if (departure === "native-background") { mocks.native = true; mocks.active = false; mocks.epoch++; }
+    await act(() => old.save(true));
+    expect(mocks.fetch.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+  });
+
+  it("keeps opt-out usable while rollout is disabled and requires refresh after ambiguous save", async () => {
+    mocks.fetch.mockResolvedValueOnce(response({ ...attemptChoice, enabled: true, available: false, revision: 3 }));
+    render(<AttemptEmailPanel owner="owner" />);
+    const toggle = await screen.findByRole("switch");
+    fireEvent.click(toggle);
+    mocks.fetch.mockResolvedValueOnce(response({}, 503));
+    fireEvent.click(screen.getByRole("button", { name: "Save activity email choice" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Refresh before choosing again");
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(mocks.fetch.mock.calls.filter(([, options]) => options.method === "PUT")).toHaveLength(1);
+    expect(JSON.parse(mocks.fetch.mock.calls[1][1].body).enabled).toBe(false);
+  });
+});
 
 describe("explicit email preference", () => {
   it("loads the real saved choice, stages edits, and saves only after a physical submit", async () => {

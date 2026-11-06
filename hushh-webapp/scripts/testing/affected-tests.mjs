@@ -229,6 +229,36 @@ function loadTypeScriptParser() {
   return cachedTypeScript;
 }
 
+function documentationHeaderOnly(repoRoot, file, base) {
+  if (!/^[0-9a-f]{40}$/.test(base || "") ||
+      !/^components\/app-ui\/.+\.tsx?$/.test(file)) return false;
+  const ts = loadTypeScriptParser();
+  if (!ts) return false;
+  try {
+    const before = execFileSync("git", ["show", `${base}:hushh-webapp/${file}`], {
+      cwd: repoRoot, encoding: "utf8", maxBuffer: MAX_CHANGED_FILE_BYTES,
+      stdio: ["ignore", "pipe", "ignore"], timeout: 10_000,
+    });
+    const after = readFileSync(path.join(repoRoot, "hushh-webapp", file), "utf8");
+    const suffix = (source) => {
+      const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true,
+        file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+      if (parsed.parseDiagnostics.length || !parsed.statements.length) return null;
+      const start = parsed.statements[0].getStart(parsed);
+      const header = source.slice(0, start);
+      // Only plain leading documentation is exempt. Compiler directives,
+      // triple-slash references and every executable byte remain inputs.
+      if (!/^\s*(?:\/\*\*[\s\S]*?\*\/\s*)*$/.test(header) ||
+          /[@#]|__PURE__|__NO_SIDE_EFFECTS__|sourceMappingURL|sourceURL|<reference/.test(header)) return null;
+      return source.slice(start);
+    };
+    const original = suffix(before);
+    return original !== null && original === suffix(after);
+  } catch {
+    return false;
+  }
+}
+
 function isSourceDeclaration(node, ts) {
   return ts.isVariableDeclaration(node) || ts.isParameter(node) ||
     ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) ||
@@ -697,12 +727,13 @@ function buildPlan({ env = process.env, repoRoot = REPO_ROOT } = {}) {
 
   const changed = readChangedFiles(env);
   if (!changed.ok) return { ...base, fallbackReason: changed.reason };
-  // Browser fixtures, review receipts and local styling have another required
-  // owner; mixing them into a source change must not expand all unit tests.
+  // Presentation diagnostics and receipts are not unit-runtime inputs.
+  // A shared file's plain documentation header must not select the full suite.
   const unitFiles = changed.files.filter((file) =>
     !/^(?:contracts\/ui-review\/|docs\/|e2e\/)/.test(file) &&
     !isOtherOwnerFile(file) &&
-    !file.endsWith(".md") && !file.endsWith(".css"));
+    !file.endsWith(".md") && !file.endsWith(".css") &&
+    !documentationHeaderOnly(repoRoot, file, env.CI_IMPACT_BASE_SHA));
   if (requestedLevel === "focused" && unitFiles.length === 0) {
     return { ...base, effectiveLevel: "focused", changedFiles: changed.files, noUnitImpact: true };
   }
@@ -811,7 +842,7 @@ function executePlan(plan, {
 
   if (plan.effectiveLevel === "focused" && plan.noUnitImpact === true &&
       plan.relatedFiles.length === 0 && plan.directFiles.length === 0 && plan.coreFiles.length === 0) {
-    console.log("No unit-runtime impact: required browser/integration owners cover this change.");
+    console.log("No unit-runtime inputs changed; build and applicable runtime checks retain their owners.");
     return 0;
   }
 

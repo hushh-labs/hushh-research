@@ -273,6 +273,7 @@ class PodLocalEmailReadPort(PodEmailReadPort):
             user_id=user_id,
             require_access=authorized,
             expect_account=expect_account or None,
+            expose_message_links=True,
         )
 
     def _context(self) -> tuple[Any, str]:

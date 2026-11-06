@@ -470,15 +470,19 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
             for filename in manifest["ordered_migrations"]:
                 if int(filename[:3]) in {900, 944, 955, 958, 965}:
                     continue
-                # 985 is a successor of canonical421, not a parked predecessor.
-                if filename == "985_legacy_cloud_removal_recovery.sql":
+                # Legacy recovery succeeds canonical421, not parked predecessors.
+                if filename in {
+                    "985_legacy_cloud_removal_recovery.sql",
+                    "986_legacy_cloud_removal_resume.sql",
+                }:
                     continue
                 with conn.cursor() as cur:
                     cur.execute((MIGRATIONS_DIR / "parked" / filename).read_text())
         apply_release_successors(conn, cp, retained_consumer=rich_dev)
         if rich_dev:
             for entry in build_manifest_entries(
-                MIGRATIONS_DIR / "parked", ["985_legacy_cloud_removal_recovery.sql"]
+                MIGRATIONS_DIR / "parked",
+                ["985_legacy_cloud_removal_recovery.sql", "986_legacy_cloud_removal_resume.sql"],
             ):
                 with conn.cursor() as cur:
                     cur.execute(execution_sql(entry))

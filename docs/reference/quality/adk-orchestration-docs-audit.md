@@ -19,23 +19,37 @@ retains its disclosed boundary.
 
 ## Dev deletion incident — 5 November 2026
 
-The managed pilot and its PR workflow remain paused. The current work repairs
-an already-fenced personal GCP cloud removal before resuming pilot work. The
-minimal fresh-path correction refuses unsupported legacy custody before fencing;
-an explicit Dev-only recovery journals native identity, owner approval, provider
-settlement and supervised writer exit on the existing lifecycle row. The UI
-offers a usable exit and works in a background tab. The personal project remains.
+**Operational, cleanup pending.** PR [8998](https://github.com/hushh-labs/hushh-research/pull/8998)
+passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42172053675)
+and the governed [backend-only Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42175570881).
+Native readback confirms source `9dcabd53478f`, revision `consent-protocol-00353-5t2`,
+image `sha256:e334899027c7996fc9b4e681a77b772f72a27e06c8634413f77af15e59d06da2`,
+Ready at 100% traffic. The frontend remains `hushh-webapp-00305-pbw` on the prior
+`d87aeb168dcc` repair; no pod image was built. Migration 986 qualified the complete
+function/ACL/trigger family and preserved all 81 earlier ledger rows and applied
+985's checksum.
 
-Local qualification passed 190 backend cases, 38 UI cases and 513 Back cases;
-the actual 18-resource native inspection passes the migration-985 plan validator
-in disposable PostgreSQL. Fourteen additional operator regressions and independent
-source review close historical-bucket absence, Memory-binding drift and interrupted
-cleanup resume. Migration 985, CI, Dev deployment and the live owner
-journey are still pending. No cleanup or Firebase identity mutation has occurred.
+Fresh owner approval and append-only operator-source adoption preserved the
+original removal plan. The resumed worker used the existing compute-first writer
+port and exited zero with genuine supervised exit. Compute and native Memory
+are deleted; attached scheduler, queue and applicable messaging resources are
+removed or absent. All 70 provider requests have matching acknowledgements and
+all four executions have retained exits. Temporary IAM grants are removed.
+
+Cleanup is **10/17**, with **144 provider-retained object generations**. The
+next eligible native observation is **2026-11-13 07:03:50.404 UTC**; later key or
+bucket retention may extend completion. No remaining fence is released by elapsed
+time. The UI's waiting state, Close and Sign out were verified through background
+Apple Events with foreground focus unchanged. The original request keeps the
+account. Full erasure is not complete.
+
 The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
-owns the recovery procedure and historical phone-identity findings. Seven
-phone-only Firebase candidates have production vaults and require protection;
-a missing email is insufficient authority for historical deletion.
+owns the exact continuation and phone-audit boundaries. No Firebase identity was
+mutated. Seven phone-only candidates own production vaults; a missing email is
+insufficient deletion authority. PR8975 remains a separate draft forward fix.
+The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
+below are historical acceptance; this owner-requested GCP removal does not establish
+managed-pilot or production readiness.
 
 ## Dev owner-cloud acceptance — 2 November 2026
 

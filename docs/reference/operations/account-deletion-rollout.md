@@ -2,54 +2,70 @@
 
 ## Dev legacy cloud-removal repair — 5 November 2026
 
-The current repair is locally qualified, not deployed or completed. A retained
-personal GCP removal fenced a legacy pod before discovering that its host and
-Memory records lacked modern creation provenance. Never invent that provenance,
-unfence its writers, or replace the original approval and dispatch history.
+**Operational, cleanup pending.** PR [8998](https://github.com/hushh-labs/hushh-research/pull/8998)
+passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42172053675)
+and the governed [backend-only Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42175570881).
+The installed source is `9dcabd53478f7d5eba9941680e2fe18941c9a7d4`, backend revision
+`consent-protocol-00353-5t2`, image
+`sha256:e334899027c7996fc9b4e681a77b772f72a27e06c8634413f77af15e59d06da2`,
+Ready at 100% traffic. The frontend remains `hushh-webapp-00305-pbw` at the prior
+`d87aeb168dcc` repair. No pod image was built or published.
 
-Fresh GCP inspections now qualify host creation and settlement before reserving
-or fencing. For an already-fenced generation-zero Dev placement, migration 985
-adds bounded forward recovery to the existing cloud-removal row. Migrations
-982–984 remain reserved for the paused managed pilot. Existing migration
-checksums and normal erasure validators are unchanged. Replay of 420/421 accepts
-985 only after qualifying the entire successor family, ACLs and trigger.
-Rollback takes an exclusive admission lock and refuses retained recovery.
+Native qualification passed the complete migration-986 function family, ACLs,
+owner, schema bound and trigger. All 81 earlier ledger rows kept their filename,
+checksum and status. Applied 985 remains byte-identical. Migrations 982–984 remain
+reserved for the paused managed pilot.
 
-Use `scripts/ops/recover_dev_cloud_removal.py inspect --dev` with the exact owner,
-attempt, project and named credential. The report pins native project number,
-Dev markers, service UID/generation/image/etag, runtime principal, Memory engine
-incarnation and each resource's readback. `prepare` and `execute` require `--apply`
-and the reviewed manifest digest, qualified installed schema, and owner approval
-through the existing interface. Preparation requires clean source matching the
-serving Dev SHA. Resume requires the original immutable operator source; an
-unrelated Hub update does not change that executor identity. The child reattests
-Dev, database and the complete installed schema independently.
-Keep credentials in memory and private pipes. Never put tokens in CLI arguments.
+The original personal GCP removal fenced a legacy pod with missing modern
+creation provenance. PR [8983](https://github.com/hushh-labs/hushh-research/pull/8983)
+added bounded native recovery to the existing row and repaired background Profile
+admission and the UI exit. Its worker disabled the exact runtime identity, then
+exited without proving cached-token denial; the memory-only probe was lost.
+Never invent creation or denial evidence, re-enable the identity, or replace the
+original plan, owner approval and dispatch history.
 
-Execution retains intent before provider writes and every original operation
-acknowledgement. It verifies a cached runtime credential before disabling the
-writer, then proves that credential is denied. Only a joined worker process
-supplies executor exit; session loss cannot establish exit or provider settlement.
-An unknown request is not permission to repeat deletion. Project and bootstrap
-IAM release use the existing exclusive project admission, exact reviewed grants
-and etags, preserving unrelated bindings. The reservation survives session loss.
-The personal project and shared image repository remain; scheduled KMS material
-destruction and soft-deleted objects remain pending until native terminal proof.
-Engine deletion rechecks the approved Memory control-object generation/hash after
-writer and compute stop. Bucket absence requires the original historical generation
-to be absent too. Interrupted acknowledgments recover only from the exact retained
-native response; already-deleted buckets and identities resume from their qualified
-receipts and fresh native absence, without repeating their deletion.
+Migration 986 permits an append-only `adopt-operator` event only during the
+reconciled pre-data IAM phase: fresh matching owner approval, genuine supervised
+prior exits, matched provider acknowledgements with no pending operation, removed
+temporary grants, unchanged native coordinates and a clean qualified serving
+source are required. A fresh matching disabled-identity observation and retained
+disable acknowledgement admit compute retirement alone. After terminal compute,
+the existing BYOC port verifies the disabled runtime and independent live bootstrap.
+Its distinct `native_writer_disabled_after_compute` receipt admits downstream
+cleanup without claiming cached-token denial. Rollback refuses retained successor
+evidence or an unjoined executor. Full 420/421/985/986 replay preserves and
+qualifies the complete successor family.
 
-The cleanup interface exposes Sign out and reports retained-provider waiting
-without offering an ineffective second execution button. A background Profile
-pane admits its content without waiting for browser animation frames. Focused
-local evidence: 190 backend cases, 38 UI cases, 513 Back cases, complete UI
-contract verification, and an 18-entry native plan accepted by the actual 985
-validator in disposable PostgreSQL. Fourteen additional operator regressions pass,
-including retention expiry and interrupted bootstrap recovery; independent source
-review approved those corrected paths. These do not establish a successful live
-deletion; exact-source CI, Dev deployment and owner approval remain required.
+The owner renewed approval through the normal background interface. Source
+adoption retained the original plan digest. Execution 4 exited zero after the
+supervisor joined the actual worker. Native receipts establish compute and Memory
+engine deletion, with scheduler, queue and applicable messaging resources removed
+or already absent. All 70 provider requests have matching acknowledgements; all
+four executions have retained exits. Both temporary IAM grants were removed.
+
+Current progress is **10 of 17 cleanup checks**. A complete native inventory
+observed **144 soft-deleted object generations**. Its latest `hardDeleteTime` is
+**2026-11-13 07:03:50.404 UTC**. At or after that time, observe native inventory
+first; do not continuously poll, repeat settled DELETEs or infer absence from the
+clock. This is the earliest next observation, not a total completion date. Storage,
+key and final custody checks remain fenced; later provider retention may require
+another wait. The personal project and shared image repository are retained.
+
+For continuation, use a clean checkout of the pinned operator source above,
+`scripts/ops/recover_dev_cloud_removal.py status --dev`, the same retained owner,
+attempt, project, actor and original manifest. Obtain fresh normal owner approval
+before new provider mutations, then `execute --dev --apply --manifest-sha256 …`.
+Do not prepare a replacement plan or re-adopt after data deletion began. An
+unrelated Hub update does not change the retained executor identity; incompatible
+schema changes must preserve forward recovery. Credentials stay in memory/private
+pipes. Session loss supplies neither executor exit nor provider settlement.
+
+The live UI shows **Waiting for your cloud provider** with Refresh status only.
+Close returned to the account view; Sign out reached the public landing page.
+Every Apple Events action kept Chrome hidden and foreground focus unchanged.
+Closing or signing out does not cancel the retained cleanup. This request keeps
+the account; full account deletion has not completed. The separate Firebase audit
+below made no identity mutations. The managed pilot and its PR workflow remain paused.
 
 ### Phone-only Firebase identities
 

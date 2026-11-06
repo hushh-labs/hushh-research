@@ -11,6 +11,8 @@ FOOTPRINT = """EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('pub
 
 
 SOURCE_985_SHA256 = "c53c72451d16b1f1cd282f9bb39bc0b6d4222cf538793dc8c30d2cadbfaa9fb0"
+SOURCE_986_SHA256 = "46e759c412a3b1c42ec4cfac74fa2a4460fe69674a3354115c093deb4bc69e4e"
+RESUME_EVENT_SHA256 = "494ff6364b1ab6bf3abbca3bde15731a3340a311f1ad0540b8e59e49c5dcb3a4"
 PINS = {
     "assert_project_grant_admission(text)": "2d702143880933dad5bfa7e2e24edd02691f964e45b0f6b64ded12bfb3862a36",
     "guard_personal_agent_cloud_removal()": "b4ce03f6eca358014dd92ec8aa563451ad46661546bf8627d9bb611780359516",
@@ -28,9 +30,17 @@ FOOTPRINT += f""" OR EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid
  ('{PINS["guard_personal_agent_cloud_removal()"]}','{PINS["finalize_personal_agent_cloud_removal(text,text,text)"]}','{PINS["assert_project_grant_admission(text)"]}'))"""
 
 
-def qualification_sql() -> str:
+def qualification_sql(*, resume_required: bool = False) -> str:
     """All bodies, authority, overloads, column, bound and guard must agree."""
-    values = ",".join(f"('{signature}','{digest}')" for signature, digest in PINS.items())
+    pins = dict(PINS)
+    if resume_required:
+        pins["legacy_cloud_removal_event_valid(jsonb,jsonb)"] = RESUME_EVENT_SHA256
+    values = ",".join(f"('{signature}','{digest}')" for signature, digest in pins.items())
+    successor = (
+        "false"
+        if resume_required
+        else f"spec.signature='legacy_cloud_removal_event_valid(jsonb,jsonb)' AND encode(sha256(convert_to(installed.definition,'UTF8')),'hex')='{RESUME_EVENT_SHA256}'"
+    )
     constraint = BOUNDED.replace("'", "''")
     return f"""DO $legacy_removal_qualified$
 DECLARE spec record; installed record; owner_oid oid; service_oid oid;
@@ -56,7 +66,7 @@ BEGIN
    WHERE p.oid=to_regprocedure('public.'||spec.signature);
   IF NOT FOUND OR installed.proowner IS DISTINCT FROM owner_oid OR installed.prosecdef OR installed.proleakproof
    OR installed.prokind<>'f' OR installed.proconfig IS DISTINCT FROM ARRAY['search_path=public']::text[]
-   OR encode(sha256(convert_to(installed.definition,'UTF8')),'hex') IS DISTINCT FROM spec.digest
+   OR (encode(sha256(convert_to(installed.definition,'UTF8')),'hex') IS DISTINCT FROM spec.digest AND NOT ({successor}))
    OR EXISTS(SELECT 1 FROM aclexplode(coalesce(installed.proacl,acldefault('f',installed.proowner))) a
     WHERE a.grantor IS DISTINCT FROM owner_oid OR a.privilege_type<>'EXECUTE'
      OR (a.grantee<>owner_oid AND (service_oid IS NULL OR a.grantee<>service_oid
@@ -129,6 +139,16 @@ def installation_sql(entry) -> str:
     """A matching reapplication verifies the whole family instead of replacing it."""
     from db.migration_authority import MigrationAuthorityError
 
+    if entry.migration_id == "986":
+        if (
+            entry.filename != "986_legacy_cloud_removal_resume.sql"
+            or entry.checksum_sha256 != SOURCE_986_SHA256
+            or hashlib.sha256(entry.sql.encode()).hexdigest() != SOURCE_986_SHA256
+        ):
+            raise MigrationAuthorityError("Legacy cloud-removal resume checksum changed")
+        sql = _once(entry.sql, "BEGIN;", "BEGIN;\n" + qualification_sql())
+        before, after = sql.rsplit("COMMIT;", 1)
+        return before + qualification_sql(resume_required=True) + "COMMIT;" + after
     if (
         entry.filename != "985_legacy_cloud_removal_recovery.sql"
         or entry.checksum_sha256 != SOURCE_985_SHA256

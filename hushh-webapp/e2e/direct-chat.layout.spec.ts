@@ -71,9 +71,11 @@ test.beforeAll(async () => {
       return { path: file, base: path.dirname(file), content: fs.readFileSync(file, "utf8") };
     },
   });
-  css = stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle();
+  const { transform } = await import("lightningcss");
+  css = transform({ filename: "direct-chat.css", code: Buffer.from(stripAppFontFaces(compiler.build([...candidates])) + moduleCss + productFontStyle()), minify: true }).code.toString();
 });
-async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string } = {}) {
+async function mount(page: Page, dark = false, delayInbox = false, inbox = false, command = "idle", options: { modal?: boolean; preview?: boolean; overflowInbox?: boolean; origin?: string; systemTheme?: boolean } = {}) {
+  if (!options.systemTheme) await page.emulateMedia({ colorScheme: dark ? "dark" : "light" });
   const origin = options.origin ?? "http://localhost";
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -84,6 +86,7 @@ async function mount(page: Page, dark = false, delayInbox = false, inbox = false
   await awaitProductFont(page);
   const input = page.getByRole(inbox ? "searchbox" : "textbox", { name: inbox ? "Search conversations" : "Message Maya Rao" });
   await expect(input).toBeVisible();
+  await expect(page.locator('[data-direct-message-page]')).toHaveAttribute("data-theme", await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
   await page.bringToFront();
   await input.focus();
   return errors;
@@ -96,15 +99,19 @@ async function expectSharedDockFrame(page: Page) {
     const root = document.documentElement;
     const shell = document.querySelector("[data-app-bottom-shell]")!;
     const style = getComputedStyle(shell);
+    const canvas = document.querySelector("[data-direct-message-page]")!.getBoundingClientRect();
+    const sidebar = Array.from(document.querySelectorAll("[data-direct-message-page] aside"))
+      .map(node => node.getBoundingClientRect()).find(box => box.width > 0 && box.right < canvas.right);
     return {
-      viewport: root.clientWidth,
+      start: sidebar?.right ?? canvas.left,
+      end: canvas.right,
       maxWidth: parseFloat(getComputedStyle(root).getPropertyValue("--app-bottom-shell-max-width")),
-      inset: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight),
+      inset: 2 * parseFloat(style.paddingRight),
     };
   });
   const dock = (await page.locator("[data-bottom-shell-motion-stack]").boundingBox())!;
-  expect(Math.abs(dock.x + dock.width / 2 - shared.viewport / 2), "Messages uses the page-centered footer frame").toBeLessThanOrEqual(1);
-  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.viewport - shared.inset)), "Messages uses the shared footer width cap").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.x + dock.width / 2 - (shared.start + shared.end) / 2), "Messages footer follows the conversation pane").toBeLessThanOrEqual(1);
+  expect(Math.abs(dock.width - Math.min(shared.maxWidth, shared.end - shared.start - shared.inset)), "Messages uses the shared footer width cap within its pane").toBeLessThanOrEqual(1);
   for (const selector of ["[data-bottom-shell-navigation-slot]", "[data-agent-bar-shell]"]) {
     const bar = (await page.locator(selector).boundingBox())!;
     expect(Math.abs(bar.x - dock.x)).toBeLessThanOrEqual(1);
@@ -125,6 +132,30 @@ for (const [width, height] of [[393, 844], [768, 1024], [1024, 768], [1440, 1000
     await expect(navigation.getByRole("radio", { name: "Chat", exact: true })).toHaveAttribute("aria-checked", "false");
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width!);
     await page.screenshot({ path: test.info().outputPath(`messages-preview-${width}.png`), animations: "disabled" });
+    for (const sidebar of width! >= 768 ? [240, 360] : [0]) {
+      if (sidebar) await page.evaluate(value => document.documentElement.style.setProperty("--app-messages-sidebar-width", `${value}px`), sidebar);
+      await expectSharedDockFrame(page);
+      const form = page.locator("form").filter({ has: page.locator("[data-direct-message-composer-input]") });
+      for (const draft of ["", "A message ready to send"]) {
+        await page.getByRole("textbox", { name: "Message Maya Rao" }).fill(draft);
+        const controls = [form.getByRole("button", { name: "Add attachment", exact: true }), form.locator("textarea"),
+          form.getByRole("button", { name: "Choose emoji", exact: true }), form.getByRole("button", { name: draft ? "Send message" : "Record voice message", exact: true })];
+        const frame = (await form.boundingBox())!;
+        let previousEnd = frame.x;
+        for (const control of controls) {
+          const box = (await control.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(previousEnd);
+          expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width + 1);
+          expect(box.width).toBeGreaterThan(0);
+          if (await control.evaluate(node => node.tagName === "BUTTON")) {
+            expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44);
+          }
+          previousEnd = box.x + box.width;
+        }
+        const navigation = (await page.locator("[data-bottom-shell-navigation-slot]").boundingBox())!;
+        expect(frame.y + frame.height).toBeLessThanOrEqual(navigation.y);
+      }
+    }
     expect(errors).toEqual([]);
   });
 }
@@ -260,7 +291,7 @@ test("chat theme follows the device, persists a choice, and keeps the shared nav
   await page.setViewportSize({ width: 393, height: 844 });
   await page.emulateMedia({ colorScheme: "dark" });
   await page.addInitScript(() => { document.documentElement.dataset.accent = "gold"; });
-  await mount(page, false, false, true);
+  await mount(page, false, false, true, "idle", { systemTheme: true });
   const chat = page.locator("[data-direct-message-page]");
   const navigation = page.locator("[data-bottom-shell-navigation-slot]");
   await expect(chat).toHaveAttribute("data-theme", "dark");
@@ -752,13 +783,23 @@ test("quoted history navigation preserves live updates while an older page is pe
   expect(errors).toEqual([]);
 });
 
-for (const width of [320, 768]) test(`file and voice bubbles stay usable with native tap targets at ${width}px`, async ({ page }) => {
+for (const width of [320, 768]) for (const caption of [false, true]) test(`file and voice bubbles stay usable with native tap targets at ${width}px${caption ? " with captions" : ""}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 852 }); const errors = await mount(page);
-  await fixture(page, "fixture.addFiles()");
+  await fixture(page, caption ? 'fixture.addFiles("Notes shared with the attachment")' : "fixture.addFiles()");
   const file = page.locator('[data-chat-message="fixture-file"]');
   const voice = page.locator('[data-chat-message="fixture-audio"]');
   await expect(file).toContainText("Chat_Spec_v2.pdf"); await expect(file).toContainText("PDF");
   await expect(voice).toContainText("0:04");
+  for (const message of [file, voice]) {
+    const metadata = message.locator('[class*="messageBubbleMeta"]');
+    await expect(metadata).toHaveCSS("display", "flex");
+    await expect(metadata).toHaveCSS("justify-content", "flex-end");
+    await expect(metadata).toHaveCSS("margin-inline-start", "0px");
+    const time = (await metadata.locator("time").boundingBox())!;
+    const bubble = (await message.locator("[data-chat-bubble]").boundingBox())!;
+    expect(time.x).toBeGreaterThan(bubble.x + bubble.width / 2);
+    expect(time.y + time.height).toBeLessThanOrEqual(bubble.y + bubble.height);
+  }
   await expect(voice.getByLabel("Delivered", { exact: true })).toBeVisible();
   for (const button of [file.getByRole("button", { name: "Download Chat_Spec_v2.pdf" }), voice.getByRole("button", { name: "Play voice message" })]) {
     const box = (await button.boundingBox())!;
@@ -816,8 +857,13 @@ test("individual chats send, play, reload and reply to video attachments", async
   await holdMessage(page, sent);
   await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
   await expect(page.locator('[class*="composerReplyPreview"]')).toContainText("Attachment");
-  await page.getByRole("textbox", { name: "Message Maya Rao", exact: true }).fill("A reply to the video");
+  const replyEditor = page.getByRole("textbox", { name: "Message Maya Rao", exact: true });
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(replyEditor).toBeFocused();
+  await replyEditor.fill("A reply to the video");
+  await expect(replyEditor).toHaveValue("A reply to the video");
   await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByText("A reply to the video", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Go to original message from you", exact: true })).toContainText("Attachment");
   await page.getByRole("button", { name: "Back to messages", exact: true }).click();
   await expect(page.locator("video")).toHaveCount(0);
@@ -878,7 +924,7 @@ registerMessagesPresentationCases({ mount, touchMessageActions, expectSharedDock
 
 test.describe("compact message layout", () => {
   test.use({ timezoneId: "UTC", locale: "en-US" });
-  for (const width of [320, 393, 768, 1440]) test(`compact message timestamps sit at the lower right at ${width}px`, async ({ page }) => {
+  for (const width of [320, 393, 768, 1440]) test(`message timestamps share the text baseline at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ reducedMotion: "reduce" });
     await mount(page, width === 393);
@@ -890,20 +936,31 @@ test.describe("compact message layout", () => {
     await fixture(page, "fixture.remoteChange('maya-79', 'Hi 🙂'); fixture.remoteChange('maya-78', 'Hi 🙂')");
     for (const id of ["maya-79", "maya-78"]) {
       const row = page.locator(`[data-chat-message="${id}"]`);
-      await row.hover();
       const bubble = row.locator('[data-chat-bubble]');
-      const before = await bubble.boundingBox();
-      await row.getByRole("button", { name: "Message options" }).focus();
-      expect(await bubble.boundingBox()).toEqual(before);
+      await expect(bubble).toContainText("Hi 🙂");
+      await page.mouse.move(0, 0);
+      await page.locator("[data-direct-message-composer-input]").focus();
+      const stable = [bubble, bubble.locator(":scope > p"), bubble.locator("time"), bubble.locator('[class*="messageBubbleMeta"]')];
+      const before = await Promise.all(stable.map(node => node.boundingBox()));
+      const options = row.getByRole("button", { name: "Message options" });
+      for (const state of ["hover", "focus", "menu", "dismiss"] as const) {
+        if (state === "hover") await row.hover();
+        else if (state === "focus") await options.focus();
+        else if (state === "menu") { await options.click(); await expect(page.getByRole("menu")).toBeVisible(); }
+        else await page.keyboard.press("Escape");
+        expect(await Promise.all(stable.map(node => node.boundingBox())), state).toEqual(before);
+      }
       const geometry = await bubble.evaluate(element => {
         const text = element.querySelector(":scope > p")!.getBoundingClientRect();
         const time = element.querySelector("time")!.getBoundingClientRect();
         const bubble = element.getBoundingClientRect();
         const meta = element.querySelector('[class*="messageBubbleMeta"]')!.getBoundingClientRect();
-        return { textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: Math.min(14, parseFloat(getComputedStyle(element).paddingRight)), timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
+        return { textTop: text.top, textBottom: text.bottom, timeTop: time.top, timeBottom: time.bottom, bubbleBottom: bubble.bottom, rightInset: bubble.right - meta.right, expectedInset: parseFloat(getComputedStyle(element).paddingRight), textGap: meta.left - text.right, timeSize: parseFloat(getComputedStyle(element.querySelector("time")!).fontSize) };
       });
       expect(geometry.timeTop, JSON.stringify(geometry)).toBeLessThan(geometry.textBottom);
-      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textBottom);
+      expect(geometry.timeTop, JSON.stringify(geometry)).toBeGreaterThanOrEqual(geometry.textTop);
+      expect(geometry.timeBottom, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.textBottom);
+      expect(Math.abs(geometry.textGap - 12)).toBeLessThanOrEqual(1);
       expect(geometry.timeBottom).toBeLessThanOrEqual(geometry.bubbleBottom);
       expect(Math.abs(geometry.rightInset - geometry.expectedInset), JSON.stringify(geometry)).toBeLessThanOrEqual(1);
       expect(geometry.timeSize).toBeLessThanOrEqual(11);
@@ -914,6 +971,9 @@ test.describe("compact message layout", () => {
         expect(rect.height).toBeGreaterThanOrEqual(44);
         expect(rect.x).toBeGreaterThanOrEqual(0);
         expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+        const time = (await bubble.locator("time").boundingBox())!;
+        expect(rect.x + rect.width <= time.x || rect.x >= time.x + time.width || rect.y + rect.height <= time.y || rect.y >= time.y + time.height,
+          `${label} must not cover the timestamp`).toBe(true);
         if (!(await touchMessageActions(page))) await button.hover();
         await expect(button).toHaveCSS("background-image", label === "Message options" ? /12px.*12\.5px/ : /14px.*15px/);
         await page.keyboard.press("Tab");
@@ -1196,7 +1256,8 @@ test("preserves pending reactions and deleted reply geometry with a short phone 
     };
   });
   expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeLessThan(deletedGeometry.textBottom);
-  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textBottom);
+  expect(deletedGeometry.timeTop, JSON.stringify(deletedGeometry)).toBeGreaterThanOrEqual(deletedGeometry.textTop);
+  expect(deletedGeometry.timeBottom, JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(deletedGeometry.textBottom);
   expect(Math.abs(deletedGeometry.rightInset - deletedGeometry.expectedInset), JSON.stringify(deletedGeometry)).toBeLessThanOrEqual(1);
   await expect(deletedMeta).toHaveCSS("justify-content", "flex-end");
   // Muted ink on the darker pressed fill fell below the text contrast floor.
@@ -1313,6 +1374,12 @@ for (const width of [320, 393, 1440]) {
     await expect(bubble).toHaveCSS("border-top-width", "0px");
     const bubbleBox = (await bubble.boundingBox())!;
     const imageBox = (await sent.getByRole("img", { name: "Photo", exact: true }).boundingBox())!;
+    const metadata = sent.locator('[class*="messageBubbleMeta"]');
+    await expect(metadata).toHaveCSS("display", "flex");
+    await expect(metadata).toHaveCSS("margin-inline-start", "0px");
+    const time = (await metadata.locator("time").boundingBox())!;
+    expect(time.x).toBeGreaterThan(bubbleBox.x + bubbleBox.width / 2);
+    expect(time.y + time.height).toBeLessThanOrEqual(bubbleBox.y + bubbleBox.height);
     expect(Math.abs(imageBox.x - bubbleBox.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(imageBox.y - bubbleBox.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(imageBox.width - bubbleBox.width)).toBeLessThanOrEqual(1);
