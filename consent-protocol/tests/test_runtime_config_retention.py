@@ -258,7 +258,7 @@ def test_plg_activation_rejects_ambiguous_values(plg_runtime_sync, key, value):
 def test_plg_activation_cannot_cross_environment_or_project(
     plg_runtime_sync, project, environment, stored_environment, stored_project, key
 ):
-    with pytest.raises(ValueError, match="production environment and project"):
+    with pytest.raises(ValueError, match="environment and project"):
         plg_runtime_sync._retained_plg_config(
             {
                 key: True,
@@ -270,44 +270,55 @@ def test_plg_activation_cannot_cross_environment_or_project(
         )
 
 
-@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
-def test_reviewed_lane_flags_survive_writer_without_enabling_legacy_product(
-    monkeypatch, plg_runtime_sync, environment
+@pytest.mark.parametrize("enabled", [False, True])
+def test_uat_plg_flags_default_off_and_survive_the_deployment_writer(
+    monkeypatch, plg_runtime_sync, enabled
 ):
     keys = (
-        ("one_plg_owner_export_enabled",)
-        if environment == "production"
-        else (f"one_plg_{environment}_export_enabled", f"one_plg_activity_{environment}_enabled")
+        "one_plg_activity_enabled",
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_attempt_email_enabled",
     )
-    stored = {
-        **dict.fromkeys(keys, True),
-        "one_plg_activity_enabled": True,
-        "one_plg_attempt_email_enabled": True,
-    }
-    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
+    stored = dict.fromkeys(keys, True) if enabled else {}
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, "uat", False, stored)
     actual = json.loads(writes[target])
-    assert all(actual[key] is value for key, value in stored.items())
-    assert "one_plg_export_account_ids" not in actual
-    # Main's older product does not interpret newer lane capability fields.
-    # Carrying the reviewed writer must not add those product capabilities.
-    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
-    for key in (*keys, "one_plg_attempt_email_enabled"):
-        monkeypatch.delenv(key.upper(), raising=False)
-    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", writes[target])
-    runtime_settings.hydrate_runtime_environment()
-    assert all(key.upper() not in os.environ for key in (*keys, "one_plg_attempt_email_enabled"))
-    project = "hushh-pda" if environment == "production" else f"hushh-pda-{environment}"
-    with pytest.raises(ValueError):
+    assert {key: actual[key] for key in keys} == dict.fromkeys(keys, enabled)
+    assert not actual["one_plg_activity_all_registered"]
+
+
+@pytest.mark.parametrize(
+    ("environment", "project", "flags"),
+    [
+        ("uat", "hushh-pda-uat", {"one_plg_activity_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_export_enabled": True}),
+        ("production", "hushh-pda", {"one_plg_attempt_email_enabled": True}),
+        ("dev", "hushh-pda-dev", {"one_plg_uat_export_enabled": True}),
+    ],
+)
+def test_uat_plg_rejects_foreign_flags_and_activity_without_its_lane(
+    plg_runtime_sync, environment, project, flags
+):
+    with pytest.raises(ValueError, match="environment and project"):
         plg_runtime_sync._retained_plg_config(
-            {
-                **actual,
-                "one_plg_uat_export_enabled"
-                if environment != "uat"
-                else "one_plg_dev_export_enabled": True,
-            },
+            {"environment": environment, "google_cloud_project": project, **flags},
             project=project,
             environment=environment,
         )
+
+
+def test_retained_uat_fields_do_not_activate_main_legacy_runtime(monkeypatch):
+    keys = (
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_attempt_email_enabled",
+    )
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in keys:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(dict.fromkeys(keys, True)))
+    runtime_settings.hydrate_runtime_environment()
+    assert all(key.upper() not in os.environ for key in keys)
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
