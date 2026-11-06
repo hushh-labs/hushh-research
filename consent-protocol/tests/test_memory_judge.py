@@ -29,6 +29,7 @@ import argparse
 import importlib.util
 import json
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -1798,8 +1799,20 @@ def test_the_grading_lane_is_read_only_and_is_not_told_to_write(tmp_path):
     true, and whichever way a host resolved it, the resolution was silent.
     """
     root = Path(__file__).resolve().parents[2]
-    lane = (root / ".agents" / "subagents" / "local_model_judge.toml").read_text(encoding="utf-8")
-    assert 'sandbox_mode = "read-only"' in lane
+    judge_dir = root / ".agents" / "subagents"
+    toml_source = judge_dir / "local_model_judge.toml"
+    markdown_source = judge_dir / "local_model_judge.md"
+    assert toml_source.is_file() != markdown_source.is_file()
+    if toml_source.is_file():
+        source = tomllib.loads(toml_source.read_text(encoding="utf-8"))
+    else:
+        markdown = markdown_source.read_text(encoding="utf-8")
+        assert markdown.startswith("---\n")
+        metadata, instructions = markdown[4:].split("\n---\n", 1)
+        source = json.loads(metadata)
+        source["developer_instructions"] = instructions
+    assert source["sandbox_mode"] == "read-only"
+    lane = source["developer_instructions"]
     # The specific instruction that contradicted it: a `record` invocation aimed
     # at the grader. `replay` is the orchestrator's command and may be named.
     assert "memory_judge.py --run-dir <dir> record" not in lane
