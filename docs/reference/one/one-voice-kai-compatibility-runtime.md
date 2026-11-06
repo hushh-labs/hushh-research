@@ -21,6 +21,10 @@ committed feature parents of a merge with the current base, including an
 isolated first parent when the base arrives through another parent. Both
 lineages retain their qualified histories. Ancestor identity and workflow
 semantics remain verified; exact declared deprecations remain authoritative.
+The Connections endpoint-inventory retirement covers both serving graph
+`076c05cd70ea69d7` and merged graph `f6d226a2c5ca0b34`: their Connections
+workflow definitions are identical. Both retain the existing exact-revision
+rejection policy; no broader revision or workflow is accepted by that declaration.
 
 Talk to One, the Chat microphone and Siri free-text requests use the bounded Location command runtime. Typed Siri uses its typed proposal endpoint and the same checkpoint, preparation and confirmation ledger. Typed Agent Chat keeps ordinary model access and AG-UI. Shared context sanitizers and consent services retain historical filenames because they also serve text and commands.
 

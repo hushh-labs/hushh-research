@@ -36,10 +36,11 @@ function emailAddress(value: string) {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email) && email.length <= 320 ? email : null;
 }
 
-export function CalendarBookingDialog({ opening, accounts, people, userId, token, timeZone, alternatives, onClose, onConfirmed, onConflict, onRequireWrite }: {
+export function CalendarBookingDialog({ opening, accounts, people, accountPeople, userId, token, timeZone, alternatives, onClose, onConfirmed, onConflict, onRequireWrite }: {
   opening: BookingOpening;
   accounts: GoogleCalendarAccount[];
   people: CalendarHusshPeople;
+  accountPeople: CalendarHusshPeople;
   userId: string;
   token: string | null;
   timeZone: string;
@@ -59,10 +60,10 @@ export function CalendarBookingDialog({ opening, accounts, people, userId, token
   const contactsId = useId();
   const account = accounts.find(item => item.account_id === draft.accountId);
   const accountEmail = account?.google_email || "Google account";
-  const accountPhoto = verifiedCalendarAccountPhoto(account, accountEmail, people);
+  const accountPhoto = verifiedCalendarAccountPhoto(account, accountEmail, accountPeople);
   const reviewedAccount = review ? accounts.find(item => item.account_id === review.plan.account_id) : null;
   const reviewEmail = review?.plan.board_accounts.find(item => item.account_id === review.plan.account_id)?.account_email || reviewedAccount?.google_email || accountEmail;
-  const reviewPhoto = verifiedCalendarAccountPhoto(reviewedAccount ?? undefined, reviewEmail, people);
+  const reviewPhoto = verifiedCalendarAccountPhoto(reviewedAccount ?? undefined, reviewEmail, accountPeople);
   const accountKey = accounts.map(item => `${item.account_id}:${item.google_email}:${item.connected}:${item.access_level}:${item.grant_generation}`).join("|");
   const accountKeyRef = useRef(accountKey);
   accountKeyRef.current = accountKey;
