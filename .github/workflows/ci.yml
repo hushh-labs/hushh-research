@@ -363,6 +363,9 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Public risk inputs have real-artifact and policy checks in Governance.
+              - '!consent-protocol/config/email-auth/disposable-domains.txt'
+              - '!consent-protocol/config/email-auth/risk-manifest.json'
               # The required Governance main-sync check owns the local push hook.
               - '!consent-protocol/ops/monorepo/pre-push.sh'
               # Human Browser evidence is covered by unconditional docs governance.
@@ -428,6 +431,9 @@ jobs:
               - '!consent-protocol/tests/test_drive_scheduler_set_snapshot.py'
               - '!consent-protocol/tests/test_drive_v1_worker_lane.py'
               - '!consent-protocol/tests/test_drive_work_drain_scheduler_contract.py'
+              - '!consent-protocol/tests/test_drive_worker_release_rollback.py'
+              - '!consent-protocol/tests/test_database_connection_ceiling.py'
+              - '!consent-protocol/tests/helpers/drive_worker_gcloud.py'
               - '!consent-protocol/tests/test_feed_stream_capacity_contract.py'
               - '!consent-protocol/tests/test_gmail_information_request_release_contract.py'
               - '!consent-protocol/tests/test_hushh_tech_client_migration.py'
