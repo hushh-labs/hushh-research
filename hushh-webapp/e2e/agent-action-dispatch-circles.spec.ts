@@ -117,14 +117,15 @@ async function dispatch(
 }
 
 test.describe("Circles voice action dispatch (real backend, no audio/STT)", () => {
-  test.skip(
-    !hasReviewerAuthority(),
-    "needs REVIEWER_UID/REVIEWER_VAULT_PASSPHRASE, E2E_REVIEWER_SIGNIN=1, and E2E_AGENT_ACTION_DISPATCH=1",
-  );
-
   test("create_circle then delete_circle is a real, self-cleaning round trip", async ({
     page,
   }) => {
+    if (!hasReviewerAuthority()) {
+      throw new Error(
+        "Missing reviewer fixture: set REVIEWER_UID, REVIEWER_VAULT_PASSPHRASE, " +
+          "E2E_REVIEWER_SIGNIN=1, and E2E_AGENT_ACTION_DISPATCH=1 to run circle dispatch tests.",
+      );
+    }
     await openReviewerLocationSession(page);
 
     const circleName = `E2E Dispatch ${Date.now()}`;
