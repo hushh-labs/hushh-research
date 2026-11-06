@@ -35,6 +35,10 @@ const OTHER_OWNER_FILES = new Set([
   // Governance executes the selector contracts even inside mixed frontend PRs.
   "scripts/testing/affected-tests.mjs",
   "scripts/testing/affected-tests.test.mjs",
+  // Governance runs executable scanner regressions; Web Core owns the checks.
+  "scripts/architecture/verify-design-system.mjs",
+  "scripts/architecture/verify-render-performance.mjs",
+  "scripts/design/verify-apple-hierarchy.mjs",
   // This browser-flow harness is covered by the hosted browser contract lane.
   "scripts/testing/phone-conflict-flow.mjs",
   // Required UI Contracts executes these Node validators on every CI run.
