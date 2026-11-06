@@ -881,6 +881,10 @@ async def test_body_read_falls_back_to_html_text_and_caps_size():
 
 async def test_owner_bound_read_projects_safe_links_and_refuses_changed_mailbox_label():
     gmail = _Gmail()
+    html_body = (
+        '<p>Register <a href="https://summit.example/register">here</a>'
+        '<a href="javascript:alert(1)">unsafe</a></p>'
+    )
 
     def respond(request):
         if request.url.path.endswith("/messages"):
@@ -890,8 +894,7 @@ async def test_owner_bound_read_projects_safe_links_and_refuses_changed_mailbox_
             [
                 _part(
                     "text/html",
-                    '<p>Register <a href="https://summit.example/register">here</a>'
-                    '<a href="javascript:alert(1)">unsafe</a></p>',
+                    html_body,
                 ),
             ],
         )
@@ -910,6 +913,16 @@ async def test_owner_bound_read_projects_safe_links_and_refuses_changed_mailbox_
     assert item["extracted_links"] == [{"text": "here", "url": "https://summit.example/register"}]
     assert "[here](https://summit.example/register)" in item["body"]
     assert "javascript:" not in json.dumps(item)
+
+    linked_notice = "Event information " * 10 + "booking closes 30 November 2026"
+    html_body = f'<a href="https://summit.example/accommodation">{linked_notice}</a>'
+    long_reader = _reader(gmail, respond, expose_message_links=True)
+    long_result = await long_reader.read("read_message", {"query": "subject:Summit", "limit": 1})
+    long_item = long_result["untrusted_external_content"][0]
+    assert "booking closes 30 November 2026" in long_item["body"]
+    assert long_item["body_truncated"] is False
+    assert len(long_item["extracted_links"][0]["text"]) == 120
+    assert long_item["extracted_links"][0]["url"] == "https://summit.example/accommodation"
 
     gmail.row["google_email"] = "other@example.com"
     with pytest.raises(GmailMetadataError, match="connection_changed"):

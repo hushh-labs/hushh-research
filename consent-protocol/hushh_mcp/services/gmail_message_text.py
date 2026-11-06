@@ -44,7 +44,7 @@ def _safe_mail_link(value: str | None) -> str | None:
 
 
 def _markdown_link_label(value: str) -> str:
-    return re.sub(r"([\\\[\]])", r"\\\1", " ".join(value.split())[:120])
+    return re.sub(r"([\\\[\]])", r"\\\1", value)
 
 
 class MessageTextError(ValueError):
@@ -78,10 +78,10 @@ class _HtmlText(HTMLParser):
             return
         elif tag == "a" and self._preserve_links and self._anchors:
             href, start = self._anchors.pop()
-            label = _markdown_link_label("".join(self._chunks[start:]))
-            if href and label and len(self.links) < 8:
-                self._chunks[start:] = [f"[{label}]({href})"]
-                self.links.append({"text": label, "url": href})
+            full_text = " ".join("".join(self._chunks[start:]).split())
+            if href and full_text and len(self.links) < 8:
+                self._chunks[start:] = [f"[{_markdown_link_label(full_text)}]({href})"]
+                self.links.append({"text": full_text[:120], "url": href})
         elif tag in _BLOCK_TAGS:
             self._chunks.append("\n")
 
