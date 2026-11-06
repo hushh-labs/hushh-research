@@ -18,8 +18,11 @@ def _runtime_name(value: str) -> str:
     return re.sub(r"[^a-z0-9_]", "_", value.lower()).strip("_")
 
 
-@lru_cache(maxsize=1)
-def activity_catalog() -> dict:
+@lru_cache(maxsize=4)
+def activity_catalog(environment: str = "production") -> dict:
+    if environment not in {"dev", "uat", "production"}:
+        raise ValueError("Invalid activity catalog environment")
+    registry_environment = "development" if environment == "dev" else environment
     registry = json.loads(
         generated_contract_path("agents", "product-agent-registry.v2.json").read_text()
     )
@@ -33,7 +36,7 @@ def activity_catalog() -> dict:
         public = agent_id == "agent_one" or bool(exposure)
         enabled = (
             public
-            and "production" in agent["availability"]["environments"]
+            and registry_environment in agent["availability"]["environments"]
             and exposure.get("exposure_status") != "disabled"
         )
         agents.append(
@@ -178,8 +181,8 @@ def activity_catalog() -> dict:
     return {"revision": revision, **public, "aliases": aliases}
 
 
-def public_activity_catalog() -> dict:
-    catalog = activity_catalog()
+def public_activity_catalog(environment: str = "production") -> dict:
+    catalog = activity_catalog(environment)
     return {key: catalog[key] for key in ("revision", "agents", "actions")}
 
 
