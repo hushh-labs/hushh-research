@@ -117,11 +117,15 @@
 .detail { --foundation-title2-size: var(--profile-type-dialog-title-size, 20px); --foundation-title2-line: var(--profile-type-dialog-title-line, 28px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); --foundation-title3-size: var(--profile-type-dialog-title-size, 20px); --foundation-title3-line: var(--profile-type-dialog-title-line, 28px); --foundation-title3-weight: var(--profile-type-dialog-title-weight, 600); --type-input-value-size: var(--profile-type-label-size, 14px); --type-input-value-line: var(--profile-type-label-line, 22px); max-height: 86dvh; overflow-y: auto; gap: .75rem; padding: 1.35rem; font-family: var(--font-app-body); }
 .detail :global(label > span) { font-size: var(--app-side-pane-row-title-size, 15px); line-height: var(--app-side-pane-row-title-line, 22px); font-weight: var(--app-side-pane-row-title-weight, 550); }
 .detailHeader { gap: .3rem; text-align: left; padding-right: 2.5rem; }
-.detailTitleRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .5rem .75rem; min-width: 0; }
+.detailTitleRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: .5rem .75rem; min-width: 0; }
 .detailTitle { min-width: 0; overflow-wrap: anywhere; }
 .detail :global([aria-label="Invitation actions"]) { margin-top: .45rem; }
 .detailSource, .detailDescription { font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); font-weight: 400; overflow-wrap: anywhere; white-space: pre-wrap; }
 .detailSource { color: var(--app-secondary-label); }
+.detailOrganizer { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .4rem; }
+.detailPerson { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; }
+.detailPerson > span:last-child { min-width: 0; }
+.detailPerson .inlineAvatar[data-slot="avatar"] { margin: 0; }
 .join { display: inline-flex; align-items: center; justify-content: center; justify-self: end; width: fit-content; min-width: 88px; min-height: 44px; padding: 0 4px; border: 0; border-radius: 4px; background: transparent; text-decoration: none; white-space: nowrap; color: var(--app-accent); font-size: var(--profile-type-action-size, 12px); line-height: var(--profile-type-action-line, 18px); font-weight: var(--profile-type-action-weight, 550); }
 .overlapDetail { display: grid; gap: .55rem; padding: .8rem; background: var(--app-warning-surface); border: 1px solid var(--app-warning-border); border-radius: .75rem; }
 .overlapDetail h3 { --foundation-headline-size: var(--app-side-pane-row-title-size, 14px); --foundation-headline-line: var(--app-side-pane-row-title-line, 22px); --foundation-headline-weight: var(--app-side-pane-row-title-weight, 600); display: flex; align-items: center; gap: .4rem; }
@@ -166,10 +170,9 @@
 .declinedNote li { display: grid; gap: .1rem; min-width: 0; padding-top: .6rem; border-top: 1px solid var(--app-separator); }
 .declinedNote li:first-child { padding-top: 0; border-top: 0; }
 .declinedNote li > span { color: var(--app-label); font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); overflow-wrap: anywhere; }
-.inlineAvatar[data-slot="avatar"] { display: inline-flex; width: 1.25rem; height: 1.25rem; margin-inline: .1rem .4rem; vertical-align: -.3rem; flex: none; border-radius: 50%; background: var(--app-accent-surface); }
+.inlineAvatar[data-slot="avatar"] { display: inline-flex; width: 1.25rem; height: 1.25rem; margin-inline: .1rem .4rem; vertical-align: middle; flex: none; border-radius: 50%; background: var(--app-accent-surface); }
 .inlineAvatar :global([data-slot="avatar-fallback"]) { font-size: .625rem; color: var(--app-accent); background: transparent; }
 .declinedNote li > span { display: flex; align-items: center; }
 .declinedNote li > span .inlineAvatar[data-slot="avatar"] { margin-inline: 0 .5rem; vertical-align: baseline; }
 
 .join:hover { text-decoration: underline; text-underline-offset: 3px; }
-@media (max-width: 480px) { .detailTitleRow { grid-template-columns: minmax(0, 1fr); } }

@@ -3,7 +3,10 @@
 .body { flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: .5rem; }
 .fields { display: grid; min-width: 0; gap: .7rem; }
 .fields label { display: grid; grid-template-columns: minmax(0, 1fr); gap: .3rem; min-width: 0; font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-label); line-height: var(--app-side-pane-row-title-line, normal); }
-.fields select { width: 100%; min-width: 0; min-height: 44px; padding: .55rem .7rem; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: var(--profile-type-label-size, 14px); font-weight: 400; color: var(--app-label); line-height: var(--profile-type-label-line, normal); }
+.selectField { position: relative; display: block; min-width: 0; }
+.fields select { display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; min-height: 44px; padding: .55rem .7rem; padding-inline-end: 2.5rem; appearance: none; -webkit-appearance: none; border: 1px solid var(--app-separator); border-radius: var(--app-input-radius); background: var(--app-secondary-surface); font-size: var(--profile-type-label-size, 14px); font-weight: 400; color: var(--app-label); line-height: var(--profile-type-label-line, normal); }
+.selectChevron { position: absolute; inset-inline-end: .75rem; top: 50%; transform: translateY(-50%); width: 1rem; height: 1rem; color: var(--app-secondary-label); pointer-events: none; }
+@media (forced-colors: active) { .fields select { appearance: auto; -webkit-appearance: auto; } .selectChevron { display: none; } }
 .fields input { font-weight: 400; }
 .timeGrid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .85fr); gap: .5rem; }
 /* iOS/WebKit date and time controls keep an intrinsic width; clamp them to their cell and left-align the value like a text field. */
