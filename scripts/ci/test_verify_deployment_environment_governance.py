@@ -86,11 +86,33 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     """
 
     def fake_gh_json(path: str) -> dict:
-        if path.endswith("/variables"):
-            return {"variables": [{"name": name} for name in variables]}
+        if "/variables?per_page=100" in path:
+            return {"total_count": len(variables), "variables": [{"name": name} for name in variables]}
         return _environment_payload()
 
     module._gh_json = fake_gh_json
+
+
+def test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> None:
+    module = _module()
+    policy = _policy(module)
+    policy["dev"] = {**policy["uat"], "environment": "dev", "deployment_branches": ["dev", "main", "integration/pr-train"]}
+    rows = [{"type": "branch", "name": name} for name in policy["dev"]["deployment_branches"]]
+    inventory = {"total_count": len(rows), "branch_policies": rows}
+    def read(path):
+        if "deployment-branch-policies" in path:
+            return inventory
+        if "/variables?per_page=100" in path:
+            names = policy["dev"]["required_environment_variables"]
+            return {"total_count": len(names), "variables": [{"name": name} for name in names]}
+        return {**_environment_payload(), "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}}
+    module._gh_json = read
+    assert module._assert_surface("dev", "owner/repo", policy) == []
+    inventory["total_count"] += 1
+    assert any("incomplete" in error for error in module._assert_surface("dev", "owner/repo", policy))
+    inventory["total_count"] -= 1
+    rows[0]["name"] = "*"
+    assert any("exactly" in error for error in module._assert_surface("dev", "owner/repo", policy))
 
 
 def test_required_environment_variables_are_enforced() -> None:
@@ -101,6 +123,21 @@ def test_required_environment_variables_are_enforced() -> None:
     )
 
     assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    original_reader = module._gh_json
+    def paginated(path):
+        if "/variables?" in path:
+            names = ["GCP_DEPLOY_SERVICE_ACCOUNT"] if "page=2" in path else ["GCP_WORKLOAD_IDENTITY_PROVIDER"]
+            return {"total_count": 2, "variables": [{"name": name} for name in names]}
+        return original_reader(path)
+    module._gh_json = paginated
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == []
+    module._gh_json = original_reader
+    reader = module._gh_json
+    module._gh_json = lambda path: ({**reader(path), "total_count": 31}
+                                  if "/variables?" in path else reader(path))
+    assert module._assert_surface("production", "owner/repo", _policy(module)) == [
+        "production environment variable inventory is incomplete"
+    ]
 
 
 def test_missing_environment_variable_fails_verification() -> None:
@@ -432,7 +469,8 @@ def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None
         Path(__file__).resolve().parents[2]
         / ".github/workflows/capacity-maintenance-clock.yml"
     ).read_text()
-    assert 'run-name: "Capacity clock · ${{ github.event_name }} · run ${{ github.run_number }}"' in source
+    assert 'run-name: "Capacity clock"' in source
+    assert "github.run_number" not in source
     uat_only = _run_clock_summary(
         {
             "CLOCK_AUTHORITY": "true",
@@ -514,6 +552,7 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
 
 def main() -> int:
     tests = [
+        test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads,
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,

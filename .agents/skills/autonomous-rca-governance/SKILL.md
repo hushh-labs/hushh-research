@@ -53,7 +53,7 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Start with `./bin/hushh codex rca --surface <uat|runtime|ci>` and preserve the generated report. CI observes the current branch's existing PR by default; use paired `--ci-pr <number> --ci-sha <full-sha>` for a frozen candidate. It never starts a suite on missing or refused hosted evidence. `--run-local-ci` is an explicit local execution request, not a monitoring step.
+1. Start with `./bin/hushh agents rca --surface <uat|runtime|ci>` and preserve the generated report. CI observes the current branch's existing PR by default; use paired `--ci-pr <number> --ci-sha <full-sha>` for a frozen candidate. It never starts a suite on missing or refused hosted evidence. `--run-local-ci` is an explicit local execution request, not a monitoring step.
 2. Classify failures before editing anything. Domain classes, each meaning
    "a check RAN and found this":
    - `secret_missing`
@@ -105,6 +105,6 @@ Non-owned surfaces:
 Select only the affected surface; these are alternatives, not a three-surface sweep.
 
 ```bash
-./bin/hushh codex rca --surface ci --text
+./bin/hushh agents rca --surface ci --text
 python3 -m py_compile .agents/skills/autonomous-rca-governance/scripts/rca_runner.py
 ```

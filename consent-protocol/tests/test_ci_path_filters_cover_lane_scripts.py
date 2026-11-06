@@ -437,6 +437,7 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     reference = "consent-protocol/docs/reference/private-browser-runtime.md"
     runtime = "consent-protocol/hushh_mcp/services/pod_binding_service.py"
     assert not backend.match_file(reference)
+    assert not backend.match_file("consent-protocol/docs/reference/agent-development.md")
     for path in (
         "consent-protocol/docs/reference/env-vars.md",
         "consent-protocol/docs/reference/future-document.md",
@@ -450,13 +451,40 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     assert not backend.match_file(".github/workflows/ci.yml")
 
 
+def test_engineering_judge_contract_keeps_full_coverage_without_backend_selection() -> None:
+    path = "consent-protocol/tests/test_memory_judge.py"
+    backend = _filters()["backend"]
+    assert not backend.match_file(path)
+    assert backend.match_file("consent-protocol/scripts/ops/memory_judge.py")
+    assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["agent"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["memory-judge-contracts"][-1] == path
+    assert "protocol-check" not in commands
+
+
 def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
     paths = set(DELETION_RELEASE_INPUTS) | {
         path for path in _tracked_files() if path.startswith("deploy/account-deletion/")
     }
     assert any(path.startswith("deploy/account-deletion/") for path in paths)
     assert all((ROOT / path).is_file() for path in paths)
-    return {path for path in paths if not filters["backend"].match_file(path)}
+    focused = {
+        "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/runtime_config_retention.py",
+    }
+    for path in focused:
+        plan = _governance_plan((path,))
+        assert plan["selection_error"] is None
+        commands = {row["id"]: row["argv"] for row in plan["commands"]}
+        assert "account-deletion-release-workflow" in commands
+        assert (
+            "consent-protocol/tests/test_runtime_config_retention.py"
+            in commands["release-controller-contracts"]
+        )
+    return {path for path in paths - focused if not filters["backend"].match_file(path)}
 
 
 def test_environment_only_deletion_inputs_schedule_the_required_backend_lane() -> None:
@@ -620,7 +648,7 @@ def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() 
     excluded = {
         "deploy/account-deletion/activate_release.py",
         "deploy/backend.cloudbuild.yaml",
-        "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/passkey_domain_policy.py",
     }
     patterns = _filter_patterns()
     patterns["backend"] += ["!" + path for path in sorted(excluded)]
@@ -680,6 +708,13 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_runtime_config_retention.py",
+        "consent-protocol/tests/test_plg_deploy_bindings.py",
+        "consent-protocol/tests/test_azure_runtime_config_wiring.py",
+        "consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py",
+        "consent-protocol/tests/test_runtime_settings_maps.py",
+        "consent-protocol/tests/test_uat_application_selection.py",
+        "consent-protocol/tests/test_direct_uat_acceptance.py",
         "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
         "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
         "consent-protocol/tests/test_dev_release_classification.py",
@@ -690,6 +725,7 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_pkm_answer_config.py",
         "consent-protocol/tests/test_account_generation_admission_deploy.py",
         "consent-protocol/tests/test_azure_pod_release_publish_step.py",
+        "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
         "consent-protocol/tests/test_cloud_run_image_resolution.py",
         "consent-protocol/tests/test_commerce_preview_bootstrap.py",
         "consent-protocol/tests/test_commerce_preview_target.py",
@@ -749,6 +785,20 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "-q",
         *paths,
     ]
+
+    for source in (
+        "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/runtime_config_retention.py",
+        "deploy/plg/bind_secrets.sh",
+    ):
+        assert not backend.match_file(source)
+        source_plan = _governance_plan((source,))
+        assert source_plan["selection_error"] is None
+        source_commands = {row["id"]: row["argv"] for row in source_plan["commands"]}
+        assert (
+            source_commands["release-controller-contracts"]
+            == commands["release-controller-contracts"]
+        )
 
     assert commands["account-deletion-release-workflow"][-1] == dedicated
     assert sum(dedicated in argv for argv in commands.values()) == 1
