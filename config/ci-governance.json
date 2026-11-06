@@ -23,7 +23,8 @@
       },
       "uat-isolated": {
         "policy_key": "uat_merge",
-        "merge_queue_ruleset_name": "uat-isolated merge queue"
+        "merge_queue_ruleset_name": "uat-isolated merge queue",
+        "owner_admin_ruleset_name": "uat-isolated owner validated merge"
       },
       "integration/pr-train": {
         "policy_key": "pr_train",
