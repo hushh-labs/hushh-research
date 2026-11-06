@@ -212,7 +212,7 @@ async def snapshot(
             "retainedOnly": True,
             "asOf": now.astimezone(timezone.utc).isoformat(),
             "accounts": [],
-            "catalog": public_activity_catalog(),
+            "catalog": public_activity_catalog(environment),
             **({"customerReporting": policy.proof()} if policy else {}),
         }
     if len({a.accountId for a in request.accounts}) != len(request.accounts):
@@ -325,7 +325,7 @@ async def snapshot(
         **({"customerReporting": policy.proof()} if policy else {}),
     }
     if request.version == 2:
-        response["catalog"] = public_activity_catalog()
+        response["catalog"] = public_activity_catalog(environment)
     return response
 
 

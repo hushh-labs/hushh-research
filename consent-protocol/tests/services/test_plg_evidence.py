@@ -1257,6 +1257,30 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     assert "PRIVATE_CUSTOMER" not in json.dumps(private)
 
 
+@pytest.mark.asyncio
+async def test_owner_snapshot_catalog_uses_its_environment_without_cross_lane_cache():
+    request = evidence.PilotRequest(version=2, accounts=[])
+
+    async def availability(environment):
+        result = await evidence.snapshot(request, set(), NOW, environment=environment)
+        return {agent["id"]: agent["available"] for agent in result["catalog"]["agents"]}
+
+    production = await availability("production")
+    uat = await availability("uat")
+    dev = await availability("dev")
+    assert uat["agent_documents"] is True
+    assert production["agent_documents"] is False
+    assert dev["agent_files"] is True
+    assert uat["agent_files"] is False
+    for lane in (production, uat, dev):
+        assert lane["agent_one"] is True
+        assert lane["agent_career"] is False
+        assert lane["agent_memory_merge"] is False
+    assert await availability("production") == production
+    with pytest.raises(ValueError, match="Invalid activity catalog environment"):
+        activity_catalog("untrusted-lane")
+
+
 def test_sdk_session_uid_alone_never_establishes_admission(monkeypatch):
     monkeypatch.setattr(sink, "enabled_for", lambda _: True)
     monkeypatch.setattr(sdk.HushhContext, "current", lambda: None)
