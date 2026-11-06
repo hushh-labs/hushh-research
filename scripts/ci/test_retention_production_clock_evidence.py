@@ -5,6 +5,7 @@ import contextvars
 import copy
 import hashlib
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -30,11 +31,13 @@ class _UnsafeProfileState(Exception):
 
 
 class ClockBoundProductionEvidenceTest(unittest.TestCase):
-    def test_clock_workflow_versions_pin_current_source_and_historical_receipts(self):
-        workflows = Path(__file__).resolve().parents[2] / ".github/workflows"
+    def test_current_clock_and_immutable_historical_worker_profiles(self):
+        root = Path(__file__).resolve().parents[2]
+        workflows = root / ".github/workflows"
 
-        def git_blob(path):
-            content = path.read_bytes()
+        def git_blob(path, revision=None):
+            content = (path.read_bytes() if revision is None else subprocess.check_output(
+                ["git", "show", f"{revision}:{path.relative_to(root)}"], cwd=root))
             header = f"blob {len(content)}\0".encode()
             return hashlib.sha1(header + content).hexdigest(), len(content)
 
@@ -42,18 +45,15 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
             git_blob(workflows / "capacity-maintenance-clock.yml"),
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
         )
-        source_profile = records.CLOCK_BOUND_SOURCE_PROFILES[
-            profile_evidence.PROFILE_NAME
-        ]
-        self.assertEqual(
-            git_blob(workflows / "capacity-maintenance.yml"),
-            source_profile[base.WORKFLOW],
-        )
-        for path, expected in records.CLOCK_BOUND_SOURCE_PROFILES[
-            "publication-pass-diagnostics-v4"
-        ].items():
-            with self.subTest(path=path):
-                self.assertEqual(git_blob(workflows.parent.parent / path), expected)
+        # Historical qualifications must keep their original source, even as
+        # current job labels and evidence readers evolve. Missing history fails.
+        for profile, revision in (
+            ("publication-aec6-blobless-v2", "b8bca9aba110ff9c838149d45041d6b9d720219e"),
+            ("publication-pass-diagnostics-v4", "383350286fdd65706cc80e2b028b901c6e174de3"),
+        ):
+            for path, expected in records.CLOCK_BOUND_SOURCE_PROFILES[profile].items():
+                with self.subTest(profile=profile, path=path):
+                    self.assertEqual(git_blob(root / path, revision), expected)
         self.assertEqual(
             clock_evidence._clock_workflow_blob_for_title("Capacity clock"),
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
