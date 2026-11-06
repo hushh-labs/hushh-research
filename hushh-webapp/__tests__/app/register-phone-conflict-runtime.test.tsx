@@ -43,8 +43,13 @@ describe("register-phone conflict runtime", () => {
     const api = await vi.importActual<typeof import("@/lib/services/api-service")>("@/lib/services/api-service");
     const firebaseConfig = await vi.importActual<typeof import("@/lib/firebase/config")>("@/lib/firebase/config");
     vi.mocked(prepareRecaptchaVerifier).mockImplementation(firebaseConfig.prepareRecaptchaVerifier);
-    Object.assign(ApiService, { claimAccountPhone: api.ApiService.claimAccountPhone, apiFetch: api.ApiService.apiFetch });
-    mocks.identityClaim.mockImplementation(identity.AccountIdentityService.claimCurrentUserPhone.bind(identity.AccountIdentityService));
+    Object.assign(ApiService, { refreshAccountIdentityShadow: api.ApiService.refreshAccountIdentityShadow, apiFetch: api.ApiService.apiFetch });
+    mocks.phoneFinalize.mockImplementation(identity.AccountIdentityService.finalizeNativePhoneVerification.bind(identity.AccountIdentityService));
+    mocks.phoneLinkConfirm.mockImplementation(async ({ phoneNumber }) => {
+      const user = mocks.firebaseUser as import("firebase/auth").User;
+      Object.assign(user, { phoneNumber });
+      return user;
+    });
     vi.mocked(fetch).mockImplementation(async () => Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED", message: "Choose how to continue" } }, { status: 409 }));
   });
   afterEach(cleanupWebAuthMocks);
@@ -68,9 +73,10 @@ describe("register-phone conflict runtime", () => {
     await waitFor(() => expect(screen.getByTestId("runtime")).toHaveTextContent("register_phone:none:no_back"));
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.queryByText("Phone render failed")).toBeNull();
-    expect(mocks.phoneClaimToken).toHaveBeenCalledOnce();
-    expect(mocks.identityClaim).toHaveBeenCalledOnce();
-    expect(fetch).toHaveBeenCalledWith("/api/account/phone/claim", expect.objectContaining({ method: "POST" }));
+    expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
+    expect(mocks.identityClaim).not.toHaveBeenCalled();
+    expect(mocks.phoneFinalize).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/api/account/identity/refresh?require_success=true", expect.objectContaining({ method: "POST", body: JSON.stringify({ verified_phone_number: "+16505550101" }) }));
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
 

@@ -13,6 +13,9 @@ export function isPhoneOwnershipConflict(error: unknown, backendCode: string | n
 export function resolvePhoneFailureMessage(error: unknown, fallback: string, backendCode: string | null = null): string {
   const code = String(backendCode ?? (error as { code?: unknown })?.code ?? "").replace(/^auth\//, "");
   if (["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_SESSION_ACCOUNT_CONFLICT", "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE", "PHONE_TRANSFER_REAL_SMS_REQUIRED", "PHONE_ALREADY_VERIFIED", "PHONE_TEST_NUMBER_IN_USE"].includes(code)) return PHONE_CONFLICT_COPY.inApp;
+  if (code === "phone_verification_busy") return "Phone verification is finishing. Wait a moment and try again.";
+  if (code === "phone-link-upgrade-required") return "Update the app to verify a phone number.";
+  if (code === "AUTH_INDEPENDENT_SIGN_IN_REQUIRED") return "Sign in again with your existing email or sign-in provider, then retry phone verification.";
   if (code === "PHONE_TRANSFER_IN_PROGRESS") return "Finishing phone transfer. Check progress again.";
   if (code === "PHONE_VERIFICATION_CHANGED" || code === "phone-verification-required") return "Request a new verification code before trying again.";
   if (["IDENTITY_PROVIDER_UNAVAILABLE", "PHONE_IDENTITY_SAVE_FAILED", "DATABASE_UNAVAILABLE"].includes(code)) return "Phone verification is temporarily unavailable. Wait a moment and retry.";

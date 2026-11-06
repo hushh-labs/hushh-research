@@ -2358,6 +2358,39 @@ class PersonalAgentProvisioningService:
         )
         return {"hushhId": hushh_id, "status": status or "connecting", "adopted": True}
 
+    async def _preflight_erasure_runtime(
+        self, *, user_id: str, row: dict, backend: Any, spec: PodSpec, target: dict
+    ) -> dict:
+        """Qualify creation and native runtime before reserving or fencing an owner."""
+        if row.get("user_id") != user_id:
+            raise RuntimeError("erasure owner identity unavailable")
+        metadata = row.get("backend_metadata") or {}
+        attempt = metadata.get("provisionAttempt") or {}
+        creation = ((attempt.get("evidence") or {}).get("host_requested") or {}).get(
+            "creationAcknowledgement"
+        ) or {}
+        if (
+            attempt.get("version") != 1
+            or attempt.get("ownerId") != user_id
+            or attempt.get("phase") != "provisioned"
+            or type(creation.get("initialGeneration")) is not int
+            or creation["initialGeneration"] != 1
+            or not isinstance(creation.get("initialImage"), str)
+            or creation.get("serviceUid") != target["serviceUid"]
+        ):
+            raise RuntimeError("erasure runtime creation provenance unavailable")
+        expected_target = backend.provision_target_for(spec)
+        if any(creation.get(key) != value for key, value in expected_target.items()):
+            raise RuntimeError("erasure creation target changed")
+        runtime = await backend.observe_erasure_runtime(spec)
+        if (
+            any(runtime.get(key) != value for key, value in target.items())
+            or runtime.get("generation") != creation["initialGeneration"]
+            or runtime.get("image") != creation["initialImage"]
+        ):
+            raise RuntimeError("erasure runtime creation identity changed")
+        return runtime
+
     async def _fence_reserved_erasure(self, *, user_id: str, reservation: dict) -> dict:
         """Fence one observed pod under its immutable registry reservation."""
         from hushh_mcp.services.pod_migration_transport import (
@@ -2415,6 +2448,9 @@ class PersonalAgentProvisioningService:
             "serviceUid": target["serviceUid"],
             "revision": target["revision"],
         }
+        await self._preflight_erasure_runtime(
+            user_id=user_id, row=row, backend=backend, spec=spec, target=target
+        )
         await asyncio.to_thread(fence_for_erasure, pod_url=target["podUrl"], payload=payload)
         receipt = await asyncio.to_thread(
             observe_memory_for_erasure, pod_url=target["podUrl"], payload=payload
@@ -2434,31 +2470,11 @@ class PersonalAgentProvisioningService:
             or saved.get("memoryBinding") != receipt
         ):
             raise RuntimeError("erasure memory binding readback unconfirmed")
-        attempt = metadata.get("provisionAttempt") or {}
-        creation = ((attempt.get("evidence") or {}).get("host_requested") or {}).get(
-            "creationAcknowledgement"
-        ) or {}
-        if (
-            attempt.get("version") != 1
-            or attempt.get("ownerId") != user_id
-            or attempt.get("phase") != "provisioned"
-            or type(creation.get("initialGeneration")) is not int
-            or creation["initialGeneration"] != 1
-            or not isinstance(creation.get("initialImage"), str)
-            or not receipt["memoryBinding"].get("creationProvenance")
-            or creation.get("serviceUid") != target["serviceUid"]
-        ):
-            raise RuntimeError("erasure runtime creation provenance unavailable")
-        expected_target = backend.provision_target_for(spec)
-        if any(creation.get(key) != value for key, value in expected_target.items()):
-            raise RuntimeError("erasure creation target changed")
-        runtime = await backend.observe_erasure_runtime(spec)
-        if (
-            any(runtime.get(key) != value for key, value in target.items())
-            or runtime.get("generation") != creation["initialGeneration"]
-            or runtime.get("image") != creation["initialImage"]
-        ):
-            raise RuntimeError("erasure runtime creation identity changed")
+        if not receipt["memoryBinding"].get("creationProvenance"):
+            raise RuntimeError("erasure runtime memory creation provenance unavailable")
+        runtime = await self._preflight_erasure_runtime(
+            user_id=user_id, row=row, backend=backend, spec=spec, target=target
+        )
         return {**receipt, "runtime": runtime}
 
     async def _erase_reserved_memory(self, *, user_id: str, qualified: dict) -> None:
