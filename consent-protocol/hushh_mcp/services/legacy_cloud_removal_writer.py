@@ -16,7 +16,7 @@ def verify_disabled_writer(worker) -> None:
     """A completed identity deletion resumes from its retained drain proofs."""
     resource = worker._resource("service_account", worker.plan["runtime"]["principal"]["email"])
     state = resource_state(worker.journal.read(), resource_key(resource))
-    _require("writer_disabled" in state)
+    _require("writer_disabled" in state or "native_writer_disabled_after_compute" in state)
     current = worker.session.get(resource_url(worker.project, worker.region, resource))
     if current.status_code == 200:
         _require(
@@ -41,6 +41,70 @@ def verify_disabled_writer(worker) -> None:
             and worker.session.get(resource_url(worker.project, worker.region, compute)).status_code
             == 404
         )
+
+
+def admit_disabled_writer_compute(worker) -> None:
+    """An acknowledged disable plus fresh native identity admits compute only.
+
+    This cannot stand in for cached-token denial. The database keeps Memory and
+    storage fenced until compute settlement and independent bootstrap readback.
+    """
+    resource = worker._resource("service_account", worker.plan["runtime"]["principal"]["email"])
+    state = resource_state(worker.journal.read(), resource_key(resource))
+    _require(state.get("writer_acknowledgement", {}).get("httpStatus") == 200)
+    current = worker.session.get(resource_url(worker.project, worker.region, resource))
+    _require(
+        current.status_code == 200
+        and current.json().get("disabled") is True
+        and native_identity("service_account", current.json()) == resource["identity"]
+    )
+    worker._checkpoint(
+        resource,
+        "disabledWriterComputeAdmission",
+        {
+            "runtimeIdentity": worker.plan["runtime"]["principal"],
+            "status": "disabled",
+            "nativeReadbackSha256": hashlib.sha256(current.content).hexdigest(),
+        },
+    )
+
+
+def qualify_writer_after_compute(worker, *, token: str) -> None:
+    """Reuse the BYOC port after terminal compute; make no token-denial claim."""
+    from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
+
+    resource = worker._resource("service_account", worker.plan["runtime"]["principal"]["email"])
+    compute = worker._resource("cloud_run_service")
+    observation = resource_state(worker.journal.read(), resource_key(compute)).get(
+        "observation", {}
+    )
+    _require(
+        observation.get("status") == "deleted"
+        and observation.get("operationDone") is True
+        and observation.get("identitySha256") == worker.journal.identity_sha256(compute)
+        and worker.session.get(resource_url(worker.project, worker.region, compute)).status_code
+        == 404
+    )
+    bootstrap = worker._resource("bootstrap_access")
+    receipt = revoke_runtime_writer(
+        token=token,
+        project=worker.project,
+        bootstrap_ref=bootstrap["id"],
+        identity=worker.plan["runtime"]["principal"],
+        admitted=True,
+        before_disable=lambda _: False,
+        session=worker.session,
+    )
+    _require(receipt["bootstrapIdentity"] == bootstrap["identity"]["account"])
+    worker.journal.append(
+        resource_key(resource),
+        "native_writer_disabled_after_compute",
+        {
+            **receipt,
+            "identitySha256": worker.journal.identity_sha256(resource),
+            "computeReceiptSha256": worker.journal.identity_sha256({"identity": observation}),
+        },
+    )
 
 
 def cached_writer_probe(worker, *, actor: str) -> str:

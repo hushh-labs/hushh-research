@@ -2,7 +2,9 @@
 
 ## Dev legacy cloud-removal repair — 5 November 2026
 
-The current repair is locally qualified, not deployed or completed. A retained
+PR [8983](https://github.com/hushh-labs/hushh-research/pull/8983) is merged and
+[deployed to Dev](https://github.com/hushh-labs/hushh-research/actions/runs/42155146026)
+at source `d87aeb168dcc93190fef38c0b7060bdfc3fb8e73`; deletion is not complete. A retained
 personal GCP removal fenced a legacy pod before discovering that its host and
 Memory records lacked modern creation provenance. Never invent that provenance,
 unfence its writers, or replace the original approval and dispatch history.
@@ -21,7 +23,7 @@ Dev markers, service UID/generation/image/etag, runtime principal, Memory engine
 incarnation and each resource's readback. `prepare` and `execute` require `--apply`
 and the reviewed manifest digest, qualified installed schema, and owner approval
 through the existing interface. Preparation requires clean source matching the
-serving Dev SHA. Resume requires the original immutable operator source; an
+serving Dev SHA. Resume requires the journal's qualified operator source; an
 unrelated Hub update does not change that executor identity. The child reattests
 Dev, database and the complete installed schema independently.
 Keep credentials in memory and private pipes. Never put tokens in CLI arguments.
@@ -30,6 +32,25 @@ Execution retains intent before provider writes and every original operation
 acknowledgement. It verifies a cached runtime credential before disabling the
 writer, then proves that credential is denied. Only a joined worker process
 supplies executor exit; session loss cannot establish exit or provider settlement.
+The live worker acknowledged disabling the exact runtime identity, then exited
+without establishing cached-token denial. Its memory-only token is gone; do not
+retry minting from the disabled identity or re-enable it. Compute, Memory and
+storage deletion have not yet been dispatched. Both temporary IAM grants were
+removed and read back natively.
+
+The forward candidate, migration 986, preserves applied 985 and its original
+plan/approval. Its `adopt-operator --apply --manifest-sha256 …` action requires
+clean source matching the serving Dev artifact and unchanged native coordinates.
+SQL admits the append-only source change only with fresh owner approval, actual
+supervised exits, matched provider acknowledgements with no pending operation,
+and reconciled temporary grants in the pre-data IAM phase. Old receipts retain
+their original source. A fresh exact disabled-SA observation plus the retained
+disable acknowledgement admits compute retirement alone. After terminal compute
+deletion, the existing BYOC writer port verifies the disabled runtime and live,
+independent bootstrap identity. Its distinct `native_writer_disabled_after_compute`
+receipt admits the existing downstream path; it never claims cached-token denial.
+986 rollback refuses retained successor evidence or an unjoined executor.
+
 An unknown request is not permission to repeat deletion. Project and bootstrap
 IAM release use the existing exclusive project admission, exact reviewed grants
 and etags, preserving unrelated bindings. The reservation survives session loss.
@@ -48,8 +69,10 @@ local evidence: 190 backend cases, 38 UI cases, 513 Back cases, complete UI
 contract verification, and an 18-entry native plan accepted by the actual 985
 validator in disposable PostgreSQL. Fourteen additional operator regressions pass,
 including retention expiry and interrupted bootstrap recovery; independent source
-review approved those corrected paths. These do not establish a successful live
-deletion; exact-source CI, Dev deployment and owner approval remain required.
+review approved those corrected paths. Exact-source CI and the Dev deployment
+passed. Hidden cold unlock, Profile and same-session Hosting were verified through
+background Apple Events with foreground unchanged. The forward resume candidate
+still requires its own exact-source CI, deployment and fresh owner approval.
 
 ### Phone-only Firebase identities
 
