@@ -19,6 +19,8 @@ from hushh_mcp.services import drive_work_wake as wake
 @pytest.fixture(autouse=True)
 def _no_cached_credentials(monkeypatch):
     monkeypatch.setattr(wake, "_cached_credentials", None)
+    monkeypatch.setattr(wake, "_wake_after", {})
+    monkeypatch.setattr(wake, "_inflight_wakes", {})
     monkeypatch.delenv("DRIVE_WORKER_V1_ONLY", raising=False)
     monkeypatch.delenv("DRIVE_AGENT_PACKAGES_ENABLED", raising=False)
 
@@ -84,6 +86,23 @@ async def test_prompt_wake_uses_only_fixed_job_in_matching_project(
             "Bearer test-token-1",
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_uat_repeated_wakes_coalesce_per_stage_and_failed_dispatch_can_retry(monkeypatch):
+    _uat_lane(monkeypatch)
+    monkeypatch.setattr(wake, "default_credentials", lambda **_: (_Credentials(), "hushh-pda-uat"))
+    calls = _scheduler(monkeypatch, 200, 503, 200, 200)
+
+    assert all(await asyncio.gather(*(wake.wake_drive_work("sharing") for _ in range(5))))
+    assert len(calls) == 1
+    assert not any(await asyncio.gather(*(wake.wake_drive_work("suggestions") for _ in range(5))))
+    assert await wake.wake_drive_work("suggestions")
+    assert len(calls) == 3
+
+    wake._wake_after["sharing"] = 0
+    assert await wake.wake_drive_work("sharing")
+    assert len(calls) == 4
 
 
 @pytest.mark.asyncio

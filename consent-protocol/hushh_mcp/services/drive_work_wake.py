@@ -24,6 +24,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from typing import Any, cast
 
 import httpx
@@ -48,6 +49,9 @@ _SCHEDULERS = {
 }
 _SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _WAKE_BOUND_SECONDS = 5
+_UAT_WAKE_COALESCE_SECONDS = 2
+_wake_after: dict[str, float] = {}
+_inflight_wakes: dict[str, asyncio.Future[bool]] = {}
 # A queued document request needs these stages before its search starts: the
 # same pair the owner's Allow and a preparation retry wake after their commit.
 QUEUED_REQUEST_STAGES = ("v1", "suggestions")
@@ -138,6 +142,21 @@ async def wake_drive_work(stage: str) -> bool:
         return _not_woken(stage, "not_configured")
     if not _drain_enabled():
         return _not_woken(stage, "disabled")
+    # In one event loop, reserve before the first await. The regular scheduler
+    # sweep recovers any work committed after an already accepted wake.
+    coalesce = project_id == "hushh-pda-uat" and stage in {"suggestions", "sharing"}
+    dispatch = None
+    if coalesce:
+        if time.monotonic() < _wake_after.get(stage, 0):
+            logger.debug("drive_work_wake.coalesced stage=%s", stage)
+            return True
+        inflight = _inflight_wakes.get(stage)
+        if inflight is not None:
+            logger.debug("drive_work_wake.coalesced stage=%s", stage)
+            return await asyncio.shield(inflight)
+        dispatch = asyncio.get_running_loop().create_future()
+        _inflight_wakes[stage] = dispatch
+    accepted = False
     try:
         async with asyncio.timeout(_WAKE_BOUND_SECONDS):
             bearer = await asyncio.to_thread(_bearer_token, project_id)
@@ -153,12 +172,19 @@ async def wake_drive_work(stage: str) -> bool:
                 # A rejected token is never reused: the next wake resolves ADC again.
                 _forget_credentials()
             if response.status_code == 200:
+                accepted = True
                 return True
             return _not_woken(stage, _refusal(response))
     except (TimeoutError, httpx.TimeoutException):
         return _not_woken(stage, "timeout")
     except Exception:
         return _not_woken(stage, "error")
+    finally:
+        if dispatch is not None:
+            if accepted:
+                _wake_after[stage] = time.monotonic() + _UAT_WAKE_COALESCE_SECONDS
+            del _inflight_wakes[stage]
+            dispatch.set_result(accepted)
 
 
 async def wake_drive_work_stages(*stages: str) -> None:
