@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
+import {
+  hasReviewerSession,
+  openReviewerSession,
+} from "./helpers/reviewer-session";
 
 let script: string;
 test.beforeAll(async () => {
@@ -66,3 +70,71 @@ test("profile sign-out replaces the document without refresh despite stalled not
   await expect(page.getByRole("heading", { name: "Profile" })).toHaveCount(0);
   expect(events).not.toContain("guard-login-redirect");
 });
+
+test(
+  "real profile sign-out clears the browser session cookie",
+  async ({ page, browserName }) => {
+    test.skip(
+      !hasReviewerSession(),
+      "requires the environment-wired reviewer and E2E_REVIEWER_SIGNIN=1",
+    );
+    test.skip(
+      browserName !== "chromium",
+      "real reviewer sign-out proof runs in Chromium",
+    );
+    test.setTimeout(180_000);
+
+    await openReviewerSession(
+      page,
+      {
+        userId: process.env.REVIEWER_UID?.trim() ?? "",
+        passphrase: process.env.REVIEWER_VAULT_PASSPHRASE ?? "",
+      },
+      { redirectTo: "/one?profile_pane=1", readyHeading: null },
+    );
+
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === "/one" &&
+        url.searchParams.get("profile_pane") === "1",
+    );
+    const profile = page.getByTestId("profile-primary");
+    await expect(profile).toBeVisible({ timeout: 60_000 });
+    const signOut = profile.getByRole("button", {
+      name: "Sign out",
+      exact: true,
+    });
+    await expect(signOut).toBeVisible();
+
+    const sessionDelete = page.waitForResponse((response) => {
+      const request = response.request();
+      return (
+        request.method() === "DELETE" &&
+        new URL(response.url()).pathname === "/api/auth/session"
+      );
+    });
+    await signOut.click();
+
+    const deletedSession = await sessionDelete;
+    expect(deletedSession.status()).toBe(200);
+    await expect(page).toHaveURL((url) => url.pathname === "/", {
+      timeout: 45_000,
+    });
+
+    const sessionStatus = await page.evaluate(async () => {
+      const response = await fetch("/api/auth/session", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      return {
+        status: response.status,
+        body: await response.json(),
+      };
+    });
+    expect(sessionStatus).toEqual({
+      status: 401,
+      body: { authenticated: false },
+    });
+    await expect(page.getByTestId("profile-primary")).toHaveCount(0);
+  },
+);
