@@ -117,13 +117,20 @@ alone does not provide credential containment.
 
 The source preparation adds explicit environment-pinned Auth selection, complete
 web build configuration and separate primary-project parity. It does not activate
-that selection. Existing full-account cleanup still returns `identity_retained`.
-Enabling isolated identity deletion requires a forward-qualified, project-bound
-intent and matching SQL retirement/adoption contract; historical intents cannot
-inherit a new Firebase target from current runtime configuration. Do not remove
-that safeguard by changing only the Python branch. DB erasure alone does not
-fulfil the existing privacy promise to delete sign-in information. Shared project
-membership by itself is not a continuing retention purpose.
+that selection. Serving full-account cleanup still returns `identity_retained`.
+Draft Dev migration 987 extends the existing journal with immutable project-bound
+authority and monotonic native-deletion evidence. Fresh isolated requests delete
+only the pinned Dev identity after other provider cleanup settles; local erasure
+and generation retirement require native `USER_NOT_FOUND`. An uncertain deletion
+is observed without replay. Historical full-account and phone intents cannot
+inherit a new Firebase target from current runtime configuration. Migration
+adoption qualifies the complete function, trigger and ACL family; rollback refuses
+after an isolated intent is admitted. The draft is locally verified, not applied
+live. A signed, exact-operation status read can finish the device purge after the
+identity disappears; it cannot authorize continuation or ordinary account access.
+DB erasure alone does not fulfil the existing privacy promise to delete sign-in
+information. Shared project membership by itself is not a continuing retention
+purpose.
 
 ### Phone-only Firebase identities
 

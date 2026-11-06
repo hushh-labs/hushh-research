@@ -15,7 +15,7 @@
 "use client";
 
 import { resolveAccountLifecycleRecovery } from "@/lib/auth/account-lifecycle-recovery";
-import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice } from "@/lib/auth/account-departure-device";
+import { rememberPendingAccountDeviceDeparture, purgeConfirmedAccountDeviceDeparture, purgeDepartedAccountDevice, pendingAccountCleanupOperationId } from "@/lib/auth/account-departure-device";
 
 import { requireUsablePhoneTestStart } from "@/lib/auth/phone-test-eligibility";
 
@@ -712,7 +712,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Captured with the terminal evidence, before a later start fresh can
         // admit this identity's next owner.
         const departingOwner = lastAdmittedOwnerFor(candidateUser.uid) ?? candidateUser.uid;
-        const recovery = await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner);
+        const retained = cleanupStatusRef.current;
+        const cleanupOperationId = retained?.ownerId === candidateUser.uid ? retained.operation.id : pendingAccountCleanupOperationId(candidateUser.uid);
+        const recovery = confirmedCleanup?.state === "complete" && confirmedCleanup.identity_removed
+          ? { outcome: "terminal" as const, code: "account_deleted" as const, confirmedCleanup }
+          : await resolveAccountLifecycleRecovery(idToken, deadlineMs, terminal, departingOwner, cleanupOperationId);
+        if (recovery.outcome === "terminal" && recovery.confirmedCleanup?.identity_removed) {
+          try {
+            if (!await purgeConfirmedAccountDeviceDeparture(candidateUser.uid, recovery.confirmedCleanup, departingOwner)) {
+              return { outcome: "unavailable" };
+            }
+          } catch { return { outcome: "unavailable" }; }
+          return { outcome: "terminal", code: "account_deleted" };
+        }
         // Registration replaces the terminal sign-out that would have purged
         // the departed owner's device state, so purge it here instead.
         if (recovery.outcome === "unavailable" && recovery.registration && recovery.departure) {
@@ -738,15 +750,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
           markAccountDeletionActive(validationOwner.userId);
         }
         try {
+          const retained = cleanupStatusRef.current;
+          const cleanupOperationId = retained?.ownerId === candidateUser.uid ? retained.operation.id : pendingAccountCleanupOperationId(candidateUser.uid);
           const response = await withinAccountSessionValidationBudget(
-            ApiService.getAccountCleanupStatus(idToken),
+            cleanupOperationId
+              ? ApiService.getAccountCleanupStatus(idToken, cleanupOperationId)
+              : ApiService.getAccountCleanupStatus(idToken),
             deadlineMs,
           );
           if (response.ok && hasJsonResponseContentType(response)) {
             const body = JSON.parse(await readBoundedAccountSessionStatusBody(response, deadlineMs));
             const operation = parseAccountCleanupOperation(body?.operation);
             if (operation?.state === "complete") {
-              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: "account_deletion_identity_retained" }, operation);
+              return resolveRegistrationRecovery(idToken, { outcome: "terminal", code: operation.identity_removed ? "account_deleted" : "account_deletion_identity_retained" }, operation);
             }
             if (operation?.owner_id) rememberPendingAccountDeviceDeparture(candidateUser.uid, operation.owner_id, operation.id);
             if (operation) return { outcome: "unavailable", cleanup: operation };

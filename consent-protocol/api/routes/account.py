@@ -60,6 +60,7 @@ from api.utils.firebase_auth import (
     current_auth_lane,
     refuse_foreign_review_mint,
     verify_account_cleanup_bearer,
+    verify_account_cleanup_status_bearer,
     verify_firebase_principal,
 )
 from hushh_mcp.services import account_firebase_mutations
@@ -140,7 +141,7 @@ async def account_deletion_cleanup_status(
     response.headers["Cache-Control"] = "private, no-store"
     selected = str(operation_id) if operation_id is not None else None
     identity = await run_in_threadpool(
-        verify_account_cleanup_bearer, authorization, operation_id=selected
+        verify_account_cleanup_status_bearer, authorization, operation_id=selected
     )
     operation = await run_in_threadpool(
         journal.inspect_for_identity, identity, operation_id=selected

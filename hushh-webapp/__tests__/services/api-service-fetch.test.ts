@@ -364,6 +364,17 @@ describe("ApiService.apiFetch", () => {
     expect(mockFetch.mock.calls[0]?.[1]).not.toHaveProperty("accountLifecycleOwnsAuthOutcome");
   });
 
+  it("reads only the exact cleanup operation with the cached proof after identity removal", async () => {
+    const operationId = "b99efb85-c1f2-4714-8a63-614d774a25a3";
+    mockFetch.mockResolvedValueOnce(jsonResponse({ operation: { id: operationId, state: "complete", identity_removed: true } }));
+    const response = await ApiService.getAccountCleanupStatus("cached-proof", operationId);
+    expect(response.status).toBe(200);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe(`/api/account/deletion-cleanup?operation_id=${operationId}`);
+    expect(mockFetch.mock.calls[0]?.[1].headers.Authorization).toBe("Bearer cached-proof");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+  });
+
   it("keeps a local account-status request alive past the deployed eight-second bound", async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | null = null;

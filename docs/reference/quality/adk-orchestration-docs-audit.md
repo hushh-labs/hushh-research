@@ -44,8 +44,9 @@ account. Full erasure is not complete.
 The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
 owns the exact continuation and phone-audit boundaries. Its
 [Auth separation section](../operations/account-deletion-rollout.md#firebase-auth-separation)
-records current source preparation and native fixture proof. Existing Dev/UAT
-users have not been cut over. UID continuity, all client paths, production
+records current source preparation, draft project-bound erasure contract 987 and
+native fixture proof. Neither the draft migration nor Auth selection is live.
+Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release
 gates. Phone-only or missing source identities are not deletion authority.
 The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
