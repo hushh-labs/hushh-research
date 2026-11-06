@@ -32,7 +32,10 @@ existing pending CI; investigate an existing failure before dispatching more CI.
 Only when missing qualification is reported, run full PR Validation on `uat`
 with the shown base. After success inspect again, then deploy with its exact
 current CI run, attempt and comparison base. Ordinary UAT selects the protected
-SHA directly; no manual PR-history chain or serving-commit ancestry is required. New deployments reject incomplete pins before
+SHA directly; no manual PR-history chain or serving-commit ancestry is required.
+Once selected, that frozen ordinary UAT SHA remains eligible after newer merges
+while it remains in protected UAT history; CI, current authority and live-baseline
+checks still apply. Never silently substitute the new tip. New deployments reject incomplete pins before
 security/capacity jobs; security clearance and under-lock admission remain required:
 
 ```bash
