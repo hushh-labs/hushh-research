@@ -55,6 +55,7 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         "scripts/ci/promotion_approval.py",
         "scripts/ci/main-post-merge-smoke.sh",
         "scripts/ci/integration-check.sh",
+        "scripts/ci/orchestrate.sh",
         "scripts/ci/account-deletion-check.sh",
         "scripts/ci/backend-check.sh",
         "scripts/ci/validation-results.sh",

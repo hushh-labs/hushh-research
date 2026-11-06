@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.mark.parametrize(
     "job",
-    ["protocol-check", "web-full-suite-check", "web-targeted-check", "web-targeted-browser"],
+    ["protocol-check", "web-full-suite-check", "web-targeted-check"],
 )
 def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
     job: str,

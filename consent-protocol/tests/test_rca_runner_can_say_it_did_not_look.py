@@ -1,7 +1,7 @@
 """The RCA runner must never report a domain failure for a check that never ran.
 
 WHY THIS EXISTS
-Measured 2026-08-29. `./bin/hushh agents rca --surface uat` reported:
+Measured 2026-08-29. `./bin/hushh codex rca --surface uat` reported:
 
     Status: blocked
     Blocking classifications: db_contract_drift
