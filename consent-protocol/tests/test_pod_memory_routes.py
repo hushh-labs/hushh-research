@@ -1865,6 +1865,7 @@ def test_the_memory_doors_are_on_the_app_surface_and_the_wall_no_longer_covers_t
     memory_doors = {
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/proposals",
+        "/api/one/pod/memory/rewrite",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
     }

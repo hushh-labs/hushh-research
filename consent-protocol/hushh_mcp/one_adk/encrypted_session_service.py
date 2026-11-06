@@ -671,7 +671,10 @@ class EncryptedAdkSessionService(BaseSessionService):
                 session=session_id,
                 revision=revision,
                 chat_marker=CHAT_CIPHERTEXT_LIKE,
-                **encoded,
+                ciphertext=encoded["ciphertext"],
+                iv=encoded["iv"],
+                tag=encoded["tag"],
+                algorithm=encoded["algorithm"],
             )
             if result.data:
                 return True

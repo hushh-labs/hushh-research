@@ -145,6 +145,8 @@ async def _managed_readiness() -> ManagedGeminiReadinessResponse:
 
             if sandbox_managed_azure_enabled():
                 transport = load_managed_runtime_policy()
+                if transport is None:
+                    raise ValueError("Sandbox Azure transport is unavailable")
                 cache_binding = ("sandbox_azure", transport["config_fingerprint"])
     except Exception:
         raise HTTPException(
