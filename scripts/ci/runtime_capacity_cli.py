@@ -137,6 +137,14 @@ def parse_args(
     )
     parser.add_argument("--profile", type=Path, default=default_profile)
     parser.add_argument(
+        "--target-sha", help="Bind UAT worker size to this approved application"
+    )
+    parser.add_argument(
+        "--resolve-profile-only",
+        action="store_true",
+        help="Print the effective source-bound policy without cloud reads",
+    )
+    parser.add_argument(
         "--additional-candidate-service",
         action="append",
         default=[],

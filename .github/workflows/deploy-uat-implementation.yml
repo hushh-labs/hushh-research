@@ -541,8 +541,16 @@ jobs:
             deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
-          cp config/runtime-capacity.json \
-            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          # Preserve Main's budget/inventory, but never resize the selected
+          # worker by overwriting its approved capacity with Main's default.
+          if [[ "${{ needs.wait-capacity.outputs.scope }}" == frontend ]]; then
+            cp config/runtime-capacity.json "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          else
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              --profile config/runtime-capacity.json \
+              --target-sha "${{ steps.resolve-sha.outputs.sha }}" --resolve-profile-only \
+              > "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          fi
           cp scripts/ops/verify_passkey_domain_associations.py \
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \

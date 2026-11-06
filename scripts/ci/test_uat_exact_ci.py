@@ -182,6 +182,11 @@ class ExactUatCiTest(unittest.TestCase):
                 script = textwrap.dedent(block.split("run: |\n", 1)[1]).replace(
                     "${{ inputs.skip_managed_vertex_probe_once }}", "false"
                 )
+                script = script.replace("${{ needs.wait-capacity.outputs.scope }}", "backend")
+                script = script.replace(
+                    "${{ steps.resolve-sha.outputs.sha }}",
+                    subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
+                )
                 env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
                 env["RUNNER_TEMP"] = scratch
                 subprocess.run(["bash", "-c", script], cwd=root, env=env, check=True, capture_output=True)
