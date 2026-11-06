@@ -68,6 +68,23 @@ def test_network_routes_require_auth_and_return_neutral_permission_failure():
         assert response.json()["detail"]["message"] == "This network is unavailable."
 
 
+def test_person_context_returns_canonical_reference_without_public_caching():
+    with patch("api.routes.one.connections.ConnectionsService") as service:
+        service.return_value.get_person_context.return_value = {
+            "person": {
+                "userId": "peer",
+                "publicPersonRef": "public-peer",
+                "relationship": "connected",
+            },
+            "request": None,
+        }
+        response = _client().get("/api/one/connections/peer/context")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.json()["person"]["publicPersonRef"] == "public-peer"
+        service.return_value.get_person_context.assert_called_once_with("user-a", "peer")
+
+
 def test_mutual_list_binds_viewer_and_bounds_pagination_without_public_caching():
     person_ref = "42b3ecac-959f-47ab-9352-12a694be1ae9"
     client = _client()

@@ -1,5 +1,7 @@
 """Page-bound shared-neighbor projection over the authoritative active graph."""
 
+from hushh_mcp.services.directory_candidate_statement import DIRECTORY_PROFILE_ELIGIBILITY_SQL
+
 # Applied inside the canonical directory, before live-account filtering and
 # logical pagination. Values are bound; ``profile`` is that directory's alias.
 MUTUAL_DIRECTORY_FILTER_SQL = """
@@ -24,7 +26,7 @@ AND NOT EXISTS (
 )
 """
 
-MUTUAL_CONNECTIONS_SQL = """
+_MUTUAL_GRAPH_SQL = """
 WITH viewer_peers AS (
     SELECT CASE WHEN user_a_id = :user_id THEN user_b_id ELSE user_a_id END AS peer_id
     FROM connections
@@ -47,8 +49,56 @@ WITH viewer_peers AS (
             AND b.addressee_user_id = ANY(ARRAY[:user_id, s.peer_id, s.candidate_id])
       )
 )
+"""
+
+MUTUAL_CONNECTIONS_SQL = (
+    _MUTUAL_GRAPH_SQL
+    + """
 SELECT candidate_id, COUNT(DISTINCT peer_id) AS mutual_count,
        MIN(peer_id) AS preview_user_id
 FROM visible_shared
 GROUP BY candidate_id
 """
+)
+
+PAGE_MUTUAL_CONNECTIONS_SQL = (
+    _MUTUAL_GRAPH_SQL
+    + """
+SELECT candidate_id, COUNT(DISTINCT peer_id) AS mutual_count,
+       (ARRAY_AGG(DISTINCT peer_id ORDER BY peer_id))[1:2] AS preview_user_ids
+FROM visible_shared GROUP BY candidate_id
+"""
+)
+
+# Public metadata only, bounded by the already-paginated candidate IDs. Both
+# reads use this same projection so a changed edge/block never leaves stale
+# portraits attached to a current count.
+PAGE_ROW_METADATA_SQL = f"""
+WITH mutual AS ({PAGE_MUTUAL_CONNECTIONS_SQL})
+SELECT profile.user_id AS candidate_id,
+       profile.public_person_ref::TEXT AS public_person_ref,
+       CASE
+         WHEN EXISTS (SELECT 1 FROM connections c WHERE c.status = 'active'
+           AND ((c.user_a_id = :user_id AND c.user_b_id = profile.user_id)
+             OR (c.user_b_id = :user_id AND c.user_a_id = profile.user_id))) THEN 'connected'
+         WHEN EXISTS (SELECT 1 FROM connection_requests r WHERE r.status = 'pending'
+           AND r.requester_user_id = :user_id AND r.addressee_user_id = profile.user_id) THEN 'pending_outgoing'
+         WHEN EXISTS (SELECT 1 FROM connection_requests r WHERE r.status = 'pending'
+           AND r.addressee_user_id = :user_id AND r.requester_user_id = profile.user_id) THEN 'pending_incoming'
+         ELSE 'none' END AS relationship,
+       COALESCE(m.mutual_count, 0) AS mutual_count,
+       COALESCE(m.preview_user_ids, ARRAY[]::TEXT[]) AS preview_user_ids,
+       NOT EXISTS (
+         SELECT 1 FROM jsonb_each_text(CAST(:preview_refs AS JSONB)) expected
+         WHERE NOT EXISTS (SELECT 1 FROM actor_profiles peer
+           WHERE peer.user_id = expected.key AND peer.public_profile_status = 'active'
+             AND peer.public_person_ref::TEXT = expected.value)
+       ) AS previews_valid
+FROM actor_profiles profile LEFT JOIN mutual m ON m.candidate_id = profile.user_id
+WHERE profile.user_id = ANY(CAST(:page_user_ids AS TEXT[]))
+  AND ({DIRECTORY_PROFILE_ELIGIBILITY_SQL})
+  AND NOT EXISTS (SELECT 1 FROM connection_requests b
+    WHERE b.status = 'rejected' AND b.metadata ->> 'blocked_by' IS NOT NULL
+      AND ((b.requester_user_id = :user_id AND b.addressee_user_id = profile.user_id)
+        OR (b.addressee_user_id = :user_id AND b.requester_user_id = profile.user_id)))
+"""  # nosec B608 -- module-owned static fragments; all values bound.
