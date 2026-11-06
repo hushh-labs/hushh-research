@@ -45,7 +45,7 @@ checkpoint or retrying. Do not treat a timeout as evidence that nothing happened
 
 The frontend reuses the clean sibling `../hushh-research-akshat-sandbox`, checks
 out the deployed commit, builds optimized production output in `.next-sandbox-prod`
-and runs `next start` with a bounded 4 GB Node heap. It requires the dedicated Firebase web config
+and runs its standalone Node server with a bounded 4 GB heap. It requires the dedicated Firebase web config
 and impersonated localhost signing credentials under
 `~/.codex/private/akshat-sandbox/`. It refuses ordinary frontend `.env` files.
 

@@ -1086,7 +1086,9 @@ describe("agent PKM memory helpers", () => {
     pkmGetStaleFirstMock.mockResolvedValueOnce(null);
     pkmGetMetadataMock.mockClear(); pkmGetManyStaleFirstMock.mockClear();
     const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "key", vaultOwnerToken: "token", requireDecrypted: true });
-    expect(context.text).toBe("# memory.md\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
+    // V1 starts empty: headings belong to the owner/Memory Manager, not a template.
+    expect(context.text).toBe("");
+    expect(peekMarkdownMemory("user_1")).toMatchObject({ markdown: "", persisted: false });
     expect(context.text).not.toContain("concise summaries");
     expect(context.domains).toEqual(["one_memory"]);
     expect(pkmGetMetadataMock).not.toHaveBeenCalled();

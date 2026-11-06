@@ -60,6 +60,7 @@ def check_row(agent_id: str, declared: dict[str, Any], derived: dict[str, Any]) 
             for field in (
                 "pod_dispatchable",
                 "pod_agent_tool",
+                "pod_memory_helper",
                 "registered_specialist",
                 "hub_doors",
                 "door",
@@ -74,6 +75,20 @@ def check_row(agent_id: str, declared: dict[str, Any], derived: dict[str, Any]) 
         if not executes or source != "owner_bucket":
             problems.append(
                 f"{agent_id}: local Files AgentTool requires pod execution and owner_bucket custody"
+            )
+        return problems
+
+    if derived.get("pod_memory_helper"):
+        if (
+            not executes
+            or source != "pkm_projection"
+            or declared["write_scope"] != "proposal_only"
+            or declared["confirmation_owner"] != "owner_browser"
+            or derived["pod_dispatchable"]
+        ):
+            problems.append(
+                f"{agent_id}: memory preparation requires owner projection, proposal-only "
+                "output and browser commit, without specialist dispatch"
             )
         return problems
 

@@ -147,16 +147,19 @@ class TestAgentTreeShape:
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
     def test_root_agent_is_one_with_full_roster(self):
+        from hushh_mcp.one_adk.chat_memory import chat_memory_before_model
+
         agent = build_one_root_agent()
         assert agent.name == "one"
         # Consent redaction runs first, so timing measures the request actually sent.
-        # Queued input joins last: the timing callback can still answer for the
+        # Queued input joins after timing: that callback can still answer for the
         # model (the read barrier), and a message must never be drained into a
-        # call that is not made.
+        # call that is not made. Memory budgeting then includes the queued input.
         callbacks = agent.canonical_before_model_callbacks
         assert callbacks[0].__name__ == "_one_consent_before_model"
         assert timed_one_before_model in callbacks
-        assert callbacks[-1] is club_queued_input
+        assert callbacks.index(timed_one_before_model) < callbacks.index(club_queued_input)
+        assert callbacks[-2:] == [club_queued_input, chat_memory_before_model]
         assert timed_one_after_model in agent.canonical_after_model_callbacks
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
