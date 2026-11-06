@@ -546,7 +546,7 @@ jobs:
           if [[ "${{ needs.wait-capacity.outputs.scope }}" == frontend ]]; then
             cp config/runtime-capacity.json "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
           else
-            python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
               --profile config/runtime-capacity.json \
               --target-sha "${{ steps.resolve-sha.outputs.sha }}" --resolve-profile-only \
               > "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
