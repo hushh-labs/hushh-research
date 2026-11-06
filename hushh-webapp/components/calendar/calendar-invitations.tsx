@@ -133,7 +133,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP
             // leaves the review. The refresh moves it out of Pending.
-            if (["accepted", "declined", "tentative"].includes(result.calendar) && !["failed", "unknown"].includes(result.email)) {
+            if (["accepted", "declined", "tentative"].includes(result.calendar) && (result.calendar === "declined" ? result.email === "sent" : !["failed", "unknown"].includes(result.email))) {
               setSelectedId(null);
               requestAnimationFrame(() => trigger.current?.focus());
             }
