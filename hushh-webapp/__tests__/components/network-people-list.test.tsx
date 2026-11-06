@@ -2,13 +2,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "token") }, generation: 1,
-  list: vi.fn(), mutuals: vi.fn(), summary: vi.fn(), visibility: vi.fn(), update: vi.fn(),
+  list: vi.fn(), mutuals: vi.fn(), summary: vi.fn(), visibility: vi.fn(), update: vi.fn(), connect: vi.fn(), invalidate: vi.fn(),
   Error: class extends Error { constructor(public status: number) { super("Unavailable"); } },
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user, userId: "acct_recreated_owner" }) }));
 vi.mock("@/lib/auth/session-owner", () => ({ getAuthSessionGeneration: () => state.generation, subscribeAuthSessionGeneration: () => () => {} }));
 vi.mock("@/lib/services/connections-service", () => ({ ConnectionsService: { listNetwork: state.list, listMutualConnections: state.mutuals, getNetworkSummary: state.summary, getNetworkVisibility: state.visibility, updateNetworkVisibility: state.update }, ConnectionsServiceRequestError: state.Error }));
 vi.mock("@/components/connections/connection-person-avatar", () => ({ ConnectionPersonAvatar: () => <span /> }));
+vi.mock("@/lib/services/person-profile-service", () => ({ PersonProfileService: { connect: state.connect } }));
+vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConnectionGraphMutated: state.invalidate } }));
 import { NetworkPeopleList } from "@/components/connect/network-people-list";
 import { PersonNetworkSummary } from "@/components/connections/person-network-summary";
 import { NetworkVisibilitySetting } from "@/components/profile/network-visibility-setting";
@@ -20,10 +22,124 @@ const page = (number = 1) => ({ person: { publicPersonRef: "target", displayName
 describe("network permission and journey return @feature_connected_profiles", () => {
   beforeEach(() => {
     state.generation++;
+    state.user.getIdToken.mockReset().mockResolvedValue("token");
     state.list.mockReset().mockImplementation(async (opts: { page: number }) => page(opts.page));
     state.mutuals.mockReset(); state.summary.mockReset(); state.visibility.mockReset(); state.update.mockReset();
+    state.connect.mockReset(); state.invalidate.mockReset();
   });
   afterEach(cleanup);
+
+  it.each(["token", "response"])("retires a Connect action after reauthentication while awaiting %s", async stage => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Person"), relationship: "none" }] });
+    let finish!: () => void;
+    if (stage === "token") state.user.getIdToken.mockResolvedValueOnce("token").mockImplementationOnce(() => new Promise<string>(resolve => { finish = () => resolve("token"); }));
+    else state.connect.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const view = render(<NetworkPeopleList mode="discovery" visitKey={`retired-${stage}`} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect with Person" }));
+    await waitFor(() => expect(finish).toBeDefined());
+    state.generation++;
+    view.rerender(<NetworkPeopleList mode="discovery" visitKey={`retired-${stage}`} />);
+    await act(async () => finish());
+    await screen.findByRole("button", { name: "Connect with Person" });
+    expect(state.connect).toHaveBeenCalledTimes(stage === "token" ? 0 : 1);
+    expect(state.invalidate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("allows retry after a failed connection request", async () => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Person"), relationship: "none" }] });
+    state.connect.mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce({ status: "pending_outgoing" });
+    render(<NetworkPeopleList mode="discovery" visitKey="retry-connect" />);
+    const button = await screen.findByRole("button", { name: "Connect with Person" });
+    fireEvent.click(button);
+    await screen.findByRole("alert");
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await waitFor(() => expect(state.invalidate).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it.each(["request", "token"])("retains pending intent and reconciles concurrent Connect actions while awaiting %s", async stage => {
+    const sent = new Set<string>();
+    const finish: Record<string, () => void> = {};
+    let finishToken!: () => void;
+    if (stage === "token") state.user.getIdToken.mockResolvedValueOnce("token").mockResolvedValueOnce("token").mockImplementationOnce(() => new Promise<string>(resolve => { finishToken = () => resolve("token"); }));
+    state.list.mockImplementation(async () => ({ ...page(), hasMore: false, items: ["First", "Second"].map(ref => ({ ...row(ref), relationship: sent.has(ref) ? "pending_outgoing" : "none" })) }));
+    state.connect.mockImplementation((ref: string) => new Promise<void>(resolve => { finish[ref] = () => { sent.add(ref); resolve(); }; }));
+    state.invalidate.mockImplementation(owner => dispatchConnectionGraphChanged(owner));
+    render(<NetworkPeopleList mode="discovery" visitKey="parallel-connect" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect with First" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect with Second" }));
+    await waitFor(() => expect(state.connect).toHaveBeenCalledTimes(stage === "token" ? 1 : 2));
+    await act(async () => finish.First());
+    await screen.findByText("Request sent");
+    const second = await screen.findByRole("button", { name: "Connect with Second" });
+    expect(second).toBeDisabled();
+    fireEvent.click(second);
+    if (stage === "token") {
+      await act(async () => finishToken());
+      await waitFor(() => expect(state.connect).toHaveBeenCalledTimes(2));
+    }
+    await act(async () => finish.Second());
+    await waitFor(() => expect(screen.getAllByText("Request sent")).toHaveLength(2));
+    expect(state.invalidate).toHaveBeenCalledTimes(2);
+    expect(state.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns focus to the mutual control with its search and scroll intact", async () => {
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [{ ...row("Person"), relationship: "connected", mutualConnectionCount: 3 }] });
+    const opened = (event: Event) => event.preventDefault();
+    window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened);
+    try {
+      const view = () => <div data-network-scroll-owner><NetworkPeopleList mode="connections" personRef="target" visitKey="mutual-control-memory" /></div>;
+      let mounted = render(view());
+      await screen.findByRole("button", { name: "View all 3 mutual connections with Person" });
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Per" } });
+      const mutual = await screen.findByRole("button", { name: "View all 3 mutual connections with Person" });
+      mounted.container.firstElementChild!.scrollTop = 144;
+      mutual.focus(); fireEvent.click(mutual);
+      mounted.unmount(); mounted = render(view());
+      expect(screen.getByRole("textbox")).toHaveValue("Per");
+      await waitFor(() => expect(screen.getByRole("button", { name: "View all 3 mutual connections with Person" })).toHaveFocus());
+      expect(mounted.container.firstElementChild!.scrollTop).toBe(144);
+    } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
+  });
+
+  it("shows real mutual previews at every level and keeps Connect separate from profile navigation", async () => {
+    const previews = [{ publicPersonRef: "mutual-a", displayName: "A", photoUrl: null }, { publicPersonRef: "mutual-b", displayName: "B", photoUrl: null }];
+    state.list.mockResolvedValue({ ...page(), hasMore: false, items: [
+      { ...row("Direct"), networkDegree: 1, relationship: "connected", mutualConnectionCount: 7, mutualConnectionPreviews: previews },
+      { ...row("Second"), relationship: "none", mutualConnectionCount: 3, mutualConnectionPreviews: previews },
+      { ...row("Third"), networkDegree: 3, relationship: "pending_outgoing", mutualConnectionCount: 0 },
+    ] });
+    let finish!: () => void;
+    state.connect.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const opened = vi.fn((event: Event) => event.preventDefault());
+    window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened);
+    try {
+      render(<NetworkPeopleList mode="discovery" visitKey="row-actions" />);
+      const connect = await screen.findByRole("button", { name: "Connect with Second" });
+      expect(screen.getAllByTestId("mutual-avatar-stack")).toHaveLength(2);
+      expect(screen.getByText("7 mutual connections")).toBeVisible();
+      expect(screen.getByText("3 mutual connections")).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Connect with Direct" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Connect with Third" })).toBeNull();
+      expect(screen.getByText("Request sent")).toBeVisible();
+      fireEvent.click(connect); fireEvent.click(connect);
+      await waitFor(() => expect(state.connect).toHaveBeenCalledExactlyOnceWith("Second", "token"));
+      expect(opened).not.toHaveBeenCalled();
+      expect(connect).toBeDisabled();
+      await act(async () => finish());
+      expect(state.invalidate).toHaveBeenCalledWith("acct_recreated_owner");
+      fireEvent.click(screen.getByRole("button", { name: "View all 3 mutual connections with Second" }));
+      expect((opened.mock.calls[0][0] as CustomEvent).detail).toMatchObject({ personRef: "Second", networkList: "mutuals" });
+      fireEvent.click(screen.getByRole("button", { name: "Open Direct's profile" }));
+      expect((opened.mock.calls[1][0] as CustomEvent).detail).toMatchObject({ personRef: "Direct" });
+      fireEvent.click(screen.getByRole("button", { name: "Through connections", exact: true }));
+      expect(screen.getByText("People who share a connection with you.")).toBeVisible();
+      await waitFor(() => expect(state.list).toHaveBeenLastCalledWith(expect.objectContaining({ degree: 2 })));
+    } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
+  });
 
   it("invalidates network rows and summaries for the canonical recreated account owner", async () => {
     state.summary.mockResolvedValue({ person: { publicPersonRef: "target" }, mutualConnectionCount: 2, networkDegree: 1, canBrowseConnections: true });

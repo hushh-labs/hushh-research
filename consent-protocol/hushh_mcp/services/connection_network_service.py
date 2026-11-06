@@ -20,6 +20,7 @@ from hushh_mcp.services.connection_network_sql import (
     QUALIFIED_SUMMARY_SQL,
     QUALIFIED_TARGET_ROWS_SQL,
 )
+from hushh_mcp.services.connection_row_metadata import ConnectionRowMetadata
 
 if TYPE_CHECKING:
     from hushh_mcp.services.connections_service import ConnectionsService
@@ -392,6 +393,7 @@ class ConnectionNetworkService:
         )
         # Directory/auth reads may be slow. A permission observed before them
         # is not authority to disclose the completed page after revocation.
+        metadata = ConnectionRowMetadata(self.connections, viewer, result["items"], self.profiles)
         if target:
             self.target(viewer, person_ref or "")
             if not self.can_browse(viewer, target["userId"]):
@@ -400,17 +402,22 @@ class ConnectionNetworkService:
                 )
         page_ids = [str(p["userId"]) for p in result["items"]]
         if target:
-            qualified = (
-                self.connections._execute_many(
-                    QUALIFIED_TARGET_ROWS_SQL,
-                    {"viewer": viewer, "target": target["userId"], "candidates": page_ids},
-                )
-                if page_ids
-                else []
+            payloads = metadata.settle(
+                f"SELECT user_id, degree, FALSE AS overflow FROM ({QUALIFIED_TARGET_ROWS_SQL}) target_rows",
+                {"viewer": viewer, "target": target["userId"], "candidates": page_ids},
             )
-            final_degrees = {str(row["user_id"]): int(row["degree"]) for row in qualified}
         else:
-            final_degrees = self.qualify_degrees(viewer, page_ids, degree or 3)
+            payloads = metadata.settle(
+                QUALIFIED_DEGREES_SQL,
+                {
+                    "viewer": viewer,
+                    "admitted": self._admitted,
+                    "candidates": page_ids,
+                    "max_degree": degree or 3,
+                    "edge_limit": MAX_NETWORK_EDGES + 1,
+                },
+            )
+        final_degrees = {uid: int(value["networkDegree"]) for uid, value in payloads.items()}
         if set(final_degrees) != set(page_ids) or (
             degree and any(d != degree for d in final_degrees.values())
         ):
@@ -426,6 +433,7 @@ class ConnectionNetworkService:
                     "displayName": p.get("displayName"),
                     "photoUrl": p.get("photoUrl"),
                     "networkDegree": degrees.get(str(p["userId"])),
+                    **payloads[str(p["userId"])],
                 }
                 for p in result["items"]
                 if p.get("publicPersonRef")
