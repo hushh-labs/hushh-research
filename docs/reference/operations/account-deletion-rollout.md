@@ -1,5 +1,63 @@
 # Account deletion rollout and rollback
 
+## Dev legacy cloud-removal repair — 5 November 2026
+
+The current repair is locally qualified, not deployed or completed. A retained
+personal GCP removal fenced a legacy pod before discovering that its host and
+Memory records lacked modern creation provenance. Never invent that provenance,
+unfence its writers, or replace the original approval and dispatch history.
+
+Fresh GCP inspections now qualify host creation and settlement before reserving
+or fencing. For an already-fenced generation-zero Dev placement, migration 985
+adds bounded forward recovery to the existing cloud-removal row. Migrations
+982–984 remain reserved for the paused managed pilot. Existing migration
+checksums and normal erasure validators are unchanged. Replay of 420/421 accepts
+985 only after qualifying the entire successor family, ACLs and trigger.
+Rollback takes an exclusive admission lock and refuses retained recovery.
+
+Use `scripts/ops/recover_dev_cloud_removal.py inspect --dev` with the exact owner,
+attempt, project and named credential. The report pins native project number,
+Dev markers, service UID/generation/image/etag, runtime principal, Memory engine
+incarnation and each resource's readback. `prepare` and `execute` require `--apply`
+and the reviewed manifest digest, a clean source matching the serving Dev SHA,
+qualified installed schema, and owner approval through the existing interface.
+Keep credentials in memory and private pipes. Never put tokens in CLI arguments.
+
+Execution retains intent before provider writes and every original operation
+acknowledgement. It verifies a cached runtime credential before disabling the
+writer, then proves that credential is denied. Only a joined worker process
+supplies executor exit; session loss cannot establish exit or provider settlement.
+An unknown request is not permission to repeat deletion. Project and bootstrap
+IAM release use the existing exclusive project admission, exact reviewed grants
+and etags, preserving unrelated bindings. The reservation survives session loss.
+The personal project and shared image repository remain; scheduled KMS material
+destruction and soft-deleted objects remain pending until native terminal proof.
+
+The cleanup interface exposes Sign out and reports retained-provider waiting
+without offering an ineffective second execution button. A background Profile
+pane admits its content without waiting for browser animation frames. Focused
+local evidence: 190 backend cases, 38 UI cases, 513 Back cases, complete UI
+contract verification, and an 18-entry native plan accepted by the actual 985
+validator in disposable PostgreSQL. These do not establish a successful live
+deletion; exact-source CI, Dev deployment and owner approval remain required.
+
+### Phone-only Firebase identities
+
+Phone-only does not mean orphaned. A complete native read-only audit found 92
+candidates among 3,382 Firebase users. Cross-plane indexed identity guards found
+seven candidates with production vaults. Nineteen candidates have a different
+verified application owner claiming the same phone across UAT/production; four
+UAT phone-orphan intents report `firebase_authority_mismatch`. These categories
+can overlap. Protect established owners and retain exact purpose-bound evidence;
+never delete by suffix, missing email, age or absence from Dev alone.
+
+[PR 8975](https://github.com/hushh-labs/hushh-research/pull/8975) links SMS proof to
+the existing email UID, but is a separate unmerged forward fix, not historical
+cleanup. Its linked-account deletion adapter discards retained SMS proof while
+the interface still offers deletion; the existing deletion contract correctly
+refuses that request. Historical reconciliation and that integration gap must
+be resolved without replacing vault ownership or bypassing shared-auth authority.
+
 ## Visual Map
 
 ```mermaid

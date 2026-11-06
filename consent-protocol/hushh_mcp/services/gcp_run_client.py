@@ -737,6 +737,7 @@ class GcpRunClient(HostedFilesRunClientMixin):
         operation_name: Optional[str] = None,
         before_submit: Optional[Callable[[dict[str, Any]], bool]] = None,
         on_acknowledged: Optional[Callable[[dict[str, Any]], bool]] = None,
+        session: Any = None,
     ) -> None:
         if (
             operation_name is not None or before_submit is not None or on_acknowledged is not None
@@ -753,6 +754,7 @@ class GcpRunClient(HostedFilesRunClientMixin):
                 operation_name=operation_name,
                 before_submit=before_submit,
                 on_acknowledged=on_acknowledged,
+                session=session,
             )
             return
         import requests  # type: ignore[import-untyped]
@@ -772,6 +774,7 @@ class GcpRunClient(HostedFilesRunClientMixin):
         operation_name: Optional[str] = None,
         before_submit: Optional[Callable[[dict[str, Any]], bool]] = None,
         on_acknowledged: Optional[Callable[[dict[str, Any]], bool]] = None,
+        session: Any = None,
     ) -> None:
         """Delete only the recorded incarnation and verify absence before return.
 
@@ -783,6 +786,8 @@ class GcpRunClient(HostedFilesRunClientMixin):
         coordinator owns attempt exclusivity and lost-acknowledgement recovery.
         """
         import requests  # type: ignore[import-untyped]
+
+        http = session if session is not None else requests
 
         if (
             not isinstance(name, str)
@@ -813,10 +818,8 @@ class GcpRunClient(HostedFilesRunClientMixin):
             return min(30, budget)
 
         def observe() -> Optional[dict[str, Any]]:
-            headers = self._headers()
-            request_timeout = remaining()
-            response = requests.get(
-                url, headers=headers, timeout=request_timeout, allow_redirects=False
+            response = http.get(
+                url, headers=self._headers(), timeout=remaining(), allow_redirects=False
             )
             remaining()
             if response.status_code == 404:
@@ -844,12 +847,10 @@ class GcpRunClient(HostedFilesRunClientMixin):
         def finish_operation(operation: str) -> None:
             operation = validate_operation(operation)
             while True:
-                headers = self._headers()
-                request_timeout = remaining()
-                result = requests.get(
+                result = http.get(
                     f"https://run.googleapis.com/v2/{operation}",
-                    headers=headers,
-                    timeout=request_timeout,
+                    headers=self._headers(),
+                    timeout=remaining(),
                     allow_redirects=False,
                 )
                 remaining()
@@ -915,13 +916,11 @@ class GcpRunClient(HostedFilesRunClientMixin):
             admission.update(generation=int(generation), image=containers[0]["image"])
             if before_submit(dict(admission)) is not True:
                 raise RuntimeError("Cloud Run deletion admission retention unconfirmed")
-        headers = self._headers()
-        request_timeout = remaining()
-        response = requests.delete(
+        response = http.delete(
             url,
-            headers=headers,
+            headers=self._headers(),
             params={"etag": etag},
-            timeout=request_timeout,
+            timeout=remaining(),
             allow_redirects=False,
         )
         if response.status_code not in (200, 404):
