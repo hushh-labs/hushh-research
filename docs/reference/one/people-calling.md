@@ -258,7 +258,7 @@ Remaining release blockers:
 
 ## Schema and integration
 
-Migration 448 owns public device-key bindings, calls, busy slots, replay nonces,
+Migration 450 owns public device-key bindings, calls, busy slots, replay nonces,
 encrypted signals, purpose-bound PushKit registrations and the delivery outbox.
 Its manifest, rollback and environment schema contracts
 are aligned with the current migration sequence. Rollback refuses live calls and never

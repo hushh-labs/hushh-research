@@ -53,7 +53,7 @@ def prepare_call_schema(engine, *, alice="alice", bob="bob"):
             "CREATE OR REPLACE FUNCTION public.require_active_direct_message_connection("
         )
         conn.exec_driver_sql(source[start : source.index("$$;", start) + 3])
-    migration = (ROOT / "db/migrations/448_direct_calls.sql").read_text(encoding="utf-8")
+    migration = (ROOT / "db/migrations/450_direct_calls.sql").read_text(encoding="utf-8")
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
         conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
@@ -506,7 +506,7 @@ def test_heartbeat_is_selected_endpoint_only_revision_neutral_and_replay_fenced(
 def test_migration_rollback_refuses_live_calls_and_replays_without_touching_history(calls):
     _service, engine, invoke = calls
     call = ring(invoke)
-    rollback = (ROOT / "db/migrations/rollback/448_direct_calls.rollback.sql").read_text()
+    rollback = (ROOT / "db/migrations/rollback/450_direct_calls.rollback.sql").read_text()
     with pytest.raises(DBAPIError, match="DIRECT_CALLS_MUST_END_BEFORE_ROLLBACK"):
         with engine.begin() as conn:
             conn.exec_driver_sql(rollback, execution_options={"no_parameters": True})
@@ -518,7 +518,7 @@ def test_migration_rollback_refuses_live_calls_and_replays_without_touching_hist
         assert conn.execute(text("SELECT to_regclass('public.direct_calls')")).scalar_one() is None
         assert conn.execute(text("SELECT count(*) FROM conversations")).scalar_one() == 1
         assert conn.execute(text("SELECT count(*) FROM actor_profiles")).scalar_one() == 2
-        migration = (ROOT / "db/migrations/448_direct_calls.sql").read_text()
+        migration = (ROOT / "db/migrations/450_direct_calls.sql").read_text()
         conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
         conn.exec_driver_sql(migration, execution_options={"no_parameters": True})
         assert (
