@@ -16,7 +16,7 @@ const REPO_ROOT = path.resolve(WEB_ROOT, "..");
 const DELETE_TEST = "__tests__/lib/flows/delete-account.test.ts";
 const DIRECT_TEST = "__tests__/services/agent-chat-client.test.ts";
 
-function buildImportGraphFixture(files, changedPaths) {
+function buildImportGraphFixture(files, changedPaths, baseFiles) {
   const tmp = mkdtempSync(path.join(os.tmpdir(), "hushh-import-graph-"));
   const repo = path.join(tmp, "repo");
   const bin = path.join(tmp, "bin");
@@ -45,7 +45,7 @@ function buildImportGraphFixture(files, changedPaths) {
     }
     writeFileSync(
       path.join(bin, "git"),
-      `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(`${Object.keys(fixtureFiles).join("\0")}\0`)});\n`,
+      `#!/usr/bin/env node\nconst originals = ${JSON.stringify(baseFiles || {})};\nif (process.argv[2] === 'show') { const name = process.argv[3].split(':').slice(1).join(':'); if (!(name in originals)) process.exit(1); process.stdout.write(originals[name]); } else process.stdout.write(${JSON.stringify(`${Object.keys(fixtureFiles).join("\0")}\0`)});\n`,
       { mode: 0o755 },
     );
     process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
@@ -53,6 +53,7 @@ function buildImportGraphFixture(files, changedPaths) {
       env: {
         CI_VALIDATION_LEVEL: "focused",
         CI_CHANGED_FILES: changedPaths.map((file) => `hushh-webapp/${file}`).join("\n"),
+        ...(baseFiles ? { CI_IMPACT_BASE_SHA: "a".repeat(40) } : {}),
       },
       repoRoot: repo,
     });
@@ -62,6 +63,26 @@ function buildImportGraphFixture(files, changedPaths) {
     rmSync(tmp, { recursive: true, force: true });
   }
 }
+
+test("shared UI documentation-only change avoids full units only with exact safe source proof", () => {
+  const file = "components/app-ui/bottom-chrome-column.ts";
+  const original = "/** The existing column. */\nexport const column = 'shared';\n";
+  const updated = "/** Describe the conversation column. */\nexport const column = 'shared';\n";
+  const base = { [`hushh-webapp/${file}`]: original };
+  const plan = buildImportGraphFixture({ [`hushh-webapp/${file}`]: updated }, [file], base);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.noUnitImpact, true);
+  for (const [source, proof] of [
+    [updated.replace("'shared'", "'changed'"), base],
+    [updated.replace("Describe", "@ts-check Describe"), base],
+    [updated.replace("Describe the conversation column.", "#__PURE__"), base],
+    [updated, undefined],
+  ]) {
+    const unsafe = buildImportGraphFixture({ [`hushh-webapp/${file}`]: source }, [file], proof);
+    assert.equal(unsafe.effectiveLevel, "diagnostic");
+    assert.equal(unsafe.fallbackReason, "shared_dependency");
+  }
+});
 
 test("missing or unknown selection metadata keeps the diagnostic suite", () => {
   assert.equal(buildPlan({ env: { CI_VALIDATION_LEVEL: "focused" } }).effectiveLevel, "diagnostic");
