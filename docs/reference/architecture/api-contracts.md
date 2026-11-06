@@ -709,40 +709,47 @@ refreshes, including forced/strict reads and display-name synchronization,
 preserve a complete verified phone in the serialized identity writer. A delayed
 provider snapshot cannot replace a newer committed E.164 number.
 
-Native OTP completion and web provider-phone replacement send optional JSON
-`{ "verified_phone_number": "+…" }`
-through the existing account proxy/shared native transport. This is explicit
-finalization intent, not verification proof: the backend freshly checks the
-authenticated UID and exact Firebase phone, then uses the existing phone claim
-writer without cross-owner transfer authority. Mismatch or conflicting ownership
-returns 409; provider/persistence failure returns 503. No number enters a URL.
-Web's existing secondary Firebase phone-token claim remains unchanged.
-If provider linking succeeds while persistence is unavailable, retrying the
-same linked phone rechecks provider proof and finalizes without another OTP.
+Web, iOS, and Android confirm ordinary SMS challenges with Identity Platform.
+Clients include the current user's ID token so Firebase links or updates the
+number on that UID. Clients check the returned UID and number and discard the
+returned session tokens. They reload the existing user to keep its independent
+sign-in. Native `startPhoneLinkVerification` binds the challenge to the captured
+user, attempt and link intent. Older binaries lack this distinct method and
+refuse before SMS dispatch; clients never fall back to the legacy proof method.
+The legacy Android proof method remains manual-only.
 
-With `NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED` enabled (the default), web
-finalization conflicts `PHONE_ALREADY_VERIFIED` and `PHONE_VERIFICATION_CHANGED`
-can request fresh Firebase OTP proof through the existing isolated phone-token
-claim. A cached provider phone alone never transfers ownership. Native conflicts,
-unrecognized conflicts and provider/persistence outages remain explicit failures.
-Strict finalization preserves the backend error code instead of flattening it.
-An expired challenge retires only its captured owner/attempt; a newer resend
-remains valid. Missing local state is `phone-verification-required`, distinct
-from a provider-reported `code-expired`.
+On a provider link conflict, the verified `temporaryProof` continues through the
+existing isolated proof service instead of replaying the SMS code. Its phone
+ID token stays in memory, bound to the current user, phone and verification
+attempt. It is cleared on resend, retirement, owner change, unmount or success.
+Ordinary successful links never create a secondary sign-in session.
 
-`NEXT_PUBLIC_AUTH_PHONE_SESSION_FENCING_ENABLED` defaults on and rejects
-pre-dispatch retained native callbacks and overlapping starts. It does not
-configure Firebase SMS validity: Android's native timeout controls automatic
-retrieval, and the inspected send APIs expose no OTP TTL setting. Explicit
-resend replaces the previous challenge. Native events arriving after dispatch
-still lack a request identifier; real-device qualification remains required.
+After linking, clients send `{ "verified_phone_number": "+…" }` through the
+existing account proxy or shared native transport. The backend reads the current
+Firebase user, checks the authenticated UID and exact phone, and saves the claim
+for the same application owner. Conflicting ownership or a changed provider
+number returns 409. Provider or persistence unavailability returns 503. Retry
+reloads the current Firebase user so a committed link can be finalized without
+consuming another code. Firebase and Hussh save separately, and the client
+reports verification success only after both writes succeed. A client keeps one
+confirmation in flight per Firebase UID through both writes. Concurrent
+replacements on separate devices can require another read and retry.
 
-Backend and updated native shared JavaScript must ship together for native
-replacement. Older clients without explicit intent retain the existing app
-phone and fail their exact-number completion check rather than overwrite it.
-Concurrent explicit replacements on separate devices still require retry if
-their provider state changes; this is not a guarantee of offline or simultaneous
-replacement ordering. No historical erased claim is inferred or reconstructed.
+Account restore and phone consumers use the committed application claim. A raw
+Firebase phone does not establish that claim. The auth context can retain a
+known same-owner app claim during a temporary lookup failure. The fixed-code
+fixture transport remains application-only. Isolated phone proof remains
+available to recovery flows. A legacy client cannot write a new claim through
+`/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
+the updated native clients and frontend before rolling out that enforcement. An
+expired challenge retires only its captured owner and attempt. Missing local
+state is `phone-verification-required`, distinct from provider `code-expired`.
+
+When a legacy app claim belongs to a different active owner, the app write
+refuses the claim even if Firebase accepted the link. That result requires
+reconciliation of the two records before release to accounts with unresolved
+legacy ownership. Qualify real SMS on an isolated Firebase test project or
+with explicitly designated test accounts when environments share Firebase.
 
 ## Messages unread action count
 
@@ -3705,12 +3712,13 @@ Cached hints alone never authorize completion. This preserves the native
 same-number/linked Continue path without requiring an SDK phone link for an
 already saved backend-only claim.
 
-Web verification's app-level phone need not be linked to the primary social
-Firebase user. Auth state publishes a fresh verified identity-cache phone after
-the backend claim commits, including same-user Firebase republication, and never
-uses stale/unverified cache evidence or a previous user's cache. Historical
-missing phone bindings are not reconstructed from email verification or OTP log
-messages; account owners restore them through the existing phone verification flow.
+Account settings on web, iOS, and Android show a phone as linked when a fresh
+Firebase read for the signed-in UID matches the verified application claim.
+An existing app-only or mismatched phone shows a verification action. The
+Account editor uses the existing provider-link flow, including when the user
+enters the same number already saved in Hussh. A provider link pending app
+persistence can be retried without another SMS through the exact-phone finalizer.
+Legacy claims remain available to flows that use the application identity.
 An identity lookup failure is retryable availability uncertainty, not a removed
 phone. Auth state retains the known same-session claim, accepts later exact-owner
 cache updates, and fences delayed responses against account changes and newer
@@ -3721,7 +3729,7 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/account/identity/refresh`                   | Refresh backend identity shadow from Firebase Auth                                                                                                                                                       |
-| POST   | `/api/account/phone/claim`                        | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim, then delete the safe phone-only secondary Firebase user when it differs from the signed-in UID |
+| POST   | `/api/account/phone/claim`                        | Compatibility endpoint. Verify phone proof for the signed-in Firebase UID and finalize only the exact phone linked to that UID. A different proof UID cannot create an application claim. Safe phone-only proof users remain eligible for guarded cleanup. |
 | GET    | `/api/account/session-status`                     | Linearized, no-store account lifecycle probe. `401 AUTH_ACCOUNT_NOT_FOUND` is terminal; `423 AUTH_ACCOUNT_DELETION_IN_PROGRESS` means the client must retain its privacy gate and re-probe after `Retry-After`; general lookup failure is `503 AUTH_ACCOUNT_STATUS_UNAVAILABLE` |
 | GET    | `/api/account/email-aliases`                      | List vault-owner account email aliases                                                                                                                                                                   |
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
