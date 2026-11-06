@@ -38,6 +38,8 @@ def substitutions(value: str, kind: str) -> str:
         for key in tuple(pairs):
             if key.startswith(("_PLAID_", "_GMAIL_", "_ONE_EMAIL_")):
                 pairs[key] = ""
+        if "_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET" in pairs:
+            pairs["_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET"] = ""
         # Keep machine routes authenticated but unconfigured and unscheduled.
         pairs |= {
             "_ONE_EMAIL_WEBHOOK_AUTH_ENABLED": "true",

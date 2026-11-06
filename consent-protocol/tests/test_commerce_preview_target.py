@@ -78,7 +78,8 @@ def test_preview_rejects_shared_identity_database_origin_and_ingestion():
 def test_preview_substitutions_preserve_single_delimiter_and_namespace(model_project):
     module = _preview_module("commerce-preview-substitutions.py")
     output = module["substitutions"](
-        f"_DEPLOY_ENV=dev##_GMAIL_OAUTH_CLIENT_ID_SECRET=shared##_GENAI_PROJECT_ID={model_project}",
+        f"_DEPLOY_ENV=dev##_GMAIL_OAUTH_CLIENT_ID_SECRET=shared##_GENAI_PROJECT_ID={model_project}"
+        "##_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET=shared-answer-secret",
         "backend",
     )
     assert not output.startswith("^")
@@ -93,6 +94,7 @@ def test_preview_substitutions_preserve_single_delimiter_and_namespace(model_pro
     assert pairs["_PKM_ANSWER_PAYMENTS_ENABLED"] == "false"
     assert pairs["_ANSWER_WORK_DRAIN_ENABLED"] == "false"
     assert pairs["_ANSWER_WORK_DRAIN_AUDIENCE"] == ""
+    assert pairs["_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET"] == ""
     assert module["TARGET"]["PROJECT"] == "hushh-pda-dev"
     assert pairs["_RUNTIME_SERVICE_ACCOUNT"] == (
         "commerce-sandbox-runtime@hushh-pda-dev.iam.gserviceaccount.com"
@@ -295,6 +297,7 @@ def test_flag_off_payment_helper_keeps_default_and_isolated_provider_mounts() ->
                 "_PKM_ANSWER_STRIPE_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_WEBHOOK_SECRET",
                 "_PKM_ANSWER_STRIPE_TEST_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_TEST_SECRET_KEY",
                 "_PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_TEST_WEBHOOK_SECRET",
+                "_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET": "",
                 "_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET": "PKM_ANSWER_STRIPE_LIVE_SECRET_KEY",
                 "_PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET_SECRET": "PKM_ANSWER_STRIPE_LIVE_WEBHOOK_SECRET",
             },

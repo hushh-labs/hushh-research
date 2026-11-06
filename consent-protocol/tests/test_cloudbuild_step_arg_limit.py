@@ -407,6 +407,78 @@ def test_retained_answer_mode_secrets_survive_packed_deployment() -> None:
             assert result.stdout.splitlines() == [f"{name[1:-7]}={values[name]}" for name in names]
 
 
+def test_dev_answer_webhook_secret_is_scoped_and_missing_binding_refuses():
+    config = _load("deploy/backend.cloudbuild.yaml")
+    step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
+    packed = next(e for e in step["env"] if e.startswith("_DRIVE_SECRET_SETTINGS="))
+    name = "_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET"
+    script = (REPO_ROOT / "scripts/deploy/backend-deploy.sh").read_text()
+    parser = (REPO_ROOT / "scripts/deploy/backend-drive-secret-settings.sh").read_text()
+    start = script.index('if [[ -n "${_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET}" ]]')
+    end = script.index(
+        'append_optional_secret "${_PKM_ANSWER_STRIPE_LIVE_SECRET_KEY_SECRET}"', start
+    )
+    block = script[start:end]
+    stubs = (
+        'secrets="base"; calls=0\n'
+        'commerce_secret_name() { printf "%s" "$1"; }\n'
+        'gcloud() { calls=$((calls + 1)); return "${TEST_SECRET_STATUS}"; }\n'
+    )
+    for project, environment, secret, status, allowed in (
+        ("hushh-pda-dev", "dev", "SYNTHETIC_SECRET", "0", True),
+        ("hushh-pda-dev", "dev", "SYNTHETIC_SECRET", "1", False),
+        ("hushh-pda-dev", "uat", "SYNTHETIC_SECRET", "0", False),
+        ("hushh-pda-uat", "uat", "SYNTHETIC_SECRET", "0", False),
+        ("hushh-pda-uat", "uat", "", "0", True),
+    ):
+        values = {**config["substitutions"], name: secret}
+        rendered = re.sub(r"\$\{(_[A-Z0-9_]+)\}", lambda m, values=values: values[m[1]], packed)
+        result = subprocess.run(  # noqa: S603 - fixed repository scripts and synthetic inputs
+            ["bash", "-euc", stubs + parser + block + 'printf "%s\\n%d\\n" "$secrets" "$calls"'],
+            env={
+                "_DRIVE_SECRET_SETTINGS": rendered.split("=", 1)[1],
+                "PROJECT_ID": project,
+                "_DEPLOY_ENV": environment,
+                "TEST_SECRET_STATUS": status,
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert (result.returncode == 0) is allowed
+        if allowed and secret:
+            assert "PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET=SYNTHETIC_SECRET:latest" in result.stdout
+            assert result.stdout.splitlines()[-1] == "1"
+
+
+def test_dev_answer_binding_skew_guard_does_not_silently_drop_configured_secret(tmp_path):
+    workflow = _load(".github/workflows/deploy-dev-implementation.yml")
+    step = next(s for s in workflow["jobs"]["deploy"]["steps"] if s.get("id") == "deploy-backend")
+    source = step["run"]
+    start = source.index('FILTERED=""')
+    end = source.index('SUBSTITUTIONS="$FILTERED"', start) + len('SUBSTITUTIONS="$FILTERED"')
+    guard = source[start:end]
+    template = tmp_path / "deploy/backend.cloudbuild.yaml"
+    template.parent.mkdir()
+    key = "_PKM_ANSWER_DEV_TEST_WEBHOOK_SECRET_SECRET"
+    for present, secret, target, allowed in (
+        (False, "SYNTHETIC_SECRET", "shared-dev", False),
+        (False, "", "shared-dev", True),
+        (False, "SYNTHETIC_SECRET", "scope-commerce-sandbox", True),
+        (True, "SYNTHETIC_SECRET", "shared-dev", True),
+    ):
+        template.write_text("${" + key + "}" if present else "old-template")
+        result = subprocess.run(  # noqa: S603 - fixed repository guard and synthetic input
+            ["bash", "-euc", guard],
+            cwd=tmp_path,
+            env={"SUBSTITUTIONS": key + "=" + secret, "DEV_TARGET": target},
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert (result.returncode == 0) is allowed
+
+
 def test_cloud_build_upload_includes_the_deploy_shell_and_release_reader():
     from pathspec import GitIgnoreSpec
 
