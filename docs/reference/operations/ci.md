@@ -363,7 +363,7 @@ Never rename required job/check contexts for cosmetic consistency.
 | Operational recovery | `rollback.yml`, `prod-cloudsql-backup-posture.yml` | Governed rollback and daily live backup-posture verification |
 | Security | `deployment-security.yml`, `verify-protected-lists.yml`, `supply-chain.yml` | Protected alert clearance inside explicit releases; protected-list fallback during cloud-timer qualification; changed-dependency SBOM/provenance |
 
-| Dependency cache | `ios-swift-package-cache.yml` | Daily Main-owned Swift package cold-fetch verification and lockfile-keyed Linux browser cache warm |
+| Dependency cache | `ios-swift-package-cache.yml` | Daily Main-owned Swift package cold-fetch verification and exact-key cache warm |
 | Signing / package publication | `provision-wallet-pass-certificate.yml`, `publish-hushh-mcp.yml` | Explicit signing-resource creation and verified package publication |
 Managed Vertex diagnosis uses `./bin/hushh diagnose uat-vertex --build-id <UUID>`
 with authorized UAT log-reading credentials. It reads only that build and its
@@ -899,18 +899,17 @@ application selections must belong to protected UAT history and satisfy exact CI
 plus serving-base admission. Production retains its UAT-acceptance and distinct
 Main-approval gates. Workflow changes become active only after governed main
 landing; feature-branch source does not change the running workflow definition.
-For reviewer BYOK, `required` selects execution; the existing UAT rollout
+For explicitly requested reviewer BYOK diagnostics, the input selects execution; the existing UAT rollout
 classifier still records the result as advisory. A green step conclusion under
 `continue-on-error` is not a passing rehearsal: inspect the release receipt's
 `reviewer_byok` outcome. A healthy rollout does not satisfy reviewer acceptance
-when that proof is part of the task. The World Model background driver and its
-provider select this lane because automatic startup must respect read-only
-reviewer posture.
+when that proof is part of the task. Changed World Model paths do not automatically start a reviewer browser.
+The explicit diagnostic retains its read-only reviewer posture.
 
-For RCA acceptance, `repeat_reviewer_byok=true` repeats an already-selected
-baseline twice in independent browser lifetimes. It defaults to false, does not
-select an otherwise-skipped lane or authorize mutations, and records requested
-and completed pass counts in the release receipt. A failed pass stops that
+For RCA acceptance, `repeat_reviewer_byok=true` explicitly requests two passes
+in independent browser lifetimes. It defaults to false. The input requests
+diagnostics, grants no mutation authority, and records requested and completed
+pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
 UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
@@ -995,10 +994,9 @@ performance checks are developer-local diagnostics.
 - **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it. Package resolution runs sequentially after `cap sync`, using the job-local package cache. `scripts/ci/resolve-ios-packages.sh` retries once only for exit 74 with the known cold binary-download cache collision; it retains verified cache entries and both attempt logs. Other failures and a second failure block the lane. Native compilation and tests are never retried by this helper. This is a bounded workaround for the [upstream SwiftPM race](https://github.com/swiftlang/swift-package-manager/pull/10203), not evidence that native checks passed. The simulator boots after the web export so it does not compete with `next build` for memory. Swift package clones may restore only under the verified graph key; a failed partial restore is cleared before resolution.
 - **Web Safari layout and performance diagnostics** are local-only. Run
   `cd hushh-webapp && npm run test:layout-editor-performance` when a change
-  affects editor/drawer timing or Safari-specific geometry. Use the focused
-  browser contracts for functional UI behavior. Linux browser CI remains the
-  required functional browser lane; software-rendered timing is not a Safari
-  performance measurement. Native iOS/Android jobs remain selected by native
+  affects editor/drawer timing or Safari-specific geometry. Use focused browser diagnostics when browser interaction needs investigation.
+  App-browser checks are not mandatory CI; software-rendered timing is not a
+  Safari performance measurement. Native iOS/Android jobs remain selected by native
   source or contract paths.
 - **Integration job** runs when either frontend or backend paths change.
 
@@ -1128,7 +1126,7 @@ train through their declared branch policies. Read back each selected policy.
 |------|---------|----------|
 | Secret Scan | Detect leaked credentials/tokens early | Gitleaks scans the event commit range. Privileged unresolved-secret clearance belongs to protected security execution within an explicit deployment, never PR-controlled code. |
 | Destination sync guidance | Show drift against the actual PR destination | Advisory summary; no branch-age rejection. Queue validation proves the current combined result before merge |
-| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`); skipped or unknown selected work fails closed. Frontend requires Web Core, targeted Node, targeted browser, affected Web Unit Contracts and Integration. Backend requires Protocol, both Database jobs, MCP Package and Integration. Selected iOS/Android lanes also must succeed. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO remain required on every run; pull requests also require PR Base Policy. Optional local Safari/performance diagnostics are not CI jobs. A dispatch publishes the separate `Branch Validation Gate`; partial or unknown scopes fail. Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py` |
+| CI Status Gate | Single required check for branch protection | Runs on every outcome (`if: always()`); skipped or unknown selected work fails closed. Frontend requires Web Core, targeted Node, affected Web Unit Contracts and Integration. Backend requires Protocol, both Database jobs, MCP Package and Integration. Selected iOS/Android lanes also must succeed. UI Contracts, Secret Scan, Governance, Path filters, Preflight Gate and DCO remain required on every run; pull requests also require PR Base Policy. Optional local Safari/performance diagnostics are not CI jobs. A dispatch publishes the separate `Branch Validation Gate`; partial or unknown scopes fail. Pinned by `consent-protocol/tests/test_ci_status_gate_fails_closed.py` |
 
 Operational note:
 
@@ -1243,6 +1241,27 @@ the broker's presence alone does not enable the route. Keep `ci-security`
 Main-only and never pass its token into Dev/UAT caller jobs.
 
 ### Matching-branch release control
+
+For ordinary use, choose **Deploy** for the intended environment, keep
+`operation=deploy` and `scope=auto`, and supply its qualified application SHA and
+release evidence. The remaining jobs are internal safety stages, not alternative
+pipelines a developer must choose.
+
+| Operation | Purpose | Application changes |
+| --- | --- | --- |
+| `deploy` | Validate the exact selection, obtain protected security clearance, wait for capacity, then build/deploy and verify | Only after admission |
+| `inspect` (UAT) | Read prerequisites and show missing release inputs before requesting a deployment | None |
+| `inspect-routing` | Operator diagnostic of caller, security broker and environment identity | None |
+
+A failed prerequisite skips deployment. Skipped branches in the Actions graph
+are expected; they do not represent repeated builds. A blank UAT SHA verifies
+an already-serving no-op only and never silently deploys the latest branch tip.
+Browser reviewer diagnostics are off by default; requesting
+`repeat_reviewer_byok=true` runs two read-only passes. Recovery-only inputs are
+for their recorded operation, not routine releases. The
+[UAT procedure](../../../.agents/skills/uat-scoped-deploy/references/deploy-proof.md)
+shows the required evidence and exact commands.
+
 
 Dev/UAT entrypoints are thin callers of the reviewed Main implementations.
 Normal application runs originate from `dev` and `uat` respectively. Activate the
@@ -1362,7 +1381,7 @@ governance, protocol and web-core, then MCP package and integration. Use it when
 the changed dependency graph crosses those stages or when diagnosing a broader
 failure, not as a prerequisite for every push. Historical samples took 374
 seconds and 1,967 seconds; these are observations, not runtime promises. GitHub
-Actions remains authoritative for required web and browser validation. Set
+Actions remains authoritative for required web compilation and affected contracts. Set
 `CORE_SERIAL=1` to run protocol and web-core sequentially. `web-targeted` runs
 every selected pack and reports all failures instead of stopping at the first.
 
@@ -1649,7 +1668,6 @@ restores them with `actions/cache/restore`:
 |---|---|---|---|
 | Next.js build cache, the web app's `.next/cache` (~380-460 MB) | `Main Post-Merge Smoke`, on the first green push of each UTC day | `Web Core (Next.js)` | Node version, hash of `package-lock.json` and `next.config.ts`, and the UTC day. A miss falls back to the newest entry for the same lockfile. |
 | Swift package clones, `$RUNNER_TEMP/spm` (estimated 2.5-3 GB) | [`Warm CI Dependency Caches`](../../../.github/workflows/ios-swift-package-cache.yml), daily at 05:37 UTC and on manual dispatch. On Sundays it also resolves from an empty directory when the entry exists, and saves nothing. | `iOS Native (Xcode)` | Xcode version, runner OS and architecture, and a hash of the project's `Package.resolved` plus the `CapApp-SPM/Package.swift` that `cap sync` generates. Exact match only. |
-| Playwright browsers, `~/.cache/ms-playwright` (~400 MB) | The Linux job in [`Warm CI Dependency Caches`](../../../.github/workflows/ios-swift-package-cache.yml), on its daily lookup, Main manual dispatch, or Main push changing the web lockfile/workflow; installs and saves only a missing key. | `Web Targeted Contracts (browser)` | Runner OS, architecture, and hash of `hushh-webapp/package-lock.json`. PRs restore only; the job still installs required Ubuntu system libraries and runs selected browser tests. |
 
 Each day's Next.js entry stops being read once the next day's is saved, but it
 stays until it has gone 7 days unread, so up to a week of them (about 3 GB) can
@@ -1823,12 +1841,12 @@ During implementation, run the nearest owner checks for the changed contract.
 `focused` keeps authority checks and selects affected regression owners from the
 exact changed-file list; `release` adds release-authority checks. Use
 `diagnostic` or the full local mirror for explicit broad diagnosis. GitHub Actions
-remains authoritative for required web and browser validation, and a local pass
+remains authoritative for required web compilation and affected contracts; a local pass
 does not prove hosted success. `codex pre-pr` defaults to focused local
 preparation: it checks the exact base/head, validates the PR impact description,
 runs protected-edit, base-policy, DCO, security and governance checks, then runs
-the selected local owners. Its report identifies hosted Integration, browser,
-database and native checks still required. It does not run the full local mirror.
+the selected local owners. Its report identifies selected hosted Integration, database and native checks
+still required. App-browser diagnostics are explicitly requested separately. It does not run the full local mirror.
 Use `codex pre-pr --diagnostic` when you explicitly want that broader mirror;
 the diagnostic mode runs DCO followed by `./bin/hushh ci` and may add advisory
 checks with `--include-advisory`. Choose one mode for an unchanged candidate.
@@ -2066,6 +2084,9 @@ suites gate a merge", and the gate answers "can every test file still be loaded"
 
 ### Browser setup mirror — 2026-10-08
 
+Historical required-browser behavior below was superseded by PR #9000 on
+6 November. The retained setup recipe is used only by explicit diagnostics.
+
 PR run `37836804949` restored cached browsers, but the hosted Ubuntu mirror
 downloaded 116 MB of system dependencies in 23 minutes 9 seconds. The 30-minute
 job deadline interrupted the browser pack. The browser job removes only the
@@ -2086,24 +2107,24 @@ before selection; dev and production retain their predeployment Vertex gate.
 
 ## Combined UI Contracts gate
 
-Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core, targeted Node/browser contracts and affected Web Unit Contracts.
+Every PR runs one mandatory **UI Contracts** job before expensive lanes. It installs only the locked TypeScript parser, shares source reads, rejects Back/Search coverage and freshness drift, and verifies Surface Map, Gateway, Siri and Route Orchestration mirrors. It runs mutation regressions that prove either owner failure rejects the combined check. Target validation execution is 5–10 seconds; dependency downloads, checkout, runner startup and queue time are separate. The command prints its actual elapsed time. Preflight and CI Status require success; frontend changes also require Web Core, targeted Node contracts and affected Web Unit Contracts.
 
 Run `cd hushh-webapp && npm run ui:doctor` before edits. Follow the [contributor scaffold](../architecture/ui-contract-contributor-guide.md), review authored Back cases and Search actions, then run `npm run build:ui-contracts` and `npm run verify:ui-contracts`. The pre-push wrapper runs the same read-only fast check. It never repairs or stamps source. The previous individual package commands remain available for diagnosis.
 
 ### Focused browser and unit selection
 
-Known backend, contract and package paths keep their existing verification owner;
-explicit browser-pack matches still take precedence. Unknown application impact
-or failed planning retains conservative browser coverage. Global CSS changes
-require the normal compile path, without expanding the unit suite. Authored route
-contracts and the generated route/cache manifests feed the unit dependency graph.
-JSON under `__tests__/fixtures/` also remains a related-test input; it is never
-discarded. Colocated tests have unit ownership, and Calendar directive/review
-modules select the existing Calendar browser pack. Unknown runtime JSON still
-widens coverage. The Calendar run `41801308569` used selectors identical to Main
-but expanded to 1,535 unit files because its JSON fixture was unclassified; this
-was a selector gap, not missing branch synchronization. Compare the actual tested
-checkout and script blobs before attributing future delays to stale branches.
+Known backend, contract and package paths keep their verification owner.
+Unknown application impact retains conservative Node/unit/runtime coverage, not
+mandatory app-browser execution. Global CSS changes require the normal compile
+path without expanding the unit suite. Authored route contracts and generated
+route/cache manifests feed the unit dependency graph. JSON under
+`__tests__/fixtures/` remains a related-test input; it is never discarded.
+Colocated tests have unit ownership. Explicit browser diagnostics retain the
+existing pack selector and conservative unknown-impact fallback. The historical
+Calendar run `41801308569` expanded to 1,535 unit files because its JSON fixture
+was unclassified; this was a selector gap, not missing branch synchronization.
+Compare the actual tested checkout and script blobs before attributing delays
+to stale branches.
 
 PR Integration selects against the validated checkout's merge parent and tested
 tree, rather than comparing the destination with the unmerged feature head.
@@ -2113,13 +2134,11 @@ captured PR path inventory to match that tested merge, plus the existing exact
 base, tree, current-attempt and authority checks; an unknown comparison runs
 combined verification instead.
 
-The protected-document and phone browser contract selects both Linux Chromium
-and native macOS WebKit from the same `document` decision. Styling and unrelated
-application changes do not select that macOS job. The route-layout metadata JSON
-is owned by UI Contracts and affected units, and alone does not select
-protected-document WebKit; navigation runtime still does. Parameterized browser
-identities are partitioned by engine, so adding a fixture parameter cannot move a
-WebKit case onto Linux. Release qualification retains both engines.
+The explicit protected-document and phone diagnostics retain their Linux
+Chromium and native macOS WebKit partitions. Parameterized identities remain
+partitioned by engine. Neither engine is a required PR, queue or release lane.
+Native compilation and platform contracts remain independently selected by
+actual native changes.
 
 ### Owner Admin merges and ordinary contributor access
 

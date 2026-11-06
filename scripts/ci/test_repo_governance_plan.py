@@ -306,6 +306,17 @@ def test_local_preflight_preserves_ci_ownership_and_hosted_browser_boundary() ->
     assert len(targeted) == 1 and targeted[0]["WEB_TARGETED_PART"] == "node"
     assert not any(argv[-1] == "integration" for argv, _ in observed)
     assert targeted[0]["CI_ACCOUNT_DELETION_CLIENT_OWNED"] == "0"
+    # The operator report must not instruct agents to run a retired required lane.
+    context.update(branch="fix/change", url=None, lane_warning=None)
+    output = io.StringIO()
+    with patch.object(sys, "argv", ["pre-pr", "--base-ref", "main", "--json"]), \
+         patch.object(local, "_context", return_value=context), \
+         patch.object(local, "_focused", return_value=({"local": {"ok": True}}, [])), \
+         contextlib.redirect_stdout(output):
+        assert local.main() == 0
+    report = json.loads(output.getvalue())
+    assert "functional browser contracts" not in report["hosted_required"]
+    assert report["browser_validation"] == "explicit diagnostic only; not executed locally"
 
 
 def test_validation_results_collect_independent_failures_and_preserve_stops() -> None:
