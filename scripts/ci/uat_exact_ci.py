@@ -79,6 +79,8 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_account_deletion_release_workflow.py",
     "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
     "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
+    # The isolated checkout receives Main's portable .agents manifests.
+    "consent-protocol/tests/test_memory_judge.py",
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
