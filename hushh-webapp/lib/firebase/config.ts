@@ -33,31 +33,7 @@ if (
 
 // Initialize Firebase (singleton pattern for Next.js)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-// Auth can migrate independently of push/analytics. A partial selection must
-// never silently sign the person into the primary project's account store.
-const authFirebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_AUTH_FIREBASE_API_KEY?.trim(),
-  authDomain: process.env.NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN?.trim(),
-  projectId: process.env.NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID?.trim(),
-  appId: process.env.NEXT_PUBLIC_AUTH_FIREBASE_APP_ID?.trim(),
-};
-const authValues = Object.values(authFirebaseConfig);
-const explicitAuth = authValues.some(Boolean);
-if (explicitAuth && !authValues.every(Boolean)) {
-  throw new Error("Firebase Auth selection requires a complete configuration");
-}
-const separateAuth = explicitAuth && Object.entries(authFirebaseConfig).some(
-  ([key, value]) => value !== firebaseConfig[key as keyof typeof authFirebaseConfig],
-);
-const authApp = separateAuth
-  ? getApps().find(candidate => candidate.name === "hushh-auth") ?? initializeApp(authFirebaseConfig, "hushh-auth")
-  : app;
-if (separateAuth && Object.entries(authFirebaseConfig).some(
-  ([key, value]) => value !== authApp.options[key as keyof typeof authFirebaseConfig],
-)) {
-  throw new Error("Firebase Auth app authority mismatch");
-}
-const auth = getAuth(authApp);
+const auth = getAuth(app);
 
 const disablePhoneAuthAppVerificationForTesting =
   process.env.NEXT_PUBLIC_APP_ENV === "development" &&

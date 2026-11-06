@@ -17,6 +17,33 @@ from hushh_mcp.services.enterprise_sso.firebase_identity import FirebaseAdminIde
 
 
 @pytest.mark.parametrize(
+    "environment,profile,selected,installed,allowed",
+    [
+        ("dev", "dev", "hushh-pda-dev", "hushh-pda-dev", True),
+        ("dev", "uat", "hushh-pda-dev", "hushh-pda-dev", True),
+        ("dev", "dev", "hushh-pda-dev", "hushh-pda", False),
+        ("dev", "dev", "hushh-pda-uat", "hushh-pda-uat", False),
+        ("uat", "uat", "hushh-pda-dev", "hushh-pda-dev", False),
+        ("production", "prod", "hushh-pda-dev", "hushh-pda-dev", False),
+    ],
+)
+def test_explicit_erasure_realm_uses_the_single_environment_app(
+    monkeypatch, environment, profile, selected, installed, allowed
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", profile)
+    monkeypatch.setenv("FIREBASE_AUTH_PROJECT_ID", selected)
+    app = SimpleNamespace(project_id=installed)
+    monkeypatch.setattr(authority, "_get_existing_app", lambda: app)
+    if allowed:
+        assert authority.get_firebase_auth_app() is app
+        authority.assert_firebase_identity_mutation_allowed(app)
+    else:
+        with pytest.raises(authority.FirebaseAuthorityError):
+            authority.get_firebase_auth_app()
+
+
+@pytest.mark.parametrize(
     "environment,profile,project,allowed",
     [
         ("production", "prod", "hushh-pda", True),
@@ -52,91 +79,6 @@ def test_existing_default_app_cannot_override_canonical_credentials(monkeypatch)
     )
     with pytest.raises(authority.FirebaseAuthorityError):
         authority.ensure_firebase_admin()
-
-
-def test_explicit_dev_auth_does_not_adopt_the_shared_messaging_app(monkeypatch):
-    import firebase_admin
-    from firebase_admin import credentials
-
-    monkeypatch.setenv("ENVIRONMENT", "dev")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "dev")
-    monkeypatch.setenv("FIREBASE_AUTH_PROJECT_ID", "hushh-pda-dev")
-    shared = SimpleNamespace(project_id="hushh-pda")
-    selected = SimpleNamespace(
-        project_id="hushh-pda-dev",
-        credential=SimpleNamespace(get_credential=lambda: object()),
-    )
-    apps = {None: shared}
-    monkeypatch.setattr(authority, "_get_existing_app", lambda name=None: apps.get(name))
-    monkeypatch.setattr(credentials, "ApplicationDefault", lambda: object())
-
-    def initialize(credential, options, name):
-        assert options == {"projectId": "hushh-pda-dev", "httpTimeout": 4}
-        assert name == authority.AUTH_APP_NAME
-        apps[name] = selected
-        return selected
-
-    initialize_mock = MagicMock(side_effect=initialize)
-    monkeypatch.setattr(firebase_admin, "initialize_app", initialize_mock)
-    assert authority.get_firebase_auth_app() is selected
-    assert authority.get_firebase_auth_app() is selected
-    initialize_mock.assert_called_once()
-    assert apps[None] is shared
-    authority.assert_firebase_identity_mutation_allowed(selected)
-    with pytest.raises(authority.FirebaseAuthorityError):
-        authority.assert_firebase_identity_mutation_allowed(shared)
-
-
-@pytest.mark.parametrize("selected", ["hushh-pda", "hushh-pda-uat", "hushh-tech-prod"])
-def test_explicit_dev_auth_refuses_other_authorities(monkeypatch, selected):
-    import firebase_admin
-
-    monkeypatch.setenv("ENVIRONMENT", "dev")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "dev")
-    monkeypatch.setenv("FIREBASE_AUTH_PROJECT_ID", selected)
-    initialize = MagicMock()
-    monkeypatch.setattr(firebase_admin, "initialize_app", initialize)
-    with pytest.raises(authority.FirebaseAuthorityError):
-        authority.ensure_firebase_auth_admin()
-    initialize.assert_not_called()
-
-
-@pytest.mark.parametrize("wrong", ["configured_credential", "cached_credential", "cached_project"])
-def test_isolated_auth_refuses_wrong_credentials_without_default_fallback(monkeypatch, wrong):
-    monkeypatch.setenv("ENVIRONMENT", "dev")
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "dev")
-    monkeypatch.setenv("FIREBASE_AUTH_PROJECT_ID", "hushh-pda-dev")
-    if wrong == "configured_credential":
-        monkeypatch.setenv(
-            "FIREBASE_AUTH_CREDENTIALS_JSON",
-            json.dumps(
-                {
-                    "type": "service_account",
-                    "project_id": "hushh-pda",
-                }
-            ),
-        )
-    app = SimpleNamespace(
-        project_id="hushh-pda" if wrong == "cached_project" else "hushh-pda-dev",
-        credential=SimpleNamespace(
-            get_credential=lambda: SimpleNamespace(
-                project_id="hushh-pda" if wrong == "cached_credential" else "hushh-pda-dev",
-            )
-        ),
-    )
-    monkeypatch.setattr(authority, "_get_existing_app", lambda _name=None: app)
-    fallback = MagicMock()
-    monkeypatch.setattr(authority, "ensure_firebase_admin", fallback)
-    with pytest.raises(authority.FirebaseAuthorityError):
-        authority.get_firebase_auth_app()
-    fallback.assert_not_called()
-
-
-def test_auth_credentials_cannot_select_an_implicit_project(monkeypatch):
-    monkeypatch.setenv("FIREBASE_AUTH_PROJECT_ID", "")
-    monkeypatch.setenv("FIREBASE_AUTH_CREDENTIALS_JSON", "configured")
-    with pytest.raises(authority.FirebaseAuthorityError, match="firebase_auth_project_required"):
-        authority.ensure_firebase_auth_admin()
 
 
 def test_adc_project_mismatch_cannot_fall_back_to_an_existing_app(monkeypatch):

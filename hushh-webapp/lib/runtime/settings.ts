@@ -13,10 +13,6 @@ export function resolveServerFirebaseAdminCredentialsJson(): string {
   return normalizeText(process.env[FIREBASE_ADMIN_CREDENTIALS_JSON_ENV]);
 }
 
-export function resolveServerFirebaseAuthCredentialsJson(): string {
-  return normalizeText(process.env.FIREBASE_AUTH_CREDENTIALS_JSON);
-}
-
 export function resolveRuntimeBackendUrl(): string {
   return (
     normalizeUrl(process.env.BACKEND_URL) ||

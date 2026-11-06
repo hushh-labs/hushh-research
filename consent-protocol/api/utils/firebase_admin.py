@@ -17,13 +17,11 @@ from typing import Any, Optional, Tuple
 
 from hushh_mcp.runtime_settings import (
     FIREBASE_ADMIN_CREDENTIALS_JSON_ENV,
-    FIREBASE_AUTH_CREDENTIALS_JSON_ENV,
     get_app_runtime_settings,
     get_firebase_credential_settings,
 )
 
 DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
-AUTH_APP_NAME = "hushh-auth"
 FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS = 4
 _FIREBASE_ADMIN_INIT_LOCK = threading.Lock()
 
@@ -85,8 +83,6 @@ def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
     credential_settings = get_firebase_credential_settings()
     if var_name == DEFAULT_SERVICE_ACCOUNT_ENV:
         raw = credential_settings.admin_credentials_json
-    elif var_name == FIREBASE_AUTH_CREDENTIALS_JSON_ENV:
-        raw = credential_settings.auth_credentials_json
     else:
         raw = None
     if not raw:
@@ -187,58 +183,21 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
-    """Select Auth independently of messaging and delegated-email credentials.
-
-    Unselected deployments retain their exact legacy app. Explicit selection
-    never falls back to that app or to its service-account JSON.
-    """
-    import firebase_admin
-    from firebase_admin import credentials
-
-    settings = get_firebase_credential_settings()
-    if not settings.auth_project_id:
-        if settings.auth_credentials_json:
-            raise FirebaseAuthorityError("firebase_auth_project_required")
-        return ensure_firebase_admin()
-    expected = settings.auth_project_id
-    runtime = get_app_runtime_settings()
-    environment = runtime.environment
-    profile = runtime.runtime_profile
-    expected_lanes = {
-        "dev": "hushh-pda-dev",
-        "uat": "hushh-pda-uat",
-        "production": "hushh-pda",
-        "prod": "hushh-pda",
-    }
-    for lane in (environment, profile):
-        if lane in expected_lanes and expected != expected_lanes[lane]:
+    selected = get_firebase_credential_settings().auth_project_id
+    if selected:
+        runtime = get_app_runtime_settings()
+        projects = {
+            "dev": "hushh-pda-dev",
+            "uat": "hushh-pda-uat",
+            "production": "hushh-pda",
+            "prod": "hushh-pda",
+        }
+        if projects.get(runtime.environment) != selected:
             raise FirebaseAuthorityError("firebase_authority_mismatch")
-    with _FIREBASE_ADMIN_INIT_LOCK:
-        sa = _load_service_account_from_env(FIREBASE_AUTH_CREDENTIALS_JSON_ENV)
-        if sa is not None and _project_id_from_service_account(sa) != expected:
-            raise FirebaseAuthorityError("firebase_authority_mismatch")
-        app = _get_existing_app(AUTH_APP_NAME)
-        if app is None:
-            cred = credentials.Certificate(sa) if sa else credentials.ApplicationDefault()
-            try:
-                app = firebase_admin.initialize_app(
-                    cred,
-                    options={
-                        "projectId": expected,
-                        "httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS,
-                    },
-                    name=AUTH_APP_NAME,
-                )
-            except ValueError:
-                app = _get_existing_app(AUTH_APP_NAME)
-                if app is None:
-                    raise
-        if _checked_project(app, sa) != expected:
-            raise FirebaseAuthorityError("firebase_authority_mismatch")
-        credential_project = getattr(app.credential.get_credential(), "project_id", None)
-        if credential_project and credential_project != expected:
-            raise FirebaseAuthorityError("firebase_authority_mismatch")
-        return True, expected
+    configured, project = ensure_firebase_admin()
+    if selected and (not configured or project != selected):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    return configured, project
 
 
 def get_firebase_auth_app():
@@ -249,14 +208,8 @@ def get_firebase_auth_app():
     if not configured:
         return None
 
-    selected = get_firebase_credential_settings().auth_project_id
-    app = _get_existing_app(AUTH_APP_NAME if selected else None)
-    actual = _checked_project(
-        app,
-        _load_service_account_from_env(
-            FIREBASE_AUTH_CREDENTIALS_JSON_ENV if selected else DEFAULT_SERVICE_ACCOUNT_ENV
-        ),
-    )
+    app = _get_existing_app()
+    actual = _checked_project(app, _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV))
     if expected != actual:
         raise FirebaseAuthorityError("firebase_authority_mismatch")
     return app

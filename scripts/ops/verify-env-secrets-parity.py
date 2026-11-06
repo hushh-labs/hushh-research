@@ -402,7 +402,7 @@ def _firebase_project_contract(
     *,
     expected_project: str | None = None,
 ) -> dict[str, str]:
-    """Qualify primary messaging credentials and the selected Auth realm separately.
+    """Prove Firebase Admin and public client configuration target one project.
 
     The Admin credential itself is never rendered. This only compares its
     in-memory ``project_id`` claim with the public Firebase project setting and
@@ -428,25 +428,6 @@ def _firebase_project_contract(
 
     if admin_project != client_project.strip():
         return {"status": "mismatch", "credentials": "mismatch"}
-
-    runtime_raw = _read_secret_value(project, "BACKEND_RUNTIME_CONFIG_JSON")
-    try:
-        runtime = json.loads(runtime_raw) if runtime_raw else {}
-        if not isinstance(runtime, dict):
-            raise ValueError("runtime configuration is not an object")
-        if "firebase_auth_project_id" in runtime:
-            selection = run_path(str(Path(__file__).with_name("firebase_auth_build_selection.py")))["select_auth_config"](
-                project, runtime, lambda name: _read_secret_value(project, name) or "",
-            )
-            selected = selection["projectId"]
-            if expected_project and selected != expected_project:
-                return {"status": "unexpected_project", "credentials": "valid", "expected": "mismatch"}
-            raw = _read_secret_value(project, "FIREBASE_AUTH_CREDENTIALS_JSON")
-            if raw and json.loads(raw).get("project_id") != selected:
-                return {"status": "mismatch", "credentials": "mismatch"}
-            return {"status": "valid", "credentials": "valid" if raw else "adc_selected"}
-    except (ValueError, AttributeError, KeyError):
-        return {"status": "invalid_auth_selection", "credentials": "invalid"}
 
     expected = str(expected_project or "").strip()
     if expected and admin_project != expected:

@@ -174,7 +174,6 @@ steps:
             exit 1
           fi
         fi
-        python3 scripts/ops/firebase_auth_build_selection.py --project="$PROJECT_ID" --prefix="${_SECRET_PREFIX}" --output-dir=/workspace/.frontend-auth
     id: "resolve-google-contacts-client-config"
     secretEnv:
       - "APP_FRONTEND_ORIGIN_VAL"
@@ -188,10 +187,6 @@ steps:
         set -euo pipefail
         NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL="$$(cat /workspace/.frontend-analytics/NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
         NEXT_PUBLIC_GTM_ID_VAL="$$(cat /workspace/.frontend-analytics/NEXT_PUBLIC_GTM_ID)"
-        AUTH_API_KEY="$$(cat /workspace/.frontend-auth/NEXT_PUBLIC_AUTH_FIREBASE_API_KEY)"
-        AUTH_DOMAIN="$$(cat /workspace/.frontend-auth/NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN)"
-        AUTH_PROJECT="$$(cat /workspace/.frontend-auth/NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID)"
-        AUTH_APP_ID="$$(cat /workspace/.frontend-auth/NEXT_PUBLIC_AUTH_FIREBASE_APP_ID)"
         required_vars=(
           NEXT_PUBLIC_FIREBASE_API_KEY_VAL
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN_VAL
@@ -275,7 +270,7 @@ steps:
           exit 1
         fi
         RECEIPT_LOGO_URL_TEMPLATE_VAL="$$(cat "$${receipt_logo_url_template_file}")"
-        trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"; rm -rf "$${native_config_dir}" /workspace/.frontend-auth' EXIT
+        trap 'rm -f "$${google_contacts_client_id_file}" "$${google_sign_in_client_id_file}" "$${passkey_rp_id_file}" "$${receipt_logo_url_template_file}"; rm -rf "$${native_config_dir}"' EXIT
 
         # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
         # so an unchanged package-lock turns dependency install into a cache hit. First
@@ -296,10 +291,6 @@ steps:
           --build-arg NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=$$NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET_VAL \
           --build-arg NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=$$NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID_VAL \
           --build-arg NEXT_PUBLIC_FIREBASE_APP_ID=$$NEXT_PUBLIC_FIREBASE_APP_ID_VAL \
-          --build-arg NEXT_PUBLIC_AUTH_FIREBASE_API_KEY="$$AUTH_API_KEY" \
-          --build-arg NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN="$$AUTH_DOMAIN" \
-          --build-arg NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID="$$AUTH_PROJECT" \
-          --build-arg NEXT_PUBLIC_AUTH_FIREBASE_APP_ID="$$AUTH_APP_ID" \
           --build-arg NEXT_PUBLIC_FIREBASE_VAPID_KEY=$$NEXT_PUBLIC_FIREBASE_VAPID_KEY_VAL \
           --build-arg NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=$$NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL \
           --build-arg NEXT_PUBLIC_BACKEND_URL=$$BACKEND_URL_VAL \

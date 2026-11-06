@@ -97,6 +97,14 @@ native readback, then was deleted with native absence verified. No existing
 identity was imported or changed. This proves the target SDK path, not full
 application erasure or a Google/native sign-in journey.
 
+The Dev-owned Google provider, email/password and phone providers are now enabled;
+authorized domains contain the two Dev Firebase defaults and `dev.one.hussh.ai`.
+The new erasure service removed a separate disabled synthetic Dev identity with
+native absence, then completed local erasure, raw-ID scrubbing and generation
+retirement in disposable PostgreSQL. The fixture is absent and its local cluster
+is stopped. This qualifies that provider/database boundary; the live interface
+and native client cutover still require their own evidence.
+
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email
 nor phone. Of 61 unmatched vault owners, 42 have Firebase-shaped UIDs, two have
@@ -115,9 +123,11 @@ Remove production Auth-write authority from every credential available to Dev,
 including the retained primary messaging/support credential. A named SDK app
 alone does not provide credential containment.
 
-The source preparation adds explicit environment-pinned Auth selection, complete
-web build configuration and separate primary-project parity. It does not activate
-that selection. Serving full-account cleanup still returns `identity_retained`.
+The rollout reuses the single environment Firebase configuration and existing
+build propagation and primary-project parity. An explicit backend erasure-realm
+pin must agree with that canonical app. No second browser Auth configuration is
+introduced. Live Dev sign-in has not changed, and serving full-account cleanup
+still returns `identity_retained`.
 Draft Dev migration 987 extends the existing journal with immutable project-bound
 authority and monotonic native-deletion evidence. Fresh isolated requests delete
 only the pinned Dev identity after other provider cleanup settles; local erasure

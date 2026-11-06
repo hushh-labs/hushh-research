@@ -25,6 +25,7 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
 ):
     from unittest.mock import AsyncMock
 
+    from hushh_mcp import constants
     from hushh_mcp.managed_ai_config import PROFILE_PATH, load_profile
     from hushh_mcp.one_voice.config import OneVoiceLiveConfig
     from scripts import probe_managed_capabilities, probe_managed_text, verify_azure_pwm_runtime
@@ -36,6 +37,9 @@ async def test_uat_requires_complete_vertex_bundle_without_duplicate_legacy_prob
     monkeypatch.setenv("ENVIRONMENT", "uat")
     monkeypatch.setenv("HUSHH_MANAGED_VERTEX_PROBE_MODE", "full")
     profile = load_profile("uat")
+    # Collection can import the fleet constant under a different environment.
+    # This fixture models a fresh UAT runtime, not that earlier process state.
+    monkeypatch.setattr(constants, "GEMINI_MODEL", profile["text_model"])
     binding = SimpleNamespace(project=profile["project"])
     monkeypatch.setattr(module, "_readiness_bindings", lambda: (binding, binding.project, binding))
     monkeypatch.setattr(module, "_managed_manifest_models", lambda: (profile["text_model"],))

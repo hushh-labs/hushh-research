@@ -133,24 +133,19 @@ to the helper; its built-in substitutions are not assumed to be shell variables.
 
 ### Firebase Auth isolation
 
-`firebase_auth_project_id` in `BACKEND_RUNTIME_CONFIG_JSON` selects the backend
-Auth app independently of the primary messaging/analytics app. Explicit Dev and
-UAT selections are pinned to `hushh-pda-dev` and `hushh-pda-uat`; production is
-`hushh-pda`. With the field absent, existing authentication is unchanged.
+Use the existing single Firebase web/app configuration per environment. Dev,
+UAT and production use `hushh-pda-dev`, `hushh-pda-uat` and `hushh-pda`,
+respectively. Update the existing public SDK values and matching Admin
+credential together; retain the existing primary-project parity check. Do not
+introduce a second browser Auth configuration. Web analytics continues to use
+its separately selected measurement ID.
 
-Web builds read that selection through
-`scripts/ops/firebase_auth_build_selection.py`. Selection requires all four
-`NEXT_PUBLIC_AUTH_FIREBASE_*` values: `API_KEY`, `AUTH_DOMAIN`, `PROJECT_ID` and
-`APP_ID`. Both Cloud Build paths pass the validated quartet into Docker. A partial
-selection or foreign cached app refuses initialization. Phone linking and
-secondary SMS proof use the selected Auth app. The primary Firebase app remains
-the messaging/analytics authority and still passes its independent parity check.
-
-An isolated server Auth app uses ADC, or optional dedicated
-`FIREBASE_AUTH_CREDENTIALS_JSON` belonging to the selected project. It never
-falls back to the primary Admin key. Native Auth configuration and release lanes
-require coordinated qualification before a live selection; web configuration
-alone does not switch installed native apps. See the
+`firebase_auth_project_id` in `BACKEND_RUNTIME_CONFIG_JSON` explicitly admits
+the isolated erasure contract. It must match the environment and the canonical
+Admin app; an old shared credential refuses instead of selecting another app.
+With the field absent, existing erasure policy is unchanged. Native Firebase
+configuration and release lanes require coordinated qualification before a live
+cutover; web configuration alone does not switch installed native apps. See the
 [deletion rollout](./account-deletion-rollout.md#firebase-auth-separation)
 for UID continuity, credentials and erasure gates.
 
