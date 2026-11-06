@@ -83,6 +83,59 @@ def _load_controller():
     return module
 
 
+def test_processor_source_allows_only_the_reviewed_runtime_blob_transition(monkeypatch, tmp_path):
+    module = _load_controller()
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-q"], check=True)
+    settings = tmp_path / module._RUNTIME_SETTINGS
+    settings.parent.mkdir(parents=True)
+    constants = settings.with_name("constants.py")
+
+    def commit():
+        subprocess.run(["git", "add", "--all"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "fixture",
+            ],
+            check=True,
+        )
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+
+    settings.write_text('RUNTIME = {"processor": "serving"}\n')
+    constants.write_text('MODEL = "reviewed"\n')
+    before = commit()
+    module.require_processor_source(before, before)
+    approved = 'RUNTIME = {"processor": "serving", "plg": "mapped"}\n'
+    settings.write_text(approved)
+    after = commit()
+    monkeypatch.setattr(
+        module,
+        "_APPROVED_PLG_SETTINGS_TRANSITION",
+        (module._settings_blob(before), module._settings_blob(after)),
+    )
+    module.require_processor_source(before, after)
+
+    settings.write_text(approved.replace("serving", "changed"))
+    wrong_settings = commit()
+    with pytest.raises(ValueError, match="outside the reviewed PLG mapping"):
+        module.require_processor_source(before, wrong_settings)
+
+    settings.write_text(approved)
+    constants.write_text('MODEL = "unreviewed"\n')
+    wrong_processor = commit()
+    with pytest.raises(ValueError, match="processor source changed"):
+        module.require_processor_source(before, wrong_processor)
+
+
 @pytest.fixture
 def controller(monkeypatch, tmp_path, outcome):
     module = _load_controller()

@@ -2781,15 +2781,8 @@ jobs:
           set -euo pipefail
           # Before cutover the recovery job may only use the policy already
           # active for the serving application.
-          processor_paths=(
-            consent-protocol/config/managed-ai-runtime.json
-            consent-protocol/hushh_mcp/constants.py
-            consent-protocol/hushh_mcp/managed_ai_config.py
-            consent-protocol/hushh_mcp/runtime_settings.py
-            consent-protocol/hushh_mcp/runtime_providers
-            consent-protocol/hushh_mcp/services/private_gcp_deployment.py
-          )
-          git diff --exit-code --quiet "$SERVING_SHA" "$CANDIDATE_SHA" -- "${processor_paths[@]}"
+          python3 "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py" \
+            --verify-processor-source "$SERVING_SHA" "$CANDIDATE_SHA"
           umask 077
           gcloud run services describe "$BACKEND_SERVICE" --project="$GCP_PROJECT_ID" \
             --region="$GCP_REGION" --format=json > /tmp/uat-text-recovery-service.json
@@ -2803,7 +2796,8 @@ jobs:
             --region="$GCP_REGION" --format=json > /tmp/uat-text-recovery-worker.json
           worker_sha="$(jq -er '.metadata.labels["deploy-sha"]' /tmp/uat-text-recovery-worker.json)"
           [[ "$worker_sha" =~ ^[0-9a-f]{40}$ ]]
-          git diff --exit-code --quiet "$worker_sha" "$CANDIDATE_SHA" -- "${processor_paths[@]}"
+          python3 "${RUNNER_TEMP}/release-tools/run_uat_text_recovery_job.py" \
+            --verify-processor-source "$worker_sha" "$CANDIDATE_SHA"
           python3 scripts/ops/run_uat_text_recovery_job.py \
             --service-json /tmp/uat-text-recovery-service.json \
             --candidate-revision-json /tmp/uat-backend-candidate.json \
