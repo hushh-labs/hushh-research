@@ -55,10 +55,11 @@ Each rule names the check that enforces it today, or its gap.
    model, such as Dev's Gemini for the Azure gate, is not evidence.
    - Enforced: the UAT exam runs the exact candidate image under the UAT runtime
      identity (`verify-azure-pwm-runtime` in `deploy/backend.cloudbuild.yaml`).
-4. **Instruction text is code.** A rewording changes behaviour, so the PR needs the
-   affected exam's result. In a merge, never resolve instruction text as "ours or
+4. **Instruction text is code.** A rewording changes behaviour, so the PR needs
+   affected offline contracts; live provider qualification is explicitly requested,
+   never an automatic AI review. In a merge, never resolve instruction text as "ours or
    theirs": run `git log -S"<sentence>" origin/main -- <file>` to learn why the text
-   exists, keep both intents and rerun the exam.
+   exists, keep both intents and rerun the affected contracts.
    - Enforced: review only. The merge-regression hook catches upstream lines a
      textual merge dropped, not a deliberate resolution.
 5. **Every failure names its reason.** No bare asserts. Each check emits a fixed
