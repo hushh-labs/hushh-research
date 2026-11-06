@@ -80,7 +80,7 @@
       "AGENTS.md",
       ".agents/instructions.md",
       ".agents/README.md",
-      ".agents/config.json",
+      ".agents/config.toml",
       ".agents/routing/",
       ".agents/subagents/",
       ".agents/workflows/",
@@ -100,7 +100,8 @@
       "consent-protocol/scripts/run-test-ci.sh",
       "consent-protocol/scripts/sync_runtime_requirements.sh",
       "hushh-webapp/playwright.config.ts",
-      "hushh-webapp/vitest.config.ts"
+      "hushh-webapp/vitest.config.ts",
+      ".agents/config.json"
     ],
     "require_code_owner_reviews": true,
     "restrict_writes_to_merge_users": false,
@@ -245,7 +246,7 @@
       "AGENTS.md",
       ".agents/instructions.md",
       ".agents/README.md",
-      ".agents/config.json",
+      ".agents/config.toml",
       ".agents/routing/",
       ".agents/subagents/",
       ".agents/workflows/",
@@ -265,7 +266,8 @@
       "consent-protocol/scripts/run-test-ci.sh",
       "consent-protocol/scripts/sync_runtime_requirements.sh",
       "hushh-webapp/playwright.config.ts",
-      "hushh-webapp/vitest.config.ts"
+      "hushh-webapp/vitest.config.ts",
+      ".agents/config.json"
     ],
     "require_code_owner_reviews": true
   }

@@ -24,6 +24,8 @@ All readers use the shared framework parser. Limits live in `config.json`.
 Use `./bin/hushh agents`; `codex` remains a compatibility alias to the same code,
 without another directory or host-specific adapter. Repo files do not register
 subagents or tools automatically in a host.
+The retired TOML configuration is refused. Its historical protected filename
+remains guarded to prevent reintroduction without weakening installed rules.
 
 `.agents` is the only development tree. Root `AGENTS.md` guides every coding
 agent to the same instructions, skills, workflows, subagents and evaluations.

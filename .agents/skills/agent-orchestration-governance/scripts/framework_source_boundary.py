@@ -70,7 +70,7 @@ def validate_canonical_framework(root: Path, errors: list[str]) -> None:
     for name in ("AGENTS.md", ".agents/instructions.md", ".agents/README.md", ".agents/config.json"):
         if not (root / name).is_file():
             errors.append(f"{name}: canonical framework source is missing")
-    for name in (".agents/generated/subagents", ".agents/startup.json", ".agents/scripts/startup.py",
+    for name in (".agents/config.toml", ".agents/generated/subagents", ".agents/startup.json", ".agents/scripts/startup.py",
                  ".agents/routing/SKILL.md",
                  ".agents/skills/agent-orchestration-governance/scripts/sync_claude_agents.py",
                  ".agents/skills/agent-orchestration-governance/scripts/sync_host_adapters.py"):
