@@ -79,6 +79,7 @@ class Cloud:
 
     @staticmethod
     def transport(url, method="GET", body=None, headers=None, timeout=None, upload=None, **kwargs):
+        budget = 60 if upload else min(float(timeout or 20), 60)
         config = ["url = " + json.dumps(url), "request = " + json.dumps(method)]
         for key, value in (headers or {}).items():
             if isinstance(value, bytes):
@@ -93,7 +94,7 @@ class Cloud:
             "--connect-timeout",
             "5",
             "--max-time",
-            "60" if upload else "20",
+            str(budget),
             "--write-out",
             "\n%{http_code}",
             "--config",
@@ -106,7 +107,7 @@ class Cloud:
             input="\n".join(config),
             capture_output=True,
             text=True,
-            timeout=70 if upload else 25,
+            timeout=budget + 10,
         )
         require(
             result.returncode == 0,
@@ -131,7 +132,7 @@ class Cloud:
         data = json.loads(response.data)
         require(
             response.status < 300,
-            f"Cloud API HTTP {response.status}: {data.get('error', {}).get('status', 'request failed')}",
+            f"Cloud API HTTP {response.status}: {data.get('error', {}).get('status', 'request failed')}: {data.get('error', {}).get('message', '')}",
         )
         return data
 
@@ -288,7 +289,8 @@ def deploy(cloud, service, started):
         "A prior direct attempt needs reconciliation: " + str(pending),
     )
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
-    tag = f"local-{sha[:12]}-{stamp}"
+    tag = f"local-{sha[:12]}-{int(time.time()):08x}"
+    require(len(tag) + len(SERVICE) <= 46, "Sandbox tag and service name exceed Cloud Run's URL limit")
     revision = SERVICE + "-" + tag
     object_name = f"personal-backend/{sha}-local-{stamp}.tar.gz"
     intent = {
@@ -479,7 +481,7 @@ def deploy(cloud, service, started):
     print("Deployment ready:", json.dumps(intent), flush=True)
 
 
-def frontend(cloud, service, started):
+def deployment_receipt(service):
     receipt = json.loads((STATE / "direct-deployment.json").read_text())
     require(
         receipt.get("stage") == "ready"
@@ -491,7 +493,7 @@ def frontend(cloud, service, started):
     )
     tag, sha = receipt["tag"], receipt["sha"]
     require(
-        re.fullmatch(r"local-" + sha[:12] + r"-[0-9]{14}", tag),
+        re.fullmatch(r"local-" + sha[:12] + r"-[a-f0-9]{8}", tag),
         "Unexpected local revision tag",
     )
     require(
@@ -506,11 +508,61 @@ def frontend(cloud, service, started):
         service["template"]["containers"][0]["image"] == IMAGE + "@" + receipt["digest"],
         "Sandbox image differs from the receipt",
     )
+    return receipt
+
+
+def tunnel(cloud, service):
+    receipt = deployment_receipt(service)
+    destination = next(item["uri"] for item in service["trafficStatuses"] if item.get("tag") == receipt["tag"])
+    binary = shutil.which("cloud-run-proxy")
+    require(binary, "Install the Google Cloud SDK cloud-run-proxy component")
+    require(destination.startswith("https://") and destination.endswith(".run.app"), "Unexpected sandbox tag URL")
+    while True:
+        cloud.credentials.refresh(cloud.transport)
+        token = cloud.credentials.id_token
+        require(token, "The verified owner ADC did not return an identity token")
+        # Match the SDK's native proxy/55-minute refresh loop. Never log its argv.
+        child = subprocess.Popen(
+            [binary, "-host", destination, "-token", token, "-bind", "127.0.0.1:8080", "-server-up-time", "55m"]
+        )
+        try:
+            require(child.wait() == 0, "Authenticated native proxy exited")
+        finally:
+            if child.poll() is None:
+                child.terminate()
+            try:
+                child.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+
+
+def frontend(cloud, service, started):
+    receipt = deployment_receipt(service)
+    sha = receipt["sha"]
     for port in (3000, 8080):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", port))
     tree = ROOT.parent / "hushh-research-akshat-sandbox"
     require(tree.is_dir(), "Matching clean sandbox worktree is missing: " + str(tree))
+    # Next adds its selected dev output to this isolated worktree's TS includes.
+    # Revert only that exact generated change after a prior owned run.
+    tsconfig = tree / "hushh-webapp/tsconfig.json"
+    original_config = subprocess.check_output(["git", "-C", str(tree), "show", "HEAD:hushh-webapp/tsconfig.json"])
+    original_json = json.loads(original_config)
+    owned_type_paths = {
+        ".next-isolated/types/**/*.ts",
+        ".next-isolated/dev/types/**/*.ts",
+        ".next-sandbox-prod/types/**/*.ts",
+        ".next-sandbox-prod/dev/types/**/*.ts",
+    }
+    if tsconfig.exists():
+        generated_json = json.loads(tsconfig.read_text())
+        generated_json["include"] = [
+            entry for entry in generated_json.get("include", []) if entry not in owned_type_paths
+        ]
+        if generated_json == original_json:
+            tsconfig.write_bytes(original_config)
     require(
         not subprocess.check_output(["git", "-C", str(tree), "status", "--porcelain"], text=True).strip(),
         "Sandbox frontend worktree has uncommitted changes",
@@ -522,6 +574,8 @@ def frontend(cloud, service, started):
         ".env.local",
         ".env.development",
         ".env.development.local",
+        ".env.production",
+        ".env.production.local",
         "firebase-service-account.json",
     ):
         require(not (web / filename).exists(), "Sandbox frontend must not load " + filename)
@@ -539,6 +593,15 @@ def frontend(cloud, service, started):
         == f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/localhost-sandbox-auth@{AUTH}.iam.gserviceaccount.com:generateAccessToken",
         "Unexpected frontend signing identity",
     )
+    owner_credential = json.loads((Path.home() / ".config/gcloud/application_default_credentials.json").read_text())
+    require(
+        owner_credential.get("type") == "authorized_user"
+        and owner_credential.get("refresh_token") == cloud.credentials.refresh_token,
+        "Owner ADC changed while preparing the frontend",
+    )
+    if credential.get("source_credentials") != owner_credential:
+        credential["source_credentials"] = owner_credential
+        save(adc, credential)
     env = dict(os.environ)
     for key in (
         "K_SERVICE",
@@ -557,11 +620,14 @@ def frontend(cloud, service, started):
         FIREBASE_ADMIN_CREDENTIALS_JSON="",
         FIREBASE_SERVICE_ACCOUNT_JSON="",
         NEXT_PUBLIC_FIREBASE_PROJECT_ID=AUTH,
+        NEXT_PUBLIC_FIREBASE_PHONE_AUTH_DISABLE_APP_VERIFICATION="false",
         NEXT_PUBLIC_GOOGLE_SIGN_IN_CLIENT_ID="",
         NEXT_PUBLIC_APP_ENV="uat",
         NEXT_PUBLIC_APP_URL="http://localhost:3000",
-        NEXT_DIST_DIR=".next-isolated",
+        NEXT_DIST_DIR=".next-sandbox-prod",
+        NODE_ENV="production",
         NEXT_PUBLIC_OBSERVABILITY_ENABLED="false",
+        NODE_OPTIONS="--max-old-space-size=4096",
     )
     for field, name in [
         ("apiKey", "API_KEY"),
@@ -581,49 +647,14 @@ def frontend(cloud, service, started):
     ):
         env[name] = "http://127.0.0.1:8080"
     env["NEXT_PUBLIC_DEVELOPER_MCP_URL"] = "http://127.0.0.1:8080/mcp/"
-    # The tunnel uses the caller's normal gcloud login; the web signer uses its dedicated ADC.
+    # The tunnel verifies the owner's fixed ADC; the web signer uses dedicated ADC.
     tunnel_env = {key: value for key, value in os.environ.items() if key != "GOOGLE_APPLICATION_CREDENTIALS"}
-    for name in (
-        "CLOUDSDK_AUTH_ACCESS_TOKEN",
-        "CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT",
-        "CLOUDSDK_AUTH_ACCESS_TOKEN_FILE",
-        "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
-    ):
-        require(
-            not tunnel_env.get(name),
-            "Remove ambient tunnel authentication override: " + name,
-        )
-    for name in (
-        "auth/impersonate_service_account",
-        "auth/access_token_file",
-        "auth/credential_file_override",
-    ):
-        value = subprocess.check_output(
-            ["gcloud", "config", "get-value", name, "--quiet"],
-            env=tunnel_env,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=10,
-        ).strip()
-        require(not value, "Remove gcloud authentication override: " + name)
     children = []
     try:
         tunnel_started = time.monotonic()
         children.append(
             subprocess.Popen(
-                [
-                    "gcloud",
-                    "run",
-                    "services",
-                    "proxy",
-                    SERVICE,
-                    "--project=" + PROJECT,
-                    "--region=" + REGION,
-                    "--account=" + ACCOUNT,
-                    "--tag=" + tag,
-                    "--port=8080",
-                    "--quiet",
-                ],
+                [sys.executable, str(Path(__file__).resolve()), "tunnel"],
                 env=tunnel_env,
                 start_new_session=True,
             )
@@ -649,21 +680,24 @@ def frontend(cloud, service, started):
         else:
             raise RuntimeError("Authenticated sandbox tunnel did not become healthy")
         tunnel_seconds = round(time.monotonic() - tunnel_started, 3)
+        build_started = time.monotonic()
+        print("Building production frontend for the deployed application commit...", flush=True)
+        children.append(subprocess.Popen(["npm", "run", "build"], cwd=web, env=env, start_new_session=True))
+        require(children[-1].wait() == 0, "Production frontend build failed")
+        children.pop()
+        frontend_build_seconds = round(time.monotonic() - build_started, 3)
+        standalone = web / env["NEXT_DIST_DIR"] / "standalone" / web.name
+        require((standalone / "server.js").is_file(), "Production standalone server is missing")
+        shutil.copytree(
+            web / env["NEXT_DIST_DIR"] / "static", standalone / env["NEXT_DIST_DIR"] / "static", dirs_exist_ok=True
+        )
+        shutil.copytree(web / "public", standalone / "public", dirs_exist_ok=True)
         web_started = time.monotonic()
         children.append(
             subprocess.Popen(
-                [
-                    "npm",
-                    "run",
-                    "dev:webpack",
-                    "--",
-                    "--hostname",
-                    "127.0.0.1",
-                    "--port",
-                    "3000",
-                ],
-                cwd=web,
-                env=env,
+                ["node", str(standalone / "server.js")],
+                cwd=standalone,
+                env={**env, "HOSTNAME": "127.0.0.1", "PORT": "3000"},
                 start_new_session=True,
             )
         )
@@ -681,10 +715,12 @@ def frontend(cloud, service, started):
             raise RuntimeError("Local frontend did not become ready")
         startup = {
             "sha": sha,
+            "supervisor_pid": os.getpid(),
             "revision": receipt["revision"],
             "ready_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "timings_seconds": {
                 "authenticated_tunnel": tunnel_seconds,
+                "frontend_production_build": frontend_build_seconds,
                 "frontend_process_to_login": round(time.monotonic() - web_started, 3),
                 "total_frontend_command": round(time.monotonic() - started, 3),
             },
@@ -716,7 +752,7 @@ def main():
     started = time.monotonic()
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=["check", "deploy", "frontend"])
+    parser.add_argument("operation", choices=["check", "deploy", "frontend", "tunnel"])
     args = parser.parse_args()
     cloud = Cloud()
     if args.operation == "deploy":
@@ -726,6 +762,8 @@ def main():
             deploy(cloud, check(cloud), started)
     elif args.operation == "frontend":
         frontend(cloud, check(cloud, deployment=False), started)
+    elif args.operation == "tunnel":
+        tunnel(cloud, check(cloud, deployment=False))
     else:
         check(cloud)
 
