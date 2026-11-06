@@ -856,6 +856,11 @@ article[data-message-role="user"] .messageActionError {
   flex-wrap: wrap;
 }
 
+/* Circles composes this surface on a wrapper around its own shared editor. */
+form.composer { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px auto; }
+.composer > :is(.composerReplyPreview, .attachmentPreview, .readOnlyNotice, .composerError),
+.composerActions:has(.recordingControls) { grid-column: 1 / -1; }
+
 .composerReplyPreview {
   display: flex;
   width: 100%;
@@ -1509,20 +1514,20 @@ article[data-message-role="user"] .messageActions {
   box-shadow: none;
 }
 
-/* The menu has reserved bubble space; reactions stay beside the message. */
+/* Both controls overlay a constant side gutter, clear of text and metadata. */
 article[data-message-role] .messageActions {
   top: 0;
-  left: 0;
-  right: 0;
-  width: auto;
+  left: calc(100% + 6px);
+  right: auto;
+  width: max-content;
   justify-content: flex-end;
   flex-wrap: nowrap;
   gap: 0;
   transform: none;
   pointer-events: none;
 }
-.messageActions > :first-child:not(:last-child) { position: absolute; left: calc(100% + 6px); }
-article[data-message-role="user"] .messageActions > :first-child:not(:last-child) { left: auto; right: calc(100% + 6px); }
+article[data-message-role="user"] .messageActions { left: auto; right: calc(100% + 6px); }
+.messageActions > :first-child:not(:last-child) { position: static; left: auto; right: auto; }
 article[data-message-role] .messageActionButton { pointer-events: none; }
 article[data-actions-visible="true"] .messageActionButton,
 .messageFeedItem article:hover .messageActionButton,
@@ -1862,7 +1867,7 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .newChatPerson:is(:disabled, [data-disabled=true]) { opacity: .5; cursor: not-allowed; }
 .newChatMore { min-height: var(--messages-control-size); color: var(--chat-ios-accent); font-size: 13px; font-weight: 600; }
 @media (min-width: 768px) and (min-height: 500px), (min-width: 1024px) {
-  /* Both panes reserve the viewport-centered composer and navigation. */
+  /* Both panes reserve the shared composer and navigation stack. */
   .page, .page[data-chat-open="true"] {
     height: max(0px, calc(100dvh - max(var(--direct-message-page-top, 0px), var(--messages-top-clearance))));
   }
@@ -1989,10 +1994,6 @@ article[data-message-role] .messageActions .messageActionButton[aria-haspopup="m
 .newChatDialog .newChatSearch { font-family: var(--font-app-body); font-size: 14px; line-height: 22px; font-weight: 400; }
 .editDialog .messageEditInput { font-size: 16px; line-height: 24px; font-weight: 400; }
 
-@media (min-width: 768px) and (max-width: 1023px) and (min-height: 500px) {
-  /* Five 44px Circle actions need a real second row in the tablet sidebar. */
-  .page { --app-messages-sidebar-width: max(30vw, 272px); }
-}
 @media (max-width: 620px) {
   .page .inboxSearchField input, .page .threadSearchField input,
   .newChatDialog .newChatSearch { font-size: 16px; }
