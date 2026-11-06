@@ -805,3 +805,87 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(1);
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });
+
+for (const width of [320, 390, 480, 481, 768, 1440]) {
+  test(`Board invitation title, Join and people stay aligned at ${width}px`, async ({ page }, testInfo) => {
+    const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "busy", false, true);
+    const title = width === 390 ? "Hushh Growth Sync" : "QA Client Call with a deliberately long title for the invitation header";
+    await page.route("**/api/one/calendar/board/day", async route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const board = (await import("./fixtures/calendar-board-day")).calendarBoardDayFixture({
+        day: String(body.date), zone: String(body.time_zone), durationMinutes: Number(body.duration_minutes), now: qaNow, busy: true,
+        instant: (day, clock) => Date.parse(`${day}T${clock}:00+05:30`),
+      });
+      board.accounts[1]!.events[0]!.title = title;
+      await route.fulfill({ json: board });
+    });
+    await page.getByRole("button", { name: "Refresh Calendar", exact: true }).click();
+    await page.getByRole("button", { name: `Open ${title} in qa-work@example.com` }).click();
+    const dialog = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: title }) });
+    await page.screenshot({ animations: "disabled" });
+    const header = dialog.locator('[data-slot="dialog-header"]');
+    const join = dialog.getByRole("link", { name: "Join meeting", exact: true });
+    const close = dialog.getByRole("button", { name: "Close", exact: true });
+    await expect(header.getByRole("link", { name: "Join meeting", exact: true })).toBeVisible();
+    await expect(join).toHaveCSS("border-top-width", "0px");
+    await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const joinBounds = (await join.boundingBox())!;
+    const headerBounds = (await header.boundingBox())!;
+    const closeBounds = (await close.boundingBox())!;
+    expect(joinBounds.height).toBeGreaterThanOrEqual(44);
+    expect(joinBounds.x + joinBounds.width).toBeLessThanOrEqual(closeBounds.x);
+    expect(joinBounds.x + joinBounds.width).toBeGreaterThan(headerBounds.x + headerBounds.width / 2);
+    const heading = header.getByRole("heading", { name: title });
+    const titleBounds = (await heading.boundingBox())!;
+    const firstTitleLine = await heading.evaluate(element => {
+      const range = document.createRange(); range.selectNodeContents(element);
+      const first = range.getClientRects()[0]!;
+      return { top: first.top, bottom: first.bottom };
+    });
+    expect(titleBounds.x + titleBounds.width).toBeLessThanOrEqual(joinBounds.x);
+    expect(joinBounds.y).toBeLessThan(firstTitleLine.bottom);
+    expect(joinBounds.y + joinBounds.height).toBeGreaterThan(firstTitleLine.top);
+    if (width === 390) {
+      // Reproduce the removed mobile rule: it must put Join below the title.
+      const stacked = await heading.evaluate(element => {
+        const row = element.parentElement!;
+        row.style.gridTemplateColumns = "minmax(0, 1fr)";
+        const titleBottom = element.getBoundingClientRect().bottom;
+        const joinTop = row.querySelector("a")!.getBoundingClientRect().top;
+        row.style.removeProperty("grid-template-columns");
+        return { titleBottom, joinTop };
+      });
+      expect(stacked.joinTop).toBeGreaterThanOrEqual(stacked.titleBottom);
+    }
+    const organizer = header.locator("p").filter({ hasText: "Organized by" }).locator(":scope > span").last();
+    const avatarBounds = (await organizer.locator('[data-slot="avatar"]').boundingBox())!;
+    const nameBounds = (await organizer.locator(":scope > span").last().boundingBox())!;
+    expect(Math.abs(avatarBounds.y + avatarBounds.height / 2 - nameBounds.y - nameBounds.height / 2)).toBeLessThanOrEqual(1);
+    const decline = dialog.getByRole("button", { name: "Decline", exact: true });
+    const accept = dialog.getByRole("button", { name: "Accept", exact: true });
+    const declineBounds = (await decline.boundingBox())!;
+    const acceptBounds = (await accept.boundingBox())!;
+    expect(declineBounds.x + declineBounds.width).toBeLessThan(acceptBounds.x);
+    expect(declineBounds.width).toBeCloseTo(acceptBounds.width, 0);
+    const offer = (await dialog.getByRole("button", { name: "Decline & offer another time", exact: true }).boundingBox())!;
+    expect(offer.width).toBeLessThan(acceptBounds.x + acceptBounds.width - declineBounds.x);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-board-header-${testInfo.project.name}-${width}.png`) });
+    await decline.click();
+    await dialog.getByLabel("Reason for declining").fill("A different commitment.");
+    const back = dialog.getByRole("button", { name: "Back", exact: true });
+    const email = dialog.getByRole("button", { name: "Review decline email", exact: true });
+    await expect(email).toBeEnabled();
+    expect((await join.boundingBox())!.x).toBe(joinBounds.x);
+    await join.click();
+    const accountPrompt = page.getByRole("dialog", { name: "Check Google account" });
+    await expect(accountPrompt).toContainText("Use qa-work@example.com in Google Meet.");
+    await accountPrompt.getByRole("button", { name: "Cancel", exact: true }).click();
+    await back.click();
+    await expect(decline).toBeVisible();
+    await expect(accept).toBeVisible();
+    expect(calls.some(call => call.path.endsWith("/attendance/rsvp/confirm"))).toBe(false);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+  });
+}

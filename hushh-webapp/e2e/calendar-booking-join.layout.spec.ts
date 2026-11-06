@@ -5,6 +5,42 @@ import { openFixture, qaNow, registerCalendarConnectedFixture, screenshotDirecto
 
 registerCalendarConnectedFixture();
 
+test("booking dropdown arrows have a consistent responsive inset", async ({ page }, testInfo) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 393, false, "busy", false, true);
+  await page.getByRole("button", { name: /^Schedule from shared free time/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Schedule meeting" });
+  for (const width of [320, 393, 480, 481, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await page.screenshot({ animations: "disabled" });
+    for (const label of ["Calendar account and destination", "Duration", "Where"]) {
+      const select = dialog.getByRole("combobox", { name: label, exact: true });
+      await select.scrollIntoViewIfNeeded();
+      const selectBounds = (await select.boundingBox())!;
+      const chevron = select.locator("..").locator("svg");
+      const chevronBounds = (await chevron.boundingBox())!;
+      expect(selectBounds.height).toBeGreaterThanOrEqual(44);
+      expect(selectBounds.x + selectBounds.width - chevronBounds.x - chevronBounds.width, `${label} inset at ${width}px`).toBeCloseTo(12, 0);
+      expect(Math.abs(selectBounds.y + selectBounds.height / 2 - chevronBounds.y - chevronBounds.height / 2)).toBeLessThanOrEqual(1);
+      expect(await select.evaluate(element => parseFloat(getComputedStyle(element).paddingInlineEnd))).toBeGreaterThanOrEqual(40);
+      await expect(chevron).toHaveAttribute("aria-hidden", "true");
+      await expect(chevron).toHaveCSS("pointer-events", "none");
+    }
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await dialog.getByRole("combobox", { name: "Calendar account and destination", exact: true }).selectOption("work");
+  await dialog.getByRole("combobox", { name: "Duration", exact: true }).selectOption("30");
+  await dialog.getByRole("combobox", { name: "Where", exact: true }).selectOption("in_person");
+  await expect(dialog.getByLabel("Location", { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel("Duration")).toHaveValue("30");
+  await expect(dialog.locator("p").filter({ hasText: "qa-work@example.com" })).toBeVisible();
+  for (const width of [393, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-booking-dropdowns-${testInfo.project.name}-${width}.png`) });
+  }
+  expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+});
+
 test("Board booking reviews account B and refreshes its event and free time after confirmation", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 393, false, "busy", false, true);
   await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
