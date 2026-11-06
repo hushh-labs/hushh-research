@@ -9,9 +9,10 @@ import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
@@ -437,6 +438,53 @@ async def _assert_registered_uat_owner_lookup(url, monkeypatch):
         await pool.close()
 
 
+async def _assert_cleanup_preserves_settlement(
+    pool, monkeypatch, owner, delivery, claim, email_hash
+):
+    from hushh_mcp.services import attempt_email as emails
+    from hushh_mcp.services import attempt_email_feedback as feedback
+
+    provider_id = "concurrent_provider_acceptance"
+    async with asyncio.TaskGroup() as race, pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE one_attempt_email_outbox SET claimed_at=NOW()-INTERVAL '3 minutes' WHERE id=$1",
+            delivery,
+        )
+
+        @asynccontextmanager
+        async def acquire(**_kwargs):
+            yield conn
+
+        async def get_settlement_pool():
+            return SimpleNamespace(acquire=acquire)
+
+        async with conn.transaction():
+            with monkeypatch.context() as patch:
+                patch.setattr(emails, "get_pool", get_settlement_pool)
+                assert await emails.settle(owner, delivery, claim, provider_id)
+            maintenance = race.create_task(emails.pending())
+            # Wait until cleanup has selected the previously committed row.
+            async with pool.acquire() as observer, asyncio.timeout(4):
+                while not await observer.fetchval(
+                    """SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+                    WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid)))""",
+                    conn.get_server_pid(),
+                ):
+                    await asyncio.sleep(0.01)
+        assert await maintenance == []
+
+    assert await feedback.apply(
+        submissions=[
+            {
+                "providerId": provider_id,
+                "messageId": "<concurrent-acceptance@example.invalid>",
+                "recipientHash": email_hash,
+            }
+        ],
+        bounces=[],
+    )
+
+
 async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
     import asyncpg
 
@@ -623,6 +671,13 @@ async def _assert_attempt_email_outbox(url, browser_role, monkeypatch):
         identity["email_hash"] = "f" * 64
         assert await emails.claim(owner, UUID(stale["id"]), uuid4()) is None
         identity["email_hash"] = marketing._email_hash(identity["email"])
+        await emit("returned", "concurrent-settlement", generation)
+        settling = UUID((await emails.pending())[0]["id"])
+        settlement_claim = uuid4()
+        assert await emails.claim(owner, settling, settlement_claim)
+        await _assert_cleanup_preserves_settlement(
+            pool, monkeypatch, owner, settling, settlement_claim, identity["email_hash"]
+        )
         await emit("failed", "lost-worker", generation)
         abandoned = (await emails.pending())[0]
         assert await emails.claim(owner, UUID(abandoned["id"]), uuid4())

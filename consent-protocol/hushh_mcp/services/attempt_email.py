@@ -227,14 +227,17 @@ async def pending():
     async with pool.acquire(timeout=5) as conn:
         # Bound maintenance by indexed state/time. Lost worker acknowledgements
         # become visibly uncertain, never eligible for another submission.
+        # Recheck the current row after a concurrent claim or settlement commits.
         await conn.execute(
-            """UPDATE one_attempt_email_outbox SET status='uncertain' WHERE id IN
+            """UPDATE one_attempt_email_outbox SET status='uncertain'
+          WHERE status='sending' AND claimed_at<NOW()-INTERVAL '2 minutes' AND id IN
           (SELECT id FROM one_attempt_email_outbox WHERE status='sending'
            AND claimed_at<NOW()-INTERVAL '2 minutes' ORDER BY claimed_at,id LIMIT 100)""",
             timeout=5,
         )
         await conn.execute(
-            """UPDATE one_attempt_email_outbox SET status='suppressed' WHERE id IN
+            """UPDATE one_attempt_email_outbox SET status='suppressed'
+          WHERE status='pending' AND expires_at<=NOW() AND id IN
           (SELECT id FROM one_attempt_email_outbox WHERE status='pending'
            AND expires_at<=NOW() ORDER BY expires_at,id LIMIT 100)""",
             timeout=5,
