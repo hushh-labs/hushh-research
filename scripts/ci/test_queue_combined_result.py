@@ -102,6 +102,8 @@ def null_review_policy():
     ("main", "msainani", "msainani", None, None, None, False, False),
     ("dev", "parthmawai", "parthmawai", None, None, None, False, True),
     ("uat", "parthmawai", "parthmawai", None, None, None, False, True),
+    ("dev", "outside-user", "outside-user", None, None, None, False, False),
+    ("uat", "outside-user", "outside-user", None, None, None, False, False),
     ("dev", "contributor", "parthmawai", None, None, None, False, False),
     ("main", "contributor", "msainani", "parthmawai", "APPROVED", HEAD1, False, True),
     ("main", "contributor", "outside-user", "parthmawai", "APPROVED", HEAD1, False, False),
@@ -795,9 +797,9 @@ def test_behind_pr_reuses_only_identical_actual_selection(tested_pr_merge):
                                 {"run": 5, "attempt": 2, "number": 1, "head": head})
 
 
-def test_integration_inventory_difference_requires_combined_checks(tested_pr_merge):
+def test_destination_only_paths_do_not_prevent_tested_merge_reuse(tested_pr_merge):
     tested_pr_merge("destination.txt")
-    assert queue.record_receipt()["selection_exact"] is False
+    assert queue.record_receipt()["selection_exact"] is True
 
 
 @pytest.mark.parametrize("key,value", [
