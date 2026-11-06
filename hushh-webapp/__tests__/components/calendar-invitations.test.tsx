@@ -57,6 +57,15 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(mutations()).toHaveLength(0); expect(onConnect).not.toHaveBeenCalled();
   });
 
+  it.each(["Chris Onboarding X Agent One", "Chris  Onboarding X\u00a0Agent One", "ChrisOnboardingXAgentOne"])("preserves the provider title exactly in the list and detail: %s", async title => {
+    invitations[0]!.title = title;
+    render(view({ workspaceLayout: true }));
+    const card = await screen.findByRole("button", { name: (_name, element) => element.getAttribute("aria-label") === `Open invitation: ${title}` });
+    expect([...card.parentElement!.querySelectorAll("strong")].some(element => element.textContent === title)).toBe(true);
+    fireEvent.click(card);
+    expect(screen.getByRole("dialog").querySelector("h2:not(.sr-only)")?.textContent).toBe(title);
+  });
+
   it("lists guests in readable response order without duplicating the organizer", async () => {
     invitations[0]!.attendees = [
       { email: "owner@example.test", self: true, response_status: "needsAction" },

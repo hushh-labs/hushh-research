@@ -123,10 +123,6 @@ function declineLabel(event: CalendarEventSummary, viewingEmail: string, respons
 }
 
 function accountLabel(email: string | null) { return email || "Google account"; }
-function accountEmailParts(email: string): [string, string] {
-  const at = email.lastIndexOf("@");
-  return at > 0 ? [email.slice(0, at), email.slice(at)] : [email, ""];
-}
 
 function CalendarAccountPicker({ accounts, value, onChange, people }: {
   accounts: GoogleCalendarAccount[]; value: string; onChange: (accountId: string) => void; people: CalendarHusshPeople;
@@ -309,7 +305,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
 
   return <AppPageShell width="agent" headerContentSpacing="compact" className={styles.shell} data-profile-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
     <div className={styles.content} data-calendar-account-board data-calendar-presentation>
-      <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile
+      <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile className={styles.accountSummary}
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
         actions={<div className={styles.headerActions}>
           <CalendarCompactAction disabled={busy || actionBusy || (status.accounts?.length || 0) >= 3} onClick={onAddAccount}><Plus aria-hidden className="size-4" />Add account</CalendarCompactAction>
@@ -334,7 +330,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               const occasions = account.events.filter(event => boardOccasionKind(event) !== null);
               const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
               const scrollEvents = meetings.length + otherItems.length > 3;
-              const [accountName, accountDomain] = accountEmailParts(account.google_email);
+              const accountName = accountLabel(account.google_email);
               const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
               const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, people);
               const renderEvent = (event: CalendarEventSummary) => {
@@ -364,7 +360,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               return <SurfaceCard key={account.account_id} role="group" aria-label={`Calendar account ${accountLabel(account.google_email)}`} className={styles.account} data-account-index={index}>
                 <div className={styles.accountHeader}>
                   <CalendarPersonAvatar name={accountName} photoUrl={husshPhoto} className={styles.accountAvatar} fallbackText={connectionAvatarInitials(accountName)} source="hussh" />
-                  <div className={styles.accountIdentity} title={account.google_email}><div className={styles.accountName}>{accountName}</div>{accountDomain ? <span className={styles.accountDomain}>{accountDomain}</span> : null}</div>
+                  <div className={styles.accountIdentity} title={account.google_email}><span className={styles.accountName}>{accountName}</span></div>
                   <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" aria-label={`Actions for ${accountLabel(account.google_email)}`}><MoreHorizontal aria-hidden className="size-5" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
                     <DropdownMenuItem variant="destructive" onSelect={() => onDisconnectAccount(account.account_id)}>Disconnect</DropdownMenuItem>
                   </DropdownMenuContent></DropdownMenu>
