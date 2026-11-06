@@ -6,6 +6,7 @@ repeats, so these tests key candidates the way the extractor does.
 
 from __future__ import annotations
 
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -32,6 +33,95 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 )
 
 _SIGNED = "Please send the signed document before 26 November."
+
+
+@pytest.mark.asyncio
+async def test_old_producer_on_expanded_schema_still_requires_reassessment(followup_pg):
+    """Old INSERTs omit versions: request defaults to 1 but its receipt defaults to 2."""
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    message = _message("rolling-old-producer", _SIGNED)
+    await _store_legacy(
+        store, account_id, message, _worded(store, account_id, message, "Send signed doc")
+    )
+    # Replay the old producer's INSERT shape against the additive schema. Keep
+    # sealed fields/identity unchanged; do not hand-pick the new version values.
+    request_columns = (
+        "id",
+        "conversation_id",
+        "user_id",
+        "account_id",
+        "evidence_hmac",
+        "source_message_hmac",
+        "source_message_ref_ciphertext",
+        "source_body_digest",
+        "source_internal_date_ms",
+        "kind",
+        "state",
+        "title_ciphertext",
+        "quote_ciphertext",
+        "due_wording_ciphertext",
+        "due_date",
+        "due_relation",
+        "proposed_date",
+        "proposed_at",
+        "time_zone",
+        "responsibility",
+        "ambiguities",
+        "reminder_at",
+        "last_source_internal_date_ms",
+    )
+    receipt_columns = (
+        "user_id",
+        "account_id",
+        "message_hmac",
+        "thread_hmac",
+        "body_digest",
+        "internal_date_ms",
+    )
+    with engine.begin() as conn:
+        request = dict(
+            conn.execute(text("SELECT * FROM calendar_email_followup_requests")).mappings().one()
+        )
+        receipt = dict(
+            conn.execute(text("SELECT * FROM calendar_email_followup_scanned_messages"))
+            .mappings()
+            .one()
+        )
+        conn.execute(text("DELETE FROM calendar_email_followup_requests"))
+        conn.execute(text("DELETE FROM calendar_email_followup_scanned_messages"))
+        request["ambiguities"] = json.dumps(request["ambiguities"])
+        for table, columns, values in (
+            ("calendar_email_followup_requests", request_columns, request),
+            ("calendar_email_followup_scanned_messages", receipt_columns, receipt),
+        ):
+            binds = [
+                "CAST(:ambiguities AS JSONB)" if c == "ambiguities" else ":" + c for c in columns
+            ]
+            conn.execute(
+                text(f"INSERT INTO {table} ({','.join(columns)}) VALUES ({','.join(binds)})"),
+                values,
+            )
+        assert (
+            conn.execute(
+                text("SELECT assessment_version FROM calendar_email_followup_requests")
+            ).scalar_one()
+            == 1
+        )
+        assert (
+            conn.execute(
+                text("SELECT assessment_version FROM calendar_email_followup_scanned_messages")
+            ).scalar_one()
+            == 2
+        )
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    assert not (await store.scanned_state(monitor, message.message_id)).current
+    assert await store.stale_assessment_threads(monitor, cutoff_ms=0) == [message.thread_id]
+    await _reassess(store, account_id, message, [])
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    assert (await store.list_conversations(monitor))["total_conversations"] == 0
+    assert (await store.scanned_state(monitor, message.message_id)).current
+    assert await store.stale_assessment_threads(monitor, cutoff_ms=0) == []
 
 
 def _worded(store, account_id, message, title, **fields) -> ValidatedCandidate:
