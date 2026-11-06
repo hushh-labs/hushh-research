@@ -201,7 +201,16 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
         return application_tree(candidate)
     def execution_tree(revision):
         entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
-        return [entry for entry in entries if entry.partition(b"\t")[2] != BACKEND_TEST_MANIFEST.encode()]
+        def required(entry):
+            metadata, _, name = entry.partition(b"\t")
+            if name == BACKEND_TEST_MANIFEST.encode():
+                return False  # The existing invocation guard checks its identities separately.
+            # Prose is not privileged execution. Keep executable/symlink Markdown,
+            # metadata, controllers and every existing build/migration input bound.
+            prose = (name.startswith(b".agents/") and name.endswith((b".md", b".markdown"))
+                     or re.search(rb"(?:^|/)README\.(?:md|markdown)$", name, re.I))
+            return not (metadata.startswith(b"100644 blob ") and prose)
+        return [entry for entry in entries if required(entry)]
     expected = execution_tree(authority)
     observed = execution_tree(candidate)
     require(

@@ -26,6 +26,64 @@ from uat_exact_ci_fixture import (
 
 
 class ExactUatCiTest(unittest.TestCase):
+    def test_guidance_drift_does_not_unbind_executable_or_configuration_authority(self):
+        with tempfile.TemporaryDirectory(prefix="hussh-uat-authority-") as root:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
+
+            def git(*args):
+                return subprocess.check_output(["git", "-C", root, *args], env=env, stderr=subprocess.DEVNULL)
+
+            def write(path, text):
+                target = Path(root, path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text)
+
+            def commit():
+                git("add", ".")
+                git("commit", "-qm", "fixture")
+                return git("rev-parse", "HEAD").decode().strip()
+
+            git("init", "-q")
+            git("config", "user.name", "CI fixture")
+            git("config", "user.email", "ci@example.invalid")
+            git("config", "core.hooksPath", "/dev/null")
+            for path in subject.MANIFEST_FILES:
+                write(path, "[tool.pytest.ini_options]\naddopts = '-q'\n" if path.endswith(".toml")
+                      else '{"scripts": {"test": "vitest"}}')
+            write(subject.BACKEND_TEST_MANIFEST, "tests/test_main.py\n")
+            prose = ".agents/skills/repo-operations/SKILL.md"
+            write(prose, "# Original guidance\n")
+            guarded = (".agents/config.toml", ".agents/workflows/example/workflow.json",
+                       ".agents/skills/repo-operations/scripts/operator.py",
+                       "scripts/ops/sync_backend_runtime_secrets.py",
+                       "scripts/ops/scope_commerce_runtime_policy.py",
+                       "consent-protocol/db/migration_authority.py", "deploy/backend.yaml")
+            for path in guarded:
+                write(path, "original\n")
+            authority = commit()
+            git("update-ref", "refs/remotes/origin/main", authority)
+            write(prose, "# Updated development guidance\n")
+            candidate = commit()
+            with patch.object(subject, "git", side_effect=git):
+                self.assertEqual(subject.verify_git_authority(candidate, authority, authority, current=False),
+                                 git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
+                for path in guarded:
+                    write(path, "changed\n")
+                    changed = commit()
+                    with self.subTest(path=path), self.assertRaisesRegex(subject.Refused, "authority differs"):
+                        subject.verify_git_authority(changed, authority, authority, current=False)
+                    write(path, "original\n")
+                    commit()
+                git("update-index", "--chmod=+x", prose)
+                git("commit", "-qm", "executable Markdown")
+                with self.assertRaisesRegex(subject.Refused, "authority differs"):
+                    subject.verify_git_authority(git("rev-parse", "HEAD").decode().strip(), authority, authority, current=False)
+                Path(root, prose).unlink()
+                Path(root, prose).symlink_to("operator.py")
+                linked = commit()
+                with self.assertRaisesRegex(subject.Refused, "authority differs"):
+                    subject.verify_git_authority(linked, authority, authority, current=False)
+
     def test_serving_lineage_refusal_explains_repair_without_weakening_admission(self):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
 
