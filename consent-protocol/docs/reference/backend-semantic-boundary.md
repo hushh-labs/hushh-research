@@ -1370,3 +1370,20 @@ agent is added.
   retries forever.
 - Live eval before promotion: mocked contract tests for the host policy only.
   Durable-fact quality on real owner activity is unmeasured.
+
+## Calendar attendance response composition
+
+The Calendar Response Writer (`agent_calendar_response_writer`) is authored in
+`hushh_mcp/agents/calendar/agent.yaml`. After the owner submits Decline or an
+alternative-time response, the existing attendance service validates the selected
+Calendar/Mail authority and invokes this tool-free, ephemeral single-turn child.
+Its `CalendarResponseText` contract returns `reason`, `subject`, and `body`.
+Validators enforce nonempty bounded fields; they do not replace model wording.
+The provider recipient, occurrence, account and exact proposed times remain
+service-owned facts. The exact time range and timezone are appended separately.
+Drafting failure stops before RSVP or Mail side effects. No PKM writes occur.
+Calendar and Mail settlement retain their existing independent results and replay
+protection. A changed comment is written even if attendance is already declined;
+explicit mail-only retries never rewrite attendance. Live quality evaluation must
+cover terse reasons, language variations, unavailable identity, sensitive reasons,
+all-day and DST boundaries, and exact alternative times before deployment claims.

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
-import { MAX_CALENDAR_DECLINE_REASON_LENGTH, calendarDeclineMessage, sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
+import { MAX_CALENDAR_DECLINE_REASON_LENGTH, sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { GoogleCalendarService, GoogleCalendarError, type CalendarAttendanceResult, type CalendarAttendanceReview, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -21,7 +21,7 @@ export type InvitationTerms = { date?: string; startTime?: string; endTime?: str
 export type InvitationDecision = "view" | "accepted" | "declined" | "offer_times";
 export function attendanceResultMessage(result: CalendarAttendanceResult) {
   const calendar = result.calendar === "accepted" ? "Your invitation was accepted." : result.calendar === "declined" ? "Your attendance was declined." : result.calendar === "tentative" ? "Your response is tentative." : result.calendar === "unknown" ? "Calendar response could not be confirmed. Check the invitation before trying again." : "Your Calendar response was not updated.";
-  const mail = result.email === "sent" ? "Your email was sent to the organizer." : result.email === "failed" ? "The organizer's email was not sent." : result.email === "unknown" ? "Email delivery could not be confirmed. Check Sent Mail before trying again." : "";
+  const mail = result.email === "sent" ? "Your email was sent to the organizer." : result.email === "failed" ? "The organizer's email was not sent." : result.email === "unknown" ? "Email delivery could not be confirmed. Check Sent Mail before trying again." : result.calendar === "declined" ? "The organizer email was not sent." : "";
   return [calendar, result.calendar_error, mail, result.email_error].filter(Boolean).join(" ");
 }
 
@@ -81,7 +81,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     if (!current()) return;
     const clockMinutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
     const proposedEndTime = endTime === "00:00" ? "24:00" : endTime;
-    const outgoingMessage = next === "declined" && send && !onSend ? calendarDeclineMessage(event, zone, message) : message;
+    const outgoingMessage = message;
     const responseStatus: "accepted" | "declined" = next === "accepted" ? "accepted" : "declined";
     const mailReview = {
       firebaseIdToken, eventId: event.id, calendarId: event.calendar_id, accountId,
@@ -89,7 +89,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       responseStatus,
       offerTimes: next === "offer_times", exactTime: next === "offer_times",
       sendMessage: next === "declined" || next === "offer_times",
-      message: outgoingMessage, date, timeZone: zone, startTime, endTime: proposedEndTime,
+      message: outgoingMessage, composeMessage: send, date, timeZone: zone, startTime, endTime: proposedEndTime,
       // The owner's own words are also kept with the RSVP so every copy of the meeting can explain the decline.
       ...((next === "declined" || next === "offer_times") && send ? { declineReason: message.trim() } : {}),
       // The service derives elapsed duration in the selected zone, including DST.
@@ -108,12 +108,13 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     });
     if (!current()) return;
     if (send && !prepared.recipient) throw new GoogleCalendarError("The organizer email could not be prepared. Nothing was sent. Try again after updating Calendar.", "calendar_mail_review_required", 409);
-    if (next === "declined" && send && !onSend && !sameCalendarInvitationOccurrence(event, prepared)) {
+    if (send && !sameCalendarInvitationOccurrence(event, prepared)) {
       throw new GoogleCalendarError("This invitation changed while the email was prepared. Refresh Calendar and review it again; nothing was sent.", "calendar_event_changed", 409);
     }
+    if (send && prepared.unchecked_calendars?.length) throw new GoogleCalendarError("Some calendars could not be checked. Try again before sending this proposal.", "calendar_coverage_incomplete", 409);
     reviewTransport.current = transport;
-    setReview(prepared);
-    if (send && (next !== "declined" || onSend) && prepared.recipient?.toLowerCase() === event.organizer?.email?.toLowerCase() && !reviewRequired && !prepared.conflicts?.length && !prepared.unchecked_calendars?.length) await execute(prepared, current);
+    if (!send || prepared.conflicts?.length) setReview(prepared);
+    if (send && prepared.recipient?.toLowerCase() === event.organizer?.email?.toLowerCase() && !prepared.conflicts?.length && !prepared.unchecked_calendars?.length) await execute(prepared, current);
     }, needsVault);
   };
   const execute = async (review: CalendarAttendanceReview, current: () => boolean) => {
@@ -155,7 +156,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       <h3>{review.response_status === "accepted" ? "Accept invitation?" : "Decline invitation?"}</h3><p>{review.title}</p><p className={styles.muted}>{eventTime(event, zone)}</p>
       {review.conflicts?.length ? <div className={styles.conflict} role="alert"><AlertTriangle aria-hidden className="size-4 shrink-0" /><div><strong>This time is already booked</strong>{review.conflicts.map((conflict, index) => <p key={index}>{conflict.title} · {eventTime(conflict, zone)}</p>)}</div></div> : null}
       {review.unchecked_calendars?.length ? <p role="alert">Some calendars could not be checked for conflicts.</p> : null}
-      {review.recipient ? <><p className={styles.muted}>To: {review.recipient}</p><p>{review.subject}</p><p className={styles.message}>{review.message}</p><ul className={styles.openings}>{review.openings?.map(slot => <li key={slot.start_at}>{new Date(slot.start_at).toLocaleDateString(undefined, { timeZone: zone, dateStyle: "medium" })} · {timeRangeLabel(slot.start_at, slot.end_at, zone)}</li>)}</ul>{offer ? <p className={styles.muted}>The organizer must confirm the proposed time and update their invitation.</p> : null}</> : null}
+      {review.recipient && !review.conflicts?.length ? <><p className={styles.muted}>To: {review.recipient}</p><p>{review.subject}</p><p className={styles.message}>{review.message}</p><ul className={styles.openings}>{review.openings?.map(slot => <li key={slot.start_at}>{new Date(slot.start_at).toLocaleDateString(undefined, { timeZone: zone, dateStyle: "medium" })} · {timeRangeLabel(slot.start_at, slot.end_at, zone)}</li>)}</ul>{offer ? <p className={styles.muted}>The organizer must confirm the proposed time and update their invitation.</p> : null}</> : null}
       <div className="flex flex-wrap gap-2"><Button disabled={busy} onClick={() => void confirm()}>{busy ? "Confirming…" : review.recipient ? review.conflicts?.length ? "Continue & send email" : "Decline & send email" : review.response_status === "accepted" ? review.conflicts?.length ? "Accept anyway" : "Confirm accept" : "Confirm decline"}</Button><Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={edit}>{review.conflicts?.length ? "Change time" : "Edit"}</Button></div>
     </div> : offer && !onOfferTimes ? <div className={styles.review}>
       <h3>Offer another time</h3>{failure?.reasonCode && ["GMAIL_NOT_CONNECTED", "GMAIL_SEND_PERMISSION_REQUIRED", "GMAIL_REAUTH_REQUIRED", "GMAIL_SEND_DISABLED", "GMAIL_SENDER_UNAVAILABLE"].includes(failure.reasonCode) && onMailConnect ? <div className={styles.mailRecovery}><p>Connect Gmail to send your proposal. Your message stays here.</p><CalendarCompactAction disabled={busy} onClick={onMailConnect}>Connect Gmail</CalendarCompactAction></div> : null}<p className={styles.muted}>Choose the exact time to propose. The duration is calculated automatically.</p>
@@ -164,9 +165,9 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
       <div className="flex flex-wrap gap-2"><Button disabled={busy || (!workspaceLayout && !token) || !date || (endTime !== "00:00" && startTime >= endTime) || !message.trim()} onClick={() => void prepare("offer_times", true)}>{busy ? "Checking availability…" : reviewRequired ? "Review again" : "Check time & send email"}</Button><Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
     </div> : decision === "declined" ? <div className={styles.review}>
       <h3>Why can’t you attend?</h3>
-      <p className={styles.muted}>Review decline updates only your Calendar response. Add a reason if you also want to email {event.organizer?.email || "the organizer"}.</p>
+      <p className={styles.muted}>Declining shares your reason and sends an email to {event.organizer?.email || "the organizer"}.</p>
       <label className="block space-y-1"><span>Reason for declining</span><Textarea disabled={busy} aria-label="Reason for declining" value={message} maxLength={onSend ? 8000 : MAX_CALENDAR_DECLINE_REASON_LENGTH} onChange={e => { setMessage(e.target.value); edit(); }} /></label>
-      <div className="flex flex-wrap gap-2">{workspaceLayout ? <Button disabled={busy} onClick={() => void prepare("declined")}>{busy ? "Preparing…" : "Review decline"}</Button> : null}{workspaceLayout || token ? <Button disabled={busy || !message.trim() || (!onSend && message.length > MAX_CALENDAR_DECLINE_REASON_LENGTH)} onClick={() => void prepare("declined", true)}>{reviewRequired ? "Review email again" : onSend ? "Decline & send email" : "Review decline email"}</Button> : null}<Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
+      <div className="flex flex-wrap gap-2"><Button disabled={busy || !message.trim() || (!workspaceLayout && !token)} onClick={() => void prepare("declined", true)}>{busy ? "Declining…" : "Decline"}</Button><Button disabled={busy} variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => setDecision("view")}>Back</Button></div>
     </div> : <>
       {initialDecision !== "view" ? <p className={styles.muted}>Review your {initialDecision === "accepted" ? "accept" : "decline"} response before confirming.</p> : null}
       <div className={styles.actionPair}><CalendarCompactAction className={styles.declineAction} data-voice-control-id="calendar_invitation_decline" disabled={busy || (!workspaceLayout && !token) || !event.can_respond || event.response_status === "declined"} onClick={() => { setDecision("declined"); edit(); }}><X aria-hidden className="size-4" />Decline</CalendarCompactAction><CalendarCompactAction className={styles.acceptAction} data-voice-control-id="calendar_invitation_accept" disabled={busy || (!workspaceLayout && !token) || !event.can_respond || event.response_status === "accepted"} onClick={() => void prepare("accepted")}><CheckCircle aria-hidden weight="fill" className="size-4" />Accept</CalendarCompactAction></div>

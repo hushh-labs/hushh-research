@@ -105,7 +105,7 @@ class _Calendar:
         if kwargs["method"] == "PATCH":
             if self.fail_patch:
                 raise self.fail_patch
-            self.event["attendees"][1]["responseStatus"] = "declined"
+            self.event["attendees"][1].update(kwargs["payload"]["attendees"][0])
             self.event["etag"] = '"declined"'
         return copy.deepcopy(self.event)
 
@@ -805,3 +805,98 @@ def test_invitation_mail_requires_the_same_verified_provider_account(
         assert len(mail.prepares) == 1
     assert mail.sends == []
     assert not any(call.get("method") == "PATCH" for call in calendar.requests)
+
+
+def test_composed_response_saves_short_reason_and_exact_mail(monkeypatch):
+    from hushh_mcp.services import calendar_response_writer as writer
+
+    captured = []
+
+    async def compose(**kwargs):
+        captured.append(kwargs)
+        return writer.CalendarResponseText(
+            reason="I am busy testing other tasks.",
+            subject="Unable to attend",
+            body="Hello,\n\nI cannot attend because I am testing other tasks.\n\nThank you.",
+        )
+
+    monkeypatch.setattr(writer, "compose_calendar_response", compose)
+    service, calendar, _, mail = _service(monkeypatch)
+    review = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            send_message=True,
+            compose_message=True,
+            message="im testing others",
+            decline_reason="im testing others",
+        )
+    )
+    result = _confirm(service, review)
+    patch = next(r for r in calendar.requests if r.get("method") == "PATCH")
+    assert patch["payload"]["attendees"][0]["comment"] == "I am busy testing other tasks."
+    assert result["email"] == "sent"
+    assert mail.sends[0]["draft_payload"]["body"] == review["message"]
+    assert captured[0]["reason"] == "im testing others"
+    assert _confirm(service, review) == result
+    assert len(mail.sends) == 1
+
+
+def test_composition_failure_has_no_provider_writes(monkeypatch):
+    from hushh_mcp.services import calendar_response_writer as writer
+
+    async def compose(**kwargs):
+        raise GoogleConnectionError("Draft unavailable", status_code=503)
+
+    monkeypatch.setattr(writer, "compose_calendar_response", compose)
+    service, calendar, _, mail = _service(monkeypatch)
+    with pytest.raises(GoogleConnectionError):
+        asyncio.run(
+            service.review(
+                user_id="owner",
+                event_id="event/id",
+                send_message=True,
+                compose_message=True,
+                message="busy",
+            )
+        )
+    assert not any(r.get("method") == "PATCH" for r in calendar.requests)
+    assert not mail.sends
+
+
+def test_already_declined_response_still_writes_missing_reason(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+    calendar.event["attendees"][1]["responseStatus"] = "declined"
+    review = asyncio.run(
+        service.review(user_id="owner", event_id="event/id", decline_reason="I am unavailable.")
+    )
+    assert _confirm(service, review)["calendar"] == "declined"
+    patch = next(r for r in calendar.requests if r.get("method") == "PATCH")
+    assert patch["payload"]["attendees"][0]["comment"] == "I am unavailable."
+    assert not mail.sends
+
+
+def test_missing_provider_comment_does_not_claim_success_or_send(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+    request = calendar._request
+
+    async def drop_comment(**kwargs):
+        result = await request(**kwargs)
+        if kwargs.get("method") == "PATCH":
+            result["attendees"][1].pop("comment", None)
+        return result
+
+    calendar._request = drop_comment
+    review = asyncio.run(
+        service.review(
+            user_id="owner",
+            event_id="event/id",
+            send_message=True,
+            message="I am unavailable.",
+            decline_reason="I am unavailable.",
+        )
+    )
+    result = _confirm(service, review)
+    assert result["calendar"] == "unknown"
+    assert result["email"] == "not_sent"
+    assert not mail.sends
