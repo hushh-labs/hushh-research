@@ -270,6 +270,47 @@ def test_plg_activation_cannot_cross_environment_or_project(
         )
 
 
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_owner_activity_settings_survive_configuration_writer(
+    monkeypatch, plg_runtime_sync, environment, enabled
+):
+    keys = (
+        ("one_plg_owner_export_enabled",)
+        if environment == "production"
+        else (f"one_plg_{environment}_export_enabled", f"one_plg_activity_{environment}_enabled")
+    )
+    stored = {
+        **dict.fromkeys(keys, enabled),
+        "one_plg_activity_enabled": enabled,
+        "one_plg_attempt_email_enabled": enabled,
+    }
+    writes, target = _write_configuration(monkeypatch, plg_runtime_sync, environment, False, stored)
+    actual = json.loads(writes[target])
+    assert all(actual[key] is value for key, value in stored.items())
+    assert "one_plg_export_account_ids" not in actual
+
+
+@pytest.mark.parametrize("environment", ["dev", "uat", "production"])
+def test_owner_activation_rejects_other_lane_and_retains_no_cohort(plg_runtime_sync, environment):
+    project = "hushh-pda" if environment == "production" else f"hushh-pda-{environment}"
+    base = {"environment": environment, "google_cloud_project": project}
+    foreign = "uat" if environment != "uat" else "dev"
+    with pytest.raises(ValueError):
+        plg_runtime_sync._retained_plg_config(
+            {**base, f"one_plg_{foreign}_export_enabled": True},
+            project=project,
+            environment=environment,
+        )
+    for value in [1, [], "True", None]:
+        with pytest.raises(ValueError, match="explicit boolean"):
+            plg_runtime_sync._retained_plg_config(
+                {**base, "one_plg_attempt_email_enabled": value},
+                project=project,
+                environment=environment,
+            )
+
+
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
     path = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
     spec = importlib.util.spec_from_file_location("referral_runtime_sync", path)
