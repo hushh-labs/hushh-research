@@ -191,10 +191,13 @@ export function registerMessagesPresentationCases({ mount, touchMessageActions, 
           expect(box.x + box.width).toBeLessThanOrEqual(1440);
         }
       } else {
-        expect(menuBox.x).toBeGreaterThanOrEqual(bubbleBox.x);
-        expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(bubbleBox.x + bubbleBox.width + 1);
-        if (role === "user") expect(iconBox.x + iconBox.width).toBeLessThanOrEqual(bubbleBox.x);
-        else expect(iconBox.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
+        for (const box of [iconBox, menuBox]) {
+          if (role === "user") expect(box.x + box.width).toBeLessThanOrEqual(bubbleBox.x);
+          else expect(box.x).toBeGreaterThanOrEqual(bubbleBox.x + bubbleBox.width);
+          const list = (await page.getByTestId("direct-message-list").boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(list.x);
+          expect(box.x + box.width).toBeLessThanOrEqual(list.x + list.width);
+        }
       }
     }
     await page.getByRole("heading", { name: /^Maya Rao/ }).hover();
