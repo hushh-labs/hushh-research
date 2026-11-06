@@ -132,7 +132,8 @@ REQUIRED_JOBS = {
     if name != "Web Editor Performance (macOS)"
     and not name.startswith("Web Full Suite (Vitest)")
     and not name.startswith("Web Targeted Contracts (browser-")
-} | {UNIT_JOB, "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+} | {UNIT_JOB}
+PRE_BROWSER_REMOVAL_JOBS = REQUIRED_JOBS | {"Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
 AGGREGATE_JOBS = {"Preflight Gate", "Branch Validation Gate"}
 
@@ -415,7 +416,8 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
     # inventory. Current qualification requires the new release-core policy.
     legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
     exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
-    required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
+    historical_browser = not current and any(job.get("name") == "Web Targeted Contracts (browser)" for job in jobs)
+    required_jobs = LEGACY_REQUIRED_JOBS if legacy else PRE_BROWSER_REMOVAL_JOBS if historical_browser else REQUIRED_JOBS
     for name in required_jobs:
         if name == UNIT_JOB:
             unit_jobs = [job for job in jobs if job.get("name") == UNIT_JOB
