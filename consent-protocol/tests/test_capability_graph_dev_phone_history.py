@@ -8,6 +8,30 @@ import pytest
 from scripts import generate_capability_graph as generator
 
 
+def test_landed_uat_workflow_history_survives_cumulative_release() -> None:
+    """Existing runs remain admissible after rebuilding from the serving base."""
+    graph_path = Path(__file__).resolve().parents[1] / "contracts/kai/one-capability-graph.v1.json"
+    graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    policies = {
+        item["workflow_id"]: item for item in graph["workflow_revision_compatibility"]["workflows"]
+    }
+    revisions = {"3e761f3cb5bebeaf", "6c49b50b94a5d1d7"}
+    for name in (
+        "calendar",
+        "cloud",
+        "connections",
+        "email",
+        "finance",
+        "gmail",
+        "location",
+        "ria",
+    ):
+        policy = policies[f"workflow.setup.{name}"]
+        assert revisions <= set(policy["compatible_graph_revisions"])
+        assert revisions.isdisjoint(policy["migration_required_graph_revisions"])
+        assert revisions.isdisjoint(policy["rejected_graph_revisions"])
+
+
 def test_dev_phone_deletion_revision_is_retired_without_accepting_other_revisions() -> None:
     """The ledger declares rejection for this predecessor, not arbitrary revisions."""
     ledger_path = (
