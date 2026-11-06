@@ -160,6 +160,7 @@ def test_semantic_checkout_requires_current_bound_ready_interpretation(monkeypat
         "status": "failed" if fault == "failed" else "running",
         "incomplete_search": False,
         "live": fault != "expired",
+        "job_age_ms": 120,
         "connection_generation": 2 if fault == "generation" else 1,
         "checkpoint_envelope": sharing.sharing_cipher.seal(
             checkpoint, user_id="owner", resource_id=job_id, purpose="owner-search-checkpoint"
