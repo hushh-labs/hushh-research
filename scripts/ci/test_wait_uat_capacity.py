@@ -129,6 +129,10 @@ class CapacityAdmissionTests(unittest.TestCase):
              "--candidate-service", "consent-protocol-drive-worker"],
         )
         self.assertEqual(wait.capacity_args("full", frontend)[-1], "--frontend-only")
+        target = "a" * 40
+        bound = wait.capacity_args("full", backend, target)
+        self.assertEqual(bound[bound.index("--target-sha") + 1], target)
+        self.assertNotIn("--target-sha", wait.capacity_args("full", frontend, target))
         self.assertEqual(
             wait.capacity_args("one-chat", None)[-2:],
             ["--inherit-candidate-service", "consent-protocol"],
