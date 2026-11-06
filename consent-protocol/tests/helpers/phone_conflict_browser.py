@@ -145,7 +145,7 @@ async def _assert_erased(conn, recorded, baseline):
 
 
 async def _assert_linked_deleted(conn, recorded, baseline):
-    """Phone proof deleted the holder; the worker erased it; the requester owns the number."""
+    """Local erasure cannot release the shared native binding or verify the requester."""
     for table in ("actor_profiles", "vault_keys", "pkm_data", "actor_identity_cache"):
         assert (
             await conn.fetchval(
@@ -162,7 +162,8 @@ async def _assert_linked_deleted(conn, recorded, baseline):
         "SELECT user_id FROM actor_identity_cache WHERE phone_number=$1 AND phone_verified=TRUE",
         PHONE,
     )
-    assert owner == OWNERS["receiving-a"]
+    assert owner is None
+    assert recorded.phone == PHONE
     # The holder's final erasure removed its deletion receipt with it.
     assert await conn.fetchval("SELECT count(*) FROM account_phone_linked_deletions") == 0
     assert await conn.fetchval("SELECT count(*) FROM account_phone_recovery_continuations") == 0

@@ -1263,6 +1263,15 @@ full-account deletion as an owner; background hydration and provisional
 phone-orphan intents never release a binding. Erasure of either account cascades
 its receipts. Rollback refuses to drop retained receipts.
 
+Real-SMS admission does not mean erasure or release of the native phone binding.
+The consumed proof belongs to the previous Firebase UID; it must never reach
+the receiving account's same-owner claim writer. The interface reports deletion
+requested, keeps the receiving account unverified and offers fresh verification
+or an exit to another number. Shared Firebase may still retain the old binding
+after local erasure; waiting alone does not make it available. Isolated Dev
+identity erasure and a fresh same-owner link require their separate native
+proofs. The configured-test continuation remains separately qualified.
+
 Production rollback qualification now requires both migrations 425 and 431 in
 its immutable source. A 425-only image exposes the former unguarded device DELETE
 contract and is not an eligible fallback. The packaged reader probe also calls
