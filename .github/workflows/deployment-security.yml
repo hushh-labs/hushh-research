@@ -74,7 +74,7 @@ jobs:
 
   team-authorization:
     name: Verify live team authority
-    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_run'
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_run' && contains(fromJSON('["pull_request","merge_group"]'), github.event.workflow_run.event)
     runs-on: ubuntu-24.04
     environment: ci-security
     timeout-minutes: 5
