@@ -1256,6 +1256,10 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
         "pkm.prepare_capture",
         "pkm.retry_capture_section",
         "pkm.save_capture",
+        "profile.world_model.confirm_fact",
+        "profile.world_model.reject_fact",
+        "profile.world_model.edit_fact",
+        "profile.world_model.remove_fact",
     }
     memory_actions = [a for a in catalog["actions"] if a["id"] in memory_ids]
     assert {a["id"] for a in memory_actions} == memory_ids
