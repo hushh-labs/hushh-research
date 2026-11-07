@@ -270,6 +270,6 @@
   },
   "authorization": {
     "native_teams": true,
-    "mode": "enforce"
+    "mode": "observe"
   }
 }

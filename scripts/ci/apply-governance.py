@@ -454,7 +454,7 @@ def main_owner_admin_ruleset(policy: dict, *, read=gh_json, branch="main") -> di
         or not owners
         or owners != sorted(main["protected_pipeline_edit_users"])
         or owners != sorted(main["review_bypass_users"])
-        or (not policy.get("authorization", {}).get("native_teams") and not set(owners) <= set(mergers))
+        or not set(owners) <= set(mergers)
         or (main.get("merge_queue_bypass_team_slug") and not policy.get("authorization", {}).get("native_teams"))
     ):
         raise SystemExit(
