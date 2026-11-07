@@ -1,6 +1,7 @@
 "use client";
 
 import { PersonProfileLink } from "@/components/connections/person-profile-link";
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 import { useId, useState } from "react";
 import Link from "next/link";
 import { Check, Plus, Trash2, UsersRound } from "@/components/icons";
@@ -199,6 +200,10 @@ export function LivingCirclePanel({
               >
                 {ownerAvatar}
               </PersonProfileLink>
+            ) : owner?.userId && owner.relationship !== "self" ? (
+              <button type="button" aria-label={`Open ${connectPersonName(owner)}'s profile`}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={event => openPersonProfilePreview({ userId: owner.userId }, event.currentTarget)}>{ownerAvatar}</button>
             ) : (
               ownerAvatar
             )

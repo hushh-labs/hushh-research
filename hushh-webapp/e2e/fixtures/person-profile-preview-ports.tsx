@@ -3,6 +3,7 @@ import { PersonProfileHero } from "@/components/connections/person-profile-hero"
 import { useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { PersonNetworkSummary } from "@/components/connections/person-network-summary";
+import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 export { useAuth } from "./person-profile-request-ports";
 export const usePathname = () => window.location.pathname;
 export const useSearchParams = () => new URLSearchParams(window.location.search);
@@ -14,8 +15,20 @@ const PEOPLE = [
   { publicPersonRef: "55555555-5555-4555-8555-555555555555", displayName: "Third Degree Person", photoUrl: null, networkDegree: 3 },
 ];
 export class ConnectionsServiceRequestError extends Error { status = 500; }
+const requests = new Set<string>();
+function rowMetadata(person: typeof PEOPLE[number]) {
+  const previews = person.networkDegree === 3 ? [] : person.networkDegree === 2 ? [PEOPLE[1]] : PEOPLE.filter(p => p.networkDegree === 1 && p !== person).slice(0, 2);
+  return { ...person, relationship: person.networkDegree === 1 ? "connected" : requests.has(person.publicPersonRef) ? "pending_outgoing" : "none", mutualConnectionCount: previews.length,
+    mutualConnectionPreviews: previews, mutualConnectionPreview: previews[0] ?? null };
+}
+export const PersonProfileService = { connect: async (ref: string) => { requests.add(ref); return { status: "pending_outgoing" }; } };
+export const CacheSyncService = { onConnectionGraphMutated(userId: string) { dispatchConnectionGraphChanged(userId); } };
 export const ConnectionsService = {
-  getPersonContext: async () => ({ person: PEOPLE[0] }),
+  getPersonContext: async ({ counterpartUserId: userId }: { counterpartUserId: string }) => {
+    const person = userId === "peer" ? PEOPLE[0] : userId === "second-peer" ? PEOPLE[1] : null;
+    if (!person) throw new Error("Unknown profile");
+    return { person: { ...person, userId, email: null, relationship: "connected" }, request: null };
+  },
   getNetworkSummary: async ({ personRef }: { personRef: string }) => {
     const person = PEOPLE.find(p => p.publicPersonRef === personRef) ?? PEOPLE[0];
     const mutuals = PEOPLE.filter(p => p.networkDegree === 1 && p !== person);
@@ -24,12 +37,12 @@ export const ConnectionsService = {
   },
   listMutualConnections: async ({ personRef }: { personRef: string }) => ({
     person: PEOPLE.find(p => p.publicPersonRef === personRef),
-    items: PEOPLE.filter(p => p.networkDegree === 1 && p.publicPersonRef !== personRef),
+    items: PEOPLE.filter(p => p.networkDegree === 1 && p.publicPersonRef !== personRef).map(rowMetadata),
     totalCount: 2, page: 1, hasMore: false,
   }),
   listNetwork: async ({ personRef, degree, query }: { personRef?: string; degree?: number; query?: string }) => ({
     person: personRef ? PEOPLE.find(p => p.publicPersonRef === personRef) : null,
-    items: PEOPLE.filter(p => (!personRef || p.networkDegree === 2) && (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase()))),
+    items: PEOPLE.filter(p => (!personRef || p.networkDegree === 2) && (!degree || p.networkDegree === degree) && (!query || p.displayName.toLowerCase().includes(query.toLowerCase()))).map(rowMetadata),
     page: 1, hasMore: false,
   }),
 };

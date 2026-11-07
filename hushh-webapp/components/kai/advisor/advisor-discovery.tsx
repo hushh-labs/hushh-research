@@ -239,6 +239,7 @@ export function AdvisorDiscovery({
             <div className={styles.row}>
               <ConnectionPersonAvatar
                 label={person.name}
+                personRef={person.personRef}
                 verified
                 size="comfortable"
               />

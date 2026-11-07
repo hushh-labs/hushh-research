@@ -26,6 +26,7 @@ export type PersonRowAction = "ask" | "share";
 
 export type PersonRowProps = {
   userId: string;
+  publicPersonRef?: string | null;
   /** Server-sent display name. */
   name: string;
   photoUrl?: string | null;
@@ -49,6 +50,7 @@ const ACTION_PRIMARY =
 
 export function PersonRow({
   userId,
+  publicPersonRef,
   name,
   photoUrl,
   relationship,
@@ -96,6 +98,7 @@ export function PersonRow({
       <div className="flex items-center gap-3">
         <ConnectionPersonAvatar
           userId={userId}
+          personRef={publicPersonRef}
           label={name}
           photoUrl={photoUrl}
           verified={verified}

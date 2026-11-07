@@ -2062,7 +2062,26 @@ def test_directory_search_never_emits_pick_thesis_fields(monkeypatch):
         directory_visible=lambda _viewer, _candidate: True,
     )
     service._directory_search = None
-    monkeypatch.setattr(service, "_execute_many", lambda *_args, **_kwargs: [])
+
+    def _execute_many(sql, params=None):
+        if "AS previews_valid" not in sql:
+            return []
+        assert params is not None
+        assert params["user_id"] == "investor_1"
+        assert params["page_user_ids"] == ["ria_user_1"]
+        return [
+            {
+                "candidate_id": "ria_user_1",
+                "public_person_ref": "person_1",
+                "relationship": "none",
+                "mutual_count": 0,
+                "preview_user_ids": [],
+                "previews_valid": True,
+                "advisor_thesis": "PUBLIC_DIRECTORY_THESIS_MUST_NOT_LEAK",
+            }
+        ]
+
+    monkeypatch.setattr(service, "_execute_many", _execute_many)
     monkeypatch.setattr(service, "_verified_ria_user_ids", lambda _user_ids: {"ria_user_1"})
     monkeypatch.setattr(
         service, "_public_person_refs", lambda _user_ids: {"ria_user_1": "person_1"}
@@ -2082,6 +2101,7 @@ def test_directory_search_never_emits_pick_thesis_fields(monkeypatch):
             "relationship": "none",
             "mutualConnectionCount": 0,
             "mutualConnectionPreview": None,
+            "mutualConnectionPreviews": [],
             "isRia": True,
         }
     ]
