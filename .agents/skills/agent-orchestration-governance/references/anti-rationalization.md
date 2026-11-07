@@ -12,7 +12,7 @@
 
 ## Red Flags
 
-- An agent TOML whose developer_instructions restate a SKILL.md section
+- An agent Markdown whose developer_instructions restate a SKILL.md section
 - A new agent with write access and no recorded need/review
 - A child handoff that contains a decision ("merge it", "safe to deploy") instead of classified evidence
 - max_depth > 1 anywhere without a written recursion justification

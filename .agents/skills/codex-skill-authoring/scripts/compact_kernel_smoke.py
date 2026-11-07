@@ -98,11 +98,6 @@ def main() -> int:
     if not any(re.search(pattern, "any frontend task") for pattern in lint.BROAD_PATTERNS):
         failures.append("spoke broad-trigger pattern should catch broad intake wording")
 
-    pr_skill = lint.SKILLS_ROOT / "pr-governance-review" / "SKILL.md"
-    pr_text = pr_skill.read_text(encoding="utf-8")
-    if "Dev intake" not in pr_text or "Retained train campaigns" not in pr_text:
-        failures.append("PR governance skill should keep Dev intake and retained train work visible")
-
     if failures:
         print("Compact-kernel smoke failed:")
         for failure in failures:

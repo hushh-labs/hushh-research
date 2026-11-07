@@ -20,7 +20,7 @@
     "docs/reference/quality/pr-impact-checklist.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task docs-sync",
+    "./bin/hushh agents route-task docs-sync",
     "./bin/hushh docs verify",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py stale-candidates",
     "python3 .agents/skills/docs-governance/scripts/doc_inventory.py folders"

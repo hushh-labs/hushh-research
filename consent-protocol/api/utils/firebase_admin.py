@@ -59,6 +59,9 @@ def assert_firebase_identity_mutation_allowed(app: Any) -> None:
     must receive this exact app; passing None would silently use the default.
     """
     project = _checked_project(app)
+    selected = get_firebase_credential_settings().auth_project_id
+    if selected and project != selected:
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
     runtime = get_app_runtime_settings()
     environment = runtime.environment
     profile = runtime.runtime_profile
@@ -180,7 +183,21 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
 
 
 def ensure_firebase_auth_admin() -> Tuple[bool, Optional[str]]:
-    return ensure_firebase_admin()
+    selected = get_firebase_credential_settings().auth_project_id
+    if selected:
+        runtime = get_app_runtime_settings()
+        projects = {
+            "dev": "hushh-pda-dev",
+            "uat": "hushh-pda-uat",
+            "production": "hushh-pda",
+            "prod": "hushh-pda",
+        }
+        if projects.get(runtime.environment) != selected:
+            raise FirebaseAuthorityError("firebase_authority_mismatch")
+    configured, project = ensure_firebase_admin()
+    if selected and (not configured or project != selected):
+        raise FirebaseAuthorityError("firebase_authority_mismatch")
+    return configured, project
 
 
 def get_firebase_auth_app():

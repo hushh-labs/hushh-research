@@ -13,7 +13,10 @@ from tests.helpers.predecessor_acceptance import SHA, _acceptance_fixture
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("job", ["protocol-check", "web-full-suite-check"])
+@pytest.mark.parametrize(
+    "job",
+    ["protocol-check", "web-full-suite-check", "web-targeted-check"],
+)
 def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
     job: str,
 ) -> None:
@@ -213,11 +216,18 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
 
     subject, api, _, serving = prerequisite_fixture(monkeypatch)
     api.changed_tip = case == "tip"
+    if case == "tip":
+
+        def missing_history(*_args):
+            raise subject.Refused("The replacement tip does not contain the selected source")
+
+        monkeypatch.setattr(subject.exact, "git", missing_history)
     if case in {"mixed", "unknown"}:
         serving["frontend"]["sha"] = "d" * 40 if case == "mixed" else ""
     if case == "authority":
 
-        def unreviewed(*args):
+        def unreviewed(*args, branch):
+            assert branch == "uat"
             raise subject.Refused("UAT CI authority differs from reviewed Main")
 
         monkeypatch.setattr(subject.exact, "verify_git_authority", unreviewed)
@@ -231,8 +241,13 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
             result["backend"]["revision"] = "backend-00002-abc"
         return result
 
-    with pytest.raises(subject.Refused):
-        subject.inspect(api, "a" * 40, read_live=live)
+    if case == "mixed":
+        result = subject.inspect(api, "a" * 40, read_live=live)
+        assert result["serving"] == serving
+        assert result["ready"] is True
+    else:
+        with pytest.raises(subject.Refused):
+            subject.inspect(api, "a" * 40, read_live=live)
 
 
 @pytest.mark.parametrize(
@@ -279,6 +294,12 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     )
     jobs = workflow["jobs"]
     inspector = jobs["inspect-prerequisites"]
+    for name in ("inspect-prerequisites", "select-target"):
+        assert jobs[name]["environment"] == {"name": "uat", "deployment": False}
+        assert (
+            jobs[name]["env"]["UAT_EMAIL_AUTH_ENABLED"]
+            == "${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}"
+        )
     assert inspector["environment"] == {"name": "uat", "deployment": False}
     assert inspector["if"] == "inputs.operation == 'inspect'"
     assert inspector["permissions"] == {
@@ -297,11 +318,10 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert validate < auth
     assert not any("upload-artifact" in step.get("uses", "") for step in steps)
     assert jobs["select-target"]["if"] == "inputs.operation == 'deploy'"
-    assert jobs["deployment-security"]["if"] == (
-        "always() && (inputs.operation == 'inspect-routing' || "
-        "(needs.select-target.result == 'success' && "
-        "needs.select-target.outputs.decision != 'NO_OP'))"
-    )
+    security_condition = jobs["deployment-security"]["if"]
+    assert "inputs.operation == 'inspect-routing'" in security_condition
+    assert "needs.select-target.result == 'success'" in security_condition
+    assert "needs.select-target.outputs.decision != 'NO_OP'" in security_condition
     for name in ("deploy", "wait-capacity"):
         assert (
             "select-target" in jobs[name]["needs"] and "deployment-security" in jobs[name]["needs"]
@@ -426,3 +446,88 @@ def test_branch_acceptance_producer_authenticates_main_authority_lookup(environm
     producer = producers[0]
     assert 'verify-predecessor-acceptance.py" create' in producer["run"]
     assert producer.get("env", {}).get("GH_TOKEN") == "${{ github.token }}"
+
+
+@pytest.mark.parametrize(
+    "expires", [2000, 1000, 999, True, "2000", None, float("inf"), float("nan")]
+)
+def test_email_risk_freshness_reads_immutable_source_not_the_checkout(
+    monkeypatch, tmp_path, expires
+):
+    import json
+    import subprocess
+
+    subject, *_ = prerequisite_fixture(monkeypatch)
+    monkeypatch.setenv("UAT_EMAIL_AUTH_ENABLED", "true")
+    monkeypatch.setattr(subject.time, "time", lambda: 1000)
+    monkeypatch.chdir(tmp_path)
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL)  # noqa: S603 - authored fixture arguments
+
+    git("init", "-q")
+    path = tmp_path / "consent-protocol/config/email-auth/risk-manifest.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"expires_at": expires}))
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.test",
+        "commit",
+        "-qm",
+        "pinned snapshot",
+    )
+    source = git("rev-parse", "HEAD").decode().strip()
+    path.write_text(json.dumps({"expires_at": 3000 if expires != 2000 else 0}))
+    if expires == 2000:
+        subject.require_fresh_email_risk(source)
+    else:
+        with pytest.raises(subject.Refused, match="snapshot is expired or invalid"):
+            subject.require_fresh_email_risk(source)
+
+
+@pytest.mark.parametrize(
+    "flag,payload,refused",
+    [
+        ("false", None, False),
+        ("TRUE", None, True),
+        ("true", None, True),
+        ("true", b"{", True),
+        ("true", b"[]", True),
+        ("true", b"x" * 65537, True),
+    ],
+)
+def test_email_risk_disabled_and_unreadable_inputs(monkeypatch, flag, payload, refused):
+    subject, *_ = prerequisite_fixture(monkeypatch)
+    monkeypatch.setenv("UAT_EMAIL_AUTH_ENABLED", flag)
+
+    def read(*args):
+        assert args == ("show", f"{SHA}:consent-protocol/config/email-auth/risk-manifest.json")
+        if payload is None:
+            raise subject.Refused("Git authority lookup failed")
+        return payload
+
+    with mock.patch.object(subject.exact, "git", side_effect=read) as observed:
+        if refused:
+            with pytest.raises(subject.Refused):
+                subject.require_fresh_email_risk(SHA)
+        else:
+            subject.require_fresh_email_risk(SHA)
+        if flag != "true":
+            observed.assert_not_called()
+
+
+def test_expired_email_risk_stops_inspection_and_deploy_before_qualification(monkeypatch):
+    subject, api, _, serving = prerequisite_fixture(monkeypatch)
+    monkeypatch.setenv("UAT_EMAIL_AUTH_ENABLED", "true")
+    monkeypatch.setattr(subject.exact, "git", lambda *args: b'{"expires_at": 0}')
+    with mock.patch.object(subject.exact, "verify_attempt") as verify:
+        for action in (
+            lambda: subject.inspect(api, "a" * 40, read_live=lambda _: serving),
+            lambda: subject.validate_deployment(api, SHA, "123", "1", "c" * 40),
+        ):
+            with pytest.raises(subject.Refused, match="snapshot is expired or invalid"):
+                action()
+        verify.assert_not_called()

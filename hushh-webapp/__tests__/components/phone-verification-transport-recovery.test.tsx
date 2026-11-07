@@ -5,8 +5,8 @@ import { ApiError } from "@/lib/services/api-client";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/register-phone" }));
 
-function conflict(code: string) {
-  return new ApiError("synthetic conflict", 409, { detail: { code } });
+function conflict(code: string, phoneProofAvailable = false) {
+  return Object.assign(new ApiError("synthetic conflict", 409, { detail: { code } }), { phoneProofAvailable });
 }
 async function beginOccupiedPhone() {
   const phone = screen.getByRole("textbox", { name: "Phone number" });
@@ -19,7 +19,7 @@ describe("phone verification explicit transport recovery", () => {
   it("@feature_account_deletion @trace_loop drops the transfer control once this environment refuses moving a number", async () => {
     const transfer = vi.fn().mockRejectedValue(new ApiError("synthetic provider body must stay private", 403,
       { detail: { code: "PHONE_TRANSFER_SHARED_AUTH_UNAVAILABLE" } }));
-    const confirm = vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED"));
+    const confirm = vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED", true));
     const flow = renderPhoneVerificationFlow({ confirmVerification: confirm, confirmTransfer: transfer });
     const code = await reachCodeStep(flow.startVerification);
     fireEvent.change(code, { target: { value: "123456" } });
@@ -64,7 +64,7 @@ describe("phone verification explicit transport recovery", () => {
     const start = vi.fn().mockRejectedValueOnce(conflict("PHONE_TEST_NUMBER_IN_USE"))
       .mockResolvedValue({ autoVerified: false });
     const transfer = vi.fn();
-    const confirm = vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED"));
+    const confirm = vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED", true));
     renderPhoneVerificationFlow({ startVerification: start, confirmVerification: confirm, confirmTransfer: transfer });
     const freshSms = await beginOccupiedPhone();
     expect(start).toHaveBeenCalledTimes(1);
@@ -125,7 +125,7 @@ describe("in-place deletion of the account linked to the number", () => {
   it("cancels from the review, and an unconfirmed deletion offers Check again without trapping Back", async () => {
     const cancel = vi.fn().mockResolvedValue({});
     const confirmLinkedDeletion = vi.fn().mockRejectedValue(new ApiError("unknown outcome", 409, { code: "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" }));
-    const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED")),
+    const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED", true)),
       prepareLinkedDeletion: prepared("sms"), confirmLinkedDeletion, cancelLinkedDeletion: cancel });
     const code = await reachCodeStep(flow.startVerification);
     fireEvent.change(code, { target: { value: "123456" } });
@@ -149,9 +149,9 @@ describe("in-place deletion of the account linked to the number", () => {
     expect(flow.onCompleted).not.toHaveBeenCalled();
   });
 
-  it.each(["PHONE_LINKED_PROOF_REQUIRED", "ACCOUNT_DELETION_PAUSED"])("sends a spent operation (%s) back to number verification instead of retrying it", async refusal => {
+  it.each(["PHONE_LINKED_PROOF_REQUIRED", "ACCOUNT_DELETION_PAUSED", "PHONE_LINKED_CLAIM_REQUIRED"])("sends a spent operation (%s) back to number verification instead of retrying it", async refusal => {
     const confirmLinkedDeletion = vi.fn().mockRejectedValue(new ApiError("spent", 409, { code: refusal }));
-    const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED")),
+    const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED", true)),
       prepareLinkedDeletion: prepared("sms"), confirmLinkedDeletion, cancelLinkedDeletion: vi.fn() });
     const code = await reachCodeStep(flow.startVerification);
     fireEvent.change(code, { target: { value: "123456" } });

@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   user: { uid: "viewer", getIdToken: vi.fn(async () => "token") } as { uid: string; getIdToken: () => Promise<string> } | null,
   pathname: "/one/location", search: "action=share&step=people", generation: 1,
-  resolve: vi.fn(),
+  resolve: vi.fn(), api: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useSearchParams: () => new URLSearchParams(state.search) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/auth/session-owner", () => ({ getAuthSessionGeneration: () => state.generation, subscribeAuthSessionGeneration: () => () => {} }));
 vi.mock("@/lib/services/connections-service", () => ({ ConnectionsService: { getPersonContext: state.resolve } }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: state.api } }));
+vi.mock("@/lib/pkm/live-activity/live-activity-journal", () => ({ recordLiveActivity: vi.fn(), snapshotLiveActivityOwner: () => null }));
 vi.mock("@/lib/capacitor/native-navigation", () => ({ useNativeNavigationOverlayRef: (ref: unknown) => ref }));
 vi.mock("@/components/connections/person-profile-page", () => ({ PersonProfilePage: ({ personRef, onNetworkReady }: { personRef: string; onNetworkReady?: () => void }) => {
   const [request, setRequest] = useState(false);
@@ -49,6 +51,25 @@ describe("person profile return memory @feature_connected_profiles @trace_loop",
     state.resolve.mockReset().mockResolvedValue({ person: { publicPersonRef: "public-peer" } });
   });
   afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); });
+
+  it.each(["peer-uid", "different-person"])("resolves UID-only portraits through the real transport contract (%s)", async responseUid => {
+    const { ConnectionsService } = await vi.importActual<typeof import("@/lib/services/connections-service")>("@/lib/services/connections-service");
+    state.api.mockResolvedValue(new Response(JSON.stringify({ person: { userId: responseUid, publicPersonRef: "public-peer", displayName: "Aarav", photoUrl: null, email: null, relationship: "connected" }, request: null })));
+    state.resolve.mockImplementation(ConnectionsService.getPersonContext);
+    render(<Source />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Aar" } });
+    fireEvent.click(screen.getByRole("button", { name: "View Aarav's profile" }));
+    if (responseUid === "peer-uid") {
+      await screen.findByRole("heading", { name: "Profile public-peer" });
+      fireEvent.click(screen.getByRole("button", { name: "Back to previous screen" }));
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Profile public-peer" })).toBeNull());
+      expect(screen.getByRole("textbox")).toHaveValue("Aar");
+    } else {
+      await screen.findByText("This profile is unavailable.");
+      expect(screen.queryByRole("heading", { name: "Profile public-peer" })).toBeNull();
+    }
+    expect(state.api).toHaveBeenCalledWith("/api/one/connections/peer-uid/context", expect.objectContaining({ cache: "no-store", headers: expect.objectContaining({ Authorization: "Bearer token" }) }));
+  });
 
   it("retains normal profile navigation when no preview host accepts the link", () => {
     render(<PersonProfileLink href="/people/11111111-1111-4111-8111-111111111111">View profile</PersonProfileLink>);

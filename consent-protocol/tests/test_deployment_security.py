@@ -34,7 +34,7 @@ def assert_read_only_uat_inspection(case, job, *, prepared=True):
         f'test "$GITHUB_REF_NAME" = {"uat" if prepared else "main"}',
         'python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"',
         "python3 scripts/ci/uat_release_prerequisites.py validate-inspection",
-        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA"',
+        'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"',
     }
     actions = {
         "actions/checkout@v6",
@@ -368,10 +368,13 @@ class DeploymentSecurityTest(unittest.TestCase):
         workflow = yaml.safe_load(reusable)
         self.assertEqual(workflow["permissions"]["actions"], "read")
         self.assertEqual(set(workflow["jobs"]), {"alerts"})
+        self.assertNotIn("CI_TEAM_APP_PRIVATE_KEY", reusable)
         declaration = workflow.get("on", workflow.get(True))["workflow_call"]
         self.assertEqual(
             declaration.get("secrets"),
-            {"GH_SECURITY_ALERTS_TOKEN": {"required": False}},
+            {
+                "GH_SECURITY_ALERTS_TOKEN": {"required": False},
+            },
         )
         for name in gate.CALLERS:
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())

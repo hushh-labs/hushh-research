@@ -131,6 +131,24 @@ to the helper; its built-in substitutions are not assumed to be shell variables.
 
 ## Canonical 3-environment contract
 
+### Firebase Auth isolation
+
+Use the existing single Firebase web/app configuration per environment. Dev,
+UAT and production use `hushh-pda-dev`, `hushh-pda-uat` and `hushh-pda`,
+respectively. Update the existing public SDK values and matching Admin
+credential together; retain the existing primary-project parity check. Do not
+introduce a second browser Auth configuration. Web analytics continues to use
+its separately selected measurement ID.
+
+`firebase_auth_project_id` in `BACKEND_RUNTIME_CONFIG_JSON` explicitly admits
+the isolated erasure contract. It must match the environment and the canonical
+Admin app; an old shared credential refuses instead of selecting another app.
+With the field absent, existing erasure policy is unchanged. Native Firebase
+configuration and release lanes require coordinated qualification before a live
+cutover; web configuration alone does not switch installed native apps. See the
+[deletion rollout](./account-deletion-rollout.md#firebase-auth-separation)
+for UID continuity, credentials and erasure gates.
+
 ### Dev owner-cloud connectors and metadata feeds
 
 Native Google connectors use separate public-client pins:
@@ -157,6 +175,19 @@ neither consent-token nor audit keys substitute for this authority.
 These variables establish configuration, not live native OAuth, push delivery or
 private custody. Feeds carry only canonical consent metadata, public directory
 records and owner-published listings; private observations remain inside the pod.
+
+### People conversation navigation key
+
+`DIRECT_MESSAGE_ROUTE_KEY_V1` is optional, server-only base64-encoded 32-byte
+navigation key material. If unset, existing deployments retain their legacy
+derivation from `DIRECT_MESSAGE_ENCRYPTION_KEY_V1`. To retire message-key custody
+after verified E2EE history migration, preserve the exact previously derived
+navigation bytes in a separate environment-owned secret and bind this setting.
+Generating an unrelated value would invalidate existing `dm1` links. An empty
+or malformed configured value fails closed rather than restoring the old key.
+Never print, commit or expose either key to a browser or native client. Deployment
+binding and historical-link verification remain operator work; this change
+installs no secret or release flag. See [People calling](../one/people-calling.md).
 
 ### Wallet artwork catalog
 
@@ -743,6 +774,11 @@ NEXT_PUBLIC_RECEIPT_LOGO_URL_TEMPLATE --stdin` path. Keep values in process memo
 do not put them in command arguments, logs, source, environment examples or files.
 Secret provisioning grants no deploy or traffic authority. Never copy this UAT
 credential to another environment.
+
+Secret upsert retains all previous versions, including when the payload is
+unchanged. The version-inventory helper is read-only: version age does not prove
+that serving, rollback, scheduled-job or alias references are absent. Version
+destruction requires a separately qualified reference-aware cleanup operation.
 
 Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
 reject these requests, so the approved publishable token must support that existing

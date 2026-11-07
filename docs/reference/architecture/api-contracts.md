@@ -1,5 +1,60 @@
 # API Contracts
 
+## Visual Map
+
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
+  end
+
+  fb --> vo
+  fb --> dev
+  fb --> commerce
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  proxy --> commerce
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
+```
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
@@ -9,7 +64,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`; filtering precedes logical pagination. |
 | `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
 
@@ -114,61 +169,18 @@ ciphertext is cleared on access/history reconciliation; dormant ciphertext and
 confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
+## People calling review implementation
 
-## Visual Map
-
-Which credential plane authorizes which FastAPI route family, and how first-party
-clients reach them through the Next.js proxy layer.
-
-```mermaid
-flowchart TB
-  subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
-    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
-    devtok["Developer Token<br/>Authorization Bearer"]
-    hct["Consent Token HCT<br/>app-bound scoped grant"]
-    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
-    anon["No auth<br/>public reads"]
-  end
-
-  subgraph client["First-party client transport"]
-    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
-    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
-  end
-
-  subgraph api["FastAPI route families in consent-protocol/api/routes"]
-    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
-    con["consent.py and sse.py<br/>/api/consent"]
-    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
-    vault["db_proxy.py<br/>/db/vault wrappers"]
-    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
-    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
-    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
-    ria["ria.py and account.py<br/>/api/ria and /api/account"]
-    dev["developer.py<br/>/api/v1 and /api/developer"]
-    commerce["scope_commerce.py<br/>/api/scope-commerce"]
-  end
-
-  fb --> vo
-  fb --> dev
-  fb --> commerce
-  anon --> pub
-  vo --> svc
-  svc --> proxy
-  proxy --> con
-  proxy --> pkm
-  proxy --> vault
-  proxy --> kai
-  proxy --> one
-  proxy --> fabric
-  proxy --> ria
-  proxy --> commerce
-  devtok --> dev
-  devtok --> fabric
-  con --> hct
-  hct --> dev
-  maint --> one
-```
+`GET /api/one/messages/calls/capabilities` and signed
+`POST /api/one/messages/calls/{operation}` use Firebase identity plus separately
+purposed canonical-device proofs. Operations are register-key, directory, create,
+  offer, inbox, read, heartbeat, action, signal, credentials and iOS-only register-voip. Commands reject foreign,
+revoked, replayed, expired, oversized and unexpected fields without echoing
+signaling. Existing participant/relationship/block authority remains decisive.
+The existing One proxy and platform-aware service transport own client pairing.
+Native execution and release admission remain unavailable pending qualification.
+See [People calling](../one/people-calling.md) for exact privacy, schema, retention
+and remaining E2EE/native requirements.
 
 ---
 
@@ -689,40 +701,55 @@ refreshes, including forced/strict reads and display-name synchronization,
 preserve a complete verified phone in the serialized identity writer. A delayed
 provider snapshot cannot replace a newer committed E.164 number.
 
-Native OTP completion and web provider-phone replacement send optional JSON
-`{ "verified_phone_number": "+…" }`
-through the existing account proxy/shared native transport. This is explicit
-finalization intent, not verification proof: the backend freshly checks the
-authenticated UID and exact Firebase phone, then uses the existing phone claim
-writer without cross-owner transfer authority. Mismatch or conflicting ownership
-returns 409; provider/persistence failure returns 503. No number enters a URL.
-Web's existing secondary Firebase phone-token claim remains unchanged.
-If provider linking succeeds while persistence is unavailable, retrying the
-same linked phone rechecks provider proof and finalizes without another OTP.
+Web, iOS, and Android confirm ordinary SMS challenges with Identity Platform.
+Clients include the current user's ID token so Firebase links or updates the
+number on that UID. Clients check the returned UID and number and discard the
+returned session tokens. They reload the existing user to keep its independent
+sign-in. Native `startPhoneLinkVerification` binds the challenge to the captured
+user, attempt and link intent. Older binaries lack this distinct method and
+refuse before SMS dispatch; clients never fall back to the legacy proof method.
+The legacy Android proof method remains manual-only.
 
-With `NEXT_PUBLIC_AUTH_PHONE_RECOVERY_ENABLED` enabled (the default), web
-finalization conflicts `PHONE_ALREADY_VERIFIED` and `PHONE_VERIFICATION_CHANGED`
-can request fresh Firebase OTP proof through the existing isolated phone-token
-claim. A cached provider phone alone never transfers ownership. Native conflicts,
-unrecognized conflicts and provider/persistence outages remain explicit failures.
-Strict finalization preserves the backend error code instead of flattening it.
-An expired challenge retires only its captured owner/attempt; a newer resend
-remains valid. Missing local state is `phone-verification-required`, distinct
-from a provider-reported `code-expired`.
+On a provider link conflict, the verified `temporaryProof` continues through the
+existing isolated proof service instead of replaying the SMS code. Its phone
+ID token stays in memory, bound to the current user, phone and verification
+attempt. It is cleared on resend, retirement, owner change, unmount or success.
+Ordinary successful links never create a secondary sign-in session.
 
-`NEXT_PUBLIC_AUTH_PHONE_SESSION_FENCING_ENABLED` defaults on and rejects
-pre-dispatch retained native callbacks and overlapping starts. It does not
-configure Firebase SMS validity: Android's native timeout controls automatic
-retrieval, and the inspected send APIs expose no OTP TTL setting. Explicit
-resend replaces the previous challenge. Native events arriving after dispatch
-still lack a request identifier; real-device qualification remains required.
+After linking, clients send `{ "verified_phone_number": "+…" }` through the
+existing account proxy or shared native transport. The backend reads the current
+Firebase user, checks the authenticated UID and exact phone, and saves the claim
+for the same application owner. Conflicting ownership or a changed provider
+number returns 409. Provider or persistence unavailability returns 503. Retry
+reloads the current Firebase user so a committed link can be finalized without
+consuming another code. Firebase and Hussh save separately, and the client
+reports verification success only after both writes succeed. A client keeps one
+confirmation in flight per Firebase UID through both writes. Concurrent
+replacements on separate devices can require another read and retry.
 
-Backend and updated native shared JavaScript must ship together for native
-replacement. Older clients without explicit intent retain the existing app
-phone and fail their exact-number completion check rather than overwrite it.
-Concurrent explicit replacements on separate devices still require retry if
-their provider state changes; this is not a guarantee of offline or simultaneous
-replacement ordering. No historical erased claim is inferred or reconstructed.
+Account restore and phone consumers use the committed application claim. A raw
+Firebase phone does not establish that claim. The auth context can retain a
+known same-owner app claim during a temporary lookup failure. The fixed-code
+fixture transport remains application-only. Isolated phone proof remains
+available to recovery flows. A legacy client cannot write a new claim through
+`/phone/claim` until it links the number to the signed-in Firebase UID. Qualify
+the updated native clients and frontend before rolling out that enforcement. An
+expired challenge retires only its captured owner and attempt. Missing local
+state is `phone-verification-required`, distinct from provider `code-expired`.
+
+When a legacy app claim belongs to a different active owner, the app write
+refuses the claim even if Firebase accepted the link. That result requires
+reconciliation of the two records before release to accounts with unresolved
+legacy ownership. Qualify real SMS on an isolated Firebase test project or
+with explicitly designated test accounts when environments share Firebase.
+
+Dev retains its existing explicit recovery for a phone already linked in
+Firebase whose application claim could not be saved. Only an explicit real-SMS
+request uses the existing proof-only transport; ordinary linking never falls
+back to it. The retained proof remains bound to owner, phone and attempt.
+Transfer and in-place deletion retain their existing separate approvals,
+backend authority and unknown-outcome readback. Successful completion releases
+the native challenge without cancelling a provider cleanup operation.
 
 ## Messages unread action count
 
@@ -891,6 +918,12 @@ model/deployment. The hub's Shared model catalog is not an Azure pod catalog.
   operationId, accountRetained:true, hostingMode:"unplaced"}` only for that exact
   released identity. A stale replacement, uncertain outcome or changed approval
   returns a bounded 409 and retains recovery custody.
+  Historical recovery status may include `nextEligibleAt`, a UTC recheck hint
+  derived from complete native retention observations bound to the recorded
+  resource identities. It never establishes absence, approval or completion.
+  The interface retains verified progress and defers repeat approval while that
+  wait is active. Historical operator recovery retains its separate executor
+  qualification; status and refresh do not start or replay provider work.
 - `GET /api/one/personal-agent/hosting/inspection`: Firebase-owner, read-only
   control-plane observation of the recorded service and historical receipt
   coverage. Returns `connected`, `starting`, `absent`, `ownership_unverified`,
@@ -3571,12 +3604,13 @@ Cached hints alone never authorize completion. This preserves the native
 same-number/linked Continue path without requiring an SDK phone link for an
 already saved backend-only claim.
 
-Web verification's app-level phone need not be linked to the primary social
-Firebase user. Auth state publishes a fresh verified identity-cache phone after
-the backend claim commits, including same-user Firebase republication, and never
-uses stale/unverified cache evidence or a previous user's cache. Historical
-missing phone bindings are not reconstructed from email verification or OTP log
-messages; account owners restore them through the existing phone verification flow.
+Account settings on web, iOS, and Android show a phone as linked when a fresh
+Firebase read for the signed-in UID matches the verified application claim.
+An existing app-only or mismatched phone shows a verification action. The
+Account editor uses the existing provider-link flow, including when the user
+enters the same number already saved in Hussh. A provider link pending app
+persistence can be retried without another SMS through the exact-phone finalizer.
+Legacy claims remain available to flows that use the application identity.
 An identity lookup failure is retryable availability uncertainty, not a removed
 phone. Auth state retains the known same-session claim, accepts later exact-owner
 cache updates, and fences delayed responses against account changes and newer
@@ -3587,7 +3621,7 @@ backend identity-refresh freshness interval do not expire a verified phone.
 | Method | Path                                              | Description                                                                                                                                                                                              |
 | ------ | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/account/identity/refresh`                   | Refresh backend identity shadow from Firebase Auth                                                                                                                                                       |
-| POST   | `/api/account/phone/claim`                        | Persist a secondary Firebase phone-session token as the signed-in actor's verified app-level phone claim, then delete the safe phone-only secondary Firebase user when it differs from the signed-in UID |
+| POST   | `/api/account/phone/claim`                        | Compatibility endpoint. Verify phone proof for the signed-in Firebase UID and finalize only the exact phone linked to that UID. A different proof UID cannot create an application claim. Safe phone-only proof users remain eligible for guarded cleanup. |
 | GET    | `/api/account/session-status`                     | Linearized, no-store account lifecycle probe. `401 AUTH_ACCOUNT_NOT_FOUND` is terminal; `423 AUTH_ACCOUNT_DELETION_IN_PROGRESS` means the client must retain its privacy gate and re-probe after `Retry-After`; general lookup failure is `503 AUTH_ACCOUNT_STATUS_UNAVAILABLE` |
 | GET    | `/api/account/email-aliases`                      | List vault-owner account email aliases                                                                                                                                                                   |
 | POST   | `/api/account/email-aliases/verification/start`   | Start explicit email alias verification; dev/UAT review mode may echo the code                                                                                                                           |
@@ -5249,7 +5283,14 @@ unavailable row with a retry action.
 ### Connect directory mutual connections
 
 Directory rows additionally return `mutualConnectionCount` and optional
-`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`), plus
+`mutualConnectionPreviews` containing up to two eligible public identities. The
+singular field remains the first eligible preview for existing clients. The same
+metadata is returned on mutual-list and network-list rows, with viewer-relative
+`relationship` (`none`, `pending_outgoing`, `pending_incoming`, `connected`).
+Preview reads are batched across at most 50 page rows and 100 selected identities;
+final graph, block, profile and reference checks reject mid-read changes with 503.
+Counts use distinct shared
 neighbors across active canonical connections, scoped to the returned page,
 excluding blocked relationships. A bounded batch lookup resolves shared peers
 through the canonical directory's live visibility and account checks, independent
@@ -5260,6 +5301,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+The authenticated, private/no-store person-context lookup also returns the
+canonical `publicPersonRef`. UID-only portrait entry points use this reference
+to open the existing shared profile preview; they never reinterpret a UID as a
+public reference. Connection requests continue through the existing authenticated
+`POST /api/one/people/{person_ref}/connection` endpoint.
 
 ### Private email send recovery
 

@@ -238,6 +238,12 @@ def test_dev_authority_is_read_from_the_exact_current_main_revision():
         return {"path": "config/ci-governance.json", "encoding": "base64", "content": encoded}
     with patch.object(queue, "api", side_effect=read):
         assert queue.authority_policy("hushh-labs/hushh-research", "dev", BASE) == (HEAD1, policy)
+        assert queue.authority_policy(
+            "hushh-labs/hushh-research", "uat-isolated", BASE, owner_admin=True
+        ) == (HEAD1, policy)
+    with patch.object(queue, "api") as api, patch.object(queue, "git", return_value=json.dumps(policy)):
+        assert queue.authority_policy("hushh-labs/hushh-research", "uat-isolated", BASE) == (BASE, policy)
+        api.assert_not_called()
     with patch.object(queue, "api", return_value={"object": {"sha": HEAD1}}):
         with pytest.raises(queue.Refused, match="authority"):
             queue.authority_policy("hushh-labs/hushh-research", "dev", BASE)
@@ -449,6 +455,29 @@ def test_owner_admin_reconciles_response_without_second_merge(tmp_path, request_
         assert json.loads(receipt.read_text())["landed"] == SECOND
 
 
+@pytest.mark.parametrize("changed", ["base", "tree", "unreadable"])
+def test_owner_admin_records_confirmed_unqualified_landing_before_refusal(tmp_path, changed):
+    from types import SimpleNamespace
+    proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "uat", "base": BASE, "tree": FIRST}}
+    commit = {"tree": {"sha": SECOND if changed == "tree" else FIRST},
+              "parents": [{"sha": SECOND if changed == "base" else BASE}, {"sha": HEAD1}]}
+    readback = queue.subprocess.CalledProcessError(1, "gh") if changed == "unreadable" else commit
+    with patch.object(queue, "owner_admin_snapshot", return_value=proof), \
+         patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as write, \
+         patch.object(queue, "api", side_effect=[{"merged": True, "merge_commit_sha": SECOND}, readback]):
+        receipt = tmp_path / "receipt.json"
+        with pytest.raises((queue.Refused, queue.subprocess.CalledProcessError)):
+            queue.owner_admin_merge(9052, HEAD1, receipt, apply=True)
+        write.assert_called_once()
+        result = json.loads(receipt.read_text())
+        assert result["outcome"] == "merged_unqualified"
+        assert result["landed"] == SECOND
+        assert result["state"] == proof["state"]
+        if changed != "unreadable":
+            assert result["observed_commit"] == {
+                "tree": commit["tree"]["sha"], "parents": [p["sha"] for p in commit["parents"]]}
+
+
 def test_owner_admin_never_replays_unconfirmed_merge(tmp_path):
     from types import SimpleNamespace
     proof = {"state": {"repository": "hushh-labs/hushh-research", "branch": "main", "base": BASE, "tree": FIRST}}
@@ -479,11 +508,12 @@ def test_owner_admin_requires_same_named_owner_not_org_admin_status(actor, autho
         assert run.call_count == 1 and run.call_args.args[0][:2] == ["git", "fetch"]
 
 
-@pytest.mark.parametrize("branch", ["main", "dev", "uat"])
+@pytest.mark.parametrize("branch", ["main", "dev", "uat", "uat-isolated"])
 def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
     from types import SimpleNamespace
     from pathlib import Path
     import prepared_branch_governance as prepared
+    import github_team_authority as team
 
     repository = "hushh-labs/hushh-research"
     policy = json.loads((Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text())
@@ -502,8 +532,9 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
     threads = {"data": {"repository": {"pullRequest": {"reviewThreads": {
         "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}
     with patch.object(queue, "api", side_effect=[{"login": actor}, pr, {"object": {"sha": BASE}}]) as api, \
+         patch.object(team, "local_policy", return_value=policy) as team_policy, \
          patch.object(queue, "git", side_effect=git), \
-         patch.object(queue, "authority_policy", return_value=(BASE, policy)), \
+         patch.object(queue, "authority_policy", return_value=(BASE, policy)) as authority, \
          patch.object(queue, "_module", side_effect=lambda name, *_: modules[name]), \
          patch.object(queue, "current_validations", return_value=[{"exact": True}]), \
          patch.object(queue, "reusable", return_value=True), \
@@ -511,6 +542,8 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
          patch.object(queue.subprocess, "check_output", return_value=json.dumps(threads)):
         proof = queue.owner_admin_snapshot(8891, HEAD1)
     assert proof["state"]["branch"] == branch and proof["state"]["tree"] == FIRST
+    authority.assert_called_once_with(repository, branch, BASE, owner_admin=True)
+    team_policy.assert_called_once_with(policy, actor=actor, read=api)
     assert api.call_args_list[-1].args == (f"repos/{repository}/git/ref/heads/{branch}",)
     assert seen == [{"branch": branch, "verify_only": True}]
     assert run.call_args_list[0].args[0][3] == branch
@@ -750,7 +783,7 @@ def tested_pr_merge(tmp_path, monkeypatch):
     git("commit", "-qm", "seed")
     seed = git("rev-parse", "HEAD")
 
-    def merge(destination_file="shared.txt"):
+    def merge(destination_file="shared.txt", *, rename=False):
         git("checkout", "-q", "--detach", seed)
         if destination_file == "shared.txt":
             changed = content.copy()
@@ -765,6 +798,8 @@ def tested_pr_merge(tmp_path, monkeypatch):
         changed = content.copy()
         changed[28] = "feature edit\n"
         (tmp_path / "shared.txt").write_text("".join(changed))
+        if rename:
+            git("mv", "shared.txt", "renamed.txt")
         git("add", ".")
         git("commit", "-qm", "feature")
         head = git("rev-parse", "HEAD")
@@ -780,7 +815,8 @@ def tested_pr_merge(tmp_path, monkeypatch):
                            "QUEUE_AUTH_HEALTH_ONLY": "false",
                            "QUEUE_SELECTION_FILE": str(tmp_path / "selection.json")}.items():
             monkeypatch.setenv(key, value)
-        (tmp_path / "selection.json").write_text(json.dumps('["shared.txt"]'))
+        paths = ["shared.txt", "renamed.txt"] if rename else ["shared.txt"]
+        (tmp_path / "selection.json").write_text(json.dumps(json.dumps(paths)))
         return base, head
     return merge
 
@@ -795,6 +831,14 @@ def test_behind_pr_reuses_only_identical_actual_selection(tested_pr_merge):
     assert queue.receipt_matches(receipt, {"repository": receipt["repository"],
                                 "base": base, "tree": receipt["tree"]},
                                 {"run": 5, "attempt": 2, "number": 1, "head": head})
+
+
+def test_renamed_files_reuse_only_with_both_original_and_new_paths(tested_pr_merge, monkeypatch):
+    tested_pr_merge(rename=True)
+    assert queue.record_receipt()["selection_exact"] is True
+    import os
+    Path(os.environ["QUEUE_SELECTION_FILE"]).write_text(json.dumps('["renamed.txt"]'))
+    assert queue.record_receipt()["selection_exact"] is False
 
 
 def test_destination_only_paths_do_not_prevent_tested_merge_reuse(tested_pr_merge):

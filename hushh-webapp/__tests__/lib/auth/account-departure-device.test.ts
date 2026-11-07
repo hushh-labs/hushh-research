@@ -47,4 +47,11 @@ describe("completed account device departure", () => {
     expect(await purgeConfirmedAccountDeviceDeparture("firebase-a", complete)).toBe(true);
     expect(mocks.clearForUser).toHaveBeenCalledTimes(2);
   });
+
+  it("uses a captured owner only when its hash matches the completed operation", async () => {
+    expect(await purgeConfirmedAccountDeviceDeparture("firebase-a", complete, "another-owner")).toBe(false);
+    expect(mocks.clearForUser).not.toHaveBeenCalled();
+    expect(await purgeConfirmedAccountDeviceDeparture("firebase-a", complete, owner)).toBe(true);
+    expect(mocks.clearForUser).toHaveBeenCalledWith(owner, { deleteDurableReceipts: true });
+  });
 });

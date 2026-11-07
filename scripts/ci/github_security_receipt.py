@@ -326,7 +326,7 @@ def await_receipt(environment: dict) -> dict:
             "While this attempt is running, a governed operator can request its exact worker:\n"
             f"gh workflow run ci-security.yml --ref main -f source_run_id={expected['run_id']} "
             f"-f source_attempt={expected['attempt']} -f source_sha={expected['head_sha']}\n"
-            "For future retries use ./bin/hushh codex ci-rerun to coordinate both requests.",
+            "For future retries use ./bin/hushh agents ci-rerun to coordinate both requests.",
             flush=True,
         )
     print(

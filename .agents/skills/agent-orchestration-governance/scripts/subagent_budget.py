@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compute the safe repo-scoped subagent fan-out budget.
 
-This is a static guardrail. The Codex host does not expose live open-thread
+This is a static guardrail. The active host may not expose live open-thread
 state to this script, so callers must pass any known open child count.
 """
 
@@ -9,18 +9,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import runpy
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-try:
-    import tomllib
-except ModuleNotFoundError as exc:  # pragma: no cover
-    raise SystemExit(f"tomllib is required: {exc}") from exc
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[4]
-CONFIG_RELATIVE_PATH = Path(".agents/config.toml")
+CONFIG_RELATIVE_PATH = Path(".agents/config.json")
 DEFAULT_RECOVERY_SLOT = 1
 DEFAULT_MAX_NEW_LANES = 2
 EXPECTED_MAX_THREADS = 6
@@ -50,12 +47,12 @@ def _load_agent_config(root: Path) -> tuple[int | None, int | None, list[str]]:
     if not config_path.exists():
         return None, None, [f"missing config file: {config_path}"]
     try:
-        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        data = runpy.run_path(str(Path(__file__).with_name("framework_source_boundary.py")))["read_framework_source"](config_path)
     except Exception as exc:  # pragma: no cover - surfaced by CLI
-        return None, None, [f"{config_path}: failed to parse TOML: {exc}"]
+        return None, None, [f"{config_path}: failed to parse JSON: {exc}"]
     agents = data.get("agents")
     if not isinstance(agents, dict):
-        return None, None, [f"{config_path}: missing [agents] table"]
+        return None, None, [f"{config_path}: missing agents object"]
     max_threads = agents.get("max_threads")
     max_depth = agents.get("max_depth")
     if not isinstance(max_threads, int):
@@ -100,7 +97,7 @@ def compute_budget(
     recommended = min(max(requested_lanes, 0), max_new_lanes, effective_available)
     safe = requested_lanes <= recommended and not errors
     guidance = [
-        "Keep .agents/config.toml at max_threads=6 and max_depth=1.",
+        "Keep .agents/config.json at max_threads=6 and max_depth=1.",
         "Reserve one thread for recovery, synthesis, or governor-style follow-up.",
         "Request independent lanes up to the effective budget; two is only the CLI fallback.",
         "Close or summarize old child threads sequentially before spawning a new wave.",

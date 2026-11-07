@@ -20,6 +20,13 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/test_runtime_config_retention.py",
+    "consent-protocol/tests/test_plg_deploy_bindings.py",
+    "consent-protocol/tests/test_azure_runtime_config_wiring.py",
+    "consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py",
+    "consent-protocol/tests/test_runtime_settings_maps.py",
+    "consent-protocol/tests/test_uat_application_selection.py",
+    "consent-protocol/tests/test_direct_uat_acceptance.py",
     "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
     "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
     "consent-protocol/tests/test_dev_release_classification.py",
@@ -30,6 +37,7 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_pkm_answer_config.py",
     "consent-protocol/tests/test_account_generation_admission_deploy.py",
     "consent-protocol/tests/test_azure_pod_release_publish_step.py",
+    "consent-protocol/tests/test_calendar_followup_scheduler_contract.py",
     "consent-protocol/tests/test_cloud_run_image_resolution.py",
     "consent-protocol/tests/test_commerce_preview_bootstrap.py",
     "consent-protocol/tests/test_commerce_preview_target.py",
@@ -39,6 +47,8 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
     "consent-protocol/tests/test_drive_v1_worker_lane.py",
     "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+    "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    "consent-protocol/tests/test_database_connection_ceiling.py",
     "consent-protocol/tests/test_feed_stream_capacity_contract.py",
     "consent-protocol/tests/test_gmail_information_request_release_contract.py",
     "consent-protocol/tests/test_hushh_tech_client_migration.py",
@@ -95,11 +105,31 @@ def _check(check_id: str, *argv: str, groups: Sequence[str] = (), diagnostic: bo
 # regression group remain in the focused baseline; non-blocking hygiene is
 # diagnostic-only, and the named regression groups are selected by changed path.
 CHECKS = (
+    _check("email-risk-artifact-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-c", """import json, sys
+from pathlib import Path
+sys.path.insert(0, 'consent-protocol')
+from hushh_mcp.services.email_auth.domain_policy import RiskSnapshot
+manifest = Path('consent-protocol/config/email-auth/risk-manifest.json')
+value = json.loads(manifest.read_text())
+if value['file'] != 'disposable-domains.txt' or value['license'] != 'LICENSE-disposable-domains.txt':
+    raise ValueError('Email risk manifest refers to an unowned input')
+if not (manifest.parent / value['license']).is_file():
+    raise ValueError('Email risk snapshot licence is missing')
+RiskSnapshot.load(str(manifest))
+""", groups=("controller",)),
+    _check("email-risk-policy-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q",
+           "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
+           "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
+           groups=("controller",)),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
     _check("agent-orchestration", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", groups=("agent",)),
     _check("agent-orchestration-selftest", "python3", ".agents/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py", "--self-test", groups=("agent",)),
+    _check("memory-judge-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q", "consent-protocol/tests/test_memory_judge.py", groups=("agent",)),
     _check("architecture-fitness-selftest", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--self-test", diagnostic=True),
     _check("architecture-fitness-baseline", "python3", ".agents/skills/repo-context/scripts/architecture_fitness.py", "--baseline", "docs/reference/quality/architecture-fitness-baseline.json", "--limit", "20", diagnostic=True),
     _check("pr-governance-sections", "python3", "scripts/ci/verify-pr-governance-sections.py", groups=("operations",)),
@@ -122,6 +152,7 @@ CHECKS = (
     _check("release-cadence", "python3", "scripts/ci/test_release_cadence.py", groups=("controller", "release")),
     _check("release-cadence-qualification", "python3", "scripts/ci/test_release_cadence_qualification.py", groups=("controller", "release")),
     _check("uat-exact-ci", "python3", "scripts/ci/test_uat_exact_ci.py", groups=("controller", "release")),
+    _check("uat-pr-scope", "uv", "run", "--frozen", "--project", "consent-protocol", "python", "scripts/ci/test_uat_pr_scope.py", groups=("controller", "release")),
     _check("release-cadence-maintenance", "python3", "scripts/ci/test_release_cadence_maintenance.py", groups=("controller",)),
     _check("release-cadence-monitor", "python3", "scripts/ci/test_release_cadence_monitor.py", groups=("controller",)),
     _check("release-cadence-checkpoint", "python3", "scripts/ci/test_release_cadence_checkpoint.py", groups=("controller",)),
@@ -297,6 +328,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if root not in KNOWN_ROOTS and path not in KNOWN_ROOT_FILES:
         return frozenset(), f"unrecognized changed path: {path}"
     if path in {
+        "consent-protocol/tests/helpers/drive_worker_gcloud.py",
+        "consent-protocol/config/email-auth/disposable-domains.txt",
+        "consent-protocol/config/email-auth/risk-manifest.json",
         "hushh-webapp/scripts/testing/affected-tests.mjs",
         "hushh-webapp/scripts/testing/affected-tests.test.mjs",
         "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
@@ -308,8 +342,11 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
         "consent-protocol/tests/helpers/plg_qualification.py",
+        "consent-protocol/tests/helpers/calendar_followup_scheduler.py",
     }:
         return frozenset({"controller"}), None
+    if path == "consent-protocol/tests/test_memory_judge.py":
+        return frozenset({"agent"}), None
     if root == ".agents":
         return frozenset({"agent"}), None
     if root in {".github", "config", "deploy", "bin"}:
@@ -326,21 +363,26 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/github_team_authority.py",
+            "scripts/ci/verify-predecessor-acceptance.py",
+            "scripts/ci/resolve-ui-contract-base.py",
             "scripts/ci/main-post-merge-smoke.sh",
+            "scripts/ci/test_ui_contract_gate.py",
             "scripts/ci/integration-check.sh",
+            "scripts/ci/orchestrate.sh",
             "scripts/ci/account-deletion-check.sh",
             "scripts/ci/backend-check.sh",
             "scripts/ci/validation-results.sh",
             "scripts/ci/check-dco-signoff.sh",
             "scripts/ci/verify-pr-base-policy.py",
             "scripts/ci/runtime-contract-check.sh",
-            "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ci/secret-scan.sh",
             "scripts/ci/test_secret_scan_ranges.py",
             "scripts/ci/tag-last-known-good.sh",
+            "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ops/audit_env_toggles.py",
             "scripts/ops/sync_backend_runtime_secrets.py",
-            "scripts/ops/recover_dev_cloud_removal.py",
+            "scripts/ops/runtime_config_retention.py",
         }:
             return frozenset({"controller"}), None
         if path in {
@@ -357,7 +399,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "deploy", "release", "uat", "production", "environment", "identity",
             "security", "governance", "scope", "artifact", "passkey", "places",
             "readiness", "protocol", "queue", "protected", "branch", "main_sync",
-            "live_memory", "verification", "rollback",
+            "live_memory", "verification", "rollback", "secret",
         )
         if any(token in lower for token in controller_tokens):
             return frozenset({"controller"}), None
@@ -378,6 +420,29 @@ def _select_groups(files: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]
             return REGRESSION_GROUPS, error
         groups.update(owners)
     return tuple(group for group in REGRESSION_GROUPS if group in groups), None
+
+
+# Inputs read by the lane-topology regression owner, not product behavior.
+EMAIL_RISK_INPUTS = frozenset({
+    "consent-protocol/config/email-auth/disposable-domains.txt",
+    "consent-protocol/config/email-auth/risk-manifest.json",
+})
+EMAIL_RISK_CHECKS = frozenset({"email-risk-artifact-integrity", "email-risk-policy-contracts"})
+
+
+WEB_LANE_INPUTS = frozenset({
+    'hushh-webapp/package.json',
+    'hushh-webapp/playwright.config.ts',
+    'hushh-webapp/scripts/testing/playwright-shard.cjs',
+    'scripts/ci/test_web_ci_lane_partition.py',
+    'scripts/ci/web_ci_lane_fixture.py',
+    'scripts/ci/web_lane_topology_contract.py',
+    'scripts/ci/web-targeted-check.sh',
+    'scripts/ci/web-targeted-plan.sh',
+    'scripts/ci/web-common.sh',
+    'scripts/ci/web-full-suite-check.sh',
+    'scripts/ci/web-browser-core.py',
+})
 
 
 def build_selection(env: dict[str, str]) -> Selection:
@@ -406,6 +471,15 @@ def build_selection(env: dict[str, str]) -> Selection:
         and (
             not check.groups.intersection({"controller", "retention", "agent", "release"})
             or bool(check.groups.intersection(requested_groups))
+        )
+        and (check.check_id not in EMAIL_RISK_CHECKS
+             or selection_error or bool(EMAIL_RISK_INPUTS.intersection(files)))
+        and (
+            check.check_id != "web-lane-partition"
+            or level == "release"
+            or selection_error
+            or "controller" in requested_groups
+            or bool(WEB_LANE_INPUTS.intersection(files))
         )
     )
     return Selection(

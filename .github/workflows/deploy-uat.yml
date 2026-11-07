@@ -1,5 +1,5 @@
 name: Deploy to UAT
-run-name: UAT · app ${{ inputs.sha || 'protected UAT tip' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
+run-name: UAT · app ${{ inputs.sha || 'unselected' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
 
 on:
   workflow_dispatch:
@@ -31,7 +31,22 @@ on:
           - backend
           - frontend
       sha:
-        description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
+        description: "Exact qualified application SHA; blank only verifies an already-serving no-op"
+        required: false
+        type: string
+      source_branch:
+        description: "Protected application branch"
+        type: choice
+        default: uat
+        options:
+          - uat
+          - uat-isolated
+      verify_candidate_before_promotion:
+        description: "Require candidate health and text recovery before changing UAT traffic"
+        default: false
+        type: boolean
+      approved_scope:
+        description: "Legacy uat-isolated PR approval only; not needed for ordinary UAT"
         required: false
         type: string
       ci_run_id:
@@ -61,7 +76,7 @@ on:
         default: false
         type: boolean
       repeat_reviewer_byok:
-        description: "Repeat a selected read-only reviewer BYOK rehearsal for independent RCA acceptance"
+        description: "Explicit read-only app-browser diagnostic (two passes); off by default"
         required: false
         default: false
         type: boolean
@@ -99,6 +114,7 @@ on:
 permissions:
   contents: write
   deployments: read
+  pull-requests: read
   checks: read
   actions: write
   id-token: write
@@ -112,6 +128,9 @@ jobs:
       target: ${{ inputs.target }}
       scope: ${{ inputs.scope }}
       sha: ${{ inputs.sha }}
+      source_branch: ${{ inputs.source_branch }}
+      verify_candidate_before_promotion: ${{ inputs.verify_candidate_before_promotion }}
+      approved_scope: ${{ inputs.approved_scope }}
       ci_run_id: ${{ inputs.ci_run_id }}
       ci_run_attempt: ${{ inputs.ci_run_attempt }}
       ci_base_sha: ${{ inputs.ci_base_sha }}

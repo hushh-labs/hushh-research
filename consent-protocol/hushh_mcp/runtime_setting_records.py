@@ -19,6 +19,7 @@ class CoreSecuritySettings:
 @dataclass(frozen=True)
 class FirebaseCredentialSettings:
     admin_credentials_json: str
+    auth_project_id: str = ""
 
 
 @dataclass(frozen=True)

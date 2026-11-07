@@ -24,7 +24,7 @@
   ],
   "required_commands": [
     "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-    "./bin/hushh codex audit",
+    "./bin/hushh agents audit",
     "cd packages/hushh-mcp && npm run print-config"
   ],
   "verification_bundles": [
@@ -32,12 +32,12 @@
       "id": "hushh-consent-mcp",
       "commands": [
         "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex audit",
+        "./bin/hushh agents audit",
         "cd packages/hushh-mcp && npm run print-config"
       ],
       "tests": [
         "python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py",
-        "./bin/hushh codex audit"
+        "./bin/hushh agents audit"
       ]
     }
   ],

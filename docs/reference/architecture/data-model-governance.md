@@ -13,7 +13,7 @@ This document is the canonical maintainer guide for Hussh data-model changes. It
 - Consent decides what agents and services may touch.
 - Provider caches, workflow state, audit records, and analytics data are not durable user memory.
 
-The machine-readable table-family contract lives in [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json). Do not duplicate the full contract here; update the JSON contract and let `./bin/hushh codex data-model-audit` enforce it.
+The machine-readable table-family contract lives in [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json). Do not duplicate the full contract here; update the JSON contract and let `./bin/hushh agents data-model-audit` enforce it.
 
 ## Source Of Truth
 
@@ -60,7 +60,7 @@ Before a migration is production-ready:
 4. Classify every new table in [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json).
 5. Prefer an existing table family; create a new family only when the table cannot honestly fit a current bounded context.
 6. Declare owner, data class, primary access path, row-growth posture, retention policy, deletion behavior, and plaintext/ciphertext posture.
-7. Run `./bin/hushh codex data-model-audit`.
+7. Run `./bin/hushh agents data-model-audit`.
 8. Run `./bin/hushh db verify-release-contract`.
 9. For UAT readiness, run `./bin/hushh db verify-uat-schema`.
 
@@ -271,7 +271,7 @@ statistics use the existing backend environment and an already resolved,
 authorized connection variable:
 
 ```bash
-uv run --directory consent-protocol ../bin/hushh codex data-model-audit --database-url-env AUDIT_DATABASE_URL --json
+uv run --directory consent-protocol ../bin/hushh agents data-model-audit --database-url-env AUDIT_DATABASE_URL --json
 ```
 
 Resolve credentials through the existing environment runbook in process memory;
@@ -315,7 +315,7 @@ run it on a host with those binaries before crediting that rehearsal.
 Run the smallest relevant bundle, and include the data-model audit for any table, migration, cache, or workflow-state change:
 
 ```bash
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 ./bin/hushh db verify-release-contract
 ./bin/hushh db verify-uat-schema
 cd hushh-webapp && npm run verify:service-boundary
@@ -327,5 +327,5 @@ For skill/workflow changes, also run:
 
 ```bash
 python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
-./bin/hushh codex audit
+./bin/hushh agents audit
 ```

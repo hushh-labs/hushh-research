@@ -2244,3 +2244,189 @@ def test_legacy_erasure_acceptance_settles_only_kept_identities(database_url):
         legacy.assert_guard_bypass_controls(conn)
         legacy.assert_replay_and_late_settlement(conn)
         legacy.assert_privileges(conn)
+
+
+async def test_isolated_firebase_erasure_survives_lost_ack_and_database_rollback(
+    database_url, monkeypatch
+):
+    """Real SQL fences authority/leases; native absence survives a later DB rollback."""
+    from types import SimpleNamespace
+
+    import psycopg2
+
+    from hushh_mcp.services import account_deletion_firebase_erasure as firebase_erasure
+    from tests.helpers import legacy_generation_rehearsal as legacy
+
+    with legacy.legacy_database(database_url) as conn:
+        legacy.seed_legacy_history(conn)
+        legacy.apply(conn, legacy.CANONICAL)
+        from db.firebase_erasure_adoption import installation_sql, qualification_sql, replay_sql
+        from db.migration_authority import build_manifest_entries
+
+        (entry,) = build_manifest_entries(
+            ROOT / "db/migrations/parked", ["987_account_firebase_erasure.sql"]
+        )
+        legacy.run(conn, installation_sql(entry))
+        legacy.run(conn, installation_sql(entry))
+        for predecessor in build_manifest_entries(
+            ROOT / "db/migrations",
+            [
+                "418_account_provider_cleanup_staging.sql",
+                "419_account_generations.sql",
+                legacy.CANONICAL,
+            ],
+        ):
+            legacy.run(conn, replay_sql(predecessor))
+        legacy.run(conn, qualification_sql(required=True))
+        engine = create_engine(database_url.replace("/postgres?", f"/{conn.info.dbname}?"))
+        monkeypatch.setattr(journal, "get_db_connection", engine.begin)
+        monkeypatch.setattr(firebase_erasure, "get_db_connection", engine.begin)
+        monkeypatch.setattr(
+            firebase_erasure,
+            "get_firebase_credential_settings",
+            lambda: SimpleNamespace(auth_project_id="hushh-pda-dev"),
+        )
+        monkeypatch.setattr(
+            firebase_erasure, "get_app_runtime_settings", lambda: SimpleNamespace(environment="dev")
+        )
+        owner = "synthetic-isolated-erasure"
+        legacy.run(conn, "INSERT INTO actor_profiles(user_id) VALUES(%s)", (owner,))
+        legacy.run(conn, "INSERT INTO vault_keys(user_id) VALUES(%s)", (owner,))
+        try:
+            with engine.begin() as tx:
+                lifecycle.AccountDeletionLifecycleService.prepare_provider_cleanup_in_transaction(
+                    tx,
+                    user_id=owner,
+                    firebase_uid=owner,
+                    table_exists=account.AccountService()._table_exists,
+                )
+            (claim,) = journal.claim_due(limit=1)
+            assert claim.firebase_erasure_authority["projectId"] == "hushh-pda-dev"
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+                legacy.run(
+                    conn,
+                    "UPDATE account_deletion_tombstones SET firebase_erasure_authority=jsonb_set(firebase_erasure_authority,'{projectId}','\"hushh-pda\"') WHERE user_id_hash=%s",
+                    (legacy.digest(owner),),
+                )
+            with pytest.raises(Exception, match="Firebase erasure has not settled"):
+                with engine.begin() as tx:
+                    journal.begin_local_erasure(tx, claim)
+            with pytest.raises(journal.ProviderCleanupClaimLost):
+                firebase_erasure._checkpoint(replace(claim, claim_token=str(uuid4())))
+
+            app = SimpleNamespace(project_id="hushh-pda-dev")
+            monkeypatch.setattr(firebase_erasure, "get_firebase_auth_app", lambda: app)
+            monkeypatch.setattr(
+                firebase_erasure, "assert_firebase_identity_mutation_allowed", lambda _app: None
+            )
+            native = {"present": True, "deletes": 0}
+            user = SimpleNamespace(
+                uid=owner, user_metadata=SimpleNamespace(creation_timestamp=1000)
+            )
+            monkeypatch.setattr(
+                firebase_erasure, "_read_identity", lambda *_: user if native["present"] else None
+            )
+
+            def lost_ack(*_):
+                native["deletes"] += 1
+                raise TimeoutError("synthetic lost acknowledgement")
+
+            monkeypatch.setattr(firebase_erasure, "_delete_once", lost_ack)
+            with pytest.raises(journal.ProviderCleanupNotReady, match="native reconciliation"):
+                await firebase_erasure.ensure_identity_absent(claim)
+            assert firebase_erasure._checkpoint(claim)["state"] == "dispatched"
+            with pytest.raises(journal.ProviderCleanupNotReady, match="native reconciliation"):
+                await firebase_erasure.ensure_identity_absent(claim)
+            assert native["deletes"] == 1
+            # The original request settles later. Resumption observes absence;
+            # it cannot infer a failed request or send a second deletion.
+            native["present"] = False
+            await firebase_erasure.ensure_identity_absent(claim)
+            assert native["deletes"] == 1
+            assert firebase_erasure._checkpoint(claim)["state"] == "absent"
+            with pytest.raises(RuntimeError, match="synthetic rollback"):
+                with engine.begin() as tx:
+                    journal.begin_local_erasure(tx, claim)
+                    raise RuntimeError("synthetic rollback after native deletion")
+            assert (
+                legacy.run(
+                    conn,
+                    "SELECT erasure_phase FROM account_deletion_tombstones WHERE user_id_hash=%s",
+                    (legacy.digest(owner),),
+                )[0]["erasure_phase"]
+                == "provider_cleanup"
+            )
+            await firebase_erasure.ensure_identity_absent(claim)
+            assert native["deletes"] == 1
+            with engine.begin() as tx:
+                journal.begin_local_erasure(tx, claim)
+                tx.execute(
+                    text("DELETE FROM actor_profiles WHERE user_id=:owner"), {"owner": owner}
+                )
+                tx.execute(text("DELETE FROM vault_keys WHERE user_id=:owner"), {"owner": owner})
+                journal.settle_local_erasure(tx, claim)
+            result = legacy.run(
+                conn,
+                "SELECT cleanup_status,cleanup_last_outcome,firebase_uid,account_owner_id FROM account_deletion_tombstones WHERE user_id_hash=%s",
+                (legacy.digest(owner),),
+            )[0]
+            assert result == {
+                "cleanup_status": "completed",
+                "cleanup_last_outcome": "deleted",
+                "firebase_uid": None,
+                "account_owner_id": None,
+            }
+            assert legacy.generation(conn, owner)["cleanup_confirmed"] is True
+            assert (
+                "hussh.account_legacy_settlement"
+                in legacy.run(
+                    conn,
+                    "SELECT pg_get_functiondef('guard_account_generation_history()'::regprocedure) AS definition",
+                )[0]["definition"]
+            )
+            # Historical phone receipts cannot inherit the new project. Fresh
+            # phone receipts pin it even though they have no provider-stage plan.
+            phone_digest = "hmac-sha256:" + "d" * 64
+            historical = "synthetic-historical-phone"
+            legacy.run(
+                conn,
+                """INSERT INTO account_deletion_tombstones
+                (user_id_hash,firebase_uid,cleanup_intent_kind,expected_phone_digest)
+                VALUES(%s,%s,'phone_orphan',%s)""",
+                (legacy.digest(historical), historical, phone_digest),
+            )
+            assert firebase_erasure.phone_intent_project(historical, phone_digest) is None
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+                legacy.run(
+                    conn,
+                    "UPDATE account_deletion_tombstones SET firebase_cleanup_project='hushh-pda-dev' WHERE user_id_hash=%s",
+                    (legacy.digest(historical),),
+                )
+            with engine.begin() as tx:
+                assert lifecycle.AccountDeletionLifecycleService._insert_pending_in_transaction(
+                    tx,
+                    user_ids=("synthetic-fresh-phone",),
+                    intent_kind="phone_orphan",
+                    expected_phone_digest=phone_digest,
+                )
+            assert (
+                firebase_erasure.phone_intent_project("synthetic-fresh-phone", phone_digest)
+                == "hushh-pda-dev"
+            )
+            assert (
+                firebase_erasure.phone_intent_project(
+                    "synthetic-fresh-phone", "hmac-sha256:" + "e" * 64
+                )
+                is None
+            )
+            with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="forward recovery"):
+                legacy.run(
+                    conn,
+                    (
+                        ROOT / "db/migrations/rollback/987_account_firebase_erasure.rollback.sql"
+                    ).read_text(),
+                )
+            legacy.run(conn, "ROLLBACK")
+            legacy.run(conn, qualification_sql(required=True))
+        finally:
+            engine.dispose()

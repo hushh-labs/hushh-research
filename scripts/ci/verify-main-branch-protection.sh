@@ -105,6 +105,12 @@ expected_queue_bypass_team_name = str(branch_policy.get("merge_queue_bypass_team
 expected_queue_bypass_team_slug = str(branch_policy.get("merge_queue_bypass_team_slug") or "").strip()
 expected_queue_ruleset_name = str(branch_policy.get("merge_queue_ruleset_name") or "").strip()
 expected_allow_auto_merge = repository_policy.get("allow_auto_merge")
+native_team_authority = bool(policy.get("authorization", {}).get("native_teams"))
+if native_team_authority:
+    expected_bypass = []
+    expected_bypass_team_slug = "pipeline-editors"
+    expected_queue_bypass_team_slug = "pipeline-editors"
+    expected_queue_bypass_team_name = "pipeline-editors"
 repo_data = json.loads(os.environ["REPO_JSON"])
 data = json.loads(os.environ["PROTECTION_JSON"])
 rulesets = json.loads(os.environ["RULESETS_JSON"])
@@ -134,7 +140,7 @@ if branch_flow.get("review_rulesets", {}).get(branch):
         "require_last_push_approval": params["require_last_push_approval"],
         "require_code_owner_reviews": params["require_code_owner_review"],
         "bypass_pull_request_allowances": {
-            "users": [{"login": login} for login in expected_bypass], "teams": [], "apps": [],
+            "users": [{"login": login} for login in expected_bypass], "teams": [{"slug": "pipeline-editors"}] if native_team_authority else [], "apps": [],
         },
     }
 
@@ -148,12 +154,16 @@ if native_prepared:
                                         capture_output=True, text=True).stdout)
     module.reconcile_protected_pipeline_review(policy, verify_only=True, read=read_prepared)
     module.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read_prepared, repo=repo)
+    if branch == "uat-isolated":
+        from prepared_branch_governance import _same_protection, protection_payload
+        if not _same_protection(data, protection_payload(branch_policy)):
+            raise SystemExit("Isolated classic protection differs from the exact authored policy")
     # Source equality gates Stage B activation in the mutation owner. Requiring
     # it here would prevent the verified source-sync PR from landing.
-    expected_owner_actors = [
+    expected_owner_actors = ([module.pipeline_team_actor(read_prepared)] if native_team_authority else [
         {"actor_id": read_prepared(["api", f"users/{login}"])["id"], "actor_type": "User", "bypass_mode": "pull_request"}
         for login in sorted(branch_policy["merge_queue_bypass_users"])
-    ]
+    ])
 
 checks = []
 checks.extend(data.get("required_status_checks", {}).get("contexts", []))

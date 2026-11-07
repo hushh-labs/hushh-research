@@ -1,6 +1,8 @@
 import { mock, clock, research, advance } from "../fixtures/world-model-page-harness";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
+import { AuthService } from "@/lib/services/auth-service";
 import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
@@ -9,6 +11,11 @@ import { WorldModelFactSheet, type WorldModelDraftFact } from "@/components/prof
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 
 import { source, offered, memoryOf, claim, pending, progressOf, provisionalFact } from "../fixtures/world-model-review";
+
+afterEach(() => {
+  publishValidatedAuthSessionPrincipal(null);
+  vi.restoreAllMocks();
+});
 
 it("does not let a retained World Model detail consume another Profile page’s Back", () => {
   const close = vi.fn();
@@ -794,6 +801,11 @@ describe("Personal World Model page", () => {
       emailVerified: true,
     };
     mock.auth.phoneNumber = "+14155550123";
+    mock.auth.phoneNumberStatus = "verified";
+    publishValidatedAuthSessionPrincipal({ ownerId: "owner-a", firebaseUid: "owner-a", accountGeneration: 0 });
+    vi.spyOn(AuthService, "reloadPhoneVerificationUser").mockResolvedValue({
+      uid: "owner-a", phoneNumber: mock.auth.phoneNumber,
+    } as NonNullable<Awaited<ReturnType<typeof AuthService.reloadPhoneVerificationUser>>>);
     research(pending);
     render(<PersonalWorldModelPage embedded />);
 
@@ -801,7 +813,7 @@ describe("Personal World Model page", () => {
     expect(name).toHaveTextContent("Alice Example");
     // The card says which verified details research pivots on, and its
     // landmark carries the same name.
-    expect(screen.getByText("Using your name, email and phone")).toBeInTheDocument();
+    expect(await screen.findByText("Using your name, email and phone")).toBeInTheDocument();
     expect(
       screen.getByRole("region", { name: "Using your name, email and phone" }),
     ).toContainElement(name);

@@ -57,6 +57,8 @@ Non-owned surfaces:
 
 Review against the author's intended protected destination: Dev for integration,
 UAT for a selected candidate, and Main for production-baseline or operations work.
+Ordinary contributors use Dev intake; governed maintainers may propose PRs
+directly into `main` by actor identity under the separate Main checks.
 UAT can qualify directly without prior Dev deployment. Existing train campaigns
 retain their declared purpose; do not retarget ordinary PRs to a train branch.
 Required current checks, exact combined-result validation, applicable team review
@@ -89,6 +91,6 @@ python3 .agents/skills/agent-orchestration-governance/scripts/agent_router_smoke
 python3 .agents/skills/pr-governance-review/scripts/build_runtime_schematics.py --text
 python3 .agents/skills/pr-governance-review/scripts/pr_review_checklist.py --repo hushh-labs/hushh-research --live-report --scan-mode hybrid --selection-order oldest --limit 100 --candidate-limit 40 --text --output tmp/pr-governance-live-report.md
 python3 .agents/skills/pr-governance-review/scripts/test_contributor_impact_report.py
-./bin/hushh codex audit --text
+./bin/hushh agents audit --text
 ./bin/hushh docs verify
 ```

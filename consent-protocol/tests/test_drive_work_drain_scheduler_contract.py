@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -264,9 +265,9 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--no-allow-unauthenticated" in release
     assert "--depends-on=clamav" in release
     assert "--startup-probe=tcpSocket.port=3310" in release
-    assert "--max-instances=2 --min-instances=0" in release
+    assert '--max-instances="${WORKER_INSTANCES}" --min-instances=0' in release
     # The candidate attestation holds the revision to the budgeted scale.
-    assert "EXPECTED_MAX_INSTANCES=2 EXPECTED_CONCURRENCY=1" in release
+    assert 'EXPECTED_MAX_INSTANCES="${WORKER_INSTANCES}" EXPECTED_CONCURRENCY=1' in release
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
@@ -517,6 +518,68 @@ def test_scheduler_capture_rejects_malformed_or_wrong_identity(
     assert not output.exists()
 
 
+def _rehearse_selected_profile_overlay(workspace, temporary, selected, environment):
+    """Execute the authored Main preservation -> checkout -> overlay boundary."""
+    git_env = {
+        **environment,
+        "GIT_AUTHOR_NAME": "Fixture",
+        "GIT_COMMITTER_NAME": "Fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    }
+
+    def git(*arguments):
+        return subprocess.check_output(  # noqa: S603 - fixed commands in a disposable synthetic Git repository
+            ["git", "-c", "core.hooksPath=/dev/null", *arguments],
+            cwd=workspace,
+            env=git_env,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).strip()
+
+    git("init", "-q")
+    git("add", "config/runtime-capacity.json")
+    git("commit", "-qm", "selected application")
+    target = git("rev-parse", "HEAD")
+    trusted = json.loads((ROOT / "config/runtime-capacity.json").read_text())
+    trusted["environments"]["uat"]["services"]["consent-protocol-drive-worker"]["candidate"][
+        "max_instances"
+    ] = 4
+    (workspace / "config/runtime-capacity.json").write_text(json.dumps(trusted))
+    git("add", "config/runtime-capacity.json")
+    git("commit", "--allow-empty", "-qm", "reviewed Main policy")
+    steps = yaml.safe_load(UAT_WORKFLOW.read_text())["jobs"]["deploy"]["steps"]
+    preserve = next(
+        step["run"] for step in steps if step.get("name") == "Preserve current release tooling"
+    )
+    block = preserve.split('"${RUNNER_TEMP}/release-tools/account-deletion/"\n', 1)[1].split(
+        "cp scripts/ops/verify_passkey_domain_associations.py", 1
+    )[0]
+    block = block.replace("${{ needs.wait-capacity.outputs.scope }}", "backend").replace(
+        "${{ steps.resolve-sha.outputs.sha }}", target
+    )
+    (temporary / "release-tools").mkdir()
+    env = {**git_env, "RUNNER_TEMP": str(temporary)}
+    subprocess.run(  # noqa: S603 - authored workflow fragment, fake cloud transport, no release credentials
+        ["bash", "-euc", block], cwd=workspace, env=env, check=True, capture_output=True
+    )
+    git("checkout", "--detach", target)
+    checkout = next(step["run"] for step in steps if step.get("name") == "Checkout deployment SHA")
+    overlay = re.search(
+        r'cp "\$\{RUNNER_TEMP\}/release-tools/runtime-capacity.json" \\\n\s+config/runtime-capacity.json',
+        checkout,
+    )
+    assert overlay is not None
+    subprocess.run(  # noqa: S603 - exact authored profile-copy command in the synthetic workspace
+        ["bash", "-euc", overlay.group()], cwd=workspace, env=env, check=True, capture_output=True
+    )
+    expected = trusted
+    expected["environments"]["uat"]["services"]["consent-protocol-drive-worker"]["candidate"][
+        "max_instances"
+    ] = selected
+    assert json.loads((workspace / "config/runtime-capacity.json").read_text()) == expected
+
+
 @pytest.mark.parametrize(
     ("worker_state", "expect_no_traffic", "expect_deploy"),
     [
@@ -535,6 +598,7 @@ def test_scheduler_capture_rejects_malformed_or_wrong_identity(
         ("18446744073709551615", "d-3w5e11264sgsf"),
     ],
 )
+@pytest.mark.parametrize("worker_instances", [2, 4])
 def test_worker_deploy_traffic_flags_match_service_state(
     tmp_path: Path,
     worker_state: str,
@@ -542,8 +606,20 @@ def test_worker_deploy_traffic_flags_match_service_state(
     expect_deploy: bool,
     release_run_id: str,
     expected_tag: str,
+    worker_instances: int,
 ):
     """Exercise the real release script with a non-mutating gcloud stand-in."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    for directory in ("scripts", "deploy"):
+        (workspace / directory).symlink_to(ROOT / directory, target_is_directory=True)
+    (workspace / "config").mkdir()
+    profile = json.loads((ROOT / "config/runtime-capacity.json").read_text())
+    candidate = profile["environments"]["uat"]["services"]["consent-protocol-drive-worker"][
+        "candidate"
+    ]
+    candidate["max_instances"] = worker_instances
+    (workspace / "config/runtime-capacity.json").write_text(json.dumps(profile))
     fake_bin = tmp_path / "bin"
     write_worker_gcloud_fixture(fake_bin)
     call_log = tmp_path / "gcloud-calls.jsonl"
@@ -595,9 +671,11 @@ def test_worker_deploy_traffic_flags_match_service_state(
             "RELEASE_RUN_ID": release_run_id,
         }
     )
+    if worker_state == "absent" and release_run_id == "12345":
+        _rehearse_selected_profile_overlay(workspace, tmp_path, worker_instances, environment)
     result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
         ["bash", str(WORKER_RELEASE)],
-        cwd=ROOT,
+        cwd=workspace,
         env=environment,
         capture_output=True,
         check=False,
@@ -608,6 +686,10 @@ def test_worker_deploy_traffic_flags_match_service_state(
 
     assert result.returncode != 0  # The fake deploy intentionally stops before any GCP write.
     assert len(deploys) == int(expect_deploy), result.stderr
+    if worker_state == "existing":
+        restore = next(call for call in calls if call[:3] == ["run", "services", "update"])
+        assert "--min=2" in restore and "--max=2" in restore
+        assert "restoration could not be verified" not in result.stderr
     if expect_deploy:
         deploy = deploys[0]
         assert ("--no-traffic" in deploy) is expect_no_traffic
@@ -618,7 +700,7 @@ def test_worker_deploy_traffic_flags_match_service_state(
         assert "--container=drive-worker" in deploy
         assert "--container=clamav" in deploy
         # Scaling flags precede the first container, so they bind the service
-        # and revision. Both budgeted instances stay warm through the
+        # and revision. All budgeted instances stay warm through the
         # service-level floor; the revision keeps no floor and one request.
         first_container = deploy.index("--container=drive-worker")
         scaling = {
@@ -628,14 +710,14 @@ def test_worker_deploy_traffic_flags_match_service_state(
         }
         assert scaling == {
             "--concurrency": "1",
-            "--max-instances": "2",
+            "--max-instances": str(worker_instances),
             "--min-instances": "0",
-            "--max": "2",
-            "--min": "2",
+            "--max": str(worker_instances),
+            "--min": str(worker_instances),
         }
         # Pre-deploy admission reserves the profile's candidate, so the cap,
         # launcher workers and pools must equal it; the floor never exceeds it.
-        profile = json.loads((ROOT / "config" / "runtime-capacity.json").read_text())
+        profile = json.loads((workspace / "config/runtime-capacity.json").read_text())
         services = profile["environments"]["uat"]["services"]
         candidate = services["consent-protocol-drive-worker"]["candidate"]
         assert scaling["--max"] == scaling["--max-instances"] == str(candidate["max_instances"])
@@ -666,6 +748,53 @@ def test_worker_deploy_traffic_flags_match_service_state(
     if worker_state == "cancel_during_deploy":
         assert result.returncode == 143
         assert "Drive worker candidate failed" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "fault", ["missing", "project", "database", "container", "boolean", "pool"]
+)
+def test_worker_profile_refuses_before_cloud_calls(tmp_path, fault):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
+    (workspace / "config").mkdir()
+    profile = json.loads((ROOT / "config/runtime-capacity.json").read_text())
+    environment = profile["environments"]["uat"]
+    settings = environment["services"]["consent-protocol-drive-worker"]
+    if fault == "project":
+        environment["project"] = "another-project"
+    elif fault == "database":
+        environment["database_instance"] = "another-database"
+    elif fault == "container":
+        settings["container"] = "another-container"
+    elif fault == "boolean":
+        settings["candidate"]["max_instances"] = True
+    elif fault == "pool":
+        settings["candidate"]["asyncpg_pool_max"] = 3
+    if fault != "missing":
+        (workspace / "config/runtime-capacity.json").write_text(json.dumps(profile))
+    cloud_log = tmp_path / "cloud-calls"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    cloud = fake_bin / "gcloud"
+    cloud.write_text(f"#!/bin/sh\nprintf called >> '{cloud_log}'\nexit 99\n")
+    cloud.chmod(0o700)
+    result = subprocess.run(  # noqa: S603 - fixed release script and isolated synthetic profile
+        ["bash", str(WORKER_RELEASE)],
+        cwd=workspace,
+        env={**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert not cloud_log.exists()
+    expected = {
+        "missing": "runtime-capacity.json",
+        "boolean": "max instances",
+        "pool": "launcher and pools",
+    }.get(fault, "another workload")
+    assert expected in result.stderr
 
 
 def test_uat_sandbox_connect_does_not_change_live_checkout_binding():

@@ -37,6 +37,7 @@ import ast
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from runpy import run_path
@@ -98,6 +99,26 @@ def _read(relative: str) -> str:
     return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
+def _deploy_workflow_source(relative: str) -> str:
+    """Follow Dev/UAT's reviewed Main implementation; never fall back to defaults."""
+    source = _read(relative)
+    if relative not in {".github/workflows/deploy-dev.yml", ".github/workflows/deploy-uat.yml"}:
+        return source
+    caller = Path(relative)
+    jobs = yaml.safe_load(source).get("jobs", {})
+    expected = f"hushh-labs/hushh-research/.github/workflows/{caller.stem}-implementation.yml@main"
+    assert jobs and all(
+        isinstance(job, dict) and job.get("uses") == expected and "steps" not in job
+        for job in jobs.values()
+    ), (
+        f"{relative}: expected only its canonical Main-owned reusable deployment, got ambiguous authority"
+    )
+    implementation = _read(f".github/workflows/{caller.stem}-implementation.yml")
+    triggers = yaml.safe_load(implementation).get(True, {})
+    assert "workflow_call" in triggers, f"{relative}: implementation is not reusable"
+    return implementation
+
+
 def _template_defaults() -> dict[str, str]:
     substitutions = yaml.safe_load(TEMPLATE.read_text(encoding="utf-8"))["substitutions"]
     return {key: str(value) for key, value in substitutions.items()}
@@ -126,7 +147,7 @@ def _deploy_path_values(deploy_path: dict[str, str]) -> dict[str, str]:
     if "branch" in deploy_path:
         declared = _release_script_branch(text, deploy_path["branch"])
     else:
-        declared = _substitutions_from_line(text, relative)
+        declared = _substitutions_from_line(_deploy_workflow_source(relative), relative)
     return {**_template_defaults(), **declared}
 
 
@@ -208,9 +229,20 @@ def _companion_fleet(relative: str) -> Fleet:
         _single_int(rf"\b{key}=(\d+)", text, relative)
         for key in ("DB_POOL_MAX_SIZE", "DB_SQLALCHEMY_POOL_SIZE", "DB_SQLALCHEMY_MAX_OVERFLOW")
     )
+    if relative == "deploy/drive/deploy_worker_service.sh":
+        assert text.count('--max-instances="${WORKER_INSTANCES}"') == 1
+        service = "consent-protocol-drive-worker"
+        profile = json.loads(_read("config/runtime-capacity.json"))
+        settings = profile["environments"]["uat"]["services"][service]
+        candidate_connections = run_path(str(REPO_ROOT / "scripts/ci/runtime-capacity-budget.py"))[
+            "candidate_connections"
+        ]
+        max_instances = candidate_connections(service, settings)["max_instances"]
+    else:
+        max_instances = _single_int(r"--max-instances=(\d+)", text, relative)
     return Fleet(
         name=relative,
-        max_instances=_single_int(r"--max-instances=(\d+)", text, relative),
+        max_instances=max_instances,
         workers=_single_int(r",-w,(\d+),", text, relative),
         per_worker=pools,
     )
@@ -353,10 +385,76 @@ def test_limits_table_names_the_lane_database_and_its_source(lane_name) -> None:
     assert lane["external_reserve"]["connections"] >= 0
     assert lane["external_reserve"]["source"].strip()
     workflow = next(p["path"] for p in lane["deploy_paths"] if p["path"].startswith(".github/"))
-    assert lane["cloud_sql_instance"] in _read(workflow), (
+    assert lane["cloud_sql_instance"] in _deploy_workflow_source(workflow), (
         f"{workflow} no longer deploys against {lane['cloud_sql_instance']}; the limit recorded "
         "for that instance no longer describes this lane."
     )
+
+
+def test_connection_budget_reads_the_reusable_implementation_instead_of_template_defaults(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(sys.modules[__name__], "REPO_ROOT", tmp_path)
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "deploy-dev.yml").write_text("""jobs:
+  release:
+    uses: hushh-labs/hushh-research/.github/workflows/deploy-dev-implementation.yml@main
+  pod-publication:
+    uses: hushh-labs/hushh-research/.github/workflows/deploy-dev-implementation.yml@main
+""")
+    implementation = workflows / "deploy-dev-implementation.yml"
+    for pool in (6, 99):
+        implementation.write_text(f"""on:
+  workflow_call:
+jobs:
+  deploy:
+    steps:
+      - run: _BACKEND_SERVICE=synthetic,_DB_POOL_MAX_SIZE={pool}
+""")
+        assert _deploy_path_values({"path": ".github/workflows/deploy-dev.yml"})[
+            "_DB_POOL_MAX_SIZE"
+        ] == str(pool)
+
+
+@pytest.mark.parametrize(
+    "boundary",
+    [
+        "other_repository",
+        "other_ref",
+        "other_lane",
+        "mixed_steps",
+        "missing_implementation",
+        "injected_marker",
+        "not_reusable",
+    ],
+)
+def test_connection_budget_rejects_unverified_or_missing_workflow_authority(
+    tmp_path, monkeypatch, boundary
+):
+    monkeypatch.setattr(sys.modules[__name__], "REPO_ROOT", tmp_path)
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    target = "hushh-labs/hushh-research/.github/workflows/deploy-dev-implementation.yml@main"
+    if boundary in {"other_repository", "injected_marker"}:
+        target = target.replace("hushh-labs/hushh-research", "untrusted/other")
+    elif boundary == "other_ref":
+        target = target.replace("@main", "@dev")
+    elif boundary == "other_lane":
+        target = target.replace("deploy-dev-", "deploy-uat-")
+    job = {"uses": target}
+    if boundary == "mixed_steps":
+        job["steps"] = [{"run": "unverified deploy"}]
+    marker = (
+        "# _BACKEND_SERVICE=decoy,_DB_POOL_MAX_SIZE=0\n" if boundary == "injected_marker" else ""
+    )
+    (workflows / "deploy-dev.yml").write_text(marker + yaml.safe_dump({"jobs": {"release": job}}))
+    if boundary == "not_reusable":
+        (workflows / "deploy-dev-implementation.yml").write_text("on:\n  workflow_dispatch:\n")
+    with pytest.raises(
+        FileNotFoundError if boundary == "missing_implementation" else AssertionError
+    ):
+        _deploy_workflow_source(".github/workflows/deploy-dev.yml")
 
 
 def test_container_takes_its_worker_count_from_the_deploy() -> None:

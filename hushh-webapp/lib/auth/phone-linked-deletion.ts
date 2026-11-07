@@ -11,6 +11,7 @@ export type LinkedDeletionPorts = {
   user: () => User | null;
   retained: () => RetainedProof;
   requireOwner: (uid: string, epoch: number) => void;
+  releaseProof: () => void;
   finalize: (user: User) => void;
 };
 
@@ -35,7 +36,7 @@ const MESSAGES: Record<string, string> = {
   PHONE_TRANSFER_IN_PROGRESS: "A phone transfer is still finishing. Verify this number again in a moment.",
   PHONE_LINKED_DELETION_SUPPORT_REQUIRED: "We couldn’t confirm the deletion. Check again, or contact one@hushh.ai.",
   PHONE_LINKED_DELETION_PREPARED: "Couldn’t reach One. Try again.",
-  PHONE_LINKED_CLAIM_REQUIRED: "The other account was deleted. Verify this number again to continue.",
+  PHONE_LINKED_CLAIM_REQUIRED: "Deletion requested. This number is not linked to your current account. Verify again, or use a different number.",
 };
 
 export function linkedDeletionNeedsFreshProof(code: string | null | undefined): boolean {
@@ -57,7 +58,7 @@ function linkedError(code: string): ApiError {
 
 const unsettled = (receipt: LinkedDeletionReceipt | null) => !receipt || ["pending", "action_required"].includes(receipt.state);
 
-/** Delete the holder with the proof already in hand, then claim the number through existing routes. */
+/** Admit deletion with the holder's proof; linking still requires the receiving owner's proof. */
 export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: LinkedDeletionPorts): Promise<User> {
   const user = ports.user();
   if (!user) throw new Error("Sign in before verifying a phone number.");
@@ -88,8 +89,16 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   if (!deleted && receipt!.code !== "PHONE_LINKED_ACCOUNT_NOT_FOUND") {
     throw linkedError(receipt!.code ?? `PHONE_LINKED_DELETION_${receipt!.state.toUpperCase()}`);
   }
+  // Admission is not erasure or phone release. The consumed SMS proof belongs
+  // to the previous UID and cannot authorize the ordinary same-owner writer.
+  if (!input.testCode) {
+    if (!current()) throw new Error("Your account changed. Sign in again.");
+    ports.requireOwner(retained!.userId, retained!.epoch);
+    ports.releaseProof();
+    throw linkedError(deleted ? "PHONE_LINKED_CLAIM_REQUIRED" : "PHONE_LINKED_DELETION_FRESH_SMS_REQUIRED");
+  }
   try {
-    await claimNumber(user, input.phoneNumber, proof);
+    await claimNumber(user, input.phoneNumber, input.testCode);
   } catch (error) {
     if (!current()) throw error;
     throw linkedError(deleted ? "PHONE_LINKED_CLAIM_REQUIRED" : "PHONE_LINKED_ACCOUNT_CHANGED");
@@ -99,16 +108,11 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   return user;
 }
 
-async function claimNumber(user: User, phone: string, proof: LinkedDeletionProof): Promise<void> {
-  let identity;
-  if (proof.test_code) {
-    const start = await AccountIdentityService.startUatTestPhoneVerification(user, phone);
-    requireUsablePhoneTestStart(start);
-    if (!start?.eligible || !start.verification_id) throw new Error("Phone verification is unavailable.");
-    identity = await AccountIdentityService.confirmUatTestPhoneVerification(user,
-      { phoneNumber: phone, verificationCode: proof.test_code, verificationId: start.verification_id });
-  } else {
-    identity = await AccountIdentityService.claimCurrentUserPhone(user, proof.phone_id_token!);
-  }
+async function claimNumber(user: User, phone: string, testCode: string): Promise<void> {
+  const start = await AccountIdentityService.startUatTestPhoneVerification(user, phone);
+  requireUsablePhoneTestStart(start);
+  if (!start?.eligible || !start.verification_id) throw new Error("Phone verification is unavailable.");
+  const identity = await AccountIdentityService.confirmUatTestPhoneVerification(user,
+    { phoneNumber: phone, verificationCode: testCode, verificationId: start.verification_id });
   if (!AccountIdentityService.hasVerifiedPhone(identity)) throw new Error("Phone verification could not be completed.");
 }

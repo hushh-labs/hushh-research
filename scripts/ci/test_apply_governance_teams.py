@@ -123,7 +123,17 @@ def test_codeowners_use_the_protected_team_for_every_protected_path(module):
 
 
 def _policy() -> dict:
-    return json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
+    policy = json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
+    policy.pop("authorization", None)  # Retained historical rollout fixtures.
+    return policy
+
+
+def test_governance_apply_never_overwrites_authoritative_team_members(module) -> None:
+    from unittest.mock import patch
+    with patch.object(module, "gh", side_effect=AssertionError("roster mutation")), \
+         patch.object(module, "gh_json", side_effect=AssertionError("roster mutation")):
+        assert module.sync_managed_teams(_policy(), apply=False) is False
+        assert module.sync_managed_teams(_policy(), apply=True) is False
 
 
 def test_every_managed_team_selects_from_the_committed_policy(module) -> None:
@@ -189,70 +199,12 @@ def test_the_privilege_rings_nest(module) -> None:
         )
 
 
-def test_members_are_mirrored_at_the_member_role(module) -> None:
-    """role=maintainer would let any member grant the team's capability onward.
-
-    allowed-maintainers-to-approve sits in main's branch-protection bypass_teams,
-    and a GitHub team maintainer can add members to their own team. At that role
-    any member could hand a newcomer review bypass on main with no PR, no review
-    and no trace here, bypassing protected_pipeline_edit_users entirely.
-    """
-    assert module.TEAM_MEMBER_ROLE == "member"
-
-
 def test_the_maintainer_set_is_the_union_of_both_governed_branches(module) -> None:
     policy = _policy()
     maintainers = set(module.MANAGED_TEAMS[0]["select"](policy))
     for key in ("main", "pr_train"):
         assert set(policy[key]["review_bypass_users"]) <= maintainers
         assert set(policy[key]["merge_queue_bypass_users"]) <= maintainers
-
-
-def test_org_owners_are_never_demoted(module) -> None:
-    """An org owner must not appear in the demotion set, or the sync never converges.
-
-    GitHub reports an organization owner as a maintainer of every team they are in
-    and refuses to demote them there. Attempting it anyway made apply-governance
-    print a demotion plan on every run forever -- a governance tool that always
-    claims drift is one people learn to scroll past, which is precisely how the
-    UAT cohort stayed wrong in the advisory lane. Excluding owners costs nothing:
-    they can edit branch protection and team membership directly regardless.
-    """
-    calls = {"role_lookups": []}
-
-    def fake_gh(args, check=True):  # team_exists -> exists
-        return 0, "", ""
-
-    def fake_gh_json(args):
-        joined = " ".join(args)
-        # Order matters: "/members" is a substring of "/memberships/".
-        if "/memberships/" in joined:
-            login = joined.rsplit("/", 1)[-1]
-            calls["role_lookups"].append(login)
-            return {"role": "maintainer"}
-        if "/members" in joined:
-            return [{"login": "owner-person"}, {"login": "regular-person"}]
-        return []
-
-    original = (module.gh, module.gh_json, module.organization_owners)
-    try:
-        module.gh, module.gh_json = fake_gh, fake_gh_json
-        module.organization_owners = lambda: {"owner-person"}
-        changed = module.apply_team_membership(
-            "some-team", ["owner-person", "regular-person"], apply=False
-        )
-    finally:
-        module.gh, module.gh_json, module.organization_owners = original
-
-    assert "owner-person" not in calls["role_lookups"], (
-        "an org owner's team role was inspected for demotion; GitHub will never "
-        "let it change, so the sync would report drift on every run"
-    )
-    assert "regular-person" in calls["role_lookups"], (
-        "a non-owner at role=maintainer must still be demoted -- that is the "
-        "grant path this closes"
-    )
-    assert changed is True
 
 
 def test_review_team_drift_is_repaired_without_changing_other_settings(module) -> None:
@@ -1136,6 +1088,100 @@ def _native_review_fixture(module):
     return policy, state, read, write, create
 
 
+
+def test_native_team_transition_preserves_controls_and_refuses_foreign_authority(module):
+    import copy
+    import prepared_branch_governance as prepared
+    from unittest.mock import patch
+
+    previous = _policy()
+    policy = copy.deepcopy(previous)
+    policy["authorization"] = {"native_teams": True}
+    people = sorted(module.MANAGED_TEAMS[0]["select"](previous))
+    editors = previous["main"]["protected_pipeline_edit_users"]
+    states, writes = {}, []
+    inventory = []
+    def read(args):
+        path = args[1]
+        if path == "user": return {"type": "User", "login": editors[0]}
+        if path.endswith("/members?per_page=100"):
+            return [{"type": "User", "login": login} for login in editors]
+        if path.endswith("/permission"): return {"permission": "admin"}
+        if path == f"orgs/{module.ORG}/teams/pipeline-editors":
+            return {"id": 42, "slug": "pipeline-editors"}
+        if path.startswith("users/"):
+            login = path.rsplit("/", 1)[-1]
+            return {"login": login, "id": people.index(login) + 10, "type": "User"}
+        if path.endswith("/rulesets?per_page=100"): return copy.deepcopy(inventory)
+        return copy.deepcopy(states[path])
+    def install(rule):
+        identifier = len(inventory) + 1
+        inventory.append({"id": identifier, "name": rule["name"]})
+        states[f"repos/{module.REPO}/rulesets/{identifier}"] = {**rule, "id": identifier}
+    install(module.main_review_ruleset(previous, read=read))
+    for branch in ("main", "dev", "uat", "uat-isolated"):
+        install(module.main_owner_admin_ruleset(previous, read=read, branch=branch))
+        lane = previous["main"] if branch == "main" else prepared.branch_policy(previous, branch)
+        name = (previous["main"]["merge_queue_ruleset_name"] if branch == "main" else
+                previous["branch_flow"]["prepared_branches"][branch]["merge_queue_ruleset_name"])
+        install({"name": name, "target": "branch", "enforcement": "active",
+                 "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
+                 "rules": [{"type": "merge_queue", "parameters": {"check_response_timeout_minutes": 120}}],
+                 "bypass_actors": [{"actor_id": people.index(login) + 10,
+                     "actor_type": "User", "bypass_mode": "pull_request"} for login in lane["merge_queue_bypass_users"]]})
+        if branch != "main":
+            review = prepared.protection_payload(lane)["required_pull_request_reviews"]
+            review["bypass_pull_request_allowances"]["users"] = [
+                {"login": login} for login in review["bypass_pull_request_allowances"]["users"]]
+            review["bypass_pull_request_allowances"]["teams"] = []
+            states[f"repos/{module.REPO}/branches/{branch}/protection/required_pull_request_reviews"] = review
+    before = copy.deepcopy(states)
+    def write(path, body, method):
+        assert "memberships" not in path and method in {"PUT", "PATCH"}
+        writes.append(path)
+        value = copy.deepcopy(body)
+        if method == "PATCH":
+            value["bypass_pull_request_allowances"]["teams"] = [
+                {"slug": slug} for slug in value["bypass_pull_request_allowances"]["teams"]]
+        states[path] = value
+    with patch.object(prepared, "_write", side_effect=write):
+        assert all(row["changed"] for row in module.transition_native_teams(policy, previous, read=read))
+        assert not writes
+        assert len(module.transition_native_teams(policy, previous, read=read, apply=True)) == 12
+        assert len(writes) == 12
+        for path, old in before.items():
+            if "/rulesets/" in path:
+                assert all(states[path][key] == old[key] for key in ("rules", "conditions", "enforcement"))
+            else:
+                assert all(states[path][key] == old[key] for key in old if key != "bypass_pull_request_allowances")
+        assert not any(row["changed"] for row in module.transition_native_teams(policy, previous, read=read, apply=True))
+        states.clear(); states.update(copy.deepcopy(before)); writes.clear()
+        target = next(path for path, row in states.items() if row.get("name") == previous["main"]["merge_queue_ruleset_name"])
+        states[target]["bypass_actors"] = [{"actor_type": "RepositoryRole", "actor_id": 5, "bypass_mode": "always"}]
+        try:
+            module.transition_native_teams(policy, previous, read=read, apply=True)
+        except SystemExit as error:
+            assert "unknown queue exception" in str(error)
+        else:
+            raise AssertionError("Foreign native authority was replaced")
+        assert not writes
+
+
+def test_team_native_authority_has_no_personal_bypass_or_strict_guard_exception(module):
+    policy, state, read, _, _ = _native_review_fixture(module)
+    policy["authorization"] = {"native_teams": True}
+    expected = [{"actor_id": 42, "actor_type": "Team", "bypass_mode": "pull_request"}]
+    assert module.main_review_ruleset(policy, read=read)["bypass_actors"] == expected
+    for branch in ("main", "dev", "uat", "uat-isolated"):
+        assert module.main_owner_admin_ruleset(policy, read=read, branch=branch)["bypass_actors"] == []
+    for rule in module.protected_pipeline_review_rulesets(policy, read=read):
+        assert rule["bypass_actors"] == expected
+    from prepared_branch_governance import branch_policy, protection_payload
+    payload = protection_payload(branch_policy(policy, "dev"))
+    assert payload["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
+        "users": [], "teams": ["pipeline-editors"], "apps": []}
+
+
 def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     import os
     import subprocess
@@ -1145,7 +1191,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     desired_rules = module.protected_pipeline_review_rulesets(policy, read=read)
     desired = desired_rules[0]
     assert [item["name"] for item in desired_rules] == ["protected pipeline review 1", "protected pipeline review 2", "protected pipeline review 3", "protected pipeline review inherited 1", "protected pipeline review inherited 2", "protected pipeline review inherited 3"]
-    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, 7, 15, 15, 7]
+    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, len(policy["main"]["protected_pipeline_paths"]) - 30] * 2
     patterns = [pattern for item in desired_rules[:2] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]]
     assert patterns == sorted({"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][:30]})
     assert len(patterns) == len(set(patterns)) == 30
@@ -1156,16 +1202,14 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     assert desired_rules[3]["conditions"]["ref_name"]["include"] == ["refs/heads/integration/pr-train", "refs/heads/uat-isolated"]
     assert desired["conditions"]["ref_name"]["include"] == ["refs/heads/main", "refs/heads/dev", "refs/heads/uat"]
     assert desired["bypass_actors"] == [
-        {"actor_id": policy["main"]["protected_pipeline_edit_users"].index(owner) + 10,
-         "actor_type": "User", "bypass_mode": "pull_request"}
-        for owner in sorted(policy["main"]["protected_pipeline_edit_users"])
+        {"actor_id": 42, "actor_type": "Team", "bypass_mode": "pull_request"}
     ]
     rule = desired["rules"][0]["parameters"]
     assert rule["dismiss_stale_reviews_on_push"] is True
     assert rule["required_approving_review_count"] == 0 and rule["require_code_owner_review"] is False
     reviewer = rule["required_reviewers"][0]
     assert reviewer["minimum_approvals"] == 1 and reviewer["reviewer"] == {"id": 42, "type": "Team"}
-    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md"]
+    positive = [".github/workflows/check.yml", ".github/workflows/nested/check.yml", "scripts/ci/guard.py", "scripts/ci/nested/guard.py", "AGENTS.md", ".agents/config.toml", ".agents/config.json"]
     negative = [".GITHUB/workflows/check.yml", "scripts/CI/guard.py", "unrelated/scripts/ci/guard.py", "agents.md", "hushh-webapp/app/page.tsx"]
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     with tempfile.TemporaryDirectory(prefix="native-review-patterns-") as scratch:
@@ -1355,11 +1399,12 @@ def test_native_review_partial_resume_rolls_back_only_new_partition(module) -> N
 
 
 def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module) -> None:
+    import base64
     import copy
     import prepared_branch_governance as prepared
     from unittest.mock import patch
 
-    for branch in ("dev", "uat"):
+    for branch in ("dev", "uat", "uat-isolated"):
         for fault in (None, "reordered", "duplicate_actor", "bad_actor_mode", "missing_native", "changed_queue", "changed_protection", "bad_guard", "unknown_bypass", "stale_authority", "main_advanced"):
             policy, state, base_read, _, _ = _native_review_fixture(module)
             state["grant"] = "push"
@@ -1409,6 +1454,11 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                     return {"object": {"type": "commit", "sha": sha * 40}}
                 if "/contents/" in path:
                     filename = path.split("/contents/", 1)[1].split("?ref=", 1)[0]
+                    if branch == "uat-isolated":
+                        assert filename == "config/ci-governance.json" and not path.endswith("b" * 40)
+                        document = {} if fault == "stale_authority" else policy
+                        return {"path": filename, "encoding": "base64",
+                                "content": base64.b64encode(json.dumps(document).encode()).decode()}
                     stale = fault == "stale_authority" and path.endswith("b" * 40)
                     return {"path": filename, "type": "file", "sha": ("e" if stale else "d") * 40}
                 return base_read(args)
@@ -1441,7 +1491,7 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                 elif path.endswith(f"/branches/{branch}/protection"):
                     assert guard_created
                     assert all(actor["actor_type"] == "User" for actor in state["rules"][20]["bypass_actors"])
-                    assert {actor["actor_id"] for actor in state["rules"][20]["bypass_actors"]} == {10, 11}
+                    assert {actor["actor_id"] for actor in state["rules"][20]["bypass_actors"]} == {10 + index for index in range(len(owners))}
                     state["protections"][branch] = observed(payload)
                 else:
                     raise AssertionError(path)
@@ -1452,6 +1502,11 @@ def test_prepared_native_review_orders_guards_and_preserves_peer_changes(module)
                 if fault in (None, "reordered"):
                     prepared.reconcile(policy, [branch], repo=module.REPO, read=read, raw=raw, apply=True, governance=module)
                     assert prepared._same_protection(state["protections"][branch], prepared.protection_payload(prepared.branch_policy(policy, branch)))
+                    if branch == "uat-isolated":
+                        final = state["protections"][branch]
+                        assert final["required_status_checks"] == baseline["required_status_checks"]
+                        for key in ("required_approving_review_count", "require_code_owner_reviews", "require_last_push_approval"):
+                            assert final["required_pull_request_reviews"][key] == baseline["required_pull_request_reviews"][key]
                     assert [method for _, _, method in state["writes"]] == ["POST", "PUT", "PUT"]
                     if fault == "reordered":
                         state["writes"].clear()
@@ -1476,7 +1531,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
     import tempfile
     import prepared_branch_governance as prepared
 
-    for branch in ("dev", "uat"):
+    for branch in ("dev", "uat", "uat-isolated"):
         policy, _, _, _, _ = _native_review_fixture(module)
         owners = policy["main"]["protected_pipeline_edit_users"]
         cohort = policy["pr_train"]["review_bypass_users"]
@@ -1507,7 +1562,7 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
         for key in ("enforce_admins", "required_linear_history", "allow_force_pushes", "allow_deletions", "required_conversation_resolution"):
             protection[key] = {"enabled": protection[key]}
         protection["required_pull_request_reviews"]["bypass_pull_request_allowances"]["users"] = [{"login": owner} for owner in sorted(owners)]
-        for target in ("main", "dev", "uat"):
+        for target in ("main", "dev", "uat", "uat-isolated"):
             responses[f"repos/{module.REPO}/branches/{target}/protection"] = copy.deepcopy(protection)
         for target, revision in (("main", "a" * 40), (branch, "b" * 40)):
             responses[f"repos/{module.REPO}/git/ref/heads/{target}"] = {"object": {"type": "commit", "sha": revision}}
@@ -1520,7 +1575,9 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
             policy_file.write_text(json.dumps(policy))
             environment = dict(os.environ, PATH=str(directory) + os.pathsep + os.environ["PATH"],
                 GITHUB_BRANCH=branch, GITHUB_REPO=module.REPO, GITHUB_CI_GOVERNANCE_FILE=str(policy_file))
-            for fault in (None, "missing_native", "guard_disabled", "unknown_actor", "blanket_review", "stale_authority"):
+            faults = [None, "missing_native", "guard_disabled", "unknown_actor", "blanket_review"]
+            faults += ["wrong_ci_app", "app_review_bypass"] if branch == "uat-isolated" else ["stale_authority"]
+            for fault in faults:
                 sample = copy.deepcopy(responses)
                 if fault == "missing_native":
                     sample[f"repos/{module.REPO}/rulesets?per_page=100"] = [rule for rule in sample[f"repos/{module.REPO}/rulesets?per_page=100"] if rule["id"] != 13]
@@ -1540,7 +1597,11 @@ def test_prepared_native_live_verifier_requires_every_independent_boundary(modul
                     else:
                         raise AssertionError("Stale authority permitted review activation")
                 elif fault == "blanket_review":
-                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["require_code_owner_reviews"] = True
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["require_code_owner_reviews"] = branch != "uat-isolated"
+                elif fault == "wrong_ci_app":
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_status_checks"]["checks"][0]["app_id"] = 999
+                elif fault == "app_review_bypass":
+                    sample[f"repos/{module.REPO}/branches/{branch}/protection"]["required_pull_request_reviews"]["bypass_pull_request_allowances"]["apps"] = [{"slug": "synthetic"}]
                 environment["SYNTHETIC_GITHUB_RESPONSES"] = json.dumps(sample)
                 result = subprocess.run(["bash", str(Path(__file__).parent / "verify-main-branch-protection.sh")],
                                         env=environment, text=True, capture_output=True, timeout=60)

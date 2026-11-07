@@ -54,6 +54,53 @@ IMMUTABLE_SHA256 = "78981e14e2dc4ef0d40a6275f785a5015367ea08d00ab7b4ef352538cb61
 pytestmark = [pytest.mark.feature_drive_packets, pytest.mark.trace_loop]
 
 
+@pytest.mark.skipif(find_pg_bin() is None, reason="local PostgreSQL unavailable")
+def test_isolated_firebase_erasure_survives_complete_foundation_adoption(replay_pg, monkeypatch):
+    from db.firebase_erasure_adoption import qualification_sql
+
+    connection, _database = canonical_database(replay_pg, monkeypatch)
+    with closing(connection), connection.cursor() as cursor:
+        # The canonical fixture includes the current437 history successor.
+        [firebase] = build_manifest_entries(
+            MIGRATIONS / "parked", ["987_account_firebase_erasure.sql"]
+        )
+        [foundation] = build_manifest_entries(MIGRATIONS, [FOUNDATION])
+        cursor.execute(execution_sql(foundation))
+        cursor.execute((MIGRATIONS / "423_account_shared_provider_authority.sql").read_text())
+        cursor.execute((MIGRATIONS / "437_account_legacy_generation_settlement.sql").read_text())
+        for signature in (
+            "guard_account_firebase_erasure()",
+            "account_firebase_erasure_contract_version(integer)",
+        ):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(
+                    f"CREATE FUNCTION public.{signature} RETURNS integer LANGUAGE sql AS 'SELECT 1'"
+                )
+                with pytest.raises(psycopg2.errors.RaiseException):
+                    cursor.execute(execution_sql(firebase))
+            finally:
+                cursor.execute("ROLLBACK")
+        cursor.execute(execution_sql(firebase))
+        cursor.execute(execution_sql(foundation))
+        cursor.execute(execution_sql(foundation))
+        cursor.execute(qualification_sql(required=True))
+        for mutation in (
+            "ALTER FUNCTION public.account_firebase_erasure_contract_version() STABLE",
+            "GRANT EXECUTE ON FUNCTION public.account_firebase_erasure_contract_version() TO PUBLIC",
+            "ALTER TABLE public.account_deletion_tombstones DISABLE TRIGGER account_firebase_erasure",
+            "CREATE FUNCTION public.account_firebase_erasure_contract_version(integer) RETURNS integer LANGUAGE sql AS 'SELECT 1'",
+        ):
+            cursor.execute("BEGIN")
+            try:
+                cursor.execute(mutation)
+                with pytest.raises(psycopg2.errors.RaiseException):
+                    cursor.execute(execution_sql(foundation))
+            finally:
+                cursor.execute("ROLLBACK")
+        cursor.execute(qualification_sql(required=True))
+
+
 def assert_absent_guard_qualification_blocks_concurrent_install(connection, server, database):
     with connection.cursor() as cursor:
         cursor.execute(

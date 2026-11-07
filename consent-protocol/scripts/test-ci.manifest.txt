@@ -507,6 +507,7 @@ tests/services/test_account_service_export.py
 tests/test_account_legal_acceptance.py
 tests/test_account_legal_acceptance_postgres.py
 tests/test_firebase_auth_split.py
+tests/test_firebase_authority_isolation.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/services/test_account_deletion_provider_cleanup.py
 # The owner's deletion notice follows only a committed erasure; admission wakes the drain.
@@ -1664,3 +1665,10 @@ tests/test_one_runtime_configuration.py
 # Protected Main release clearance and current-attempt consumer boundaries.
 tests/test_deployment_security.py
 tests/test_uat_paused_drive_maintenance.py
+
+# Device-authorized calls, route-key custody and PostgreSQL endpoint races.
+tests/services/test_direct_call_policy.py
+tests/test_direct_calls_postgres.py
+tests/test_direct_calls_routes.py
+tests/test_direct_calls_voip.py
+tests/services/test_direct_message_route_cipher.py
