@@ -245,6 +245,14 @@ Only Dev/UAT deployment acceptance is waived; all other release gates remain.
 
 ### 7. Close out
 
+For explicitly authorized removal of the unused `one-uat` experiment, dispatch
+`remove-one-uat.yml` from Main with `operation=inspect`, then `operation=delete`
+after verifying its fixed service UID. It uses the existing UAT authority,
+Deployment Security and release lock. The removal receipt distinguishes absence,
+confirmed deletion and uncertain outcomes. Reconcile a pending operation before
+retrying. This workflow targets only the reviewed service incarnation. Follow
+its receipt separately from application deployment acceptance.
+
 1. State which path ran: merge queue, Admin PR landing, or direct-main emergency
    push. Never collapse those labels.
 2. Report PR, workflow, run, and artifact links; exact PR head and landed/deployed

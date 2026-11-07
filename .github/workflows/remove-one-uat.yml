@@ -1,0 +1,77 @@
+name: Remove one-uat experiment
+run-name: one-uat removal · ${{ inputs.operation }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Inspect or delete the reviewed one-uat service
+        type: choice
+        required: true
+        default: inspect
+        options:
+          - inspect
+          - delete
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+jobs:
+  deployment-security:
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ github.sha }}
+      environment_name: uat
+      scope: all
+
+  remove:
+    needs: deployment-security
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: uat
+      deployment: false
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - name: Require current-attempt deployment security
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+        run: test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Assert governed UAT actor
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
+      - name: Verify the UAT execution identity
+        env:
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: test "$DEPLOY_SERVICE_ACCOUNT" = github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com
+      - name: Authenticate to UAT
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Inspect or remove only the reviewed service
+        env:
+          REMOVAL_OPERATION: ${{ inputs.operation }}
+        run: python3 scripts/ci/remove_one_uat.py --operation "$REMOVAL_OPERATION" --report "$RUNNER_TEMP/one-uat-removal.json"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: one-uat-removal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/one-uat-removal.json
+          if-no-files-found: warn
+          retention-days: 30

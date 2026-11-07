@@ -30,6 +30,7 @@ CALLERS = {
     "ship-android-playstore-v1.yml",
     "publish-hushh-mcp.yml",
     "rollback.yml",
+    "remove-one-uat.yml",
 }
 
 
