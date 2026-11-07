@@ -36,6 +36,29 @@ def _snapshot(**rows) -> ProviderCredentialSnapshot:
     )
 
 
+async def test_owned_cleanup_failure_does_not_discard_caller_cancellation():
+    from hushh_mcp.services.account_deletion_lifecycle_service import settle_cleanup_database_call
+
+    started, release = Event(), Event()
+
+    def owned_work():
+        started.set()
+        assert release.wait(2)
+        raise RuntimeError("synthetic provider response lost during cancellation")
+
+    task = asyncio.create_task(settle_cleanup_database_call(owned_work))
+    try:
+        assert await asyncio.to_thread(started.wait, 1)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        release.set()
+
+
 def _conn_returning(rows_by_table: dict[str, list[dict]]):
     conn = MagicMock()
 

@@ -443,7 +443,8 @@ test.describe("Connected profile preview and network return", () => {
       expect(await source.boundingBox()).toEqual(before);
       await expect(source.getByRole("button", { name: "View Aarav Sharma's profile" })).toBeFocused();
       await source.getByRole("button", { name: "View Maya Singh's profile" }).click();
-      await expect(profile).toBeVisible();
+      await expect(profile.getByRole("heading", { name: "Maya Singh" })).toBeVisible();
+      await expect(profile.getByRole("heading", { name: "Aarav Sharma" })).toHaveCount(0);
       await page.keyboard.press("Escape");
       await expect(profile).toHaveCount(0);
       await expect(source).toBeVisible();
@@ -464,7 +465,7 @@ test.describe("Connected profile preview and network return", () => {
     });
   }
 
-  for (const width of [393, 768, 1440]) {
+  for (const width of [320, 393, 768, 1440]) {
     test(`network journey retraces mutuals of mutuals, shared lists and degrees at ${width}px @feature_mutual_connections @loop_smoke`, async ({ page }, testInfo) => {
       const errors: string[] = [];
       page.on("pageerror", error => errors.push(error.message));
@@ -490,6 +491,23 @@ test.describe("Connected profile preview and network return", () => {
       await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
       await preview.getByRole("button", { name: "View connections", exact: true }).click();
       await preview.getByRole("textbox", { name: "Search network by name" }).fill("Second");
+      const connect = preview.getByRole("button", { name: "Connect with Second Degree Person" });
+      await expect(connect).toBeVisible();
+      await expect.poll(async () => {
+        const [connectBounds, profileBounds] = await Promise.all([
+          connect.boundingBox(),
+          preview.getByRole("button", { name: "Open Second Degree Person's profile" }).boundingBox(),
+        ]);
+        return connectBounds && profileBounds
+          ? connectBounds.x + connectBounds.width - profileBounds.x
+          : Number.POSITIVE_INFINITY;
+      }).toBeLessThanOrEqual(0);
+      await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(1);
+      await page.screenshot({ path: testInfo.outputPath(`network-connect-action-${width}.png`) });
+      await connect.click();
+      await expect(preview.getByText("Request sent", { exact: true })).toBeVisible();
+      await expect(preview.getByRole("heading", { name: "Second Degree Person", exact: true })).toHaveCount(0);
+      await page.screenshot({ path: testInfo.outputPath(`network-connect-row-${width}.png`) });
       await preview.getByRole("button", { name: "Open Second Degree Person's profile" }).click();
       await expect(preview.getByText("2nd connection", { exact: true })).toBeVisible();
       await preview.getByRole("button", { name: "1 mutual connection", exact: true }).click();
@@ -520,13 +538,18 @@ test.describe("Connected profile preview and network return", () => {
       await expect(preview.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
       await back();
       await source.getByRole("button", { name: "Explore your network", exact: true }).click();
-      await preview.getByRole("button", { name: "3rd", exact: true }).click();
+      await expect(preview.getByRole("button", { name: "Open Aarav Sharma's profile" })).toBeVisible();
+      await expect(preview.getByTestId("mutual-avatar-stack")).toHaveCount(4);
+      await expect(preview).toHaveCSS("opacity", "1");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`network-discovery-${width}.png`) });
+      await preview.getByRole("button", { name: "Extended network", exact: true }).click();
       await preview.getByRole("button", { name: "Open Third Degree Person's profile" }).click();
       await expect(preview.getByText("3rd connection", { exact: true })).toBeVisible();
       await expect(preview.getByRole("button", { name: /mutual connection/ })).toHaveCount(0);
       await expect(preview.getByRole("button", { name: "View connections", exact: true })).toHaveCount(0);
       await back();
-      await expect(preview.getByRole("button", { name: "3rd", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(preview.getByRole("button", { name: "Extended network", exact: true })).toHaveAttribute("aria-pressed", "true");
       await expect(preview.getByRole("button", { name: "Open Third Degree Person's profile" })).toBeFocused();
       await back();
       await expect(preview).toHaveCount(0);

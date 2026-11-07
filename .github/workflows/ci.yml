@@ -215,6 +215,7 @@ jobs:
       - name: Verify PR target branch policy
         if: github.event_name == 'pull_request'
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -324,16 +325,17 @@ jobs:
       # the branch name, so a branch that moves mid-run cannot select lanes for
       # a commit this run does not test. Both are passed only on dispatch,
       # because v4 ignores them on a pull_request event and warns on every run.
-      # The default branch has no branch diff, so `auto` there runs `all`.
+      # Explicit release qualification keeps application core checks broad, but
+      # native work is selected against the actual candidate's changed inputs.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
           github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' ||
-          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
-          github.ref_name != github.event.repository.default_branch)
+          (github.event_name == 'workflow_dispatch' && ((inputs.scope == 'all' && inputs.uat_base_sha != '') ||
+          (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
           base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
-          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && github.sha || '' }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -362,6 +364,9 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Public risk inputs have real-artifact and policy checks in Governance.
+              - '!consent-protocol/config/email-auth/disposable-domains.txt'
+              - '!consent-protocol/config/email-auth/risk-manifest.json'
               # The required Governance main-sync check owns the local push hook.
               - '!consent-protocol/ops/monorepo/pre-push.sh'
               # Human Browser evidence is covered by unconditional docs governance.
@@ -398,6 +403,7 @@ jobs:
               # Deployment-only writers are verified by the release-controller owner.
               - '!scripts/ops/sync_backend_runtime_secrets.py'
               - '!scripts/ops/runtime_config_retention.py'
+              - '!scripts/ops/upsert_gcp_secret.py'
               - '!deploy/plg/bind_secrets.sh'
               # Synthetic release-controller tests have a focused Governance owner.
               - '!consent-protocol/tests/test_runtime_config_retention.py'
@@ -427,6 +433,9 @@ jobs:
               - '!consent-protocol/tests/test_drive_scheduler_set_snapshot.py'
               - '!consent-protocol/tests/test_drive_v1_worker_lane.py'
               - '!consent-protocol/tests/test_drive_work_drain_scheduler_contract.py'
+              - '!consent-protocol/tests/test_drive_worker_release_rollback.py'
+              - '!consent-protocol/tests/test_database_connection_ceiling.py'
+              - '!consent-protocol/tests/helpers/drive_worker_gcloud.py'
               - '!consent-protocol/tests/test_feed_stream_capacity_contract.py'
               - '!consent-protocol/tests/test_gmail_information_request_release_contract.py'
               - '!consent-protocol/tests/test_hushh_tech_client_migration.py'
@@ -680,8 +689,8 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
 
-      # The dispatches the filter above did not resolve: an explicit scope, or
-      # `auto` on the default branch. `editor` follows `frontend`.
+      # Preserve explicit frontend/backend diagnostics and default-branch auto.
+      # Release scope=all uses the filter's native ownership instead.
       - id: override
         if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
         env:
@@ -1050,6 +1059,8 @@ jobs:
           plutil -create xml1 "$PLIST"
           plutil -insert API_KEY -string "$NEXT_PUBLIC_FIREBASE_API_KEY" "$PLIST"
           plutil -insert GCM_SENDER_ID -string "123456789" "$PLIST"
+          plutil -insert CLIENT_ID -string "123456789-native-ci.apps.googleusercontent.com" "$PLIST"
+          plutil -insert REVERSED_CLIENT_ID -string "com.googleusercontent.apps.123456789-native-ci" "$PLIST"
           plutil -insert PLIST_VERSION -string "1" "$PLIST"
           plutil -insert BUNDLE_ID -string "com.hushh.app" "$PLIST"
           plutil -insert PROJECT_ID -string "dummy-project" "$PLIST"
@@ -1681,7 +1692,9 @@ jobs:
           [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          if [ "$GITHUB_REF" != 'refs/heads/uat' ]; then
+            git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          fi
 
       - name: Verify isolated source (${{ inputs.uat_candidate_sha }} ${{ inputs.uat_candidate_tree }})
         if: inputs.uat_candidate_sha != ''

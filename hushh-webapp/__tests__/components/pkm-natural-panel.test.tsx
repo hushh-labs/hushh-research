@@ -9,6 +9,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmExportService } from "@/lib/services/pkm-export-service";
+import { ApiService } from "@/lib/services/api-service";
 import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { buildLocationMemoryPresentation } from "@/lib/profile/location-memory-presentation";
@@ -70,6 +71,20 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 const NOW = new Date().toISOString();
 const WEEK_AGO = new Date(Date.now() - 8 * 86_400_000).toISOString();
+
+function activityReports(actionId: string) {
+  return vi.mocked(ApiService.apiFetch).mock.calls
+    .filter(([url, options]) => url === "/api/one/plg/activity" && options?.method === "POST")
+    .map(([, options]) => JSON.parse(String(options?.body)))
+    .filter((body) => body.actionId === actionId);
+}
+
+async function expectMemoryAttempt(actionId: string, terminal: string) {
+  await waitFor(() => expect(activityReports(actionId)).toHaveLength(2));
+  const [started, settled] = activityReports(actionId);
+  expect(started).toEqual({ actionId, phase: "started", generation: "synthetic-capture-generation", operationId: expect.stringMatching(/^[\da-f-]{36}$/i) });
+  expect(settled).toEqual({ ...started, phase: terminal });
+}
 
 function baseMetadata() {
   return {
@@ -150,7 +165,14 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     authState.sessionVerificationRequired = false;
     vaultState.tokenExpiresAt = Date.now() + 60_000;
     vaultState.vaultOwnerToken = "memory-only-owner-token";
+    publishValidatedAuthSessionOwner(null);
     publishValidatedAuthSessionOwner("reviewer");
+    vi.spyOn(ApiService, "getFirebaseIdTokenForOwner").mockResolvedValue("synthetic-firebase-token");
+    vi.spyOn(ApiService, "apiFetch").mockImplementation(async (url, options) => {
+      if (url !== "/api/one/plg/activity") throw new Error("Unexpected test transport");
+      return new Response(JSON.stringify(options?.method === "POST"
+        ? { recorded: true } : { enabled: true, generation: "synthetic-capture-generation" }));
+    });
     vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue(
       baseMetadata() as never,
     );
@@ -688,6 +710,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(clearAgentPkmContext).not.toHaveBeenCalled();
     expect(view.result.current.memoryActionId).toBeNull();
     expect(writer).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(activityReports("pkm.edit_memory")).toHaveLength(1));
+    expect(activityReports("pkm.edit_memory")[0].phase).toBe("started");
   });
 
   it("releases an export lock after verification recovery without publishing stale feedback", async () => {
@@ -702,6 +726,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     await act(async () => finish({ saved: true, filename: "synthetic-export.json", domainCount: 1, backupIncluded: true }));
     expect(screen.queryByText(/Saved synthetic-export/)).toBeNull();
     expect(trackEvent).not.toHaveBeenCalledWith("one_memory_action", expect.objectContaining({ action: "export_saved" }));
+    await waitFor(() => expect(activityReports("pkm.export_memory")).toHaveLength(1));
+    expect(activityReports("pkm.export_memory")[0].phase).toBe("started");
     authState.sessionVerificationRequired = false;
     view.rerender(<PkmNaturalPanel />);
     const retry = screen.getByRole("button", { name: "Download Memory" });
@@ -711,6 +737,34 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     await screen.findByText(/Saved current-export.json/);
     expect(screen.getByText(/The encrypted backup could not be included/)).toBeTruthy();
     expect(download).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(activityReports("pkm.export_memory")).toHaveLength(3));
+    const [retired, started, settled] = activityReports("pkm.export_memory");
+    expect(started.operationId).not.toBe(retired.operationId);
+    expect(settled).toEqual({ ...started, phase: "returned" });
+  });
+
+  it.each([true, false])("pairs a Memory export with its confirmed saved=%s handoff without exposing file metadata", async (saved) => {
+    vi.spyOn(PkmExportService, "downloadMemoryExport").mockResolvedValueOnce({ saved, filename: "PRIVATE_FILENAME.json", domainCount: 7, backupIncluded: true });
+    const view = renderHook(() => usePkmNaturalModel());
+    await act(async () => view.result.current.handleExportMemory());
+    if (saved) await expectMemoryAttempt("pkm.export_memory", "returned");
+    else {
+      await waitFor(() => expect(activityReports("pkm.export_memory")).toHaveLength(1));
+      expect(activityReports("pkm.export_memory")[0].phase).toBe("started");
+    }
+    expect(JSON.stringify(activityReports("pkm.export_memory"))).not.toMatch(/PRIVATE|filename|domainCount|vault|token/);
+  });
+
+  it.each(["AbortError", "TimeoutError", "Error"])("keeps export %s distinct from a known failure", async (name) => {
+    vi.spyOn(PkmExportService, "downloadMemoryExport").mockRejectedValueOnce(Object.assign(new Error("PRIVATE_FAILURE"), { name }));
+    const view = renderHook(() => usePkmNaturalModel());
+    await act(async () => view.result.current.handleExportMemory());
+    if (name === "Error") await expectMemoryAttempt("pkm.export_memory", "failed");
+    else {
+      await waitFor(() => expect(activityReports("pkm.export_memory")).toHaveLength(1));
+      expect(activityReports("pkm.export_memory")[0].phase).toBe("started");
+    }
+    expect(JSON.stringify(activityReports("pkm.export_memory"))).not.toContain("PRIVATE_FAILURE");
   });
 
   // Edit and forget run on a memory Memory owns. Finance owns every financial
@@ -751,6 +805,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       dining: { cuisine: "Thai" },
     });
     expect(clearAgentPkmContext).toHaveBeenCalledWith("reviewer");
+    await expectMemoryAttempt("pkm.edit_memory", "returned");
     // Returns to the list after a successful edit.
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Seat Choice" })).toBeNull(),
@@ -800,6 +855,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
     expect((await screen.findAllByText(/latest summary could not refresh/i)).length).toBeGreaterThan(0);
     expect(screen.getByRole("heading", { name: "Seat Choice" })).toBeTruthy();
+    await expectMemoryAttempt("pkm.edit_memory", "returned");
   });
 
   it("requires confirmation before forgetting and deletes the exact path", async () => {
@@ -828,9 +884,11 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.click(screen.getByRole("button", { name: "Forget Memory" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+    expect(activityReports("pkm.delete_memory")).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole("button", { name: "Forget Memory" }));
 
     await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1));
+    await expectMemoryAttempt("pkm.delete_memory", "returned");
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Seat Choice" })).toBeNull(),
     );
@@ -885,6 +943,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         }),
       ),
     );
+    await expectMemoryAttempt("pkm.prepare_capture", "returned");
+    await expectMemoryAttempt("pkm.save_capture", "returned");
+    expect(activityReports("pkm.save_capture")[0].operationId).not.toBe(activityReports("pkm.prepare_capture")[0].operationId);
   });
 
   it("binds identifier model permission to the reviewed note", async () => {
@@ -922,6 +983,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
       route_id: "pkm", action: "capture_prepared", result: "expected_error",
     });
+    await expectMemoryAttempt("pkm.prepare_capture", "blocked");
   });
 
   it("does not count a review-blocked Memory preparation as success", async () => {
@@ -1068,6 +1130,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.queryByTestId("memory-unresolved-section")).toBeNull();
     expect(screen.getByText(/Every section is prepared/)).toBeTruthy();
     expect(addToPKM).not.toHaveBeenCalled();
+    await expectMemoryAttempt("pkm.retry_capture_section", "returned");
   });
 
   it("shows the proposed source detail and invalidates it when the note changes", async () => {
@@ -1154,6 +1217,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(options.mayPublish()).toBe(false);
     await act(async () => finish({ attempted: 1, saved: 0, failed: 1, results: [], domains: [] }));
     expect(clearAgentPkmContext).not.toHaveBeenCalled();
+    await waitFor(() => expect(activityReports("pkm.save_capture")).toHaveLength(1));
+    expect(activityReports("pkm.save_capture")[0].phase).toBe("started");
   });
 
   it("holds an interrupted save until settlement and retires its cards before another review", async () => {
@@ -1241,7 +1306,12 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     ).toHaveLength(1);
   });
 
-  it("records a failed Memory write as an error", async () => {
+  it.each([
+    { label: "unacknowledged", result: undefined, phase: null },
+    { label: "conflict rejected", result: { saveState: "failed", httpStatus: 409 }, phase: "blocked" },
+    { label: "request timed out", result: { saveState: "failed", httpStatus: 408 }, phase: null },
+    { label: "upgrade blocked", result: { saveState: "blocked_pending_upgrade" }, phase: "blocked" },
+  ])("keeps a $label Memory write honest while preserving its existing UI error", async ({ result, phase }) => {
     addToPKM.mockResolvedValueOnce({
       attempted: 1,
       saved: 0,
@@ -1252,6 +1322,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
           cardId: "memory-card-1",
           success: false,
           message: "Encrypted write failed.",
+          result,
         },
       ],
     });
@@ -1270,6 +1341,25 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         result: "error",
       });
     });
+    await expectMemoryAttempt("pkm.prepare_capture", "returned");
+    if (phase) await expectMemoryAttempt("pkm.save_capture", phase);
+    else {
+      await waitFor(() => expect(activityReports("pkm.save_capture")).toHaveLength(1));
+      expect(activityReports("pkm.save_capture")[0].phase).toBe("started");
+    }
+  });
+
+  it("does not turn a partially saved review into a full success or failure", async () => {
+    addToPKM.mockResolvedValueOnce({ attempted: 2, saved: 1, failed: 1, domains: ["preferences"], results: [{ cardId: "memory-card-1", success: true }] });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "PRIVATE_PARTIAL_NOTE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await screen.findByText(/1 reviewed detail saved/);
+    await waitFor(() => expect(activityReports("pkm.save_capture")).toHaveLength(1));
+    expect(activityReports("pkm.save_capture")[0].phase).toBe("started");
+    expect(JSON.stringify(activityReports("pkm.save_capture"))).not.toContain("PRIVATE_PARTIAL_NOTE");
   });
 
   it("reconciles a save acknowledged during verification recovery with a fresh read", async () => {

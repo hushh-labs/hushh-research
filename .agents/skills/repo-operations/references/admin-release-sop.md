@@ -88,20 +88,20 @@ Required pre-merge proof:
 ### 3B. Ordinary Dev/UAT maintainer landing
 
 Eligible maintainers may land their own verified product PRs without personal
-Kushal/Ankit review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
+pipeline-editor review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
 CI/core authorization and required CI remain mandatory; merging never deploys.
 
 ### 3C. Main merger policy and the named-owner Admin route
 
 Main merging is restricted to `main.merge_users`, independently of deployment
-permission. CI/release/fundamental `.agents` changes need Kushal or Ankit's approval.
+permission. CI/release/fundamental `.agents` changes need the configured pipeline editors' approval.
 An explicit user instruction approving this bounded change is authorization to
 execute its reviewed implementation; generic admin credentials alone are not.
 
 **Owner self-approval:** GitHub's native queue admission does not reliably honor
 its review-bypass allowance for an author. Do not request another owner merely
 because GitHub cannot count a self-review, and do not repeatedly toggle bypass modes.
-Kushal and Ankit have a separate, explicitly approved owner Admin PR route on
+The configured protected owners have a separate, explicitly approved owner Admin PR route on
 Main, Dev, UAT and isolated UAT. Ordinary Main and isolated UAT PRs retain independent/latest-push review,
 CODEOWNER review where protected paths require it, and the combined-result queue. Eligible Dev/UAT authors use ordinary
 maintainer self-approval through the queue as described in §3B.
@@ -117,8 +117,9 @@ The named-owner route preserves these independent protections:
   approved merger cohort. Its native queue writer must not inherit a human-only
   push filter; the reviewed writer-policy rollout preserves native PR/review/CI
   and protected-change guards before removing that filter.
-- Only Kushal/Ankit receive review and queue exceptions. No team, GitHub App or
-  general organization-admin role inherits them. Native user exceptions cannot
+- Only `pipeline-editors` receives the qualified native Team review/queue exceptions.
+  The strict CI/PR guard has no bypass actor. A general organization-admin role
+  does not confer workflow authority. Native user exceptions cannot
   encode self-authorship or unresolved review objections; the command below
   enforces those additional Admin SOP requirements. Do not claim otherwise.
 
@@ -137,6 +138,13 @@ successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain
 response is reconciled, never automatically replayed. Main merges additionally
 require landed Main smoke. Merging any destination never dispatches deployment.
+
+The direct PR-merge API guards the head SHA, not the captured destination atomically.
+Repeated snapshots and native strict status do not remove that race. If another PR
+lands during submission, the receipt records `merged_unqualified` and the actual
+landed parents/tree before refusing. Do not retry or claim that combined source
+passed CI. Preserve both changes and qualify the actual landed revision before any
+deployment. Use the native queue when pre-merge combined-result proof is required.
 
 For this direct route only, reconcile the PR's actual current destination if its
 tested base changed. Ordinary eligible contributors can use the queue without

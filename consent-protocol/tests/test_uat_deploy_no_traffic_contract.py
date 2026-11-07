@@ -661,7 +661,7 @@ def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
 
     # A read-only no-op must not create a successful environment deployment
     # record or enter release classification with missing runtime evidence.
-    assert "environment" not in selection
+    assert selection["environment"] == {"name": "uat", "deployment": False}
     assert selection["permissions"] == {
         "contents": "read",
         "checks": "read",

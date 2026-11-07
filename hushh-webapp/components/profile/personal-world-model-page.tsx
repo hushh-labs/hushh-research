@@ -1,5 +1,8 @@
 "use client";
 
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
+
+import { useAccountPhoneBinding } from "@/components/profile/use-account-phone-binding";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type SetStateAction } from "react";
 import { snapshotVaultSessionEpoch, subscribeVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useWorldModelOwnerState as useWorldModelSessionState } from "./world-model-owner-state";
@@ -355,7 +358,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
     (paneState.open
       ? paneState.location.panel === "world-model"
       : resolveProfileRouteState(pathname, searchParams).panel === "world-model");
-  const { user, userId, loading, sessionVerificationRequired, phoneNumber } = useAuth();
+  const { user, userId, loading, sessionVerificationRequired, phoneNumber, phoneNumberStatus } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked, tokenExpiresAt } =
     useVault();
   // mounted is false only while no app-level reader is attached. retryAt is
@@ -597,11 +600,16 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
 
   /** Shows a decision only after the service resolves with committed memory. */
   const commit = useCallback(
-    async (write: (input: PwmMemoryAuthority) => Promise<PwmMemory>) => {
+    async (actionId: string, write: (input: PwmMemoryAuthority) => Promise<PwmMemory>) => {
       const owner = ownerAuthority();
       if (!owner) throw new Error("Vault is locked");
+      const attempt = captureProductAttempt(actionId, owner.authority.userId);
+      attempt.started();
+      // Rejections can include lost write acknowledgements. Leave those
+      // attempts unknown; only verified memory can supply a return.
       const next = await write(owner.authority);
       if (owner.isCurrent()) {
+        attempt.settled("returned");
         session.generation += 1;
         setLoaded({
           owner: owner.authority.userId,
@@ -677,7 +685,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
 
   const writes = {
     confirm: (fact: WorldModelDraftFact) =>
-      commit((owner) =>
+      commit("profile.world_model.confirm_fact", (owner) =>
         WorldModelDecisionService.confirm({
           ...owner,
           statement: fact.statement,
@@ -685,7 +693,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
         }),
       ),
     reject: (fact: WorldModelDraftFact) =>
-      commit((owner) =>
+      commit("profile.world_model.reject_fact", (owner) =>
         WorldModelDecisionService.reject({
           ...owner,
           statement: fact.statement,
@@ -693,7 +701,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
         }),
       ),
     edit: (fact: WorldModelFactDetail, text: string) =>
-      commit((owner) =>
+      commit("profile.world_model.edit_fact", (owner) =>
         WorldModelDecisionService.edit({
           ...owner,
           claimKey: fact.kind === "draft" ? fact.key : fact.claim.key,
@@ -711,7 +719,7 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
         ? decide(fact, () => writes.edit(fact, text))
         : writes.edit(fact, text),
     remove: (claim) =>
-      commit((owner) =>
+      commit("profile.world_model.remove_fact", (owner) =>
         WorldModelDecisionService.remove({ ...owner, claimKey: claim.key }),
       ),
   };
@@ -825,12 +833,19 @@ export function usePersonalWorldModelModel({ embedded = false, enabled = true }:
   const namesakeNotice = preparing ? identityNotice(shownProgress) : null;
   const namesakesFound =
     status.kind === "nothing" && offered !== null && offered.research.candidates.length > 0;
-  const phone = phoneNumber ?? user?.phoneNumber ?? null;
+  const { linkedPhone: phone, status: phoneStatus } = useAccountPhoneBinding({
+    active: ready && present,
+    ownerId: userId,
+    firebaseUid: user?.uid,
+    appPhone: phoneNumber,
+    appStatus: phoneNumberStatus,
+  });
   const identity = {
     name: user?.displayName,
     email: user?.email,
     emailVerified: Boolean(user?.emailVerified),
     phone,
+    phoneStatus,
   };
   // The landmark carries the group's own title, so both read the same.
   const identityLabel = identityGroupTitle(identity);

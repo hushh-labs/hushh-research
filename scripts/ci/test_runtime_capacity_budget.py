@@ -363,6 +363,7 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             profile, "production", inventory, phase="post-release"
         )
         self.assertEqual(current["projected_connections"], 3 * 80 + 16 + 30)
+        self.assertEqual(current["admission_scope"], "profiled-application")
         self.assertEqual(len(current["services"]), 3)
         self.assertTrue(current["admitted"])
         frontend_only = budget.evaluate(
@@ -643,6 +644,111 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
         self.assertTrue(report["admitted"])
         profile["administrative_reserve"] = 795
         self.assertFalse(budget.evaluate(profile, "production", inventory)["admitted"])
+
+
+class SelectedUatProfileTest(unittest.TestCase):
+    def test_profile_materialization_preserves_main_limits_without_cloud_reads(self):
+        trusted = json.loads(budget.DEFAULT_PROFILE.read_text())
+        trusted["environments"]["uat"]["services"]["consent-protocol-drive-worker"][
+            "candidate"
+        ]["max_instances"] = 4
+        original = copy.deepcopy(trusted)
+        for count in (2, 4):
+            selected = copy.deepcopy(trusted)
+            selected["admission_limit"] = (
+                1  # Candidate code cannot lower/change Main's policy.
+            )
+            selected["environments"]["uat"]["services"][
+                "consent-protocol-drive-worker"
+            ]["candidate"]["max_instances"] = count
+            blob = json.dumps(selected).encode()
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                profile = Path(directory) / "main.json"
+                profile.write_text(json.dumps(trusted))
+                output = io.StringIO()
+                with (
+                    mock.patch.object(
+                        budget.subprocess,
+                        "check_output",
+                        side_effect=[str(len(blob)).encode(), blob],
+                    ),
+                    mock.patch.object(
+                        budget.sys,
+                        "argv",
+                        [
+                            str(MODULE_PATH),
+                            "--environment",
+                            "uat",
+                            "--profile",
+                            str(profile),
+                            "--target-sha",
+                            "a" * 40,
+                            "--resolve-profile-only",
+                        ],
+                    ),
+                    mock.patch.object(budget, "collect") as cloud,
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(budget.main(), 0)
+                cloud.assert_not_called()
+                expected = copy.deepcopy(trusted)
+                expected["environments"]["uat"]["services"][
+                    "consent-protocol-drive-worker"
+                ]["candidate"]["max_instances"] = count
+                self.assertEqual(json.loads(output.getvalue()), expected)
+        self.assertEqual(trusted, original)
+
+    def test_source_cannot_change_identity_pools_or_exceed_main_ceiling(self):
+        trusted = json.loads(budget.DEFAULT_PROFILE.read_text())
+        trusted["environments"]["uat"]["services"]["consent-protocol-drive-worker"][
+            "candidate"
+        ]["max_instances"] = 4
+        for fault in (
+            "schema",
+            "region",
+            "project",
+            "database",
+            "container",
+            "workers",
+            "pools",
+            "boolean",
+            "zero",
+            "above-ceiling",
+        ):
+            selected = copy.deepcopy(trusted)
+            env = selected["environments"]["uat"]
+            worker = env["services"]["consent-protocol-drive-worker"]
+            if fault == "schema":
+                selected["schema_version"] = 2
+            elif fault == "region":
+                selected["region"] = "another-region"
+            elif fault == "project":
+                env["project"] = "another-project"
+            elif fault == "database":
+                env["database_instance"] = "another-db"
+            elif fault == "container":
+                worker["container"] = "another-container"
+            elif fault == "workers":
+                worker["workers_per_instance"] = True
+            elif fault == "pools":
+                worker["candidate"]["asyncpg_pool_max"] = 3
+            else:
+                worker["candidate"]["max_instances"] = {
+                    "boolean": True,
+                    "zero": 0,
+                    "above-ceiling": 5,
+                }[fault]
+            blob = json.dumps(selected).encode()
+            with (
+                self.subTest(fault=fault),
+                mock.patch.object(
+                    budget.subprocess,
+                    "check_output",
+                    side_effect=[str(len(blob)).encode(), blob],
+                ),
+            ):
+                with self.assertRaises(budget.BudgetError):
+                    budget.selected_uat_profile(trusted, "a" * 40)
 
 
 if __name__ == "__main__":

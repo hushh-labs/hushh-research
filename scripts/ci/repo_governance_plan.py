@@ -47,6 +47,8 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
     "consent-protocol/tests/test_drive_v1_worker_lane.py",
     "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+    "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    "consent-protocol/tests/test_database_connection_ceiling.py",
     "consent-protocol/tests/test_feed_stream_capacity_contract.py",
     "consent-protocol/tests/test_gmail_information_request_release_contract.py",
     "consent-protocol/tests/test_hushh_tech_client_migration.py",
@@ -103,6 +105,24 @@ def _check(check_id: str, *argv: str, groups: Sequence[str] = (), diagnostic: bo
 # regression group remain in the focused baseline; non-blocking hygiene is
 # diagnostic-only, and the named regression groups are selected by changed path.
 CHECKS = (
+    _check("email-risk-artifact-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-c", """import json, sys
+from pathlib import Path
+sys.path.insert(0, 'consent-protocol')
+from hushh_mcp.services.email_auth.domain_policy import RiskSnapshot
+manifest = Path('consent-protocol/config/email-auth/risk-manifest.json')
+value = json.loads(manifest.read_text())
+if value['file'] != 'disposable-domains.txt' or value['license'] != 'LICENSE-disposable-domains.txt':
+    raise ValueError('Email risk manifest refers to an unowned input')
+if not (manifest.parent / value['license']).is_file():
+    raise ValueError('Email risk snapshot licence is missing')
+RiskSnapshot.load(str(manifest))
+""", groups=("controller",)),
+    _check("email-risk-policy-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "-m", "pytest", "-q",
+           "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
+           "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
+           groups=("controller",)),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
@@ -308,6 +328,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if root not in KNOWN_ROOTS and path not in KNOWN_ROOT_FILES:
         return frozenset(), f"unrecognized changed path: {path}"
     if path in {
+        "consent-protocol/tests/helpers/drive_worker_gcloud.py",
+        "consent-protocol/config/email-auth/disposable-domains.txt",
+        "consent-protocol/config/email-auth/risk-manifest.json",
         "hushh-webapp/scripts/testing/affected-tests.mjs",
         "hushh-webapp/scripts/testing/affected-tests.test.mjs",
         "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
@@ -340,6 +363,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             return frozenset({"controller"}), None
         if path in {
             "scripts/ci/promotion_approval.py",
+            "scripts/ci/github_team_authority.py",
             "scripts/ci/verify-predecessor-acceptance.py",
             "scripts/ci/resolve-ui-contract-base.py",
             "scripts/ci/main-post-merge-smoke.sh",
@@ -375,7 +399,7 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
             "deploy", "release", "uat", "production", "environment", "identity",
             "security", "governance", "scope", "artifact", "passkey", "places",
             "readiness", "protocol", "queue", "protected", "branch", "main_sync",
-            "live_memory", "verification", "rollback",
+            "live_memory", "verification", "rollback", "secret",
         )
         if any(token in lower for token in controller_tokens):
             return frozenset({"controller"}), None
@@ -399,6 +423,13 @@ def _select_groups(files: tuple[str, ...]) -> tuple[tuple[str, ...], str | None]
 
 
 # Inputs read by the lane-topology regression owner, not product behavior.
+EMAIL_RISK_INPUTS = frozenset({
+    "consent-protocol/config/email-auth/disposable-domains.txt",
+    "consent-protocol/config/email-auth/risk-manifest.json",
+})
+EMAIL_RISK_CHECKS = frozenset({"email-risk-artifact-integrity", "email-risk-policy-contracts"})
+
+
 WEB_LANE_INPUTS = frozenset({
     'hushh-webapp/package.json',
     'hushh-webapp/playwright.config.ts',
@@ -441,6 +472,8 @@ def build_selection(env: dict[str, str]) -> Selection:
             not check.groups.intersection({"controller", "retention", "agent", "release"})
             or bool(check.groups.intersection(requested_groups))
         )
+        and (check.check_id not in EMAIL_RISK_CHECKS
+             or selection_error or bool(EMAIL_RISK_INPUTS.intersection(files)))
         and (
             check.check_id != "web-lane-partition"
             or level == "release"

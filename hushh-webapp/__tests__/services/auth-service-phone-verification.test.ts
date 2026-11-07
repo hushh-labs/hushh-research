@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
-  auth: { currentUser: null as any },
+  auth: { currentUser: null as any, app: { options: { apiKey: "selected-auth-key", projectId: "selected-auth-project" } } },
   capacitor: { isNativePlatform: vi.fn(), getPlatform: () => "ios" },
   phoneProvider: vi.fn(),
   proof: { startPhoneVerificationProof: vi.fn(), startPhoneLinkVerification: vi.fn(), confirmPhoneVerificationProof: vi.fn(), cancelPhoneVerificationProof: vi.fn(), reauthenticateAppleIdentity: vi.fn(), signIn: vi.fn() },
@@ -175,6 +175,7 @@ describe("AuthService phone proof integration", () => {
       ? await AuthService.confirmPhoneReplacementVerification(params)
       : await AuthService.confirmPhoneLinkVerification(params);
     expect(result).toBe(linked);
+    expect(exchange.mock.calls[0][0]).toContain("key=selected-auth-key");
     expect(state.proof.startPhoneLinkVerification).toHaveBeenCalledWith(expect.objectContaining({
       linkIntent: intent, expectedUserId: primary.uid,
     }));
