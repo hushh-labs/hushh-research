@@ -390,12 +390,24 @@ code and reads candidate Git objects as data. Candidate PR/queue jobs receive no
 App key or write permission. Failed, incomplete or changed membership reads refuse
 authority; there is no static-roster fallback in the observation.
 
-**Activation distinction:** native protected-path review already references the
-pipeline-editor Team. The Main observer publishes a separate authority check;
-it does not replace `CI Status Gate` or qualify application behavior. Legacy
-source rosters and their consumers remain during staged migration until the
-required authority check and every admission consumer are verified. An observer
-receipt alone is not proof that group-only runtime enforcement is active.
+**Merge admission:** `Team Authorization Gate` is required independently of
+`CI Status Gate` on the five governed destinations, with no bypass. Source jobs
+verify that exact native rule before deferring membership or protected approval.
+They read Main's pending publication for their current attempt before finishing;
+Main then checks successful functional validation and fresh teams. This avoids a
+circular wait and prevents an older green authority result from clearing a rerun.
+Admin rechecks the authenticated CLI's live roles and the exact terminal Main
+receipt. Presentation URLs and job labels cannot substitute for immutable
+producer, source, attempt and artifact proof. A merge still deploys nothing.
+GitHub hides bypass actors from public readers. Source jobs verify public rule
+scope and App binding; the trusted operator verifies the full empty bypass list.
+Native enforcement and leadership-only ruleset administration own that boundary;
+candidate jobs receive no broader token to inspect private settings.
+
+Activation and source synchronization remain separate evidence: an older branch
+without the barrier must receive the reviewed operations delta before it can use
+the new admission. This merge contract does not certify that every deployment
+consumer has migrated; verify the actual Main release-broker authorization.
 
 For the initial native transition, preserve a live settings snapshot and run the
 current landed Main tool with `--native-team-transition <preceding-main-sha>`.

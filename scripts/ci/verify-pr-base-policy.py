@@ -158,6 +158,12 @@ def main() -> int:
     if not actor:
         actor = _event_pr_actor(os.environ.get("GITHUB_EVENT_PATH"))
 
+    if base_ref == "main" and policy.get("authorization", {}).get("mode") == "enforce":
+        from github_team_authority import hosted_membership_deferred
+        if hosted_membership_deferred(policy):
+            print("Main intake membership is verified by the required Main team authority; branch targeting remains explicit.")
+            return 0
+
     ok, message = evaluate(policy, base_ref=base_ref, head_ref=head_ref, actor=actor)
     print(message)
     return 0 if ok else 1
