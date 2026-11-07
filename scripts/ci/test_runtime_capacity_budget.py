@@ -363,6 +363,7 @@ class RuntimeCapacityBudgetTest(unittest.TestCase):
             profile, "production", inventory, phase="post-release"
         )
         self.assertEqual(current["projected_connections"], 3 * 80 + 16 + 30)
+        self.assertEqual(current["admission_scope"], "profiled-application")
         self.assertEqual(len(current["services"]), 3)
         self.assertTrue(current["admitted"])
         frontend_only = budget.evaluate(
