@@ -30,10 +30,13 @@ receipts are part of the release contract.
 
 ## Normal UAT dispatch
 
-The workflow runs from reviewed `main`; the application comes from protected
-`uat` history. Direct UAT does not require a preceding Dev deployment. Qualify
-the exact protected UAT tip against the actual accepted serving base. Main smoke
-alone cannot qualify a Main-only application SHA.
+The workflow runs from reviewed `main`; select protected `uat` or `uat-isolated`
+application history through `source_branch`. Both sources use the `uat` caller,
+the same UAT runtime and the same release lock. Governed UAT dispatch admission
+controls deployment after the applicable PR merge and release qualification.
+Use the [Admin SOP authority table](../.agents/skills/repo-operations/references/admin-release-sop.md#uat-and-isolated-uat-authority)
+to choose the merge route. Direct UAT does not require a preceding Dev deployment.
+Qualify the exact application SHA against the accepted serving base.
 
 Governed Write/Maintain operators can discover prerequisites entirely in Actions:
 **Deploy to UAT → Run workflow → uat → operation=inspect**. Leave other inputs
@@ -53,8 +56,7 @@ gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<observed-serving-
 # Inspect again after success, then use its exact pins:
 gh workflow run deploy-uat.yml --ref uat -f operation=deploy -f scope=auto \
   -f sha=<qualified-protected-uat-tip> -f ci_run_id=<run-id> \
-  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base> \
-  -f approved_scope='<serving-backend-SHA>:<serving-frontend-SHA>:<PR-number>=<PR-head-SHA>'
+  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base>
 ```
 
 New deployments require all qualification pins and validate them before security,
@@ -65,13 +67,16 @@ admin login or copy of its credential. An inspection result grants no release au
 
 `scope=auto` compares each serving service with the selected application and covers
 accumulated changes. Force a lane only with complete target-to-serving delta proof.
-Deployment requires an explicit SHA and approved scope. The governed dispatcher
-attests the reviewed release PR and both observed service bases. Review the full
-PR delta from the serving base before merging. If other developers' changes
-would be included, obtain explicit approval for the identified PRs or prepare
-an isolated candidate. The landed tree must match the pinned PR head, and the
-PR comparison base must match the qualified serving tree. A concurrent landing
-that changes the approved delta or a serving-base change requires requalification.
+Ordinary UAT selects an explicit qualified SHA from protected `uat` history.
+Once selected, that frozen SHA remains eligible after newer merges while it
+remains in the protected history. The release rechecks current CI, authority,
+both observed service revisions, compatibility and qualified rollback. Review
+the complete target-to-serving delta against the user's release authorization.
+When that delta includes additional work, obtain approval for it or use the
+isolated route below.
+
+### Isolated UAT source
+
 Use the separately protected `uat-isolated` source when the shared branch
 contains changes outside the approved scope. Start it at the observed serving
 SHA and land the reviewed release PR there. Dispatch the full qualification from
@@ -84,6 +89,22 @@ gh workflow run ci.yml --ref main -f scope=all \
   -f uat_candidate_tree=<git-tree-of-isolated-tip> \
   -f uat_base_sha=<observed-serving-base>
 ```
+
+Isolated admission binds the ordered pinned PR chain in `approved_scope` to both
+serving bases. A changed merge tree or comparison requires the governed
+combined-result queue receipt. Requalify when the approved delta or serving base
+changes. Inspect and deploy the isolated source with its exact qualification.
+
+```bash
+gh workflow run deploy-uat.yml --ref uat -f operation=inspect -f source_branch=uat-isolated
+gh workflow run deploy-uat.yml --ref uat -f operation=deploy -f source_branch=uat-isolated \
+  -f scope=auto -f sha=<qualified-protected-isolated-tip> -f ci_run_id=<run-id> \
+  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base> \
+  -f approved_scope='<serving-backend-SHA>:<serving-frontend-SHA>:<PR-number>=<PR-head-SHA>'
+```
+
+For multiple approved PRs, append comma-separated `PR-number=PR-head-SHA` pairs
+in landed order to the `approved_scope` value.
 
 Each selected lane tests a disposable checkout at the application SHA with
 reviewed Main validation tooling. Deployment uses the original application
