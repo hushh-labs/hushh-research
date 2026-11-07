@@ -5794,6 +5794,12 @@ outcome. Observers are not persisted or replayed after reload, and observer
 errors cannot change the product's result. These observations add no email
 permission and do not cover every KYC action or prove live delivery.
 
+Manual Calendar connection and disconnection report against the original attempt.
+Terminal returns require an acknowledged connection or confirmed disconnection.
+Meeting file upgrades wait for the matching grant. An expired popup, a lost
+response, a handoff that leaves the page, and a same-window reload can leave the
+attempt unknown. Calendar reports contain no Google account or event details.
+
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
 `ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,

@@ -2748,6 +2748,204 @@
       }
     },
     {
+      "action_id": "calendar.connection.connect",
+      "surface_id": "one_calendar",
+      "label": "Connect Calendar account",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Reports the person's manual attempt to connect a Calendar account or extend its access. The original connection flow retains consent and confirms the result.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The person opens the Calendar connection control"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person must start Calendar consent from the existing connection control.",
+        "intended_handler": "CalendarAgentPage.connect"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "components/calendar/calendar-agent-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.connection.connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "calendar.connection.connect",
+            "label": "Connect Calendar account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "calendar.connection.disconnect",
+      "surface_id": "one_calendar",
+      "label": "Disconnect Calendar account",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Reports the person's confirmed attempt to disconnect the selected Calendar account. The original Calendar flow checks the resulting connection status.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The person confirms the Calendar account disconnection"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the existing Calendar confirmation dialog may submit this manual action.",
+        "intended_handler": "CalendarAgentPage.disconnect"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-calendar-knowledge-graph.md",
+        "docs/reference/one/one-voice-runtime-architecture.md",
+        "components/calendar/calendar-agent-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/calendar"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.calendar.connection.disconnect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "calendar.connection.disconnect",
+            "label": "Disconnect Calendar account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "calendar.read",
       "surface_id": "one_calendar",
       "label": "Read Calendar",

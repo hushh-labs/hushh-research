@@ -1264,6 +1264,13 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     kyc_import = next(a for a in catalog["actions"] if a["id"] == "kyc.save_profile")
     assert kyc_import["agentId"] == "agent_kyc"
     assert kyc_import["proof"] == "client_reported"
+    calendar_ids = {"calendar.connection.connect", "calendar.connection.disconnect"}
+    calendar_actions = [a for a in catalog["actions"] if a["id"] in calendar_ids]
+    assert {a["id"] for a in calendar_actions} == calendar_ids
+    assert all(
+        a["agentId"] == "agent_calendar" and a["proof"] == "client_reported"
+        for a in calendar_actions
+    )
     chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
     assert {a["agentId"] for a in chat} == {
         "agent_one",
