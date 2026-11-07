@@ -367,11 +367,25 @@ class DeploymentSecurityTest(unittest.TestCase):
         reusable = (root / ".github/workflows/deployment-security.yml").read_text()
         workflow = yaml.safe_load(reusable)
         self.assertEqual(workflow["permissions"]["actions"], "read")
-        self.assertEqual(set(workflow["jobs"]), {"alerts"})
+        self.assertEqual(set(workflow["jobs"]), {"alerts", "team-authorization"})
+        team_job = workflow["jobs"]["team-authorization"]
+        self.assertEqual(team_job["environment"], "ci-security")
+        self.assertEqual(team_job["permissions"]["checks"], "write")
+        self.assertNotIn("workflow_dispatch", team_job["if"])
+        self.assertIn("workflow_run", team_job["if"])
+        self.assertIn("github.event.workflow_run.event", team_job["if"])
+        self.assertIn("pull_request", team_job["if"])
+        self.assertIn("merge_group", team_job["if"])
+        self.assertEqual(team_job["concurrency"]["cancel-in-progress"], False)
+        self.assertNotIn("GH_SECURITY_ALERTS_TOKEN", str(team_job))
+        self.assertNotIn("CI_TEAM_APP_PRIVATE_KEY", str(workflow["jobs"]["alerts"]))
         declaration = workflow.get("on", workflow.get(True))["workflow_call"]
         self.assertEqual(
             declaration.get("secrets"),
-            {"GH_SECURITY_ALERTS_TOKEN": {"required": False}},
+            {
+                "GH_SECURITY_ALERTS_TOKEN": {"required": False},
+                "CI_TEAM_APP_PRIVATE_KEY": {"required": False},
+            },
         )
         for name in gate.CALLERS:
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())
@@ -384,7 +398,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             internal = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 set(internal.get("on", internal.get(True))),
-                {"workflow_call", "workflow_dispatch"}
+                {"workflow_call", "workflow_dispatch", "workflow_run"}
                 if name == "deployment-security.yml"
                 else {"workflow_call"},
             )
