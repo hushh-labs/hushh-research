@@ -484,6 +484,29 @@ class MainTeamPublisherTest(unittest.TestCase):
             with self.assertRaisesRegex(team.Refused, 'Main-owned'):
                 team.publish_main(env, read=read, memberships=fixture.read)
 
+
+    def test_run_pr_association_cannot_be_replaced_by_another_pr_sharing_its_sha(self):
+        import github_team_authority as team
+        import queue_combined_result as queue
+        guard = queue._module("verify-protected-pipeline-edits.py", "team_test_guard")
+        run = {"head_sha": HEAD, "head_branch": "feature", "head_repository": {"full_name": team.REPOSITORY},
+               "pull_requests": [{"number": 42, "head": {"sha": HEAD}}]}
+        pr = {"state": "open", "number": 42, "head": {"sha": HEAD, "ref": "feature", "repo": {"full_name": team.REPOSITORY}},
+              "base": {"sha": "b" * 40, "ref": "dev", "repo": {"full_name": team.REPOSITORY}}, "user": {"login": "member"}}
+        policy = {"main": {"protected_pipeline_paths": ["scripts/ci/"], "protected_pipeline_edit_users": ["principal"]}}
+        def read(path):
+            self.assertEqual(path, f"repos/{team.REPOSITORY}/pulls/42")
+            return pr
+        with patch.object(team, "fetch_objects"), patch.object(queue, "_module", return_value=guard), \
+             patch.object(queue, "git", return_value="app.py"), \
+             patch.object(guard, "authored_change_base", return_value="b" * 40), \
+             patch.object(guard, "semantic_pipeline_changes", return_value=[]):
+            self.assertEqual(team.authorize_pr(read, run, policy)["number"], 42)
+            pr["head"]["ref"] = "different-source"
+            with self.assertRaisesRegex(team.Refused, "repository or destination"):
+                team.authorize_pr(read, run, policy)
+
+
 class TeamCheckLifecycleTest(unittest.TestCase):
 
     def test_publication_reconciles_the_existing_main_check_and_never_replays_uncertain_post(self):

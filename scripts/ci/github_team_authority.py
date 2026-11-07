@@ -286,25 +286,25 @@ def authorize_pr(read, run, policy):
     import queue_combined_result as queue
 
     guard = queue._module("verify-protected-pipeline-edits.py", "team_protected_guard")
-    rows = read(f"repos/{REPOSITORY}/commits/{run['head_sha']}/pulls?per_page=100")
+    # Read GitHub's current run association, not every PR sharing its commit.
+    # The same branch/head may legitimately have PRs into multiple destinations.
+    rows = run.get("pull_requests")
     require(
-        isinstance(rows, list) and len(rows) < 100,
-        "PR association inventory is incomplete",
+        isinstance(rows, list) and 0 < len(rows) < 100,
+        "Current validation run lacks its PR association",
     )
-    matches = [
-        row
-        for row in rows
-        if row.get("head", {}).get("sha") == run["head_sha"]
-        and row.get("state") == "open"
-    ]
-    require(len(matches) == 1, "Validation must identify exactly one current open PR")
+    matches = [row for row in rows if row.get("head", {}).get("sha") == run["head_sha"]]
+    require(len(matches) == 1, "Validation must identify its exact PR")
     pr = read(f"repos/{REPOSITORY}/pulls/{matches[0]['number']}")
     branch = pr.get("base", {}).get("ref")
     require(
         pr.get("state") == "open"
         and pr.get("head", {}).get("sha") == run["head_sha"]
-        and pr.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY,
-        "PR head or destination changed",
+        and pr.get("base", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and pr.get("head", {}).get("repo", {}).get("full_name")
+        == run.get("head_repository", {}).get("full_name")
+        and pr.get("head", {}).get("ref") == run.get("head_branch"),
+        "PR head, repository or destination changed",
     )
     if branch == "main":
         require(
