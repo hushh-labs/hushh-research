@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Inspect prerequisites without deploying, or deploy a qualified application"
+        description: "Inspect or deploy UAT, or delete the retired one-uat service"
         required: true
         default: deploy
         type: choice
@@ -13,6 +13,7 @@ on:
           - deploy
           - inspect
           - inspect-routing
+          - cleanup-one-uat
       target:
         description: "Standard shared UAT deployment"
         required: true

@@ -8,6 +8,7 @@ import sys
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 # The protocol lane owns the pinned YAML dependency used by workflow contracts.
 CI_DIR = str(Path(__file__).resolve().parents[2] / "scripts/ci")
@@ -182,6 +183,57 @@ class DeploymentSecurityTest(unittest.TestCase):
             next(step for step in job["steps"] if step.get("uses") == action)["with"][key] = value
             with self.subTest(action=action, key=key), self.assertRaises(AssertionError):
                 assert_read_only_uat_inspection(self, job)
+
+    def test_one_uat_cleanup_refuses_replacements_and_inventory_errors(self):
+        import yaml
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = yaml.safe_load(
+            (root / ".github/workflows/deploy-uat-implementation.yml").read_text()
+        )
+        job = workflow["jobs"]["cleanup-one-uat"]
+        self.assertEqual(job["environment"], {"name": "uat", "deployment": False})
+        self.assertEqual(
+            job["concurrency"]["group"], workflow["jobs"]["deploy"]["concurrency"]["group"]
+        )
+        self.assertIn("inputs.operation == 'cleanup-one-uat'", job["if"])
+        self.assertIn('test "$SECURITY_SHA" = "$GITHUB_SHA"', job["steps"][0]["run"])
+        fake_gcloud = r"""
+gcloud() {
+  case "$*" in
+    "run services list --project=hushh-pda-uat --region=us-central1 --filter=metadata.name=one-uat --format=value(metadata.uid)")
+      [[ "$CURRENT_UID" != unreadable ]] || return 23
+      if [[ ! -e "$DELETED" && -n "$CURRENT_UID" ]]; then printf '%s\n' "$CURRENT_UID"; fi
+      ;;
+    "run services delete one-uat --project=hushh-pda-uat --region=us-central1 --quiet")
+      touch "$DELETED"
+      ;;
+    *) return 42 ;;
+  esac
+}
+"""
+        for uid, success, deleted in (
+            ("02f36253-d55c-4750-ada5-f0697d35fb16", True, True),
+            ("another-service-uid", False, False),
+            ("unreadable", False, False),
+            ("", True, False),
+        ):
+            with self.subTest(uid=uid), TemporaryDirectory() as directory:
+                marker = Path(directory) / "deleted"
+                result = subprocess.run(  # noqa: S603 - fixed workflow script with mocked gcloud
+                    ["bash", "-c", fake_gcloud + job["steps"][-1]["run"]],
+                    env={
+                        **os.environ,
+                        "CURRENT_UID": uid,
+                        "DELETED": str(marker),
+                        "GITHUB_STEP_SUMMARY": str(Path(directory) / "summary"),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+                self.assertEqual(marker.exists(), deleted)
 
     def test_every_caller_requires_isolated_clearance_before_mutation(self):
         import yaml

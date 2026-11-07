@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       operation:
-        description: "Inspect prerequisites without deploying, or deploy a qualified application"
+        description: "Inspect or deploy UAT, or delete the retired one-uat service"
         required: true
         type: string
       target:
@@ -172,7 +172,7 @@ jobs:
 
   deployment-security:
     name: Request Main security clearance
-    if: always() && (inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
+    if: always() && (inputs.operation == 'inspect-routing' || inputs.operation == 'cleanup-one-uat' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
     needs: select-target
     runs-on: ubuntu-24.04
     timeout-minutes: 7
@@ -192,8 +192,20 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation }}
           TARGET: ${{ inputs.target }}
+          REQUESTED_SHA: ${{ inputs.sha }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
         run: |
-          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
+          set -euo pipefail
+          case "$OPERATION" in deploy|inspect-routing|cleanup-one-uat) ;; *) exit 1 ;; esac
+          if [[ "$OPERATION" == cleanup-one-uat ]]; then
+            test "$GITHUB_EVENT_NAME" = workflow_dispatch
+            test "$GITHUB_REF" = refs/heads/uat
+            test "$TARGET" = shared-uat
+            test "$UAT_SOURCE_BRANCH" = uat
+            test "$REQUESTED_SCOPE" = auto
+            test -z "$REQUESTED_SHA"
+            python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+          fi
           if [[ "$OPERATION" == inspect-routing ]]; then
             test "$TARGET" = shared-uat
           fi
@@ -203,7 +215,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
+          DEPLOY_SECURITY_REF: ${{ inputs.operation == 'cleanup-one-uat' && github.sha || needs.select-target.outputs.sha || inputs.sha || 'uat' }}
           DEPLOY_SECURITY_ENVIRONMENT: uat
           DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
           DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
@@ -4687,3 +4699,67 @@ jobs:
           observed="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectId)')"
           test "$observed" = "$GCP_PROJECT_ID"
           printf 'Verified caller: %s\nMain tooling: %s\nProject: %s\nNo cloud resources changed.\n' "$GITHUB_REF_NAME" "$TOOLING_SHA" "$observed" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-one-uat:
+    name: Delete retired one-uat service
+    if: ${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'cleanup-one-uat' }}
+    needs: deployment-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: deploy-uat
+      cancel-in-progress: false
+      queue: max
+    environment:
+      name: uat
+      deployment: false
+    steps:
+      - name: Require current-attempt deployment security
+        env:
+          SECURITY_ATTEMPT: ${{ needs.deployment-security.outputs.attempt }}
+          SECURITY_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/uat
+          test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
+          test "$SECURITY_SHA" = "$GITHUB_SHA"
+
+      - name: Authenticate as the approved UAT deployer
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: hushh-pda-uat
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Delete and verify the original one-uat service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          service_uid() {
+            gcloud run services list --project=hushh-pda-uat --region=us-central1 \
+              --filter='metadata.name=one-uat' --format='value(metadata.uid)'
+          }
+
+          current_uid="$(service_uid)"
+          if [[ -z "$current_uid" ]]; then
+            echo 'Cloud Run confirms one-uat is already absent from hushh-pda-uat.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$current_uid" != 02f36253-d55c-4750-ada5-f0697d35fb16 ]]; then
+            echo 'The one-uat service UID differs from the reviewed target.' >&2
+            exit 1
+          fi
+
+          gcloud run services delete one-uat --project=hushh-pda-uat --region=us-central1 --quiet
+          remaining_uid="$(service_uid)"
+          test -z "$remaining_uid"
+          echo 'Cloud Run confirms one-uat was deleted from hushh-pda-uat.' >> "$GITHUB_STEP_SUMMARY"
