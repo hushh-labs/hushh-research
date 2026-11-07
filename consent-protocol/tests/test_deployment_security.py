@@ -8,6 +8,7 @@ import sys
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 # The protocol lane owns the pinned YAML dependency used by workflow contracts.
 CI_DIR = str(Path(__file__).resolve().parents[2] / "scripts/ci")
@@ -15,6 +16,7 @@ sys.path.insert(0, CI_DIR)
 try:
     import deployment_security as gate
     import github_security_receipt as receipt_transport
+    import remove_one_uat as removal
 finally:
     sys.path.remove(CI_DIR)
 
@@ -147,6 +149,39 @@ class DeploymentSecurityTest(unittest.TestCase):
         ]:
             with self.subTest(rows=rows, links=links), self.assertRaises(gate.Refused):
                 gate.produce(env, read, lambda _, rows=rows, links=links: (rows, links))
+
+    def test_one_uat_removal_requires_main_clearance_and_actor_before_auth(self):
+        import yaml
+
+        env, run, read = self.fixture()
+        run["path"] = ".github/workflows/remove-one-uat.yml"
+        env["GITHUB_WORKFLOW_REF"] = f"{gate.REPOSITORY}/{run['path']}@refs/heads/main"
+        self.assertEqual(gate.verify_run(read, env)["workflow_path"], run["path"])
+        env["GITHUB_REF"] = "refs/heads/uat"
+        with self.assertRaises(gate.Refused):
+            gate.verify_run(read, env)
+
+        root = Path(__file__).resolve().parents[2]
+        workflow = yaml.safe_load((root / run["path"]).read_text())
+        job = workflow["jobs"]["remove"]
+        self.assertEqual(job["environment"], {"name": "uat", "deployment": False})
+        self.assertEqual(job["concurrency"]["group"], "deploy-uat")
+        steps = job["steps"]
+        actor = next(
+            i for i, step in enumerate(steps) if "assert-governed-actor.py" in step.get("run", "")
+        )
+        auth = next(
+            i for i, step in enumerate(steps) if step.get("uses") == "google-github-actions/auth@v3"
+        )
+        self.assertLess(actor, auth)
+        for attempt, result in [("1", 1), ("2", 0), ("", 1)]:
+            observed = subprocess.run(  # noqa: S603 - reviewed workflow guard with synthetic authority
+                ["bash", "-c", steps[0]["run"]],
+                env={"SECURITY_ATTEMPT": attempt, "GITHUB_RUN_ATTEMPT": "2"},
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(observed.returncode, result)
 
     def test_read_only_inspection_exception_rejects_mutation_or_release_credentials(self):
         import yaml
@@ -701,6 +736,135 @@ class DeploymentBrokerTest(unittest.TestCase):
 
             with self.assertRaises(gate.Refused):
                 gate.consume_broker(SimpleNamespace(read=read), request, 40, policy)
+
+
+class RemoveOneUatTest(unittest.TestCase):
+    def setUp(self):
+        self.token = "synthetic"
+        self.service = {"name": removal.SERVICE, "uid": removal.EXPECTED_UID, "etag": '"etag"'}
+        self.operation = {
+            "name": "projects/745506018753/locations/us-central1/operations/test-operation",
+            "done": True,
+        }
+        self.records = []
+
+    def run_removal(self, call, *, execute=True):
+        return removal.remove_one_uat(
+            call, execute=execute, record=lambda report: self.records.append(deepcopy(report))
+        )
+
+    def test_deletion_is_etag_guarded_journaled_and_verified(self):
+        def call(method, name, **kwargs):
+            if method == "DELETE":
+                self.assertEqual(self.records[-1]["status"], "delete_submitting")
+                self.assertEqual(name, removal.SERVICE)
+                self.assertEqual(kwargs, {"etag": self.service["etag"]})
+                return self.operation
+            return (
+                self.service if not any(r["status"] == "deleting" for r in self.records) else None
+            )
+
+        self.assertEqual(self.run_removal(call)["status"], "deleted")
+
+    def test_inspection_and_already_absent_are_read_only(self):
+        for service, status in [(self.service, "inspected"), (None, "already_absent")]:
+            with self.subTest(status=status):
+                call = Mock(return_value=service)
+                self.assertEqual(self.run_removal(call, execute=False)["status"], status)
+                call.assert_called_once_with("GET", removal.SERVICE)
+        call = Mock(return_value=None)
+        self.assertEqual(self.run_removal(call)["status"], "already_absent")
+        call.assert_called_once_with("GET", removal.SERVICE)
+
+    def test_changed_identity_missing_etag_and_reconciling_refuse_before_delete(self):
+        for change in (
+            {"name": removal.SERVICE.replace("one-uat", "consent-protocol")},
+            {"uid": "replacement-service"},
+            {"etag": ""},
+            {"etag": None},
+            {"reconciling": True},
+            {"deleteTime": "2026-11-07T00:00:00Z"},
+        ):
+            with self.subTest(change=change):
+                call = Mock(return_value={**self.service, **change})
+                with self.assertRaises(removal.Refused):
+                    self.run_removal(call)
+                call.assert_called_once_with("GET", removal.SERVICE)
+                self.assertEqual(self.records[-1]["status"], "refused")
+
+    def test_denied_observation_is_never_absence(self):
+        call = Mock(side_effect=removal.Refused("cloud_run_http_403"))
+        with self.assertRaises(removal.Refused):
+            self.run_removal(call)
+        call.assert_called_once_with("GET", removal.SERVICE)
+        self.assertEqual(self.records[-1]["status"], "refused")
+
+    def test_real_transport_distinguishes_get_404_from_denial_and_delete_404(self):
+        for method, status in (("GET", 404), ("GET", 403), ("DELETE", 404)):
+            with self.subTest(method=method, status=status):
+                connection = Mock()
+                connection.getresponse.return_value.status = status
+                with patch.object(removal.http.client, "HTTPSConnection", return_value=connection):
+                    if (method, status) == ("GET", 404):
+                        self.assertIsNone(
+                            removal.request(method, removal.SERVICE, token=self.token)
+                        )
+                    else:
+                        with self.assertRaises(removal.Refused):
+                            removal.request(method, removal.SERVICE, token=self.token)
+                connection.close.assert_called_once()
+
+    def test_real_transport_sends_current_etag_to_the_fixed_google_host(self):
+        connection = Mock()
+        connection.getresponse.return_value.status = 200
+        connection.getresponse.return_value.read.return_value = b'{"done":true}'
+        with patch.object(
+            removal.http.client, "HTTPSConnection", return_value=connection
+        ) as open_connection:
+            removal.request("DELETE", removal.SERVICE, token=self.token, etag='"a/b"')
+        open_connection.assert_called_once_with("run.googleapis.com", timeout=30)
+        self.assertEqual(
+            connection.request.call_args.args,
+            ("DELETE", "/v2/" + removal.SERVICE + "?etag=%22a%2Fb%22"),
+        )
+
+    def test_delete_refusal_or_lost_response_preserves_uncertain_intent(self):
+        for error in (removal.Refused("cloud_run_http_409"), TimeoutError()):
+            with self.subTest(error=type(error).__name__):
+                call = Mock(side_effect=[self.service, error])
+                with self.assertRaises(type(error)):
+                    self.run_removal(call)
+                self.assertEqual(call.call_count, 2)
+                self.assertEqual(self.records[-1]["status"], "uncertain")
+
+    def test_operation_identity_error_and_missing_observation_refuse(self):
+        for operation in (
+            None,
+            {**self.operation, "name": self.operation["name"].replace("745506018753", "other")},
+            {**self.operation, "error": {"code": 7}},
+            {**self.operation, "done": False},
+        ):
+            with self.subTest(operation=operation), patch.object(removal.time, "sleep"):
+                call = Mock(side_effect=[self.service, operation, None])
+                with self.assertRaises(removal.Refused):
+                    self.run_removal(call)
+                self.assertIn(self.records[-1]["status"], {"failed", "uncertain"})
+
+    def test_operation_poll_and_final_absence_are_both_required(self):
+        pending = {**self.operation, "done": False}
+        call = Mock(side_effect=[self.service, pending, self.operation, self.service, None])
+        with patch.object(removal.time, "sleep"):
+            self.assertEqual(self.run_removal(call)["status"], "deleted")
+        self.assertEqual(call.call_args_list[-1].args, ("GET", removal.SERVICE))
+        self.assertEqual(call.call_count, 5)
+
+    def test_incomplete_operation_or_unconfirmed_absence_times_out_uncertain(self):
+        for operation in (self.operation, {**self.operation, "done": False}):
+            with self.subTest(operation=operation), patch.object(removal, "WAIT_SECONDS", 0):
+                call = Mock(side_effect=[self.service, operation, self.service])
+                with self.assertRaises(removal.Refused):
+                    self.run_removal(call)
+                self.assertEqual(self.records[-1]["status"], "uncertain")
 
 
 if __name__ == "__main__":
