@@ -3280,6 +3280,7 @@
       },
       "voice_action_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "kyc.save_profile",
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.receipt_sync_details",
@@ -11075,5 +11076,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "440ef61cd808538fd56e84f7a75d3497d9f657e7ded1275b01f15e70297ae5f9"
+  "content_sha256": "62e86ee77dbce5ba637db422eef8f516070ce05c17d79834c191bd1941e42212"
 }

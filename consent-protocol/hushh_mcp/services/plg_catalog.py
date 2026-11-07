@@ -135,6 +135,8 @@ def activity_catalog(environment: str = "production") -> dict:
         }.get(action["surface_id"])
         if action["surface_id"] == "gmail" and key.startswith("profile.gmail."):
             surface_owner = "agent_email"
+        if action["surface_id"] == "gmail" and key == "kyc.save_profile":
+            surface_owner = "agent_kyc"
         if key in actions:
             if surface_owner:
                 actions[key]["agentId"] = surface_owner
