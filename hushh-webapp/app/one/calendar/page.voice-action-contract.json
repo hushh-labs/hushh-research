@@ -29,6 +29,54 @@
   },
   "actions": [
     {
+      "action_id": "calendar.connection.connect",
+      "label": "Connect Calendar account",
+      "meaning": "Reports the person's manual attempt to connect a Calendar account or extend its access. The original connection flow retains consent and confirms the result.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": ["/one/calendar", "/one/setup/calendar"],
+        "screens": ["one_calendar", "one_setup_calendar"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["The person opens the Calendar connection control"]
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "The person must start Calendar consent from the existing connection control.",
+        "intended_handler": "CalendarAgentPage.connect"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": ["components/calendar/calendar-agent-page.tsx"]
+    },
+    {
+      "action_id": "calendar.connection.disconnect",
+      "label": "Disconnect Calendar account",
+      "meaning": "Reports the person's confirmed attempt to disconnect the selected Calendar account. The original Calendar flow checks the resulting connection status.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": ["/one/calendar", "/one/setup/calendar"],
+        "screens": ["one_calendar", "one_setup_calendar"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["The person confirms the Calendar account disconnection"]
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the existing Calendar confirmation dialog may submit this manual action.",
+        "intended_handler": "CalendarAgentPage.disconnect"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": ["components/calendar/calendar-agent-page.tsx"]
+    },
+    {
       "action_id": "calendar.read",
       "label": "Read Calendar",
       "meaning": "Reads the owner's connected Google Calendar through One Live Voice. The read can list calendars, find events in a bounded time window, open a previously shown event, inspect busy periods, or find openings. Event text is displayed privately on screen; the operational voice model receives only counts and status. No event is created or changed.",

@@ -2,6 +2,7 @@ import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime"
 import { waitForVoiceActionSettlement } from "@/lib/voice/voice-action-settlement";
 import type { VoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
 import type { AppRuntimeState } from "@/lib/kai/actions/voice-types";
+import { settleProductDispatch } from "@/lib/observability/product-activity-client";
 
 type GatewaySettlementOptions = {
   getCurrentRoute: () => AppRuntimeState["route"] | undefined;
@@ -45,10 +46,10 @@ export async function settleAgentGatewayAction(
     };
   }
 
-  return {
+  return settleProductDispatch<AgentActionRuntimeResult>(result, {
     ...result,
     status: "succeeded",
     routeAfter: settlement.route_after || result.routeAfter,
     screenAfter: settlement.screen_after || result.screenAfter,
-  };
+  });
 }
