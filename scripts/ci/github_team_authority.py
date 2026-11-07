@@ -35,8 +35,8 @@ TEAM_IDS = {
 LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 
 
-class StaleObservation(Refused):
-    """A fully verified completed read may be renewed; uncertain work may not."""
+class PendingObservation(Refused):
+    """The exact Main publication has not completed; bounded read retry is safe."""
 
 
 def require(condition, message):
@@ -176,6 +176,277 @@ def local_policy(policy, *, actor=None, read=cli_read):
             "Requested operator is not the authenticated CLI user",
         )
     return project_policy(policy, read_teams(read))
+
+
+def enforced(policy):
+    return policy.get("authorization", {}).get("mode") == "enforce"
+
+
+def encode_binding(source, producer):
+    """GitHub stores at most 255 external-id characters; never put labels here."""
+    kind = {
+        SOURCE_WORKFLOWS["PR Validation"]: "pr",
+        SOURCE_WORKFLOWS["Queue Validation"]: "queue",
+    }[source["workflow"]]
+    value = json.dumps(
+        [
+            1,
+            source["run_id"],
+            source["attempt"],
+            source["sha"],
+            kind,
+            producer["run_id"],
+            producer["attempt"],
+            producer["sha"],
+        ],
+        separators=(",", ":"),
+    )
+    require(len(value) <= 255, "Team binding exceeds GitHub's storage limit")
+    return value
+
+
+def decode_binding(value):
+    try:
+        raw = json.loads(value)
+        if isinstance(raw, dict):  # Complete historical observations stay readable.
+            return raw
+        require(
+            isinstance(raw, list)
+            and len(raw) == 8
+            and raw[0] == 1
+            and raw[4] in {"pr", "queue"}
+            and all(type(raw[i]) is int and raw[i] > 0 for i in (1, 2, 5, 6))
+            and all(SHA.fullmatch(str(raw[i])) for i in (3, 7)),
+            "Team check binding is malformed",
+        )
+        return {
+            "source": {
+                "run_id": raw[1],
+                "attempt": raw[2],
+                "sha": raw[3],
+                "workflow": SOURCE_WORKFLOWS[
+                    "PR Validation" if raw[4] == "pr" else "Queue Validation"
+                ],
+            },
+            "producer": {
+                "run_id": raw[5],
+                "attempt": raw[6],
+                "sha": raw[7],
+                "workflow": WORKFLOW,
+            },
+        }
+    except (ValueError, TypeError, IndexError):
+        raise Refused("Team check binding is malformed") from None
+
+
+def main_publication(read, producer, *, archive=None, allow_failed_observation=False):
+    """Verify a completed Main job and its exact immutable publication artifact."""
+    from github_security_receipt import archive_read, unpack
+
+    prefix = f"repos/{REPOSITORY}"
+    run = read(f"{prefix}/actions/runs/{producer['run_id']}")
+    workflow = read(f"{prefix}/actions/workflows/deployment-security.yml")
+    require(
+        run.get("id") == producer["run_id"]
+        and run.get("run_attempt") == producer["attempt"]
+        and run.get("head_sha") == producer["sha"]
+        and run.get("workflow_id") == workflow.get("id")
+        and workflow.get("path") == WORKFLOW
+        and run.get("path", "").split("@", 1)[0] == WORKFLOW
+        and run.get("head_branch") == "main"
+        and run.get("event") == "workflow_run"
+        and all(
+            run.get(key, {}).get("full_name") == REPOSITORY
+            for key in ("repository", "head_repository")
+        ),
+        "Team check lacks its exact Main-owned producer",
+    )
+    if run.get("status") != "completed":
+        raise PendingObservation("Waiting for Main's publication receipt")
+    required_result = (
+        "failure"
+        if allow_failed_observation and run.get("conclusion") == "failure"
+        else "success"
+    )
+    require(run.get("conclusion") == required_result, "Main team authorization failed")
+    ancestry = read(f"{prefix}/compare/{producer['sha']}...main?per_page=1&page=2")
+    require(
+        ancestry.get("status") in {"identical", "ahead"}
+        and ancestry.get("merge_base_commit", {}).get("sha") == producer["sha"],
+        "Team producer revision is outside Main",
+    )
+    jobs = read(
+        f"{prefix}/actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100"
+    )
+    job_rows = jobs.get("jobs", [])
+    require(
+        jobs.get("total_count") == len(job_rows) <= 100
+        and sum(
+            row.get("name") == "Verify live team authority"
+            and row.get("conclusion") == required_result
+            and row.get("status") == "completed"
+            and row.get("run_id") == run["id"]
+            and row.get("run_attempt") == run["run_attempt"]
+            for row in job_rows
+        )
+        == 1,
+        "Main membership job did not pass on the recorded attempt",
+    )
+    result = read(f"{prefix}/actions/runs/{run['id']}/artifacts?per_page=100")
+    artifacts = result.get("artifacts", [])
+    require(
+        type(result.get("total_count")) is int
+        and result["total_count"] == len(artifacts) <= 100,
+        "Team artifact inventory is incomplete",
+    )
+    artifacts = [
+        row
+        for row in artifacts
+        if row.get("name") == f"team-authorization-{run['id']}-{run['run_attempt']}"
+    ]
+    require(len(artifacts) == 1, "Exact team authority artifact is missing")
+    artifact = artifacts[0]
+    require(
+        artifact.get("expired") is False
+        and artifact.get("workflow_run", {}).get("id") == run["id"]
+        and type(artifact.get("size_in_bytes")) is int
+        and 0 < artifact["size_in_bytes"] <= 64 * 1024,
+        "Team authority artifact ownership or size is invalid",
+    )
+    raw = (archive or archive_read)(artifact["id"])
+    require(len(raw) == artifact["size_in_bytes"], "Team artifact size changed")
+    receipt = unpack(
+        raw, artifact.get("digest", ""), filename="team-authorization.json"
+    )
+    require(receipt.get("producer") == producer, "Main publication producer changed")
+    require(
+        required_result != "failure" or receipt.get("state") == "failure",
+        "Failed Main execution is not a published failure observation",
+    )
+    require(
+        read(f"{prefix}/actions/runs/{run['id']}") == run,
+        "Main producer attempt changed",
+    )
+    return receipt, run
+
+
+def consume_main(read, expected, *, state="success", archive=None):
+    """Read the exact Main publication, never a same-name green aggregate.
+
+    A source gate consumes its initial pending publication. Waiting there for
+    terminal authorization would deadlock the completion worker. Admin consumes
+    terminal success instead. Both prove immutable Main artifact provenance.
+    """
+    from github_security_receipt import timestamp
+
+    require(state in {"in_progress", "success"}, "Invalid authority phase")
+    source = source_identity(read, expected)
+    identity = {
+        "run_id": source["id"],
+        "attempt": source["run_attempt"],
+        "sha": source["head_sha"],
+        "workflow": source["path"].split("@", 1)[0],
+    }
+    prefix = f"repos/{REPOSITORY}"
+    inventory = read(
+        f"{prefix}/commits/{source['head_sha']}/check-runs?check_name=Team%20Authorization%20Gate&filter=all&per_page=100"
+    )
+    rows = inventory.get("check_runs", [])
+    require(
+        type(inventory.get("total_count")) is int
+        and inventory["total_count"] == len(rows) <= 100,
+        "Team check inventory is incomplete",
+    )
+    matches = [
+        row
+        for row in rows
+        if row.get("name") == CHECK and row.get("app", {}).get("id") == 15368
+    ]
+    if not matches:
+        raise PendingObservation(
+            "Waiting for Main's exact-attempt authority publication"
+        )
+    require(len(matches) == 1, "Team authority checks are ambiguous")
+    check = matches[0]
+    try:
+        binding = decode_binding(check.get("external_id", ""))
+    except (ValueError, TypeError):
+        raise Refused("Team check binding is malformed") from None
+    if binding.get("source") != identity:
+        raise PendingObservation(
+            "Waiting for Main to replace the previous source attempt"
+        )
+    producer = binding.get("producer", {})
+    require(
+        type(producer.get("run_id")) is int
+        and producer["run_id"] > 0
+        and type(producer.get("attempt")) is int
+        and producer["attempt"] > 0
+        and producer.get("workflow") == WORKFLOW
+        and SHA.fullmatch(str(producer.get("sha", ""))),
+        "Team authority producer binding is malformed",
+    )
+    receipt, run = main_publication(read, producer, archive=archive)
+    require(
+        receipt.get("schema_version") == 1
+        and receipt.get("source") == identity
+        and receipt.get("producer") == producer
+        and receipt.get("check_id") == check.get("id")
+        and receipt.get("state") == state
+        and check.get("head_sha") == identity["sha"]
+        and check.get("details_url")
+        == f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}"
+        and check.get("status")
+        == ("in_progress" if state == "in_progress" else "completed")
+        and (state == "in_progress" or check.get("conclusion") == "success")
+        and timestamp(run["run_started_at"])
+        <= timestamp(receipt["recorded_at"])
+        <= timestamp(run["updated_at"]),
+        "Team authority receipt or phase does not match",
+    )
+    require(
+        source_identity(read, expected) == source
+        and read(f"{prefix}/actions/runs/{run['id']}") == run,
+        "Team/source attempt changed during receipt verification",
+    )
+    return receipt
+
+
+def await_start(env, *, read=cli_read, monotonic=None, sleep=None):
+    import time
+
+    monotonic, sleep = monotonic or time.monotonic, sleep or time.sleep
+    require(
+        env.get("GITHUB_ACTIONS") == "true"
+        and env.get("GITHUB_REPOSITORY") == REPOSITORY
+        and env.get("GITHUB_EVENT_NAME") in {"pull_request", "merge_group"},
+        "Team startup barrier requires the actual validation operation",
+    )
+    expected = {
+        "id": int(env["GITHUB_RUN_ID"]),
+        "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
+    }
+    run = read(f"repos/{REPOSITORY}/actions/runs/{expected['id']}")
+    require(
+        run.get("event") == env["GITHUB_EVENT_NAME"]
+        and (
+            run["event"] == "pull_request"
+            or run.get("head_sha") == env.get("GITHUB_SHA")
+        ),
+        "Validation event or queue source changed",
+    )
+    # PR GITHUB_SHA is the tested merge commit; the check belongs to the PR head.
+    expected["head_sha"] = run.get("head_sha")
+    deadline = monotonic() + 120
+    while True:
+        try:
+            return consume_main(read, expected, state="in_progress")
+        except PendingObservation:
+            if monotonic() >= deadline:
+                raise Refused(
+                    "Main authority publication did not arrive; retry the failed validation after repairing its worker"
+                ) from None
+            sleep(5)
 
 
 CHECK = "Team Authorization Gate"
@@ -398,17 +669,47 @@ def write_check(token, payload, *, read=cli_read):
         and inventory["total_count"] == len(rows) <= 100,
         "Authorization check inventory is incomplete",
     )
-    matches = []
+    matches, truncated = [], set()
     for row in rows:
         if row.get("name") != CHECK or row.get("app", {}).get("id") != 15368:
             continue
         external = row.get("external_id", "")
         try:
-            binding = json.loads(external)
-        except (ValueError, TypeError):
-            continue
+            binding = decode_binding(external)
+        except Refused:
+            # The first observer stored verbose JSON, which GitHub truncated at
+            # 255 characters. Recover only from that exact Main job's immutable
+            # artifact; a matching display name or URL alone is not ownership.
+            require(
+                isinstance(external, str)
+                and len(external) == 255
+                and external.startswith('{"producer":'),
+                "Unknown team check requires explicit reconciliation",
+            )
+            match = re.fullmatch(
+                r"https://github.com/hushh-labs/hushh-research/actions/runs/([1-9][0-9]*)",
+                row.get("details_url", ""),
+            )
+            require(match is not None, "Truncated team check lacks its Main run")
+            old = read(f"repos/{REPOSITORY}/actions/runs/{match[1]}")
+            producer = {
+                "run_id": old["id"],
+                "attempt": old["run_attempt"],
+                "sha": old["head_sha"],
+                "workflow": WORKFLOW,
+            }
+            record, _ = main_publication(read, producer, allow_failed_observation=True)
+            binding = {"source": record.get("source"), "producer": producer}
+            require(
+                record.get("check_id") == row.get("id")
+                and binding["source"].get("sha") == payload["head_sha"]
+                and json.dumps(binding, sort_keys=True, separators=(",", ":"))[:255]
+                == external,
+                "Truncated check does not match its immutable Main publication",
+            )
+            truncated.add(row["id"])
         producer = binding.get("producer", {})
-        next_source = json.loads(payload["external_id"]).get("source", {})
+        next_source = decode_binding(payload["external_id"]).get("source", {})
         require(
             not (
                 binding.get("source", {}).get("workflow")
@@ -433,9 +734,10 @@ def write_check(token, payload, *, read=cli_read):
             )
             matches.append(row)
     require(
-        len(matches) <= 1,
+        len([row for row in matches if row["id"] not in truncated]) <= 1,
         "Authorization checks are ambiguous; reconcile before mutation",
     )
+    matches.sort(key=lambda row: (row["id"] not in truncated, row["id"]), reverse=True)
     path = f"repos/{REPOSITORY}/check-runs"
     body, method = dict(payload), "POST"
     if matches:
@@ -476,6 +778,39 @@ def write_check(token, payload, *, read=cli_read):
         and (not matches or result["id"] == matches[0]["id"]),
         "Authorization publication is unconfirmed",
     )
+    # Retire only duplicate observations proven above. Renaming removes them
+    # from the gate inventory while preserving their historical evidence.
+    for duplicate in matches[1:]:
+        retire = urllib.request.Request(
+            f"https://api.github.com/repos/{REPOSITORY}/check-runs/{duplicate['id']}",
+            data=json.dumps(
+                {
+                    "name": "Team authority observation (superseded)",
+                    "status": "completed",
+                    "conclusion": "neutral",
+                    "output": {
+                        "title": "Superseded observation",
+                        "summary": f"Reconciled into check {result['id']}; no release authority.",
+                    },
+                }
+            ).encode(),
+            method="PATCH",
+            headers=dict(request.header_items()),
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect).open(
+                retire, timeout=20
+            ) as response:
+                retired = json.loads(response.read(256 * 1024 + 1))
+            require(
+                retired.get("id") == duplicate["id"]
+                and retired.get("name") == "Team authority observation (superseded)",
+                "Duplicate observation retirement is unconfirmed",
+            )
+        except (urllib.error.URLError, TimeoutError):
+            raise Refused(
+                "Duplicate observation retirement is uncertain; inspect before retry"
+            ) from None
     return result["id"]
 
 
@@ -558,11 +893,7 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
         "decision": details,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
-    external = json.dumps(
-        {"source": identity, "producer": producer},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    external = encode_binding(identity, producer)
     payload = {
         "name": CHECK,
         "head_sha": run["head_sha"],
@@ -589,7 +920,20 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
 
 if __name__ == "__main__":
     try:
-        result = publish_main(dict(os.environ))
+        if sys.argv[1:] == ["--verify-start"]:
+            policy = json.loads(
+                (
+                    Path(__file__).resolve().parents[2] / "config/ci-governance.json"
+                ).read_text()
+            )
+            result = (
+                await_start(dict(os.environ))
+                if enforced(policy)
+                else {"state": "observation-only"}
+            )
+        else:
+            require(not sys.argv[1:], "Unknown team authority command")
+            result = publish_main(dict(os.environ))
         print(json.dumps({key: result.get(key) for key in ("state", "check_id")}))
         if result.get("state") == "failure":
             raise SystemExit(1)
