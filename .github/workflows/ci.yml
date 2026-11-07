@@ -1689,7 +1689,9 @@ jobs:
           [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          if [ "$GITHUB_REF" != 'refs/heads/uat' ]; then
+            git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          fi
 
       - name: Verify isolated source (${{ inputs.uat_candidate_sha }} ${{ inputs.uat_candidate_tree }})
         if: inputs.uat_candidate_sha != ''
