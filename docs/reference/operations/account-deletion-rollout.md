@@ -13,6 +13,25 @@ flowchart LR
   drain --> enable[Re-enable account deletion]
 ```
 
+## Current Dev application — 7 November 2026
+
+PR [9057](https://github.com/hushh-labs/hushh-research/pull/9057) passed
+[exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42317327082)
+and the governed [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42322308693).
+Source `328f02b7448d` serves through backend `consent-protocol-00359-hrh` and
+frontend `hushh-webapp-00309-gz2`, both native Ready at 100% traffic. Complete
+migration-987 qualification passed; all 82 prior ledger checksums are preserved.
+Semantic acceptance, cleanup activation and fresh Scheduler HTTP 200 passed.
+The isolated Auth selector remains off; no existing identity was imported or changed.
+
+The actual owner interface passed normal password unlock, server-confirmed owner
+and generation zero, pending 10/17, exact provider time and Close/reopen checks.
+Retention hides approval and continuation; Sign out, Refresh status and Close stay
+available. Apple Events and background launch preserved foreground focus. The
+four historical full-account entries retaining shared identities and four historical
+phone entries with authority mismatch hold no active leases. They must not inherit
+a new Firebase realm. Application acceptance does not mean physical erasure.
+
 ## Dev legacy cloud-removal repair — 5 November 2026
 
 **Operational, cleanup pending.** The interface repair in
@@ -105,8 +124,13 @@ retirement in disposable PostgreSQL. The fixture is absent and its local cluster
 is stopped. This qualifies that provider/database boundary; the live interface
 and native client cutover still require their own evidence.
 
-Read-only lifecycle inventory extends the scoped source cohort to 160 identities,
-including four beyond vault roots. None has been imported. A Dev-only canonical
+Fresh lifecycle inventory selects 156 identities with current, validated,
+unfenced actor/vault roots. The earlier 160-identity presence preview included
+three retired identities and a providerless identity referenced only by
+`pod_lifecycle_events`; preserve those records and exclude them from ordinary
+active-account import. Historical presence alone is not import authority. None
+has been imported. Eighteen active identities have custom claims requiring explicit
+review; do not automatically carry privileged claims into another realm. A Dev-only canonical
 SDK credential is staged in `DEV_FIREBASE_SDK_CREDENTIALS_JSON`; native permission
 readback grants Dev user management and none of the tested production Auth
 permissions. The live services still use their previous credential. The existing
@@ -118,7 +142,13 @@ actual owner sign-in remains unqualified. Eight cohort identities have an Apple 
 The existing Dev project also has iOS `com.hushh.app` and Android `com.hussh.app`
 Firebase app registrations. Their downloaded configurations match the Dev project,
 sender and app identifiers. No native build or live client uses them yet; provider
-and installed-device acceptance remain cutover gates.
+and installed-device acceptance remain cutover gates. The native sync follow-up
+derives iOS `GIDClientID` and its Google callback from the selected Firebase
+configuration. It rejects inconsistent client/callback pairs before copying,
+preserves unrelated declarations and deep links, and is idempotent. Its regression
+failed against the old implementation; 23 nearest checks and the actual downloaded
+Dev configuration passed in a disposable fixture. No native build or device sign-in
+is claimed. Dev web-push VAPID is staged; native APNs remains unconfigured.
 
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email
@@ -130,28 +160,34 @@ assigned to a different source UID. Email equality does not authorize a merge.
 Preserve all records. The new target has no
 users after fixture cleanup; no source identity was mutated during this work.
 
-Before cutover, reconcile those mappings and include registered Dev owners beyond
+Before cutover, reconcile those mappings and qualify any registered Dev owners beyond
 vault roots; preserve provider links, verified claims, password/MFA configuration
 and account generations. Qualify web and native Google/Apple/phone paths, direct
 pod admission, encrypted recovery and pending removal status on the target realm.
 Remove production Auth-write authority from every credential available to Dev,
-including the retained primary messaging/support credential. A named SDK app
-alone does not provide credential containment.
+including the retained primary messaging/support credential and incompatible
+retained runtime copies. A named SDK app alone does not provide credential containment.
+Short-lived SQL locks do not serialize a later provider import against erasure
+after process loss. Use the existing durable deletion release fence only for the
+bounded, qualified import batch; recheck eligibility after installation, retain
+intent before dispatch and reconcile uncertain outcomes without blind replay.
+Do not hold a long freeze while unrelated client prerequisites remain unfinished.
 
 The rollout reuses the single environment Firebase configuration and existing
 build propagation and primary-project parity. An explicit backend erasure-realm
 pin must agree with that canonical app. No second browser Auth configuration is
 introduced. Live Dev sign-in has not changed, and serving full-account cleanup
 still returns `identity_retained`.
-Draft Dev migration 987 extends the existing journal with immutable project-bound
+Installed Dev migration 987 extends the existing journal with immutable project-bound
 authority and monotonic native-deletion evidence. Fresh isolated requests delete
 only the pinned Dev identity after other provider cleanup settles; local erasure
 and generation retirement require native `USER_NOT_FOUND`. An uncertain deletion
 is observed without replay. Historical full-account and phone intents cannot
 inherit a new Firebase target from current runtime configuration. Migration
 adoption qualifies the complete function, trigger and ACL family; rollback refuses
-after an isolated intent is admitted. The draft is locally verified, not applied
-live. A signed, exact-operation status read can finish the device purge after the
+after an isolated intent is admitted. Native qualification passed the complete
+installed function, metadata, ACL, trigger and column family. A signed,
+exact-operation status read can finish the device purge after the
 identity disappears; it cannot authorize continuation or ordinary account access.
 DB erasure alone does not fulfil the existing privacy promise to delete sign-in
 information. Shared project membership by itself is not a continuing retention
