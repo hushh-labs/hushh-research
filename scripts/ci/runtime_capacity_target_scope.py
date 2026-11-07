@@ -3,9 +3,9 @@
 import importlib.util
 import json
 import re
-from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, NamedTuple
 from urllib.parse import unquote
 
@@ -18,6 +18,8 @@ _VOLUME_SPEC.loader.exec_module(_volume)
 
 ISOLATED_DEV_SCOPE = "plg-isolated-dev-v1"
 ISOLATED_DEV_CONNECTION = "hushh-pda-dev:us-central1:plg-qualification-pg"
+UAT_EXTERNAL_CONNECTION = "hushh-pda-uat:us-central1:one-uat-pg"
+UAT_TARGET_CONNECTION = "hushh-pda-uat:us-central1:hushh-uat-pg"
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +200,98 @@ def isolated_dev_scope(
     if set(config.get("services", {})) & set(config["non_database_services"]):
         raise BudgetError("a service cannot be target and non-target")
     return True
+
+
+def uat_external_scope(
+    config: dict[str, Any], region: str, environment: str | None
+) -> dict[str, Any] | None:
+    """Accept only the reviewed, separately routed private One UAT workloads."""
+    if "external_database_workloads" not in config:
+        return None
+    external = config["external_database_workloads"]
+    if (
+        environment != "uat"
+        or region != "us-central1"
+        or config.get("project") != "hushh-pda-uat"
+        or config.get("database_instance") != "hushh-uat-pg"
+        or not isinstance(external, dict)
+        or set(external)
+        != {
+            "connection_name",
+            "namespace",
+            "runtime_account",
+            "database_secret",
+            "service",
+            "job",
+        }
+        or external.get("connection_name") != UAT_EXTERNAL_CONNECTION
+        or external.get("namespace") != "745506018753"
+        or external.get("runtime_account")
+        != "one-uat-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+        or not isinstance(external.get("database_secret"), dict)
+        or set(external["database_secret"])
+        != {"name", "version", "resource_created", "version_created"}
+        or external["database_secret"].get("name") != "one-uat-database-url"
+        or external["database_secret"].get("version") != "1"
+        or any(
+            not isinstance(external["database_secret"].get(key), str)
+            or not external["database_secret"][key].endswith("Z")
+            for key in ("resource_created", "version_created")
+        )
+        or not isinstance(external.get("service"), dict)
+        or not isinstance(external.get("job"), dict)
+        or set(external["service"])
+        != {"uid", "created", "generation", "spec_sha256", "image", "revisions"}
+        or set(external["job"])
+        != {
+            "uid",
+            "created",
+            "generation",
+            "spec_sha256",
+            "execution_spec_sha256",
+            "image",
+        }
+        or not isinstance(external["service"].get("revisions"), dict)
+        or set(external["service"]["revisions"]) != {"one-uat-00001-mzl"}
+        or not isinstance(external["service"]["revisions"]["one-uat-00001-mzl"], dict)
+        or set(external["service"]["revisions"]["one-uat-00001-mzl"])
+        != {"uid", "spec_sha256"}
+        or external["service"].get("generation") != 1
+        or external["job"].get("generation") != 1
+    ):
+        raise BudgetError(
+            "UAT external workload declaration differs from reviewed scope"
+        )
+    for item in (
+        external["service"],
+        external["job"],
+        *external["service"]["revisions"].values(),
+    ):
+        fingerprint = item.get("spec_sha256")
+        if not isinstance(fingerprint, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", fingerprint
+        ):
+            raise BudgetError("UAT external workload fingerprint is malformed")
+    execution_fingerprint = external["job"].get("execution_spec_sha256")
+    if not isinstance(execution_fingerprint, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", execution_fingerprint
+    ):
+        raise BudgetError("UAT external execution fingerprint is malformed")
+    for workload in (external["service"], external["job"]):
+        image = workload.get("image")
+        if not isinstance(image, str) or not re.fullmatch(
+            r"us-central1-docker\.pkg\.dev/hushh-pda-uat/cloud-run-source-deploy/one-uat@sha256:[0-9a-f]{64}",
+            image,
+        ):
+            raise BudgetError("UAT external workload image is not digest-pinned")
+    if set(config.get("services", {})) & {"one-uat"} or "one-uat" in (
+        set(config.get("non_database_services", ()))
+        | set(config.get("optional_non_database_services", ()))
+    ):
+        raise BudgetError("UAT external service has another capacity classification")
+    if "one-uat-migrate" in config.get("jobs", {}):
+        raise BudgetError("UAT external job has another capacity classification")
+    return external
 
 
 def _walk(value: Any, depth: int = 0):
@@ -446,6 +540,34 @@ def non_target_routing(
 
 def non_target_rows(proof: Any, config: dict[str, Any], environment: str, region: str):
     """Expose zero rows only from the genuine collector's fixed-scope result."""
+    external = uat_external_scope(config, region, environment)
+    if external is not None:
+        if proof is None:
+            return [], []
+        if (
+            type(proof) is not VerifiedNonTargetInventory
+            or proof.connection_name != UAT_TARGET_CONNECTION
+        ):
+            raise BudgetError("fixed UAT external workloads need collector-owned proof")
+        for rows, expected in (
+            (proof.services, {"one-uat"}),
+            (proof.jobs, {"one-uat-migrate"}),
+        ):
+            names = [row.get("name") for row in rows]
+            if (
+                len(names) != len(set(names))
+                or set(names) - expected
+                or any(
+                    row.get("connections") != 0
+                    or row.get("capacity_classification") != "not-target-instance"
+                    or row.get("template_checked") is not True
+                    for row in rows
+                )
+            ):
+                raise BudgetError(
+                    "UAT external proof differs from reviewed workload partition"
+                )
+        return list(proof.services), list(proof.jobs)
     if not isolated_dev_scope(config, region, environment):
         if proof is not None:
             raise BudgetError("non-target proof cannot qualify an ordinary environment")

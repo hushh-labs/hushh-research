@@ -49,6 +49,7 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
         self.profile["environments"]["production"] = copy.deepcopy(
             self.profile["environments"]["uat"]
         )
+        self.profile["environments"]["production"].pop("external_database_workloads")
         config = self.profile["environments"]["uat"]
         self.service_names = sorted(
             [*config["services"], *config["non_database_services"]]
@@ -87,17 +88,272 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
 
     def read(self, *args: str) -> object:
         length = (
-            3
-            if args[:3] in {("run", "services", "list"), ("run", "jobs", "list")}
-            else 4
+            5
+            if args[:3] == ("secrets", "versions", "describe")
+            or args[:4] == ("run", "jobs", "executions", "list")
+            else (
+                3
+                if args[:2] == ("secrets", "describe")
+                else (
+                    3
+                    if args[:3]
+                    in {("run", "services", "list"), ("run", "jobs", "list")}
+                    else 4
+                )
+            )
         )
         return copy.deepcopy(self.rows[args[:length]])
+
+    def add_external_one(self) -> None:
+        external = self.profile["environments"]["uat"]["external_database_workloads"]
+        connection = external["connection_name"]
+        annotations = {"run.googleapis.com/cloudsql-instances": connection}
+        secret = external["database_secret"]
+
+        def runtime_spec(image: str) -> dict:
+            return {
+                "serviceAccountName": external["runtime_account"],
+                "containers": [
+                    {
+                        "image": image,
+                        "env": [
+                            {
+                                "name": "DATABASE_URL",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": secret["name"],
+                                        "key": secret["version"],
+                                    }
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+
+        service = external["service"]
+        revision_name = "one-uat-00001-mzl"
+        revision = {
+            "metadata": {
+                "name": revision_name,
+                "uid": service["revisions"][revision_name]["uid"],
+                "namespace": external["namespace"],
+                "annotations": copy.deepcopy(annotations),
+            },
+            "spec": runtime_spec(service["image"]),
+        }
+        service_doc = {
+            "metadata": {
+                "name": "one-uat",
+                "uid": service["uid"],
+                "namespace": external["namespace"],
+                "creationTimestamp": service["created"],
+                "generation": 1,
+            },
+            "spec": {
+                "template": {
+                    "metadata": {"annotations": copy.deepcopy(annotations)},
+                    "spec": runtime_spec(service["image"]),
+                }
+            },
+            "status": {
+                "traffic": [{"revisionName": revision_name, "percent": 100}],
+                "latestReadyRevisionName": revision_name,
+            },
+        }
+        service["spec_sha256"] = inventory._fingerprint(service_doc["spec"])
+        service["revisions"][revision_name]["spec_sha256"] = inventory._fingerprint(
+            revision["spec"]
+        )
+
+        job = external["job"]
+        job_task = runtime_spec(job["image"])
+        job_doc = {
+            "metadata": {
+                "name": "one-uat-migrate",
+                "uid": job["uid"],
+                "namespace": external["namespace"],
+                "creationTimestamp": job["created"],
+                "generation": 1,
+            },
+            "spec": {
+                "template": {
+                    "metadata": {"annotations": copy.deepcopy(annotations)},
+                    "spec": {"template": {"spec": job_task}},
+                }
+            },
+        }
+        execution = {
+            "metadata": {
+                "name": "one-uat-migrate-sample",
+                "namespace": external["namespace"],
+                "annotations": copy.deepcopy(annotations),
+                "ownerReferences": [
+                    {
+                        "kind": "Job",
+                        "name": "one-uat-migrate",
+                        "uid": job["uid"],
+                        "apiVersion": "serving.knative.dev/v1",
+                        "controller": True,
+                        "blockOwnerDeletion": True,
+                    }
+                ],
+            },
+            "spec": {"template": {"spec": job_task}},
+            "status": {"completionTime": "2026-11-07T00:02:40Z"},
+        }
+        job["spec_sha256"] = inventory._fingerprint(job_doc["spec"])
+        job["execution_spec_sha256"] = inventory._fingerprint(execution["spec"])
+
+        self.rows[("run", "services", "list")].append({"metadata": {"name": "one-uat"}})
+        self.rows[("run", "services", "describe", "one-uat")] = service_doc
+        self.rows[("run", "revisions", "list", "--service=one-uat")] = [revision]
+        self.rows[("run", "jobs", "list")].append(
+            {"metadata": {"name": "one-uat-migrate"}}
+        )
+        self.rows[("run", "jobs", "describe", "one-uat-migrate")] = job_doc
+        self.rows[("run", "jobs", "executions", "list", "--job=one-uat-migrate")] = [
+            execution
+        ]
+        self.rows[("secrets", "describe", secret["name"])] = {
+            "name": f"projects/{external['namespace']}/secrets/{secret['name']}",
+            "createTime": secret["resource_created"],
+        }
+        self.rows[
+            (
+                "secrets",
+                "versions",
+                "describe",
+                secret["version"],
+                f"--secret={secret['name']}",
+            )
+        ] = {
+            "name": f"projects/{external['namespace']}/secrets/{secret['name']}/versions/{secret['version']}",
+            "createTime": secret["version_created"],
+            "state": "ENABLED",
+        }
+
+    def test_external_one_is_bound_to_its_separate_database_and_exact_workloads(
+        self,
+    ) -> None:
+        self.add_external_one()
+        with mock.patch.object(budget, "gcloud_json", side_effect=self.read):
+            result = budget.collect(self.profile, "uat")
+        service_rows, job_rows = inventory.non_target_rows(
+            result["non_target_workloads"],
+            self.profile["environments"]["uat"],
+            "uat",
+            "us-central1",
+        )
+        self.assertEqual([row["name"] for row in service_rows], ["one-uat"])
+        self.assertEqual([row["name"] for row in job_rows], ["one-uat-migrate"])
+        isolated_profile = copy.deepcopy(self.profile)
+        isolated_profile["environments"]["uat"]["services"] = {}
+        isolated_profile["environments"]["uat"]["jobs"] = {}
+        isolated_inventory = {
+            **result,
+            "services": {"one-uat": result["services"]["one-uat"]},
+            "jobs": {"one-uat-migrate": result["jobs"]["one-uat-migrate"]},
+        }
+        report = budget.evaluate(isolated_profile, "uat", isolated_inventory)
+        self.assertEqual(
+            report["projected_connections"], report["administrative_reserve"]
+        )
+        self.assertEqual({row["name"] for row in report["services"]}, {"one-uat"})
+        self.assertEqual({row["name"] for row in report["jobs"]}, {"one-uat-migrate"})
+        with self.assertRaisesRegex(budget.BudgetError, "service inventory differs"):
+            budget.evaluate(
+                isolated_profile,
+                "uat",
+                {**isolated_inventory, "non_target_workloads": None},
+            )
+
+        original = copy.deepcopy(self.rows)
+        for defect, mutate, error in (
+            (
+                "shared SQL attachment",
+                lambda rows: rows[("run", "revisions", "list", "--service=one-uat")][0][
+                    "metadata"
+                ]["annotations"].update(
+                    {"run.googleapis.com/cloudsql-instances": CONNECTION}
+                ),
+                "attaches to budgeted Cloud SQL",
+            ),
+            (
+                "secret alias remap",
+                lambda rows: rows[("run", "revisions", "list", "--service=one-uat")][0][
+                    "metadata"
+                ]["annotations"].update(
+                    {
+                        "run.googleapis.com/secrets": "one-uat-database-url:projects/other/secrets/shared-db"
+                    }
+                ),
+                "secret alias drift",
+            ),
+            (
+                "migration routed to shared SQL",
+                lambda rows: rows[
+                    ("run", "jobs", "executions", "list", "--job=one-uat-migrate")
+                ][0]["metadata"]["annotations"].update(
+                    {"run.googleapis.com/cloudsql-instances": CONNECTION}
+                ),
+                "SQL attachment drift",
+            ),
+            (
+                "recreated secret version",
+                lambda rows: rows[
+                    (
+                        "secrets",
+                        "versions",
+                        "describe",
+                        "1",
+                        "--secret=one-uat-database-url",
+                    )
+                ].update({"createTime": "2026-11-07T01:00:00Z"}),
+                "secret incarnation drift",
+            ),
+            (
+                "new retained revision",
+                lambda rows: rows[
+                    ("run", "revisions", "list", "--service=one-uat")
+                ].append(
+                    copy.deepcopy(
+                        rows[("run", "revisions", "list", "--service=one-uat")][0]
+                    )
+                ),
+                "retained revision drift",
+            ),
+            (
+                "active migration",
+                lambda rows: rows[
+                    ("run", "jobs", "executions", "list", "--job=one-uat-migrate")
+                ][0]["status"].clear(),
+                "still active",
+            ),
+            (
+                "unknown service",
+                lambda rows: rows[("run", "services", "list")].append(
+                    {"metadata": {"name": "unreviewed-service"}}
+                ),
+                "unprofiled",
+            ),
+        ):
+            with self.subTest(defect=defect):
+                self.rows = copy.deepcopy(original)
+                mutate(self.rows)
+                with (
+                    mock.patch.object(budget, "gcloud_json", side_effect=self.read),
+                    self.assertRaisesRegex(budget.BudgetError, error),
+                ):
+                    budget.collect(self.profile, "uat")
 
     def test_optional_personal_backend_cannot_attach_to_uat_sql(self) -> None:
         for name in ("backend-dev-ankit", "backend-dev-akshat"):
             with self.subTest(service=name):
                 revision = f"{name}-revision"
-                self.rows[("run", "services", "list")].append({"metadata": {"name": name}})
+                self.rows[("run", "services", "list")].append(
+                    {"metadata": {"name": name}}
+                )
                 self.rows[("run", "services", "describe", name)] = {
                     "status": {
                         "traffic": [{"revisionName": revision, "percent": 100}],
@@ -114,11 +370,16 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
                     {"metadata": metadata},
                 ]
                 with mock.patch.object(budget, "gcloud_json", side_effect=self.read):
-                    self.assertNotIn(name, budget.collect(self.profile, "uat")["services"])
+                    self.assertNotIn(
+                        name, budget.collect(self.profile, "uat")["services"]
+                    )
                     with mock.patch.dict(
-                        metadata["annotations"], {"run.googleapis.com/cloudsql-instances": CONNECTION}
+                        metadata["annotations"],
+                        {"run.googleapis.com/cloudsql-instances": CONNECTION},
                     ):
-                        with self.assertRaisesRegex(budget.BudgetError, "attaches to budgeted Cloud SQL"):
+                        with self.assertRaisesRegex(
+                            budget.BudgetError, "attaches to budgeted Cloud SQL"
+                        ):
                             budget.collect(self.profile, "uat")
 
     def test_bounded_uat_reads_preserve_complete_serial_inventory(self) -> None:
@@ -163,6 +424,9 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
 
         with mock.patch.object(budget, "gcloud_json", side_effect=read) as concurrent:
             actual = budget.collect(self.profile, "uat")
+        proof = actual.pop("non_target_workloads")
+        self.assertEqual(proof.services, ())
+        self.assertEqual(proof.jobs, ())
         self.assertEqual(actual, expected)
         config = self.profile["environments"]["uat"]
         self.assertEqual(

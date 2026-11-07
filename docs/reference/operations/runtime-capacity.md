@@ -38,6 +38,18 @@ pool modifiers and enabled `DB_SQLALCHEMY_USE_NULL_POOL` fail closed: they canno
 establish the reviewed finite pool ceiling. A passing connection check does not
 establish adequate database CPU, IO, query latency or lock headroom.
 
+The UAT profile separately recognizes the private `one-uat` service and its
+`one-uat-migrate` job. They attach only to `one-uat-pg`, so they contribute zero
+connections to the `hushh-uat-pg` budget. This is an exact workload admission,
+not a name-based exemption: the collector checks their identities, full specs,
+digest-pinned images, retained revision, numeric database secret reference,
+and completed migration executions. New revisions, job overrides, active
+executions, or route changes stop shared UAT admission until reviewed. The
+private One [application source](https://github.com/hushh-labs/HusshOne/commit/86aa95c4d97ac2217f4b21f6f5cfa2121d3d9437)
+and its separate provisioning record were reviewed; a 7 November 2026
+in-process read of the pinned secret version confirmed the separate Cloud SQL
+socket. Secret contents are not stored in this profile or read by admission.
+
 The checker currently counts pooled connections. Session-scoped advisory work
 uses `dedicated_connection()` outside those pools; its connections are not yet
 included in that calculation or bounded by a shared dedicated-session budget.

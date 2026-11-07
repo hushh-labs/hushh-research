@@ -27,6 +27,37 @@
     "uat": {
       "project": "hushh-pda-uat",
       "database_instance": "hushh-uat-pg",
+      "external_database_workloads": {
+        "connection_name": "hushh-pda-uat:us-central1:one-uat-pg",
+        "namespace": "745506018753",
+        "runtime_account": "one-uat-runtime@hushh-pda-uat.iam.gserviceaccount.com",
+        "database_secret": {
+          "name": "one-uat-database-url", "version": "1",
+          "resource_created": "2026-11-06T23:52:15.473989Z",
+          "version_created": "2026-11-06T23:52:22.794424Z"
+        },
+        "service": {
+          "uid": "02f36253-d55c-4750-ada5-f0697d35fb16",
+          "created": "2026-11-07T00:03:01.199197Z",
+          "generation": 1,
+          "spec_sha256": "b61b32a9b2f0efa85cd70d6c81e67c4c0afec3dfe93991a1ce6c23ad6ab4e0cf",
+          "image": "us-central1-docker.pkg.dev/hushh-pda-uat/cloud-run-source-deploy/one-uat@sha256:21611faceb0dce1f4fb08237b2b18bfff35d638b9acad53b277d9d94e4bd7b44",
+          "revisions": {
+            "one-uat-00001-mzl": {
+              "uid": "f80a1484-129a-4a0a-9799-a35e58545ca9",
+              "spec_sha256": "edb5c1d5a11f5c90c2b62eb91ada4c027037e219bebef5e9d9e83f872ee2c67c"
+            }
+          }
+        },
+        "job": {
+          "uid": "9f994b83-05dd-4645-89f1-1db8d9631e23",
+          "created": "2026-11-06T23:59:52.197198Z",
+          "generation": 1,
+          "spec_sha256": "27bc8a0b6f5fed7ac0e1d49fcc57c06c3e2947d86dc20cc383e52a109d8f511e",
+          "execution_spec_sha256": "6bd0d5126caf5a5f45d053e9b2d7a56b588af5e00edca06651e340a117331001",
+          "image": "us-central1-docker.pkg.dev/hushh-pda-uat/cloud-run-source-deploy/one-uat@sha256:d72ccc27382887f633d83c5d1ad7c025abbeba49f7c0fae58bc52dcdafcdda52"
+        }
+      },
       "optional_non_database_services": ["backend-dev-ankit", "backend-dev-akshat"],
       "non_database_services": ["hushh-adk-openwebui", "hushh-adk-playground", "hushh-ria-intelligence-api", "hushh-webapp"],
       "services": {
