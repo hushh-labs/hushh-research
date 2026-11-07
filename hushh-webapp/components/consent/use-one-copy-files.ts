@@ -38,7 +38,10 @@ export function useOneCopyStatus(session: DocumentSession, requestId: string, cl
         attempt?.settled("returned");
         setCopy(value); setError(false); acceptStatus(value);
         if (value.status === "revoked") close();
-      } catch { if (ticket === serial && !controller.signal.aborted && session.isCurrent()) { attempt?.settled("failed"); close(); setError(true); } }
+      } catch (error) { if (ticket === serial && !controller.signal.aborted && session.isCurrent()) {
+        if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt?.settled("failed");
+        close(); setError(true);
+      } }
     };
     const intent = requested.current; requested.current = null;
     void load(revision > 0, intent?.session === session && intent.requestId === requestId ? intent.attempt : undefined);
@@ -93,6 +96,7 @@ export function useOneCopyFileActions(session: DocumentSession, requestId: strin
     close(); if (trigger) returnFocus.current = trigger; const controller = new AbortController(); active.current = controller;
     const attempt = captureProductAttempt(download ? "document.copy.download" : "document.copy.preview", session.userId); attempt.started();
     setPending({ fileRef: file.fileRef, download }); setNotice(null); let bytes: Uint8Array | null = null;
+    let handingOff = false;
     try {
       // The clicked snapshot describes the immutable file; the content endpoint authorizes this read now.
       const current = file;
@@ -111,13 +115,15 @@ export function useOneCopyFileActions(session: DocumentSession, requestId: strin
       const readable = bytes as Uint8Array | null;
       if (!readable) throw new Error("one_copy_unavailable");
       if (download) {
+        handingOff = true;
         setNotice(await saveOriginal(session, readable, current, controller.signal));
         if (session.isCurrent() && !controller.signal.aborted) attempt.settled("returned");
       } else { const next = { fileRef: file.fileRef, sha256: current.sha256, bytes: readable, controller, attempt }; previewRef.current = next; setPreview(next); bytes = null; }
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "TimeoutError";
       const owned = active.current === controller;
-      if (owned && !timedOut && !controller.signal.aborted && session.isCurrent()) attempt.settled(isShareCancellationError(error) ? "cancelled" : "failed");
+      const abortedRead = !handingOff && error instanceof Error && error.name === "AbortError";
+      if (owned && !timedOut && !abortedRead && !controller.signal.aborted && session.isCurrent()) attempt.settled(isShareCancellationError(error) ? "cancelled" : "failed");
       if (timedOut) controller.abort();
       if (owned && (!controller.signal.aborted || timedOut) && session.isCurrent()) { close(); setNotice(timedOut ? "File took too long. Try again." : isShareCancellationError(error) ? "File was not saved." : "This copy is unavailable. Try again or open Drive."); }
     } finally { (bytes as Uint8Array | null)?.fill(0); if (active.current === controller) { active.current = null; setPending(null); } }

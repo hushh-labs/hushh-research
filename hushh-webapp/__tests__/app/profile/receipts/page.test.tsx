@@ -6,6 +6,7 @@ import { webcrypto } from "node:crypto";
 import { MailReceiptResourceService } from "@/lib/services/mail-receipt-resource-service";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import * as productActivity from "@/lib/observability/product-activity-client";
 
 const mocks = vi.hoisted(() => {
   const receiptScan = vi.fn();
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => {
     navigateToAgentChat: vi.fn(),
     useAuth: vi.fn(),
     useGmailConnectorStatus: vi.fn(),
+    captureProductAttempt: vi.fn(),
     toast: {
       success: vi.fn(),
       error: vi.fn(),
@@ -94,6 +96,7 @@ const mocks = vi.hoisted(() => {
 });
 
 let gmailView: ReturnType<typeof buildGmailView>;
+let activityAttempts: { actionId: string; ownerId: string; started: ReturnType<typeof vi.fn>; settled: ReturnType<typeof vi.fn> }[] = [];
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush }),
@@ -653,6 +656,13 @@ describe("ProfileReceiptsPage", () => {
   beforeEach(() => {
     receiptEntries = 0; vi.useRealTimers();
     vi.clearAllMocks();
+    activityAttempts = [];
+    mocks.captureProductAttempt.mockImplementation((actionId: string, ownerId: string) => {
+      const attempt = { actionId, ownerId, started: vi.fn(), settled: vi.fn() };
+      activityAttempts.push(attempt);
+      return attempt;
+    });
+    vi.spyOn(productActivity, "captureProductAttempt").mockImplementation(mocks.captureProductAttempt);
     // Sync completion now requires real encrypted write/read-back, including
     // the broad UI suite's successful-sync cases.
     configure({ asyncUtilTimeout: 10000 });
@@ -783,6 +793,7 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => expect(screen.getByTestId("receipt-sync-toolbar")).toHaveAttribute("aria-busy", "false"));
     expect(mocks.toast.success).not.toHaveBeenCalled();
     expect(screen.getByTestId("receipt-sync-toolbar")).toBeVisible();
+    expect(activityAttempts).toEqual([]);
     expect(screen.queryByTestId("receipt-sync-hero")).toBeNull();
     expect(screen.getByTestId("recent-receipts")).toBeVisible();
     expect(
@@ -2572,6 +2583,60 @@ describe("ProfileReceiptsPage", () => {
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Keep connected" }));
     expect(gmailView.disconnectGmail).not.toHaveBeenCalled();
     expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(activityAttempts).toEqual([]);
+  });
+
+  it.each(["failed", "timeout", "retired-owner"])("PLG keeps disconnect %s distinct from a confirmed result", async (result) => {
+    let reject!: (reason: Error) => void;
+    gmailView.disconnectGmail.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+    const rendered = render(<ProfileReceiptsPage />);
+    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^disconnect$/i }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: /^disconnect$/i }));
+    await waitFor(() => expect(gmailView.disconnectGmail).toHaveBeenCalledOnce());
+    expect(activityAttempts).toHaveLength(1);
+    const attempt = activityAttempts[0];
+    expect(attempt).toMatchObject({ actionId: "profile.gmail.disconnect", ownerId: "user-123" });
+    expect(attempt.started).toHaveBeenCalledOnce();
+    expect(attempt.settled).not.toHaveBeenCalled();
+    if (result === "retired-owner") {
+      mocks.useAuth.mockReturnValue({ user: null, userId: null, loading: false });
+      publishValidatedAuthSessionOwner(null);
+      rendered.rerender(<ProfileReceiptsPage />);
+    }
+    await act(async () => reject(Object.assign(new Error("controlled disconnect error"), { name: result === "timeout" ? "TimeoutError" : "Error" })));
+    if (result === "failed") expect(attempt.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    else expect(attempt.settled).not.toHaveBeenCalled();
+  });
+
+  it.each(["returned", "failed", "timeout", "partial", "retired-owner"])("PLG records only an explicit receipt retry and its actual result: %s", async (result) => {
+    vi.mocked(GmailReceiptsService.scanReceipts).mockRejectedValueOnce(new Error("controlled initial scan failure"));
+    const rendered = render(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(activityAttempts).toEqual([]);
+    let finish!: (value: Awaited<ReturnType<typeof GmailReceiptsService.scanReceipts>>) => void;
+    let fail!: (error: Error) => void;
+    vi.mocked(GmailReceiptsService.scanReceipts).mockImplementationOnce(() => new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    fireEvent.click(retry);
+    fireEvent.click(retry);
+    await waitFor(() => expect(GmailReceiptsService.scanReceipts).toHaveBeenCalledTimes(2));
+    expect(activityAttempts).toHaveLength(1);
+    const attempt = activityAttempts[0];
+    expect(attempt).toMatchObject({ actionId: "profile.gmail.sync_now", ownerId: "user-123" });
+    expect(attempt.started).toHaveBeenCalledOnce();
+    expect(attempt.settled).not.toHaveBeenCalled();
+    if (result === "retired-owner") {
+      mocks.useAuth.mockReturnValue({ user: null, userId: null, loading: false });
+      publishValidatedAuthSessionOwner(null);
+      rendered.rerender(<ProfileReceiptsPage initialWorkspace="receipts" />);
+    }
+    await act(async () => {
+      if (["returned", "partial", "retired-owner"].includes(result)) finish({ items: [], page: 1, per_page: 20, total: 0, has_more: false, coverage: { ...makeLiveCoverage(1), reached_limit: result === "partial" } });
+      else fail(Object.assign(new Error("controlled retry failure"), { name: result === "timeout" ? "TimeoutError" : "Error" }));
+    });
+    await waitFor(() => expect(MailReceiptResourceService.peek("user-123", "akshat@example.com").refreshing).toBe(false));
+    if (result === "returned" || result === "failed") await waitFor(() => expect(attempt.settled).toHaveBeenCalledExactlyOnceWith(result));
+    else expect(attempt.settled).not.toHaveBeenCalled();
   });
 
   it("keeps receipt fetching behind the receipt tab without an overview sync card", async () => {
@@ -2643,5 +2708,9 @@ describe("ProfileReceiptsPage", () => {
     await act(async () => { finishOlder({ items: [makeReceipt(2, "Late Shop")], page: 2, per_page: 6, total: 2, has_more: false, coverage: makeLiveCoverage(2) }); await pendingOlder; });
     expect(getCachedGmailReceipts("user-123", "akshat@example.com")).toBeNull();
     expect(screen.queryByText("Late Shop")).toBeNull();
+    expect(activityAttempts).toHaveLength(1);
+    expect(activityAttempts[0]).toMatchObject({ actionId: "profile.gmail.disconnect", ownerId: "user-123" });
+    expect(activityAttempts[0].started).toHaveBeenCalledOnce();
+    expect(activityAttempts[0].settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
 });

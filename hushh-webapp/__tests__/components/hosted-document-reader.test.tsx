@@ -28,6 +28,14 @@ const flush = async () => { await act(async () => { await Promise.resolve(); awa
 beforeEach(() => { CacheService.getInstance().clear(); vi.useFakeTimers(); vi.clearAllMocks(); reported.capture.mockImplementation(() => ({ started: vi.fn(), settled: vi.fn() })); state.current = true; state.native = false; state.open.mockResolvedValue(value()); state.verify.mockResolvedValue(undefined); state.package.mockResolvedValue(value().package); state.activity.mockResolvedValue({}); state.artifact.mockResolvedValue(new Uint8Array([1, 2, 3])); state.download.mockResolvedValue(true); state.loadPdf.mockResolvedValue({ numPages: 1, loadingTask: { destroy: vi.fn() } }); state.renderPdf.mockResolvedValue(undefined); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 describe("protected reader entitlement and memory", () => {
+  it.each(["TimeoutError", "AbortError"])("does not report a content-read %s as a terminal result", async name => {
+    render(<HostedDocumentReader session={session} requestId="request" />); await flush();
+    state.artifact.mockRejectedValueOnce(Object.assign(new Error("controlled read result"), { name }));
+    fireEvent.click(screen.getByRole("button", { name: "Download original" })); await flush();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.download_original", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
+    expect(state.download).not.toHaveBeenCalled(); expect(state.share).not.toHaveBeenCalled();
+  });
   it.each([false, true])("settles a preview only after rendering while its original session is current (retired=%s)", async retired => {
     let rendered!: () => void;
     state.renderPdf.mockImplementationOnce(() => new Promise<void>(resolve => { rendered = resolve; }));
@@ -82,15 +90,25 @@ describe("protected reader entitlement and memory", () => {
 const background = (mimeType = "application/pdf", previewAvailable = true) => ({ requestId: "request", actorRole: "recipient", status: "ready", files: [{ fileRef: "file", name: "Original.file", mimeType, status: "ready", previewAvailable, sha256: "hash" }] });
 describe("background One copies in the existing file flow", () => {
   beforeEach(() => { state.copyStatus.mockResolvedValue(background()); state.copyContent.mockResolvedValue(new Uint8Array([1, 2, 3])); });
-  it("reports an explicit refresh error, without counting initial reads or focus checks as attempts", async () => {
+  it.each(["TimeoutError", "AbortError", "Error"])("reports an explicit refresh %s without inventing a terminal or counting background reads", async name => {
     render(<BackgroundDocumentFilesBody session={session} requestId="request" />); await flush();
     fireEvent.focus(window); await flush();
     expect(reported.capture).not.toHaveBeenCalled();
-    state.copyStatus.mockRejectedValueOnce(new Error("synthetic read failure"));
+    state.copyStatus.mockRejectedValueOnce(Object.assign(new Error("synthetic read failure"), { name }));
     fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true })); await flush();
     expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.refresh", "b");
-    expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    if (name === "Error") expect(reported.capture.mock.results[0]!.value.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    else expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("One copy unavailable");
+  });
+  it.each(["TimeoutError", "AbortError"])("leaves a One-copy revoke %s unknown", async name => {
+    state.copyStatus.mockResolvedValue({ ...background(), actorRole: "owner" });
+    state.copyRevoke.mockRejectedValueOnce(Object.assign(new Error("controlled revoke result"), { name }));
+    render(<BackgroundDocumentFilesBody session={session} requestId="request" />); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Stop One access" })); await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Stop access", exact: true })); await flush();
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.copy.revoke", "b");
+    expect(reported.capture.mock.results[0]!.value.settled).not.toHaveBeenCalled();
   });
   it("previews only after click, never downloads on preview, and clears bytes on Back", async () => {
     const bytes = new Uint8Array([1, 2, 3]); state.copyContent.mockResolvedValue(bytes);
