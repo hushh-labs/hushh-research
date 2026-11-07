@@ -509,6 +509,162 @@ class MainTeamPublisherTest(unittest.TestCase):
 
 class TeamCheckLifecycleTest(unittest.TestCase):
 
+    def test_start_barrier_uses_pr_run_head_not_synthetic_merge_sha(self):
+        import github_team_authority as team
+
+        env = {'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':team.REPOSITORY,
+               'GITHUB_EVENT_NAME':'pull_request','GITHUB_RUN_ID':'40',
+               'GITHUB_RUN_ATTEMPT':'2','GITHUB_SHA':'b'*40}
+        run = {'event':'pull_request','head_sha':HEAD}
+        with patch.object(team,'consume_main',return_value={'state':'in_progress'}) as consume:
+            team.await_start(env,read=lambda _:run)
+            self.assertEqual(consume.call_args.args[1],{'id':40,'run_attempt':2,'head_sha':HEAD})
+        env['GITHUB_EVENT_NAME'] = 'merge_group'
+        with self.assertRaisesRegex(team.Refused,'queue source changed'):
+            team.await_start(env,read=lambda _:{'event':'merge_group','head_sha':HEAD})
+
+    def test_receipt_consumer_requires_main_provenance_exact_attempt_digest_and_phase(self):
+        import copy
+        import hashlib
+        import io
+        import zipfile
+        import github_team_authority as team
+
+        stamp = '2026-11-07T01:00:00Z'
+        source = {'id':40,'run_attempt':2,'head_sha':HEAD,'name':'PR Validation',
+                  'path':team.SOURCE_WORKFLOWS['PR Validation'],'workflow_id':20,'event':'pull_request',
+                  'repository':{'full_name':team.REPOSITORY},'run_started_at':stamp,'status':'in_progress'}
+        identity = {'run_id':40,'attempt':2,'sha':HEAD,'workflow':source['path']}
+        producer = {'run_id':50,'attempt':1,'sha':'b'*40,'workflow':team.WORKFLOW}
+        run = {'id':50,'run_attempt':1,'head_sha':'b'*40,'workflow_id':30,'path':team.WORKFLOW,
+               'head_branch':'main','event':'workflow_run','status':'completed','conclusion':'success',
+               'repository':{'full_name':team.REPOSITORY},'head_repository':{'full_name':team.REPOSITORY},
+               'run_started_at':stamp,'updated_at':stamp}
+        check = {'id':4,'name':team.CHECK,'app':{'id':15368},'head_sha':HEAD,'status':'in_progress',
+                 'external_id':team.encode_binding(identity,producer),
+                 'details_url':f'https://github.com/{team.REPOSITORY}/actions/runs/50'}
+        receipt = {'schema_version':1,'source':identity,'producer':producer,'check_id':4,
+                   'state':'in_progress','recorded_at':stamp}
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer,'w') as archive:
+            archive.writestr('team-authorization.json',json.dumps(receipt))
+        raw = buffer.getvalue()
+        artifact = {'id':9,'name':'team-authorization-50-1','expired':False,'workflow_run':{'id':50},
+                    'size_in_bytes':len(raw),'digest':'sha256:'+hashlib.sha256(raw).hexdigest()}
+        def fixture():
+            prefix = f'repos/{team.REPOSITORY}'
+            return {f'{prefix}/actions/runs/40':copy.deepcopy(source),
+                    f'{prefix}/actions/workflows/ci.yml':{'id':20,'path':source['path']},
+                    f'{prefix}/actions/workflows/ci.yml/runs?head_sha={HEAD}&per_page=100':{'total_count':1,'workflow_runs':[copy.deepcopy(source)]},
+                    f'{prefix}/commits/{HEAD}/check-runs?check_name=Team%20Authorization%20Gate&filter=all&per_page=100':{'total_count':1,'check_runs':[copy.deepcopy(check)]},
+                    f'{prefix}/actions/runs/50':copy.deepcopy(run),
+                    f'{prefix}/actions/workflows/deployment-security.yml':{'id':30,'path':team.WORKFLOW},
+                    f"{prefix}/compare/{'b'*40}...main?per_page=1&page=2":{'status':'ahead','merge_base_commit':{'sha':'b'*40}},
+                    f'{prefix}/actions/runs/50/attempts/1/jobs?per_page=100':{'total_count':1,'jobs':[{'name':'Verify live team authority','run_id':50,'run_attempt':1,'status':'completed','conclusion':'success'}]},
+                    f'{prefix}/actions/runs/50/artifacts?per_page=100':{'total_count':1,'artifacts':[copy.deepcopy(artifact)]}}
+        for fault in (None,'source_attempt','producer_attempt','producer_branch','digest','phase'):
+            with self.subTest(fault=fault):
+                responses = fixture()
+                if fault == 'source_attempt':
+                    responses[f'repos/{team.REPOSITORY}/actions/runs/40']['run_attempt'] = 3
+                if fault in ('producer_attempt','producer_branch'):
+                    responses[f'repos/{team.REPOSITORY}/actions/runs/50'][{'producer_attempt':'run_attempt','producer_branch':'head_branch'}[fault]] = 2 if fault == 'producer_attempt' else 'dev'
+                if fault == 'digest':
+                    responses[f'repos/{team.REPOSITORY}/actions/runs/50/artifacts?per_page=100']['artifacts'][0]['digest'] = 'sha256:'+'0'*64
+                def invoke():
+                    return team.consume_main(responses.__getitem__, source,
+                                             state='success' if fault == 'phase' else 'in_progress', archive=lambda _: raw)
+                if fault is None:
+                    self.assertEqual(invoke(),receipt)
+                else:
+                    with self.assertRaises(team.Refused):
+                        invoke()
+        # A published failure can prove ownership for repair, never admission.
+        responses = fixture()
+        responses[f'repos/{team.REPOSITORY}/actions/runs/50']['conclusion'] = 'failure'
+        responses[f'repos/{team.REPOSITORY}/actions/runs/50/attempts/1/jobs?per_page=100']['jobs'][0]['conclusion'] = 'failure'
+        failed = {**receipt,'state':'failure'}
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer,'w') as archive:
+            archive.writestr('team-authorization.json',json.dumps(failed))
+        raw_failed = buffer.getvalue()
+        artifact = responses[f'repos/{team.REPOSITORY}/actions/runs/50/artifacts?per_page=100']['artifacts'][0]
+        artifact.update(size_in_bytes=len(raw_failed),digest='sha256:'+hashlib.sha256(raw_failed).hexdigest())
+        self.assertEqual(team.main_publication(responses.__getitem__,producer,archive=lambda _:raw_failed,
+                                              allow_failed_observation=True)[0],failed)
+        with self.assertRaisesRegex(team.Refused,'authorization failed'):
+            team.consume_main(responses.__getitem__,source,archive=lambda _:raw_failed)
+
+    def test_real_github_external_id_limit_preserves_exact_binding_and_reuses_check(self):
+        import io
+        from types import SimpleNamespace
+        import github_team_authority as team
+
+        source = {'run_id': 42331487365, 'attempt': 2, 'sha': HEAD, 'workflow': team.SOURCE_WORKFLOWS['PR Validation']}
+        producer = {'run_id': 42331514168, 'attempt': 1, 'sha': 'b' * 40, 'workflow': team.WORKFLOW}
+        encoded = team.encode_binding(source, producer)
+        self.assertLessEqual(len(encoded), 255)
+        self.assertEqual(team.decode_binding(encoded[:255]), {'source': source, 'producer': producer})
+        checks, writes = [], []
+        def read(path):
+            if '/check-runs?' in path:
+                return {'total_count': len(checks), 'check_runs': checks}
+            return {'path': team.WORKFLOW, 'head_branch': 'main', 'event': 'workflow_run',
+                    'head_sha': producer['sha'], 'repository': {'full_name': team.REPOSITORY}}
+        def opened(request, **kwargs):
+            body = json.loads(request.data)
+            writes.append(request.method)
+            if request.method == 'POST':
+                checks.append({**body, 'id': 4, 'app': {'id': 15368}, 'external_id': body['external_id'][:255]})
+            else:
+                checks[0].update(body)
+            return io.BytesIO(b'{"id":4}')
+        payload = {'name': team.CHECK, 'head_sha': HEAD, 'status': 'in_progress', 'external_id': encoded}
+        with patch.object(team.urllib.request, 'build_opener', return_value=SimpleNamespace(open=opened)):
+            team.write_check('fixture', payload, read=read)
+            team.write_check('fixture', {**payload, 'status': 'completed', 'conclusion': 'success'}, read=read)
+        self.assertEqual(writes, ['POST', 'PATCH'])
+        self.assertEqual(len(checks), 1)
+
+    def test_truncated_duplicate_requires_immutable_main_publication_before_adoption(self):
+        import io
+        from types import SimpleNamespace
+        import github_team_authority as team
+
+        source = {'run_id': 42331487365, 'attempt': 1, 'sha': HEAD, 'workflow': team.SOURCE_WORKFLOWS['PR Validation']}
+        producer = {'run_id': 42331514168, 'attempt': 1, 'sha': 'b' * 40, 'workflow': team.WORKFLOW}
+        binding = {'source': source, 'producer': producer}
+        legacy = json.dumps(binding, sort_keys=True, separators=(',', ':'))[:255]
+        self.assertEqual(len(legacy), 255)
+        rows = [{'id': key, 'name': team.CHECK, 'app': {'id':15368}, 'external_id':legacy,
+                 'details_url':f"https://github.com/{team.REPOSITORY}/actions/runs/{producer['run_id']}"} for key in (3, 4)]
+        def read(path):
+            if '/check-runs?' in path:
+                return {'total_count':len(rows), 'check_runs':rows}
+            return {'id': producer['run_id'], 'run_attempt':1, 'head_sha':producer['sha'],
+                    'path':team.WORKFLOW, 'head_branch':'main','event':'workflow_run', 'repository':{'full_name':team.REPOSITORY}}
+        # A forged/unreadable legacy observation must refuse before a write.
+        with patch.object(team, 'main_publication', side_effect=team.Refused('Main proof unavailable')), \
+             patch.object(team.urllib.request, 'build_opener') as opened:
+            with self.assertRaisesRegex(team.Refused, 'Main proof unavailable'):
+                team.write_check('fixture', {'head_sha':HEAD,'external_id':team.encode_binding(source,producer)}, read=read)
+            opened.assert_not_called()
+        records = iter(({'source':source,'producer':producer,'check_id':3}, {'source':source,'producer':producer,'check_id':4}))
+        writes = []
+        def opened(request, **kwargs):
+            writes.append((request.method, request.full_url))
+            return io.BytesIO(json.dumps({'id':3,'name':'Team authority observation (superseded)'} if request.full_url.endswith('/3') else {'id':4}).encode())
+        with patch.object(team, 'main_publication', side_effect=lambda *args, **kwargs: (next(records), {})), \
+             patch.object(team.urllib.request, 'build_opener', return_value=SimpleNamespace(open=opened)):
+            self.assertEqual(team.write_check('fixture', {'head_sha':HEAD,'external_id':team.encode_binding(source,producer)}, read=read), 4)
+        self.assertEqual([url.rsplit('/',1)[-1] for _,url in writes], ['4','3'])
+        # Resume a confirmed canonical update after an uncertain retirement.
+        rows[1]['external_id'] = team.encode_binding(source,producer)
+        with patch.object(team, 'main_publication', return_value=({'source':source,'producer':producer,'check_id':3}, {})), \
+             patch.object(team.urllib.request, 'build_opener', return_value=SimpleNamespace(open=opened)):
+            self.assertEqual(team.write_check('fixture', {'head_sha':HEAD,'external_id':team.encode_binding(source,producer)}, read=read), 4)
+        self.assertEqual([url.rsplit('/',1)[-1] for _,url in writes[-2:]], ['4','3'])
+
     def test_publication_reconciles_the_existing_main_check_and_never_replays_uncertain_post(self):
         import io
         from types import SimpleNamespace
