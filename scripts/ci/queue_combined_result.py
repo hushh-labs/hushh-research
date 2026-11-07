@@ -254,7 +254,7 @@ def authorize(repository, branch, base, included, *, policy=None, authority_revi
         approvals = owner_approval or (guard._owner_approvals(
             repository, member["number"], member["head"], protected_owners, read=api,
         ) if protected else [])
-        require(not protected or approvals, "Protected changes need Kushal or Ankit's current-head approval")
+        require(not protected or approvals, "Protected changes need the configured pipeline editors' current-head approval")
         member["protected_approvals"] = approvals
     return included
 
@@ -546,7 +546,16 @@ def owner_admin_merge(number, expected_head, receipt, apply=False):
             "Admin merge was not confirmed; inspect the recorded PR before any retry"
         )
     landed = observed.get("merge_commit_sha")
+    # The PR API guards the head, not our captured base. Persist confirmed
+    # landing before inspecting the combined result; never replay this merge.
+    proof.update(outcome="merged_unqualified", landed=landed, request_exit_code=exit_code)
+    receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
     commit = api(f"repos/{repository}/git/commits/{landed}")
+    proof["observed_commit"] = {
+        "tree": commit.get("tree", {}).get("sha"),
+        "parents": [parent["sha"] for parent in commit.get("parents", [])],
+    }
+    receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
     require(
         commit.get("tree", {}).get("sha") == proof["state"]["tree"]
         and [p["sha"] for p in commit.get("parents", [])]

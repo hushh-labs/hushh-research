@@ -1105,11 +1105,11 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          # CI's browser cache also promises WebKit; this lane installs Chromium.
+          # Frontend analytics and explicit diagnostics share Chromium only.
           key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
       - name: Install UAT browser verification dependencies
@@ -1118,12 +1118,12 @@ jobs:
         timeout-minutes: 8
         shell: bash
         env:
-          RUN_BROWSER_DIAGNOSTICS: ${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
+          RUN_CHROMIUM_VERIFICATION: ${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
-          if [ "${RUN_BROWSER_DIAGNOSTICS:-false}" != true ]; then
-            echo "Runtime dependencies installed; app-browser diagnostics were not requested."
+          if [ "${RUN_CHROMIUM_VERIFICATION:-false}" != true ]; then
+            echo "Runtime dependencies installed; selected verification does not require Chromium."
             exit 0
           fi
           # Keep the runner's signed archive/security fallbacks. PR CI uses this

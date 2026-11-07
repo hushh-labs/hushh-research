@@ -744,6 +744,10 @@ def evaluate(
         "phase": phase,
         "project": config["project"],
         "database": connection_name,
+        "admission_scope": (
+            "isolated-project" if _inventory.isolated_dev_scope(config, profile["region"], environment)
+            else "profiled-application"
+        ),
         "verified_max_connections": live_maximum,
         "admission_limit": limit,
         "administrative_reserve": reserve,
@@ -827,7 +831,8 @@ def main() -> int:
         capacity_label = "projected" if args.phase == "pre-deploy" else "current"
         print(
             f"{args.environment}: {capacity_label} {report['projected_connections']} / {report['admission_limit']} "
-            f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']})"
+            f"(Cloud SQL max {report['verified_max_connections']}, admin reserve {report['administrative_reserve']}; "
+            f"scope {report['admission_scope']})"
         )
         for row in report["services"] + report["jobs"]:
             print(f"  {row['name']}: {row['connections']}")
