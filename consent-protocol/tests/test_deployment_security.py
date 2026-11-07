@@ -368,10 +368,13 @@ class DeploymentSecurityTest(unittest.TestCase):
         workflow = yaml.safe_load(reusable)
         self.assertEqual(workflow["permissions"]["actions"], "read")
         self.assertEqual(set(workflow["jobs"]), {"alerts"})
+        self.assertNotIn("CI_TEAM_APP_PRIVATE_KEY", reusable)
         declaration = workflow.get("on", workflow.get(True))["workflow_call"]
         self.assertEqual(
             declaration.get("secrets"),
-            {"GH_SECURITY_ALERTS_TOKEN": {"required": False}},
+            {
+                "GH_SECURITY_ALERTS_TOKEN": {"required": False},
+            },
         )
         for name in gate.CALLERS:
             jobs = yaml.safe_load((root / ".github/workflows" / name).read_text())

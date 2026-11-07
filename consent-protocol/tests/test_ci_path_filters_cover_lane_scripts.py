@@ -11,6 +11,7 @@ from functools import cache
 from pathlib import Path
 
 import pathspec
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -147,7 +148,7 @@ def _filters(patterns: dict[str, list[str]] | None = None) -> dict[str, _Filter]
 
 
 def _resolve_path_outputs(
-    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool
+    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool, level="focused"
 ) -> dict[str, str]:
     """Run the workflow's real resolver with bounded synthetic filter outputs."""
     step = next(
@@ -176,7 +177,7 @@ def _resolve_path_outputs(
     env = {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
-        "CI_VALIDATION_LEVEL": "focused",
+        "CI_VALIDATION_LEVEL": level,
         "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
         "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
     }
@@ -301,6 +302,27 @@ def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
         assert quantifier == "some-with-excludes", (
             f"Filters use negated patterns {negated} but predicate-quantifier is {quantifier!r}"
         )
+
+
+@pytest.mark.parametrize(
+    "path,ios,android",
+    [
+        ("hushh-webapp/app/login/page.tsx", "false", "false"),
+        ("consent-protocol/config/email-auth/risk-manifest.json", "false", "false"),
+        ("hushh-webapp/ios/App/App/AppDelegate.swift", "true", "false"),
+        ("hushh-webapp/android/app/build.gradle", "false", "true"),
+        ("hushh-webapp/lib/capacitor/index.ts", "true", "true"),
+        ("hushh-webapp/package-lock.json", "true", "true"),
+    ],
+)
+def test_release_core_keeps_native_work_affected(path, ios, android, tmp_path):
+    outputs = {name: str(owner.match_file(path)).lower() for name, owner in _filters().items()}
+    resolved = _resolve_path_outputs(
+        "workflow_dispatch", outputs, tmp_path, override=False, level="release"
+    )
+    assert all(resolved[name] == "true" for name in ("frontend", "backend", "document"))
+    assert resolved["ios"] == ios
+    assert resolved["android"] == android
 
 
 def _auth_health_decision(paths, tmp_path, event="pull_request", override=False):
@@ -474,8 +496,11 @@ def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
     focused = {
         "scripts/ops/sync_backend_runtime_secrets.py",
         "scripts/ops/runtime_config_retention.py",
+        "scripts/ops/upsert_gcp_secret.py",
+        "scripts/ops/prune_gcp_secret_versions.py",
     }
     for path in focused:
+        assert not filters["backend"].match_file(path), path
         plan = _governance_plan((path,))
         assert plan["selection_error"] is None
         commands = {row["id"]: row["argv"] for row in plan["commands"]}
@@ -706,6 +731,114 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
     assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}
 
 
+def test_public_email_risk_data_has_real_integrity_and_policy_ownership():
+    paths = (
+        "consent-protocol/config/email-auth/disposable-domains.txt",
+        "consent-protocol/config/email-auth/risk-manifest.json",
+    )
+    filters = _filters()
+    for path in paths:
+        assert not filters["backend"].match_file(path)
+        plan = _governance_plan((path,))
+        assert plan["selected_groups"] == ["controller"]
+        commands = {check["id"]: check["argv"] for check in plan["commands"]}
+        assert "email-risk-artifact-integrity" in commands
+        assert commands["email-risk-policy-contracts"][-2:] == [
+            "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
+            "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
+        ]
+    unrelated = _governance_plan((".github/workflows/ci.yml",))
+    assert not {"email-risk-artifact-integrity", "email-risk-policy-contracts"}.intersection(
+        check["id"] for check in unrelated["commands"]
+    )
+    for path in (
+        "consent-protocol/config/email-auth/unknown-risk-input.txt",
+        "consent-protocol/config/email-auth/LICENSE-disposable-domains.txt",
+        "consent-protocol/hushh_mcp/services/email_auth/domain_policy.py",
+        "consent-protocol/tests/services/test_email_auth_postgres.py",
+        "consent-protocol/db/migrations/359_independent_email_otp.sql",
+    ):
+        assert filters["backend"].match_file(path), path
+
+
+@pytest.mark.parametrize("fault", ["valid", "tampered", "redirected"])
+def test_public_email_risk_integrity_command_checks_the_actual_blob(tmp_path, fault):
+    import json
+
+    plan = _governance_plan(("consent-protocol/config/email-auth/risk-manifest.json",))
+    command = next(
+        check["argv"]
+        for check in plan["commands"]
+        if check["id"] == "email-risk-artifact-integrity"
+    )
+    program = command[command.index("-c") + 1]
+    protocol = tmp_path / "consent-protocol"
+    source = ROOT / "consent-protocol/config/email-auth"
+    data = protocol / "config/email-auth"
+    data.mkdir(parents=True)
+    (protocol / "hushh_mcp").symlink_to(
+        ROOT / "consent-protocol/hushh_mcp", target_is_directory=True
+    )
+    manifest = json.loads((source / "risk-manifest.json").read_text())
+    (data / manifest["file"]).write_bytes(
+        (source / manifest["file"]).read_bytes()
+        + (b"tampered.invalid\n" if fault == "tampered" else b"")
+    )
+    (data / manifest["license"]).write_bytes((source / manifest["license"]).read_bytes())
+    if fault == "redirected":
+        manifest["file"] = "another-input.txt"
+    (data / "risk-manifest.json").write_text(json.dumps(manifest))
+    result = subprocess.run(  # noqa: S603 - actual authored integrity command, isolated public fixture
+        [sys.executable, "-c", program], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert (result.returncode == 0) is (fault == "valid"), result.stderr
+    if fault == "tampered":
+        assert "digest mismatch" in result.stderr
+    elif fault == "redirected":
+        assert "unowned input" in result.stderr
+
+
+def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner():
+    helper = "consent-protocol/tests/helpers/drive_worker_gcloud.py"
+    consumers = {
+        "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    }
+    observed = set()
+    for path in (ROOT / "consent-protocol/tests").rglob("test_*.py"):
+        source = path.read_text()
+        if "drive_worker_gcloud" not in source:
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and (
+                    node.module == "tests.helpers.drive_worker_gcloud"
+                    or node.module == "tests.helpers"
+                    and any(item.name == "drive_worker_gcloud" for item in node.names)
+                )
+                or isinstance(node, ast.Import)
+                and any(item.name == "tests.helpers.drive_worker_gcloud" for item in node.names)
+            ):
+                observed.add(str(path.relative_to(ROOT)))
+
+    assert observed == consumers
+    filters = _filters()
+    for path in (helper, *consumers):
+        assert not filters["backend"].match_file(path)
+        plan = _governance_plan((path,))
+        commands = {check["id"]: check["argv"] for check in plan["commands"]}
+        assert consumers.issubset(commands["release-controller-contracts"])
+    assert filters["backend"].match_file("consent-protocol/tests/helpers/unknown_worker_gcloud.py")
+    launcher_plan = _governance_plan(("deploy/drive/deploy_worker_service.sh",))
+    controller = next(
+        check
+        for check in launcher_plan["commands"]
+        if check["id"] == "release-controller-contracts"
+    )
+    assert "consent-protocol/tests/test_database_connection_ceiling.py" in controller["argv"]
+
+
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
         "consent-protocol/tests/test_runtime_config_retention.py",
@@ -735,6 +868,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
         "consent-protocol/tests/test_drive_v1_worker_lane.py",
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_drive_worker_release_rollback.py",
+        "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
         "consent-protocol/tests/test_hushh_tech_client_migration.py",

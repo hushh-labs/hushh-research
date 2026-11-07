@@ -518,8 +518,11 @@ describe("three-account Calendar board", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByRole("heading", { name: "Planning review" })).toBeInTheDocument();
     expect(within(dialog).getAllByText(/default@example\.com/)).toHaveLength(1);
-    expect(within(dialog).getByText("Organized by organizer-one@example.com")).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "Join meeting" })).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(within(dialog).getByText("Organized by")).toBeInTheDocument();
+    expect(within(dialog).getByText("organizer-one@example.com")).toBeInTheDocument();
+    const join = within(dialog).getByRole("link", { name: "Join meeting" });
+    expect(join).toHaveAttribute("href", "https://meet.google.com/abc-defg-hij");
+    expect(dialog.querySelector('[data-slot="dialog-header"]')).toContainElement(join);
     expect(within(dialog).queryByRole("link", { name: "Open in Google Calendar" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Accept" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Decline", exact: true })).toBeInTheDocument();

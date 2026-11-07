@@ -5,6 +5,42 @@ import { openFixture, qaNow, registerCalendarConnectedFixture, screenshotDirecto
 
 registerCalendarConnectedFixture();
 
+test("booking dropdown arrows have a consistent responsive inset", async ({ page }, testInfo) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 393, false, "busy", false, true);
+  await page.getByRole("button", { name: /^Schedule from shared free time/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Schedule meeting" });
+  for (const width of [320, 393, 480, 481, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await page.screenshot({ animations: "disabled" });
+    for (const label of ["Calendar account and destination", "Duration", "Where"]) {
+      const select = dialog.getByRole("combobox", { name: label, exact: true });
+      await select.scrollIntoViewIfNeeded();
+      const selectBounds = (await select.boundingBox())!;
+      const chevron = select.locator("..").locator("svg");
+      const chevronBounds = (await chevron.boundingBox())!;
+      expect(selectBounds.height).toBeGreaterThanOrEqual(44);
+      expect(selectBounds.x + selectBounds.width - chevronBounds.x - chevronBounds.width, `${label} inset at ${width}px`).toBeCloseTo(12, 0);
+      expect(Math.abs(selectBounds.y + selectBounds.height / 2 - chevronBounds.y - chevronBounds.height / 2)).toBeLessThanOrEqual(1);
+      expect(await select.evaluate(element => parseFloat(getComputedStyle(element).paddingInlineEnd))).toBeGreaterThanOrEqual(40);
+      await expect(chevron).toHaveAttribute("aria-hidden", "true");
+      await expect(chevron).toHaveCSS("pointer-events", "none");
+    }
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  }
+  await dialog.getByRole("combobox", { name: "Calendar account and destination", exact: true }).selectOption("work");
+  await dialog.getByRole("combobox", { name: "Duration", exact: true }).selectOption("30");
+  await dialog.getByRole("combobox", { name: "Where", exact: true }).selectOption("in_person");
+  await expect(dialog.getByLabel("Location", { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel("Duration")).toHaveValue("30");
+  await expect(dialog.locator("p").filter({ hasText: "qa-work@example.com" })).toBeVisible();
+  for (const width of [393, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-booking-dropdowns-${testInfo.project.name}-${width}.png`) });
+  }
+  expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+});
+
 test("Board booking reviews account B and refreshes its event and free time after confirmation", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 393, false, "busy", false, true);
   await page.getByTestId("calendar-fixture-authorize").dispatchEvent("click");
@@ -64,11 +100,11 @@ test("Board booking reviews account B and refreshes its event and free time afte
   await expect(dialog.getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
   await expect.poll(() => dialog.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(dialog.getByLabel("Duration")).toHaveValue("60");
-  // Date and Start sit side by side inside the dialog: neither may run into the other or past the dialog's edge.
+  // The full-width date sits above Start on mobile, and both remain inside the dialog.
   const dialogBox = (await dialog.boundingBox())!;
   const dateBox = (await dialog.getByLabel("Date", { exact: true }).boundingBox())!;
   const startBox = (await dialog.getByLabel("Start", { exact: true }).boundingBox())!;
-  expect(dateBox.x + dateBox.width).toBeLessThanOrEqual(startBox.x);
+  expect(dateBox.y + dateBox.height).toBeLessThanOrEqual(startBox.y);
   expect(startBox.x + startBox.width).toBeLessThanOrEqual(dialogBox.x + dialogBox.width);
   await dialog.getByLabel("Title").fill("Bug Bash");
   await dialog.getByLabel("Guests (optional)").fill("guest@example.com");
@@ -103,3 +139,66 @@ test("Board booking reviews account B and refreshes its event and free time afte
   expect(unexpectedRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+for (const width of [320, 393]) {
+  test(`booking fields and guest controls remain reachable in a short viewport at ${width}px`, async ({ page }) => {
+    const { errors, unexpectedRequests } = await openFixture(page, width, false, "busy", false, true);
+    await page.setViewportSize({ width, height: 620 });
+    const work = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
+    await work.getByRole("tab", { name: "Free time" }).click();
+    await work.getByRole("button", { name: /Schedule from free time.*qa-work@example.com/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Schedule meeting" });
+    await expect.poll(() => dialog.evaluate(element => element.getAnimations().filter(animation => animation.playState === "running").length)).toBe(0);
+    const guest = `${"calendar-guest-".repeat(4)}@a-long-guest-domain.example.test`;
+    await dialog.getByLabel("Guests (optional)").fill(guest);
+    await dialog.getByRole("button", { name: "Add", exact: true }).click();
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    const body = dialog.locator("[data-calendar-booking-body]");
+    const actions = dialog.locator("[data-calendar-booking-actions]");
+    const header = dialog.locator('[data-slot="dialog-header"]');
+    const assertHitTarget = async (locator: ReturnType<typeof dialog.getByRole>) => {
+      await locator.scrollIntoViewIfNeeded();
+      expect(await locator.evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      })).toBe(true);
+    };
+    for (const keyboardHeight of [0, 220]) {
+      await page.evaluate(height => {
+        document.documentElement.classList.toggle("kb-open", height > 0);
+        document.documentElement.style.setProperty("--kb-height", `${height}px`);
+        document.documentElement.style.setProperty("--app-safe-area-top-effective", "44px");
+      }, keyboardHeight);
+      await page.screenshot({ animations: "disabled" });
+      const frame = (await dialog.boundingBox())!;
+      const headerAtOpen = (await header.boundingBox())!;
+      expect(headerAtOpen.y - frame.y).toBeLessThan(32);
+      expect(frame.y).toBeGreaterThanOrEqual(16);
+      expect(frame.y + frame.height).toBeLessThanOrEqual(620 - keyboardHeight);
+      await assertHitTarget(dialog.getByRole("button", { name: `Remove ${guest}` }));
+      await dialog.getByText("Description (optional)", { exact: true }).click();
+      await dialog.locator("textarea").fill("Meeting notes.\n".repeat(12));
+      await assertHitTarget(dialog.locator("textarea"));
+      const lastField = (await dialog.locator("textarea").boundingBox())!;
+      const footer = (await actions.boundingBox())!;
+      expect(lastField.y + lastField.height).toBeLessThanOrEqual(footer.y + 1);
+      await page.screenshot({ animations: "disabled" });
+      const headerBeforeScroll = (await header.boundingBox())!;
+      const actionsBeforeScroll = (await actions.boundingBox())!;
+      await body.evaluate(element => { element.scrollTop = 0; });
+      expect((await header.boundingBox())!.y).toBe(headerBeforeScroll.y);
+      expect((await actions.boundingBox())!.y).toBe(actionsBeforeScroll.y);
+      for (const field of [dialog.getByLabel("Date", { exact: true }), dialog.getByLabel("Start", { exact: true }), dialog.getByLabel("Duration")]) {
+        await assertHitTarget(field);
+        const box = (await field.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(frame.x);
+        expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width);
+      }
+      expect(await body.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+      await dialog.getByText("Description (optional)", { exact: true }).click();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-booking-short-${width}.png`) });
+    expect(unexpectedRequests).toEqual([]); expect(errors).toEqual([]);
+  });
+}
