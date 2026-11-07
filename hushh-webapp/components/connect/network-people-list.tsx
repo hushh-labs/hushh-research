@@ -38,6 +38,9 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [connecting, setConnecting] = useState<Set<string>>(() => new Set());
+  const connectionIntents = useRef(new Set<string>());
+  const [connectionErrors, setConnectionErrors] = useState<Record<string, string>>({});
   const root = useRef<HTMLElement>(null);
   const restore = useRef(Boolean(saved));
   const restoreSnapshot = useRef(saved);
