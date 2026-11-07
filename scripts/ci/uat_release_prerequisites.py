@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import time
 from pathlib import Path
 
 import uat_exact_ci as exact
@@ -51,10 +53,31 @@ def validate_pins(sha: str, run: str, attempt: str, base: str) -> tuple[int, int
     return int(run), int(attempt)
 
 
+def require_fresh_email_risk(candidate: str) -> None:
+    """Early public-input freshness only; release still validates the full snapshot."""
+    enabled = os.environ.get("UAT_EMAIL_AUTH_ENABLED", "false")
+    exact.require(enabled in {"true", "false"}, "UAT email-auth enable flag is invalid")
+    if enabled == "false":
+        return
+    exact.require(bool(exact.SHA.fullmatch(candidate)), "Exact UAT email-risk source is required")
+    try:
+        raw = exact.git("show", f"{candidate}:consent-protocol/config/email-auth/risk-manifest.json")
+        if len(raw) > 65536:
+            raise ValueError("oversized manifest")
+        manifest = json.loads(raw)
+        expires = manifest.get("expires_at") if isinstance(manifest, dict) else None
+        valid = type(expires) in {int, float} and math.isfinite(expires) and expires > time.time()
+    except (Refused, ValueError, OverflowError):
+        valid = False
+    exact.require(valid, "UAT email-risk snapshot is expired or invalid; refresh the pinned upstream "
+                  "artifact and qualify the new candidate before deployment")
+
+
 def validate_deployment(api, sha: str, run: str, attempt: str, base: str, *, branch="uat", authority="") -> None:
     run_id, number = validate_pins(sha, run, attempt, base)
     exact.require_protected_tip(api, sha, branch)
     exact.verify_git_authority(sha, base, authority, branch=branch)
+    require_fresh_email_risk(sha)
     if branch == "uat-isolated":
         exact.verify_attempt(api, sha, base, run_id, number, branch=branch, authority=authority)
     else:
@@ -354,6 +377,7 @@ def inspect(api, authority: str, *, read_live=None, branch="uat") -> dict:
               "authority_sha": authority, "serving": serving, "source_branch": branch,
               "reason_code": "qualification_unverified"}
     exact.verify_git_authority(candidate, base, authority, branch=branch)
+    require_fresh_email_risk(candidate)
     qualify_inspection(api, result)
     exact.require_protected_tip(api, candidate, branch)
     if read_live("all") != serving:

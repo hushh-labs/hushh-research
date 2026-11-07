@@ -81,7 +81,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), prof
     <div className={styles.detailHeading}>
       <InvitationDate event={event} zone={zone} />
       <div className={styles.copy}><h2>{event.title}</h2><p className={styles.muted}>{eventTime(event, zone)}</p>
-        {join ? <div className={styles.meeting}><CalendarMeetingIcon provider={provider} /><span>{provider}</span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
+        {join ? <div className={styles.meeting}><span className={styles.meetingProvider}><CalendarMeetingIcon provider={provider} /><span>{provider}</span></span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
       </div>
     </div>
     {workspaceLayout ? <>

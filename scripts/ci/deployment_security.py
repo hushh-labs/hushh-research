@@ -355,11 +355,13 @@ def consume_broker(api, request: dict, broker_run_id: int, policy: dict) -> dict
     jobs = api.read(f"{prefix}/runs/{identifier}/attempts/{attempt}/jobs?per_page=100")
     rows = jobs.get("jobs", [])
     require(
-        jobs.get("total_count") == len(rows) == 1
+        jobs.get("total_count") == len(rows) and 1 <= len(rows) <= 2
         and all(isinstance(row, dict) for row in rows),
         "Deployment security job inventory is incomplete",
     )
     expected = {"Verify repository secret clearance": "success"}
+    if any(row.get("name") == "Verify live team authority" for row in rows):
+        expected["Verify live team authority"] = "skipped"
     require(
         {row.get("name"): row.get("conclusion") for row in rows} == expected
         and all(

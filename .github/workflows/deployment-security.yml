@@ -2,8 +2,7 @@ name: Deployment Security
 run-name: Deployment security · ${{ inputs.environment_name || 'Dev/UAT request' }}
 
 on:
-  # Explicit deployments only. This is not a PR worker or recurring scan.
-  # The protected token remains in the Main-only ci-security environment.
+  # Protected clearance runs only for an explicitly requested deployment.
   workflow_dispatch:
     inputs:
       source_request:

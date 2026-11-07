@@ -103,7 +103,7 @@ These are source and policy operations only. They do not deploy an application.
 Before enabling intake, preserve existing refs and outstanding work, prepare each
 branch from the then-current Main baseline, and apply/read back its protection.
 The existing `uat` ref must not be reset merely because its history is old.
-Default `apply-governance.py` reconciles Main/train and teams. Select prepared
+Default `apply-governance.py` reconciles Main/train safeguards without team-roster writes. Select prepared
 branches explicitly to bootstrap their complete protection and exact-ref queue
 rulesets without changing those other authorities:
 
@@ -287,7 +287,7 @@ Before deleting a local backup branch, classify its unique commits as:
 2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
 3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
    authority. Preserve the existing Dev/UAT cohorts. Main's approved merge operators
-   match its production operators, while protected edits require Kushal/Ankit.
+   match its production operators, while protected edits require pipeline-editor.
    Changing one capability does not silently grant another.
 4. Preflight requires reachability from protected UAT. Direct UAT candidates
    require exact current-branch CI and the observed serving base; source selection
@@ -351,7 +351,7 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 3. **Queue review and owner approval.** Ordinary Main PRs require independent
    current-head maintainer approval. Ordinary Dev/UAT authors may use governed
    maintainer self-service after required checks. Review-request labels alone
-   authorize neither route. Kushal or Ankit may explicitly land their own exact PR head under the
+   authorize neither route. a configured pipeline editor may explicitly land their own exact PR head under the
    [owner self-approval procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#3c-main-merger-policy-and-the-named-owner-admin-route).
    The Admin command verifies authenticated author identity, current validation
    and the exact tested merge tree; unresolved objections still block.
@@ -361,106 +361,55 @@ pipeline-editor team. For an ordinary peer review, request the maintainer team
 when needed. Do not add individual reviewer names to compensate for a routing
 failure. Follow the canonical [review-routing procedure](../../../.agents/skills/repo-operations/references/admin-release-sop.md#review-routing-on-every-destination).
 
-### Production access administration
+### Team authority and administration
 
-Production dispatch and Main merging are limited to Kushal (`kushaltrivedi5`),
-Ankit (`ankitkumarsingh1702`) and Sharukhan (`imsharukhan`) in the committed policy. Dev/UAT dispatch lists are unchanged. Protected pipeline edits require Kushal or Ankit.
-The managed teams mirror these lists; changing a team alone does not change
-workflow authority. Policy changes take effect after landing on Main.
+GitHub teams are the approved membership authority. Repository policy defines
+capabilities and safeguards; applying it must never restore a retired team member.
 
-Deploy-team members must not receive team-maintainer authority. Organization
-owners can still administer teams and repository admins can change protection;
-these are separate trust boundaries, not restrictions enforced by the deploy
-allowlist. When revoking an operator, inspect inherited team grants as well as
-direct repository permissions. A successful API mutation is insufficient:
-read back effective repository permission and organization membership.
+| Team | Capability |
+|---|---|
+| `allowed-maintainers-to-approve` | Ordinary Dev/UAT maintainer self-service and eligible peer review |
+| `pipeline-editors` | Protected CI, release policy and fundamental engineering guidance |
+| `deploy-dev` | Explicit Dev deployment |
+| `deploy-uat` | Explicit UAT deployment and internal testing |
+| `deploy-production` | Main merger admission and production/public release admission |
 
-### Concentric privilege rings
+Merging and deploying are separate decisions even where they use the same team.
+No merge deploys an application. Ordinary membership never grants protected-edit
+approval. Main and UAT fixes are carried downstream by the agent completing the
+merge, through reviewed source-only syncs.
 
-Privilege is deliberately nested. Each inner ring is a strict subset of the one
-outside it, and the boundaries are enforced, not informal:
+Only the two leadership organization owners administer membership. Other people
+retain ordinary team-member roles, with no team-maintainer or equivalent custom
+organization role. Members cannot create teams. Check effective inherited access
+and read back changes; organization ownership is not workflow deployment approval.
 
-| Ring | Team | Authority | Source of truth |
-|---|---|---|---|
-| Main merger | Explicit user restrictions | request a reviewed, verified Main merge | `main.merge_users` |
-| Pipeline editors | `pipeline-editors` | edit protected pipeline paths | `main.protected_pipeline_edit_users` |
-| Dev deploy cohort | `deploy-dev` | dispatch a dev deploy | `dev.manual_dispatch_users` |
-| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a protected-UAT application SHA with exact current CI | `uat.manual_dispatch_users` |
-| Production deploy cohort | `deploy-production` | dispatch production deploy | `production.manual_dispatch_users` |
+Automatic per-PR/queue team-observer runs are withdrawn. Native protected-path
+review and queue exceptions still reference the pipeline-editor Team; required
+functional CI and combined-result validation remain independent. The authenticated
+Admin CLI reads current team membership before its exact-head decision.
 
-Live membership is `config/ci-governance.json` only, never transcribed into this
-table — counts here would go stale the first time someone joined. Read the file.
+Deployment Security runs only for explicitly requested releases. Legacy hosted
+source/deployment roster consumers remain transitional; do not claim all runtime
+admission is group-only. Historical observer receipts grant no new release authority.
 
-**Merging and deploying are separate capabilities.** Holding one has never implied
-the other, and this is the single most common source of confusion: GitHub reports
-a refused deploy as "maintainer but not admin", which points at GitHub's role
-model when what actually refused the actor was `assert-governed-actor.py` reading
-a list they were not on. When someone reports a permissions error, read the
-workflow log line — the refusal names the surface and the actor — not the role UI.
+For the initial native transition, preserve a live settings snapshot and run the
+current landed Main tool with `--native-team-transition <preceding-main-sha>`.
+Review its dry run, then repeat with `--apply`. It accepts only exact historical
+user exceptions or the already-installed Team state, refuses a wider editor
+cohort or concurrent change, and changes actor lists without relaxing any rule.
+An interrupted transition is reconciled from live state; never restore a revoked
+user merely to make old tooling pass. Native self-review bypass does not by itself
+guarantee GitHub queue admission; retain the exact-head Admin procedure.
 
-Invariants enforced in CI by `verify-deployment-environment-governance.py`:
+`apply-governance.py` no longer creates teams, adds/removes members or promotes
+roles. It manages repository safeguards only. Do not run an older checkout's
+roster reconciler. Access changes belong in GitHub's authorized team-management
+surface and must not require an application deployment.
 
-- **Main merge and deployment are independent.** Main's merger set matches the
-  approved production operator set, but each operation still has its own gate.
-  Dev/UAT retain their separately authored dispatch cohorts.
-- **Deployment rings nest: production ⊆ UAT ⊆ Dev.** Managed-team membership
-  remains derived from explicit policy. It cannot expand Main merge or protected
-  edit authority through an inherited bypass team.
-- **Production == approved dispatch cohort.** `production.manual_dispatch_users`
-  must match the reviewed production operator cohort; any independent widening
-  or narrowing fails the check. The policy and live team readback identify its members.
-- **Deploy identity variables are present.** Each deployment environment must
-  contain every name declared in its `required_environment_variables` policy.
-  These are GitHub environment variables consumed through `vars.*`, not
-  environment secrets. The verifier checks names only and never renders values.
-
-### Why GitHub teams mirror the config, and never the reverse
-
-Every capability above has a GitHub team. The approved reconciler applies
-`config/ci-governance.json`; membership and role changes require live readback.
-Declarations alone do not prove activation. The teams exist so people
-can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
-Deployment actor gates read committed policy. Native protected-path review uses
-the verified owner-team mirror; the reconciler verifies its exact membership
-against the same committed policy.
-
-The direction is a security property, not a preference:
-
-1. **`GITHUB_TOKEN` cannot read org membership.** The workflow `permissions:`
-   block has no `members` key — org reads are a GitHub App or PAT capability. A
-   gate that queried teams live would need a long-lived org-scoped credential
-   sitting in the production deploy path.
-2. **A live query has no safe failure mode.** It either fails closed, so a GitHub
-   org API blip blocks every production deploy, or fails open, so the gate waves
-   anyone through. Reading a committed file needs no network at all.
-3. **It would invert who can grant access.** Team membership is editable by any
-   org owner or team maintainer. `config/ci-governance.json` is editable only by
-   `protected_pipeline_edit_users`, enforced by `verify-protected-pipeline-edits.py`,
-   and only through a reviewed PR that leaves a diff in `git log`. If the gate
-   read teams live, adding someone to a team would silently grant production
-   deploy, routing straight around the control that exists to limit exactly that.
-
-Access cohorts are authored in config. Widening them requires a reviewed
-protected-path PR; native team mirrors must match that approved policy.
-
-#### Team members are `member`, never `maintainer`
-
-`apply-governance.py` adds every managed-team member at `role=member`, and demotes
-anyone found at `maintainer` on each sync. This is load-bearing:
-a team maintainer can add members to that team. Deployment and prepared-branch
-roles must therefore remain derived from reviewed policy, without an indirect
-self-service grant path. Main has no shared-team review or queue bypass under the
-combined-result policy. Protected edit authority remains Kushal/Ankit.
-
-Organization owners are the exception, and the sync skips them. GitHub reports an
-owner as a maintainer of every team they belong to and refuses to demote them
-there, so attempting it would make `apply-governance.py` report drift on every run
-and never converge — and a governance tool that always cries drift is one people
-learn to scroll past. It costs nothing in safety: an owner can edit branch
-protection and team membership directly, so the team role grants them nothing they
-did not already hold. The demotion therefore applies to exactly the population it
-matters for — org *members* who would otherwise gain a grant path they should not
-have.
+Keep deployment identities, environment bindings, current attempts, compatibility
+and rollback checks independent of membership. Environment variables are consumed
+through `vars.*`; configuration inspection reports their names, never secrets.
 
 ## Admin landing
 
@@ -468,42 +417,29 @@ Follow the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-
 Ordinary Main merges require applicable independent review and combined-result
 queue validation. Eligible Dev/UAT authors may request their own ordinary PR's
 queue entry without blanket review. Protected CI and fundamental guidance still
-require Kushal/Ankit authority on every destination.
+require pipeline-editor authority on every destination.
 
-The named-owner Admin route lets Kushal or Ankit explicitly approve their own
+The named-owner Admin route lets a configured pipeline editor explicitly approve their own
 exact-head PR on Main, Dev, UAT or isolated UAT without a second owner. Its native strict CI/PR
 guard and canonical command preserve current-base evidence, resolved conversations
 and landed-tree verification. Other maintainers use the ordinary queue.
 Historical bootstrap exceptions are not reusable approval.
 Main's actual merger/requester is restricted to its approved production cohort.
 
-### Rule: deploy-actor lists are governance, not routine config
+### Changing access and release policy
 
-Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
-cohort lists are protected-surface edits: they require explicit Kushal/Ankit
-approval and the protected-edit CI guard. An owner may use the documented Main
-Admin route for an explicitly approved change; ordinary organization membership
-or deployment access does not grant protected-policy editing authority.
+Change membership through the appropriate GitHub team using an authorized
+leadership account. Verify the resulting membership and effective repository
+role. Do not edit legacy username arrays to add access or restore them over a
+revocation. During migration, inspect the active admission receipt before
+claiming a membership change has reached every runtime gate.
 
-### Adding or removing a maintainer (the one standardized procedure)
-
-`config/ci-governance.json` is the single source of truth. Editing it is the only
-thing you author. One apply command pushes it to GitHub — never edit GitHub
-settings by hand, that is what drifts (and silently leaves a "maintainer" who
-cannot actually approve on `main`).
-
-Change only the explicitly requested capability lists. Main merge authority is
-`main.merge_users`; deployment lists are separate; protected editors are Kushal
-and Ankit. Only their named owner Admin route has review/queue exceptions;
-its additional strict-CI/PR guard must be active before granting that authority.
-
-Land reviewed policy intent, then dry-run the existing reconciler. Review its
-exact proposed mutations before applying. Default reconciliation handles review
-allowances and managed teams; `--main-merge-policy` handles Main's merger/queue
-boundary after combined-result qualification. `--branch dev`, `--branch uat`
-and `--branch integration/pr-train` handle only the named existing branch.
-They do not create refs or deploy. Queue restrictions are applied before relaxed
-age checks. Read back live branch and deployment policies after application.
+Changes to capability mapping, CI permissions, protected paths and release
+safeguards remain protected PRs requiring pipeline-editor authority. Reconcile
+approved repository settings with the current `apply-governance.py`, then read
+back the specific rules and environment policies. Default reconciliation and
+`--main-merge-policy`/`--branch` are separate safeguard operations; none creates
+branches or deploys applications.
 
 ## Hotfix Playbook
 
@@ -552,7 +488,7 @@ Current operating note:
 - DCO is enforced in CI, not via a separate GitHub branch-protection primitive
 - verify the live setting with `../../../scripts/ci/verify-main-branch-protection.sh`
 - `integration/pr-train` and `main` both require 1 independent approval; the external community goes through PR + CI + review + queue on `integration/pr-train`
-- GitHub cannot count a self-review; only the two named owners have the explicit self-authored Admin PR route
+- GitHub cannot count a self-review; only the configured protected owners have the explicit self-authored Admin PR route
 - require approval of the most recent push is enabled, so stale approvals cannot carry newly pushed code
 - Author/admin status alone is not approval. An authorized owner must explicitly
   approve their captured head through Admin SOP; other PRs require ordinary review.
