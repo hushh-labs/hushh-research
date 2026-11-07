@@ -1707,6 +1707,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      checks: read
     needs:
       - ui-contracts
       - secret-scan
@@ -2006,6 +2007,11 @@ jobs:
           ${{ toJSON(needs.paths.outputs.queue_selection_files) }}
           HUSSH_QUEUE_SELECTION_JSON
           python3 scripts/ci/queue_combined_result.py record --receipt "$RUNNER_TEMP/ci-combined-inputs.json"
+      - name: Verify Main authorization started for this attempt
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/github_team_authority.py --verify-start
       - uses: actions/upload-artifact@v7
         if: github.event_name == 'pull_request' && !github.event.pull_request.draft
         with:

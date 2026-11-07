@@ -263,7 +263,9 @@ def snapshot():
     repository, branch, group = event_context()
     included = members(group["base_sha"], group["head_sha"], queue_entries(repository, branch), branch)
     policy_revision, policy = authority_policy(repository, branch, group["base_sha"])
-    authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
+    from github_team_authority import hosted_membership_deferred
+    if not hosted_membership_deferred(policy):
+        authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
     # A replaced queue ref must not retain this run's authority.
     head_ref = str(group.get("head_ref", ""))
     require(head_ref.startswith(f"refs/heads/gh-readonly-queue/{branch}/"), "Unexpected queue ref")
@@ -428,6 +430,9 @@ def owner_admin_snapshot(number, expected_head):
         timeout=90,
     )
     policy_revision, policy = authority_policy(repository, branch, base, owner_admin=True)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        policy = local_policy(policy, actor=actor, read=api)
     if branch == "main":
         main = policy["main"]
     else:
@@ -501,6 +506,12 @@ def owner_admin_snapshot(number, expected_head):
         reusable(state, validations),
         "Current destination merge tree lacks exact successful CI input evidence; validate the updated candidate",
     )
+    if policy.get("authorization", {}).get("mode") == "enforce":
+        from github_team_authority import consume_main, require_gate
+        require_gate(branch, read=api)
+        validation = validations[0]
+        consume_main(api, {"id": validation["run"], "run_attempt": validation["attempt"],
+                           "head_sha": expected_head}, require_barrier=True)
     return {
         "state": state,
         "validations": validations,

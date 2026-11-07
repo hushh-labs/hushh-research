@@ -1180,6 +1180,18 @@ def test_team_native_authority_has_no_personal_bypass_or_strict_guard_exception(
     payload = protection_payload(branch_policy(policy, "dev"))
     assert payload["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
         "users": [], "teams": ["pipeline-editors"], "apps": []}
+    # An editor can approve protected work without receiving Main merger power.
+    for key in ("protected_pipeline_edit_users", "review_bypass_users", "merge_queue_bypass_users"):
+        policy["main"][key] = [*policy["main"][key], "additional-editor"]
+    assert "additional-editor" not in policy["main"]["merge_users"]
+    assert module.main_owner_admin_ruleset(policy, read=read)["bypass_actors"] == []
+    policy["authorization"]["native_teams"] = False
+    try:
+        module.main_owner_admin_ruleset(policy, read=read)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError("Legacy user exceptions acquired non-merger bypass")
 
 
 def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
