@@ -3197,6 +3197,7 @@
       },
       "voice_action_contract_file": "app/one/files/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "files.upload",
         "route.one_files"
       ],
       "api_dependencies": [
@@ -11078,5 +11079,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "f8a0aa26e563b174552f280056cea36ec904c6e2cd794e57d9d8d09618f6e620"
+  "content_sha256": "cac2f765741e1a9ba460a35f388364ae701e8ea24f0864182f2f57f76cc9bfbf"
 }

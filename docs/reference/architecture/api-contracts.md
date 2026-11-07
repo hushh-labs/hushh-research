@@ -5800,6 +5800,13 @@ Meeting file upgrades wait for the matching grant. An expired popup, a lost
 response, a handoff that leaves the page, and a same-window reload can leave the
 attempt unknown. Calendar reports contain no Google account or event details.
 
+A manual Files upload or resume starts a client attempt in the existing Files
+workspace. A complete transfer returns only after the original Files response
+reports the whole file ready. Interrupted transfers and unacknowledged outcomes
+stay unknown. Organization runs separately and cannot change the upload report.
+File identifiers, names, bytes and paths are not attached. The Files Agent's
+existing environment availability is unchanged by this reporting contract.
+
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
 `ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,

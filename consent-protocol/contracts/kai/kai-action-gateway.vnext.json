@@ -4791,6 +4791,100 @@
       }
     },
     {
+      "action_id": "files.upload",
+      "surface_id": "one_files",
+      "label": "Upload file",
+      "aliases": [],
+      "search_keywords": [],
+      "meaning": "Reports the person's selected upload or resume attempt. A completed report requires the Files library to acknowledge the full transfer as ready. Automatic organization has a separate outcome.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/files"
+        ],
+        "screens": [
+          "one_files"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "signed-in owner; library access requires an unlocked vault; private-pod access additionally requires an admitted Files-capable owner pod"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "manual_user_execution"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the person's explicit file selection in the private Files workspace can start an upload.",
+        "intended_handler": "FilesWorkspace.fileInput"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/operations/private-files-library.md",
+        "components/files/files-workspace.tsx",
+        "lib/files/service.ts"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/files"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.files.upload",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "files.upload",
+            "label": "Upload file",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.gmail.visit_merchant",
       "surface_id": "gmail",
       "label": "Visit merchant",

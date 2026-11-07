@@ -7,6 +7,13 @@ const session = vi.hoisted(() => ({
   vaultKey: "synthetic-memory-only" as string | null,
   vaultOwnerToken: "synthetic-token",
 }));
+const attempts = vi.hoisted(() => ({ capture: vi.fn(), started: vi.fn(), settled: vi.fn() }));
+vi.mock("@/lib/observability/product-activity-client", () => ({
+  captureProductAttempt: (...args: unknown[]) => {
+    attempts.capture(...args);
+    return { started: attempts.started, settled: attempts.settled };
+  },
+}));
 const files = vi.hoisted(() => ({
   list: vi.fn<
     (parent?: string) => Promise<{ entries: FileEntry[]; cursor: string }>
@@ -105,7 +112,7 @@ export function fileEntry(fields: Partial<FileEntry>): FileEntry {
   };
 }
 
-export { files, session };
+export { attempts, files, session };
 
 beforeEach(() => {
   publishValidatedAuthSessionOwner(null);
