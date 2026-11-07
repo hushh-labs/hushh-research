@@ -211,7 +211,7 @@ def _isolated_identity(sql, project, region, read):
     return endpoints, aliases
 
 
-def _service_partition(config, read, opts):
+def _service_partition(config, read, opts, *, isolated=False):
     listed_services = read("run", "services", "list", *opts)
     if not isinstance(listed_services, list):
         raise BudgetError("Cloud Run services inventory unavailable")
@@ -222,6 +222,22 @@ def _service_partition(config, read, opts):
     non_database = set(config["non_database_services"])
     if None in service_names:
         raise BudgetError("Cloud Run service inventory contains an unnamed service")
+    required = {
+        name
+        for name, settings in config["services"].items()
+        if not settings.get("optional_existing")
+    }
+    if required - service_names:
+        raise BudgetError(
+            f"required database services missing: {sorted(required - service_names)}"
+        )
+    if not isolated:
+        # Ordinary admission owns the reviewed application, not every experiment
+        # in its project. The frontend still proves its non-SQL classification.
+        non_database &= {"hushh-webapp"}
+        if non_database - service_names:
+            raise BudgetError(f"required frontend services missing: {sorted(non_database - service_names)}")
+        return service_names & (profiled | non_database), non_database
     optional_non_database = set(config.get("optional_non_database_services", ()))
     if optional_non_database & (profiled | non_database):
         raise BudgetError("Optional non-DB services overlap another capacity classification")
@@ -232,20 +248,10 @@ def _service_partition(config, read, opts):
             f"Cloud Run service inventory drift: unprofiled={sorted(unknown)}, "
             f"missing declared non-DB={sorted(missing_non_database)}"
         )
-    required = {
-        name
-        for name, settings in config["services"].items()
-        if not settings.get("optional_existing")
-    }
-    if required - service_names:
-        raise BudgetError(
-            f"required database services missing: {sorted(required - service_names)}"
-        )
-
     return service_names, non_database | (optional_non_database & service_names)
 
 
-def _job_inventory(read, opts, parallel):
+def _job_inventory(read, opts, parallel, *, selected_names=None):
     listed = read("run", "jobs", "list", *opts)
     if not isinstance(listed, list):
         raise BudgetError("Cloud Run jobs inventory unavailable")
@@ -254,6 +260,8 @@ def _job_inventory(read, opts, parallel):
         set(names)
     ):
         raise BudgetError("Cloud Run jobs inventory malformed")
+    if selected_names is not None:
+        names = [name for name in names if name in selected_names]
     jobs = _collect_named_inventory(
         names,
         lambda name: read("run", "jobs", "describe", name, *opts),
@@ -366,7 +374,7 @@ def collect_inventory(
         endpoints, aliases = _isolated_identity(sql, project, region, read)
         parallel = False
     opts = (f"--project={project}", f"--region={region}")
-    service_names, non_database = _service_partition(config, read, opts)
+    service_names, non_database = _service_partition(config, read, opts, isolated=isolated)
 
     # Only independent reads overlap. Keep describe -> revisions ordering per
     # service, including every non-database attachment check, and retain the
@@ -392,9 +400,12 @@ def collect_inventory(
         if isolated
         else {name: row for name, row in collected.items() if name not in non_database}
     )
-    jobs = _job_inventory(read, opts, parallel)
-    result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
     owner = auth_health_owner()
+    selected_jobs = None if isolated else set(config["jobs"])
+    if selected_jobs is not None and project == owner["PROJECT"]:
+        selected_jobs.add(owner["NAME"])
+    jobs = _job_inventory(read, opts, parallel, selected_names=selected_jobs)
+    result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
     if project == owner["PROJECT"] and owner["NAME"] in jobs:
         result["observer_jobs"] = VerifiedObserverJobs((owner["collect"](jobs[owner["NAME"]], read, opts),))
     if not isolated:
