@@ -9,8 +9,8 @@ trigger, every one of those left the row with the NEW pod key and the OLD signin
 key, so whoever held the superseded key kept full hub identity.
 
 This runs the real collector, provisioning service, registry repository, verifier
-and identity store against the whole dev migration chain, so the trigger is proven
-alongside every guard trigger already on ``personal_agent_registry``.
+and identity store against the retained registry/custody Dev chain, so the trigger
+is proven alongside the existing guards on ``personal_agent_registry``.
 """
 
 from __future__ import annotations
@@ -62,12 +62,14 @@ OLD_SIGNING = Ed25519PrivateKey.from_private_bytes(bytes([7]) * 32)
 NEW_SIGNING = Ed25519PrivateKey.from_private_bytes(bytes([8]) * 32)
 # 944 is the chat-history cutover: it touches no registry table and refuses to run
 # without the chat tables, so it is unrelated to this fixture.
-# This legacy-only fixture does not adopt canonical421. Its dependent985/986 are
-# qualified by the complete canonical/Dev replay and legacy-removal suites.
+# This registry-only fixture does not adopt canonical419/421. Account erasure
+# and legacy-removal successors are qualified by the complete canonical/Dev
+# replay, account-erasure and legacy-removal suites.
 _UNRELATED = {
     "944_one_chat_history_legacy_cutover.sql",
     "985_legacy_cloud_removal_recovery.sql",
     "986_legacy_cloud_removal_resume.sql",
+    "987_account_firebase_erasure.sql",
 }
 
 

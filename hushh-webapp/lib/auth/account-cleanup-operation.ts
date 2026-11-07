@@ -11,6 +11,8 @@ export interface AccountCleanupOperation {
   retry_after_seconds: number | null;
   /** Additive: due work has waited past the backend's stall window. Older backends omit it. */
   delayed?: boolean;
+  /** Native identity absence and local erasure both settled. Legacy backends omit it. */
+  identity_removed?: boolean;
 }
 
 export function parseAccountCleanupOperation(value: unknown): AccountCleanupOperation | null {
@@ -32,7 +34,8 @@ export function parseAccountCleanupOperation(value: unknown): AccountCleanupOper
     (operation.retry_after_seconds !== null &&
       (typeof operation.retry_after_seconds !== "number" ||
         !Number.isInteger(operation.retry_after_seconds) || operation.retry_after_seconds < 1 || operation.retry_after_seconds > 60)) ||
-    (operation.delayed !== undefined && typeof operation.delayed !== "boolean")
+    (operation.delayed !== undefined && typeof operation.delayed !== "boolean") ||
+    (operation.identity_removed !== undefined && typeof operation.identity_removed !== "boolean")
   ) return null;
   return operation as unknown as AccountCleanupOperation;
 }

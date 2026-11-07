@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
 
 async def settle_cleanup_database_call(operation: Callable, *args, **kwargs):
-    """Join an owned database call before propagating caller cancellation."""
+    """Join owned synchronous cleanup work before propagating cancellation."""
     task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
     cancellation = None
     while True:
@@ -60,6 +60,13 @@ async def settle_cleanup_database_call(operation: Callable, *args, **kwargs):
             if task.cancelled():
                 raise
             cancellation = exc
+        except Exception as exc:
+            if cancellation is not None:
+                logger.warning(
+                    "account_deletion.owned_call_failed_after_cancel error=%s", type(exc).__name__
+                )
+                raise cancellation from None
+            raise
     if cancellation is not None:
         raise cancellation
     return result
@@ -307,6 +314,14 @@ class AccountDeletionLifecycleService:
             intent_kind=intent_kind,
             expected_phone_digest=expected_phone_digest,
         )
+        if intent_kind == "phone_orphan":
+            from hushh_mcp.services.account_deletion_firebase_erasure import insert_phone_intents
+
+            isolated = insert_phone_intents(
+                conn, user_ids=user_ids, phone_digest=cast(str, expected_phone_digest)
+            )
+            if isolated is not None:
+                return isolated
         persisted_all = True
         for normalized in user_ids:
             result = conn.execute(
@@ -463,21 +478,41 @@ class AccountDeletionLifecycleService:
         }
         if accept_local_erasure and review.local_erasure_required:
             receipt["localErasureAccepted"] = True
-        conn.execute(
-            text("""INSERT INTO account_deletion_tombstones
+        from hushh_mcp.services.account_deletion_firebase_erasure import prepare_authority
+
+        firebase_authority = prepare_authority(
+            conn, owner=owner, identity=identity, cleanup_id=cleanup_id
+        )
+        insert_sql = """INSERT INTO account_deletion_tombstones
                 (user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory,
                  provider_cleanup_requested_target,
                  provider_cleanup_receipt,provider_cleanup_next_attempt_at,
                  cleanup_last_classification)
                 VALUES(:user_id_hash,:firebase_uid,:owner,CAST(:cleanup_id AS uuid),CAST(:inventory AS jsonb),
                  :requested_target,
-                 CAST(:receipt AS jsonb),now(),'provider_cleanup_prepared')"""),
+                 CAST(:receipt AS jsonb),now(),'provider_cleanup_prepared')"""
+        if firebase_authority is not None:
+            insert_sql = """INSERT INTO account_deletion_tombstones
+                (user_id_hash,firebase_uid,account_owner_id,provider_cleanup_id,provider_cleanup_inventory,
+                 provider_cleanup_requested_target,provider_cleanup_receipt,provider_cleanup_next_attempt_at,
+                 cleanup_last_classification,firebase_identity_hash,
+                 firebase_erasure_authority,firebase_erasure_checkpoint,firebase_cleanup_project)
+                VALUES(:user_id_hash,:firebase_uid,:owner,CAST(:cleanup_id AS uuid),CAST(:inventory AS jsonb),
+                 :requested_target,CAST(:receipt AS jsonb),now(),'provider_cleanup_prepared',
+                 :firebase_identity_hash,CAST(:firebase_authority AS jsonb),'{"state":"prepared"}'::jsonb,:firebase_cleanup_project)"""
+        conn.execute(
+            text(insert_sql),
             {
                 **params,
                 "cleanup_id": cleanup_id,
                 "requested_target": requested_target,
                 "inventory": json.dumps(inventory),
                 "receipt": json.dumps(receipt),
+                "firebase_authority": json.dumps(firebase_authority),
+                "firebase_identity_hash": account_deletion_user_hash(identity),
+                "firebase_cleanup_project": firebase_authority["projectId"]
+                if firebase_authority
+                else None,
             },
         )
         return PreparedProviderCleanup(
@@ -1151,12 +1186,25 @@ class AccountDeletionLifecycleService:
             return FirebaseCleanupAttempt(
                 "identity_retained", classification="firebase_shared_identity_retained"
             )
+        from hushh_mcp.runtime_settings import get_firebase_credential_settings
+        from hushh_mcp.services.account_deletion_firebase_erasure import phone_intent_project
+
+        selected = get_firebase_credential_settings().auth_project_id
+        project = await settle_cleanup_database_call(
+            phone_intent_project, user_id, cast(str, expected_phone_digest)
+        )
+        if selected and project != selected:
+            # Keep the old receipt for review; no SDK request may retarget it.
+            return FirebaseCleanupAttempt(
+                "retry_pending", classification="firebase_authority_mismatch"
+            )
         try:
             return await asyncio.wait_for(
                 self._delete_or_quarantine_firebase_identity(
                     user_id,
                     intent_kind=intent_kind,
                     expected_phone_digest=expected_phone_digest,
+                    firebase_project=project,
                 ),
                 timeout=_FIREBASE_CLEANUP_INTENT_TIMEOUT_SECONDS,
             )
@@ -1175,12 +1223,14 @@ class AccountDeletionLifecycleService:
         user_id: str,
         *,
         expected_phone_digest: str,
+        firebase_app=None,
     ) -> FirebaseCleanupAttempt | None:
         """Re-fetch the exact UID and fail safe unless its phone proof still matches."""
         try:
             from firebase_admin import auth as firebase_auth
 
-            firebase_app = get_firebase_auth_app()
+            if firebase_app is None:
+                firebase_app = get_firebase_auth_app()
             user_record = await asyncio.wait_for(
                 asyncio.to_thread(
                     firebase_auth.get_user,
@@ -1227,6 +1277,7 @@ class AccountDeletionLifecycleService:
         *,
         intent_kind: CleanupIntentKind,
         expected_phone_digest: str | None,
+        firebase_project: str | None = None,
     ) -> FirebaseCleanupAttempt:
         if intent_kind == "full_account":
             return FirebaseCleanupAttempt(
@@ -1247,6 +1298,10 @@ class AccountDeletionLifecycleService:
         for attempt_number in range(1, _FIREBASE_DELETE_MAX_ATTEMPTS + 1):
             try:
                 firebase_app = get_firebase_auth_app()
+                if firebase_project is not None and firebase_app.project_id != firebase_project:
+                    return FirebaseCleanupAttempt(
+                        "retry_pending", classification="firebase_authority_mismatch"
+                    )
                 assert_firebase_identity_mutation_allowed(firebase_app)
                 if intent_kind == "phone_orphan":
                     if expected_phone_digest is None:
@@ -1257,6 +1312,7 @@ class AccountDeletionLifecycleService:
                     validation_result = await self._revalidate_phone_orphan_cleanup(
                         normalized,
                         expected_phone_digest=expected_phone_digest,
+                        firebase_app=firebase_app,
                     )
                     if validation_result is not None:
                         return validation_result
@@ -1303,6 +1359,7 @@ class AccountDeletionLifecycleService:
             validation_result = await self._revalidate_phone_orphan_cleanup(
                 normalized,
                 expected_phone_digest=expected_phone_digest,
+                firebase_app=firebase_app,
             )
             if validation_result is not None:
                 return validation_result

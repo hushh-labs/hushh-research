@@ -127,7 +127,7 @@ describe("register-phone conflict runtime", () => {
     expect(destination.href).not.toContain("6505550101");
     expect(destination.href).not.toContain("123456");
   });
-  it("deletes the linked account in place with the retained SMS proof, then claims the number", async () => {
+  it("admits linked deletion without reusing the holder proof to claim the number", async () => {
     const operation = "d2a5e0f0-8c5e-4f2c-9a51-3f0d6b5f9a11";
     const bodies: Record<string, unknown>[] = [];
     let claims = 0;
@@ -165,12 +165,13 @@ describe("register-phone conflict runtime", () => {
     expect(remove).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(remove);
-    await waitFor(() => expect(claims).toBe(1));
+    await screen.findByRole("button", { name: "Verify this number again" });
+    expect(claims).toBe(0);
     expect(bodies.find(body => String(body.path).endsWith("/deletions/confirm"))).toEqual({
       path: "/api/account/phone/linked-account/deletions/confirm", operation_id: operation,
       phone_number: "+16505550101", confirmed: true, phone_id_token: "phone-id-token",
     });
-    // The verified provider-conflict proof serves deletion and the single follow-up claim.
+    // The consumed holder proof admits deletion, never verifies the receiving UID.
     expect(mocks.phoneLinkConfirm).toHaveBeenCalledOnce();
     expect(mocks.phoneClaimToken).not.toHaveBeenCalled();
     expect(bodies.some(body => String(body.path).endsWith("/phone/recovery/continuations"))).toBe(false);

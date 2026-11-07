@@ -52,6 +52,58 @@ def test_verify_firebase_bearer_preserves_global_revocation_check(monkeypatch):
     assert verification_modes == [False, True]
 
 
+@pytest.mark.parametrize("mode", ["exact_status", "foreign_status", "continuation", "discovery"])
+def test_deleted_identity_can_only_read_its_exact_cleanup_operation(monkeypatch, mode):
+    import firebase_admin.auth as firebase_auth
+
+    from hushh_mcp.services import account_deletion_provider_journal as journal
+
+    operation = "a67fb66e-aa21-46f1-9ff3-937cd1559231"
+    verification_modes = []
+    monkeypatch.setattr(
+        firebase_auth_module, "ensure_firebase_auth_admin", lambda: (True, "hushh-pda-dev")
+    )
+    monkeypatch.setattr(firebase_auth_module, "get_firebase_auth_app", lambda: object())
+
+    def verify(_token, *, app, check_revoked):
+        verification_modes.append(check_revoked)
+        if check_revoked:
+            raise firebase_auth.UserNotFoundError("synthetic deleted identity")
+        return {"uid": "synthetic-deleted-identity"}
+
+    def inspect(uid, *, operation_id):
+        assert uid == "synthetic-deleted-identity"
+        if operation_id not in {operation, None}:
+            raise journal.CleanupOperationNotFound("synthetic foreign operation")
+        return {"state": "complete"}
+
+    monkeypatch.setattr(firebase_auth, "verify_id_token", verify)
+    monkeypatch.setattr(journal, "inspect_for_identity", inspect)
+    selected = (
+        None
+        if mode == "discovery"
+        else "bfca4ba8-eea8-45ed-ae77-a99915da9256"
+        if mode == "foreign_status"
+        else operation
+    )
+    verifier = (
+        firebase_auth_module.verify_account_cleanup_bearer
+        if mode == "continuation"
+        else firebase_auth_module.verify_account_cleanup_status_bearer
+    )
+    if mode == "exact_status":
+        assert (
+            verifier("Bearer synthetic-cleanup-token", operation_id=selected)
+            == "synthetic-deleted-identity"
+        )
+        assert verification_modes == [False]
+    else:
+        with pytest.raises(HTTPException) as refused:
+            verifier("Bearer synthetic-cleanup-token", operation_id=selected)
+        assert refused.value.status_code == (404 if mode == "foreign_status" else 401)
+        assert verification_modes == ([False] if mode == "foreign_status" else [False, True])
+
+
 @pytest.mark.parametrize(
     "mode", ["active", "old_authentication", "old_custom_token", "database_outage"]
 )

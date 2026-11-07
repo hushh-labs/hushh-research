@@ -926,67 +926,40 @@ def test_phone_session_cleanup_intent_binds_the_exact_verified_uid(monkeypatch):
     ]
 
 
-def test_claim_account_phone_persists_verified_phone(monkeypatch):
-    events = []
+@pytest.mark.parametrize("cleanup", ["not_phone_only", "pending"])
+def test_claim_account_phone_rejects_different_firebase_uid(monkeypatch, cleanup):
+    from unittest.mock import AsyncMock
 
-    async def _mock_verify(raw_claim: str):
-        assert raw_claim == "phone-claim-sample"
-        return "+16505550101", "phone-session-uid"
-
-    async def _mock_claim(self, *, user_id: str, phone_number: str):
-        events.append("claim")
-        assert user_id == "firebase_uid_123"
-        assert phone_number == "+16505550101"
-        return {
-            "user_id": user_id,
-            "phone_number": phone_number,
-            "phone_verified": True,
-            "source": "firebase_phone_claim",
-        }
-
-    async def _mock_prepare(
-        *, uid: str | None, phone_number: str | None, protected_uid: str | None = None
-    ):
-        events.append(("intent", uid, phone_number, protected_uid))
-        return "pending"
-
-    async def _mock_cleanup(
-        uid: str,
-        *,
-        intent_kind: str,
-        expected_phone_digest: str,
-    ):
-        events.append(("delete", uid, intent_kind, expected_phone_digest))
-        return "deleted"
-
+    monkeypatch.setattr(
+        account,
+        "_verify_phone_claim_id_token",
+        AsyncMock(return_value=("+16505550101", "other-firebase")),
+    )
+    monkeypatch.setattr(
+        account, "_prepare_safe_phone_session_cleanup_intent", AsyncMock(return_value=cleanup)
+    )
+    finalize = AsyncMock()
+    monkeypatch.setattr(ActorIdentityService, "finalize_verified_phone_from_firebase", finalize)
+    delete = AsyncMock(return_value="deleted")
+    monkeypatch.setattr(account, "_delete_firebase_auth_user", delete)
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
-    monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
-    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
-    monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", _mock_prepare)
-    monkeypatch.setattr(account, "_delete_firebase_auth_user", _mock_cleanup)
 
-    client = TestClient(app)
-    response = client.post(
+    response = TestClient(app).post(
         "/api/account/phone/claim", json={"phone_id_token": "phone-claim-sample"}
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["success"] is True
-    assert payload["phone_verified"] is True
-    assert payload["identity"]["phone_number"] == "+16505550101"
-    assert payload["phone_session_cleanup"] == "deleted"
-    assert events == [
-        ("intent", "phone-session-uid", "+16505550101", "firebase_uid_123"),
-        "claim",
-        (
-            "delete",
-            "phone-session-uid",
-            "phone_orphan",
-            account.account_deletion_phone_digest("+16505550101"),
-        ),
-    ]
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "PHONE_VERIFICATION_CHANGED"
+    finalize.assert_not_awaited()
+    if cleanup == "pending":
+        delete.assert_awaited_once_with(
+            "other-firebase",
+            intent_kind="phone_orphan",
+            expected_phone_digest=account.account_deletion_phone_digest("+16505550101"),
+        )
+    else:
+        delete.assert_not_awaited()
 
 
 def test_claim_account_phone_fails_closed_when_cleanup_intent_cannot_persist(monkeypatch):
@@ -1095,19 +1068,17 @@ def test_claim_account_phone_rejects_phone_token_without_phone_number(monkeypatc
 
 def test_claim_account_phone_maps_persistence_failure(monkeypatch):
     async def _mock_verify(raw_claim: str):
-        return "+16505550101", "phone-session-uid"
+        return "+16505550101", "firebase_uid_123"
 
-    async def _mock_claim(self, *, user_id: str, phone_number: str):
+    async def _mock_finalize(self, user_id: str, phone_number: str):
         return None
-
-    async def _mock_prepare(**_kwargs):
-        return "pending"
 
     app = _build_app()
     app.dependency_overrides[require_firebase_auth] = lambda: "firebase_uid_123"
     monkeypatch.setattr(account, "_verify_phone_claim_id_token", _mock_verify)
-    monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", _mock_prepare)
-    monkeypatch.setattr(ActorIdentityService, "claim_verified_phone", _mock_claim)
+    monkeypatch.setattr(
+        ActorIdentityService, "finalize_verified_phone_from_firebase", _mock_finalize
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -2265,10 +2236,12 @@ async def test_replacement_phone_claim_never_treats_its_retained_identity_as_an_
     monkeypatch.setattr(
         account, "_verify_phone_claim_id_token", AsyncMock(return_value=("+16505550101", identity))
     )
-    prepare = AsyncMock(return_value="skipped")
+    prepare = AsyncMock(return_value="protected_primary_uid")
     monkeypatch.setattr(account, "_prepare_safe_phone_session_cleanup_intent", prepare)
     claim = AsyncMock(return_value={"user_id": owner, "phone_verified": True})
-    monkeypatch.setattr(account.ActorIdentityService, "claim_verified_phone", claim)
+    monkeypatch.setattr(
+        account.ActorIdentityService, "finalize_verified_phone_from_firebase", claim
+    )
     result = await account.claim_account_phone(
         account.PhoneClaimRequest(phone_id_token="synthetic-phone-proof", expected_user_id=owner),  # noqa: S106 - synthetic proof; provider verification is mocked
         owner,
@@ -2277,4 +2250,4 @@ async def test_replacement_phone_claim_never_treats_its_retained_identity_as_an_
     prepare.assert_awaited_once_with(
         uid=identity, phone_number="+16505550101", protected_uid=identity
     )
-    claim.assert_awaited_once_with(user_id=owner, phone_number="+16505550101")
+    claim.assert_awaited_once_with(owner, "+16505550101")

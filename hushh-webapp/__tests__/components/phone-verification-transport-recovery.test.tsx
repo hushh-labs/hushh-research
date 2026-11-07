@@ -149,7 +149,7 @@ describe("in-place deletion of the account linked to the number", () => {
     expect(flow.onCompleted).not.toHaveBeenCalled();
   });
 
-  it.each(["PHONE_LINKED_PROOF_REQUIRED", "ACCOUNT_DELETION_PAUSED"])("sends a spent operation (%s) back to number verification instead of retrying it", async refusal => {
+  it.each(["PHONE_LINKED_PROOF_REQUIRED", "ACCOUNT_DELETION_PAUSED", "PHONE_LINKED_CLAIM_REQUIRED"])("sends a spent operation (%s) back to number verification instead of retrying it", async refusal => {
     const confirmLinkedDeletion = vi.fn().mockRejectedValue(new ApiError("spent", 409, { code: refusal }));
     const flow = renderPhoneVerificationFlow({ confirmVerification: vi.fn().mockRejectedValue(conflict("PHONE_TRANSFER_CONFIRMATION_REQUIRED", true)),
       prepareLinkedDeletion: prepared("sms"), confirmLinkedDeletion, cancelLinkedDeletion: vi.fn() });
