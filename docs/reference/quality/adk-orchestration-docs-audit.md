@@ -17,14 +17,16 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Dev deletion incident — 5 November 2026
+## Dev deletion incident — 7 November 2026
 
-**Operational, cleanup pending.** PR [9017](https://github.com/hushh-labs/hushh-research/pull/9017)
-passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42276334032)
-and the governed [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42281354953).
-Native readback confirmed source `534354d6a374`, backend
-`consent-protocol-00358-t55` and frontend `hushh-webapp-00308-dmm`, both Ready at
-100% traffic. No pod image was built. Migration 986 remains qualified; the
+**Operational, cleanup pending.** PR [9057](https://github.com/hushh-labs/hushh-research/pull/9057)
+passed [exact-source CI](https://github.com/hushh-labs/hushh-research/actions/runs/42317327082)
+and the governed [Dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/42322308693).
+Native readback confirmed source `328f02b7448d`, backend
+`consent-protocol-00359-hrh` and frontend `hushh-webapp-00309-gz2`, both Ready at
+100% traffic. Complete migration-987 qualification passed and all 82 earlier
+ledger checksums are preserved. Fresh cleanup Scheduler delivery returned HTTP 200
+and the deletion release fence is absent. No pod image was built; the
 retained removal executor stays pinned to `9dcabd53478f`.
 
 Fresh owner approval and append-only operator-source adoption preserved the
@@ -37,15 +39,22 @@ all four executions have retained exits. Temporary IAM grants are removed.
 Cleanup is **10/17**, with **144 provider-retained object generations**. The
 next eligible native observation is **2026-11-13 07:03:50.404 UTC**; later key or
 bucket retention may extend completion. No remaining fence is released by elapsed
-time. The UI's waiting state, Close and Sign out were verified through background
-Apple Events with foreground focus unchanged. The original request keeps the
+time. The current interface passed server-verified owner/generation, normal password
+unlock, waiting state, exact provider date and Close/reopen checks through
+background Apple Events with foreground focus unchanged. No approval or
+continuation control is available during retention. Sign out retains its earlier
+unchanged qualification. The original request keeps the
 account. Full erasure is not complete.
 
 The [deletion runbook](../operations/account-deletion-rollout.md#dev-legacy-cloud-removal-repair--5-november-2026)
 owns the exact continuation and phone-audit boundaries. Its
 [Auth separation section](../operations/account-deletion-rollout.md#firebase-auth-separation)
-records current source preparation, draft project-bound erasure contract 987 and
-native fixture proof. Neither the draft migration nor Auth selection is live.
+records the installed project-bound erasure contract 987 and native fixture proof.
+The isolated Auth selector remains off. The refreshed active cohort is 156;
+three retired identities and one providerless, event-only identity are excluded
+from ordinary import. No identities were imported. The iOS configuration follow-up
+binds Google's client and callback to the selected Firebase plist; focused tests
+and the downloaded Dev configuration passed locally, without device sign-in.
 Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release
 gates. Phone-only or missing source identities are not deletion authority.
