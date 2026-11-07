@@ -435,6 +435,7 @@ export function LocationPeople({
                   <PersonRow
                     key={recipient.userId}
                     userId={recipient.userId}
+                    publicPersonRef={recipient.publicPersonRef}
                     name={recipient.displayName}
                     photoUrl={recipient.photoUrl}
                     relationship={relationshipLabel(recipient)}
