@@ -131,6 +131,24 @@ to the helper; its built-in substitutions are not assumed to be shell variables.
 
 ## Canonical 3-environment contract
 
+### Firebase Auth isolation
+
+Use the existing single Firebase web/app configuration per environment. Dev,
+UAT and production use `hushh-pda-dev`, `hushh-pda-uat` and `hushh-pda`,
+respectively. Update the existing public SDK values and matching Admin
+credential together; retain the existing primary-project parity check. Do not
+introduce a second browser Auth configuration. Web analytics continues to use
+its separately selected measurement ID.
+
+`firebase_auth_project_id` in `BACKEND_RUNTIME_CONFIG_JSON` explicitly admits
+the isolated erasure contract. It must match the environment and the canonical
+Admin app; an old shared credential refuses instead of selecting another app.
+With the field absent, existing erasure policy is unchanged. Native Firebase
+configuration and release lanes require coordinated qualification before a live
+cutover; web configuration alone does not switch installed native apps. See the
+[deletion rollout](./account-deletion-rollout.md#firebase-auth-separation)
+for UID continuity, credentials and erasure gates.
+
 ### Dev owner-cloud connectors and metadata feeds
 
 Native Google connectors use separate public-client pins:

@@ -470,10 +470,12 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
             for filename in manifest["ordered_migrations"]:
                 if int(filename[:3]) in {900, 944, 955, 958, 965}:
                     continue
-                # Legacy recovery succeeds canonical421, not parked predecessors.
+                # Recovery/identity erasure succeed their canonical release
+                # contracts, not this deliberately retained <=417 predecessor.
                 if filename in {
                     "985_legacy_cloud_removal_recovery.sql",
                     "986_legacy_cloud_removal_resume.sql",
+                    "987_account_firebase_erasure.sql",
                 }:
                     continue
                 with conn.cursor() as cur:
@@ -482,7 +484,11 @@ def test_private_agent_graduation_preserves_owners_and_refuses_drift(
         if rich_dev:
             for entry in build_manifest_entries(
                 MIGRATIONS_DIR / "parked",
-                ["985_legacy_cloud_removal_recovery.sql", "986_legacy_cloud_removal_resume.sql"],
+                [
+                    "985_legacy_cloud_removal_recovery.sql",
+                    "986_legacy_cloud_removal_resume.sql",
+                    "987_account_firebase_erasure.sql",
+                ],
             ):
                 with conn.cursor() as cur:
                     cur.execute(execution_sql(entry))

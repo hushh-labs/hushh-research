@@ -4,6 +4,8 @@ import {
   SessionProbe, activeSessionResponse, resetNativeAuthMocks, cleanupNativeAuthMocks,
 } from "./fixtures/auth-context-native-harness";
 import { AuthProvider, useAuth } from "@/lib/firebase/auth-context";
+import { useState } from "react";
+import { apiErrorCode } from "@/lib/services/api-client";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,14 +15,16 @@ import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 function FinishRecovery({ action }: { action: "transfer" | "delete" }) {
   const { confirmPhoneTransfer, confirmPhoneLinkedDeletion } = useAuth();
-  return <button onClick={() => void (action === "transfer" ? confirmPhoneTransfer() : confirmPhoneLinkedDeletion({ operationId: "approved-op", phoneNumber: "+12025550101" }))}>Finish recovery</button>;
+  const [outcome, setOutcome] = useState("");
+  return <><button onClick={() => void (action === "transfer" ? confirmPhoneTransfer() : confirmPhoneLinkedDeletion({ operationId: "approved-op", phoneNumber: "+12025550101" }))
+    .then(() => setOutcome("verified"), error => setOutcome(apiErrorCode(error) ?? "unknown"))}>Finish recovery</button><output data-testid="recovery-outcome">{outcome}</output></>;
 }
 
 describe("@feature_auth_reliability @trace_loop native phone verification recovery", () => {
   beforeEach(resetNativeAuthMocks);
   afterEach(cleanupNativeAuthMocks);
 
-  it.each(["transfer", "delete"] as const)("releases the native challenge after approved %s succeeds", async action => {
+  it.each(["transfer", "delete"] as const)("releases the consumed challenge after %s without treating admitted deletion as verified", async action => {
     mocks.restoreNativeSession.mockResolvedValue(makeUser());
     mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
     mocks.phoneConfirm.mockImplementationOnce(async params => {
@@ -41,8 +45,15 @@ describe("@feature_auth_reliability @trace_loop native phone verification recove
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirm native phone" })); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Finish recovery" })); });
     expect(signal.aborted).toBe(true);
-    if (action === "transfer") { expect(transfer).toHaveBeenCalledOnce(); expect(deletion).not.toHaveBeenCalled(); }
-    else { expect(deletion).toHaveBeenCalledOnce(); expect(transfer).not.toHaveBeenCalled(); }
+    if (action === "transfer") {
+      expect(transfer).toHaveBeenCalledOnce(); expect(deletion).not.toHaveBeenCalled();
+      expect(screen.getByTestId("recovery-outcome")).toHaveTextContent("verified");
+    } else {
+      expect(deletion).toHaveBeenCalledOnce(); expect(transfer).not.toHaveBeenCalled();
+      expect(AccountIdentityService.claimCurrentUserPhone).not.toHaveBeenCalled();
+      expect(screen.getByTestId("recovery-outcome")).toHaveTextContent("PHONE_LINKED_CLAIM_REQUIRED");
+      expect(snapshotValidatedAuthSessionOwner()?.userId).toBe("native-account-owner");
+    }
     deletion.mockRestore();
   });
 

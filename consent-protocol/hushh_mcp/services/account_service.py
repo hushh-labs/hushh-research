@@ -2119,6 +2119,9 @@ class AccountService:
         cleanup = await self._erase_shared_files_if_present(claim.owner_id, backend_only=False)
         if cleanup is not None:
             return cleanup
+        from hushh_mcp.services.account_deletion_firebase_erasure import ensure_identity_absent
+
+        await ensure_identity_absent(claim)
         return await self._settle_full_account_transaction(
             claim.owner_id,
             requested_target=self._normalized_target(claim.requested_target),

@@ -52,6 +52,72 @@ def _guarded_inventory_row(table_name: str, *identity_columns: str) -> dict:
     }
 
 
+@pytest.fixture(autouse=True)
+def _legacy_phone_cleanup_authority(monkeypatch):
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.services import account_deletion_firebase_erasure as erasure
+
+    # These existing SDK unit cases represent historical, unselected authority.
+    # Realm persistence and immutable bindings run against real PostgreSQL.
+    monkeypatch.setattr(erasure, "phone_intent_project", lambda *_: None)
+    # SDK unit tests must never initialize the host's real ADC/Firebase app.
+    monkeypatch.setenv("ENVIRONMENT", "dev")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "dev")
+    runtime_settings.clear_runtime_settings_caches()
+    monkeypatch.setattr(
+        lifecycle_module,
+        "get_firebase_auth_app",
+        lambda: SimpleNamespace(project_id="synthetic-project"),
+    )
+
+
+@pytest.mark.parametrize("mode", ["selector_removed", "historical_null", "matching_dev"])
+def test_phone_cleanup_keeps_its_bound_realm_across_selector_rollback(monkeypatch, mode):
+    from firebase_admin import auth
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.services import account_deletion_firebase_erasure as erasure
+
+    project = None if mode == "historical_null" else "hushh-pda-dev"
+    selected = "" if mode == "selector_removed" else "hushh-pda-dev"
+    app = SimpleNamespace(project_id="hushh-pda" if mode == "selector_removed" else "hushh-pda-dev")
+    monkeypatch.setattr(erasure, "phone_intent_project", lambda *_: project)
+    monkeypatch.setenv("FIREBASE_AUTH_PROJECT_ID", selected)
+    runtime_settings.clear_runtime_settings_caches()
+    monkeypatch.setattr(lifecycle_module, "get_firebase_auth_app", lambda: app)
+    monkeypatch.setattr(
+        lifecycle_module, "assert_firebase_identity_mutation_allowed", lambda _: None
+    )
+    lookup = MagicMock(
+        return_value=SimpleNamespace(
+            uid="synthetic-phone",
+            phone_number="+16505550101",
+            email=None,
+            provider_data=[SimpleNamespace(provider_id="phone")],
+        )
+    )
+    delete = MagicMock()
+    monkeypatch.setattr(auth, "get_user", lookup)
+    monkeypatch.setattr(auth, "delete_user", delete)
+    result = asyncio.run(
+        AccountDeletionLifecycleService().delete_or_quarantine_firebase_identity(
+            "synthetic-phone",
+            intent_kind="phone_orphan",
+            expected_phone_digest=account_deletion_phone_digest("+16505550101"),
+        )
+    )
+    if mode == "matching_dev":
+        assert result.outcome == "deleted"
+        delete.assert_called_once_with("synthetic-phone", app=app)
+        lookup.assert_called_once_with("synthetic-phone", app=app)
+    else:
+        assert result == FirebaseCleanupAttempt(
+            "retry_pending", classification="firebase_authority_mismatch"
+        )
+        lookup.assert_not_called()
+        delete.assert_not_called()
+
+
 def test_account_deletion_hash_is_stable_and_does_not_retain_uid():
     user_id = "firebase-sensitive-uid"
 

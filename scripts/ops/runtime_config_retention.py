@@ -193,6 +193,14 @@ def retained_settings(
             existing, project=project, environment=environment
         ),
     }
+    auth_project = existing.get("firebase_auth_project_id")
+    if auth_project is not None:
+        expected = {"dev": "hushh-pda-dev", "uat": "hushh-pda-uat", "production": "hushh-pda"}.get(environment)
+        if (not expected or project != expected or auth_project != expected
+                or existing.get("environment") != environment
+                or existing.get("google_cloud_project") != project):
+            raise ValueError("Firebase Auth selection belongs to a different environment")
+        retained["firebase_auth_project_id"] = auth_project
     key = "auth_db_listener_isolation_enabled"
     if key in existing:
         value = existing[key]
