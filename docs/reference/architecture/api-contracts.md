@@ -5794,6 +5794,14 @@ outcome. Observers are not persisted or replayed after reload, and observer
 errors cannot change the product's result. These observations add no email
 permission and do not cover every KYC action or prove live delivery.
 
+The Mail workspace reports an explicit retry of saved receipt restoration as
+`profile.gmail.restore_saved_receipts` under Email. A current, verified saved
+snapshot is required for a returned outcome. Confirmed unavailable storage or
+invalid receipt binding can report failure. Missing snapshots, expired reads
+and retired owners or account/vault scopes supply no terminal outcome.
+Automatic hydration and the follow-up sync do not create another attempt.
+Only activity metadata is reported, with no receipt or account data.
+
 Manual Calendar connection and disconnection report against the original attempt.
 Terminal returns require an acknowledged connection or confirmed disconnection.
 Meeting file upgrades wait for the matching grant. An expired popup, a lost
