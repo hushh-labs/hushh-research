@@ -7,9 +7,69 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+_RUNTIME_SETTINGS = "consent-protocol/hushh_mcp/runtime_settings.py"
+_PROCESSOR_SOURCE_PATHS = (
+    "consent-protocol/config/managed-ai-runtime.json",
+    "consent-protocol/hushh_mcp/constants.py",
+    "consent-protocol/hushh_mcp/managed_ai_config.py",
+    "consent-protocol/hushh_mcp/runtime_providers",
+    "consent-protocol/hushh_mcp/services/private_gcp_deployment.py",
+)
+# The protected PLG promotion adds six string mappings to the backend
+# environment map. Only this reviewed forward transition is equivalent for
+# Drive recovery; arbitrary settings, file modes and all other paths are exact.
+_APPROVED_PLG_SETTINGS_TRANSITION = (
+    "df57fdc1eed6ea7845b8207ab6f78493b0ecf5dd",
+    "e1484b09fcaccce823406df0c000af812419f347",
+)
+
+
+def _settings_blob(sha: str) -> str:
+    entry = subprocess.check_output(
+        ["git", "ls-tree", "--full-tree", sha, "--", _RUNTIME_SETTINGS],
+        timeout=15,
+        text=True,
+    )
+    match = re.fullmatch(
+        r"100644 blob ([0-9a-f]{40})\t" + re.escape(_RUNTIME_SETTINGS) + r"\n", entry
+    )
+    if not match:
+        raise ValueError("Recovery requires a regular runtime settings source file")
+    return match[1]
+
+
+def require_processor_source(before: str, after: str) -> None:
+    if not all(re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (before, after)):
+        raise ValueError("Recovery requires exact processor source revisions")
+    unchanged = subprocess.run(
+        [
+            "git",
+            "diff",
+            "--exit-code",
+            "--quiet",
+            "--no-ext-diff",
+            "--no-textconv",
+            before,
+            after,
+            "--",
+            *_PROCESSOR_SOURCE_PATHS,
+        ],
+        timeout=20,
+        check=False,
+    )
+    if unchanged.returncode:
+        raise ValueError("UAT recovery processor source changed")
+    settings = (_settings_blob(before), _settings_blob(after))
+    if settings[0] != settings[1] and settings != _APPROVED_PLG_SETTINGS_TRANSITION:
+        raise ValueError(
+            "UAT recovery runtime settings changed outside the reviewed PLG mapping"
+        )
 
 
 def job_spec(
@@ -296,6 +356,13 @@ def recovery_receipts(execution_name: str, expected_generation: str) -> list[dic
 
 
 def main():
+    if sys.argv[1:2] == ["--verify-processor-source"]:
+        if len(sys.argv) != 4:
+            raise ValueError(
+                "Recovery source verification requires two exact revisions"
+            )
+        require_processor_source(sys.argv[2], sys.argv[3])
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--service-json", type=Path, required=True)
     parser.add_argument("--sha", required=True)
