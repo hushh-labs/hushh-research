@@ -376,14 +376,16 @@ class LiveTeamPolicyTest(unittest.TestCase):
         policy = {name: {} for name in ('main', 'pr_train', 'uat_merge', 'dev', 'uat', 'production')}
         policy['main'] = {'merge_users': ['retired'], 'required_approving_reviews': 1, 'require_last_push_approval': True, 'require_code_owner_reviews': True}
         original = deepcopy(policy)
-        projected = self.team.local_policy(policy, actor='principal', read=self.read)
+        with patch.dict('os.environ', {'GITHUB_ACTIONS': 'false'}):
+            projected = self.team.local_policy(policy, actor='principal', read=self.read)
         self.assertEqual(projected['main']['merge_users'], ['operator', 'principal'])
         self.assertEqual(projected['main']['protected_pipeline_edit_users'], ['principal'])
         for key in ('required_approving_reviews', 'require_last_push_approval', 'require_code_owner_reviews'):
             self.assertEqual(projected['main'][key], original['main'][key])
         self.assertEqual(policy, original)
         self.members['deploy-production'] = ['principal']
-        projected = self.team.local_policy(policy, actor='principal', read=self.read)
+        with patch.dict('os.environ', {'GITHUB_ACTIONS': 'false'}):
+            projected = self.team.local_policy(policy, actor='principal', read=self.read)
         self.assertNotIn('operator', projected['main']['merge_users'])
         self.assertNotIn('operator', projected['production']['manual_dispatch_users'])
 
@@ -411,7 +413,7 @@ class LiveTeamPolicyTest(unittest.TestCase):
                 self.team.read_teams(broken)
 
     def test_local_identity_and_hosted_credentials_cannot_be_substituted(self):
-        with self.assertRaisesRegex(self.team.Refused, 'authenticated CLI'):
+        with patch.dict('os.environ', {'GITHUB_ACTIONS': 'false'}), self.assertRaisesRegex(self.team.Refused, 'authenticated CLI'):
             self.team.local_policy({}, actor='operator', read=self.read)
         with patch.dict('os.environ', {'GITHUB_ACTIONS': 'true'}):
             with self.assertRaisesRegex(self.team.Refused, 'Main-owned'):
