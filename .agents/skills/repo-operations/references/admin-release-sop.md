@@ -14,7 +14,7 @@ deployment, rollback, or environment-promotion decision must route here through
    validation always apply. An owner may explicitly approve their own captured PR
    head through the owner self-approval path below; ordinary Main reviews remain required
    for other authors; eligible Dev/UAT maintainers follow §3B. Review exception and queue bypass are distinct.
-4. Main source changes require a PR. Use the queue or the named-owner PR route
+4. Main source changes require a PR. Use the queue or the pipeline-editor PR route
    below; organization-admin credentials do not create a direct-push route.
    An emergency deployment does not waive source-merge requirements.
 5. Merge, post-merge smoke, UAT, production, and native release are separate
@@ -91,10 +91,10 @@ Eligible maintainers may land their own verified product PRs without personal
 pipeline-editor review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
 CI/core authorization and required CI remain mandatory; merging never deploys.
 
-### 3C. Main merger policy and the named-owner Admin route
+### 3C. Main merger policy and the pipeline-editor Admin route
 
-Main merging is restricted to `main.merge_users`, independently of deployment
-permission. CI/release/fundamental `.agents` changes need the configured pipeline editors' approval.
+Main merging requires the live `deploy-production` Team. CI/release/fundamental
+`.agents` changes also need the live `pipeline-editors` Team’s approval.
 An explicit user instruction approving this bounded change is authorization to
 execute its reviewed implementation; generic admin credentials alone are not.
 
@@ -106,7 +106,7 @@ Main, Dev, UAT and isolated UAT. Ordinary Main and isolated UAT PRs retain indep
 CODEOWNER review where protected paths require it, and the combined-result queue. Eligible Dev/UAT authors use ordinary
 maintainer self-approval through the queue as described in §3B.
 
-The named-owner route preserves these independent protections:
+The owner route preserves these independent protections:
 
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the approved Main merger restriction remain active.
@@ -132,7 +132,7 @@ From reviewed tooling synchronized with Main, use:
 
 The first command is read-only apart from fetching Git objects and writing its
 local receipt. The second is explicit approval to merge that captured head. It
-requires the authenticated named owner to be the PR author, live policy parity,
+requires the authenticated current editor to be the PR author, live policy parity,
 resolved conversations, no outstanding/withdrawn review objection, the current
 successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain

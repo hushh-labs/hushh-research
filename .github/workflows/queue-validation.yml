@@ -10,6 +10,7 @@ permissions:
   contents: read
   pull-requests: read
   actions: read
+  checks: read
   security-events: read
 
 # Main/Dev/UAT build one native queue candidate at a time. A rebuilt temporary
@@ -59,6 +60,11 @@ jobs:
 
   ci-status:
     name: "CI Status Gate"
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      pull-requests: read
     needs: [admission, combined-checks]
     if: always()
     runs-on: ubuntu-24.04
@@ -93,3 +99,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMBINED_RESULT: ${{ needs.combined-checks.result }}
         run: python3 .queue-authority/scripts/ci/queue_combined_result.py finish --receipt "$RUNNER_TEMP/queue-admission/queue-inputs.json"
+      - name: Verify Main authorization started for this attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .queue-authority/scripts/ci/github_team_authority.py --verify-start

@@ -274,7 +274,7 @@ for ruleset in ruleset_list:
                     merge_queue_bypass_team_slugs.append(team_slug)
                 if team_name:
                     merge_queue_bypass_team_names.append(team_name)
-                if team_slug:
+                if team_slug and not native_team_authority:
                     memberships = json.loads(
                         subprocess.run(
                             [gh_executable, "api", "--paginate", "--slurp", f"organizations/140115870/team/{actor_id}/members"],
@@ -325,7 +325,7 @@ errors = []
 if prepared and prepared_queue_matches != 1:
     errors.append("prepared branch requires exactly one active, exact-ref named merge queue ruleset")
 pending_queue_bypass = []
-missing_queue_bypass = sorted(set(expected_queue_bypass) - set(merge_queue_bypass))
+missing_queue_bypass = [] if native_team_authority else sorted(set(expected_queue_bypass) - set(merge_queue_bypass))
 if missing_queue_bypass and expected_queue_bypass_team_slug in merge_queue_bypass_team_slugs:
     # An approved invitation is not active authority. Only an already-active
     # governed operator may classify somebody else's confirmed pending/member
@@ -395,7 +395,7 @@ if bypass_team_slugs != ([expected_bypass_team_slug] if expected_bypass_team_slu
     errors.append(
         f"review bypass team drifted: expected {[expected_bypass_team_slug]}, got {bypass_team_slugs}"
     )
-if sorted(set(merge_queue_bypass) | set(pending_queue_bypass)) != expected_queue_bypass:
+if not native_team_authority and sorted(set(merge_queue_bypass) | set(pending_queue_bypass)) != expected_queue_bypass:
     errors.append(
         f"merge queue bypass actors drifted: expected {expected_queue_bypass}, got {merge_queue_bypass}"
     )
