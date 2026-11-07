@@ -57,6 +57,8 @@ Non-owned surfaces:
 
 Review against the author's intended protected destination: Dev for integration,
 UAT for a selected candidate, and Main for production-baseline or operations work.
+Ordinary contributors use Dev intake; governed maintainers may propose PRs
+directly into `main` by actor identity under the separate Main checks.
 UAT can qualify directly without prior Dev deployment. Existing train campaigns
 retain their declared purpose; do not retarget ordinary PRs to a train branch.
 Required current checks, exact combined-result validation, applicable team review
