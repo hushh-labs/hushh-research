@@ -12,9 +12,14 @@ from typing import Any
 
 
 def read_workflow_predecessor(
-    repo_root: Path, outputs: tuple[Path, ...], ref: str, *, allow_unpublished: bool = False
+    repo_root: Path,
+    outputs: tuple[Path, ...],
+    ref: str,
+    *,
+    allow_unpublished: bool = False,
+    declared_divergent: bool = False,
 ) -> dict[str, Any] | None:
-    """Import only a committed ancestor, never an arbitrary compatibility claim."""
+    """Read published history; only reviewed ledger pins may cross histories."""
 
     resolved = subprocess.run(  # noqa: S603 - fixed git executable/arguments
         ["git", "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"],  # noqa: S607
@@ -23,12 +28,26 @@ def read_workflow_predecessor(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    subprocess.run(  # noqa: S603 - fixed git executable/arguments
+    ancestry = subprocess.run(  # noqa: S603 - fixed git executable/arguments
         ["git", "merge-base", "--is-ancestor", resolved, "HEAD"],  # noqa: S607
         cwd=repo_root,
-        check=True,
+        check=False,
         capture_output=True,
     )
+    if ancestry.returncode:
+        if ancestry.returncode != 1 or not declared_divergent:
+            ancestry.check_returncode()
+        shallow = subprocess.run(  # noqa: S603 - fixed git executable/arguments
+            ["git", "rev-parse", "--is-shallow-repository"],  # noqa: S607
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if ref != resolved or allow_unpublished or shallow != "false":
+            raise RuntimeError(
+                "Declared workflow history requires an exact published commit and full history."
+            )
     relative = outputs[0].relative_to(repo_root).as_posix()
     try:
         completed = subprocess.run(  # noqa: S603 - fixed git executable/arguments
