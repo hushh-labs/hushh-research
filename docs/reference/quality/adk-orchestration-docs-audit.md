@@ -55,6 +55,11 @@ three retired identities and one providerless, event-only identity are excluded
 from ordinary import. No identities were imported. The iOS configuration follow-up
 binds Google's client and callback to the selected Firebase plist; focused tests
 and the downloaded Dev configuration passed locally, without device sign-in.
+That fix is now merged through #9063 after exact-source CI and Team Authorization.
+Dev Sandbox APNs configuration also survived a fresh Firebase reload, using one
+topic-specific `com.hushh.app` key backed up directly to Dev Secret Manager;
+all 17 prior Apple keys remain present. Production-channel and actual device
+phone/push checks remain unqualified. These steps imported no personal identity.
 Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release
 gates. Phone-only or missing source identities are not deletion authority.

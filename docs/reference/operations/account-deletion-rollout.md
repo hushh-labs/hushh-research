@@ -148,7 +148,16 @@ configuration. It rejects inconsistent client/callback pairs before copying,
 preserves unrelated declarations and deep links, and is idempotent. Its regression
 failed against the old implementation; 23 nearest checks and the actual downloaded
 Dev configuration passed in a disposable fixture. No native build or device sign-in
-is claimed. Dev web-push VAPID is staged; native APNs remains unconfigured.
+is claimed. The callback fix landed through
+[#9063](https://github.com/hushh-labs/hushh-research/pull/9063), with exact-source
+CI and Team Authorization passing; it required no hub or pod redeployment.
+Dev web-push VAPID is staged. Dev Sandbox APNs now has a topic-specific key for
+`com.hushh.app`; its private material was transferred in memory to Dev Secret
+Manager and the installed key/team configuration survived a fresh Firebase reload.
+All 17 prior Apple keys remain present. This qualifies configuration persistence,
+not device delivery. The production APNs channel within the Dev Firebase app and
+physical-device phone/push acceptance remain unqualified. No Auth cutover or
+personal identity import accompanied this setup.
 
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email
