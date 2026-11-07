@@ -82,6 +82,7 @@ ISOLATED_CI_PATHS = (
     # The isolated checkout receives Main's portable .agents manifests.
     "consent-protocol/tests/test_memory_judge.py",
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/helpers/drive_worker_gcloud.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
     "consent-protocol/tests/helpers/plg_qualification.py",
@@ -189,8 +190,11 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
             "+refs/heads/main:refs/remotes/origin/main",
             f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
         )
-        require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
-                "UAT tip changed; qualify the current protected candidate")
+        if branch == "uat-isolated":
+            require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
+                    "Isolated UAT tip changed; qualify the current protected candidate")
+        else:
+            git("merge-base", "--is-ancestor", candidate, f"origin/{branch}")
     git("merge-base", "--is-ancestor", authority, "origin/main")
     for source in (candidate, base, authority):
         git("cat-file", "-e", f"{source}^{{commit}}")
@@ -291,9 +295,21 @@ def verify_serving_bases(
 
 def require_protected_tip(api: GitHub, candidate: str, branch: str = "uat") -> None:
     require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
+    # Retain the historical helper name for deployed readers. Ordinary UAT
+    # freezes an explicit merged SHA; unrelated new merges do not replace it.
     ref = api.read(f"repos/{REPOSITORY}/branches/{branch}")
-    require(ref.get("protected") is True and ref.get("commit", {}).get("sha") == candidate,
-            "The protected UAT candidate changed during admission")
+    tip = ref.get("commit", {}).get("sha", "")
+    require(ref.get("protected") is True and SHA.fullmatch(candidate or "")
+            and SHA.fullmatch(tip), "Protected UAT source is unavailable")
+    if tip == candidate:
+        return
+    require(branch == "uat", "The protected isolated UAT candidate changed during admission")
+    try:
+        git("cat-file", "-e", f"{tip}^{{commit}}")
+    except Refused:
+        # The branch may have advanced since the checkout's full-history fetch.
+        git("fetch", "--no-tags", "origin", tip)
+    git("merge-base", "--is-ancestor", candidate, tip)
 
 
 def live_serving_bases(scope: str) -> dict[str, dict[str, str]]:

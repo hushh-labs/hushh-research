@@ -254,6 +254,7 @@ def test_production_dispatch_accepts_only_the_approved_three_operators() -> None
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
                                workflow: str = "capacity-maintenance.yml",
+                               run_attempt: int = 1, triggering_actor: str | None = None,
                                step: str = "Require main and governed manual actor") -> subprocess.CompletedProcess[str]:
     """Execute the actual shell authority gate, including the real actor policy."""
     root = Path(__file__).resolve().parents[2]
@@ -264,17 +265,48 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     )
     assert match is not None, f"{workflow} authority gate is missing"
     inputs = event.get("inputs") or {}
+    # Model the test event, not the CI job that happens to run this fixture.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
     return subprocess.run(
         ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
-        env={**os.environ, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_ACTOR": actor, "GITHUB_TRIGGERING_ACTOR": actor,
-             "GITHUB_RUN_ATTEMPT": "1", "RELEASE_ENV": inputs.get("environment", ""),
+        env={**env, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+             "GITHUB_RUN_ATTEMPT": str(run_attempt),
+             "GITHUB_TRIGGERING_ACTOR": actor if triggering_actor is None else triggering_actor,
+             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
              "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
              "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
              "APPLY": inputs.get("apply", ""),
              "CLOCK_EVENT_TYPE": action},
         capture_output=True, text=True, check=False,
     )
+
+
+def test_capacity_fixture_ignores_parent_retry_identity() -> None:
+    from unittest.mock import patch
+
+    event = {"inputs": {"environment": "production", "healthy_release_run_id": "43"}}
+    with patch.dict(os.environ, {
+        "GITHUB_RUN_ATTEMPT": "2",
+        "GITHUB_TRIGGERING_ACTOR": "unapproved-contributor",
+        "GITHUB_EVENT_PATH": "/nonexistent/parent-ci-event.json",
+    }):
+        accepted = _validate_capacity_trigger("workflow_dispatch", event)
+        assert accepted.returncode == 0, accepted.stderr
+        refused = _validate_capacity_trigger("workflow_dispatch", event, actor="unapproved-contributor")
+        assert refused.returncode != 0, "Fixture isolation must not grant actor authority"
+
+
+def test_capacity_rerun_requires_its_own_authorized_triggering_actor() -> None:
+    for environment in ("uat", "production"):
+        event = {"inputs": {"environment": environment, "healthy_release_run_id": "43"}}
+        accepted = _validate_capacity_trigger("workflow_dispatch", event, run_attempt=2,
+                                              triggering_actor="kushaltrivedi5")
+        assert accepted.returncode == 0, accepted.stderr
+        for actor in ("unapproved-contributor", ""):
+            refused = _validate_capacity_trigger("workflow_dispatch", event, run_attempt=2,
+                                                 triggering_actor=actor)
+            assert refused.returncode != 0, "An unauthorized rerun was accepted"
+            assert "authorized triggering actor" in refused.stderr
 
 
 def test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes() -> None:
@@ -527,6 +559,8 @@ def main() -> int:
         test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
         test_production_dispatch_accepts_only_the_approved_three_operators,
+        test_capacity_fixture_ignores_parent_retry_identity,
+        test_capacity_rerun_requires_its_own_authorized_triggering_actor,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
         test_capacity_cleanup_rejects_deployment_events_and_non_main,
         test_fixed_bridge_requires_governed_manual_production_apply,

@@ -770,6 +770,11 @@ do not put them in command arguments, logs, source, environment examples or file
 Secret provisioning grants no deploy or traffic authority. Never copy this UAT
 credential to another environment.
 
+Secret upsert retains all previous versions, including when the payload is
+unchanged. The version-inventory helper is read-only: version age does not prove
+that serving, rollback, scheduled-job or alias references are absent. Version
+destruction requires a separately qualified reference-aware cleanup operation.
+
 Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
 reject these requests, so the approved publishable token must support that existing
 policy. Do not change the component's referrer policy to enable a restricted token.

@@ -61,6 +61,11 @@ def _retained_plg_config(
 ) -> dict[str, bool]:
     """Preserve explicit pilot settings without importing another lane's activation."""
     retained: dict[str, bool] = {}
+    foreign_uat_flags = (
+        "one_plg_dev_export_enabled",
+        "one_plg_activity_dev_enabled",
+        "one_plg_owner_export_enabled",
+    ) if environment == "uat" else ()
     for key in (
         "one_plg_export_enabled",
         "one_plg_activity_enabled",
@@ -68,6 +73,7 @@ def _retained_plg_config(
         "one_plg_audience_enabled",
         "one_plg_subscription_enabled",
         *UAT_PLG_FLAGS,
+        *foreign_uat_flags,
     ):
         if key not in existing:
             continue

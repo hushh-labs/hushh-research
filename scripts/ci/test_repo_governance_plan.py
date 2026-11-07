@@ -53,6 +53,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
         "scripts/ci/promotion_approval.py",
+        "scripts/ci/github_team_authority.py",
         "scripts/ci/main-post-merge-smoke.sh",
         "scripts/ci/integration-check.sh",
         "scripts/ci/orchestrate.sh",
@@ -75,6 +76,9 @@ def test_explicit_ci_control_scripts_are_controller_owned() -> None:
         assert selection.error is None
         assert selection.groups == ("controller",)
         assert "ci-path-ownership" in selection.check_ids
+        assert {
+            "runtime-config-contract", "deploy-secret-coverage", "protected-pipeline-edits"
+        } <= set(selection.check_ids)
 
 
 def test_production_emergency_authority_test_selects_controller_owner() -> None:

@@ -292,6 +292,9 @@ def test_uat_plg_flags_default_off_and_survive_the_deployment_writer(
     [
         ("uat", "hushh-pda-uat", {"one_plg_activity_enabled": True}),
         ("uat", "hushh-pda-uat", {"one_plg_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_dev_export_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_activity_dev_enabled": True}),
+        ("uat", "hushh-pda-uat", {"one_plg_owner_export_enabled": True}),
         ("production", "hushh-pda", {"one_plg_attempt_email_enabled": True}),
         ("dev", "hushh-pda-dev", {"one_plg_uat_export_enabled": True}),
     ],
@@ -305,6 +308,20 @@ def test_uat_plg_rejects_foreign_flags_and_activity_without_its_lane(
             project=project,
             environment=environment,
         )
+
+
+def test_retained_uat_fields_do_not_activate_main_legacy_runtime(monkeypatch):
+    keys = (
+        "one_plg_uat_export_enabled",
+        "one_plg_activity_uat_enabled",
+        "one_plg_attempt_email_enabled",
+    )
+    monkeypatch.setattr(runtime_settings.os, "environ", os.environ.copy())
+    for key in keys:
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(dict.fromkeys(keys, True)))
+    runtime_settings.hydrate_runtime_environment()
+    assert all(key.upper() not in os.environ for key in keys)
 
 
 def test_referral_scheduler_configuration_survives_sync_and_hydration(monkeypatch):
@@ -513,3 +530,111 @@ def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
         _write_configuration(
             monkeypatch, plg_runtime_sync, "production", True, {}, candidate_only=True
         )
+
+
+@pytest.mark.parametrize(
+    ("exists", "current", "add_status"),
+    [(True, "same", 0), (True, "older", 0), (False, None, 0), (True, None, 0), (True, "older", 1)],
+)
+def test_secret_upsert_preserves_recovery_versions(
+    monkeypatch, tmp_path, exists, current, add_status
+):
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/upsert_gcp_secret.py"
+    spec = importlib.util.spec_from_file_location("upsert_recovery", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    commands = []
+
+    def cloud(command, **kwargs):
+        commands.append(command[1:4])
+        prefix = command[1:4]
+        status, output = 0, ""
+        if prefix[:2] == ["secrets", "describe"]:
+            status, output = (0, "fixture-secret") if exists else (1, "")
+        elif prefix == ["secrets", "versions", "access"]:
+            status, output = (0, current) if current is not None else (1, "")
+        elif prefix == ["secrets", "versions", "list"]:
+            output = "1\n2\n"
+        elif prefix == ["secrets", "versions", "add"]:
+            assert kwargs["input"] == "same"
+            status = add_status
+        return subprocess.CompletedProcess(
+            command, status, output, "write refused" if status else ""
+        )
+
+    monkeypatch.setattr(module.subprocess, "run", cloud)
+    payload = tmp_path / "synthetic-payload"
+    payload.write_text("same")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(path), "--project", "fixture", "--secret", "fixture", "--value-file", str(payload)],
+    )
+    if add_status:
+        with pytest.raises(SystemExit, match="1"):
+            module.main()
+    else:
+        assert module.main() == 0
+    assert ["secrets", "versions", "destroy"] not in commands
+    assert ["secrets", "versions", "list"] not in commands
+    assert (["secrets", "versions", "add"] in commands) is (current != "same")
+    assert any(command[:2] == ["secrets", "create"] for command in commands) is (not exists)
+
+
+def _version_inventory_module():
+    path = Path(__file__).resolve().parents[2] / "scripts/ops/prune_gcp_secret_versions.py"
+    spec = importlib.util.spec_from_file_location("version_inventory", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_secret_inventory_never_admits_destruction(monkeypatch):
+    module = _version_inventory_module()
+    monkeypatch.setattr(
+        module, "_get_access_token", lambda: pytest.fail("Mutation reached credentials")
+    )
+    with pytest.raises(ValueError, match="reference-aware"):
+        module.prune_project("fixture", dry_run=False)
+    monkeypatch.setattr(module, "_get_access_token", lambda: "synthetic-token")
+    methods = []
+
+    def read(request, **_kwargs):
+        methods.append(request.get_method())
+        if "/versions?" in request.full_url:
+            return {
+                "versions": [
+                    {"name": f"projects/fixture/secrets/fixture/versions/{n}"} for n in (1, 2)
+                ]
+            }
+        return {"secrets": [{"name": "projects/fixture/secrets/fixture"}]}
+
+    monkeypatch.setattr(module, "_request_with_retry", read)
+    assert module.prune_project("fixture") == {"total_enabled": 2, "destroyed": 0, "remaining": 2}
+    assert methods == ["GET", "GET"]
+
+
+def test_secret_inventory_rejects_writes_and_incomplete_pagination(monkeypatch):
+    module = _version_inventory_module()
+    request = module.urllib.request.Request("https://fixture.invalid", data=b"{}", method="POST")
+    with pytest.raises(ValueError, match="GET only"):
+        module._request_with_retry(request)
+
+    class Page:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self):
+            return b'{"secrets": [{"name": "projects/fixture/secrets/fixture"}], "nextPageToken": "next"}'
+
+    def read(request, **_kwargs):
+        if "pageToken=" in request.full_url:
+            raise module.urllib.error.HTTPError(request.full_url, 403, "refused", {}, None)
+        return Page()
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", read)
+    with pytest.raises(RuntimeError, match="inventory unavailable"):
+        module._get_all_secrets("fixture", "synthetic-token")

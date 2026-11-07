@@ -127,6 +127,8 @@ concurrency:
 jobs:
   inspect-prerequisites:
     name: Inspect UAT prerequisites (no deployment)
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
     if: inputs.operation == 'inspect'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -217,6 +219,11 @@ jobs:
 
   select-target:
     name: Select UAT target
+    environment:
+      name: uat
+      deployment: false
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     permissions:
@@ -534,8 +541,16 @@ jobs:
             deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
-          cp config/runtime-capacity.json \
-            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          # Preserve Main's budget/inventory, but never resize the selected
+          # worker by overwriting its approved capacity with Main's default.
+          if [[ "${{ needs.wait-capacity.outputs.scope }}" == frontend ]]; then
+            cp config/runtime-capacity.json "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          else
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              --profile config/runtime-capacity.json \
+              --target-sha "${{ steps.resolve-sha.outputs.sha }}" --resolve-profile-only \
+              > "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          fi
           cp scripts/ops/verify_passkey_domain_associations.py \
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
@@ -1090,11 +1105,11 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          # CI's browser cache also promises WebKit; this lane installs Chromium.
+          # Frontend analytics and explicit diagnostics share Chromium only.
           key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
       - name: Install UAT browser verification dependencies
@@ -1103,12 +1118,12 @@ jobs:
         timeout-minutes: 8
         shell: bash
         env:
-          RUN_BROWSER_DIAGNOSTICS: ${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
+          RUN_CHROMIUM_VERIFICATION: ${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
-          if [ "${RUN_BROWSER_DIAGNOSTICS:-false}" != true ]; then
-            echo "Runtime dependencies installed; app-browser diagnostics were not requested."
+          if [ "${RUN_CHROMIUM_VERIFICATION:-false}" != true ]; then
+            echo "Runtime dependencies installed; selected verification does not require Chromium."
             exit 0
           fi
           # Keep the runner's signed archive/security fallbacks. PR CI uses this

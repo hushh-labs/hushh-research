@@ -220,11 +220,38 @@ as part of each merge task, following the [downstream completion procedure](../.
 scanning remains in PR validation and privileged unresolved-secret clearance runs
 only in an explicit Main-owned deployment's protected job.
 
+The two bundled public email-risk data files use actual-blob digest/bounds checks
+and the existing domain-policy cases in Governance. Their runtime parser, test
+module, schema and unrecognized neighboring inputs retain backend validation.
+This data-only owner does not replace full application release qualification.
+The synthetic worker CLI fixture retains both deployment and rollback consumer
+suites in the controller owner. The database connection-ceiling reader also runs
+there when deployment controls change, including configuration-driven worker
+capacity. It remains in backend validation for runtime changes. Unknown helpers
+retain conservative selection.
+
+UAT admission retains Main’s connection limits and workload inventory while
+binding the worker size to the immutable selected application profile, bounded
+by Main’s reviewed ceiling. Both admission reads and the preserved checkout
+overlay use that effective profile; a different Main default cannot silently
+resize UAT. Environment, process and pool mismatches require correction before
+cloud mutation.
+
+Read-only UAT inspection checks the selected candidate's public email-risk snapshot
+when email authentication is enabled. Expired or malformed inputs require a pinned
+upstream refresh before qualification; the full integrity and activation checks
+remain enforced during deployment. Base-pinned release `scope=all` keeps web/backend core
+qualification, selecting native lanes only from their existing ownership filters
+against that candidate and serving base. Explicit diagnostic scopes are unchanged.
+
 For a direct UAT candidate, record the actual serving base, dispatch `ci.yml` on
 `uat` with `scope=all` and `uat_base_sha`, then dispatch `deploy-uat.yml` from `uat`
 with `sha`, `ci_run_id`, `ci_run_attempt` and `ci_base_sha`. The explicit
 release selects that protected application SHA after full exact-candidate CI;
 ordinary Dev/UAT needs no manual PR-history chain or serving-commit ancestry.
+Once selected, that frozen ordinary UAT SHA remains eligible after newer merges
+while it remains in protected UAT history; CI, current authority and live-baseline
+checks still apply. Never silently substitute the new tip.
 The base identifies changed verification inputs, not merge authority. Recheck both
 actual service revisions under the lock, including partial releases with different
 frontend/backend SHAs. Compatibility, candidate health, qualified rollback and
@@ -1809,6 +1836,18 @@ Blocking backend manifest:
 `uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. `protocol-check` and `web-full-suite-check` both export `CAPABILITY_GRAPH_BASE_REF=origin/<PR base>` over a full-history checkout; Queue Validation uses the merge-group base and combined head. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
 
 When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
+
+When normal UAT replaces a release from retained, divergent history, preserve its
+published workflow graph through an exact reviewed `workflow_predecessor_refs`
+ledger pin. Only ledger pins may cross histories; inferred and arbitrary CLI
+predecessors retain ancestry requirements. Missing publication or incomplete Git
+history refuses. Importing that graph must pass both capability-wide semantic
+deprecation checks and workflow revision-policy checks. Keep the eight-pin bound;
+replace a redundant pin only with proof that the retained history subsumes it.
+Regenerate the mirrors with the owning compiler. Normal UAT may reconcile the
+landed PR's diagnostic `semantic_diff` only when every other payload field,
+including preserved workflow compatibility, agrees. Isolated qualification keeps
+its ancestry requirement. Never suppress the check or hand-edit graph output.
 
 ---
 
