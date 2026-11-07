@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useFilesConnection } from "@/lib/files/use-files-connection";
 import { ApiService } from "@/lib/services/api-service";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 import { FilesLocalError, transientFilesRead } from "@/lib/files/local-error";
 import { ROUTES } from "@/lib/navigation/routes";
 import { FilesToolbar } from "./files-toolbar";
@@ -325,6 +326,8 @@ export function FilesWorkspace() {
                   void act(
                     async () => {
                       const signal = work.current.signal;
+                      const attempt = userId ? captureProductAttempt("files.upload", userId) : null;
+                      attempt?.started();
                       try {
                         const uploaded = await FilesService.upload(
                           file,
@@ -340,6 +343,11 @@ export function FilesWorkspace() {
                           signal,
                           resume,
                         );
+                        // A completed transfer is independent of automatic organization.
+                        if (!signal.aborted && uploaded?.kind === "file" && uploaded.state === "ready" &&
+                          uploaded.size === file.size && uploaded.received === file.size) {
+                          attempt?.settled("returned");
+                        }
                         if (uploaded?.organization?.state === "unconfirmed")
                           uploadOutcome =
                             "Upload complete; organization could not be confirmed";

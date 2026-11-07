@@ -2506,6 +2506,8 @@
       },
       "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "calendar.connection.connect",
+        "calendar.connection.disconnect",
         "calendar.invitation.review",
         "calendar.read"
       ],
@@ -3195,6 +3197,7 @@
       },
       "voice_action_contract_file": "app/one/files/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "files.upload",
         "route.one_files"
       ],
       "api_dependencies": [
@@ -11076,5 +11079,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "62e86ee77dbce5ba637db422eef8f516070ce05c17d79834c191bd1941e42212"
+  "content_sha256": "cac2f765741e1a9ba460a35f388364ae701e8ea24f0864182f2f57f76cc9bfbf"
 }
