@@ -1058,6 +1058,8 @@ jobs:
           plutil -create xml1 "$PLIST"
           plutil -insert API_KEY -string "$NEXT_PUBLIC_FIREBASE_API_KEY" "$PLIST"
           plutil -insert GCM_SENDER_ID -string "123456789" "$PLIST"
+          plutil -insert CLIENT_ID -string "123456789-native-ci.apps.googleusercontent.com" "$PLIST"
+          plutil -insert REVERSED_CLIENT_ID -string "com.googleusercontent.apps.123456789-native-ci" "$PLIST"
           plutil -insert PLIST_VERSION -string "1" "$PLIST"
           plutil -insert BUNDLE_ID -string "com.hushh.app" "$PLIST"
           plutil -insert PROJECT_ID -string "dummy-project" "$PLIST"
