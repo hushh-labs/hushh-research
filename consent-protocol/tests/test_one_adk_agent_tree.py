@@ -147,16 +147,19 @@ class TestAgentTreeShape:
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
     def test_root_agent_is_one_with_full_roster(self):
+        from hushh_mcp.one_adk.chat_memory import chat_memory_before_model
+
         agent = build_one_root_agent()
         assert agent.name == "one"
         # Consent redaction runs first, so timing measures the request actually sent.
-        # Queued input joins last: the timing callback can still answer for the
+        # Queued input joins after timing: that callback can still answer for the
         # model (the read barrier), and a message must never be drained into a
-        # call that is not made.
+        # call that is not made. Memory budgeting then includes the queued input.
         callbacks = agent.canonical_before_model_callbacks
         assert callbacks[0].__name__ == "_one_consent_before_model"
         assert timed_one_before_model in callbacks
-        assert callbacks[-1] is club_queued_input
+        assert callbacks.index(timed_one_before_model) < callbacks.index(club_queued_input)
+        assert callbacks[-2:] == [club_queued_input, chat_memory_before_model]
         assert timed_one_after_model in agent.canonical_after_model_callbacks
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
@@ -515,7 +518,7 @@ class TestAgentTreeShape:
         # over the clipped transaction sample.
         assert "Never add up individual transactions from the packet" in instruction
 
-    def test_live_mirror_packet_survives_the_server_clip_after_a_full_soul(self):
+    def test_complete_memory_and_custom_headings_reach_the_root_without_the_old_clip(self):
         soul = "S" * 18_000
         end = "\nEND LIVE MIRROR FACTS"
         head = (
@@ -531,10 +534,26 @@ class TestAgentTreeShape:
             return instruction[start : instruction.index("Use this only when relevant.", start)]
 
         assert consented(f"{soul}\n\n{packet}").rstrip().endswith("END LIVE MIRROR FACTS")
-        # Negative control: a packet over the browser budget loses its end
-        # marker to the 20,000-character clip, which is why the budget exists.
+        # V1 supplies the complete admitted document, including content beyond
+        # the retired 20,000-character projection and Markdown indentation.
         oversized = head + "x" * (2_500 - len(head) - len(end)) + end
-        assert "END LIVE MIRROR FACTS" not in consented(f"{soul}\n\n{oversized}")
+        complete = f"    synthetic_code()\n\n# My research notebook\n{soul}\n\n{oversized}\n"
+        assert complete in consented(complete)
+        from hushh_mcp.one_adk.request_secrets import (
+            consume_request_secret,
+            resolve_request_secret,
+            store_request_secret,
+        )
+
+        reference = store_request_secret(complete, preserve_whitespace=True)
+        credential = store_request_secret("  synthetic-credential  ")
+        try:
+            assert complete not in reference
+            assert complete in consented(reference)
+            assert resolve_request_secret(credential) == "synthetic-credential"
+        finally:
+            consume_request_secret(reference)
+            consume_request_secret(credential)
 
     def test_runtime_instruction_supplies_verified_account_name_without_calling_it_pkm(self):
         instruction = _one_runtime_instruction(

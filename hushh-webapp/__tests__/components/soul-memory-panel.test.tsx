@@ -9,13 +9,20 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(), replace: vi.fn(), peek: vi.fn(), retrySync: vi.fn(), loadContext: vi.fn(), clearContext: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() }, revision: 0,
   back: null as null | (() => boolean),
+  memoryListeners: new Map<string, Set<() => void>>(),
   mirror: { status: "loading", view: null } as LiveMirrorViewState,
 }));
 vi.mock("@/lib/pkm/use-live-mirror-view", () => ({ useLiveMirrorView: () => mocks.mirror }));
 vi.mock("@/lib/pkm/markdown-memory", () => ({
   loadMarkdownMemory: mocks.load, replaceMarkdownMemoryDocument: mocks.replace, peekMarkdownMemory: mocks.peek,
   MARKDOWN_MEMORY_DOMAIN: "one_memory", MAX_MARKDOWN_MEMORY_CHARS: 18000,
-  subscribeMarkdownMemory: () => () => {}, retryMarkdownMemorySync: mocks.retrySync,
+  subscribeMarkdownMemory: (userId: string, listener: () => void) => {
+    const listeners = mocks.memoryListeners.get(userId) ?? new Set<() => void>();
+    listeners.add(listener);
+    mocks.memoryListeners.set(userId, listeners);
+    return () => { listeners.delete(listener); };
+  },
+  retryMarkdownMemorySync: mocks.retrySync,
 }));
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   loadAgentPkmContext: mocks.loadContext, clearAgentPkmContext: mocks.clearContext,
@@ -36,12 +43,39 @@ const markdown = "# Memory\n\n## Preferences\n- Concise answers.\n";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.revision = 0;
+  mocks.memoryListeners.clear();
+  mocks.peek.mockReturnValue(undefined);
   mocks.mirror = { status: "loading", view: null };
   mocks.load.mockResolvedValue({ markdown, persisted: true });
   mocks.replace.mockResolvedValue({ success: true, markdown: "# Updated\n" });
 });
 
 describe("memory.md editor", () => {
+  it("updates the open reader from its owner's LTM notification and keeps the complete Markdown editable", async () => {
+    render(<SoulMemoryPanel {...props} />);
+    await screen.findByRole("heading", { name: "Memory" });
+    const rewritten = '    synthetic_code()\n\n# My research notebook\n\n## Background\nAn engineering student.\n\n## Projects\n- Build **Memory V1**.\n\n## Goals\n| Goal | Status |\n| --- | --- |\n| Local testing | Active |\n';
+    mocks.load.mockResolvedValue({ markdown: rewritten, persisted: true });
+    const reads = mocks.load.mock.calls.length;
+    act(() => { mocks.memoryListeners.get("owner-b")?.forEach(listener => listener()); });
+    expect(mocks.load).toHaveBeenCalledTimes(reads);
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeVisible();
+    act(() => { mocks.memoryListeners.get("owner-a")?.forEach(listener => listener()); });
+    await screen.findByRole("heading", { name: "Projects" });
+    expect(screen.getByRole("heading", { level: 1, name: "My research notebook" })).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Facts" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Commitments" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Goals" })).toBeVisible();
+    expect(screen.getByRole("cell", { name: "Local testing" })).toBeVisible();
+    const document = screen.getByLabelText("memory.md contents");
+    expect(document.querySelector("pre code")).toHaveTextContent("synthetic_code()");
+    expect(document.querySelector("strong")).toHaveTextContent("Memory V1");
+    expect(document).toHaveTextContent("An engineering student.");
+    expect(screen.queryByText("Concise answers.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory.md" }));
+    expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue(rewritten);
+  });
+
   it("renders the canonical Markdown and saves the edited document for subsequent chat context", async () => {
     render(<SoulMemoryPanel {...props} />);
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeVisible();
@@ -61,6 +95,7 @@ describe("memory.md editor", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit memory.md" }));
     fireEvent.change(screen.getByRole("textbox", { name: "memory.md Markdown" }), { target: { value: "My unsaved edit" } });
     mocks.revision += 1;
+    act(() => { mocks.memoryListeners.get("owner-a")?.forEach(listener => listener()); });
     view.rerender(<SoulMemoryPanel {...props} />);
     expect(screen.getByRole("textbox", { name: "memory.md Markdown" })).toHaveValue("My unsaved edit");
     mocks.replace.mockResolvedValueOnce({ success: false, conflict: true, message: "Memory changed" });
