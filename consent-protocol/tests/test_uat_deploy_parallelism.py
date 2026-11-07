@@ -445,19 +445,29 @@ def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
     )
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert "uat-chromium" in cache["with"]["key"]
-    assert cache["if"] == "inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
     assert (
-        install["env"]["RUN_BROWSER_DIAGNOSTICS"]
-        == "${{ inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
+        cache["if"]
+        == "steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
+    )
+    assert (
+        install["env"]["RUN_CHROMIUM_VERIFICATION"]
+        == "${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
     )
 
 
 @pytest.mark.parametrize(
-    "npm_status,failures,expected,diagnostic",
-    [(0, 0, 0, True), (0, 1, 0, True), (0, 2, 1, True), (9, 0, 9, True), (0, 0, 0, False)],
+    "npm_status,failures,expected,diagnostic,frontend",
+    [
+        (0, 0, 0, True, False),
+        (0, 1, 0, True, False),
+        (0, 2, 1, True, False),
+        (9, 0, 9, True, False),
+        (0, 0, 0, False, False),
+        (0, 0, 0, False, True),
+    ],
 )
 def test_uat_browser_install_retries_and_blocks_on_failure(
-    tmp_path, npm_status, failures, expected, diagnostic
+    tmp_path, npm_status, failures, expected, diagnostic, frontend
 ):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
@@ -479,6 +489,18 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
         'n=$((n+1)); echo "$n" > "$ATTEMPTS"; echo "$*" >> "$CALLS"; [ "$n" -gt "$FAILURES" ]; };\n'
     )
     calls, attempts = tmp_path / "calls", tmp_path / "attempts"
+    # Resolve the authored dependency condition, including mandatory analytics
+    # when optional app-browser diagnostics are off.
+    browser_required = install["env"]["RUN_CHROMIUM_VERIFICATION"]
+    browser_required = browser_required.replace("${{", "").replace("}}", "")
+    browser_required = browser_required.replace(
+        "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
+    )
+    browser_required = browser_required.replace(
+        "inputs.repeat_reviewer_byok", str(diagnostic)
+    ).replace("inputs.run_pwm_acceptance", "False")
+    assert all(term.strip() in {"True", "False"} for term in browser_required.split("||"))
+    browser_required = any(term.strip() == "True" for term in browser_required.split("||"))
     result = subprocess.run(  # noqa: S603 - actual installer with synthetic package commands only.
         [shutil.which("bash") or "bash", "-c", stubs + script],
         cwd=tmp_path,
@@ -488,14 +510,14 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
             "ATTEMPTS": str(attempts),
             "NPM_STATUS": str(npm_status),
             "FAILURES": str(failures),
-            "RUN_BROWSER_DIAGNOSTICS": str(diagnostic).lower(),
+            "RUN_CHROMIUM_VERIFICATION": str(browser_required).lower(),
         },
         capture_output=True,
         text=True,
     )
     assert result.returncode == expected, result.stderr
     assert calls.read_text().splitlines().count("npm") == 1
-    if npm_status or not diagnostic:
+    if npm_status or not (frontend or diagnostic):
         assert not attempts.exists()
     else:
         assert int(attempts.read_text()) == min(failures + 1, 2)

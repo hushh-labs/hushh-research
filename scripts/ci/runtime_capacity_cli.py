@@ -164,7 +164,7 @@ def parse_args(
     candidates.add_argument(
         "--no-candidates",
         action="store_true",
-        help="Audit the global database budget without reserving a new service revision",
+        help="Audit the reviewed application budget without reserving a new service revision",
     )
     candidates.add_argument(
         "--frontend-only",
