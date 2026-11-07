@@ -1,5 +1,7 @@
 "use client";
 
+import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
+
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
 import { NetworkVisibilitySetting } from "./network-visibility-setting";

@@ -175,7 +175,7 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
         {opening.scope === "all" ? <label>Calendar account and destination<BookingSelect value={draft.accountId} onChange={event => edit({ accountId: event.target.value })} disabled={busy}>
           <option value="">Choose a writable account</option>
           {accounts.map(item => <option key={item.account_id} value={item.account_id}>{item.google_email || "Google account"}{item.access_level === "manage" ? "" : " · Allow scheduling"}</option>)}
-        </select></label> : null}
+        </BookingSelect></label> : null}
         {account ? <p className={styles.accountIdentity}><CalendarPersonAvatar name={accountEmail} photoUrl={accountPhoto} size="sm" source="hussh" /><span>{accountEmail}</span></p> : null}
         {account && account.access_level !== "manage" ? <Button variant="outline" disabled={busy} onClick={() => onRequireWrite(account.account_id)}>Allow scheduling on {account.google_email}</Button> : null}
         <div className={styles.timeGrid}><label>Date<Input type="date" value={draft.date} onChange={event => edit({ date: event.target.value })} disabled={busy} /></label><label>Start<Input type="time" value={draft.time} onChange={event => edit({ time: event.target.value })} disabled={busy} /></label><label>Duration<BookingSelect value={draft.duration} onChange={event => edit({ duration: Number(event.target.value) as Draft["duration"] })} disabled={busy}><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>60 min</option></BookingSelect></label></div>

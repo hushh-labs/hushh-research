@@ -122,6 +122,10 @@ function declineLabel(event: CalendarEventSummary, viewingEmail: string, respons
 }
 
 function accountLabel(email: string | null) { return email || "Google account"; }
+function accountEmailParts(email: string): [string, string] {
+  const at = email.lastIndexOf("@");
+  return at > 0 ? [email.slice(0, at), email.slice(at)] : [email, ""];
+}
 
 function CalendarAccountPicker({ accounts, value, onChange, people }: {
   accounts: GoogleCalendarAccount[]; value: string; onChange: (accountId: string) => void; people: CalendarHusshPeople;
@@ -329,7 +333,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               const occasions = account.events.filter(event => boardOccasionKind(event) !== null);
               const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
               const scrollEvents = meetings.length + otherItems.length > 3;
-              const accountName = accountLabel(account.google_email);
+              const [accountName, accountDomain] = accountEmailParts(account.google_email);
               const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
               const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, people);
               const renderEvent = (event: CalendarEventSummary) => {
@@ -431,7 +435,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
       <Dialog modal open={Boolean(selected && selectedEvent)} onOpenChange={isOpen => { if (!isOpen) close(); }}>
         <DialogContent className={styles.detail} data-profile-type-scale="calendar" onCloseAutoFocus={event => { event.preventDefault(); trigger.current?.focus(); }} onEscapeKeyDown={event => { if (actionBusy) event.preventDefault(); }} onInteractOutside={event => { if (actionBusy) event.preventDefault(); }}>
           {selected && selectedEvent && selectedAccount ? <>
-            <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle><DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}>Organized by <CalendarPersonAvatar name={selectedOrganizer} photoUrl={organizerPerson?.photoUrl ?? null} className={styles.inlineAvatar} size="xs" source="hussh" />{selectedOrganizer}</p> : null}</DialogHeader>
+            <DialogHeader className={styles.detailHeader}><DialogTitle className={styles.detailTitle}>{resolving ? "Resolve overlapping meetings" : selectedEvent.title}</DialogTitle>{!resolving && !isCalendarEventEnded(selectedEvent, now, zone) && safeMeetingUrl(selectedEvent.conference_url) ? <CalendarJoinLink className={styles.eventJoin} url={selectedEvent.conference_url} accountEmail={selectedAccount.google_email} /> : null}<DialogDescription>{accountLabel(selectedAccount.google_email)} · {eventTime(selectedEvent, zone)}</DialogDescription>{!resolving && isCalendarEventEnded(selectedEvent, now, zone) ? <span className={styles.detailEnded}><Clock aria-hidden className="size-3" />Ended</span> : null}{!resolving && selectedOrganizer ? <p className={styles.detailSource}><span>Organized by</span> <CalendarPersonAvatar name={selectedOrganizer} photoUrl={organizerPerson?.photoUrl ?? null} className={styles.inlineAvatar} size="xs" source="hussh" />{selectedOrganizer}</p> : null}</DialogHeader>
             {resolving && board ? <CalendarConflictPanel key={identity(selected)} board={board} keep={{ account_id: selected.accountId, calendar_id: selected.calendarId, event_id: selected.eventId }} getIdToken={getIdToken} initialDraft={conflictDraft} onDraftChange={setConflictDraft} onBusyChange={setActionBusy} onChooseKeep={ref => setSelected({ accountId: ref.account_id, calendarId: ref.calendar_id, eventId: ref.event_id })} onMailConnect={onMailConnect} onConfirmed={() => { refreshOnClose.current = true; }} onDone={close} /> : <>
             {selectedEvent.location ? <p className={styles.detailSource}>Location: {selectedEvent.location}</p> : null}
             {selectedEvent.description ? <p className={styles.detailDescription}>{selectedEvent.description}</p> : null}

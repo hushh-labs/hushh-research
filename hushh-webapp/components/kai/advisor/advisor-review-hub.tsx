@@ -6,10 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import { Search } from "@/components/icons";
-import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import type { FinanceSource } from "@/lib/finance-sharing/contract";
 import type { AdvisorReview } from "@/lib/advisor-review/contract";
 import { AdvisorReviewService } from "@/lib/advisor-review/service";
@@ -148,80 +144,33 @@ export function AdvisorReviewHub({
         {!context ? (
           <p role="status">Unlock One to manage advisor requests.</p>
         ) : null}
-        {!context ? (
-          <p className="ui-text-row-description" role="status">
-            Unlock One to manage advisor requests.
-          </p>
-        ) : null}
-        {error ? <p className="ui-text-row-description" role="alert">{error}</p> : null}
+        {error ? <p role="alert">{error}</p> : null}
         {context && !items.length && !error ? (
-          <p className="ui-text-row-description">
+          <p className="ui-text-helper-text">
             {state?.context === context
               ? "No advisor requests yet."
               : "Checking requests…"}
           </p>
         ) : null}
-        {items.length ? (
-          <SettingsGroup
-            embedded
-            separatorInset
-            shellClassName="bg-[color:var(--app-card-surface-compact)] shadow-none"
+        {items.map((row) => (
+          <button
+            type="button"
+            key={row.id}
+            className={styles.person}
+            onClick={() => select(row.id)}
           >
-            {items.map((row) => {
-              const name = advisor ? row.ownerName : row.advisorName;
-              return (
-                <SettingsRow
-                  key={row.id}
-                  title={name}
-                  leading={<ConnectionPersonAvatar label={name} size="compact" />}
-                  description={row.status === "accepted"
-                    ? "Connected · introduction and plan"
-                    : <span className="capitalize">{row.status}</span>}
-                  chevron
-                  textOverflow="truncate"
-                  ariaLabel={`Open request with ${name}`}
-                  describeContent
-                  onClick={() => select(row.id)}
-                />
-              );
-            })}
-          </SettingsGroup>
-        ) : null}
-        {source ? (
-          <div className="mt-auto flex justify-end">
-            <ShellActionSurface
-              variant="pill"
-              className="min-h-11 ui-text-compact-button-label"
-              disabled={!context}
-              onClick={() => setCreating(true)}
-            >
-              <Search aria-hidden="true" className="size-3.5" />
-              Find an advisor
-            </ShellActionSurface>
-          </div>
-        ) : null}
-      </SurfaceCardContent>
-    </SurfaceCard>
-  );
-
-  return (
-    <section
-      className={styles.stack}
-      aria-label={advisor ? "Advisor review requests" : "Human advisor review"}
-    >
-      {!advisor && context && source && model ? (
-        <PortfolioAgentReview
-          key={workspaceKey}
-          context={context}
-          source={source}
-          model={model}
-          scope={session}
-          personaRevision={personaRevision}
-          persona={<PortfolioPersona context={context} onSaved={() => setPersonaRevision((revision) => revision + 1)} />}
-          onFindAdvisor={() => setCreating(true)}
-        />
-      ) : null}
-      {renderAnalysis ? renderAnalysis(advisorCard) : advisorCard}
+            <span>
+              <strong>{advisor ? row.ownerName : row.advisorName}</strong>
+              <span className="block ui-text-helper-text">
+                {row.status === "accepted"
+                  ? "Connected · introduction and plan"
+                  : row.status}
+              </span>
+            </span>
+            <span className="ui-text-trailing-action">Open</span>
+          </button>
+        ))}
+      </div>
       {context && creating && source ? (
         <AdvisorRequestFlow
           key={workspaceKey}

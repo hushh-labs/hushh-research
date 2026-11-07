@@ -63,6 +63,8 @@ function OwnedFinanceImportSetup({
     useState(!showIntroduction);
   const [personaComplete, setPersonaComplete] = useState(!showIntroduction);
   const [personaSaving, setPersonaSaving] = useState(false);
+  const [personaVaultPrompt, setPersonaVaultPrompt] = useState<"unlock" | "create" | null>(null);
+  const resolvePersonaVaultPrompt = useRef<((unlocked: boolean) => void) | null>(null);
   const [savedPreferences, setSavedPreferences] =
     useState<PersonaPreferences>();
   const { capture } = useFinanceShareContext();
@@ -259,26 +261,7 @@ function OwnedFinanceImportSetup({
             onSavingChange={setPersonaSaving}
             onSkip={() => setPersonaComplete(true)}
             onDone={() => setPersonaComplete(true)}
-            onSave={async (updates) => {
-              const context = capture();
-              if (!context || !isCurrent())
-                throw new Error("Unlock your vault to save your persona.");
-              const requireCurrentSetup = async () => {
-                if (!isCurrent())
-                  throw new Error(
-                    "Finance setup has changed. Open it again to save your persona.",
-                  );
-                requireFinanceSession(context);
-              };
-              const profile = await KaiProfileService.savePreferences({
-                ...context,
-                mode: "onboarding",
-                updates,
-                beforeEffect: requireCurrentSetup,
-              });
-              await requireCurrentSetup();
-              setSavedPreferences(profile.preferences);
-            }}
+            onSave={savePersona}
           />
         ) : sourceSettled ? (
           <FinanceOnboardingComplete

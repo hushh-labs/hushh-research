@@ -120,7 +120,7 @@ export function FinancePersonaForm({
 }: {
   initial?: PersonaPreferences;
   onboarding?: boolean;
-  onSave: (preferences: PersonaPreferences) => Promise<void>;
+  onSave: (preferences: PersonaPreferences) => Promise<void | false>;
   onDone: () => void;
   onSkip?: () => void;
   onSavingChange?: (saving: boolean) => void;
@@ -145,7 +145,8 @@ export function FinancePersonaForm({
     onSavingChange?.(true);
     setError(null);
     try {
-      await onSave(preferences);
+      const result = await onSave(preferences);
+      if (result === false) return;
       setSaved(preferences);
     } catch (cause) {
       setError(

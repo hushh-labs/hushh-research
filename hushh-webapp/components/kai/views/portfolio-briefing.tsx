@@ -4,6 +4,8 @@ import type { CSSProperties, ReactNode } from "react";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { formatCurrency } from "@/lib/kai/market-value-format";
+import type { LinkedNetWorthScore } from "@/lib/kai/plaid-vault/types";
 import { allocationColor } from "@/lib/kai/allocation-colors";
 import { topPortfolioWeights } from "./portfolio-analysis-facts";
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
@@ -12,18 +14,9 @@ import type { DashboardViewModel } from "./dashboard-data-mapper";
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { overviewFacts } from "./portfolio-display-facts";
 
-function largestPosition(model?: DashboardViewModel) {
-  if (!model || model.hero.totalValue <= 0) return null;
-  const position = model.canonicalModel.positions.reduce<typeof model.canonicalModel.positions[number] | null>(
-    (largest, current) => current.marketValue > 0 && (!largest || current.marketValue > largest.marketValue) ? current : largest, null,
-  );
-  return position ? { name: position.name || position.displaySymbol, symbol: position.displaySymbol, weightPct: position.marketValue / model.hero.totalValue * 100 } : null;
-}
-
 /** A summary of the active saved portfolio, without assuming a market update or recommendation. */
-export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: { model?: DashboardViewModel; portfolio?: PortfolioData | null; onOpen?: () => void; advisorAction?: ReactNode }) {
-  const largest = largestPosition(model);
-  const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
+export function PortfolioBriefing({ model, portfolio, linkedNetWorthScore, onOpen, advisorAction }: { model?: DashboardViewModel; portfolio?: PortfolioData | null; linkedNetWorthScore?: LinkedNetWorthScore | null; onOpen?: () => void; advisorAction?: ReactNode }) {
+  const score = linkedNetWorthScore?.score ?? null;
   const cash = model ? overviewFacts(model, portfolio).cash : null;
   const cashShare = cash !== null && model && model.hero.totalValue > 0
     ? `${(cash / model.hero.totalValue * 100).toFixed(1)}%`
@@ -67,6 +60,66 @@ export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: {
       </div>
     </SurfaceCardContent>
   </SurfaceCard>;
+}
+
+function netWorthScoreLabel(score: number | null) {
+  return score === null ? "Unavailable" : `${score} / 1,000`;
+}
+
+export type NetWorthRecovery = {
+  description: string;
+  action?: { label: string; run: () => void; disabled?: boolean };
+};
+
+export function PortfolioNetWorthCard({
+  result,
+  recovery,
+}: {
+  result?: LinkedNetWorthScore | null;
+  recovery?: NetWorthRecovery;
+}) {
+  const score = result?.score ?? null;
+  const linkedNetWorth = result?.linked_net_worth_usd ?? null;
+  const refreshTime = Date.parse(result?.balances_refreshed_at ?? "");
+  const refreshDate = Number.isFinite(refreshTime)
+    ? new Date(refreshTime).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : null;
+  return (
+    <SurfaceCard data-testid="portfolio-net-worth-score">
+      <SurfaceCardContent className="space-y-2.5 p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="ui-text-section-label">Net Worth Score</h2>
+          <p className="shrink-0 ui-text-row-label-emphasized tabular-nums">
+            {netWorthScoreLabel(score)}
+          </p>
+        </div>
+        {score !== null ? (
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+            <div className="h-full rounded-full bg-[var(--app-accent)]" style={{ width: `${score / 10}%` }} />
+          </div>
+        ) : null}
+        {linkedNetWorth !== null ? (
+          <p className={styles.description}>
+            {formatCurrency(linkedNetWorth)} across linked Plaid accounts
+            {refreshDate ? <> · As of <time dateTime={result?.balances_refreshed_at}>{refreshDate}</time></> : null}
+          </p>
+        ) : null}
+        {score === null ? (
+          <>
+            <p className={styles.description}>
+              {recovery?.description ?? "A score requires current Plaid balances and a U.S. country on file."}
+            </p>
+            {recovery?.action ? (
+              <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" disabled={recovery.action.disabled}
+                onClick={recovery.action.run}>
+                {recovery.action.label}
+              </ShellActionSurface>
+            ) : null}
+          </>
+        ) : null}
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
 }
 
 /** Observed portfolio figures only. Balance history is never shown as returns. */
