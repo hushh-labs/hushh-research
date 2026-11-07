@@ -1837,6 +1837,18 @@ Blocking backend manifest:
 
 When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
 
+When normal UAT replaces a release from retained, divergent history, preserve its
+published workflow graph through an exact reviewed `workflow_predecessor_refs`
+ledger pin. Only ledger pins may cross histories; inferred and arbitrary CLI
+predecessors retain ancestry requirements. Missing publication or incomplete Git
+history refuses. Importing that graph must pass both capability-wide semantic
+deprecation checks and workflow revision-policy checks. Keep the eight-pin bound;
+replace a redundant pin only with proof that the retained history subsumes it.
+Regenerate the mirrors with the owning compiler. Normal UAT may reconcile the
+landed PR's diagnostic `semantic_diff` only when every other payload field,
+including preserved workflow compatibility, agrees. Isolated qualification keeps
+its ancestry requirement. Never suppress the check or hand-edit graph output.
+
 ---
 
 ## Integration Check (Route and Docs Contract)
