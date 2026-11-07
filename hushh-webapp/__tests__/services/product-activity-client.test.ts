@@ -254,4 +254,17 @@ describe("private product observation lifecycle", () => {
     await vi.waitFor(() => expect(posts()).toHaveLength(2));
     expect(JSON.stringify(posts())).not.toContain("PRIVATE_ERROR");
   });
+  it.each([
+    new DOMException("PRIVATE_ABORT", "AbortError"),
+    new DOMException("PRIVATE_TIMEOUT", "TimeoutError"),
+    Object.assign(new Error("PRIVATE_ABORT"), { name: "AbortError" }),
+    Object.assign(new Error("PRIVATE_TIMEOUT"), { name: "TimeoutError" }),
+  ])("keeps a rejected $name dispatch unknown without changing its rejection", async (error) => {
+    const f = await fixture();
+    await expect(f.observeDispatch("calendar.event.create", Promise.reject(error))).rejects.toBe(error);
+    await vi.waitFor(() => expect(posts().length).toBeGreaterThan(0));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(posts().map(call => JSON.parse(call[1].body).phase)).toEqual(["started"]);
+    expect(JSON.stringify(posts())).not.toMatch(/PRIVATE_ABORT|PRIVATE_TIMEOUT/);
+  });
 });
