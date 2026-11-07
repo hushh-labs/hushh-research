@@ -4,7 +4,7 @@ run-name: ${{ inputs.uat_candidate_sha && format('Isolated UAT {0}', inputs.uat_
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
-    branches: ["**"]
+    branches: [main, dev, uat, uat-isolated, integration/pr-train]
   workflow_call:
     inputs:
       scope:
