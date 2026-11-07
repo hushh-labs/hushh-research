@@ -105,7 +105,7 @@ let memoryGeneration = 0;
 let lastStagingOrder = 0;
 
 type AppendParams = Parameters<typeof appendMarkdownMemoryFacts>[0];
-type SyncJob = AppendParams & { recoveryKey?: string; checkpoint?: Promise<void>; committed?: boolean; needsReceiptLookup?: boolean };
+type SyncJob = AppendParams & { recoveryKey?: string; checkpoint?: Promise<void>; committed?: boolean; needsReceiptLookup?: boolean; onCommitted?: () => void };
 const RECOVERY_PREFIX = "one_memory_pending:v1:";
 const recoveryLoads = new Map<string, Promise<void>>();
 type SyncQueue = {
@@ -598,6 +598,13 @@ async function checkpointCommitted(params: MemorySession, recoveryKey: string): 
   return receipt.exists;
 }
 
+/** RAM-only observers cannot change persistence or be replayed from a checkpoint. */
+function notifyMemoryCommit(job: { onCommitted?: () => void }): void {
+  const observer = job.onCommitted;
+  job.onCommitted = undefined;
+  try { observer?.(); } catch { /* An observation must never change the saved result. */ }
+}
+
 async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<void> {
   if (queue.running || !queue.jobs.length || syncQueues.get(userId) !== queue || !isVaultSessionEpochCurrent(queue.epoch)) return;
   queue.running = true; publishSyncStatus(userId);
@@ -643,6 +650,9 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
         result = { success: false, saved: 0, markdown: null };
       }
       if (syncQueues.get(userId) !== queue || !isVaultSessionEpochCurrent(queue.epoch)) return;
+      // An acknowledged write remains committed even if checkpoint cleanup fails.
+      // Failed/lost acknowledgements notify only after the existing receipt lookup.
+      if (job.committed) notifyMemoryCommit(job);
       if (!result.success) {
         job.needsReceiptLookup = true;
         queue.retries += 1;
@@ -661,7 +671,7 @@ async function flushMarkdownMemory(userId: string, queue: SyncQueue): Promise<vo
 }
 
 /** Publish accepted facts immediately; encryption and CAS commits run in parallel with chat. */
-export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmClaim"> & { recoveryKey?: string; stagingOrder?: number }): Promise<MarkdownMemoryAppendResult> {
+export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmClaim"> & { recoveryKey?: string; stagingOrder?: number; onCommitted?: () => void }): Promise<MarkdownMemoryAppendResult> {
   await params.beforeEffect?.();
   const receiptGeneration = params.replaceSource ? params.receiptGeneration ?? (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation : undefined;
   if (receiptGeneration !== undefined && (await SecureDurableResourceService.version(params.userId, "mail_receipt_memory.v1")).generation !== receiptGeneration)
@@ -669,15 +679,6 @@ export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmCl
   if (params.replaceSource) assertLightweightReceiptFacts(params.facts);
   const existing = peekMarkdownMemory(params.userId);
   if (!existing) return { success: false, saved: 0, markdown: null, message: "Open your memory before adding details." };
-  // Retrying discovery must not delete an uncommitted live job's checkpoint.
-  if (params.recoveryKey && syncQueues.get(params.userId)?.jobs.some(job => job.recoveryKey === params.recoveryKey))
-    return { success: true, saved: 0, markdown: existing.markdown };
-  const next = applyMemoryFacts(existing.markdown, existing.sourceSummaries ?? {}, params.facts, params.replaceSource);
-  if (params.replaceSource) assertReceiptMemoryBudget(next.sourceSummaries);
-  if (!next.saved && !next.changed && (!params.completeKycIntake || existing.kycIntakeCompletedAt)) {
-    if (params.recoveryKey) await SecureResourceCacheService.invalidateResource(params.userId, params.recoveryKey);
-    return { success: true, saved: 0, markdown: existing.markdown };
-  }
   const epoch = snapshotVaultSessionEpoch();
   const owner = snapshotValidatedAuthSessionOwner();
   const generation = snapshotMarkdownMemoryGeneration();
@@ -686,6 +687,18 @@ export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmCl
       !owner || owner.userId !== params.userId || !isValidatedAuthSessionOwnerCurrent(owner))
       throw new DOMException("Memory sync session changed", "AbortError");
   };
+  const onCommitted = params.onCommitted ? () => { checkCurrent(); params.onCommitted?.(); } : undefined;
+  // Retrying discovery must not delete an uncommitted live job's checkpoint.
+  if (params.recoveryKey && syncQueues.get(params.userId)?.jobs.some(job => job.recoveryKey === params.recoveryKey))
+    return { success: true, saved: 0, markdown: existing.markdown };
+  const next = applyMemoryFacts(existing.markdown, existing.sourceSummaries ?? {}, params.facts, params.replaceSource);
+  if (params.replaceSource) assertReceiptMemoryBudget(next.sourceSummaries);
+  if (!next.saved && !next.changed && (!params.completeKycIntake || existing.kycIntakeCompletedAt)) {
+    if (params.recoveryKey) await SecureResourceCacheService.invalidateResource(params.userId, params.recoveryKey);
+    // Only an already persisted, fully synced no-op has a known outcome.
+    if (existing.persisted && syncStatus(params.userId) === "synced") notifyMemoryCommit({ onCommitted });
+    return { success: true, saved: 0, markdown: existing.markdown };
+  }
   const assertCurrent = async () => {
     checkCurrent();
     if (params.recoveryKey) await params.beforeEffect?.();
@@ -708,7 +721,7 @@ export async function stageMarkdownMemoryFacts(params: Omit<AppendParams, "pwmCl
       ...(params.completeKycIntake ? { completeKycIntake: true } : {}),
       ...(params.replaceSource ? { replaceSource: params.replaceSource, receiptGeneration, ...(params.receiptSnapshotFence ? { receiptSnapshotFence: params.receiptSnapshotFence } : {}) } : {}) },
   }).catch(() => undefined); // Cloud saving still works when device storage is unavailable.
-  queue.jobs.push({ ...params, receiptGeneration, facts: newFacts, beforeEffect: assertCurrent, recoveryKey, checkpoint,
+  queue.jobs.push({ ...params, receiptGeneration, facts: newFacts, beforeEffect: assertCurrent, recoveryKey, checkpoint, onCommitted,
     idempotencyScope: recoveryKey });
   syncQueues.set(params.userId, queue);
   cacheDocument({ ...existing, markdown: next.markdown, updatedAt: new Date().toISOString(), syncStatus: "saving",

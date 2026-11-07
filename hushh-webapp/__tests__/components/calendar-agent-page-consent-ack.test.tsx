@@ -86,8 +86,10 @@ describe("CalendarAgentPage consent window", () => {
       const attempt = await settle("succeeded");
       await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
       expect(ack()).toBeNull();
+      expect(mocks.attemptSettled).not.toHaveBeenCalled();
       await act(async () => finishVerify({ ...initial, accounts: [account("new-A", meetScopes)] }));
       await waitFor(() => expect(ack()?.attemptId).toBe(attempt.attemptId));
+      expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("returned");
       // The original page brings itself forward once it has taken over.
       expect(focusPage).toHaveBeenCalled();
     });

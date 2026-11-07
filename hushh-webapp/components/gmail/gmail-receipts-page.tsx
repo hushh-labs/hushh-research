@@ -56,6 +56,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { roleSolid } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { withDeadline } from "@/lib/utils/with-deadline";
 import { useAuth } from "@/hooks/use-auth";
+import { DurableResourceError } from "@/lib/services/durable-resource-error";
 import { subscribeDurableOwnerReset } from "@/lib/services/secure-durable-resource-service";
 import { useHeldValue } from "@/hooks/use-held-value";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
@@ -658,7 +659,12 @@ export default function GmailReceiptsPage({
   const retryReceiptRestore = useCallback(async () => {
     if (!historySession || !receiptAccountKey) return;
     const sequence = receiptLoadSequenceRef.current;
-    const current = () => historySession.isCurrent() && receiptLoadSequenceRef.current === sequence;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    const current = () => historySession.isCurrent() && receiptAccountKeyRef.current === receiptAccountKey &&
+      receiptLoadSequenceRef.current === sequence;
+    if (!current()) return;
+    const attempt = captureProductAttempt("profile.gmail.restore_saved_receipts", historySession.userId);
+    attempt.started();
     setReceiptRestorePending(true);
     let restored = false;
     try {
@@ -666,8 +672,15 @@ export default function GmailReceiptsPage({
       if (!current()) return;
       setSavedReceiptSnapshot(saved ? { scope: receiptDisplayScope, value: saved } : null);
       setReceiptListReady(true); setReceiptRestoreFailed(false); setReceiptListError(null); restored = true;
-    } catch {
-      if (current()) { setReceiptRestoreFailed(true); setReceiptListError("Saved receipts couldn’t be opened. Try again."); }
+      if (saved && isVaultSessionEpochCurrent(vaultEpoch)) attempt.settled("returned");
+    } catch (error) {
+      if (current()) {
+        setReceiptRestoreFailed(true); setReceiptListError("Saved receipts couldn’t be opened. Try again.");
+        // Only definite local read failures supply a terminal result. A
+        // deadline, retired authority or missing snapshot does not.
+        if (isVaultSessionEpochCurrent(vaultEpoch) && error instanceof DurableResourceError &&
+          (error.code === "storage_unavailable" || error.code === "binding_invalid")) attempt.settled("failed");
+      }
     } finally { if (current()) setReceiptRestorePending(false); }
     if (current() && restored && receiptSyncAllowedRef.current) void loadReceipts(1);
   }, [historySession, receiptAccountKey, receiptDisplayScope, loadReceipts]);
