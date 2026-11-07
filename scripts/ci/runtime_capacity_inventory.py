@@ -6,8 +6,10 @@ joins bounded UAT reads before returning any inventory for budget evaluation.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import ipaddress
+import json
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -28,6 +30,7 @@ ISOLATED_DEV_CONNECTION = _scope.ISOLATED_DEV_CONNECTION
 isolated_dev_scope = _scope.isolated_dev_scope
 non_target_rows = _scope.non_target_rows
 _non_target_routing = _scope.non_target_routing
+uat_external_scope = _scope.uat_external_scope
 
 
 class VerifiedObserverJobs(NamedTuple):
@@ -50,7 +53,11 @@ def observer_rows(inventory, project):
     proof = inventory.get("observer_jobs")
     if proof is None:
         return []
-    if type(proof) is not VerifiedObserverJobs or project != owner["PROJECT"] or len(proof.jobs) != 1:
+    if (
+        type(proof) is not VerifiedObserverJobs
+        or project != owner["PROJECT"]
+        or len(proof.jobs) != 1
+    ):
         raise BudgetError("observer job classification is outside its reviewed scope")
     job = inventory["jobs"].get(owner["NAME"], {})
     expected = owner["qualify_job"](job)
@@ -211,7 +218,7 @@ def _isolated_identity(sql, project, region, read):
     return endpoints, aliases
 
 
-def _service_partition(config, read, opts):
+def _service_partition(config, read, opts, external):
     listed_services = read("run", "services", "list", *opts)
     if not isinstance(listed_services, list):
         raise BudgetError("Cloud Run services inventory unavailable")
@@ -224,8 +231,13 @@ def _service_partition(config, read, opts):
         raise BudgetError("Cloud Run service inventory contains an unnamed service")
     optional_non_database = set(config.get("optional_non_database_services", ()))
     if optional_non_database & (profiled | non_database):
-        raise BudgetError("Optional non-DB services overlap another capacity classification")
-    unknown = service_names - profiled - non_database - optional_non_database
+        raise BudgetError(
+            "Optional non-DB services overlap another capacity classification"
+        )
+    external_names = {"one-uat"} if external is not None else set()
+    unknown = (
+        service_names - profiled - non_database - optional_non_database - external_names
+    )
     missing_non_database = non_database - service_names
     if unknown or missing_non_database:
         raise BudgetError(
@@ -242,7 +254,202 @@ def _service_partition(config, read, opts):
             f"required database services missing: {sorted(required - service_names)}"
         )
 
-    return service_names, non_database | (optional_non_database & service_names)
+    return service_names, non_database | (optional_non_database & service_names) | (
+        external_names & service_names
+    )
+
+
+def _fingerprint(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def _one_route(
+    workload: dict[str, Any], spec: dict[str, Any], external: dict[str, Any], image: str
+) -> None:
+    """Verify the fixed separate SQL attachment and version-pinned database route."""
+    annotations = (workload.get("metadata") or {}).get("annotations") or {}
+    if "run.googleapis.com/secrets" in annotations:
+        raise BudgetError("UAT external workload secret alias drift")
+    if (
+        annotations.get("run.googleapis.com/cloudsql-instances")
+        != external["connection_name"]
+    ):
+        raise BudgetError("UAT external workload SQL attachment drift")
+    if spec.get("serviceAccountName") != external["runtime_account"]:
+        raise BudgetError("UAT external workload identity drift")
+    containers = spec.get("containers")
+    if (
+        not isinstance(containers, list)
+        or len(containers) != 1
+        or not isinstance(containers[0], dict)
+        or containers[0].get("image") != image
+    ):
+        raise BudgetError("UAT external workload image drift")
+    env = containers[0].get("env")
+    if not isinstance(env, list):
+        raise BudgetError("UAT external workload route unavailable")
+    database = [
+        item
+        for item in env
+        if isinstance(item, dict) and item.get("name") == "DATABASE_URL"
+    ]
+    secret = external["database_secret"]
+    if (
+        len(database) != 1
+        or database[0].get("valueFrom")
+        != {"secretKeyRef": {"name": secret["name"], "key": secret["version"]}}
+        or "value" in database[0]
+    ):
+        raise BudgetError("UAT external workload database route drift")
+
+
+def _one_metadata(
+    workload: dict[str, Any],
+    name: str,
+    external: dict[str, Any],
+    expected: dict[str, Any],
+) -> None:
+    metadata = workload.get("metadata") or {}
+    if (
+        metadata.get("name") != name
+        or metadata.get("uid") != expected["uid"]
+        or metadata.get("creationTimestamp") != expected["created"]
+        or metadata.get("generation") != expected["generation"]
+        or metadata.get("namespace") != external["namespace"]
+        or _fingerprint(workload.get("spec")) != expected["spec_sha256"]
+    ):
+        raise BudgetError("UAT external workload identity or spec drift")
+
+
+def _one_secret(
+    read: Callable[..., Any], project: str, external: dict[str, Any]
+) -> None:
+    """Bind the pinned route to the same immutable Secret Manager version."""
+    expected = external["database_secret"]
+    name = expected["name"]
+    version = expected["version"]
+    secret = read("secrets", "describe", name, f"--project={project}")
+    observed = read(
+        "secrets",
+        "versions",
+        "describe",
+        version,
+        f"--secret={name}",
+        f"--project={project}",
+    )
+    resource = f"projects/{external['namespace']}/secrets/{name}"
+    if (
+        secret.get("name") != resource
+        or secret.get("createTime") != expected["resource_created"]
+        or observed.get("name") != f"{resource}/versions/{version}"
+        or observed.get("createTime") != expected["version_created"]
+        or observed.get("state") != "ENABLED"
+    ):
+        raise BudgetError("UAT external database secret incarnation drift")
+
+
+def _one_service(
+    service: dict[str, Any], revisions: list[dict[str, Any]], external: dict[str, Any]
+) -> dict[str, Any]:
+    expected = external["service"]
+    _one_metadata(service, "one-uat", external, expected)
+    template = (service.get("spec") or {}).get("template") or {}
+    _one_route(template, template.get("spec") or {}, external, expected["image"])
+    by_name = {
+        (revision.get("metadata") or {}).get("name"): revision for revision in revisions
+    }
+    if len(by_name) != len(revisions) or set(by_name) != set(expected["revisions"]):
+        raise BudgetError("UAT external service retained revision drift")
+    for name, revision in by_name.items():
+        metadata = revision.get("metadata") or {}
+        qualification = expected["revisions"][name]
+        if (
+            metadata.get("uid") != qualification["uid"]
+            or metadata.get("namespace") != external["namespace"]
+            or _fingerprint(revision.get("spec")) != qualification["spec_sha256"]
+        ):
+            raise BudgetError("UAT external service revision drift")
+        _one_route(revision, revision.get("spec") or {}, external, expected["image"])
+    status = service.get("status") or {}
+    traffic = status.get("traffic")
+    if (
+        not isinstance(traffic, list)
+        or not traffic
+        or status.get("latestReadyRevisionName") not in by_name
+        or any(
+            not isinstance(item, dict)
+            or item.get("revisionName") not in by_name
+            or type(item.get("percent", 0)) is not int
+            for item in traffic
+        )
+        or sum(item.get("percent", 0) for item in traffic) != 100
+    ):
+        raise BudgetError("UAT external service traffic drift")
+    return {
+        "name": "one-uat",
+        "connections": 0,
+        "capacity_classification": "not-target-instance",
+        "template_checked": True,
+        "checked_revisions": sorted(by_name),
+    }
+
+
+def _one_job(
+    job: dict[str, Any],
+    read: Callable[..., Any],
+    opts: tuple[str, str],
+    external: dict[str, Any],
+) -> dict[str, Any]:
+    expected = external["job"]
+    _one_metadata(job, "one-uat-migrate", external, expected)
+    template = (job.get("spec") or {}).get("template") or {}
+    task = ((template.get("spec") or {}).get("template") or {}).get("spec") or {}
+    _one_route(template, task, external, expected["image"])
+    executions = read(
+        "run", "jobs", "executions", "list", "--job=one-uat-migrate", *opts
+    )
+    if not isinstance(executions, list) or len(executions) > 10_000:
+        raise BudgetError("UAT external job execution inventory unavailable")
+    names: set[str] = set()
+    for execution in executions:
+        if not isinstance(execution, dict):
+            raise BudgetError("UAT external job execution inventory malformed")
+        metadata = execution.get("metadata") or {}
+        name = metadata.get("name")
+        if (
+            not isinstance(name, str)
+            or not name.startswith("one-uat-migrate-")
+            or name in names
+            or metadata.get("namespace") != external["namespace"]
+            or metadata.get("ownerReferences")
+            != [
+                {
+                    "kind": "Job",
+                    "name": "one-uat-migrate",
+                    "uid": expected["uid"],
+                    "apiVersion": "serving.knative.dev/v1",
+                    "controller": True,
+                    "blockOwnerDeletion": True,
+                }
+            ]
+            or _fingerprint(execution.get("spec")) != expected["execution_spec_sha256"]
+            or not (execution.get("status") or {}).get("completionTime")
+        ):
+            raise BudgetError("UAT external job execution drift or still active")
+        names.add(name)
+        _one_route(
+            execution,
+            (((execution.get("spec") or {}).get("template") or {}).get("spec") or {}),
+            external,
+            expected["image"],
+        )
+    return {
+        "name": "one-uat-migrate",
+        "connections": 0,
+        "capacity_classification": "not-target-instance",
+        "template_checked": True,
+        "checked_completed_executions": sorted(names),
+    }
 
 
 def _job_inventory(read, opts, parallel):
@@ -352,6 +559,7 @@ def collect_inventory(
     resolve_secret: Callable | None = None,
 ) -> dict[str, Any]:
     isolated = isolated_dev_scope(config, region, environment)
+    external = uat_external_scope(config, region, environment)
     project = config["project"]
     sql = read(
         "sql",
@@ -366,7 +574,7 @@ def collect_inventory(
         endpoints, aliases = _isolated_identity(sql, project, region, read)
         parallel = False
     opts = (f"--project={project}", f"--region={region}")
-    service_names, non_database = _service_partition(config, read, opts)
+    service_names, non_database = _service_partition(config, read, opts, external)
 
     # Only independent reads overlap. Keep describe -> revisions ordering per
     # service, including every non-database attachment check, and retain the
@@ -390,13 +598,41 @@ def collect_inventory(
     services = (
         collected
         if isolated
-        else {name: row for name, row in collected.items() if name not in non_database}
+        else {
+            name: row
+            for name, row in collected.items()
+            if name not in non_database or (external is not None and name == "one-uat")
+        }
     )
     jobs = _job_inventory(read, opts, parallel)
     result = {"database_max_connections": maximum, "services": services, "jobs": jobs}
     owner = auth_health_owner()
     if project == owner["PROJECT"] and owner["NAME"] in jobs:
-        result["observer_jobs"] = VerifiedObserverJobs((owner["collect"](jobs[owner["NAME"]], read, opts),))
+        result["observer_jobs"] = VerifiedObserverJobs(
+            (owner["collect"](jobs[owner["NAME"]], read, opts),)
+        )
+    if external is not None:
+        service_rows = (
+            (
+                _one_service(
+                    collected["one-uat"]["service"],
+                    collected["one-uat"]["revisions"],
+                    external,
+                ),
+            )
+            if "one-uat" in collected
+            else ()
+        )
+        job_rows = (
+            (_one_job(jobs["one-uat-migrate"], read, opts, external),)
+            if "one-uat-migrate" in jobs
+            else ()
+        )
+        if service_rows or job_rows:
+            _one_secret(read, project, external)
+        result["non_target_workloads"] = VerifiedNonTargetInventory(
+            f"{project}:{region}:{config['database_instance']}", service_rows, job_rows
+        )
     if not isolated:
         return result
     zero_jobs = _non_target_jobs(
