@@ -77,15 +77,32 @@ test("Calendar product font and real action targets survive responsive boundarie
 
 test("three-account Board keeps its measure, heading roles and account actions across breakpoints", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 360, false, "standard", false, true);
-  for (const width of [360, 393, 430, 768, 900, 901, 1024, 1440]) {
+  for (const width of [320, 360, 393, 430, 768, 900, 901, 1024, 1440]) {
     await page.setViewportSize({ width, height: 950 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `Board overflow at ${width}px`).toBe(true);
     await expect(page.locator("[data-calendar-account-board]")).toHaveCSS("font-family", /Plus Jakarta Sans/);
     const add = (await page.getByRole("button", { name: "Add account" }).boundingBox())!;
     expect(add.height, `Add account target at ${width}px`).toBeGreaterThanOrEqual(44);
+    const counter = (await page.getByText("3 of 3 Google accounts added", { exact: true }).boundingBox())!;
+    const refresh = (await page.getByRole("button", { name: "Refresh Calendar", exact: true }).boundingBox())!;
+    expect(Math.abs(counter.y + counter.height / 2 - add.y - add.height / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(refresh.y + refresh.height / 2 - add.y - add.height / 2)).toBeLessThanOrEqual(1);
+    expect(counter.x + counter.width).toBeLessThanOrEqual(add.x);
+    expect(add.x + add.width).toBeLessThanOrEqual(refresh.x);
+    expect(refresh.x + refresh.width).toBeLessThanOrEqual(width);
     const overlap = (await page.getByRole("button", { name: /^Review 1 overlapping meeting for QA Design Review/ }).boundingBox())!;
     expect(overlap.height, `overlap target at ${width}px`).toBeGreaterThanOrEqual(44);
   }
+  const today = page.getByRole("button", { name: "Today", exact: true });
+  await expect(today).toHaveAttribute("aria-current", "date");
+  await page.getByRole("button", { name: "Previous day", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Today", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+  await page.getByRole("button", { name: "Back to today", exact: true }).click();
+  await expect(today).toHaveAttribute("aria-current", "date");
+  await page.getByRole("button", { name: "Next day", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+  await page.getByRole("button", { name: "Back to today", exact: true }).click();
   const addPill = page.getByRole("button", { name: "Add account" });
   const lightPill = await addPill.evaluate(element => getComputedStyle(element).backgroundColor);
   await page.evaluate(() => document.documentElement.classList.add("dark"));
@@ -102,7 +119,7 @@ test("three-account Board keeps its measure, heading roles and account actions a
   expect(errors).toEqual([]);
 });
 
-test("a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
+test("@presentation a broken HUSSH portrait keeps the Calendar account initial and size", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "broken");
   const account = page.getByRole("group", { name: "Calendar account qa-work@example.com" });
   const avatar = account.locator("[data-photo-source=hussh]");
@@ -115,7 +132,7 @@ test("a broken HUSSH portrait keeps the Calendar account initial and size", asyn
   expect(errors).toEqual([]);
 });
 
-test("Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
+test("@presentation Calendar account pickers show verified portraits and readable initials for transparent photos", async ({ page }) => {
   const { errors, unexpectedRequests } = await openFixture(page, 390, false, "standard", false, true, "transparent");
   for (const section of ["Insights", "Invitations"]) {
     await page.getByRole("tab", { name: section, exact: true }).click();
@@ -488,6 +505,19 @@ for (const width of [320, 390, 1440]) {
     }));
     expect(guestBounds.every((row, index) => row.rowWidth > 0 && row.x === guestBounds[0]?.x && (index === 0 || row.y > guestBounds[index - 1]!.y))).toBe(true);
     expect(guestBounds.every(row => row.x + row.rowWidth <= bounds.x + bounds.width + 1)).toBe(true);
+    const decline = (await dialog.getByRole("button", { name: "Decline", exact: true }).boundingBox())!;
+    const acceptBounds = (await dialog.getByRole("button", { name: "Accept", exact: true }).boundingBox())!;
+    const offer = (await dialog.getByRole("button", { name: "Decline & offer another time", exact: true }).boundingBox())!;
+    expect(decline.x + decline.width).toBeLessThan(acceptBounds.x);
+    expect(decline.y).toBe(acceptBounds.y);
+    expect(decline.width).toBeCloseTo(acceptBounds.width, 0);
+    expect(decline.height).toBe(acceptBounds.height);
+    expect(offer.width).toBeLessThan(acceptBounds.x + acceptBounds.width - decline.x);
+    expect(offer.y).toBeGreaterThanOrEqual(decline.y + decline.height);
+    const join = dialog.getByRole("link", { name: "Join meeting", exact: true });
+    await expect(join).toHaveCSS("border-top-width", "0px");
+    await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    expect((await join.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     const actionButtons = dialog.getByRole("button", { name: /^(Accept|Decline|Decline & offer another time)$/ });
     for (const button of await actionButtons.all()) {
       const normal = (await button.boundingBox())!;
@@ -528,6 +558,42 @@ for (const width of [320, 390, 1440]) {
     expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
   });
 }
+
+test("invitation titles retain source spacing and wrap within their available measure", async ({ page }) => {
+  const { errors, unexpectedRequests } = await openFixture(page, 390, false, "long", false, true);
+  await page.getByRole("tab", { name: "Invitations", exact: true }).click();
+  const card = page.getByRole("button", { name: `Open invitation: ${privateLongTitle}` });
+  await expect(card.locator("..").locator("strong").filter({ hasText: privateLongTitle })).toHaveText(privateLongTitle);
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    const account = (await page.getByRole("button", { name: "Calendar account: qa-owner@example.com" }).boundingBox())!;
+    const filters = (await page.getByRole("tablist", { name: "Invitation filters" }).boundingBox())!;
+    const date = (await page.getByLabel("Invitation date").boundingBox())!;
+    const heading = (await page.getByRole("heading", { name: "Needs your response" }).boundingBox())!;
+    const invitation = (await card.boundingBox())!;
+    for (const element of [filters, date, heading, invitation]) expect(element.x).toBeCloseTo(account.x, 0);
+    expect(filters.y).toBeGreaterThanOrEqual(account.y + account.height);
+    expect(date.y).toBeGreaterThanOrEqual(filters.y + filters.height);
+    expect(heading.y).toBeGreaterThanOrEqual(date.y + date.height);
+    expect(invitation.y).toBeGreaterThanOrEqual(heading.y + heading.height);
+    const warning = card.locator("..").getByText("Overlaps QA Existing meeting", { exact: true }).locator("..");
+    expect(await warning.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeLessThan(await card.locator("..").locator("strong").filter({ hasText: privateLongTitle }).evaluate(element => parseFloat(getComputedStyle(element).fontSize)));
+  }
+  await page.setViewportSize({ width: 390, height: 950 });
+  await card.click();
+  const dialog = page.getByRole("dialog");
+  const title = dialog.getByRole("heading", { name: privateLongTitle });
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 950 });
+    await expect(title).toHaveCSS("letter-spacing", "normal");
+    await expect(title).toHaveCSS("white-space", "pre-wrap");
+    expect(await title.evaluate(element => element.textContent)).toBe(privateLongTitle);
+    expect(await title.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await title.evaluate(element => element.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+});
 
 for (const width of [390, 1280]) {
   test(`Calendar Insights library and notes at ${width}px`, async ({ page }) => {
@@ -655,7 +721,7 @@ for (const width of [390, 1280]) {
     await expect(page.getByText("No pending invitations on this date.")).toBeVisible();
     await page.getByRole("button", { name: "Previous day", exact: true }).click();
     await expect(rows).toHaveCount(1);
-    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await page.getByRole("button", { name: "Back to today", exact: true }).click();
     await expect(rows).toHaveCount(10);
     const before = reads;
     await page.getByRole("tab", { name: "Schedule", exact: true }).click();
@@ -739,3 +805,87 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(1);
   expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
 });
+
+for (const width of [320, 390, 480, 481, 768, 1440]) {
+  test(`Board invitation title, Join and people stay aligned at ${width}px`, async ({ page }, testInfo) => {
+    const { errors, unexpectedRequests, calls } = await openFixture(page, width, false, "busy", false, true);
+    const title = width === 390 ? "Hushh Growth Sync" : "QA Client Call with a deliberately long title for the invitation header";
+    await page.route("**/api/one/calendar/board/day", async route => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      const board = (await import("./fixtures/calendar-board-day")).calendarBoardDayFixture({
+        day: String(body.date), zone: String(body.time_zone), durationMinutes: Number(body.duration_minutes), now: qaNow, busy: true,
+        instant: (day, clock) => Date.parse(`${day}T${clock}:00+05:30`),
+      });
+      board.accounts[1]!.events[0]!.title = title;
+      await route.fulfill({ json: board });
+    });
+    await page.getByRole("button", { name: "Refresh Calendar", exact: true }).click();
+    await page.getByRole("button", { name: `Open ${title} in qa-work@example.com` }).click();
+    const dialog = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: title }) });
+    await page.screenshot({ animations: "disabled" });
+    const header = dialog.locator('[data-slot="dialog-header"]');
+    const join = dialog.getByRole("link", { name: "Join meeting", exact: true });
+    const close = dialog.getByRole("button", { name: "Close", exact: true });
+    await expect(header.getByRole("link", { name: "Join meeting", exact: true })).toBeVisible();
+    await expect(join).toHaveCSS("border-top-width", "0px");
+    await expect(join).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+    const joinBounds = (await join.boundingBox())!;
+    const headerBounds = (await header.boundingBox())!;
+    const closeBounds = (await close.boundingBox())!;
+    expect(joinBounds.height).toBeGreaterThanOrEqual(44);
+    expect(joinBounds.x + joinBounds.width).toBeLessThanOrEqual(closeBounds.x);
+    expect(joinBounds.x + joinBounds.width).toBeGreaterThan(headerBounds.x + headerBounds.width / 2);
+    const heading = header.getByRole("heading", { name: title });
+    const titleBounds = (await heading.boundingBox())!;
+    const firstTitleLine = await heading.evaluate(element => {
+      const range = document.createRange(); range.selectNodeContents(element);
+      const first = range.getClientRects()[0]!;
+      return { top: first.top, bottom: first.bottom };
+    });
+    expect(titleBounds.x + titleBounds.width).toBeLessThanOrEqual(joinBounds.x);
+    expect(joinBounds.y).toBeLessThan(firstTitleLine.bottom);
+    expect(joinBounds.y + joinBounds.height).toBeGreaterThan(firstTitleLine.top);
+    if (width === 390) {
+      // Reproduce the removed mobile rule: it must put Join below the title.
+      const stacked = await heading.evaluate(element => {
+        const row = element.parentElement!;
+        row.style.gridTemplateColumns = "minmax(0, 1fr)";
+        const titleBottom = element.getBoundingClientRect().bottom;
+        const joinTop = row.querySelector("a")!.getBoundingClientRect().top;
+        row.style.removeProperty("grid-template-columns");
+        return { titleBottom, joinTop };
+      });
+      expect(stacked.joinTop).toBeGreaterThanOrEqual(stacked.titleBottom);
+    }
+    const organizer = header.locator("p").filter({ hasText: "Organized by" }).locator(":scope > span").last();
+    const avatarBounds = (await organizer.locator('[data-slot="avatar"]').boundingBox())!;
+    const nameBounds = (await organizer.locator(":scope > span").last().boundingBox())!;
+    expect(Math.abs(avatarBounds.y + avatarBounds.height / 2 - nameBounds.y - nameBounds.height / 2)).toBeLessThanOrEqual(1);
+    const decline = dialog.getByRole("button", { name: "Decline", exact: true });
+    const accept = dialog.getByRole("button", { name: "Accept", exact: true });
+    const declineBounds = (await decline.boundingBox())!;
+    const acceptBounds = (await accept.boundingBox())!;
+    expect(declineBounds.x + declineBounds.width).toBeLessThan(acceptBounds.x);
+    expect(declineBounds.width).toBeCloseTo(acceptBounds.width, 0);
+    const offer = (await dialog.getByRole("button", { name: "Decline & offer another time", exact: true }).boundingBox())!;
+    expect(offer.width).toBeLessThan(acceptBounds.x + acceptBounds.width - declineBounds.x);
+    await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `calendar-board-header-${testInfo.project.name}-${width}.png`) });
+    await decline.click();
+    await dialog.getByLabel("Reason for declining").fill("A different commitment.");
+    const back = dialog.getByRole("button", { name: "Back", exact: true });
+    const email = dialog.getByRole("button", { name: "Review decline email", exact: true });
+    await expect(email).toBeEnabled();
+    expect((await join.boundingBox())!.x).toBe(joinBounds.x);
+    await join.click();
+    const accountPrompt = page.getByRole("dialog", { name: "Check Google account" });
+    await expect(accountPrompt).toContainText("Use qa-work@example.com in Google Meet.");
+    await accountPrompt.getByRole("button", { name: "Cancel", exact: true }).click();
+    await back.click();
+    await expect(decline).toBeVisible();
+    await expect(accept).toBeVisible();
+    expect(calls.some(call => call.path.endsWith("/attendance/rsvp/confirm"))).toBe(false);
+    expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
+  });
+}

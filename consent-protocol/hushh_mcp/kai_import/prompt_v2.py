@@ -44,8 +44,12 @@ Rules:
 6) Holdings scope:
 - detailed_holdings contains only real security/cash position rows
 - exclude transaction activity rows
+- preserve each explicitly listed lot of a position; exclude its subtotal to avoid counting it twice
+- read every page of the detailed holdings table, including continuation pages
+- when the same position is repeated in an identifier, allocation or largest-holdings table, use the detailed table as the position source and use the other tables only to supplement its fields
 - exclude section headers/labels and subtotal/total rows
 - include cash/sweep/money-market rows when they are positions
+- record pending receivables in portfolio_summary, not detailed_holdings
 
 7) detailed_holdings row contract:
 - each row MUST be a JSON object
@@ -54,8 +58,9 @@ Rules:
   name, description,
   quantity, price, market_value, cost_basis,
   unrealized_gain_loss, unrealized_gain_loss_pct,
-  asset_type, sector, industry
+  asset_type, sector, industry, account_id, currency, acquisition_date
 - if unknown, set null (do not invent)
+- fill account_id, currency and acquisition_date only when explicitly printed; use an ISO currency code and YYYY-MM-DD for the date
 - do not synthesize ticker from security name
 
 8) portfolio_summary contract (always include these keys inside portfolio_summary):
@@ -67,6 +72,9 @@ Rules:
 - fees
 - values must be numeric when present, else null
 - do not use alternative key names for these fields
+- when explicitly printed, include declared_security_count (unique open securities excluding cash and receivables), securities_market_value (securities subtotal only), and pending_receivables
+- use null or omit these optional controls when not printed; never compute them from extracted rows
+- when printed, include account_type in statement_details
 
 9) Optional historical_values contract:
 - include [{"date": "YYYY-MM-DD", "value": 123.45}] only for explicitly printed,

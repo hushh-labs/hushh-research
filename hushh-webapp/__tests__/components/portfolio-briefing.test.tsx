@@ -15,16 +15,16 @@ describe("portfolio briefing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import portfolio" }));
     expect(open).toHaveBeenCalledOnce();
   });
-  it("uses the actual largest position and reports unavailable history", () => {
+  it("shows when the score is unavailable and opens detailed holdings and history", () => {
     const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
       { symbol: "SMALL", name: "Smaller", quantity: 1, price: 100, market_value: 100 },
       { symbol: "LARGE", name: "Larger", quantity: 1, price: 900, market_value: 900 },
     ] });
     const open = vi.fn();
     const { unmount } = render(<PortfolioBriefing model={model} onOpen={open} />);
-    expect(screen.getByRole("img", { name: "Larger: 90.0% of portfolio" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Net Worth Score unavailable" }).textContent).toBe("—");
     expect(screen.getByText("Cash share").nextElementSibling?.textContent).toBe("Unavailable");
-    expect(screen.getByText("No dated history")).toBeTruthy();
+    expect(screen.getByText("Tracked holdings · 2")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "View analysis" }));
     expect(open).toHaveBeenCalledOnce();
     unmount();
@@ -34,11 +34,12 @@ describe("portfolio briefing", () => {
     expect(screen.getByText("Larger", { selector: "dt" }).nextElementSibling?.textContent).toBe("90.0%");
   });
   it("shows saved positions and allocation without inventing performance contributions", () => {
-    const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [
+    const portfolio = { total_value: 1000, holdings: [
       { symbol: "ABC", name: "Example", quantity: 1, price: 1000, market_value: 1000 },
-    ] });
+    ] };
+    const model = mapPortfolioToDashboardViewModel(portfolio);
     const open = vi.fn();
-    render(<PortfolioOverview model={model} source="Statement" period="Saved snapshot" onOpenSection={open} />);
+    render(<PortfolioOverview model={model} portfolio={portfolio} source="Statement" period="Saved snapshot" onOpenSection={open} />);
     expect(screen.getByText("Example")).toBeTruthy();
     const performance = within(screen.getByTestId("portfolio-performance"));
     expect(performance.getByText("Investment return").nextElementSibling?.textContent).toBe("Unavailable");
@@ -63,12 +64,18 @@ describe("portfolio briefing", () => {
     expect(screen.getByText("Cash share").nextElementSibling?.textContent).toBe("0.0%");
   });
 
-  it("does not draw a normalized ring when a position exceeds the reported total", () => {
-    const model = mapPortfolioToDashboardViewModel({ total_value: 1000, holdings: [{ symbol: "ABC", name: "Example", quantity: 1, price: 1000, market_value: 1000 }] });
-    model.hero.totalValue = 500;
-    render(<PortfolioBriefing model={model} />);
-    expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.getByText("200.0%")).toBeTruthy();
+  it("fills the ring from the linked score and only lists cash share beside it", () => {
+    const portfolio = { total_value: 1000, account_summary: { cash_balance: 490 }, holdings: [] };
+    const model = mapPortfolioToDashboardViewModel(portfolio);
+    render(<PortfolioBriefing model={model} portfolio={portfolio} linkedNetWorthScore={{
+      score: 28, linked_net_worth_usd: -72_000, country_on_file: "US", unavailable_reason: null,
+    }} />);
+    const ring = screen.getByRole("meter", { name: "Net Worth Score" });
+    expect(ring.textContent).toBe("28");
+    expect(ring.style.getPropertyValue("--nws-progress")).toBe("2.8%");
+    expect(screen.getByText("NWS score")).toBeTruthy();
+    expect(screen.getAllByRole("term").map((item) => item.textContent)).toEqual(["Cash share"]);
+    expect(screen.getByText("49.0%")).toBeTruthy();
   });
 
 });

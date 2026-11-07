@@ -459,9 +459,13 @@ compatibility-only and redirects known old links; `?finish=1` has no meaning.
   pending. Location is the bounded exception: its final circle is the terminal
   presentation, publishes only its Back navigation control, and auto-settles
   after the fixed confirmation interval.
-- **Finance source boundary**: the three preference questions are not completion.
-  Finance continues to `/one/setup/finance/import`, where the person chooses Plaid,
-  statement upload, or later, and only then reaches **Finish Finance setup**.
+- **Finance source boundary**. The animated introduction offers **Continue** on
+  every slide and leads to one form with four persona questions. After saving the answers, the person can connect Plaid,
+  upload a statement, try a sample, or defer. A new vault stores staged answers
+  when root setup finishes. Completion requires the source decision to settle.
+  Returning to the completed introduction entry opens Finance or returns to
+  the setup hub if root setup is still active. Explicit import continuations
+  use `/one/setup/finance/import`.
 - **Gmail boundary**: OAuth success retains active Gmail state and reaches the
   completion-ready Gmail setup route. Until Gmail reports a verified connection,
   its shared bottom action is **Skip Gmail setup**; the verified connection

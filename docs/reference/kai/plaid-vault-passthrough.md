@@ -31,7 +31,7 @@ bounded lengths, opaque-token character set).
 |---|---|---|---|
 | POST | `/api/kai/plaid/vault/link-token` | `{platform: "web"\|"ios"\|"android", redirect_uri?: string\|null, sandbox_proof?: boolean, access_token?: string}` | `{link_token, expiration}` |
 | POST | `/api/kai/plaid/vault/exchange` | `{public_token}` | `{access_token, item_id, institution: {id, name}\|null, products, consented_products}` |
-| POST | `/api/kai/plaid/vault/snapshot` | `{access_token, transactions_cursor?: string\|null}` | see below |
+| POST | `/api/kai/plaid/vault/snapshot` | `{access_token, transactions_cursor?: string\|null, transactions_continuation?: boolean, include_country_on_file?: boolean}` | see below |
 | POST | `/api/kai/plaid/vault/remove` | `{access_token}` | `{removed: true}` |
 
 `/snapshot` response:
@@ -41,11 +41,25 @@ bounded lengths, opaque-token character set).
   "item": {"item_id": "...", "institution_id": "...", "products": [], "consented_products": [],
            "error": {"code": "ITEM_LOGIN_REQUIRED", "message": "..."} },
   "accounts": ["...Plaid accounts, passed through..."],
+  "country_on_file": "US",
   "investments": {"holdings": [], "securities": []},
   "transactions": {"added": [], "modified": [], "removed": [], "next_cursor": "...",
                    "has_more": false, "pages": 1}
 }
 ```
+
+- `country_on_file` can appear on the first snapshot page when requested. Finance requests it on the first
+  page of a refresh. The route calls Identity when Plaid reports Identity consent
+  or when Identity is already initialized and the available consent metadata
+  permits it. The request is limited to eligible non-business account IDs. It emits
+  only an agreed country code from bank addresses on file. Conflicting addresses,
+  ambiguous ownership, unavailable data or missing consent yield `null`.
+  Identity enrichment can activate the consented Plaid product. Roll out the backend contract before clients send the new request field.
+- Finance stores the country and account classification in the private vault
+  records and derives `financial.derived_v1.nws` from deduplicated USD current
+  balances. The draft U.S. score is unavailable when a required balance or the
+  country is missing. The score is scoped to linked accounts and stays outside
+  the shareable summary.
 
 - `investments` or `transactions` may instead be `{"unavailable": "<code>"}` (for example
   `PRODUCTS_NOT_SUPPORTED`, `NO_INVESTMENT_ACCOUNTS`, `PRODUCT_NOT_READY`). Holdings are only
@@ -120,6 +134,40 @@ Owner: `hushh-webapp/lib/kai/plaid-vault/vault-sync.ts`.
   `completeVaultOAuthReturn`, which re-opens Link with `receivedRedirectUri` (the minted https
   URI plus the bank's query) and then seals, or refreshes for a relink. Native shells keep
   Link in their own process and skip this.
+
+## Private Profile score
+
+The main Profile card reads the owner's encrypted financial domain and opens
+the existing Plaid Link flow. Web OAuth resumes the same owner and opens score
+details after the first successful vault save. The owner-authorized finance
+chat context and Profile use the same deterministic `plaid-nws-v1` projection.
+The report tracks linked information and distinguishes provisional cash flow,
+missing coverage, and a verified zero.
+
+New Transactions links request the configured history, capped at 730 days.
+A deployed entitlement flag controls Liabilities requests. Update mode can
+request additional product consent or let the owner select more accounts on
+the same Item. The owner token and existing snapshot ownership checks apply.
+
+## Reading Finance’s linked Net Worth Score
+
+Finance’s score measures net worth across linked accounts. The Profile report has a separate financial-health policy.
+
+Owner-session features can call `readLinkedNetWorthScore(context)` from
+`@/lib/kai/plaid-vault/read-net-worth-score`. Use the current
+`FinanceShareContext` captured by `useFinanceShareContext()` in an unlocked
+owner session. The reader returns the same saved `LinkedNetWorthScore` as
+Portfolio Analysis. The report includes the oldest contributing balance refresh
+when known. A score of zero is valid. A result with `score: null`
+carries its unavailable reason. A `null` result means there is no saved
+score projection, which can occur on older snapshots before a refresh.
+
+For an already decrypted owner snapshot, use `selectLinkedNetWorthScore(financial)`
+from `@/lib/kai/plaid-vault/nws`. These reads do not refresh Plaid or write
+to the vault. Server-side agents can receive the NWS under
+`financial.derived_v1.nws.value` through the existing bounded owner-session
+context, when the task is authorized for that information. An HTTP vault
+lookup by user ID returns encrypted Finance records.
 
 ## Legacy server custody retirement status
 

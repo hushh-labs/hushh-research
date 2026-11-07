@@ -115,10 +115,10 @@ function Fixture() {
     <section data-testid="finance-preferences-fixture"><KaiPreferencesWizard mode="onboarding" onComplete={() => setAction("Preferences saved")} /></section>
     <section data-testid="finance-received-only-fixture" className="mt-4"><FinancePortfolioSharing /></section>
     <GroupedHoldingsFixture />
-    <button onClick={() => setUpdated(true)}>Update progress</button>
-    <ImportProgressView stage="extracting" isStreaming progressPct={updated ? 77 : undefined}
-      statusMessage="Reading your statement"
-      rawStreamLines={updated ? Array.from({ length: 15 }, (_, i) => `[THINKING] Processing holding ${i}`) : ["[THINKING] Reading statement"]} />
+    <section data-testid="finance-import-status">
+      <button onClick={() => setUpdated(true)}>Finish reading statement</button>
+      <ImportProgressView stage={updated ? "validating" : "extracting"} onCancel={() => setAction("Cancelled")} />
+    </section>
     <FinanceSharingFixture />
     <AdvisorReviewFixture /><PortfolioAnalysisFixture />
     <div data-testid="after-import">After import</div>

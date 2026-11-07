@@ -1,3 +1,9 @@
+.reviewSheet {
+  composes: app-type-compact from global;
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+}
+
 .stack {
   font-size: var(--type-row-label-size, 14px);
   line-height: var(--type-row-label-line, 21px);
@@ -30,7 +36,7 @@
   min-width: 8rem;
 }
 .card {
-  padding: 1.25rem;
+  padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 1.25rem;
   background: var(--card);
@@ -157,9 +163,6 @@
   }
   .person button {
     justify-self: end;
-  }
-  .card {
-    padding: 1rem;
   }
   .row input {
     min-width: 0;

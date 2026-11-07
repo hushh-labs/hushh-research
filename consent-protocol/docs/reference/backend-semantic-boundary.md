@@ -1,5 +1,37 @@
 # Backend Semantic Boundary
 
+### Declared: Calendar request review ceiling
+
+The existing Calendar manifest owns `request_scope` meaning through a tool-free
+single turn over authenticated current/queued owner messages only. It uses the
+same admitted model as One. The host validates the closed action set, exact quote
+provenance and owner/conversation/invocation/message binding; it never classifies
+read-only language with keywords or infers an action from provider content.
+Before any read it freezes an expiring private receipt, initially denying reviews
+while assessment is pending. Missing, failed or expired authority cannot stage a
+booking, RSVP review or manage-permission card. Existing OAuth consent and the
+exact browser-confirmed executor remain independent. Scope refusal is recorded
+as `calendar.proposal_refused`, never as a successful provider action. Provider-free
+Chat runner tests cover enforcement; actual model interpretation and deployed
+provider behavior require separate read-only qualification. Scripted cases vary
+wording, allowed/forbidden staging actions, retry order and restored history;
+provider event/email text is excluded from scope evidence. A blocked action does
+not replace a valid read answer. Current-turn dates use the admitted turn instant;
+UTC/local projection and slot arithmetic validate instants rather than assessing
+intent. Context-only handoffs and source offers confer no action permission.
+
+The existing proposal tool can record a typed missing-guest question only after
+an explicit create assessment. It creates no proposal and grants no execution.
+The five-minute, single-use private context follows existing encrypted ADK
+session ownership and immediate-predecessor admission. Only its next authenticated
+guest reply can continue create, with exact evidence from both messages; current
+restrictions prevail. Prose, providers and attachments cannot create this context.
+A request-only callback supplies its original words, ISO clock and requested zone
+to the planning model after recovery without changing current input or its clock.
+The host validates provenance, lifetime and exact account/grant through staging;
+the model still decides meaning and plans the review. Actual-model interpretation
+of this clarification contract remains separate from scripted enforcement tests.
+
 ### Declared: recipient-requested Finance object review
 
 `one_adk/finance_share_context.py` admits an explicit recipient-selected curated
@@ -1338,3 +1370,20 @@ agent is added.
   retries forever.
 - Live eval before promotion: mocked contract tests for the host policy only.
   Durable-fact quality on real owner activity is unmeasured.
+
+## Calendar attendance response composition
+
+The Calendar Response Writer (`agent_calendar_response_writer`) is authored in
+`hushh_mcp/agents/calendar/agent.yaml`. After the owner submits Decline or an
+alternative-time response, the existing attendance service validates the selected
+Calendar/Mail authority and invokes this tool-free, ephemeral single-turn child.
+Its `CalendarResponseText` contract returns `reason`, `subject`, and `body`.
+Validators enforce nonempty bounded fields; they do not replace model wording.
+The provider recipient, occurrence, account and exact proposed times remain
+service-owned facts. The exact time range and timezone are appended separately.
+Drafting failure stops before RSVP or Mail side effects. No PKM writes occur.
+Calendar and Mail settlement retain their existing independent results and replay
+protection. A changed comment is written even if attendance is already declined;
+explicit mail-only retries never rewrite attendance. Live quality evaluation must
+cover terse reasons, language variations, unavailable identity, sensitive reasons,
+all-day and DST boundaries, and exact alternative times before deployment claims.

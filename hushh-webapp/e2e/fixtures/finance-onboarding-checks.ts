@@ -1,9 +1,16 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-// A paused CSS animation freezes on the next style recalculation, so the frame
-// read straight after a pause can still be one frame behind the frozen one.
-// Treat a value as frozen only once two reads a frame apart agree; a pause that
-// never takes hold keeps changing and fails the poll instead of passing.
+async function answerPersona(page: Page) {
+  const answers = page.getByRole("radio", { name: "I’m not sure yet" });
+  await expect(answers).toHaveCount(4);
+  for (const answer of await answers.all()) {
+    await answer.check();
+  }
+  await page.getByRole("button", { name: "Save persona" }).click();
+}
+
+// A paused CSS animation freezes on the next style recalculation. Two matching
+// reads avoid mistaking the transition frame for the paused state.
 async function frozenTransform(locator: Locator): Promise<string> {
   let previous = "";
   await expect
@@ -235,7 +242,7 @@ export function registerFinanceOnboardingChecks(
         await expect(
           page.getByRole("heading", { name: "Know what you own." }),
         ).toBeVisible();
-        await page.getByRole("button", { name: "Next", exact: true }).click();
+        await page.getByRole("button", { name: "Show Stocks introduction" }).click();
         await expect(
           page.getByRole("heading", { name: "Let three agents debate." }),
         ).toBeVisible();
@@ -430,7 +437,7 @@ export function registerFinanceOnboardingChecks(
     await page.getByRole("button", { name: "Skip for now" }).click();
     await page.getByRole("button", { name: /Try a sample/ }).click();
     await page
-      .getByRole("button", { name: "Load sample", exact: true })
+      .getByRole("button", { name: "Try sample", exact: true })
       .click();
     expect(await page.evaluate(() => document.body.dataset.sourceAction)).toBe(
       "sample",

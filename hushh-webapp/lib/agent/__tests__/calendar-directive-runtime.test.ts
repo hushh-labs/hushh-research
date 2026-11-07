@@ -22,7 +22,10 @@ const directive = {
   kind: "action" as const,
   payload: {
     type: "calendar.execute_proposal",
-    proposalId: "gcal_example",
+    proposalId: "gcal_example", action: "create", title: "Planning",
+    startAt: "2026-12-02T16:00:00Z", endAt: "2026-12-02T16:30:00Z",
+    timeZone: "Asia/Kolkata", attendees: ["person@example.com"], sendUpdates: true,
+    accountId: "account-b", calendarId: "primary", conflicts: [], expiresAt: "2099-12-02T16:00:00Z",
   },
 };
 
@@ -44,6 +47,7 @@ describe("runCalendarDirective", () => {
       vaultOwnerToken: "HCT:test",
       userId: "user-1",
       proposalId: "gcal_example",
+      accountId: "account-b",
     });
     expect(CacheService.getInstance().get(calendarRefreshKey("user-1"))).toEqual(expect.any(Number));
     expect(createTodo).not.toHaveBeenCalled();
@@ -133,6 +137,26 @@ describe("runCalendarDirective", () => {
     expect(CacheService.getInstance().get(calendarRefreshKey("user-1"))).toBeNull();
   });
 
+  it.each(["title", "startAt", "endAt", "timeZone", "attendees", "sendUpdates", "accountId", "calendarId", "expiresAt"])("never executes a review missing %s", async field => {
+    const payload: Record<string, unknown> = { ...directive.payload };
+    delete payload[field];
+    await expect(runCalendarDirective({ ...directive, payload }, "HCT:test", "user-1")).rejects.toThrow("review is incomplete");
+    expect(GoogleCalendarService.executeProposal).not.toHaveBeenCalled();
+  });
+
+  it.each([{ expiresAt: "2020-01-01T00:00:00Z" }, { conflicts: [null] }, { action: "cancel" }, { calendarId: "other-calendar" }])("does not execute an expired or invalid review %s", async change => {
+    await expect(runCalendarDirective({ ...directive, payload: { ...directive.payload, ...change } }, "HCT:test", "user-1")).rejects.toThrow(/review/);
+    expect(GoogleCalendarService.executeProposal).not.toHaveBeenCalled();
+  });
+
+  it.each([{ locationCleared: undefined }, { locationCleared: false }, { descriptionCleared: false }, { attendeesRemoved: undefined }, { attendeesAdded: undefined }])("requires every explicit removal warning before rescheduling %s", async change => {
+    const payload = { ...directive.payload, action: "reschedule", eventId: "evt-1", attendees: [],
+      attendeesAdded: [], attendeesRemoved: ["person@example.com"], location: "", description: "",
+      locationCleared: true, descriptionCleared: true, ...change };
+    await expect(runCalendarDirective({ ...directive, payload }, "HCT:test", "user-1")).rejects.toThrow("incomplete");
+    expect(GoogleCalendarService.executeProposal).not.toHaveBeenCalled();
+  });
+
   it("rejects directives that are not a server-persisted calendar proposal", async () => {
     await expect(
       runCalendarDirective(
@@ -140,7 +164,7 @@ describe("runCalendarDirective", () => {
         "HCT:test",
         "user-1",
       ),
-    ).rejects.toThrow("Calendar confirmation is invalid");
+    ).rejects.toThrow("Calendar review is incomplete");
     expect(GoogleCalendarService.executeProposal).not.toHaveBeenCalled();
   });
 });

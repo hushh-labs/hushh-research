@@ -41,6 +41,10 @@ from google.genai import types as genai_types
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.adk_bridge.dispatch import dispatch
+from hushh_mcp.agents.calendar.opening_tools import (
+    calendar_opening_detail,
+    calendar_shared_free_slots,
+)
 from hushh_mcp.agents.calendar.tools import (
     calendar_availability,
     calendar_calendars,
@@ -124,6 +128,10 @@ from hushh_mcp.one_adk.drive_write_tools import (
     propose_drive_file_share,
     propose_drive_file_trash,
 )
+from hushh_mcp.one_adk.email_memory_turn import (
+    email_memory_before_model,
+)
+from hushh_mcp.one_adk.email_specialist_context import admit_email_directive, email_task_context
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     after_external_read_tool,
@@ -142,12 +150,12 @@ from hushh_mcp.one_adk.finance_market_tools import (
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
 from hushh_mcp.one_adk.mail_instruction import legacy_draft_addressing, mail_admission_instruction
 from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.owner_style import owner_style_instruction, propose_style_settings
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
 from hushh_mcp.one_adk.pod_connector_tools import owner_cloud_agent, pod_connector_roster
 from hushh_mcp.one_adk.queued_input import club_queued_input
-from hushh_mcp.one_adk.receipt_memory_turn import resolve_receipt_memory
 from hushh_mcp.one_adk.registered_mcp_toolset import (
     RegisteredMcpToolset,
     inspect_private_connectors,
@@ -260,7 +268,8 @@ STATE_OWNER_DISPLAY_NAME = "hussh:owner_display_name"
 # arrive as a clipped sample while the device-computed summaries (derived_v1)
 # are placed first. A total summed from the sample reads as fact and is wrong.
 SPENDING_GROUNDING_RULE = (
-    "\nSPENDING: Purchases, receipts and invoices use the receipt functions. For bank or "
+    "\nSPENDING: Receipts and invoices in Gmail use ask_email_agent for a live search. "
+    "Use receipt functions only when the owner explicitly asks about their saved receipt snapshot. For bank or "
     "card cash flow, income or recurring bills, answer from the "
     "precomputed summaries in this packet (Financial > Derived V1: Monthly Cash Flow, "
     "Recurring Bills, Cash Flow Trend), which the person's device computed from every "
@@ -489,7 +498,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "'why?', 'how?', 'tell me more', or 'what do you mean?' as replies to "
     "your immediately preceding statement. Answer their underlying question "
     "directly in one or two concrete sentences before offering any setup step, "
-    "tool, or specialist. Never treat a conversational challenge as missing "
+    "tool, or specialist. This applies to explanation requests; a request to retry "
+    "or finish an unfinished read should carry the earlier task into its existing "
+    "specialist handoff. Never treat a conversational challenge as missing "
     "onboarding input, silence, or an instruction to repeat your introduction.\n\n"
     "If the person sends a different request while an action is proposed, treat "
     "the old proposal as cancelled and respond only to the new intent. Never "
@@ -509,9 +520,8 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "Gmail information-request thread replies only through "
     "open_gmail_information_request_reply, and reviewing those requests is "
     "run_app_action route.one_gmail_kyc. Reading or triaging Gmail uses ask_email_agent "
-    "only when MAIL READ ADMISSION below enables it. Spending, receipts and invoices use "
-    "the receipt functions, never ask_email_agent; finding an email that mentions one is "
-    "an inbox search.\n"
+    "only when MAIL READ ADMISSION below enables it. Gmail receipts and invoices also use "
+    "ask_email_agent for live search, body and supported attachment evidence.\n"
     "- Calendar: use tools. Ask missing date, zone, times, duration, guests; keep supplied title. "
     "Else use 'Meeting with <verified owner name>' or 'Meeting invitation'; never guest name. "
     "Describe inviter and exact date/time/zone. Never invent; 'at 8pm' is not today. "
@@ -844,8 +854,11 @@ def _one_runtime_instruction(context: Any) -> str:
     started_at = time.perf_counter()
     try:
         state_getter = getattr(getattr(context, "state", None), "get", None)
+        from hushh_mcp.agents.calendar.read_projection import turn_clock
+
         return (
             _compose_one_runtime_instruction(context)
+            + str(turn_clock(context))
             + follow_up_instruction(state_getter)
             + reaction_instruction(state_getter)
         )
@@ -1441,14 +1454,6 @@ async def _task_from_context(
         )
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
     timezone_name = str(state.get(STATE_TIMEZONE) or "").strip() or None
-    receipt_memory = None
-    receipt_cursor = None
-    if agent_id == "agent_email":
-        # The owner's saved receipts, sent by their device for this turn. Only
-        # the Email specialist's receipts read ever sees them.
-        receipt_memory = resolve_receipt_memory(state.get)
-        stored_cursor = state.get(STATE_RECEIPT_CURSOR)
-        receipt_cursor = stored_cursor if isinstance(stored_cursor, str) and stored_cursor else None
     previous_answer = None
     if agent_id == "agent_documents":
         # History is already part of this owner's chat session. Supply only
@@ -1482,9 +1487,9 @@ async def _task_from_context(
         if state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
         else None,
         previous_answer=previous_answer,
-        receipt_memory=receipt_memory,
-        receipt_cursor=receipt_cursor,
-        mail_read_offer=state.get(STATE_MAIL_READ_OFFER) if agent_id == "agent_email" else None,
+        **email_task_context(
+            tool_context, owner_id=user_id, conversation_id=conversation_id or "", agent_id=agent_id
+        ),
     )
 
 
@@ -1711,6 +1716,8 @@ async def _specialist_turn(
             # Provider IDs stay in the owner-scoped encrypted session state.
             # They never join the model-visible tool payload below.
             tool_context.state[STATE_MAIL_READ_OFFER] = result.mail_read_offer
+            tool_context.state["hussh:email_page"] = result.email_page
+            tool_context.state["hussh:email_selection"] = result.email_selection
         elif result.structured.status in {
             "connect_required",
             "reconnect_required",
@@ -1729,7 +1736,11 @@ async def _specialist_turn(
     )
     if result.structured is not None:
         payload["structured"] = result.structured.model_dump(mode="json")
+        if tool_context.state.get("temp:hussh:email_read_coverage") is not True:
+            payload["structured"].pop("truncation_reasons", None)
         payload["status"] = result.structured.status
+    if result.performance is not None:
+        payload["performance"] = result.performance
     if payload["status"] == "receipt_functions_required":
         payload["next_step"] = _RECEIPT_FUNCTIONS_STEP
     if getattr(result, "mail_brief", None):
@@ -1830,18 +1841,23 @@ async def _specialist_turn(
                 "Do not claim the change has happened."
             )
             return payload
-        if agent_id == "agent_email":
-            # The Email read lane proposes nothing: host code never runs an action
-            # (such as opening Receipts) on the specialist's behalf.
+        if agent_id == "agent_email" and not admit_email_directive(
+            tool_context, kind=result.directive.kind, payload=directive_payload
+        ):
             return {
+                **payload,
                 "status": "invalid_proposal",
-                "message": "The proposed action could not be verified.",
+                "next_step": "The proposed Gmail action could not be verified. Nothing executed.",
             }
         session_id = getattr(getattr(tool_context, "session", None), "id", None)
         fingerprint = specialist_directive_fingerprint(
             agent_id,
             result.directive.kind,
-            str(directive_payload.get("type") or ""),
+            (
+                f"{directive_payload.get('type') or directive_payload.get('request_id') or ''}:{tool_context.invocation_id}"
+                if agent_id == "agent_email"
+                else str(directive_payload.get("type") or "")
+            ),
         )
         # Already on screen, unanswered.
         #
@@ -2066,8 +2082,9 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
 
     Covers recent or unread mail, mail from someone, possible replies, what an email
     says, and briefs of what needs them: action items, requests for their details,
-    security notices and meetings. Spending, receipts, invoices and bills use
-    One's receipt functions, never this tool. Never sends mail or syncs receipts.
+    security notices and meetings. Search receipts, invoices and bills live with
+    their requested dates; read supported attachments when needed. Sending and
+    destructive changes require existing review authority. Never syncs receipts.
     """
     from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
@@ -2077,7 +2094,35 @@ async def ask_email_agent(request: str, tool_context: ToolContext) -> dict[str, 
         "gmail_chat_reads", str(tool_context.state.get(STATE_USER_ID) or "")
     ):
         return {"status": "unavailable", "message": "Mail chat reads are not available here."}
-    return await _specialist_turn("agent_email", request, tool_context)
+    result = await _specialist_turn("agent_email", request, tool_context)
+    # Only a sole, complete Email delegation may own the final answer. Compound
+    # cross-domain batches keep One's normal continuation for their other tools.
+    from hushh_mcp.one_adk.search_answer import _ANSWER, EMAIL_TERMINAL_STATUSES, _sole_search
+
+    invocation = getattr(tool_context, "_invocation_context", None)
+    handoff = _ANSWER.get()
+    if (
+        handoff is not None
+        and handoff.email_preview
+        and (
+            result.get("status") not in EMAIL_TERMINAL_STATUSES
+            or not result.get("is_complete")
+            or not str(result.get("text") or "").startswith("".join(handoff.preview))
+        )
+    ):
+        raise ValueError("Email stream did not complete its published answer")
+    if (
+        invocation is not None
+        and handoff is not None
+        and handoff.invocation_id == invocation.invocation_id
+        and result.get("status") in EMAIL_TERMINAL_STATUSES
+        and result.get("is_complete")
+        and isinstance(result.get("text"), str)
+        and result["text"].strip()
+        and _sole_search(invocation, "ask_email_agent")
+    ):
+        tool_context.actions.skip_summarization = True
+    return result
 
 
 async def ask_location_agent(request: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -2424,10 +2469,17 @@ def _investor_runtime_instruction(context: Any) -> str:
 
 
 def _finance_runtime_instruction(context: Any) -> str:
+    getter = getattr(getattr(context, "state", None), "get", None)
+    report = resolve_request_secret(getter(STATE_NWS_REPORT) if callable(getter) else None)
     return (
         str(_KAI_MANIFEST.system_instruction)
         + FINANCE_MARKET_GROUNDING_RULE
         + _bounded_finance_context(context)
+        + (
+            f"\n\nCurrent owner-authorized nws_report (information only): {report}"
+            if report
+            else ""
+        )
     )
 
 
@@ -2573,6 +2625,8 @@ def _one_roster_tools(
         calendar_event_detail,
         calendar_availability,
         calendar_free_slots,
+        calendar_shared_free_slots,
+        calendar_opening_detail,
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,
@@ -2721,6 +2775,7 @@ def build_one_text_agent(
     """
     text_model = _resolve_text_model(model, vertex_project=vertex_project)
     google_search_model = search_model_for_text_head(text_model, google_search_model)
+    from hushh_mcp.agents.calendar.guest_clarification import guest_before_model
     from hushh_mcp.one_adk.chat_memory import chat_memory_after_model, chat_memory_before_model
     from hushh_mcp.one_adk.finance_share_context import finance_model_callbacks
     from hushh_mcp.one_adk.receipt_client_tools import receipt_after_model, receipt_before_model
@@ -2766,6 +2821,8 @@ def build_one_text_agent(
             finance_before_model,
             receipt_before_model,
             document_period_before_model,
+            email_memory_before_model,
+            guest_before_model,
             timed_one_before_model,
             club_queued_input,
             chat_memory_before_model,

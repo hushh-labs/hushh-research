@@ -129,11 +129,11 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
           {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
           <CalendarInvitationDetail event={selected} zone={zone} people={people} profileUserIds={profileUserIds} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
-          <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
+          <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP
             // leaves the review. The refresh moves it out of Pending.
-            if (["accepted", "declined", "tentative"].includes(result.calendar) && !["failed", "unknown"].includes(result.email)) {
+            if (["accepted", "declined", "tentative"].includes(result.calendar) && (result.calendar === "declined" ? result.email === "sent" : !["failed", "unknown"].includes(result.email))) {
               setSelectedId(null);
               requestAnimationFrame(() => trigger.current?.focus());
             }

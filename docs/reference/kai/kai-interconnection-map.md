@@ -78,8 +78,8 @@ Notes:
 
 | Step | Route/UI | Web Service Layer | Backend Route | Persistence | Cache / Sync |
 | --- | --- | --- | --- | --- | --- |
-| Statement upload/stream | `/one/kai/import` | `ApiService.streamPortfolioImport`, `kai-flow` | `/api/kai/portfolio/import/stream` | stream output only until commit | stage timeline + extracted holdings state in UI |
-| Save validated holdings | portfolio review / save CTA | `PersonalKnowledgeModelService.storeDomainData`, `CacheSyncService.onPortfolioUpserted` | `/api/pkm/store-domain` | encrypted `financial` PKM domain + summary in index | portfolio summary cache + PKM metadata cache + domain blob cache write-through |
+| Statement upload/stream | `/one/kai/import` | `ApiService.streamPortfolioImport`, `kai-flow` | `/api/kai/portfolio/import/stream` | stream output only until commit | current stage, then opens editable holdings automatically on success |
+| Save validated holdings | portfolio review groups matching positions and saves the individual entries | `PersonalKnowledgeModelService.storeDomainData`, `CacheSyncService.onPortfolioUpserted` | `/api/pkm/store-domain` | encrypted `financial` PKM domain + summary in index | portfolio summary cache + PKM metadata cache + domain blob cache write-through |
 | Import quality gate | import stream terminal | canonical SSE envelope | `/api/kai/portfolio/import/stream` | terminal `quality_gate` + `quality_report_v2` diagnostics | emits terminal `aborted` on strict validation failure (no silent success) |
 | Dashboard render + holdings manage fusion | `/one/kai/portfolio?tab=overview|holdings` | `DashboardDataMapper`, `ManagePortfolioView`, `CacheService` | optional refresh via `/api/pkm/*` and market APIs | reads encrypted domain via vault key | cache-first with metadata/domain reconciliation |
 | Dashboard profile picks | `/one/kai/portfolio` profile picks card | `ApiService.getDashboardProfilePicks` | `/api/kai/dashboard/profile-picks/{user_id}` | no new persistence (derived response) | quote-backed, risk-profile aware additive payload |

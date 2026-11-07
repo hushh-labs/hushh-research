@@ -8,6 +8,7 @@ exact shapes over HTTP without touching callers.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -152,6 +153,14 @@ class A2ATask:
     # Server-authored, owner/conversation-bound Mail selection. It is never a
     # model argument or a tool response; the Email bridge validates it again.
     mail_read_offer: dict | None = field(default=None, repr=False)
+    # Trusted, request-only device projection. Never a model delegation argument.
+    memory_markdown: str = field(default="", repr=False)
+    pending_email_draft: str = field(default="", repr=False)
+    email_page: dict | None = field(default=None, repr=False)
+    supports_email_reviews: bool = False
+    email_history: list[dict] = field(default_factory=list, repr=False)
+    email_selection: dict | None = field(default=None, repr=False)
+    on_email_text: Callable[[str], Awaitable[None]] | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -205,6 +214,16 @@ class SpecialistReadResult(BaseModel):
     # the bridge bound aligned so a successful 30-file search reaches One.
     sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=60)
     truncated: bool = False
+    truncation_reasons: list[
+        Literal[
+            "more_pages",
+            "failed_reads",
+            "shortened_body",
+            "incomplete_attachment_inventory",
+            "source_limit",
+            "attachment_unresolved",
+        ]
+    ] = Field(default_factory=list, max_length=6, exclude_if=lambda value: not value)
     metadata_only: bool = False
     # Owner-only UI affordance. It never grants a read or a share; the separate
     # compilation route rechecks the owner and discovers the files again.
@@ -237,3 +256,6 @@ class SpecialistTurnResult:
     # Owner-screen mail brief (email_mail_brief.MailBrief): display names,
     # subjects and counts, never bodies, addresses or provider ids.
     mail_brief: dict | None = field(default=None, repr=False)
+    email_page: dict | None = field(default=None, repr=False)
+    performance: dict | None = None
+    email_selection: dict | None = field(default=None, repr=False)

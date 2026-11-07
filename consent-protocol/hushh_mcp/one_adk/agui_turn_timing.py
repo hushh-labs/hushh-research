@@ -66,6 +66,7 @@ from hushh_mcp.one_adk.run_errors import (
 from hushh_mcp.one_adk.run_errors import (
     server_is_draining,
 )
+from hushh_mcp.one_adk.specialist_focus import scope_email_workspace_tools
 from hushh_mcp.one_adk.text_attachments import render_text_attachments_for_model
 from hushh_mcp.services.chat_key import (
     current_chat_key_markers,
@@ -307,7 +308,13 @@ class TurnTiming:
             for tool in (getattr(config, "tools", None) or [])
         )
         self.tools_peak = max(self.tools_peak or 0, declared)
-        if os.getenv(_DETAILED_TIMING_ENV) != "1":
+        environment = os.getenv("HUSHH_DEPLOY_ENV", "").strip().lower()
+        runtime_environment = os.getenv("ENVIRONMENT", "").strip().lower()
+        if (
+            os.getenv(_DETAILED_TIMING_ENV) != "1"
+            or environment not in {"uat", "development", "dev", "test"}
+            or runtime_environment != environment
+        ):
             return
 
         contents = getattr(request, "contents", None) or []
@@ -388,6 +395,8 @@ class TurnTiming:
         model_inflight_ms = round(
             sum(max(0.0, completed_at - started_at) for started_at in pending_model_calls) * 1000
         )
+        from api.middlewares.observability import get_request_id
+
         logger.info(
             "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
             "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
@@ -400,7 +409,7 @@ class TurnTiming:
             "model_id=%s thinking_level=%s "
             "prompt_chars_peak=%s tool_schema_chars_peak=%s history_items_peak=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s error_class=%s "
-            "error_code=%s tools_peak=%s",
+            "error_code=%s tools_peak=%s request_id=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
@@ -440,6 +449,7 @@ class TurnTiming:
             self.error_class,
             self.error_code,
             self.tools_peak,
+            get_request_id() or "-",
         )
 
 
@@ -868,6 +878,7 @@ def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmRespon
     guarded_response = before_external_read_model(callback_context, llm_request)
     if guarded_response is not None:
         return guarded_response
+    scope_email_workspace_tools(callback_context, llm_request)
     timing = _CURRENT_TURN.get()
     if timing is not None:
         timing.begin_model_call(llm_request)

@@ -1,13 +1,3 @@
-/**
- * KaiFlow: the "import complete" card after a brokerage statement import.
- *
- * Regression (UAT, 2026-09-27): after a Schwab statement finished extracting
- * inside Finance setup, "Review Extracted Portfolio" navigated to
- * ?stage=reviewing and was pushed straight back to ?stage=import_complete,
- * and "Cancel" left the card on screen. The navigation mock below updates
- * useSearchParams on router.push, exactly like the app router, because that
- * update is what re-ran the snapshot restore and undid the review click.
- */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -167,9 +157,10 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 vi.mock("@/components/kai/views/portfolio-review-view", () => ({
-  PortfolioReviewView: ({ portfolioData }: { portfolioData: { holdings?: unknown[] } }) => (
+  PortfolioReviewView: ({ portfolioData, onReimport }: { portfolioData: { holdings?: unknown[] }; onReimport: () => void }) => (
     <div data-testid="portfolio-review">
       review holdings: {portfolioData.holdings?.length ?? 0}
+      <button type="button" onClick={onReimport}>Start over</button>
     </div>
   ),
 }));
@@ -281,7 +272,7 @@ function renderSetupImportFlow() {
 }
 
 describe.each<Platform>(["web", "native"])(
-  "KaiFlow import complete card (%s)",
+  "KaiFlow statement review (%s)",
   (platform) => {
     beforeEach(() => {
       nav.reset();
@@ -321,20 +312,18 @@ describe.each<Platform>(["web", "native"])(
     it("does not navigate again when the import snapshot stays in the same stage", async () => {
       seedCompletedImport(platform, "import_run_synthetic");
       renderSetupImportFlow();
-      await screen.findByText("Review Extracted Portfolio");
+      await screen.findByTestId("portfolio-review");
       const navigationCount = nav.hrefs.length;
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 1500));
       });
       expect(nav.hrefs).toHaveLength(navigationCount);
-      expect(nav.getSearch()).toBe("stage=import_complete");
+      expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
     it("opens the review after a completed import and stays there", async () => {
       seedCompletedImport(platform, "import_run_synthetic");
       renderSetupImportFlow();
-
-      fireEvent.click(await screen.findByText("Review Extracted Portfolio"));
 
       expect(await screen.findByTestId("portfolio-review")).toBeTruthy();
       // Outlast the 700 ms snapshot poll and any restore re-run.
@@ -344,7 +333,7 @@ describe.each<Platform>(["web", "native"])(
       expect(screen.getByTestId("portfolio-review").textContent).toContain(
         "review holdings: 2",
       );
-      expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
+      expect(screen.queryByText("Statement ready to review")).toBeNull();
       expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
@@ -359,28 +348,25 @@ describe.each<Platform>(["web", "native"])(
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 900));
       });
-      expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
+      expect(screen.queryByText("Statement ready to review")).toBeNull();
       expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
-    it.each([null, "/circle/join?invite=opaque_token"])("cancel retains the source chooser and invitation continuation (%s)", async (returnTo) => {
+    it.each([null, "/circle/join?invite=opaque_token"])("starting over retains the source chooser and invitation continuation (%s)", async (returnTo) => {
       seedCompletedImport(platform, "import_run_synthetic");
       if (returnTo) nav.navigate(`${SETUP_PATH}?return_to=${encodeURIComponent(returnTo)}`);
       renderSetupImportFlow();
 
-      fireEvent.click(await screen.findByText("Cancel"));
+      fireEvent.click(await screen.findByRole("button", { name: "Start over" }));
 
       expect(await screen.findByTestId("portfolio-import-chooser")).toBeTruthy();
-      expect(setup.onSetupSourceSettled).toHaveBeenCalledWith(
-        "later",
-        undefined,
-      );
+      expect(setup.onSetupSourceSettled).not.toHaveBeenCalled();
       const { storage, key } = snapshotStore(platform);
       expect(storage.getItem(key)).toBeNull();
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 900));
       });
-      expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
+      expect(screen.queryByText("Statement ready to review")).toBeNull();
       await waitFor(() =>
         expect(new URLSearchParams(nav.getSearch()).get("stage")).toBe("import_required"),
       );

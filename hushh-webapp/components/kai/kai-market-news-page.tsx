@@ -115,7 +115,7 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
         disabled={!href}
         onClick={() => href && openExternalUrl(href)}
         className={cn(
-          "group flex w-full items-start gap-3.5 px-4 py-4 text-left transition-colors sm:px-5",
+          "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors sm:px-5",
           href
             ? "hover:bg-muted/35 focus-visible:bg-muted/45 disabled:cursor-default"
             : "cursor-default",
@@ -143,7 +143,7 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
               </span>
             ) : null}
           </span>
-          <span className="mt-1 block text-[15px] font-semibold leading-5 text-foreground sm:text-base">
+          <span className="mt-1 block ui-text-row-label-emphasized">
             {item.title}
           </span>
           {item.summary ? (
@@ -156,7 +156,7 @@ function MarketNewsRow({ item }: { item: KaiHomeNewsItem }) {
               {linkedSymbols.map((sym) => (
                 <span
                   key={sym}
-                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-mono font-semibold text-foreground/80"
+                  className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-foreground/80"
                 >
                   {sym}
                 </span>
@@ -293,7 +293,7 @@ export function KaiMarketNewsPage() {
   return (
     <AppPageShell
       width="reading"
-      className="pb-32"
+      className="app-type-compact pb-32"
       nativeTest={{
         routeId: ROUTES.KAI_NEWS,
         marker: "native-route-kai-news",
@@ -352,7 +352,7 @@ export function KaiMarketNewsPage() {
           ) : rows.length ? (
             <div>{rows.map((item) => <MarketNewsRow key={`${item.url}:${item.title}`} item={item} />)}</div>
           ) : (
-            <div className="px-4 py-12 text-center sm:px-5">
+            <div className="px-4 py-6 text-center sm:px-5">
               <p className="text-sm font-medium text-foreground">No market headlines are available yet.</p>
               <p className="mt-1 text-sm text-muted-foreground">Try refreshing in a moment.</p>
             </div>

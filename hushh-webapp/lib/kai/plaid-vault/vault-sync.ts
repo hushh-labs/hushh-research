@@ -18,14 +18,9 @@
  */
 
 import type { PlaidAccountSummary, PlaidItemSummary, PlaidPortfolioStatusResponse } from "@/lib/kai/brokerage/portfolio-sources";
-import { Capacitor } from "@capacitor/core";
-import { Preferences } from "@capacitor/preferences";
-import { resolvePlaidLinkPlatform } from "@/lib/capacitor/plaid-link";
-import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import { mergePlaidCallbackQuery, resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
+import { mergePlaidCallbackQuery } from "@/lib/kai/brokerage/plaid-redirect-uri";
 import {
   clearPlaidOAuthResumeSession,
-  savePlaidOAuthResumeSession,
   type PlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { clearPendingSeal, recordPendingSeal, recoverPendingSeals } from "@/lib/kai/plaid-vault/pending-seal";
@@ -50,11 +45,14 @@ import type {
 } from "@/lib/kai/plaid-vault/types";
 import { isUnavailable } from "@/lib/kai/plaid-vault/types";
 import {
-  createVaultLinkToken,
   exchangeVaultPublicToken,
   fetchVaultSnapshot,
   removeVaultItem,
 } from "@/lib/kai/plaid-vault/vault-client";
+import { createVaultLink, openVaultPlaidLink, rememberVaultOAuthReturn, type VaultSurface } from "./vault-link-runtime";
+export { createVaultLink, openVaultPlaidLink, rememberVaultOAuthReturn, isPlaidSandboxProofBuild,
+  requirePlaidSandboxProofMarker, PLAID_SANDBOX_PROOF_PREFERENCE_KEY, type VaultSurface } from "./vault-link-runtime";
+import { startJourneyTrace } from "@/lib/observability/journey-trace";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -78,38 +76,6 @@ const VAULT_REPLACE_FINANCIAL = {
   target_domain: "financial",
 } as const;
 
-export type VaultSurface = "web" | "ios" | "android";
-
-/** One launch only: XCTest supplies this through NSArgumentDomain, never persisted by product code. */
-export const PLAID_SANDBOX_PROOF_PREFERENCE_KEY = "hushh_plaid_sandbox_proof";
-
-export function isPlaidSandboxProofBuild(): boolean {
-  return process.env.NEXT_PUBLIC_PLAID_SANDBOX_PROOF === "true";
-}
-
-async function plaidSandboxProofRequestedForLaunch(): Promise<boolean> {
-  if (!Capacitor.isNativePlatform()) return false;
-  try {
-    return (await Preferences.get({ key: PLAID_SANDBOX_PROOF_PREFERENCE_KEY })).value === "1";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * A proof Link token can exist only when the immutable WebView build and the
- * single native test launch both opt in. A UAT bundle with the launch flag—or
- * a local proof bundle opened normally—fails before any backend request.
- */
-export async function requirePlaidSandboxProofMarker(): Promise<boolean> {
-  const builtForProof = isPlaidSandboxProofBuild();
-  const requestedForLaunch = await plaidSandboxProofRequestedForLaunch();
-  if (builtForProof !== requestedForLaunch) {
-    throw new Error("Plaid sandbox proof requires the matching local build and native launch marker.");
-  }
-  return builtForProof;
-}
-
 export function vaultConnections(financial: AnyRecord | null | undefined): Record<string, ConnectionRecord> {
   const raw = (financial as FinancialDomain | null | undefined)?.connections_v1;
   return raw && typeof raw === "object" ? raw : {};
@@ -117,10 +83,6 @@ export function vaultConnections(financial: AnyRecord | null | undefined): Recor
 
 export function hasVaultConnections(financial: AnyRecord | null | undefined): boolean {
   return Object.keys(vaultConnections(financial)).length > 0;
-}
-
-function surfaceFor(platform: string): VaultSurface {
-  return platform === "ios" || platform === "android" ? platform : "web";
 }
 
 /**
@@ -134,21 +96,37 @@ async function readSnapshotPages(params: {
 }): Promise<PlaidVaultSnapshot[]> {
   const pages: PlaidVaultSnapshot[] = [];
   let cursor = params.cursor;
+  let restarted = false;
   for (let attempt = 0; attempt <= MAX_SNAPSHOT_FOLLOW_UPS; attempt += 1) {
     const snapshot = await fetchVaultSnapshot({
       vaultOwnerToken: params.vaultOwnerToken,
       accessToken: params.accessToken,
       transactionsCursor: cursor,
+      includeCountryOnFile: pages.length === 0,
+      ...(pages.length > 0 ? { transactionsContinuation: true } : {}),
     });
-    pages.push(snapshot);
-    if (snapshot.item?.error) break;
+    if (snapshot.item?.error) return [snapshot];
     const transactions = snapshot.transactions;
-    if (isUnavailable(transactions)) break;
+    if (isUnavailable(transactions)) {
+      if (transactions.unavailable === "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION") {
+        if (restarted) throw new Error("Plaid could not finish the transaction update.");
+        restarted = true;
+        pages.length = 0;
+        cursor = params.cursor;
+        continue;
+      }
+      if (pages.length === 0) return [snapshot];
+      throw new Error("Plaid could not finish the transaction update.");
+    }
+    pages.push(snapshot);
     const hasMore = (transactions as { has_more?: boolean }).has_more === true;
-    if (!hasMore || !transactions.next_cursor || transactions.next_cursor === cursor) break;
+    if (!hasMore) return pages;
+    if (!transactions.next_cursor || transactions.next_cursor === cursor) {
+      throw new Error("Plaid returned an incomplete transaction update.");
+    }
     cursor = transactions.next_cursor;
   }
-  return pages;
+  throw new Error("Plaid returned an incomplete transaction update.");
 }
 
 function applyPages(
@@ -194,55 +172,6 @@ export type VaultConnectResult =
   | { status: "connected"; itemId: string; institutionName: string | null }
   | { status: "exited" }
   | { status: "blocked"; reason: string };
-
-/** A vault link token for this platform (Android only when native Link opens it). */
-export async function createVaultLink(params: {
-  vaultOwnerToken: string;
-  /** Update mode: repair the Item this sealed token belongs to. */
-  accessToken?: string;
-}): Promise<{ linkToken: string; platform: VaultSurface; redirectUri: string | null }> {
-  const platform = await resolvePlaidLinkPlatform();
-  const sandboxProof = await requirePlaidSandboxProofMarker();
-  const redirectUri = platform === "android" ? null : resolvePlaidRedirectUri() ?? null;
-  const link = await createVaultLinkToken({
-    vaultOwnerToken: params.vaultOwnerToken,
-    request: {
-      platform,
-      redirect_uri: redirectUri,
-      ...(sandboxProof ? { sandbox_proof: true } : {}),
-      ...(params.accessToken ? { access_token: params.accessToken } : {}),
-    },
-  });
-  return { linkToken: link.link_token, platform: surfaceFor(platform), redirectUri };
-}
-
-/**
- * On the web an OAuth bank takes the whole page away and returns to the
- * redirect URI, so the pending connect call never resolves. Remember just
- * enough (the link token, never an access token) for the return page to
- * re-open Link and seal the connection. Native keeps Link in its own process
- * and needs none of this.
- */
-export function rememberVaultOAuthReturn(params: {
-  userId: string;
-  link: { linkToken: string; platform: VaultSurface; redirectUri: string | null };
-  returnPath?: string;
-  onboardingAttemptId?: string;
-  relinkItemId?: string;
-}): void {
-  if (params.link.platform !== "web" || !params.link.redirectUri) return;
-  const returnPath =
-    params.returnPath ??
-    (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "/");
-  savePlaidOAuthResumeSession({
-    userId: params.userId,
-    linkToken: params.link.linkToken,
-    redirectUri: params.link.redirectUri,
-    returnPath,
-    ...(params.onboardingAttemptId ? { onboardingAttemptId: params.onboardingAttemptId } : {}),
-    ...(params.relinkItemId ? { relinkItemId: params.relinkItemId } : {}),
-  });
-}
 
 export type SealedVaultConnection = {
   itemId: string;
@@ -340,55 +269,29 @@ export async function sealVaultPlaidConnection(params: {
   };
 }
 
-/**
- * Open Plaid Link with a vault link token; resolves the public token, or null
- * on exit. `receivedRedirectUri` resumes a bank's OAuth login on the web.
- */
-export async function openVaultPlaidLink(
-  linkToken: string,
-  options: { receivedRedirectUri?: string } = {},
-): Promise<string | null> {
-  const Plaid = await loadPlaidLink();
-  return new Promise<string | null>((resolve, reject) => {
-    let settled = false;
-    const handler = Plaid.create({
-      token: linkToken,
-      ...(options.receivedRedirectUri ? { receivedRedirectUri: options.receivedRedirectUri } : {}),
-      onSuccess: (token: string) => {
-        if (settled) return;
-        settled = true;
-        handler.destroy?.();
-        resolve(token);
-      },
-      onExit: (error: Record<string, unknown> | null) => {
-        if (settled) return;
-        settled = true;
-        handler.destroy?.();
-        if (error && typeof error === "object" && typeof error.error_message === "string") {
-          reject(new Error(error.error_message));
-          return;
-        }
-        resolve(null);
-      },
-    });
-    handler.open();
-  });
-}
-
 /** Connect a bank end to end (link, open, seal). */
 export async function connectVaultPlaid(params: {
   userId: string;
   vaultKey: string | null | undefined;
   vaultOwnerToken: string | null | undefined;
+  originSurface?: "profile_nws" | "agentone_chat";
+  successReturnPath?: string;
 }): Promise<VaultConnectResult> {
   const { userId, vaultKey, vaultOwnerToken } = params;
   if (!vaultKey || !vaultOwnerToken) {
     return { status: "blocked", reason: "Unlock your vault to connect a bank." };
   }
-  const link = await createVaultLink({ vaultOwnerToken });
-  rememberVaultOAuthReturn({ userId, link });
+  const epoch = snapshotVaultSessionEpoch();
+  const trace = params.originSurface ? startJourneyTrace(params.originSurface) : undefined;
+  const link = await createVaultLink({ vaultOwnerToken, originSurface: params.originSurface });
+  trace?.("link_ready");
+  if (!isVaultSessionEpochCurrent(epoch)) return { status: "exited" };
+  rememberVaultOAuthReturn({
+    userId, link, successReturnPath: params.successReturnPath, originSurface: params.originSurface,
+  });
   const publicToken = await openVaultPlaidLink(link.linkToken).finally(clearPlaidOAuthResumeSession);
-  if (!publicToken) return { status: "exited" };
+  trace?.("link_return", { outcome: publicToken ? "authorized" : "exited" });
+  if (!publicToken || !isVaultSessionEpochCurrent(epoch)) return { status: "exited" };
   const sealed = await sealVaultPlaidConnection({
     userId,
     vaultKey,
@@ -396,6 +299,7 @@ export async function connectVaultPlaid(params: {
     publicToken,
     surface: link.platform,
   });
+  trace?.("vault_commit", { outcome: "connected" });
   return { status: "connected", itemId: sealed.itemId, institutionName: sealed.institutionName };
 }
 
@@ -414,11 +318,15 @@ export async function relinkVaultPlaid(params: {
   vaultKey: string | null | undefined;
   vaultOwnerToken: string | null | undefined;
   itemId: string;
+  originSurface?: "profile_nws" | "agentone_chat";
+  additionalProduct?: "investments" | "liabilities";
+  selectAccounts?: boolean;
 }): Promise<VaultRelinkResult> {
   const { userId, vaultKey, vaultOwnerToken, itemId } = params;
   if (!vaultKey || !vaultOwnerToken) {
     return { status: "blocked", reason: "Unlock your vault to reconnect this bank." };
   }
+  const epoch = snapshotVaultSessionEpoch();
   const financial = await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken });
   const connection = vaultConnections(financial)[itemId];
   if (!connection?.access_token) {
@@ -427,17 +335,25 @@ export async function relinkVaultPlaid(params: {
   const link = await createVaultLink({
     vaultOwnerToken,
     accessToken: connection.access_token,
+    originSurface: params.originSurface,
+    additionalProduct: params.additionalProduct,
+    selectAccounts: params.selectAccounts,
   });
-  rememberVaultOAuthReturn({ userId, link, relinkItemId: itemId });
+  if (!isVaultSessionEpochCurrent(epoch)) return { status: "exited" };
+  rememberVaultOAuthReturn({ userId, link, relinkItemId: itemId, originSurface: params.originSurface });
   const publicToken = await openVaultPlaidLink(link.linkToken).finally(clearPlaidOAuthResumeSession);
-  if (!publicToken) return { status: "exited" };
+  if (!publicToken || !isVaultSessionEpochCurrent(epoch)) return { status: "exited" };
   const outcome = await refreshVaultConnections({
     userId,
     vaultKey,
     vaultOwnerToken,
     financial,
+    itemId,
     force: true,
   });
+  if (!outcome.saved || outcome.refreshed === 0 || outcome.needsRelink.includes(itemId)) {
+    return { status: "blocked", reason: "Could not refresh this connection. Try again." };
+  }
   return { status: "repaired", refreshed: outcome.refreshed };
 }
 
@@ -468,23 +384,35 @@ export async function completeVaultOAuthReturn(params: {
 
   // Plaid matches this against the redirect URI the token was minted with,
   // with the OAuth parameters the bank appended.
+  const epoch = snapshotVaultSessionEpoch();
+  const trace = session.originSurface ? startJourneyTrace(session.originSurface) : undefined;
   const receivedRedirectUri = mergePlaidCallbackQuery(session.redirectUri, params.currentUrl);
   const publicToken = await openVaultPlaidLink(session.linkToken, { receivedRedirectUri });
+  const authorized = isVaultSessionEpochCurrent(epoch) ? publicToken : null;
+  trace?.("oauth_return", { outcome: authorized ? "authorized" : "exited" });
 
   if (session.relinkItemId) {
-    if (!publicToken) return { kind: "relink", result: { status: "exited" } };
+    if (!authorized) return { kind: "relink", result: { status: "exited" } };
     const financial = await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken });
-    const outcome = await refreshVaultConnections({ userId, vaultKey, vaultOwnerToken, financial, force: true });
+    if (!isVaultSessionEpochCurrent(epoch)) return { kind: "relink", result: { status: "exited" } };
+    const outcome = await refreshVaultConnections({
+      userId, vaultKey, vaultOwnerToken, financial, itemId: session.relinkItemId, force: true,
+    });
+    if (!outcome.saved || outcome.refreshed === 0 || outcome.needsRelink.includes(session.relinkItemId)) {
+      return blocked("Could not refresh this connection. Try again.");
+    }
+    trace?.("vault_commit", { outcome: "repaired" });
     return { kind: "relink", result: { status: "repaired", refreshed: outcome.refreshed } };
   }
-  if (!publicToken) return { kind: "connect", result: { status: "exited" } };
+  if (!authorized) return { kind: "connect", result: { status: "exited" } };
   const sealed = await sealVaultPlaidConnection({
     userId,
     vaultKey,
     vaultOwnerToken,
-    publicToken,
+    publicToken: authorized,
     surface: "web",
   });
+  trace?.("vault_commit", { outcome: "connected" });
   return {
     kind: "connect",
     result: { status: "connected", itemId: sealed.itemId, institutionName: sealed.institutionName },
@@ -528,6 +456,7 @@ type VaultRefreshParams = {
   financial: AnyRecord | null | undefined;
   surface?: VaultSurface;
   force?: boolean;
+  itemId?: string;
 };
 
 // One background refresh per person and vault session at a time. Unlock warming and the Kai
@@ -554,7 +483,8 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   if (!vaultKey || !vaultOwnerToken || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
   const nowMs = Date.now();
   const due = Object.entries(vaultConnections(params.financial)).filter(
-    ([, connection]) => params.force === true || isDueForBackgroundRefresh(connection, nowMs),
+    ([itemId, connection]) => (!params.itemId || params.itemId === itemId) &&
+      (params.force === true || isDueForBackgroundRefresh(connection, nowMs)),
   );
   // Memory saved before the readable `linked_accounts` view existed gets it
   // here, where the key is: one recompute-only write, no Plaid call. Without
@@ -563,7 +493,7 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   const viewStale = linkedAccountsViewIsStale(params.financial);
   if (due.length === 0 && !viewStale) return outcome;
 
-  const read: Array<{ itemId: string; pages: PlaidVaultSnapshot[] }> = [];
+  const read: Array<{ itemId: string; connection: ConnectionRecord; pages: PlaidVaultSnapshot[] }> = [];
   for (const [itemId, connection] of due) {
     if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
     try {
@@ -573,7 +503,7 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
         cursor: connection.transactions_cursor,
       });
       if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
-      read.push({ itemId, pages });
+      read.push({ itemId, connection, pages });
       if (pages.some((page) => page.item?.error)) outcome.needsRelink.push(itemId);
     } catch {
       outcome.failed += 1;
@@ -586,6 +516,7 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
   if (viewOnly && (!viewStale || params.force === true)) return outcome;
 
   const now = new Date().toISOString();
+  let applied = 0;
   const result = await PkmWriteCoordinator.saveMergedDomain({
     userId,
     domain: "financial",
@@ -604,9 +535,17 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
     },
     build: (context) => {
       let domainData = context.currentDomainData as FinancialDomain;
-      for (const { itemId, pages } of read) {
-        if (!vaultConnections(domainData)[itemId]) continue; // disconnected meanwhile
+      applied = 0;
+      for (const { itemId, connection, pages } of read) {
+        const current = vaultConnections(domainData)[itemId];
+        if (!current || current.access_token !== connection.access_token ||
+            current.transactions_cursor !== connection.transactions_cursor ||
+            current.last_refreshed_at !== connection.last_refreshed_at) continue;
         domainData = applyPages(domainData, itemId, pages, now);
+        applied += 1;
+      }
+      if (applied === 0 && !linkedAccountsViewIsStale(domainData)) {
+        return { unchanged: true, domainData, summary: {} };
       }
       // The view-only write changes nothing an ordinary refresh would not,
       // and less: it leaves the portfolio and source copies untouched.
@@ -620,8 +559,8 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
       };
     },
   });
-  outcome.refreshed = result.success ? read.length : 0;
-  outcome.saved = result.success;
+  outcome.refreshed = result.success ? applied : 0;
+  outcome.saved = result.success && !result.idempotentReplay;
   return outcome;
 }
 

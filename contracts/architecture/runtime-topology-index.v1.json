@@ -276,7 +276,7 @@
       "runtime": {
         "adk_mode": "task",
         "factory": null,
-        "kind": "adk",
+        "kind": "hybrid",
         "transport": [
           "in_process",
           "chat"
@@ -1654,6 +1654,17 @@
       "lifecycle_status": "customer0",
       "owner": "backend-api-contracts",
       "primary_access_path": "Firebase-owner GET/PUT /api/one/area-discovery/me and bounded authenticated POST /api/one/area-discovery/search. Postgres indexed ZIP+UID scan, no positive result cache; per-account revision CAS and atomic daily search budget. Redis may replace budget storage only with equivalent atomic limits."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_attempt_email_preferences",
+        "one_attempt_email_outbox"
+      ],
+      "id": "one_attempt_email",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Owner-authenticated manual GET/PUT attempt-email preference. Accepted correlated client terminal reports atomically enqueue with their current epoch and explicit choice. A separately keyed environment-bound worker selects 20 pending rows and claims each under owner lifecycle/epoch/permission locks before a single provider submission. Indexed state/time maintenance is bounded to 100 rows. Feedback binds at most 20 accepted provider references before advancing the mailbox cursor; actual RFC/recipient-hash hard failures stop future activity mail."
     },
     {
       "data_class": "workflow_state",
@@ -4927,6 +4938,7 @@
           "route.profile_account",
           "route.profile_connected_systems",
           "route.profile_my_data",
+          "route.profile_net_worth_score",
           "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
@@ -5042,6 +5054,7 @@
           "route.profile_account",
           "route.profile_connected_systems",
           "route.profile_my_data",
+          "route.profile_net_worth_score",
           "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
@@ -5092,6 +5105,7 @@
           "route.profile_account",
           "route.profile_connected_systems",
           "route.profile_my_data",
+          "route.profile_net_worth_score",
           "route.profile_payouts",
           "route.profile_pkm_agent_lab",
           "route.profile_privacy",
@@ -7311,7 +7325,7 @@
     "action_gateway": "bbc82a763c7d45d8887c168f79477b76ace0cc04943b3d6b80f245fa91fa239a",
     "agent_registry": "9a10c06e163ee2c01afce4394176c8ff8c154ba978044ae5cfa1c174f0570443",
     "cache_manifest": "4119b8b0ed3e62208551e66e805846c2a8966035237bf12e944b2d4b6a529bd8",
-    "data_plane": "04643579d871ddbe1c1a69c85db254950461aa1157a85138cbbc2ac3735c1f9a",
+    "data_plane": "07c0ef4e8eaddde0f85cfd22f12d6c0dacc8a7e0adec95025f844fc987fdcbde",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "291ddf155d6515b0a5f91ca5b216638bbd78e3275ec987182a1d20ffe0a4da66",
     "route_index": "2f7c319fcc0a0a96b0dee159e1edb50bdd5c23fbaef941b212aae4b44f1d77e7",
@@ -7330,6 +7344,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 162,
     "semantic_routes": 17,
-    "table_families": 143
+    "table_families": 144
   }
 }

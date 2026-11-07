@@ -35,6 +35,7 @@ _EPHEMERAL = frozenset(
         "temp:hussh:workspace_chat_admission",
         "temp:hussh:drive_search_selection",
         "temp:hussh:mcp_approval",
+        "temp:hussh:calendar_request_scope",
         # Agent Chat stores source text behind an in-process request secret.
         # Remove both handles before encrypting a conversation snapshot so a
         # selected Gmail request cannot affect a later turn.
@@ -43,6 +44,7 @@ _EPHEMERAL = frozenset(
         "temp:hussh:pending_email_draft",
         "hussh:gmail_information_request_context",
         "hussh:pending_directive:gmail_information_request_reply",
+        "hussh:pending_directive:agent_email_specialist",
     }
 )
 _PRIVATE_DRAFT_TOOLS = frozenset(
@@ -76,6 +78,8 @@ def redacted_read_receipt(response: Any) -> dict[str, Any]:
     # Source labels are authored constants today. Do not start retaining file
     # names if a future source adds them; keep only opaque refs and kind here.
     safe = structured.model_dump(mode="json")
+    # Persist the legacy summary for installed clients that validate exact keys.
+    safe.pop("truncation_reasons", None)
     # Search text is private tool input. The UI restores active jobs through
     # their owner-authenticated API, not by replaying a stored tool receipt.
     safe["background_search_available"] = False

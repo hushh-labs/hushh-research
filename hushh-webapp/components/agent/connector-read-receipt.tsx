@@ -31,6 +31,14 @@ const STATUS_TEXT: Record<ConnectorReadExperience["status"], string> = {
   invalid_argument: "Ask for an inbox search or messages needing a reply",
   unavailable: "Mail is temporarily unavailable",
 };
+const MAIL_TRUNCATION_TEXT: Record<NonNullable<ConnectorReadExperience["truncationReasons"]>[number], string> = {
+  more_pages: "More matching messages are available.",
+  failed_reads: "Some matching messages could not be read.",
+  shortened_body: "Some message text was shortened.",
+  incomplete_attachment_inventory: "Some attachment details were unavailable.",
+  source_limit: "The source list reached its limit.",
+  attachment_unresolved: "Some attachments could not be read.",
+};
 const DRIVE_STATUS: Record<ConnectorReadExperience["status"], string> = {
   ok: "Drive files checked",
   input_required: "Drive needs more detail",
@@ -67,18 +75,23 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
       <div className="flex items-center gap-2">
       <ConnectorBrandMark brand={drive ? "drive" : "gmail"} size="sm" />
       <p role="status">{!drive && experience.status === "ok" && !experience.metadataOnly
-        ? "Mail messages read"
+        ? "Mail text checked"
         : (drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
       </div>
       {experience.status === "ok" ? (
         <>
-          <p>{drive ? (experience.metadataOnly ? "Drive file matches" : "Drive excerpts") : (experience.metadataOnly ? "Metadata only" : "Message text")} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
+          <p>{drive ? (experience.metadataOnly ? "Drive file matches" : "Drive excerpts") : (experience.metadataOnly ? "Metadata only" : "Message or attachment text")} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
           {experience.sourceRefs.length > 0 && !experience.ownerCompileAvailable ? (
             <ul aria-label={drive ? "Document sources" : "Mail sources"} className="flex flex-wrap gap-x-3 gap-y-1">
               {experience.sourceRefs.map((ref, index) => <li key={ref}>{drive ? `${experience.metadataOnly ? "File" : "Document excerpt"} ${index + 1}${experience.sourcePages?.[index] ? ` · page ${experience.sourcePages[index]}` : ""}` : `Mail ${ref.slice(5)}`}</li>)}
             </ul>
           ) : null}
-          {experience.truncated ? <p>{experience.metadataOnly ? "Some matches or metadata were omitted." : drive ? "Some document content was omitted." : "Long or older messages were shortened."}</p> : null}
+          {experience.truncated && (
+            drive ? <p>{experience.metadataOnly ? "Some matches or metadata were omitted." : "Some document content was omitted."}</p>
+              : <p>{experience.truncationReasons?.length
+                ? experience.truncationReasons.map(reason => MAIL_TRUNCATION_TEXT[reason]).join(" ")
+                : "Mail coverage was incomplete."}</p>
+          )}
         </>
       ) : null}
       {needsConnection && onOpenConnections ? (

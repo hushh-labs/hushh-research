@@ -119,8 +119,20 @@ def test_overnight_busy_periods_are_clipped_to_the_requested_day(
             "start_at": "2026-10-14T13:00:00Z",
             "end_at": "2026-10-14T14:00:00Z",
             "available_until": "2026-10-14T17:00:00Z",
-        }
+        },
+        {
+            "start_at": "2026-10-14T14:00:00Z",
+            "end_at": "2026-10-14T15:00:00Z",
+            "available_until": "2026-10-14T17:00:00Z",
+        },
+        {
+            "start_at": "2026-10-14T15:00:00Z",
+            "end_at": "2026-10-14T16:00:00Z",
+            "available_until": "2026-10-14T17:00:00Z",
+        },
     ]
+    assert result["available_slot_count"] == 4
+    assert result["suggestions_limited"] is True
 
 
 class _Connections:

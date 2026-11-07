@@ -5380,6 +5380,7 @@
         "route.profile_account",
         "route.profile_connected_systems",
         "route.profile_my_data",
+        "route.profile_net_worth_score",
         "route.profile_payouts",
         "route.profile_pkm_agent_lab",
         "route.profile_privacy",

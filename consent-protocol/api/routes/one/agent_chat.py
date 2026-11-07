@@ -53,6 +53,7 @@ from hushh_mcp.one_adk.consent_continuation import (
     continued_outcomes,
 )
 from hushh_mcp.one_adk.conversation_titles import ensure_conversation_titles
+from hushh_mcp.one_adk.email_memory_turn import admit_email_memory
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -119,6 +120,7 @@ from hushh_mcp.one_adk.history_projection import (
 from hushh_mcp.one_adk.information_request_submission import RecordInformationRequestSubmission
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.nws_turn_context import STATE_NWS_REPORT, admit_nws_report
 from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
@@ -346,6 +348,9 @@ def _selected_share_authorized(input_data: RunAgentInput) -> bool:
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
+    from time import time
+
+    turn_started_at = time()
     if any(message.role == "system" for message in input_data.messages):
         raise HTTPException(400, detail={"code": "AGENT_SYSTEM_MESSAGE_REFUSED"})
     from hushh_mcp.one_adk.receipt_client_tools import (
@@ -508,11 +513,16 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     raw_pkm_context = str(forwarded.pop("pkmContext", None) or "")
     if len(raw_pkm_context) > 128_000:
         raise HTTPException(413, detail="Private memory context exceeds the request budget")
+    try:
+        email_memory = admit_email_memory(
+            forwarded, user_id=user_id, admitted=bool(token and user_id)
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Email memory context is invalid.") from None
     # The owner's saved receipt index, decrypted on their device for this turn.
     # Only an unlocked owner turn keeps it; it never becomes conversation state.
     # Old clients may send it; never admit detailed PKM rows into a new turn.
     forwarded.pop("receiptMemory", None)
-    receipt_memory = ""
     # The owner's Settings style choices, sent apart from the memory packet.
     # Closed schema: anything outside it refuses the turn instead of clipping.
     try:
@@ -526,13 +536,14 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
-        consume_request_secret(receipt_memory)
-        receipt_memory = ""
         # Without a vault-owner token the memory packet is dropped, never stored.
         raw_pkm_context = ""
     owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        "temp:one_email_review_contract": type(forwarded.get("emailAgentContract")) is int
+        and forwarded.get("emailAgentContract") == 1,
+        "temp:hussh:turn_started_at": turn_started_at,
         STATE_TURN_LOCATION: turn_location,
         STATE_MCP_CONFIGURATION: mcp_configuration,
         STATE_MCP_APPROVAL: mcp_approval,
@@ -550,6 +561,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # Only a draft-contract-2 app fills the card from the result's envelope; older
         # installed apps show the call's own To, Cc and Bcc (mail_instruction.py).
         "temp:hussh:email_draft_envelope": forwarded.get("emailDraftContract") == 2,
+        "temp:hussh:email_read_coverage": forwarded.get("emailReadReceiptContract") == 2,
         # Typed chat carries the current screen snapshot in this request. It
         # must not inherit a stale live-voice publication that is still marked
         # as settling; that would suppress the consent confirmation card even
@@ -560,6 +572,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_PKM_CONTEXT: store_request_secret(raw_pkm_context, preserve_whitespace=True)
         if token
         else "",
+        **email_memory,
+        STATE_NWS_REPORT: admit_nws_report(forwarded, owner_admitted=bool(token and user_id)),
         STATE_OWNER_STYLE: owner_style,
         STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
@@ -571,7 +585,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         **consent_continuation,
         **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
-        STATE_RECEIPT_MEMORY: receipt_memory,
+        STATE_RECEIPT_MEMORY: "",
         STATE_RECEIPT_RESULT: receipt_result,
     }
 

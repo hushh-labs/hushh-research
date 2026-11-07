@@ -36,7 +36,7 @@ def _config() -> PlaidRuntimeConfig:
         secret="plaid_secret",  # noqa: S106 - test fixture value only
         country_codes=["US"],
         language="en",
-        client_name="Agent One",
+        client_name="AgentOne",
         # Configured on purpose: the vault flow must still never send it.
         webhook_url="https://api.hushh.ai/api/kai/plaid/webhook",
         frontend_url="https://one.hushh.ai",
@@ -176,12 +176,11 @@ def test_link_token_web_happy_path_has_no_webhook_and_opaque_user(authed_client,
     assert response.json() == {"link_token": "link-1", "expiration": "2026-09-24"}
     assert response.headers["cache-control"] == "no-store"
     (path, payload) = fake.calls[0]
-    assert (path, payload["client_name"]) == ("/link/token/create", "Agent One")
+    assert (path, payload["client_name"]) == ("/link/token/create", "AgentOne")
     assert "webhook" not in payload
     assert payload["redirect_uri"] == _REDIRECT_URI
     assert "android_package_name" not in payload
     assert "sandbox_proof" not in payload
-    assert payload["products"]
     client_user_id = payload["user"]["client_user_id"]
     assert "owner-123" not in client_user_id
     assert client_user_id.startswith("hv1_")
@@ -491,6 +490,7 @@ def test_snapshot_happy_path_passes_plaid_fields_through(authed_client, monkeypa
         "products": ["transactions", "investments"],
         "consented_products": ["transactions", "investments", "identity"],
         "error": None,
+        "nws_investments_available": True,
     }
     assert body["accounts"] == [_ACCOUNT]
     assert body["investments"] == {"holdings": [_HOLDING], "securities": [_SECURITY]}
@@ -596,6 +596,70 @@ def test_snapshot_skips_products_the_item_does_not_have(authed_client, monkeypat
     assert response.json()["investments"] == {"unavailable": "PRODUCTS_NOT_SUPPORTED"}
     # Calling holdings on an Item without investments would add (and bill) it.
     assert "/investments/holdings/get" not in fake.paths()
+
+
+@pytest.mark.parametrize(
+    "environment,consented,scopes,requested,continuation,expected_identity",
+    [
+        ("production", [], [], True, False, False),
+        ("production", ["transactions"], [], True, False, False),
+        ("production", [], ["transactions"], True, False, False),
+        ("sandbox", [], [], True, False, True),
+        ("production", ["identity"], [], True, False, True),
+        ("production", [], ["contact_info"], True, False, True),
+        ("production", ["identity"], [], False, False, False),
+        ("production", ["identity"], [], True, True, False),
+    ],
+)
+def test_snapshot_country_respects_trusted_environment_and_consent(
+    authed_client,
+    monkeypatch,
+    environment,
+    consented,
+    scopes,
+    requested,
+    continuation,
+    expected_identity,
+):
+    monkeypatch.setattr(
+        plaid_vault, "_plaid_config", lambda: replace(_config(), environment=environment)
+    )
+    item = _item(["identity"])
+    item["item"]["consented_products"] = consented
+    item["item"]["consented_data_scopes"] = scopes
+    fake = _use(
+        monkeypatch,
+        _FakePlaid(
+            {
+                "/item/get": [item],
+                "/accounts/get": [{"accounts": [_ACCOUNT]}],
+                "/identity/get": [
+                    {
+                        "accounts": [
+                            {
+                                "account_id": "acc-1",
+                                "owners": [{"addresses": [{"data": {"country": "US"}}]}],
+                            }
+                        ]
+                    }
+                ],
+            }
+        ),
+    )
+    response = authed_client.post(
+        f"{_BASE}/snapshot",
+        json={
+            "access_token": _ACCESS_TOKEN,
+            "include_country_on_file": requested,
+            "transactions_continuation": continuation,
+        },
+    )
+    assert response.status_code == 200
+    assert ("/identity/get" in fake.paths()) is expected_identity
+    if requested and not continuation:
+        assert response.json()["country_on_file"] == ("US" if expected_identity else None)
+    else:
+        assert "country_on_file" not in response.json()
 
 
 def test_snapshot_transactions_pages_from_cursor_and_returns_final_cursor(

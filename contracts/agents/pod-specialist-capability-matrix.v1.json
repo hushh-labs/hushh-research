@@ -21,6 +21,8 @@
           "calendar_events",
           "calendar_free_slots",
           "calendar_invitations",
+          "calendar_opening_detail",
+          "calendar_shared_free_slots",
           "calendar_summary",
           "open_calendar_invitation",
           "propose_calendar_cancellation",

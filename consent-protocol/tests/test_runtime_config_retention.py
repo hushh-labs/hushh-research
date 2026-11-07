@@ -514,14 +514,25 @@ def test_candidate_only_read_failures_never_create_or_update(
 def test_candidate_only_mutation_guard_detects_normal_sync_fallthrough(
     monkeypatch, plg_runtime_sync
 ):
+    import ast
     import inspect
     from types import CodeType, FunctionType
 
     source = inspect.getsource(plg_runtime_sync.main)
-    boundary = '    if args.production_drive_candidate_only:\n        return _production_drive_candidate["sync_candidate_only"](args, config, _run, _upsert_secret)\n'
-    assert source.count(boundary) == 1
+    tree = ast.parse(source)
+    function_tree = tree.body[0]
+    boundaries = [
+        node
+        for node in function_tree.body
+        if isinstance(node, ast.If)
+        and ast.dump(node.test)
+        == ast.dump(ast.parse("args.production_drive_candidate_only", mode="eval").body)
+    ]
+    assert len(boundaries) == 1
+    assert isinstance(boundaries[0].body[0], ast.Return)
+    function_tree.body.remove(boundaries[0])
     # Negative control changes this isolated module in memory, never disk/runtime.
-    code = compile(source.replace(boundary, ""), "candidate-only-negative-control", "exec")
+    code = compile(tree, "candidate-only-negative-control", "exec")
     function = next(
         value for value in code.co_consts if isinstance(value, CodeType) and value.co_name == "main"
     )

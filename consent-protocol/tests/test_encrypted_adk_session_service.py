@@ -835,6 +835,95 @@ def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
     assert session.events[1].content.parts[0].function_response.response["emoji"] == "💛"
 
 
+def test_calendar_opening_offer_round_trip_keeps_original_expiry_and_account():
+    import time
+
+    from hushh_mcp.agents.calendar.read_offer import (
+        STATE_OPENING_OFFER,
+        CalendarOpeningOffer,
+        current_calendar_opening_offer,
+    )
+
+    binding = (
+        "owner-1",
+        "calendar",
+        "account-c",
+        "subject",
+        "connected",
+        "generation",
+        "scope-tail",
+    )
+    offer = CalendarOpeningOffer.model_validate(
+        {
+            "owner_id": "owner-1",
+            "conversation_id": "thread-1",
+            "account_id": "account-c",
+            "grant_binding": list(binding),
+            "created_at_ms": int(time.time() * 1000),
+            "window": {
+                "calendar_id": "primary",
+                "calendar_ids": ["primary"],
+                "query_start": "2099-11-04T09:00:00Z",
+                "query_end": "2099-11-04T17:00:00Z",
+                "duration_minutes": 30,
+                "time_zone": "Asia/Kolkata",
+            },
+            "slots": [
+                {
+                    "start_at": "2099-11-04T10:00:00Z",
+                    "end_at": "2099-11-04T10:30:00Z",
+                    "available_until": "2099-11-04T11:00:00Z",
+                }
+            ],
+        }
+    )
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    session = Session(
+        id="thread-1",
+        app_name="hussh_one",
+        user_id="owner-1",
+        state={STATE_OPENING_OFFER: offer.model_dump(mode="json")},
+        events=[],
+    )
+    encoded = service._encode(session)
+    assert "account-c" not in encoded["ciphertext"]
+    decoded = _decode_as(
+        service,
+        session,
+        {
+            "payload_ciphertext": encoded["ciphertext"],
+            "payload_iv": encoded["iv"],
+            "payload_tag": encoded["tag"],
+            "payload_algorithm": encoded["algorithm"],
+        },
+    )
+    assert decoded.state[STATE_OPENING_OFFER] == session.state[STATE_OPENING_OFFER]
+    kwargs = {"owner_id": "owner-1", "conversation_id": "thread-1", "grant_binding": binding}
+    restored = current_calendar_opening_offer(
+        decoded.state[STATE_OPENING_OFFER], **kwargs, now_ms=offer.created_at_ms + 300_000
+    )
+    assert (
+        restored
+        and restored.account_id == "account-c"
+        and restored.slot_at(1).start_at == "2099-11-04T10:00:00Z"
+    )
+    assert (
+        current_calendar_opening_offer(
+            decoded.state[STATE_OPENING_OFFER], **kwargs, now_ms=offer.created_at_ms + 300_001
+        )
+        is None
+    )
+    for index in range(len(binding)):
+        changed = list(binding)
+        changed[index] += "changed"
+        assert (
+            current_calendar_opening_offer(
+                decoded.state[STATE_OPENING_OFFER], **{**kwargs, "grant_binding": tuple(changed)}
+            )
+            is None
+        )
+
+
 def _stm_events(count=7, width=20):
     return [
         Event(

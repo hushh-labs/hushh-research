@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
+import styles from "@/components/kai/onboarding/finance-onboarding.module.css";
+
 import { FinanceOnboardingPages } from "@/components/kai/onboarding/finance-onboarding-pages";
 import { FinancePersonaForm } from "@/components/kai/onboarding/finance-persona-form";
 import { useFinanceShareContext } from "@/lib/finance-sharing/use-finance-share-context";
@@ -10,6 +12,7 @@ import { requireFinanceSession } from "@/lib/services/finance-sharing-service";
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import type { PersonaPreferences } from "@/lib/kai/investing-persona";
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import {
@@ -18,9 +21,11 @@ import {
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { resolveOneSetupReturnTo } from "@/lib/navigation/routes";
 import { useBackLayer } from "@/lib/navigation/back-layers";
+import { takeFinanceSetupPlaidSuccess } from "@/lib/kai/brokerage/plaid-oauth-session";
 import {
   FinanceOnboardingComplete,
   FinanceOnboardingDemo,
@@ -51,7 +56,7 @@ function OwnedFinanceImportSetup({
   showIntroduction: boolean;
 }) {
   const { user, userId, loading } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, getVaultKey, retryOwnerTokenRenewal } = useVault();
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const [introductionComplete, setIntroductionComplete] =
@@ -64,6 +69,7 @@ function OwnedFinanceImportSetup({
   const [sourceSettled, setSourceSettled] = useState<
     "plaid" | "statement" | "later" | "resumed" | null
   >(null);
+  const [plaidHandoff, setPlaidHandoff] = useState<"confirming" | "opening" | "retry">("confirming");
   const visit = useRef({
     live: true,
     owner: snapshotValidatedAuthSessionOwner(),
@@ -73,6 +79,8 @@ function OwnedFinanceImportSetup({
     activeVisit.live = true;
     return () => {
       activeVisit.live = false;
+      resolvePersonaVaultPrompt.current?.(false);
+      resolvePersonaVaultPrompt.current = null;
     };
   }, []);
   const isCurrent = useCallback(
@@ -84,13 +92,17 @@ function OwnedFinanceImportSetup({
     [userId],
   );
   const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
+  const plaidFinanceHandoff = sourceSettled === "plaid" && !returnTo;
+  const autoContinuing = plaidFinanceHandoff && plaidHandoff !== "retry";
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "finance",
+    allowCompletedFinanceEntry: showIntroduction && !returnTo && !searchParams.has("stage"),
     isOperationallyReady: sourceSettled !== null,
     finishActionId: "setup.finish_finance",
     skipActionId: "setup.skip_finance",
     resumeReadinessFromCallback: true,
     settlementBlocked: sourceSettled === null,
+    terminalPresentation: autoContinuing ? "automatic" : "explicit",
     // Root setup may have been skipped before Finance is opened. This is still
     // an explicit Finance task and must retain the portfolio-source terminal.
     journeyMode: "auto",
@@ -98,18 +110,36 @@ function OwnedFinanceImportSetup({
   });
 
   useEffect(() => {
+    if (sourceSettled !== null || !isCurrent() || !coordinator.isReady) return;
+    const plaidConnected = takeFinanceSetupPlaidSuccess(pathname);
     // A verified connector callback survives a refresh. Recover its explicit
     // terminal instead of replaying the demo or asking for a second import.
-    if (
-      coordinator.operationallyReady &&
-      sourceSettled === null &&
-      isCurrent()
-    ) {
-      setSourceSettled("resumed");
+    if (plaidConnected || coordinator.operationallyReady) {
+      setSourceSettled(plaidConnected ? "plaid" : "resumed");
       setIntroductionComplete(true);
       setPersonaComplete(true);
     }
-  }, [coordinator.operationallyReady, sourceSettled, isCurrent]);
+  }, [coordinator.isReady, coordinator.operationallyReady, sourceSettled, isCurrent, pathname]);
+
+  const finish = coordinator.finish;
+  const openFinanceAfterPlaid = useCallback(async () => {
+    if (!isCurrent()) return;
+    setPlaidHandoff("opening");
+    try {
+      const result = await finish();
+      if (result.status === "succeeded") return;
+    } catch {
+      // The linked account is already saved. Retry setup settlement only.
+    }
+    if (isCurrent()) setPlaidHandoff("retry");
+  }, [finish, isCurrent]);
+
+  useEffect(() => {
+    if (!plaidFinanceHandoff || plaidHandoff !== "confirming" ||
+        !coordinator.isReady || !coordinator.operationallyReady || !isCurrent()) return;
+    const timer = window.setTimeout(() => void openFinanceAfterPlaid(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [plaidFinanceHandoff, plaidHandoff, coordinator.isReady, coordinator.operationallyReady, isCurrent, openFinanceAfterPlaid]);
 
   useBackLayer(pathname, 1, () => {
     if (coordinator.isSettling || personaSaving) return true;
@@ -120,6 +150,70 @@ function OwnedFinanceImportSetup({
     return false;
   });
 
+  function closePersonaVaultPrompt(unlocked: boolean) {
+    const resolve = resolvePersonaVaultPrompt.current;
+    resolvePersonaVaultPrompt.current = null;
+    setPersonaVaultPrompt(null);
+    resolve?.(unlocked);
+  }
+
+  async function savePersona(updates: PersonaPreferences): Promise<void | false> {
+    if (!userId || !isCurrent()) return false;
+    let context = capture();
+
+    if (!context && getVaultKey()) {
+      await retryOwnerTokenRenewal();
+      if (!isCurrent()) return false;
+      context = capture();
+      if (!context && getVaultKey()) {
+        throw new Error("Couldn’t restore vault access. Try saving again.");
+      }
+    }
+
+    if (!context) {
+      const journey = await PreVaultUserStateService.bootstrapState(userId, { force: true })
+        .catch(() => { throw new Error("Couldn’t check your vault. Try saving again."); });
+      if (!isCurrent()) return false;
+      context = capture();
+      if (!context) {
+        if (journey.hasVault === false && coordinator.isInitialSetup) {
+          PreVaultSensitiveDraftService.stageFinancePreferences(userId, updates);
+          setSavedPreferences(updates);
+          return;
+        }
+        if (journey.hasVault == null || getVaultKey()) {
+          throw new Error("Couldn’t confirm vault access. Try saving again.");
+        }
+
+        // The form keeps the submission in memory while the shared dialog is open.
+        const unlocked = await new Promise<boolean>((resolve) => {
+          resolvePersonaVaultPrompt.current = resolve;
+          setPersonaVaultPrompt(journey.hasVault === false ? "create" : "unlock");
+        });
+        if (!unlocked || !isCurrent()) return false;
+        context = capture();
+      }
+    }
+
+    if (!context || context.userId !== userId) {
+      throw new Error("Couldn’t open your vault. Try saving again.");
+    }
+    const session = context;
+    const requireCurrentSetup = async () => {
+      if (!isCurrent()) throw new Error("Finance setup has changed. Open it again to save your persona.");
+      requireFinanceSession(session);
+    };
+    await requireCurrentSetup();
+    const profile = await KaiProfileService.savePreferences({
+      ...session,
+      mode: "onboarding",
+      updates,
+      beforeEffect: requireCurrentSetup,
+    });
+    await requireCurrentSetup();
+    setSavedPreferences(profile.preferences);
+  }
+
   if (loading || !user || !userId || !coordinator.isReady) {
     return <SetupCapabilityLoading label="Preparing Finance setup…" />;
   }
@@ -128,7 +222,8 @@ function OwnedFinanceImportSetup({
     <FullscreenFlowShell
       as="div"
       width="agent"
-      className="relative px-[var(--page-inline-gutter-standard)] pb-6"
+      data-finance-setup-flow
+      className={`${styles.setupFlowShell} relative shrink-0 px-[var(--page-inline-gutter-standard)]`}
     >
       <NativeTestBeacon
         routeId={
@@ -190,8 +285,11 @@ function OwnedFinanceImportSetup({
             busy={coordinator.isSettling}
             rootSetup={coordinator.isInitialSetup}
             deferred={sourceSettled === "later"}
+            plaidConnected={plaidFinanceHandoff}
+            autoContinuing={autoContinuing}
             onFinish={() => {
-              void coordinator.finish();
+              if (plaidFinanceHandoff) void openFinanceAfterPlaid();
+              else void finish();
             }}
           />
         ) : (
@@ -212,12 +310,9 @@ function OwnedFinanceImportSetup({
                 },
               );
               if (!isCurrent()) return false;
-              if (
-                returnTo &&
-                PreVaultUserStateService.isSetupResolved(journey)
-              ) {
-                // A deferred source resumes after root setup. Keep the import's
-                // existing explicit terminal; do not revive its old journey attempt.
+              if (PreVaultUserStateService.isSetupResolved(journey)) {
+                // Individual Finance setup still needs its terminal. The
+                // coordinator settles it without reviving the root journey.
                 setSourceSettled(source);
                 return true;
               }
@@ -274,6 +369,15 @@ function OwnedFinanceImportSetup({
           />
         )}
       </FinanceOnboardingPages>
+      <VaultUnlockDialog
+        user={user}
+        open={personaVaultPrompt !== null}
+        allowVaultCreation={personaVaultPrompt === "create"}
+        onOpenChange={(open) => { if (!open) closePersonaVaultPrompt(false); }}
+        onSuccess={() => closePersonaVaultPrompt(true)}
+        title={personaVaultPrompt === "create" ? "Set up your vault" : "Unlock your vault"}
+        description="Save your investing preferences in your vault."
+      />
     </FullscreenFlowShell>
   );
 }

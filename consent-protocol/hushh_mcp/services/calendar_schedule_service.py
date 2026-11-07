@@ -29,6 +29,7 @@ from hushh_mcp.services.calendar_attendance_confirmation import (
     recheck_accepted_invitation,
     require_review_account_email,
     require_rsvp_review,
+    selected_organizer_sender,
     send_reviewed_organizer_mail,
 )
 from hushh_mcp.services.calendar_decline_comment import clean_decline_reason, patch_with_comment
@@ -507,6 +508,39 @@ class CalendarScheduleService:
             raise error
         return calendars, options
 
+    @staticmethod
+    def opening_calendar_ids(calendars):
+        """Use the provider's verified primary identity, never an extra calendar."""
+        return ["primary" if item.get("primary") is True else item["id"] for item in calendars]
+
+    async def openings_in_window(
+        self, *, user_id, start_at, end_at, duration_minutes, limit, expected_binding=None
+    ):
+        start_at, end_at = self.calendar._read_window(start_at, end_at)
+        start, end = datetime.fromisoformat(start_at), datetime.fromisoformat(end_at)
+        binding = await self._read_binding(user_id)
+        if expected_binding is not None and binding != expected_binding:
+            raise _error("Calendar connection changed.", 409, "calendar_connection_changed")
+        inventory = await self._included_calendars(user_id, binding=binding)
+        calendars, _ = self._availability_selection(inventory)
+        ids = self.opening_calendar_ids(calendars)
+        busy = await self._busy_intervals(
+            user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
+        )
+        from hushh_mcp.services.calendar_opening_selection import opening_options
+
+        options = opening_options(self._free_gaps(start, end, busy), duration_minutes, limit)
+        await self.calendar._check_read_binding(user_id, binding)
+        return {
+            "time_min": start_at,
+            "time_max": end_at,
+            "duration_minutes": duration_minutes,
+            "calendar_ids": ids,
+            "coverage_policy": "board_default",
+            "coverage_complete": True,
+            **options,
+        }
+
     async def free_windows(
         self,
         *,
@@ -631,20 +665,14 @@ class CalendarScheduleService:
             busy = await self._busy_intervals(
                 user_id=user_id, start=start, end=end, calendar_ids=ids, binding=binding
             )
-            minimum = timedelta(minutes=duration_minutes)
+            from hushh_mcp.services.calendar_opening_selection import opening_options
+
             result = {
                 "time_min": GoogleCalendarService._utc_iso(start),
                 "time_max": GoogleCalendarService._utc_iso(end),
                 "duration_minutes": duration_minutes,
-                "openings": [
-                    {
-                        "start_at": GoogleCalendarService._utc_iso(left),
-                        "end_at": GoogleCalendarService._utc_iso(left + minimum),
-                        "available_until": GoogleCalendarService._utc_iso(right),
-                    }
-                    for left, right in self._free_gaps(start, end, busy)
-                    if right - left >= minimum
-                ][:20],
+                "coverage_complete": True,
+                **opening_options(self._free_gaps(start, end, busy), duration_minutes, 20),
             }
         await self.calendar._check_read_binding(user_id, binding)
         return {**result, "time_zone": time_zone, "calendars": calendars}
@@ -843,6 +871,7 @@ class CalendarScheduleService:
         exact_time: bool = False,
         message: str = "",
         decline_reason: str = "",
+        compose_message: bool = False,
         date: str = "",
         time_zone: str = "UTC",
         start_time: str = "09:00",
@@ -852,6 +881,8 @@ class CalendarScheduleService:
         expected_account_email: str | None = None,
         review_kind: AttendanceReviewKind = "legacy_owner",
     ):
+        if compose_message and not (send_message or offer_times):
+            raise _error("Email composition requires an organiser message.")
         if (offer_times or send_message) and response_status != "declined":
             raise _error("Alternative-time messages require a decline response.")
         if exact_time and not offer_times:
@@ -974,6 +1005,24 @@ class CalendarScheduleService:
                     + "/calendar/reschedule#"
                     + self._seal(public_plan, "calendar-public-v1")
                 )
+            composed = None
+            if compose_message:
+                from hushh_mcp.services.calendar_response_writer import compose_calendar_response
+
+                # Resolve Mail authority before exposing bounded facts to the writer.
+                mail = self.mail or get_gmail_delivery_service()
+                await selected_organizer_sender(self, user_id=user_id, mail=mail, binding=binding)
+                composed = await compose_calendar_response(
+                    user_id=user_id,
+                    operation_id=review_id,
+                    reason=decline_reason.strip() or message.strip(),
+                    title=str(event.get("summary") or "our meeting"),
+                    organizer_name=str((event.get("organizer") or {}).get("displayName") or ""),
+                    offer_times=offer_times,
+                )
+                await self.calendar._check_read_binding(user_id, binding)
+                message = composed.body
+                plan["decline_reason"] = composed.reason
             body = (
                 message.strip()
                 or "I can't attend our meeting. Please choose an alternative time using the link below and update the invitation."
@@ -1000,10 +1049,27 @@ class CalendarScheduleService:
                 )[:256],
                 "body": body + ("\n\n" + link if link else ""),
             }
+            if composed is not None:
+                draft["subject"] = composed.subject
             mail = self.mail or get_gmail_delivery_service()
+            sender = await selected_organizer_sender(
+                self, user_id=user_id, mail=mail, binding=binding
+            )
             mail_review = await mail.prepare(
                 user_id=user_id, draft_payload=draft, idempotency_key="calendar-" + review_id
             )
+            if sender is not None and (
+                sender
+                != await selected_organizer_sender(
+                    self, user_id=user_id, mail=mail, binding=binding
+                )
+                or mail_review.get("sender_label") != sender.get("account_label")
+            ):
+                raise _error(
+                    "The Mail account changed. Review this invitation again.",
+                    409,
+                    "calendar_mail_account_mismatch",
+                )
             draft["sender_token"] = mail_review["sender_token"]
             plan["mail"] = {"action_id": mail_review["action_id"], "draft": draft}
         review_token = self._seal(plan, "calendar-review-v1")
@@ -1129,7 +1195,13 @@ class CalendarScheduleService:
                     "This invitation is no longer declined. Review it again before sending Mail.",
                     409,
                 )
-            if attendee.get("responseStatus") != target_status:
+            comment_changed = (
+                bool(plan.get("decline_reason"))
+                and attendee.get("comment", "") != plan["decline_reason"]
+            )
+            if not plan.get("mail_only_retry") and (
+                attendee.get("responseStatus") != target_status or comment_changed
+            ):
                 patch_attempted = True
                 response = await self.calendar._request(
                     user_id=user_id,
@@ -1153,6 +1225,12 @@ class CalendarScheduleService:
                     result["calendar"] = "unknown"
                     raise _error(
                         "Calendar did not confirm your response. Check the invitation before retrying.",
+                        502,
+                    )
+                if plan.get("decline_reason") and own.get("comment") != plan["decline_reason"]:
+                    result["calendar"] = "unknown"
+                    raise _error(
+                        "Calendar did not confirm your reason. Check the invitation before retrying.",
                         502,
                     )
             result["calendar"] = target_status

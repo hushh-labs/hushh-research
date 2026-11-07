@@ -315,6 +315,8 @@ _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "calendar_event_detail": ("agent_calendar", "Calendar"),
     "calendar_availability": ("agent_calendar", "Calendar"),
     "calendar_free_slots": ("agent_calendar", "Calendar"),
+    "calendar_shared_free_slots": ("agent_calendar", "Calendar"),
+    "calendar_opening_detail": ("agent_calendar", "Calendar"),
     "propose_calendar_event": ("agent_calendar", "Calendar"),
     "propose_calendar_reschedule": ("agent_calendar", "Calendar"),
     "propose_calendar_cancellation": ("agent_calendar", "Calendar"),
@@ -574,6 +576,7 @@ async def _stream_one_text_turn_once(
     execution_surface: Literal["typed_chat"] | None = None,
     memory_commit_allowed: Any = None,
     memory_review_policy: "MemoryReviewPolicy | None" = None,
+    turn_started_at: float | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
     if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy", *OWNER_HEADS}:
@@ -652,6 +655,9 @@ async def _stream_one_text_turn_once(
         user_id=session_key,
         session_id=f"chat_{uuid.uuid4().hex}",
         state={
+            "temp:hussh:turn_started_at": turn_started_at
+            if turn_started_at is not None
+            else time.time(),
             STATE_MEMORY_AVAILABLE: memory_service is not None,
             STATE_MEMORY_DIGEST: memory_digest,
             STATE_USER_ID: clean_user_id,
@@ -981,6 +987,7 @@ async def stream_one_text_turn(
     memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
+    turn_started_at = time.time()
     locations: tuple[str | None, ...] = (None,)
     from hushh_mcp.runtime_providers.managed_text import managed_text_policy
 
@@ -1014,6 +1021,7 @@ async def stream_one_text_turn(
                 runtime_vertex_location=runtime_vertex_location,
                 data_door_grants=data_door_grants,
                 managed_location=location,
+                turn_started_at=turn_started_at,
                 execution_surface=execution_surface,
                 memory_commit_allowed=memory_commit_allowed,
                 memory_review_policy=memory_review_policy,

@@ -1,4 +1,5 @@
 /** Browser QA boundaries only. The production workspace and typed transport remain real. */
+export { isMarketInsightsEmptyError, MarketNewsSnapshotChangedError } from "../../lib/services/market-errors";
 import { useSyncExternalStore } from "react";
 import { advanceVaultSessionEpoch } from "../../lib/vault/session-epoch";
 

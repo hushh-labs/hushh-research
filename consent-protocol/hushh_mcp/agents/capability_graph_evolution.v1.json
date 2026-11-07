@@ -1,8 +1,8 @@
 {
   "schema_version": "one.capability_graph_evolution.v1",
   "workflow_predecessor_refs": [
-    "ceee75fd630db1a6e01ff1c5667f2af3df4d0f29",
-    "fb9614f34871e11a3702c80c8879dc2b0f8051cd",
+    "31fec60d9cd0d7364639f01f678e38dc0adede1e",
+    "0997ef846ca5bdcc1c695c132e5b1c7453edee47",
     "3e248fc4bf04df28bf677bcc6402b64d9015098f",
     "a3a88680182db2f4c71acf0363a8aaab54fd2b58",
     "a05d019a3f90704e9799e754eb6e288e4d3763a7",
@@ -2415,6 +2415,54 @@
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.finance",
       "from_revision": "9c1f8b9bcf9e2d4b",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:setup.finish_finance",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.answer_horizon",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.answer_drawdown",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.answer_volatility",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:kai.setup.launch_dashboard",
+      "from_revision": "14eb52dced97297e",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.finance",
+      "from_revision": "14eb52dced97297e",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"

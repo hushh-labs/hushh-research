@@ -90,6 +90,7 @@ class CalendarAttendanceReview(CalendarDay):
     exact_time: StrictBool = False
     message: str = Field(default="", max_length=8000)
     decline_reason: str = Field(default="", max_length=8000)
+    compose_message: StrictBool = False
 
 
 class CalendarInvitationsWindow(BaseModel):

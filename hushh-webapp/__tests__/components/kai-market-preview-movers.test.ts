@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -208,7 +208,7 @@ describe("toMoverGroups", () => {
     expect(container.textContent).not.toMatch(/cached/i);
     expect(screen.queryByText("Cached", { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("FOURTH", { exact: true })).not.toBeInTheDocument();
-    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+    expect(within(screen.getByRole("region", { name: "Gainers" })).getAllByRole("button")).toHaveLength(3);
   });
 
   it("renders three real stocks on each side from complete directional observations", () => {
@@ -219,13 +219,13 @@ describe("toMoverGroups", () => {
     const { container } = render(createElement(OneMarketMovers, { groups }));
     expect(container.querySelectorAll("button")).toHaveLength(6);
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(0);
-    const pairs = [...container.querySelectorAll("[data-market-mover-pair]")];
-    expect(pairs).toHaveLength(3);
-    pairs.forEach((pair, index) => {
-      const cells = pair.querySelectorAll("button");
-      expect(cells).toHaveLength(2);
-      expect(cells[0]).toHaveTextContent(`UP${index + 1}`);
-      expect(cells[1]).toHaveTextContent(`DOWN${index + 1}`);
+    const gainers = within(screen.getByRole("region", { name: "Gainers" })).getAllByRole("button");
+    const losers = within(screen.getByRole("region", { name: "Losers" })).getAllByRole("button");
+    expect(gainers).toHaveLength(3);
+    expect(losers).toHaveLength(3);
+    gainers.forEach((gainer, index) => {
+      expect(gainer).toHaveTextContent(`UP${index + 1}`);
+      expect(losers[index]).toHaveTextContent(`DOWN${index + 1}`);
     });
   });
 
@@ -245,7 +245,8 @@ describe("toMoverGroups", () => {
     expect(container.querySelector("time")).toBeNull();
     expect(container.textContent).not.toMatch(/time unavailable/i);
     rerender(createElement(OneMarketMovers, { groups: groupsFor([], []) }));
-    expect(container.querySelectorAll("[data-market-mover-pair]")).toHaveLength(3);
+    expect(within(screen.getByRole("region", { name: "Gainers" })).getAllByText("Quote unavailable")).toHaveLength(3);
+    expect(within(screen.getByRole("region", { name: "Losers" })).getAllByText("Quote unavailable")).toHaveLength(3);
     expect(container.querySelectorAll("[data-market-mover-empty]")).toHaveLength(6);
     expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(container.textContent).not.toMatch(/cached|[+-]\d/);
@@ -375,7 +376,7 @@ describe("market route overlays", () => {
     );
 
     for (const source of [portfolioDashboard, portfolioImport, analysis]) {
-      expect(source).toContain("KaiWorkspaceHeader");
+      expect(source).toContain(source === portfolioImport ? "PageHeader" : "KaiWorkspaceHeader");
       expect(source).toContain("AppPageContentRegion");
     }
     expect(portfolioDashboard).toContain("Loading portfolio sources...");

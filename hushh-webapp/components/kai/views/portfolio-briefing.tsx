@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { CalendarDays } from "@/components/icons";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
@@ -26,29 +25,46 @@ export function PortfolioBriefing({ model, portfolio, onOpen, advisorAction }: {
   const largest = largestPosition(model);
   const leadingSector = model?.quality.sectorReady ? model.equity_sector_allocation[0] : undefined;
   const cash = model ? overviewFacts(model, portfolio).cash : null;
-  const cashShare = cash !== null && model && model.hero.totalValue > 0 ? cash / model.hero.totalValue * 100 : null;
-  const ringReady = largest && Number.isFinite(largest.weightPct) && largest.weightPct <= 100;
-  return <SurfaceCard className={`${styles.insightShell} ${!model ? styles.importEntry : ""}`} data-testid="portfolio-briefing">
-    <SurfaceCardContent className={`${styles.insightCard} space-y-0`}>
+  const cashShare = cash !== null && model && model.hero.totalValue > 0
+    ? `${(cash / model.hero.totalValue * 100).toFixed(1)}%`
+    : "Unavailable";
+
+  return <SurfaceCard className={model ? undefined : styles.importEntry} data-testid="portfolio-briefing">
+    <SurfaceCardContent className={styles.insightCard}>
       <SectionLabel role="heading" aria-level={2}>Agent One’s briefing</SectionLabel>
-      {largest ? <div className={styles.concentrationSummary}>
-        <div className={ringReady ? styles.concentrationRing : styles.concentrationValue}
-          style={ringReady ? { "--holding-share": `${largest.weightPct * 3.6}deg` } as CSSProperties : undefined}
-          role={ringReady ? "img" : undefined} aria-label={ringReady ? `${largest.name}: ${largest.weightPct.toFixed(1)}% of portfolio` : undefined}>
-          <span><strong>{largest.weightPct.toFixed(1)}%</strong><span>of portfolio</span></span>
+      {model ? (
+        <div className={styles.scoreSummary}>
+          <div
+            className={styles.scoreRing}
+            style={{ "--nws-progress": `${(score ?? 0) / 10}%` } as CSSProperties}
+            role={score === null ? "img" : "meter"}
+            aria-label={score === null ? "Net Worth Score unavailable" : "Net Worth Score"}
+            aria-valuemin={score === null ? undefined : 0}
+            aria-valuemax={score === null ? undefined : 1000}
+            aria-valuenow={score ?? undefined}
+          >
+            <span aria-hidden="true">{score ?? "—"}</span>
+          </div>
+          <div>
+            <p className="ui-text-section-label">NWS score</p>
+            <dl className={styles.scoreCashShare}>
+              <dt>Cash share</dt>
+              <dd>{cashShare}</dd>
+            </dl>
+          </div>
         </div>
-        <div className={styles.concentrationLabel}><p className={styles.insightEyebrow}>Largest tracked position</p><p className={styles.insightHoldingName}>{largest.name}</p>{largest.symbol ? <p className={styles.description}>{largest.symbol}</p> : null}</div>
-      </div> : <p className={styles.description}>{model ? "Position concentration is unavailable for this source." : "Add a portfolio to see your analysis."}</p>}
-      {model ? <>
-        <dl className={styles.insightFacts}>
-          <div><dt>Cash share</dt><dd>{cashShare === null ? "Unavailable" : `${cashShare.toFixed(1)}%`}</dd></div>
-          {leadingSector ? <div><dt>{leadingSector.sector} share</dt><dd aria-label={`${leadingSector.pct.toFixed(1)}% of portfolio`}>{leadingSector.pct.toFixed(1)}%</dd></div> : null}
-        </dl>
-        <p className={styles.insightNotice}><CalendarDays aria-hidden="true" /><span>{model.quality.historyReady ? "Dated history available" : "No dated history"}</span></p>
-      </> : null}
-      <div className={styles.cardFooter}>{onOpen ? <ShellActionSurface variant="pill" className="min-h-11" onClick={onOpen}>
-        {model ? "View analysis" : "Import portfolio"}
-      </ShellActionSurface> : null}{advisorAction}</div>
+      ) : <p className={styles.description}>Add a portfolio to see your analysis.</p>}
+      <div className={`${styles.cardFooter} items-center`}>
+        {model ? (
+          <p className={`${styles.description} me-auto`}>Tracked holdings · {model.hero.holdingsCount}</p>
+        ) : null}
+        {onOpen ? (
+          <ShellActionSurface variant="pill" className="min-h-11 ui-text-compact-button-label" onClick={onOpen}>
+            {model ? "View analysis" : "Import portfolio"}
+          </ShellActionSurface>
+        ) : null}
+        {advisorAction}
+      </div>
     </SurfaceCardContent>
   </SurfaceCard>;
 }

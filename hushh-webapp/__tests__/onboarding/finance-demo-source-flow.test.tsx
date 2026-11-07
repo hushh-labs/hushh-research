@@ -40,7 +40,26 @@ vi.mock("@/lib/firebase/auth-context", () => ({
   useAuth: () => ({ user: {}, userId: "owner", loading: false }),
 }));
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultOwnerToken: "memory-only" }),
+  useVault: () => ({
+    vaultOwnerToken: "memory-only",
+    getVaultKey: () => null,
+  }),
+}));
+vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
+  useFinanceShareContext: () => ({
+    capture: () => ({
+      userId: "owner",
+      vaultKey: "synthetic",
+      vaultOwnerToken: "synthetic",
+      isCurrent: () => state.current,
+    }),
+  }),
+}));
+vi.mock("@/lib/services/kai-profile-service", () => ({
+  KaiProfileService: {
+    savePreferences: state.savePreferences,
+    getProfile: state.getProfile,
+  },
 }));
 vi.mock("@/lib/finance-sharing/use-finance-share-context", () => ({
   useFinanceShareContext: () => ({
@@ -110,7 +129,7 @@ beforeEach(() => {
   );
 });
 
-it("keeps the demo local and waits for source confirmation and explicit terminal finish", async () => {
+it("keeps the demo local and shows Plaid confirmation before automatic settlement", async () => {
   render(<FinanceImportOnboardingSetupClient showIntroduction />);
   expect(
     screen.getByRole("heading", { name: "Follow the market." }),
@@ -127,15 +146,60 @@ it("keeps the demo local and waits for source confirmation and explicit terminal
     expect(await state.source!("plaid", "wrong-attempt")).toBe(false);
   });
   expect(state.sync).not.toHaveBeenCalled();
-  await act(async () => {
-    expect(await state.source!("plaid", "attempt")).toBe(true);
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      expect(await state.source!("plaid", "attempt")).toBe(true);
+    });
+    expect(screen.getByRole("heading", { name: "Account connected" })).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Continuing setup");
+    expect(state.ready).toBe(true);
+    expect(state.blocked).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(1499));
+    expect(state.finish).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(state.finish).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("saves the persona before import and keeps risk comfort separate from near-term needs", async () => {
+  render(<FinanceImportOnboardingSetupClient showIntroduction />);
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  expect(
+    screen.getByRole("heading", { name: "Let’s build your financial persona" }),
+  ).toBeVisible();
+  act(() => {
+    expect(unwindBackLayer("/one/setup/finance")).toBe(true);
   });
-  expect(screen.getByRole("heading", { name: "You're all set" })).toBeTruthy();
-  expect(state.ready).toBe(true);
-  expect(state.blocked).toBe(false);
-  expect(state.finish).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
-  expect(state.finish).toHaveBeenCalledOnce();
+  expect(
+    screen.getByRole("heading", { name: "Follow the market." }),
+  ).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Continue", exact: true }));
+  for (const label of [
+    "Less than 3 years",
+    "Consider investing more if my plan still fits",
+    "Lose 30% or gain 35%",
+    "I’d probably need to sell to cover bills",
+  ]) {
+    fireEvent.click(screen.getByRole("radio", { name: label }));
+  }
+  fireEvent.click(screen.getByRole("button", { name: "Save persona" }));
+  expect(await screen.findByText("Real source workflow")).toBeVisible();
+  expect(state.savePreferences).toHaveBeenCalledWith(
+    expect.objectContaining({
+      userId: "owner",
+      updates: {
+        investment_horizon: "short_term",
+        drawdown_response: "buy_more",
+        volatility_preference: "large",
+        loss_capacity: "essentials",
+      },
+    }),
+  );
+  expect(state.ready).toBe(false);
+  expect(screen.getByText("Real source workflow")).toBeVisible();
 });
 
 it("saves the persona before import and keeps risk comfort separate from near-term needs", async () => {
@@ -188,6 +252,7 @@ it("recovers the explicit completion screen from a verified persisted source cal
   expect(state.blocked).toBe(false);
   expect(state.finish).not.toHaveBeenCalled();
 });
+
 
 it("does not show completion or mutate the journey when the owner retires during the read", async () => {
   let resolve!: (value: typeof state.journey) => void;

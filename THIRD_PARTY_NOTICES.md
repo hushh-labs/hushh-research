@@ -26,13 +26,14 @@ Package count: 1296
 - `EPL-2.0`: 1
 - `ISC`: 75
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 930
+- `MIT`: 928
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
 - `MPL-2.0`: 13
 - `Python-2.0`: 1
 - `Standard 'no charge' license: https://gsap.com/standard-license.`: 1
+- `UNKNOWN`: 2
 - `Unlicense`: 2
 
 ### Package inventory
@@ -940,7 +941,7 @@ Package count: 1296
 - `katex/commander` `15.0.0` — MIT
 - `kdbush` `4.1.0` — ISC
 - `keyv` `4.5.4` — MIT
-- `khroma` `2.1.0` — MIT
+- `khroma` `2.1.0` — UNKNOWN
 - `kleur` `4.1.5` — MIT
 - `language-subtag-registry` `0.3.23` — CC0-1.0
 - `language-tags` `1.0.9` — MIT
@@ -959,7 +960,7 @@ Package count: 1296
 - `lightningcss-linux-x64-musl` `1.32.0` — MPL-2.0
 - `lightningcss-win32-arm64-msvc` `1.32.0` — MPL-2.0
 - `lightningcss-win32-x64-msvc` `1.32.0` — MPL-2.0
-- `limiter` `1.1.5` — MIT
+- `limiter` `1.1.5` — UNKNOWN
 - `lit` `3.3.2` — BSD-3-Clause
 - `lit-element` `4.2.2` — BSD-3-Clause
 - `lit-html` `3.3.2` — BSD-3-Clause
@@ -1336,24 +1337,25 @@ Package count: 1296
 
 ## Backend Python packages
 
-Package count: 219
+Package count: 250
 
 ### License summary
 
 - `3-Clause BSD License`: 1
 - `Apache 2.0 License`: 1
 - `Apache License 2.0`: 1
-- `Apache Software License`: 35
+- `Apache Software License`: 40
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 29
+- `Apache-2.0`: 34
 - `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
 - `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 18
+- `BSD 3-Clause OR Apache-2.0`: 1
+- `BSD License`: 20
 - `BSD-2-Clause`: 2
 - `BSD-3-Clause`: 21
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
@@ -1363,14 +1365,37 @@ Package count: 219
 - `ISC`: 1
 - `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 56
-- `MIT License`: 32
+- `MIT`: 59
+- `MIT License`: 43
+- `MIT License
+
+Copyright (c) 2022 OpenAI, Shantanu Jain
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+`: 1
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
 - `Python Software Foundation License`: 2
+- `UNKNOWN`: 3
 
 ### Package inventory
 
@@ -1379,8 +1404,10 @@ Package count: 219
 - `ag-ui-a2ui-toolkit` `0.0.4` — MIT
 - `ag-ui-protocol` `0.1.21` — MIT
 - `ag_ui_adk` `0.7.0` — MIT
+- `aiofiles` `24.1.0` — Apache Software License
 - `aiohappyeyeballs` `2.6.1` — Python Software Foundation License
 - `aiohttp` `3.14.5` — Apache-2.0 AND MIT
+- `aiolimiter` `1.3.0` — MIT
 - `aiosignal` `1.4.0` — Apache Software License
 - `aiosqlite` `0.22.1` — MIT License
 - `annotated-doc` `0.0.4` — MIT
@@ -1391,6 +1418,7 @@ Package count: 219
 - `asyncio` `4.0.0` — Apache-2.0
 - `asyncpg` `0.31.0` — Apache-2.0
 - `attrs` `26.1.0` — MIT
+- `aurelio-sdk` `0.0.19` — UNKNOWN
 - `Authlib` `1.9.1` — BSD License
 - `azure-core` `1.41.0` — MIT
 - `azure-identity` `1.26.0` — MIT
@@ -1407,6 +1435,9 @@ Package count: 219
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
 - `cloudpickle` `3.1.2` — BSD License
+- `cohere` `5.21.1` — MIT License
+- `colorama` `0.4.6` — BSD License
+- `colorlog` `6.12.0` — MIT License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
@@ -1416,18 +1447,24 @@ Package count: 219
 - `dnspython` `2.9.0` — ISC
 - `docstring_parser` `0.18.0` — MIT License
 - `et_xmlfile` `2.0.0` — MIT License
+- `eval_type_backport` `0.4.0` — MIT License
 - `exchange_calendars` `4.13.2` — Apache-2.0
 - `execnet` `2.1.2` — MIT
 - `fastapi` `0.136.0` — MIT
+- `fastavro` `1.13.1` — MIT
+- `fastembed` `0.9.1` — Apache-2.0
 - `filelock` `4.2.4` — MIT
 - `firebase_admin` `7.1.0` — Apache Software License
 - `Flask` `3.1.3` — BSD-3-Clause
+- `flatbuffers` `25.12.19` — Apache Software License
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
 - `google-adk` `2.9.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
+- `google-api-python-client` `2.201.0` — Apache Software License
 - `google-auth` `2.58.0` — Apache Software License
+- `google-auth-httplib2` `0.4.4` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
 - `google-cloud-firestore` `2.27.0` — Apache Software License
 - `google-cloud-secret-manager` `2.30.0` — Apache Software License
@@ -1448,6 +1485,7 @@ Package count: 219
 - `hpack` `4.2.0` — MIT
 - `httpcore` `1.0.9` — BSD-3-Clause
 - `httpcore2` `2.13.1` — BSD-3-Clause
+- `httplib2` `0.32.1` — MIT License
 - `httpx` `0.28.1` — BSD License
 - `httpx-sse` `0.4.3` — MIT
 - `httpx2` `2.13.1` — BSD-3-Clause
@@ -1455,6 +1493,7 @@ Package count: 219
 - `hyperframe` `6.1.0` — MIT License
 - `idna` `3.18` — BSD-3-Clause
 - `iniconfig` `2.3.0` — MIT
+- `invoke` `2.2.1` — BSD License
 - `itsdangerous` `2.2.0` — BSD License
 - `Jinja2` `3.1.6` — BSD License
 - `jiter` `0.14.0` — MIT
@@ -1467,19 +1506,24 @@ Package count: 219
 - `jsonschema-specifications` `2025.9.1` — MIT
 - `korean_lunar_calendar` `0.4.0` — MIT
 - `langchain` `1.3.13` — MIT License
-- `langchain-core` `1.4.9` — MIT License
-- `langchain-protocol` `0.0.18` — MIT License
+- `langchain-core` `1.7.3` — MIT License
+- `langchain-openai` `1.6.3` — MIT License
+- `langchain-protocol` `0.0.20` — MIT License
+- `langchain-text-splitters` `1.1.3` — MIT License
 - `langgraph` `1.2.14` — MIT
 - `langgraph-checkpoint` `4.1.1` — MIT
 - `langgraph-prebuilt` `1.1.0` — MIT
 - `langgraph-sdk` `0.4.8` — MIT
-- `langsmith` `0.10.2` — MIT
+- `langsmith` `0.14.16` — MIT License
 - `librt` `0.9.0` — MIT
 - `limits` `5.8.0` — MIT
+- `loguru` `0.7.3` — MIT License
 - `markdown-it-py` `4.0.0` — MIT License
 - `MarkupSafe` `3.0.3` — BSD-3-Clause
 - `mcp` `1.30.0` — MIT License
 - `mdurl` `0.1.2` — MIT License
+- `mistralai` `1.12.4` — UNKNOWN
+- `mmh3` `5.3.1` — MIT License
 - `mpmath` `1.3.0` — BSD License
 - `msal` `1.39.0` — MIT License
 - `msal-extensions` `1.3.1` — MIT License
@@ -1491,14 +1535,18 @@ Package count: 219
 - `narwhals` `2.25.0` — MIT
 - `networkx` `3.6.1` — BSD-3-Clause
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
-- `openai` `2.32.0` — Apache Software License
+- `onnxruntime` `1.31.1` — MIT License
+- `openai` `2.54.0` — Apache Software License
 - `openpyxl` `3.1.5` — MIT License
 - `opentelemetry-api` `1.42.1` — Apache-2.0
 - `opentelemetry-exporter-gcp-trace` `1.11.0` — Apache Software License
+- `opentelemetry-exporter-otlp-proto-common` `1.42.1` — Apache-2.0
+- `opentelemetry-exporter-otlp-proto-http` `1.42.1` — Apache-2.0
 - `opentelemetry-instrumentation` `0.63b1` — Apache-2.0
 - `opentelemetry-instrumentation-asgi` `0.63b1` — Apache-2.0
 - `opentelemetry-instrumentation-fastapi` `0.63b1` — Apache-2.0
 - `opentelemetry-instrumentation-httpx` `0.63b1` — Apache-2.0
+- `opentelemetry-proto` `1.42.1` — Apache-2.0
 - `opentelemetry-resourcedetector-gcp` `1.11.0a0` — Apache Software License
 - `opentelemetry-sdk` `1.42.1` — Apache-2.0
 - `opentelemetry-semantic-conventions` `0.63b1` — Apache-2.0
@@ -1519,6 +1567,7 @@ Package count: 219
 - `proto-plus` `1.27.0` — Apache Software License
 - `protobuf` `6.33.6` — 3-Clause BSD License
 - `psycopg2-binary` `2.9.11` — GNU Library or Lesser General Public License (LGPL)
+- `py_rust_stemmers` `0.1.8` — UNKNOWN
 - `pyasn1` `0.6.4` — BSD-2-Clause
 - `pyasn1_modules` `0.4.2` — BSD License
 - `pycountry` `26.2.16` — LGPL-2.1-only
@@ -1530,6 +1579,7 @@ Package count: 219
 - `PyJWT` `2.15.1` — MIT
 - `pyluach` `2.3.0` — MIT License
 - `pyOpenSSL` `26.4.0` — Apache Software License
+- `pyparsing` `3.3.3` — MIT
 - `pypdfium2` `5.11.0` — BSD-3-Clause, Apache-2.0, dependency licenses
 - `pytesseract` `0.3.13` — Apache Software License
 - `pytest` `9.0.3` — MIT
@@ -1555,6 +1605,7 @@ Package count: 219
 - `safetensors` `0.8.0` — Apache Software License
 - `scikit-learn` `1.9.0` — BSD-3-Clause
 - `scipy` `1.18.1` — BSD License
+- `semantic-router` `1.1.1` — MIT
 - `sentence-transformers` `6.0.0` — Apache-2.0
 - `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
@@ -1569,19 +1620,45 @@ Package count: 219
 - `sympy` `1.14.0` — BSD License
 - `tenacity` `9.1.4` — Apache Software License
 - `threadpoolctl` `3.6.0` — BSD License
+- `tiktoken` `0.14.0` — MIT License
+
+Copyright (c) 2022 OpenAI, Shantanu Jain
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 - `tokenizers` `0.22.2` — Apache Software License
 - `toolz` `1.2.0` — BSD-3-Clause
 - `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
+- `tornado` `6.6` — Apache Software License
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
 - `transformers` `5.10.1` — Apache 2.0 License
 - `truststore` `0.10.5` — MIT
 - `typer` `0.27.2` — MIT
+- `types-requests` `2.33.0.20261030` — Apache-2.0
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
 - `tzdata` `2026.1` — Apache-2.0
+- `uritemplate` `4.2.0` — BSD 3-Clause OR Apache-2.0
 - `urllib3` `2.8.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause
+- `voyageai` `0.5.0` — MIT License
 - `watchdog` `6.0.0` — Apache Software License
 - `watchfiles` `1.2.0` — MIT License
 - `webauthn` `3.0.0` — BSD-3-Clause
@@ -1620,3 +1697,18 @@ Package count: 1
 ### Package inventory
 
 - `moby-container-profiles` `4b8214fc4971e06172938a1f1554ccff6647ee80` — Apache-2.0; [License](consent-protocol/browser_runtime/azure_host/LICENSE.moby); [Upstream notice](consent-protocol/browser_runtime/azure_host/NOTICE.moby)
+
+## Vendored Email execution resources
+
+Package count: 3
+
+### License summary
+
+- `GPL-3.0-only`: 1
+- `MIT`: 2
+
+### Package inventory
+
+- `theposch/gmail-mcp` `f4c8affe8c08b0fb3deb33570251ed0596e73d9d` — GPL-3.0-only; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/theposch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/executive-ai-assistant` `758db7174223da7864feea7c9f8d1aba12923037` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/eaia/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)
+- `langchain-ai/agents-from-scratch` `603fc7a4ac6119004f43894395e504a1fefcc6c0` — MIT; [License](consent-protocol/hushh_mcp/services/email_oss/vendor/agents_from_scratch/original/LICENSE); [Upstream notice](consent-protocol/hushh_mcp/services/email_oss/vendor/PROVENANCE.md)

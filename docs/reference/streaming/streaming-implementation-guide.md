@@ -52,6 +52,23 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 
 ## 1. Backend Producer
 
+The authenticated shared Agent Chat client records a bounded, metadata-only
+attempt observation for One and its four authored specialist tabs. A server
+`RUN_STARTED` records the start; an uninterrupted `RUN_FINISHED` or `RUN_ERROR`
+records the first reported terminal. These are client reports, not proof of a
+tool effect. Confirmation and receipt continuations share the original capture
+and activity epoch. A recovered interrupt without that capture remains unknown.
+Transport loss, detached readers, missing terminals and a conversation-wide Stop
+acknowledgement never supply an inferred terminal. No prompt, result, attachment
+or free-form message identifier enters this observation path. The volatile
+buffer and server collection budget still limit completeness; this contract
+does not promise durable capture or within-minutes email delivery.
+
+SDK run observations likewise distinguish a recoverable model-call error from
+an unhandled runner error. Only the latter emits failed-run metadata, with the
+original capture epoch; neither callback reads error bodies or grants email
+authority. Failed runs release their in-memory capture just like completed runs.
+
 - Kai producers emit SSE using the canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`. Agent Chat uses its existing AG-UI bridge; do not wrap AG-UI events in a second Kai envelope.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
@@ -166,6 +183,28 @@ execution](https://docs.cloud.google.com/run/docs/tips/general).
 ### Personal World Model research
 
 `GET /api/one/world-model/jobs/stream` is an owner-authorized research stream, separate from the Kai envelope above. It sends `progress` with observed counts and source titles, a cumulative `partial` list of checkpointed cited findings, `ping` heartbeats, and a terminal `result`. The client parses complete SSE blocks with the shared parser and validates each payload against the PWM schema. A later `partial` replaces the earlier list, including an empty list after authority or evidence invalidation. Reconnect or a status read restores the current checkpoint; a provider interruption must not erase already validated provisional findings. Provisional findings are read-only until the final offered report passes evidence validation and the owner chooses what to save.
+
+### Typed Gmail evidence and coverage
+
+One delegates an authorized mailbox request to Email's existing scoped OSS tool loop.
+Search uses one native Gmail page and one batch. A rejected query can be corrected
+once before any usable page; the next page requires a new user turn. A listing
+does not download message bodies or attachments. Received time comes from Gmail's
+internal timestamp; reply headers and message/thread identities support source-bound
+comparison. The final assistant text is stored through the existing encrypted
+conversation owner.
+
+The live `specialist_read.v1` Mail receipt supports up to 60 opaque source
+references with per-source metadata or message coverage. Clients that send
+`emailReadReceiptContract: 2` also receive bounded `truncation_reasons`.
+Older clients and restored history keep the existing summary shape. Activity
+counts describe observed sources; they do not establish mailbox-wide completeness.
+
+Existing request IDs link the Root and Email terminal timing lines. Model and tool
+counts, first text, Gmail HTTP/API counts, and elapsed times are recorded without
+query or message content. The UAT attachment port is fail-closed: it requires the
+qualified private worker origin, service-scoped invocation and verified network
+reachability. Scanner or parser failure leaves the amount unresolved.
 
 ### Live Email and Calendar reads
 

@@ -32,16 +32,18 @@ import { FinanceSharingHistoryAction } from "@/components/kai/sharing/finance-sh
 import { PortfolioValueCard } from "@/components/kai/cards/portfolio-value-card";
 import { overviewFacts } from "@/components/kai/views/portfolio-display-facts";
 import { PortfolioOverview } from "@/components/kai/views/portfolio-overview";
-import { PortfolioBriefing, PortfolioAnalysis } from "@/components/kai/views/portfolio-briefing";
+import { PortfolioBriefing, PortfolioAnalysis, PortfolioNetWorthCard, type NetWorthRecovery } from "@/components/kai/views/portfolio-briefing";
 import { AdvisorReviewHub } from "@/components/kai/advisor/advisor-review-hub";
 import { GainLossDistributionChart } from "@/components/kai/charts/gain-loss-distribution-chart";
 import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-concentration-chart";
+import { formatCurrency } from "@/lib/kai/market-value-format";
 import financeStyles from "@/components/kai/shared/finance-workspace.module.css";
 import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-allocation-bar";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
-import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
+import { finiteNumber, toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
+import { HoldingGainLoss } from "@/components/kai/holdings/holding-gain-loss";
 import { holdingTableColumns } from "@/components/kai/holdings/holding-table-columns";
 import { ApiService } from "@/lib/services/api-service";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
@@ -128,7 +130,7 @@ interface ComparableHolding {
   quantity: number;
   price: number;
   market_value: number;
-  cost_basis: number;
+  cost_basis: number | null;
   acquisition_date: string;
 }
 
@@ -152,14 +154,6 @@ const FINANCIAL_INTENT_MAP = [
   "runtime",
   "analysis.decisions",
 ] as const;
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`;
@@ -319,9 +313,7 @@ function toComparableHolding(
     market_value: Number.isFinite(Number(holding.market_value))
       ? Number(holding.market_value)
       : 0,
-    cost_basis: Number.isFinite(Number(holding.cost_basis))
-      ? Number(holding.cost_basis)
-      : 0,
+    cost_basis: finiteNumber(holding.cost_basis),
     acquisition_date: String(holding.acquisition_date || "").trim(),
   };
 }
@@ -336,7 +328,7 @@ function comparableHoldingsEqual(
     Math.abs(a.quantity - b.quantity) < 0.0001 &&
     Math.abs(a.price - b.price) < 0.0001 &&
     Math.abs(a.market_value - b.market_value) < 0.01 &&
-    Math.abs(a.cost_basis - b.cost_basis) < 0.01 &&
+    (a.cost_basis === b.cost_basis || (a.cost_basis !== null && b.cost_basis !== null && Math.abs(a.cost_basis - b.cost_basis) < 0.01)) &&
     a.acquisition_date === b.acquisition_date
   );
 }
@@ -386,6 +378,7 @@ export function DashboardMasterView({
     isLoading: isSourcesLoading,
     error: sourcesError,
     plaidStatus,
+    linkedNetWorthScore,
     statementPortfolio,
     statementSnapshots,
     activeStatementSnapshotId,
@@ -649,7 +642,8 @@ export function DashboardMasterView({
     );
     const holdingsIncludeCash = cashHoldings.length > 0;
     const endingValue =
-      holdingsTotalValue + (holdingsIncludeCash ? 0 : cashBalance);
+      holdingsTotalValue + (holdingsIncludeCash ? 0 : cashBalance) +
+      (sourcePortfolio.account_summary?.pending_receivables ?? 0);
     const beginningValueRaw = Number(
       sourcePortfolio.account_summary?.beginning_value,
     );
@@ -1113,7 +1107,8 @@ export function DashboardMasterView({
       );
       const holdingsIncludeCash = cashHoldings.length > 0;
       const endingValue =
-        holdingsTotalValue + (holdingsIncludeCash ? 0 : cashBalance);
+        holdingsTotalValue + (holdingsIncludeCash ? 0 : cashBalance) +
+        (statementEditablePortfolio.account_summary?.pending_receivables ?? 0);
       const beginningValueRaw = Number(
         statementEditablePortfolio.account_summary?.beginning_value,
       );
@@ -1543,6 +1538,7 @@ export function DashboardMasterView({
       const result = await exportPortfolioPdf(portfolioSharePayload, {
         source: activeSource === "statement" ? "Statement" : "Plaid",
         period: model.hero.statementPeriod || "Current portfolio snapshot",
+        positions: groupHoldingPositions(workingPortfolioData.holdings ?? []),
         ...overviewFacts(model, displayedPortfolio),
       });
       if (result === "download") {
@@ -1567,10 +1563,49 @@ export function DashboardMasterView({
     } finally {
       setIsSharingPortfolioPdf(false);
     }
-  }, [activeSource, displayedPortfolio, model, hasShareablePortfolioData, isSharingPortfolioPdf, portfolioSharePayload]);
+  }, [activeSource, displayedPortfolio, model, hasShareablePortfolioData, isSharingPortfolioPdf, portfolioSharePayload, workingPortfolioData]);
 
   const sourceDisplayLabel =
     activeSource === "statement" ? "Statement" : "Plaid";
+  const relinkItem = plaidStatus?.items.find((item) => item.status === "needs_relink");
+  const plaidBusy = isLinkingPlaid || isPlaidRefreshing;
+  let netWorthRecovery: NetWorthRecovery;
+  if (!vaultKey || !vaultOwnerToken) {
+    netWorthRecovery = { description: "Unlock your vault to see your score." };
+  } else if (isSourcesLoading) {
+    netWorthRecovery = { description: "Checking your bank connections…" };
+  } else if (sourcesError) {
+    netWorthRecovery = {
+      description: "Your bank connections could not be checked.",
+      action: { label: "Try again", run: () => void reload() },
+    };
+  } else if (!hasPlaidConnections) {
+    netWorthRecovery = plaidConfigured ? {
+      description: "Connect a bank with Plaid to calculate your score.",
+      action: { label: "Connect a bank", run: () => void openPlaidLinkFlow(), disabled: plaidBusy },
+    } : { description: "Plaid connection is unavailable right now." };
+  } else if (relinkItem) {
+    netWorthRecovery = {
+      description: "A linked bank needs you to sign in again before your score can be updated.",
+      action: {
+        label: relinkItem.institution_name ? `Reconnect ${relinkItem.institution_name}` : "Reconnect bank",
+        run: () => void openPlaidLinkFlow(relinkItem.item_id),
+        disabled: plaidBusy,
+      },
+    };
+  } else if (linkedNetWorthScore?.unavailable_reason === "unsupported_account_or_currency" ||
+      (linkedNetWorthScore?.country_on_file && linkedNetWorthScore.country_on_file !== "US")) {
+    netWorthRecovery = { description: "This score currently supports eligible U.S. accounts in USD." };
+  } else if (linkedNetWorthScore?.unavailable_reason === "no_eligible_accounts") {
+    netWorthRecovery = { description: "Plaid did not return any eligible personal accounts." };
+  } else {
+    netWorthRecovery = {
+      description: linkedNetWorthScore?.unavailable_reason === "balance_unavailable"
+        ? "Plaid did not return all required balances. Refresh your linked accounts to try again."
+        : "Refresh your linked accounts to check balances and the country on file.",
+      action: { label: "Refresh accounts", run: handleRefreshPlaid, disabled: plaidBusy },
+    };
+  }
   const dashboardVoiceSurfaceMetadata = useMemo(() => {
     const sections = [
       {
@@ -1908,11 +1943,23 @@ export function DashboardMasterView({
         />
         <AppPageContentRegion>
           <SurfaceCard className="w-full">
-            <SurfaceCardContent className="flex items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
+            <SurfaceCardContent className="flex items-center justify-center gap-3 p-4 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Loading portfolio sources...
             </SurfaceCardContent>
           </SurfaceCard>
+        </AppPageContentRegion>
+      </div>
+    );
+  }
+
+  if (!displayedPortfolio && section === "analysis") {
+    return (
+      <div className={cn(financeStyles.detail, "w-full min-w-0 max-w-full")}>
+        <KaiWorkspaceHeader workspace="portfolio" title="Portfolio analysis" />
+        <AppPageContentRegion className="space-y-3">
+          <PortfolioNetWorthCard result={linkedNetWorthScore} recovery={netWorthRecovery} />
+          <p className={financeStyles.description}>Add investment holdings to see portfolio charts.</p>
         </AppPageContentRegion>
       </div>
     );
@@ -1927,7 +1974,6 @@ export function DashboardMasterView({
           description="Choose how you want to begin."
         />
         <AppPageContentRegion className="space-y-3">
-          <PortfolioBriefing onOpen={onReupload} />
           <SettingsGroup
             embedded
             separatorInset
@@ -1986,8 +2032,9 @@ export function DashboardMasterView({
           title="Portfolio"
         />
         <AppPageContentRegion className="min-w-0 max-w-full space-y-4">
-          <PortfolioOverview model={model} portfolio={displayedPortfolio} source={sourceDisplayLabel} onImport={onReupload}
-            briefing={<PortfolioBriefing model={model} portfolio={displayedPortfolio} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
+          <PortfolioOverview model={model} portfolio={workingPortfolioData} source={sourceDisplayLabel} onImport={onReupload}
+            valuationKind={activeSource === "statement" ? "statement" : "linked"} loadHistory={loadHoldingHistory}
+            briefing={<PortfolioBriefing model={model} portfolio={displayedPortfolio} linkedNetWorthScore={linkedNetWorthScore} onOpen={() => router.push(buildKaiPortfolioSectionRoute("analysis"))} />}
             sharing={<FinancePortfolioSharing model={model} source={{ kind: activeSource, snapshotId: activeSource === "statement" ? activeStatementSnapshotId : null }} />}
             period={model.hero.statementPeriod || (freshness?.lastSyncedAt ? `Updated ${new Date(freshness.lastSyncedAt).toLocaleString()}` : "Current portfolio snapshot")}
             onOpenSection={section => router.push(buildKaiPortfolioSectionRoute(section))}
@@ -2233,11 +2280,7 @@ export function DashboardMasterView({
                 testId="portfolio-holdings-mobile-list"
               >
                 {mobileHoldingRows.map((holding) => {
-                  const marketValue = Number(holding.market_value || 0);
-                  const weightPct =
-                    holdingsTableDenominator > 0
-                      ? (marketValue / holdingsTableDenominator) * 100
-                      : 0;
+                  const view = toHoldingViewModel(holding, holdingsTableDenominator);
                   return (
                     <SettingsRow
                       key={holding.client_id}
@@ -2257,11 +2300,12 @@ export function DashboardMasterView({
                         ) : (
                           <span className="text-right">
                             <span className="block text-sm font-medium tabular-nums text-foreground">
-                              {formatCurrency(marketValue)}
+                              {formatCurrency(view.marketValue, view.currency)}
                             </span>
                             <span className="block text-[11px] tabular-nums text-muted-foreground">
-                              {formatPercent(weightPct)}
+                              {formatPercent(view.portfolioWeightPct)}
                             </span>
+                            {!view.isCash && <HoldingGainLoss holding={view} className="ui-text-row-description block tabular-nums" />}
                           </span>
                         )
                       }
@@ -2272,6 +2316,8 @@ export function DashboardMasterView({
                           : `View details for ${holding.symbol || "holding"}`
                       }
                       className={cn(
+                        financeStyles.mobileHoldingRow,
+                        selectedHoldingId === holding.client_id && [financeStyles.interactiveRow, financeStyles.selectedRow],
                         holding.pending_delete &&
                           "bg-rose-500/5 opacity-60",
                       )}
@@ -2308,9 +2354,11 @@ export function DashboardMasterView({
                   searchPlaceholder="Search holdings by ticker or company"
                   initialPageSize={8}
                   pageSizeOptions={[8, 16, 24]}
+                  compactPagination
                   rowClassName={(holding) =>
                     cn(
-                      "transition-colors",
+                      financeStyles.interactiveRow,
+                      selectedHoldingId === holding.client_id && financeStyles.selectedRow,
                       holding.pending_delete && "bg-rose-500/5 [&_td:not(:first-child)]:line-through",
                     )
                   }
@@ -2349,7 +2397,7 @@ export function DashboardMasterView({
                 <CollapsibleTrigger asChild>
                   <button
                     type="button"
-                    className="flex min-h-14 w-full items-center justify-between gap-4 px-5 text-left sm:px-7"
+                    className="flex min-h-11 w-full items-center justify-between gap-3 px-4 text-left"
                   >
                     <span>
                       <span className="block text-[15px] font-medium text-foreground">
@@ -2368,7 +2416,7 @@ export function DashboardMasterView({
                   </button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <SurfaceCardContent className="grid gap-4 px-5 pb-5 pt-0 sm:grid-cols-2 sm:px-7 sm:pb-7">
+                  <SurfaceCardContent className="grid gap-3 px-4 pb-4 pt-0 sm:grid-cols-2">
                     {model.quality.concentrationReady ? (
                       <HoldingsConcentrationChart
                         className="min-w-0"

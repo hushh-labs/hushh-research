@@ -10,16 +10,19 @@
 .sectionTitle { --foundation-title2-size: var(--app-side-pane-section-size, 14px); --foundation-title2-line: var(--app-side-pane-section-line, 22px); --foundation-title2-weight: var(--app-side-pane-section-weight, 600); --foundation-title3-size: var(--app-side-pane-section-size, 14px); --foundation-title3-line: var(--app-side-pane-section-line, 22px); --foundation-title3-weight: var(--app-side-pane-section-weight, 600); margin: 0; letter-spacing: -.025em; }
 .range { margin: 3px 0 16px; font-size: var(--profile-type-description-size, 12px); color: var(--app-secondary-label); line-height: var(--profile-type-description-line, normal); }
 .list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.inviteCard { display: grid; grid-template-columns: 58px minmax(0,1fr) 14px; gap: 12px; width: 100%; padding: 16px 12px; text-align: left; border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); cursor: pointer; }
+.inviteCard { display: grid; grid-template-columns: 58px minmax(0,1fr) 14px; gap: 12px; align-items: start; width: 100%; padding: 14px; text-align: left; border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); cursor: pointer; }
 .inviteCard:focus-visible, .providerShortcut:focus-visible, .calendarLink:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 3px; }
 .inviteCard:is([aria-pressed=true], [data-pressed=true]) { box-shadow: inset 0 0 0 1px var(--app-accent-ring); }
-.title { font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); letter-spacing: 0; }
+.eventSummary { display: grid; gap: 2px; min-width: 0; }
+.organizerCopy { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.title { white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); letter-spacing: 0; }
 .muted { color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; }
 .dateBlock { display: flex; flex-direction: column; align-items: center; width: 58px; height: 76px; overflow: hidden; border-radius: 12px; background: var(--app-neutral-fill); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .dateBlock > span { width: 100%; padding: 3px 0; text-align: center; font-size: var(--app-side-pane-section-size, 10px); line-height: var(--app-side-pane-section-line, 15px); color: var(--app-destructive, #e63335); background: color-mix(in oklab, var(--app-destructive, #ff3b30) 9%, var(--app-card-surface-default-solid)); letter-spacing: var(--app-side-pane-section-tracking, normal); font-weight: var(--app-side-pane-section-weight, 600); }
 .dateBlock > strong { font-size: 25px; line-height: 30px; font-weight: 600; }
 .dateBlock > small { font-size: var(--profile-type-description-size, 11px); line-height: var(--profile-type-description-line, 17px); color: var(--app-secondary-label); }
 .organizer, .person { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: var(--app-side-pane-row-title-size, 14px); line-height: var(--app-side-pane-row-title-line, 21px); font-weight: var(--app-side-pane-row-title-weight, 550); }
+.organizer { gap: 8px; margin-top: 6px; }
 .organizer .muted { font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); }
 .avatar { flex-shrink: 0; }
 .preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); margin-top: 6px; }
@@ -27,6 +30,8 @@
 .response { align-self: flex-start; margin-top: 4px; font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-secondary-label); }
 .response[data-response="accepted"] { color: var(--app-success-deep); }
 .conflict { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; font-size: var(--app-side-pane-row-title-size, 13px); line-height: var(--app-side-pane-row-title-line, 18px); font-weight: var(--app-side-pane-row-title-weight, 600); color: var(--app-warning-deep, #986000); overflow-wrap: anywhere; }
+.inviteCard .conflict { margin-top: 6px; font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, 18px); font-weight: 400; }
+.inviteCard .conflict > svg { flex: none; margin-top: 2px; }
 .providerShortcut, .calendarLink { display: flex; align-items: center; gap: 14px; min-height: 68px; padding: 12px 16px; text-decoration: none; background: var(--app-card-surface-default-solid); color: var(--app-label); font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, normal); }
 .providerShortcut { margin-top: 14px; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); }
 .providerShortcut > span:first-child, .calendarLink > span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: var(--app-accent); background: var(--app-accent-surface); flex-shrink: 0; }
@@ -35,9 +40,12 @@
 .providerShortcut small { color: var(--app-secondary-label); font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
 .detailCard { overflow: hidden; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); }
 .detailHeading { display: flex; align-items: flex-start; gap: 16px; padding: 20px 16px; }
-.detailHeading h2 { --foundation-title2-size: var(--profile-type-dialog-title-size, 20px); --foundation-title2-line: var(--profile-type-dialog-title-line, 28px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); letter-spacing: -.025em; }
+.detailHeading h2 { --foundation-title2-size: var(--profile-type-dialog-title-size, 20px); --foundation-title2-line: var(--profile-type-dialog-title-line, 28px); --foundation-title2-weight: var(--profile-type-dialog-title-weight, 600); margin: 0; letter-spacing: 0; white-space: pre-wrap; word-break: normal; overflow-wrap: anywhere; text-wrap: pretty; }
 .meeting { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: var(--profile-type-description-size, 13px); line-height: var(--profile-type-description-line, normal); }
-.meeting > a { display: inline-flex; align-items: center; justify-content: center; min-width: 88px; min-height: 44px; padding: 0 15px; border: 1px solid color-mix(in srgb, var(--app-accent) 32%, var(--app-card-surface-default-solid)); border-radius: 999px; text-decoration: none; background: var(--app-card-surface-default-solid); color: var(--app-accent); font-size: var(--profile-type-action-size, 12px); line-height: var(--profile-type-action-line, 18px); font-weight: var(--profile-type-action-weight, 550); }
+.meetingProvider { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.meeting > a { display: inline-flex; align-items: center; justify-content: center; min-width: 88px; min-height: 44px; padding: 0 4px; border: 0; border-radius: 4px; text-decoration: none; background: transparent; color: var(--app-accent); font-size: var(--profile-type-action-size, 12px); line-height: var(--profile-type-action-line, 18px); font-weight: var(--profile-type-action-weight, 550); }
+.meeting > a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.meeting > a:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .detailSection { padding: 16px; border-top: 1px solid var(--app-separator); }
 .detailSection .sectionLabel { font-size: var(--app-side-pane-section-size, 14px); line-height: var(--app-side-pane-section-line, 22px); font-weight: var(--app-side-pane-section-weight, 600); color: var(--app-secondary-label); margin-bottom: 10px; letter-spacing: var(--app-side-pane-section-tracking, normal); }
 .detailSection p { margin: 0; font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); }
@@ -65,13 +73,13 @@
 .calendarLink { border-top: 1px solid var(--app-separator); }
 .calendarLink > svg { color: var(--app-accent); }
 .back { display: inline-flex; min-height: 44px; margin-bottom: 12px; padding-left: 0; color: var(--app-secondary-label); }
-.actions { display: grid; gap: 10px; margin-top: 24px; }
+.actions { display: grid; gap: 4px; margin-top: 20px; }
 .actionPair { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
 .actionPair > button { width: 100%; }
-.actionPair > button > span, .offerButton > span { width: 100%; }
-.offerButton { width: 100%; }
+.actionPair > button > span { width: 100%; }
+.actions .offerButton { justify-self: center; width: fit-content; max-width: 100%; min-height: 44px; padding-inline: 8px; border-color: transparent !important; background-color: transparent !important; --type-compact-button-label-size: var(--profile-type-description-size, 12px); --type-compact-button-label-weight: 400; }
+.actions .offerButton:hover, .actions .offerButton:active { background-color: var(--app-accent-surface) !important; }
 .actions[data-workspace="true"] > button { justify-self: center; width: fit-content; max-width: 100%; }
-.actions[data-workspace="true"] > .offerButton { justify-self: stretch; width: 100%; }
 .actions[data-workspace="true"] .actionPair > button { width: 100%; }
 .review { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--app-separator); border-radius: var(--app-card-radius-standard); background: var(--app-card-surface-default-solid); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, 21px); overflow-wrap: anywhere; }
 .review h3 { --foundation-headline-size: var(--app-side-pane-row-title-size, 14px); --foundation-headline-line: var(--app-side-pane-row-title-line, 22px); --foundation-headline-weight: var(--app-side-pane-row-title-weight, 600); }
@@ -79,12 +87,10 @@
 .openings { margin: 0; padding-left: 18px; font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
 .empty { padding: 32px 16px; color: var(--app-secondary-label); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
 @media (min-width:768px) { .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
-@media (max-width:620px) { .meeting > a { min-width: 78px; padding-inline: 11px; } }
-@media (max-width:350px) { .meeting > a { min-width: 72px; padding-inline: 9px; } }
 
-.invitations[data-workspace=true] { display: grid; gap: 16px; }
-.invitations[data-workspace=true] .filters { margin: 4px 0 0; }
-.sectionTitle { margin-bottom: 16px; }
+.invitations[data-workspace=true] { display: grid; gap: 12px; }
+.invitations[data-workspace=true] .filters { margin: 0; }
+.sectionTitle { margin-bottom: 12px; }
 @media (min-width:768px) {
   .invitations[data-workspace=true] .workspace { align-items: start; }
   .invitations[data-workspace=true] .inviteCard:is([aria-pressed=true], [data-pressed=true]) { background: var(--app-accent-surface); }

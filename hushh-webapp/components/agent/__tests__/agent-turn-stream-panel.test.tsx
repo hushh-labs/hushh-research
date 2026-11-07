@@ -150,7 +150,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.getByRole("region", { name: "Mail read details" })).toBeInTheDocument();
     expect(screen.getByText("Metadata only · 1 cited source")).toBeInTheDocument();
     expect(screen.getByText("Mail 1")).toBeInTheDocument();
-    expect(screen.getByText("Some matches or metadata were omitted.")).toBeInTheDocument();
+    expect(screen.getByText("Mail coverage was incomplete.")).toBeInTheDocument();
     expect(onOpenConnections).not.toHaveBeenCalled();
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
       isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}

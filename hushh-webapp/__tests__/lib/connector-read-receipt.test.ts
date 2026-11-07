@@ -86,7 +86,7 @@ describe("connector read receipts", () => {
     expect(value).toEqual({ type: "one.connector_read.v1", connector: "mail", status: "ok",
       sourceRefs: ["mail:1", "mail:2"], truncated: true, metadataOnly: false });
     expect(JSON.stringify(value)).not.toContain("PRIVATE");
-    // The kind must agree with the declared scope in both directions.
+    // A metadata-only receipt cannot claim to have read message text.
     expect(parseConnectorReadReceipt({ ...body, metadata_only: true })).toBeNull();
     expect(parseConnectorReadReceipt({ ...body,
       sources: [{ source_ref: "mail:1", label: "Mail", kind: "thread" }] })).toBeNull();
@@ -94,13 +94,29 @@ describe("connector read receipts", () => {
       sources: [{ source_ref: "mail:1", label: "Mail", kind: "document" }] })).toBeNull();
   });
 
+  it("keeps up to 60 Mail sources with mixed metadata and message evidence", () => {
+    const sources = Array.from({ length: 60 }, (_, index) => ({
+      source_ref: `mail:${index + 1}`, label: "Mail", kind: index === 0 ? "message" : "metadata",
+    }));
+    expect(parseConnectorReadReceipt({ ...receipt, metadata_only: false, sources,
+      truncation_reasons: ["more_pages", "failed_reads"] })).toMatchObject({
+      sourceRefs: sources.map(source => source.source_ref),
+      metadataOnly: false,
+      truncationReasons: ["more_pages", "failed_reads"],
+    });
+    expect(parseConnectorReadReceipt({ ...receipt, metadata_only: false }))
+      .toMatchObject({ sourceRefs: ["mail:1"], metadataOnly: false });
+  });
+
   it.each([
     { schema_version: "future" }, { connector: "drive" }, { status: "invented" },
     { token: "PRIVATE" }, { sources: [{ source_ref: "https://evil.invalid", label: "Mail", kind: "metadata" }] },
     { sources: [{ source_ref: "mail:1", label: "PRIVATE_FILENAME", kind: "metadata" }] },
-    { sources: [{ source_ref: "mail:26", label: "Mail", kind: "metadata" }] },
+    { sources: [{ source_ref: "mail:61", label: "Mail", kind: "metadata" }] },
     { sources: [...receipt.sources, ...receipt.sources] }, { status: "reconnect_required" },
-    { metadata_only: false }, { truncated: "false" },
+    { truncated: "false" }, { truncation_reasons: ["private query"] },
+    { truncation_reasons: ["more_pages", "more_pages"] },
+    { truncated: false, truncation_reasons: ["more_pages"] },
   ])("rejects malformed or widening receipt %j", (override) => {
     expect(parseConnectorReadReceipt({ ...receipt, ...override })).toBeNull();
   });

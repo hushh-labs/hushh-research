@@ -122,10 +122,6 @@ function declineLabel(event: CalendarEventSummary, viewingEmail: string, respons
 }
 
 function accountLabel(email: string | null) { return email || "Google account"; }
-function accountEmailParts(email: string): [string, string] {
-  const at = email.lastIndexOf("@");
-  return at > 0 ? [email.slice(0, at), email.slice(at)] : [email, ""];
-}
 
 function CalendarAccountPicker({ accounts, value, onChange, people }: {
   accounts: GoogleCalendarAccount[]; value: string; onChange: (accountId: string) => void; people: CalendarHusshPeople;
@@ -308,7 +304,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
 
   return <AppPageShell width="agent" headerContentSpacing="compact" className={styles.shell} data-profile-type-scale="page" nativeTest={{ routeId: ROUTES.CALENDAR, marker: "native-route-calendar", authState: "authenticated", dataState: loading ? "loading" : error ? "error" : board?.complete ? "loaded" : "unavailable-valid" }}>
     <div className={styles.content} data-calendar-account-board data-calendar-presentation>
-      <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile
+      <PageHeader title="Calendar" titleRole="agent" titleVisuallyHidden actionsInlineMobile className={styles.accountSummary}
         description={<span className={styles.description}>{status.accounts?.length || accounts.length} of 3 Google accounts added</span>}
         actions={<div className={styles.headerActions}>
           <CalendarCompactAction disabled={busy || actionBusy || (status.accounts?.length || 0) >= 3} onClick={onAddAccount}><Plus aria-hidden className="size-4" />Add account</CalendarCompactAction>
@@ -333,9 +329,9 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               const occasions = account.events.filter(event => boardOccasionKind(event) !== null);
               const otherItems = account.events.filter(event => !isCountedBoardEvent(event) && boardOccasionKind(event) === null);
               const scrollEvents = meetings.length + otherItems.length > 3;
-              const [accountName, accountDomain] = accountEmailParts(account.google_email);
+              const accountName = accountLabel(account.google_email);
               const verifiedAccount = status.accounts?.find(item => item.account_id === account.account_id);
-              const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, calendarPeople);
+              const husshPhoto = verifiedCalendarAccountPhoto(verifiedAccount, account.google_email, people);
               const renderEvent = (event: CalendarEventSummary) => {
                 const choice: Selection = { accountId: account.account_id, calendarId: event.calendar_id || "primary", eventId: event.id || "" };
                 const count = board.conflicts.filter(pair => pairIncludes(pair, choice)).length;
@@ -389,14 +385,14 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
           </SurfaceCard>
         </> : null}
       </> : tab === "invitations" ? <section className={styles.secondary} aria-label="Invitations">
-        <CalendarAccountPicker accounts={status.accounts || []} value={invitationAccount} onChange={setInvitationAccount} people={calendarPeople} />
+        <CalendarAccountPicker accounts={status.accounts || []} value={invitationAccount} onChange={setInvitationAccount} people={people} />
         {status.accounts?.find(account => account.account_id === invitationAccount)?.connected ? <CalendarInvitations key={invitationAccount} workspaceLayout calendarPeople={calendarPeople} userId={userId} accountId={invitationAccount} accountEmail={status.accounts.find(account => account.account_id === invitationAccount)?.google_email} zone={zone} getIdToken={getIdToken} busy={busy} connectionRevision={connectionRevision} onConnect={invitationAccount === "default" ? onConnect : () => onReconnectAccount(invitationAccount)} onMailConnect={onMailConnect} onResult={() => { notifyCalendarChanged(userId); setRevision(value => value + 1); }} /> : <p role="alert">Reconnect this account to see its invitations.</p>}
       </section> : <section className={styles.secondary} aria-label="Calendar insights">
-        <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={calendarPeople} />
+        <CalendarAccountPicker accounts={status.accounts || []} value={insightsAccount} onChange={setInsightsAccount} people={people} />
         {status.accounts?.find(account => account.account_id === insightsAccount)?.connected ? <CalendarInsights key={`${userId}:${insightsAccount}:${zone}`} userId={userId} account={status.accounts.find(account => account.account_id === insightsAccount)!} today={today} zone={zone} connectionRevision={connectionRevision} refreshRevision={insightsRefreshRevision} refreshControl="external" initialLibrary={restored?.accountId === insightsAccount ? restored : null} getIdToken={getIdToken} getVaultOwnerToken={getVaultOwnerToken} onAllowMeetingFiles={onAllowMeetingFiles} onFollowupMailConnect={onFollowupMailConnect} followupRequestId={followupIntent?.accountId === insightsAccount ? followupIntent.requestId : null} onFollowupIntentHandled={() => setFollowupIntent(null)} onReviewFollowupMeeting={(request, startAt, endAt, timeZone) => setBooking({ start_at: startAt, end_at: endAt, accountId: insightsAccount, scope: "account", titleHint: request.title, timeZoneHint: timeZone, followupRequest: { id: request.id, revision: request.revision } })} /> : <p role="alert">Reconnect this account to see its insights.</p>}
       </section>}
       <div className={styles.footer}><Button onClick={() => onChat()} disabled={busy}>Try Calendar Agent with One</Button></div>
-      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
+      {booking ? <CalendarBookingDialog key={`${booking.start_at}:${booking.end_at}:${booking.accountId || "all"}:${booking.followupRequest?.id || ""}`} opening={booking} accounts={status.accounts || []} people={calendarPeople} accountPeople={people} userId={userId} token={token} timeZone={booking.timeZoneHint || zone} alternatives={board?.shared_free_windows || []} onClose={closeBooking} onConflict={() => setRevision(value => value + 1)} onRequireWrite={accountId => accountId === "default" ? onConnect("manage", true) : onReconnectAccount(accountId)} onConfirmed={async (result, startAt, accountId, accountEmail) => {
         const request = booking.followupRequest;
         const selectedAccount = booking.accountId;
         closeBooking();
@@ -443,9 +439,8 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
               {selectedDeclines.main ? <section><strong>{selectedDeclines.main.title}</strong>{selectedDeclines.main.detail ? <small>{selectedDeclines.main.detail}</small> : null}<p>{selectedDeclines.main.reason}</p></section> : null}
               {selectedDeclines.others.length ? <section><strong>{selectedDeclines.main ? "Also declined" : `Declined (${selectedDeclines.others.length})`}</strong><ul>{selectedDeclines.others.map(guest => <li key={guest.email}><span><CalendarPersonAvatar name={guest.name} photoUrl={calendarHusshPerson(people, guest.email)?.photoUrl ?? null} className={styles.inlineAvatar} size="xs" source="hussh" />{guest.name}</span>{guest.name !== guest.email ? <small>{guest.email}</small> : null}<p className={!guest.comment?.trim() ? styles.noReason : undefined}>{declineReason(guest.comment)}</p></li>)}</ul></section> : null}
             </div> : null}
-            {!isCalendarEventEnded(selectedEvent, now, zone) && safeMeetingUrl(selectedEvent.conference_url) ? <CalendarJoinLink className={styles.join} url={selectedEvent.conference_url} accountEmail={selectedAccount.google_email} /> : null}
             {overlaps.length ? <div className={styles.overlapDetail}><h3><AlertTriangle aria-hidden className="size-4" />Overlapping meetings</h3>{overlaps.map(pair => { const other = otherSide(pair, selected); const event = findEvent({ accountId: other.account_id, calendarId: other.calendar_id, eventId: other.event_id }); const account = accounts.find(item => item.account_id === other.account_id); return <div key={identity(other)} className={styles.overlapItem}><strong>{event?.title || "Another meeting"}</strong><p>{accountLabel(account?.google_email || null)} · {event ? eventTime(event, zone) : "Time unavailable"}</p><p>Overlap: {availabilityTimeRangeLabel(pair.start_at, pair.end_at, zone, date)}</p></div>; })}{!board?.conflicts_complete || error ? <p role="alert">Refresh every account before resolving conflicts.</p> : <CalendarCompactAction disabled={actionBusy || busy} onClick={() => setResolving(true)}>Resolve these overlaps</CalendarCompactAction>}</div> : null}
-            {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={() => { refreshOnClose.current = true; }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}
+            {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={result => { if (result.calendar === "declined" || result.calendar === "accepted" || result.calendar === "tentative") { if (result.email === "sent" || (result.calendar !== "declined" && result.email === "not_sent")) { refreshOnClose.current = false; setSelected(null); setRevision(value => value + 1); } else { refreshOnClose.current = true; } } }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}
             </>}
           </> : null}
         </DialogContent>
