@@ -153,7 +153,10 @@ export function observeDispatch<T extends { status: string }>(
   const captured = observation(snapshotProductActivityScope());
   if (typeof window !== "undefined") enqueue(actionId, "started", id, captured);
   return operation.then((result) => dispatchResult(result, { actionId, id, captured }), (error: unknown) => {
-    if (typeof window !== "undefined") enqueue(actionId, error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "failed", id, captured);
+    // Losing the transport or deadline is not an authoritative action outcome.
+    const uncertain = (error instanceof Error || error instanceof DOMException) &&
+      ["AbortError", "TimeoutError"].includes(error.name);
+    if (!uncertain && typeof window !== "undefined") enqueue(actionId, "failed", id, captured);
     throw error;
   });
 }
