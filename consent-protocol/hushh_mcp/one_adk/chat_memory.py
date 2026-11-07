@@ -68,7 +68,7 @@ def context_budget(model: str) -> ContextBudget:
     # Azure deployment IDs are arbitrary. Resolve only descriptors in the
     # server-owned model contract, never infer a model from its deployment name.
     policy = load_managed_runtime_policy(environment="uat", provider="azure_openai")
-    for descriptor in policy["azure"].values():
+    for descriptor in policy["azure"].values() if policy else ():
         if isinstance(descriptor, dict) and descriptor.get("deployment") == model:
             name = descriptor["model"]
             break
@@ -154,7 +154,7 @@ def checkpoint_prefix(session: Any, checkpoint: Any) -> list[Any] | None:
     for index, event in enumerate(session.events):
         if _event_identity(event) != checkpoint.get("cutoff"):
             continue
-        prefix = session.events[: index + 1]
+        prefix: list[Any] = session.events[: index + 1]
         covered = {item.invocation_id for item in prefix if item.invocation_id}
         # Model-facing history is aligned by invocation. A resumed invocation
         # must never make its newer, uncovered messages disappear with the prefix.

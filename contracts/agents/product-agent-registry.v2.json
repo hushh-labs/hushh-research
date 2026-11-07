@@ -5040,7 +5040,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "a700123d8301b2058aac6e31e4ebd8356ac695dbc02e2bb078945d84681ba961",
+      "system_instruction_sha256": "207b1d55d34de2d4d75b7ba533cc1744a886a54c56858f5e41940e65b44d654a",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
