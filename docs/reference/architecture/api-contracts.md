@@ -5781,6 +5781,19 @@ timeouts and an unacknowledged file handoff remain unknown. A confirmed write is
 not changed to failure by a later metadata refresh. Existing aggregate Memory
 observations remain unpaired and cannot create additional attempt emails.
 
+Manual KYC profile imports in Mail and Email setup report `kyc.save_profile`
+under KYC. Both preserve the originally admitted owner and generation. Local
+Memory staging does not settle the attempt: the existing encrypted-write queue
+notifies a RAM-only, zero-payload observer after a write acknowledgement or its
+existing commit-receipt recovery. A confirmed write remains returned if local
+checkpoint cleanup needs retry; that retry cannot emit the outcome twice. A
+fully synced, already persisted no-op may return, while a duplicate of pending
+work remains unknown. Explicit no-write preparation rejection is blocked;
+transport loss, retired ownership, reset and page exit never infer a terminal
+outcome. Observers are not persisted or replayed after reload, and observer
+errors cannot change the product's result. These observations add no email
+permission and do not cover every KYC action or prove live delivery.
+
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
 `ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
