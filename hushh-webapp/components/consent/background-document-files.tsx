@@ -46,7 +46,10 @@ export function BackgroundDocumentFilesBody({ session, requestId }: { session: D
     const controller = new AbortController(); revokeOperation.current = controller; setRevoking(true); setRevokeError(false); actions.close();
     const attempt = captureProductAttempt("document.copy.revoke", session.userId); attempt.started();
     try { await OneCopyService.revoke(session, requestId, controller.signal); if (session.isCurrent() && !controller.signal.aborted) attempt.settled("returned"); }
-    catch { if (session.isCurrent() && !controller.signal.aborted) { attempt.settled("failed"); setRevokeError(true); } }
+    catch (error) { if (session.isCurrent() && !controller.signal.aborted) {
+      if (!(error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))) attempt.settled("failed");
+      setRevokeError(true);
+    } }
     finally { if (session.isCurrent() && !controller.signal.aborted) { setRevoking(false); refresh(); } }
   };
   return <section className="min-w-0 space-y-3" aria-label="One copies" aria-busy={actions.busy || revoking}>

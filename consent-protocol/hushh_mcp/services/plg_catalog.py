@@ -127,9 +127,11 @@ def activity_catalog(environment: str = "production") -> dict:
     agent_ids = {agent["id"] for agent in agents}
     for action in gateway["actions"]:
         key = action["action_id"]
-        # Manual document controls retain their authored participant/consent
-        # handlers. This attributes observations; it enables no executor.
+        # Manual controls retain their authored participant/consent handlers.
+        # This attributes observations; it enables no executor.
         surface_owner = {"one_document_delivery": "agent_documents"}.get(action["surface_id"])
+        if action["surface_id"] == "gmail" and key.startswith("profile.gmail."):
+            surface_owner = "agent_email"
         if key in actions:
             if surface_owner:
                 actions[key]["agentId"] = surface_owner

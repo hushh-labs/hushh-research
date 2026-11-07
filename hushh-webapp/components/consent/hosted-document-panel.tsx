@@ -150,7 +150,10 @@ export function HostedDocumentPanelBody({ session, requestId, getIdToken, onChan
         else if (options.refreshTerms !== false) await reload(controller.signal);
         if (options.refreshTerms !== false && !controller.signal.aborted && session.isCurrent()) onChanged();
       }
-    } catch (cause) { if (!controller.signal.aborted && session.isCurrent()) { attempt.settled("failed"); setError(documentHostingErrorCopy(cause)); } }
+    } catch (cause) { if (!controller.signal.aborted && session.isCurrent()) {
+      if (!(cause instanceof Error && ["TimeoutError", "AbortError"].includes(cause.name))) attempt.settled("failed");
+      setError(documentHostingErrorCopy(cause));
+    } }
     finally {
       if (operation.current === controller) { foregroundBusy.current = false; operation.current = null; }
       if (!controller.signal.aborted && session.isCurrent()) { setBusy(false); setCheckoutPending(false); setProgress(null); }
@@ -193,7 +196,7 @@ export function HostedDocumentPanelBody({ session, requestId, getIdToken, onChan
         setLinkNotice(null);
         void shareLink({ title: "Protected One document", text: "Sign in with the One account this document was shared with and unlock your vault.", dialogTitle: "Share protected One link", url: approvedLink }, session.isCurrent)
           .then(delivery => { if (session.isCurrent()) { attempt.settled("returned"); setLinkNotice(delivery === "copied" ? "Protected link copied." : "Link handed to sharing."); } })
-          .catch(cause => { if (session.isCurrent()) { attempt.settled(isShareCancellationError(cause) ? "cancelled" : "failed"); setLinkNotice(isShareCancellationError(cause) ? "Link was not shared." : "Could not share this link. Open the protected link to copy its address."); } });
+          .catch(cause => { if (session.isCurrent()) { if (!(cause instanceof Error && cause.name === "TimeoutError")) attempt.settled(isShareCancellationError(cause) ? "cancelled" : "failed"); setLinkNotice(isShareCancellationError(cause) ? "Link was not shared." : "Could not share this link. Open the protected link to copy its address."); } });
       }}>Share protected One link</Button>
       <HelperText>Forwarding this link grants no access. Only the approved recipient can decrypt the copy; no file key is included in the link.</HelperText>
       {linkNotice ? <HelperText role="status">{linkNotice}</HelperText> : null}

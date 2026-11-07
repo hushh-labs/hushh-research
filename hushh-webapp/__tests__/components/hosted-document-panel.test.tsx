@@ -37,6 +37,19 @@ const mount = (userId: string) => render(<HostedDocumentPanelBody session={{ use
 beforeEach(() => { vi.clearAllMocks(); reported.capture.mockImplementation(() => ({ started: vi.fn(), settled: vi.fn() })); state.sourceSelection.mockReset().mockResolvedValue({ requestId, revision: 1, files: [] }); state.timeline.mockResolvedValue({ items: [], nextCursor: null }); state.payment.mockResolvedValue({ status: "awaiting_payment", paymentsReady: false, ownerPayoutAccountReady: false }); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("hosted document payout and link boundaries", () => {
+  it.each(["TimeoutError", "AbortError", "Error"])("keeps a document mutation %s distinct from a confirmed failure", async name => {
+    state.terms.mockResolvedValue(terms({ status: "requested", terms: null, termsDigest: null, packageDigest: null, hostedUrl: null }));
+    state.revoke.mockRejectedValueOnce(Object.assign(new Error("controlled mutation result"), { name }));
+    mount("a");
+    fireEvent.click(await screen.findByRole("button", { name: "Decline request" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Decline request" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unavailable");
+    expect(reported.capture).toHaveBeenCalledExactlyOnceWith("document.hosted.revoke", "a");
+    const attempt = reported.capture.mock.results[0]!.value;
+    expect(attempt.started).toHaveBeenCalledOnce();
+    if (name === "Error") expect(attempt.settled).toHaveBeenCalledExactlyOnceWith("failed");
+    else expect(attempt.settled).not.toHaveBeenCalled();
+  });
   it.each([
     ["requested", "one"], ["awaiting_owner", "both"], ["preparing_on_owner_device", "one"], ["staged", "both"],
   ] as const)("lets the owner decline an unapproved %s request through %s only after confirmation", async (status, receiveThrough) => {

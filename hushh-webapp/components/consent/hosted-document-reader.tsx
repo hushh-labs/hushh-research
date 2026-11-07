@@ -88,6 +88,7 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
     const attempt = captureProductAttempt(!download ? "document.hosted.preview" : role === "original" ? "document.hosted.download_original" : "document.hosted.download_copy", session.userId);
     attempt.started();
     let bytes: Uint8Array | null = null;
+    let handingOff = false;
     try {
       const current = await openHostedDocuments(session, requestId, controller.signal);
       const currentFile = current.manifest.files.find(item => item.fileRef === file.fileRef);
@@ -105,6 +106,7 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
         const safeName = currentFile.name.replace(/[\\/\u0000-\u001f\u007f]/g, "_").replace(/^\.+/, "_").slice(0, 160) || "document.pdf";
         const name = role === "watermarked" ? `${safeName.replace(/\.pdf$/i, "")}-watermarked.pdf` : safeName;
         const blob = new Blob([new Uint8Array(bytes).buffer], { type: "application/pdf" });
+        handingOff = true;
         if (Capacitor.isNativePlatform()) {
           await shareFile({ file: new File([blob], name, { type: "application/pdf" }), title: "Save document", isEffectCurrent: () => session.isCurrent() && !controller.signal.aborted });
           requireDocumentSession(session, controller.signal); setNotice("Handed to system.");
@@ -117,7 +119,10 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
       } else { setOpened(current); setPreview({ bytes, fileRef: file.fileRef, artifactId, controller, attempt }); bytes = null; }
     } catch (cause) {
       if (!controller.signal.aborted && session.isCurrent()) {
-        attempt.settled(isShareCancellationError(cause) ? "cancelled" : "failed");
+        // An aborted read is not a user-cancelled native share. A deadline
+        // supplies no terminal outcome even if the UI offers another try.
+        const unknown = cause instanceof Error && (cause.name === "TimeoutError" || (!handingOff && cause.name === "AbortError"));
+        if (!unknown) attempt.settled(isShareCancellationError(cause) ? "cancelled" : "failed");
         if (isShareCancellationError(cause)) setNotice("Document was not saved.");
         else setError(documentHostingErrorCopy(cause));
       }
@@ -137,7 +142,10 @@ export function HostedDocumentReader({ session, requestId }: { session: Document
       void OneKycClientZkService.ensureConnector({ userId: session.userId, vaultKey: session.vaultKey, vaultOwnerToken: session.vaultOwnerToken })
         .then(connector => { requireDocumentSession(session, controller.signal); return verifyHostedRecipientKey(session, requestId, connector.connector_key_id, controller.signal, "recovery"); })
         .then(() => { if (session.isCurrent() && !controller.signal.aborted) { attempt.settled("returned"); setNotice("Recovery requested. The owner must authorize repairing this copy. Nothing was charged."); } })
-        .catch(cause => { if (session.isCurrent() && !controller.signal.aborted) { attempt.settled("failed"); setError(documentHostingErrorCopy(cause)); } })
+        .catch(cause => { if (session.isCurrent() && !controller.signal.aborted) {
+          if (!(cause instanceof Error && ["TimeoutError", "AbortError"].includes(cause.name))) attempt.settled("failed");
+          setError(documentHostingErrorCopy(cause));
+        } })
         .finally(() => { if (session.isCurrent() && !controller.signal.aborted) setBusy(false); });
     }}>Request key recovery</Button> : null}
     {notice ? <HelperText role="status">{notice}</HelperText> : null}

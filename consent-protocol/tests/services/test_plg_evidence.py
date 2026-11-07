@@ -1246,6 +1246,9 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     document_actions = [a for a in catalog["actions"] if a["id"].startswith("document.")]
     assert document_actions
     assert all(a["agentId"] == "agent_documents" for a in document_actions)
+    mail_actions = [a for a in catalog["actions"] if a["id"].startswith("profile.gmail.")]
+    assert mail_actions
+    assert all(a["agentId"] == "agent_email" for a in mail_actions)
     chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
     assert {a["agentId"] for a in chat} == {
         "agent_one",
