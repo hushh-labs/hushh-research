@@ -352,55 +352,6 @@ class SecurityRerunTest(unittest.TestCase):
 
 
 class LiveTeamPolicyTest(unittest.TestCase):
-    def test_deferral_requires_exact_native_scope_app_and_no_bypass(self):
-        import copy
-        import github_team_authority as team
-
-        for fault in (None,'missing','wrong_app','bypass','exclusion','scope','public_hidden','public_bypass'):
-            with self.subTest(fault=fault):
-                rule = {**team.gate_definition(),'id':42,'source':team.REPOSITORY,'source_type':'Repository'}
-                effective = [{'type':'required_status_checks','ruleset_id':42,
-                              'parameters':copy.deepcopy(rule['rules'][0]['parameters'])}]
-                if fault == 'missing':
-                    effective=[]
-                if fault == 'wrong_app':
-                    effective[0]['parameters']['required_status_checks'][0]['integration_id']=99
-                if fault == 'bypass':
-                    rule['bypass_actors']=[{'actor_id':1,'actor_type':'Team','bypass_mode':'always'}]
-                if fault == 'exclusion':
-                    rule['conditions']['ref_name']['exclude']=['refs/heads/dev']
-                if fault == 'scope':
-                    rule['conditions']['ref_name']['include']=['refs/heads/dev']
-                if fault == 'public_hidden':
-                    rule.pop('bypass_actors')
-                if fault == 'public_bypass':
-                    rule['bypass_actors']=[{'actor_id':1,'actor_type':'Team','bypass_mode':'always'}]
-                def read(path):
-                    return effective if '/rules/branches/' in path else rule
-                if fault in (None,'public_hidden'):
-                    self.assertEqual(team.require_gate('dev',read=read,public_only=fault=='public_hidden'),42)
-                    if fault=='public_hidden':
-                        with self.assertRaises(team.Refused):
-                            team.require_gate('dev',read=read)
-                else:
-                    with self.assertRaises(team.Refused):
-                        team.require_gate('dev',read=read,public_only=fault=='public_bypass')
-    def test_only_canonical_hosted_source_defers_membership_not_main_worker_or_cli(self):
-        import github_team_authority as team
-        for mode, event, repository, hosted, expected in (
-            ('observe','pull_request',team.REPOSITORY,'true',False),
-            ('enforce','pull_request',team.REPOSITORY,'true',True),
-            ('enforce','merge_group',team.REPOSITORY,'true',True),
-            ('enforce','workflow_run',team.REPOSITORY,'true',False),
-            ('enforce','pull_request','outside/fork','true',False),
-            ('enforce','pull_request',team.REPOSITORY,'false',False),
-        ):
-            with self.subTest(mode=mode,event=event,repository=repository,hosted=hosted), \
-                 patch.dict(team.os.environ,{'GITHUB_ACTIONS':hosted,'GITHUB_EVENT_NAME':event,'GITHUB_REPOSITORY':repository,'GITHUB_EVENT_PATH':'/synthetic/event.json'}), \
-                 patch.object(team.Path,'read_text',return_value=json.dumps({'pull_request':{'base':{'ref':'dev'}},'merge_group':{'base_ref':'refs/heads/dev'}})), \
-                 patch.object(team,'require_gate',return_value=42) as gate:
-                self.assertEqual(team.hosted_membership_deferred({'authorization':{'mode':mode}}),expected)
-                self.assertEqual(gate.call_count,int(expected))
 
     @staticmethod
     def owner():
@@ -483,8 +434,7 @@ class MainTeamPublisherTest(unittest.TestCase):
             if '/runs?head_sha=' in path:
                 return {'total_count': 1, 'workflow_runs': [dict(run)]}
             if '/jobs?' in path:
-                return {'total_count': 1, 'jobs': [{'name': 'CI Status Gate', 'status': 'completed', 'conclusion': run['conclusion'], 'run_id': 40, 'run_attempt': 2,
-                         'steps':[{'name':'Verify Main authorization started for this attempt','conclusion':'success'}]}]}
+                return {'total_count': 1, 'jobs': [{'name': 'CI Status Gate', 'status': 'completed', 'conclusion': run['conclusion'], 'run_id': 40, 'run_attempt': 2}]}
             self.fail(path)
         return (team, run, env, read)
 
@@ -592,7 +542,7 @@ class TeamCheckLifecycleTest(unittest.TestCase):
                'run_started_at':stamp,'updated_at':stamp}
         check = {'id':4,'name':team.CHECK,'app':{'id':15368},'head_sha':HEAD,'status':'in_progress',
                  'external_id':team.encode_binding(identity,producer),
-                 'details_url':f'https://github.com/{team.REPOSITORY}/runs/4'}
+                 'details_url':f'https://github.com/{team.REPOSITORY}/actions/runs/50'}
         receipt = {'schema_version':1,'source':identity,'producer':producer,'check_id':4,
                    'state':'in_progress','recorded_at':stamp}
         buffer = io.BytesIO()
@@ -642,7 +592,7 @@ class TeamCheckLifecycleTest(unittest.TestCase):
         artifact.update(size_in_bytes=len(raw_failed),digest='sha256:'+hashlib.sha256(raw_failed).hexdigest())
         self.assertEqual(team.main_publication(responses.__getitem__,producer,archive=lambda _:raw_failed,
                                               allow_failed_observation=True)[0],failed)
-        with self.assertRaises(team.Refused):
+        with self.assertRaisesRegex(team.Refused,'authorization failed'):
             team.consume_main(responses.__getitem__,source,archive=lambda _:raw_failed)
 
     def test_real_github_external_id_limit_preserves_exact_binding_and_reuses_check(self):
@@ -687,7 +637,7 @@ class TeamCheckLifecycleTest(unittest.TestCase):
         legacy = json.dumps(binding, sort_keys=True, separators=(',', ':'))[:255]
         self.assertEqual(len(legacy), 255)
         rows = [{'id': key, 'name': team.CHECK, 'app': {'id':15368}, 'external_id':legacy,
-                 'details_url':f"https://github.com/{team.REPOSITORY}/runs/{key}"} for key in (3, 4)]
+                 'details_url':f"https://github.com/{team.REPOSITORY}/actions/runs/{producer['run_id']}"} for key in (3, 4)]
         def read(path):
             if '/check-runs?' in path:
                 return {'total_count':len(rows), 'check_runs':rows}

@@ -533,12 +533,10 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
         "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}
     with patch.object(queue, "api", side_effect=[{"login": actor}, pr, {"object": {"sha": BASE}}]) as api, \
          patch.object(team, "local_policy", return_value=policy) as team_policy, \
-         patch.object(team, "consume_main", return_value={}) as main_receipt, \
-         patch.object(team, "require_gate", return_value=42) as native_gate, \
          patch.object(queue, "git", side_effect=git), \
          patch.object(queue, "authority_policy", return_value=(BASE, policy)) as authority, \
          patch.object(queue, "_module", side_effect=lambda name, *_: modules[name]), \
-         patch.object(queue, "current_validations", return_value=[{"run":40,"attempt":2}]), \
+         patch.object(queue, "current_validations", return_value=[{"exact": True}]), \
          patch.object(queue, "reusable", return_value=True), \
          patch.object(queue.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run, \
          patch.object(queue.subprocess, "check_output", return_value=json.dumps(threads)):
@@ -546,9 +544,6 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
     assert proof["state"]["branch"] == branch and proof["state"]["tree"] == FIRST
     authority.assert_called_once_with(repository, branch, BASE, owner_admin=True)
     team_policy.assert_called_once_with(policy, actor=actor, read=api)
-    if policy.get("authorization", {}).get("mode") == "enforce":
-        main_receipt.assert_called_once_with(api, {"id":40,"run_attempt":2,"head_sha":HEAD1}, require_barrier=True)
-        native_gate.assert_called_once_with(branch,read=api)
     assert api.call_args_list[-1].args == (f"repos/{repository}/git/ref/heads/{branch}",)
     assert seen == [{"branch": branch, "verify_only": True}]
     assert run.call_args_list[0].args[0][3] == branch
@@ -899,9 +894,6 @@ def test_queue_selection_capture_is_wired_without_reclassifying_lanes():
     assert "!github.event.pull_request.draft" in record["if"]
     assert "${{ toJSON(needs.paths.outputs.queue_selection_files) }}" in record["run"]
     assert "<<'HUSSH_QUEUE_SELECTION_JSON'" in record["run"]
-    caller = yaml.safe_load((root / ".github/workflows/queue-validation.yml").read_text())
-    upper_bound = caller["jobs"]["combined-checks"].get("permissions", caller["permissions"])
-    assert upper_bound["checks"] == jobs["ci-status"]["permissions"]["checks"] == "read"
 
 
 def test_superseded_queue_cancellation_preserves_legacy_parallel_groups():

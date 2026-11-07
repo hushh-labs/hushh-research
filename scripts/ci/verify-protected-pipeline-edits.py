@@ -481,17 +481,11 @@ def main() -> int:
 
     policy = _load_policy()
     main_policy = policy["main"]
-    defer_membership = False
-    if policy.get("authorization", {}).get("mode") == "enforce":
-        from github_team_authority import hosted_membership_deferred
-        defer_membership = hosted_membership_deferred(policy)
-    allowed_users = []
-    if not defer_membership:
-        try:
-            allowed_users = resolve_allowed_users(main_policy)
-        except PolicyError as exc:
-            print(f"ERROR: {exc}")
-            return 1
+    try:
+        allowed_users = resolve_allowed_users(main_policy)
+    except PolicyError as exc:
+        print(f"ERROR: {exc}")
+        return 1
     protected_paths = main_policy.get("protected_pipeline_paths") or DEFAULT_PROTECTED_PATHS
     event_name = args.event_name or os.environ.get("GITHUB_EVENT_NAME", "")
 
@@ -520,9 +514,6 @@ def main() -> int:
         semantic = semantic_pipeline_changes(changed_files, base=base, head=head, authority=authority,
                                              repository_root=Path.cwd())
         protected_paths = [*protected_paths, *semantic]
-    if defer_membership:
-        print("Protected file and semantic classification complete; required Main team authority owns current membership and approvals.")
-        return 0
     approvals: list[str] = []
     if event_name in {"pull_request", "pull_request_target"} and not args.files:
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
