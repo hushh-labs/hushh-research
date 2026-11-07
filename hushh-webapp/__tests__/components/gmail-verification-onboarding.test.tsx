@@ -1,9 +1,11 @@
 import { CacheService } from "@/lib/services/cache-service";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GmailVerificationOnboarding } from "@/components/gmail/gmail-verification-onboarding";
+import { ApiService } from "@/lib/services/api-service";
+import { publishValidatedAuthSessionOwner, publishValidatedAuthSessionPrincipal } from "@/lib/auth/session-owner";
 
 const mocks = vi.hoisted(() => ({
   getStaleFirst: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock("sonner", () => ({
 }));
 
 describe("GmailVerificationOnboarding", () => {
+  afterEach(() => { publishValidatedAuthSessionOwner(null); vi.restoreAllMocks(); });
   beforeEach(() => {
     advanceVaultSessionEpoch();
     CacheService.getInstance().clear();
@@ -37,6 +40,38 @@ describe("GmailVerificationOnboarding", () => {
     mocks.getStaleFirst.mockResolvedValue(false);
     mocks.hasCompletedKycIdentityIntake.mockReturnValue(false);
     mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved privately." });
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "user_1", ownerId: "user_1", accountGeneration: 1 });
+    vi.spyOn(ApiService, "getFirebaseIdTokenForOwner").mockResolvedValue("synthetic-firebase-token");
+    vi.spyOn(ApiService, "apiFetch").mockImplementation(async (_url, options) => new Response(JSON.stringify(
+      options?.method === "POST" ? { recorded: true } : { enabled: true, generation: "12345678-1234-1234-1234-123456789012" },
+    )));
+  });
+
+  it.each(["committed", "owner-changed"])("keeps the original KYC attempt private and scoped when %s", async outcome => {
+    render(<GmailVerificationOnboarding userId="user_1" vaultKey="vault-key" vaultOwnerToken="owner-token"
+      onRequestVaultUnlock={vi.fn()} deferred={false} onDeferredChange={vi.fn()}
+      details="PRIVATE_IDENTITY_TEXT" onDetailsChange={vi.fn()}>KYC workspace</GmailVerificationOnboarding>);
+    const reports = () => vi.mocked(ApiService.apiFetch).mock.calls
+      .filter(([, options]) => options?.method === "POST")
+      .map(([, options]) => JSON.parse(String(options?.body)));
+    fireEvent.click(await screen.findByRole("button", { name: "Paste details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save profile" }));
+    await waitFor(() => expect(reports()).toHaveLength(1));
+    expect(reports()[0]).toEqual({ actionId: "kyc.save_profile", phase: "started",
+      generation: "12345678-1234-1234-1234-123456789012", operationId: expect.stringMatching(/^[\da-f-]{36}$/i) });
+    const observer = mocks.saveProfile.mock.calls[0]![0].onOutcome;
+    if (outcome === "owner-changed") publishValidatedAuthSessionOwner("different-owner");
+    observer("returned");
+    observer("returned");
+    if (outcome === "committed") {
+      await waitFor(() => expect(reports()).toHaveLength(2));
+      expect(reports()[1]).toEqual({ ...reports()[0], phase: "returned" });
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(reports()).toHaveLength(1);
+    }
+    expect(JSON.stringify(reports())).not.toMatch(/PRIVATE_IDENTITY_TEXT|vault-key|owner-token|user_1/);
+    expect(mocks.saveProfile).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the setup check accessible with a visible KYC workspace placeholder", async () => {

@@ -155,7 +155,7 @@ describe("CalendarAgentPage", () => {
     await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
   });
 
-  it("keeps additional accounts available after the default Calendar disconnects", async () => {
+  it("pairs the manual Calendar disconnect only after confirmation and keeps additional accounts available", async () => {
     const second = { account_id: "second", google_email: "second@example.com", status: "connected" as const, connected: true, access_level: "manage" as const, calendar_list_access: true };
     mocks.status.mockResolvedValue({
       configured: true, connected: true, status: "connected", google_email: "default@example.com",
@@ -163,16 +163,22 @@ describe("CalendarAgentPage", () => {
         { account_id: "default", google_email: "default@example.com", status: "connected", connected: true, access_level: "manage", calendar_list_access: true }, second,
       ],
     });
-    mocks.disconnect.mockResolvedValue({
-      configured: true, connected: false, status: "disconnected", google_email: null,
-      access_level: null, scope_csv: "", accounts: [second],
-    });
+    let complete!: (value: unknown) => void;
+    mocks.disconnect.mockReturnValueOnce(new Promise(resolve => { complete = resolve; }));
 
     render(<CalendarAgentPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect Calendar" }));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect", exact: true }));
 
     await waitFor(() => expect(mocks.disconnect).toHaveBeenCalledOnce());
+    expect(mocks.captureAttempt).toHaveBeenCalledExactlyOnceWith("calendar.connection.disconnect", "calendar-user");
+    expect(mocks.attemptStarted).toHaveBeenCalledOnce();
+    expect(mocks.attemptSettled).not.toHaveBeenCalled();
+    await act(async () => complete({
+      configured: true, connected: false, status: "disconnected", google_email: null,
+      access_level: null, scope_csv: "", accounts: [second],
+    }));
+    expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("returned");
     expect(screen.getByRole("button", { name: "Add Calendar account" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try Calendar Agent with One" })).toBeTruthy();
     expect(screen.queryByTestId("calendar-connect-hero")).toBeNull();
@@ -625,6 +631,8 @@ describe("CalendarAgentPage", () => {
         "one_calendar_action",
         expect.objectContaining({ result: "expected_error" }),
       );
+      expect(mocks.attemptStarted).toHaveBeenCalledOnce();
+      expect(mocks.attemptSettled).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -648,6 +656,8 @@ describe("CalendarAgentPage", () => {
       { route_id: "one_calendar", action: "connected", result: "expected_error" },
     ));
     expect(mocks.completeNativeConnect).not.toHaveBeenCalled();
+    expect(mocks.captureAttempt).toHaveBeenCalledExactlyOnceWith("calendar.connection.connect", "calendar-user");
+    expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("cancelled");
   });
 
   it("accepts a native additional Calendar account when the legacy default is disconnected", async () => {
@@ -664,6 +674,7 @@ describe("CalendarAgentPage", () => {
     }));
     expect(mocks.startNativeConnect).toHaveBeenCalledWith(expect.objectContaining({ additional: true, includeMeetingFiles: true }));
     expect(mocks.connectCalendar).toHaveBeenCalledWith(expect.objectContaining({ includeGuestPhotos: true, includeMeetingFiles: true }));
+    expect(mocks.attemptSettled).toHaveBeenCalledExactlyOnceWith("returned");
   });
 
   it("preserves the structured free-window selection in the existing chat handoff", async () => {

@@ -56,6 +56,7 @@ import {
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { trackEvent } from "@/lib/observability/client";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 import { openCalendarChat } from "@/lib/calendar/calendar-chat-handoff";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
@@ -229,7 +230,8 @@ export function CalendarAgentPage({
 
   /** The callback verified the connection before settling; keep it authoritative. */
   const applyVerifiedSuccess = (accessLevel: "read" | "manage", additional = false, targetAccountId?: string,
-    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string, onSettled?: () => void) => {
+    meetingFiles = false, expectedSubjectSha256?: string, priorGrantGeneration?: string,
+    onSettled?: () => void, onVerified?: () => void) => {
     const priorAccountIds = new Set(status?.accounts?.map(account => account.account_id) || []);
     const operationOwnerId = activeOwnerIdRef.current;
     if (meetingFiles && targetAccountId) {
@@ -241,7 +243,7 @@ export function CalendarAgentPage({
         isCurrent: () => !lifetime?.signal.aborted && identityRef.current === identity &&
           activeOwnerIdRef.current === operationOwnerId && latestOwnerIdRef.current === operationOwnerId &&
           statusRequestRef.current === settlementRequest,
-        onVerified: setStatus,
+        onVerified: (verified) => { setStatus(verified); onVerified?.(); },
         onSettled,
       });
       return;
@@ -285,6 +287,7 @@ export function CalendarAgentPage({
     if (additional) void reconcile(2);
     else window.setTimeout(() => { void reconcile(2); }, 1500);
     morphyToast.success("Google Calendar connected.");
+    onVerified?.();
     onSettled?.();
   };
 
@@ -317,27 +320,37 @@ export function CalendarAgentPage({
         });
     const popup = attempt ? openGoogleOAuthPopup(attempt) : null;
     setBusy(true);
+    const activity = captureProductAttempt("calendar.connection.connect", operationOwnerId);
+    activity.started();
     try {
       const privateAgent = await ownerContentIsPrivate();
       if (activeOwnerIdRef.current !== operationOwnerId) { popup?.close(); return; }
       if (privateAgent) {
         popup?.close();
         if (strictMeetingUpgrade) {
+          activity.settled("blocked");
           toast.error("Meeting file access is not available for private Google connections yet.");
           return;
         }
-        if (!vaultKey || !vaultOwnerToken) { toast.error('Unlock your vault to connect Google.'); return; }
+        if (!vaultKey || !vaultOwnerToken) {
+          activity.settled("blocked");
+          toast.error('Unlock your vault to connect Google.');
+          return;
+        }
         const outcome = await connectGoogleConnector('calendar', {
           vaultOwnerCapability: vaultOwnerToken,
           confirmLegacyTransition: terms => confirmTransition(terms, 'calendar'),
           isCurrent: () => activeOwnerIdRef.current === operationOwnerId,
         });
-        if (activeOwnerIdRef.current !== operationOwnerId) return;
+        if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         if (!outcome.ok) {
           if (outcome.code === 'PHONE_HANDOFF_REQUIRED') requestGoogleConnectorPhoneHandoff('calendar');
           else toast.error(connectRefusalMessage(outcome.code, 'Calendar'));
+          if (outcome.code === 'SIGN_IN_CANCELLED') activity.settled("cancelled");
           return;
         }
+        // The owner-authenticated connector save already acknowledged the connection.
+        activity.settled("returned");
         const current = await GoogleCalendarService.status(await user.getIdToken(), operationOwnerId);
         if (activeOwnerIdRef.current === operationOwnerId) setStatus(current);
         return;
@@ -368,6 +381,12 @@ export function CalendarAgentPage({
           ...(start.include_calendar_list ? { includeCalendarList: true } : {}),
           ...(start.include_guest_photos ? { includeGuestPhotos: true } : {}),
           ...(start.include_meeting_files ? { includeMeetingFiles: true } : {}),
+        }).catch((error: unknown) => {
+          if (identityRef.current === identity && activeOwnerIdRef.current === operationOwnerId &&
+            error && typeof error === "object" && "code" in error && error.code === "USER_CANCELLED") {
+            activity.settled("cancelled");
+          }
+          throw error;
         });
         if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
         const completed = await GoogleCalendarService.completeNativeConnect({
@@ -395,6 +414,7 @@ export function CalendarAgentPage({
               : "Calendar authorization did not create an active connection.",
           );
         }
+        activity.settled("returned");
         setStatus(completed);
         setBusy(false);
         trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
@@ -479,8 +499,12 @@ export function CalendarAgentPage({
         // Tell a popup that cannot close itself (Google's opener policy) that
         // this page has taken over, so it can say so instead of looking stuck.
         const acknowledge = () => acknowledgeGoogleOAuthSettlement(attempt.attemptId, popup);
-        if (settled.outcome === "succeeded") applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined, includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation, acknowledge);
-        else {
+        if (settled.outcome === "succeeded") {
+          applyVerifiedSuccess(accessLevel, additional, strictMeetingUpgrade ? targetAccountId : undefined,
+            includeMeetingFiles, meetingAccount?.provider_subject_sha256, meetingAccount?.grant_generation,
+            acknowledge, () => activity.settled("returned"));
+        } else {
+          if (settled.outcome === "cancelled") activity.settled("cancelled");
           if (settled.outcome === "failed")
             morphyToast.error(settled.message || "Google Calendar could not be connected.");
           acknowledge();
@@ -524,6 +548,8 @@ export function CalendarAgentPage({
     const operationOwnerId = userId;
     statusRequestRef.current += 1;
     setBusy(true);
+    const activity = captureProductAttempt("calendar.connection.disconnect", operationOwnerId);
+    activity.started();
     const operation = user
       .getIdToken()
       .then((idToken) => {
@@ -543,6 +569,12 @@ export function CalendarAgentPage({
     try {
       const next = await operation;
       if (identityRef.current !== identity || activeOwnerIdRef.current !== operationOwnerId) return;
+      const matchingAccount = next.accounts?.find((account) => account.account_id === accountId);
+      const stillLinked = matchingAccount && (matchingAccount.connected || matchingAccount.status !== "disconnected");
+      const confirmed = accountId === "default"
+        ? next.connected === false && next.status === "disconnected" && !stillLinked
+        : Array.isArray(next.accounts) && !stillLinked;
+      if (confirmed) activity.settled("returned");
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
