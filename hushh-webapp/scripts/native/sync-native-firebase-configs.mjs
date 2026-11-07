@@ -2,7 +2,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { validateNativeFirebaseIdentity } from "./native-firebase-identity.mjs";
 
 function resolveAppRoot(cwd = process.cwd()) {
@@ -128,11 +129,26 @@ export function syncNativeFirebaseConfigs({
   );
   const androidDestination = path.join(appRoot, "android/app/google-services.json");
 
+  let iosGoogleSignInUpdated = false;
+  if (includeIos) {
+    try {
+      iosGoogleSignInUpdated = execFileSync("python3", [
+        path.join(path.dirname(fileURLToPath(import.meta.url)), "sync-ios-google-signin.py"),
+        iosSource, path.join(appRoot, "ios/App/App/Info.plist"),
+      ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim() === "updated";
+    } catch (error) {
+      if (error.code === "ENOENT") throw new Error("iOS Google sign-in sync requires Python 3.");
+      const detail = error.stderr?.toString().trim();
+      if (detail) throw new Error(detail);
+      throw error;
+    }
+  }
   const iosCopied = includeIos ? copyIfDifferent(iosSource, iosDestination) : false;
   const androidCopied = includeAndroid ? copyIfDifferent(androidSource, androidDestination) : false;
 
   return {
     iosCopied,
+    iosGoogleSignInUpdated,
     androidCopied,
     iosDestination,
     androidDestination,
@@ -148,7 +164,7 @@ if (
     const platform = platformIndex >= 0 ? process.argv[platformIndex + 1] : "all";
     const result = syncNativeFirebaseConfigs({ platform });
     console.log(
-      `Native Firebase configs ready (${platform}; iOS ${result.iosCopied ? "updated" : "current"}, Android ${
+      `Native Firebase configs ready (${platform}; iOS ${result.iosCopied || result.iosGoogleSignInUpdated ? "updated" : "current"}, Android ${
         result.androidCopied ? "updated" : "current"
       }).`
     );
