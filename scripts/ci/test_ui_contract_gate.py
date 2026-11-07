@@ -173,6 +173,11 @@ class UiGateTests(unittest.TestCase):
             uat = {"inputs": {"scope": "all", "uat_base_sha": old}}
             self.assertEqual(run(uat).stdout.strip(), old)
             uat["inputs"]["uat_base_sha"] = base
+            self.assertEqual(run(uat).stdout.strip(), base)
+            env["GITHUB_REF"] = "refs/heads/uat-isolated"
+            self.assertNotEqual(run(uat).returncode, 0)
+            env["GITHUB_REF"] = "refs/heads/uat"
+            uat["inputs"]["uat_base_sha"] = "f" * 40
             self.assertNotEqual(run(uat).returncode, 0)
             uat["inputs"]["uat_base_sha"] = "invalid"
             self.assertNotEqual(run(uat).returncode, 0)

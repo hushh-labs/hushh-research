@@ -106,9 +106,9 @@
     "uat": {
       "deploy_env": "uat",
       "cloud_sql_instance": "hushh-pda-uat:us-central1:hushh-uat-pg",
-      "tier": "db-custom-1-3840",
-      "max_connections": 150,
-      "max_connections_source": "Explicit database flag max_connections=150 (gcloud sql instances describe hushh-uat-pg, 2026-10-06).",
+      "tier": "db-custom-4-16384",
+      "max_connections": 1000,
+      "max_connections_source": "Explicit database flag max_connections=1000 (gcloud sql instances describe hushh-uat-pg, 2026-11-07 IST).",
       "observed_peak": "148 backends on 2026-10-02 (cloudsql.googleapis.com/database/postgresql/num_backends, daily max).",
       "external_reserve": {
         "connections": 20,
@@ -116,21 +116,11 @@
       },
       "deploy_paths": [
         {
-          "path": ".github/workflows/deploy-uat-implementation.yml",
-          "accepted_worst_case": {
-            "connections": 237,
-            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
-            "recorded": "2026-10-06"
-          }
+          "path": ".github/workflows/deploy-uat-implementation.yml"
         },
         {
           "path": "scripts/ops/cloudbuild_release.sh",
-          "branch": "non_production",
-          "accepted_worst_case": {
-            "connections": 145,
-            "decision": "pending founder: raise max_connections (needs instance restart) or reduce capacity",
-            "recorded": "2026-10-06"
-          }
+          "branch": "non_production"
         }
       ],
       "companion_services": [
