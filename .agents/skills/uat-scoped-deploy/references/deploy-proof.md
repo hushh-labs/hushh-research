@@ -20,8 +20,9 @@ Follow `.agents/skills/repo-operations/references/admin-release-sop.md` for the
 ordinary merge-queue path or an explicitly authorized Admin PR landing. This
 spoke owns UAT scope and proof after that authority contract yields the
 Main-owned workflow; it does not redefine merge or bypass semantics. New
-application source must be an exact SHA in protected `uat` history. A
-Main-only SHA is not a normal UAT source.
+application source is an exact SHA in protected `uat` or `uat-isolated` history.
+Use the [Admin SOP authority table](../../repo-operations/references/admin-release-sop.md#uat-and-isolated-uat-authority)
+for merge and deploy permissions on either source.
 
 For a direct UAT candidate, inspect prerequisites from `uat` first. In Actions,
 select **Deploy to UAT → Run workflow → uat → operation=inspect**, leaving
@@ -48,8 +49,14 @@ gh workflow run deploy-uat.yml --ref uat -f scope=auto \
 
 The locked release rechecks the exact candidate, current full-CI attempt, both
 observed serving revisions, schema compatibility and qualified rollback. Different
-frontend/backend serving SHAs are supported. Legacy `uat-isolated` recovery retains
-its separately reviewed PR-scope contract. Production still requires UAT acceptance
+frontend/backend serving SHAs are supported.
+
+For `uat-isolated`, follow the [isolated-source commands](../../../../deploy/README.md#isolated-uat-source).
+Qualify its exact protected tip and Git tree from Main against the observed
+serving base. Pass `source_branch=uat-isolated` to inspection and deployment
+from `--ref uat`, and provide the reviewed `approved_scope` PR chain. Both
+application sources use the same governed UAT dispatch admission and UAT runtime.
+Production still requires UAT acceptance
 and Main approval.
 
 Then watch:

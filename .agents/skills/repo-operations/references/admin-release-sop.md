@@ -28,15 +28,47 @@ deployment, rollback, or environment-promotion decision must route here through
 
 ## State machine
 
+### UAT and isolated UAT authority
+
+`uat` and `uat-isolated` are protected application sources for the same UAT
+runtime and release lock. The workflow caller is `uat` for either source.
+Select the application source with `source_branch`.
+
+| Operation | `uat` | `uat-isolated` |
+|---|---|---|
+| Ordinary product PR merge | Eligible maintainer self-service through the verified queue under §3B | Independent maintainer approval, applicable CODEOWNER/latest-push review and the verified queue under §3A |
+| Owner Admin PR merge | Author must have current `pipeline-editors` authority and pass §3C | Author must have current `pipeline-editors` authority and pass §3C |
+| UAT deployment | Governed UAT dispatch admission, explicit release authorization and exact-source qualification | Governed UAT dispatch admission, explicit release authorization, exact-source qualification and the isolated PR-scope proof |
+
+Repository role, merge authority and deployment authority are separate checks.
+A Maintain operator with admitted UAT dispatch authority can deploy a qualified
+application after its PR lands through the applicable review route. The owner
+Admin exception is resolved from current team membership and the authenticated
+PR author.
+
+Check current `deploy-uat` membership and the effective reviewed
+`uat.manual_dispatch_users` policy. The deployment consumer currently enforces
+that reviewed policy alongside protected security and release admission. Record
+a membership/policy mismatch for authorized reconciliation before dispatch.
+
+Before selecting a route, check the authenticated login, exact destination,
+current PR head/reviews/CI and the relevant live team authority. Run the §3C
+read-only preflight only for an authorized owner-authored Admin landing. If it
+refuses owner authority, use the destination's ordinary review and queue route.
+Treat a failed membership lookup as unverified authority and retain its reason.
+Membership changes follow the leadership-owned team procedure in the
+[branch governance runbook](../../../../docs/reference/operations/branch-governance.md).
+
 ### Review routing on every destination
 
 Review requests identify whom to ask; they do not grant merge or deployment
-authority. Apply the same precedence on Main, Dev and UAT:
+authority. Apply this precedence on every governed destination.
 
 | Change | Review route |
 |---|---|
 | CI, release authority or protected core guidance, including mixed product/docs PRs | `@hushh-labs/pipeline-editors` only |
 | Ordinary Dev/UAT product work | Eligible maintainer self-service after required checks; request `@hushh-labs/allowed-maintainers-to-approve` only when a peer review is needed |
+| Ordinary isolated UAT product work | Independent `@hushh-labs/allowed-maintainers-to-approve` approval plus the destination's required reviews and queue checks |
 | Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
 
 CODEOWNERS auto-requests only protected owners. Do not add the ordinary team to
@@ -90,6 +122,8 @@ Required pre-merge proof:
 Eligible maintainers may land their own verified product PRs without personal
 pipeline-editor review. Follow the [Dev/UAT Admin preflight](dev-uat-admin-landing.md).
 CI/core authorization and required CI remain mandatory; merging never deploys.
+For ordinary `uat-isolated` PRs, complete the independent review and queue route
+in §3A. The comparison above identifies the separate owner Admin option.
 
 ### 3C. Main merger policy and the named-owner Admin route
 
@@ -111,8 +145,8 @@ The named-owner route preserves these independent protections:
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the approved Main merger restriction remain active.
 - Each destination's `<branch> owner validated merge` guard requires a PR and
-  strict current-base CI for the two owners. Other authorized mergers bypass
-  this additional freshness layer only; they cannot bypass the ordinary queue
+  strict current-base CI for the configured protected owners. Other authorized
+  mergers bypass this additional freshness layer only; they cannot bypass the ordinary queue
   or baseline CI. Main's trusted queue restricts the actual requester to the
   approved merger cohort. Its native queue writer must not inherit a human-only
   push filter; the reviewed writer-policy rollout preserves native PR/review/CI
@@ -173,8 +207,9 @@ The root checkout and unrelated work remain untouched throughout the landing.
 
 1. Resolve the selected environment’s exact application revision from its
    protected history. Dev uses its qualified Dev revision; direct UAT uses the
-   assembled UAT revision and its exact release qualification. Neither requires
-   an application merge to Main or a preceding environment deployment.
+   selected protected `uat` or `uat-isolated` revision and its exact release
+   qualification. Direct UAT can release that protected source independently of
+   a Main application merge or a preceding Dev deployment.
 2. For Main-backed production approval, resolve the actual landed Main SHA and
    require `Main Post-Merge Smoke Gate = success` for that SHA. Keep application
    source, Main approval and trusted release-tooling revisions distinct.
@@ -199,7 +234,12 @@ must incorporate the application with an identical Git tree and Main smoke;
 see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
 
 For direct UAT qualification and dispatch, follow the
-[UAT-scoped deploy procedure](../../uat-scoped-deploy/SKILL.md).
+[UAT-scoped deploy procedure](../../uat-scoped-deploy/SKILL.md) and its
+[commands for both UAT sources](../../uat-scoped-deploy/references/deploy-proof.md#deploy-command).
+Use `--ref uat` for the caller and the intended `source_branch`. Ordinary UAT
+uses exact protected-source admission. Isolated UAT additionally requires its
+reviewed `approved_scope` PR chain. Record the selected source in the release
+evidence.
 
 Production:
 
