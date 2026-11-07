@@ -661,7 +661,7 @@ export default function GmailReceiptsPage({
     const sequence = receiptLoadSequenceRef.current;
     const vaultEpoch = snapshotVaultSessionEpoch();
     const current = () => historySession.isCurrent() && receiptAccountKeyRef.current === receiptAccountKey &&
-      receiptLoadSequenceRef.current === sequence && !receiptReadsClosedRef.current;
+      receiptLoadSequenceRef.current === sequence;
     if (!current()) return;
     const attempt = captureProductAttempt("profile.gmail.restore_saved_receipts", historySession.userId);
     attempt.started();
