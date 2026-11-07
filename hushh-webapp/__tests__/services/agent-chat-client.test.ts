@@ -215,6 +215,24 @@ describe("chat attempt observation boundary", () => {
 
 describe("One chat key transport", () => {
   registerEmailAgentContractCases(mockTransport);
+  it("counts each assembled model request once and prefers provider token usage", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    const onContextUsage = vi.fn();
+    mockTransport.emitEvents = subscriber => {
+      const emit = (modelCallId: string, inputTokens: number, tokenCountMethod: string) =>
+        subscriber.onCustomEvent({ event: { name: "hussh.chat_context_usage", value: { modelCallId, inputTokens, tokenCountMethod } } });
+      emit("run:1", 42000, "conservative_utf8_bytes");
+      emit("run:1", 11000, "provider_usage");
+      emit("run:1", 42000, "conservative_utf8_bytes");
+      emit("run:2", 43000, "conservative_utf8_bytes");
+      emit("bad", -1, "provider_usage");
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "user-1", message: "Hello",
+      vaultOwnerToken: "owner-token", handlers: { onContextUsage } });
+    expect(onContextUsage.mock.calls.map(([usage]) => [usage.modelCallId, usage.inputTokens]))
+      .toEqual([["run:1", 11000], ["run:2", 43000]]);
+  });
+
   it("forwards a valid selected Calendar zone for one turn, then returns to the device zone", async () => {
     publishValidatedAuthSessionOwner("user-1");
     mockTransport.runAgent.mockClear();

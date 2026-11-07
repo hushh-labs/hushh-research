@@ -30,7 +30,7 @@ import {
  * The owner's own agent reads a bounded, allowlisted packet of the Live
  * Mirror (registry value owner_turn_allowlist). These tests pin the trust
  * boundary: only reviewed fields, read-time states, the owner and vault fence,
- * and a budget that the server's 20,000-character clip can never cut.
+ * and a packet budget bounded by the server's complete-memory admission limit.
  */
 
 const T = "2026-10-15T10:00:00.000Z";
@@ -356,7 +356,7 @@ describe("Live Mirror packet budget (B-R8)", () => {
   it("is omitted, never clipped, below 300 characters of room", () => {
     expect(build(view(), { budgetChars: 299 }).text).toBe("");
     expect(build(view(), { budgetChars: 300 }).text.endsWith(LIVE_MIRROR_PACKET_END)).toBe(true);
-    expect(liveMirrorPacketBudget(19_800)).toBeLessThan(300);
+    expect(liveMirrorPacketBudget(CONSENTED_MEMORY_MAX_CHARS - 200)).toBeLessThan(300);
     expect(appendLiveMirrorPacket("soul", "")).toBe("soul");
   });
 });

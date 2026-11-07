@@ -96,6 +96,11 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
     ]
 
     opaque_token = "opaque-owner-" + "token"
+    complete_memory = (
+        "    synthetic_code()\n\n# My research notebook\n"
+        + "Research context. " * 1500
+        + "\n## Final goals\n- Preserve the last fact.\n"
+    )
     events: list[OneTextStreamEvent] = []
     async for event in text_runtime.stream_one_text_turn(
         user_id="u1",
@@ -105,7 +110,7 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
         history=history,
         timezone="America/Los_Angeles",
         screen_context={"screen": "one_home", "available_action_ids": []},
-        pkm_context="bounded context",
+        pkm_context=complete_memory,
         runtime_provider="gemini",
         runtime_model="gemini-test",
         runtime_mode="hushh_managed_vertex",
@@ -120,7 +125,7 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
     assert observed["history"][0].content.parts[0].text == "Where would you like to go?"
     assert observed["state"][STATE_CONSENT_TOKEN] == opaque_token
     assert observed["state"][STATE_VOICE_CONTEXT]["screen"] == "one_home"
-    assert observed["state"][STATE_PKM_CONTEXT] == "bounded context"
+    assert observed["state"][STATE_PKM_CONTEXT] == complete_memory
 
 
 @pytest.mark.parametrize("tier", ["full", "intro"])
