@@ -13,160 +13,27 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
 from scripts import generate_capability_graph as generator
-
-GRAPH_RELATIVE = Path("contracts") / "kai" / "one-capability-graph.v1.json"
-MIRRORS = (
+from tests.helpers.capability_graph_fixture import (
     GRAPH_RELATIVE,
-    Path("hushh-webapp") / GRAPH_RELATIVE,
-    Path("consent-protocol") / GRAPH_RELATIVE,
-)
-LEDGER_RELATIVE = (
-    Path("consent-protocol") / "hushh_mcp" / "agents" / "capability_graph_evolution.v1.json"
-)
-V1_REVISION = "rev-v1-0000000"
-V2_REVISION = "rev-v2-0000000"
-
-
-def _empty_diff(from_revision: str | None) -> dict[str, Any]:
-    return {
-        "from_revision": from_revision,
-        "added": [],
-        "removed": [],
-        "changed": [],
-        "migrated": [],
-        "compatible": [],
-        "deprecated": [],
-        "breaking": [],
-    }
-
-
-def _graph(revision: str, binding_ref: str, semantic_diff: dict[str, Any]) -> dict[str, Any]:
-    """A minimal graph shaped the way ``_semantic_index`` and ``_semantic_node`` read it."""
-
-    return {
-        "schema_version": "one.capability_graph.v1",
-        "revision": revision,
-        "actions": [
-            {
-                "capability_id": "X",
-                "version": 1,
-                "execution": {"binding_ref": binding_ref},
-            }
-        ],
-        "workflows": [],
-        "semantic_diff": semantic_diff,
-    }
-
-
-def _aliased(
-    revision: str,
-    aliases: list[str],
-    *,
-    version: int = 1,
-    binding_ref: str = "binding-a",
-) -> dict[str, Any]:
-    """Graph v1's action plus a spoken-alias list, for the additive rule."""
-
-    graph = _graph(revision, binding_ref, _empty_diff(None))
-    graph["actions"][0]["aliases"] = aliases
-    graph["actions"][0]["version"] = version
-    return graph
-
-
-V1 = _graph(V1_REVISION, "binding-a", {**_empty_diff(None), "added": ["actions:X"]})
-# The author changed X's contract at the same version and recorded no breaking
-# change. This is the exact shape of the historical bypass.
-V2 = _graph(
+    MIRRORS,
+    V1,
+    V1_REVISION,
+    V2,
     V2_REVISION,
-    "binding-b",
-    {**_empty_diff(V1_REVISION), "changed": ["actions:X"], "breaking": []},
+    Repo,
+    _aliased,
 )
-
-
-@dataclass(frozen=True)
-class Repo:
-    root: Path
-
-    def git(self, *args: str) -> str:
-        completed = subprocess.run(  # noqa: S603 - fixed git executable, test-owned arguments
-            ["git", *args],  # noqa: S607
-            cwd=self.root,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return completed.stdout.strip()
-
-    def write_graph(self, graph: dict[str, Any]) -> None:
-        text = json.dumps(graph, indent=2, sort_keys=True) + "\n"
-        for mirror in MIRRORS:
-            path = self.root / mirror
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(text, encoding="utf-8")
-
-    def write_ledger(self, deprecations: list[dict[str, Any]]) -> None:
-        path = self.root / LEDGER_RELATIVE
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "schema_version": generator.CAPABILITY_GRAPH_EVOLUTION_SCHEMA_VERSION,
-            "deprecations": deprecations,
-        }
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-
-    def commit(self, message: str) -> str:
-        self.git("add", "-A")
-        self.git("commit", "-q", "-m", message)
-        return self.git("rev-parse", "HEAD")
-
-
-@pytest.fixture
-def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Repo:
-    """A temp repo: main carries graph v1, feature carries the v2 bypass."""
-
-    for name in (
-        "CI",
-        "GITHUB_ACTIONS",
-        "GITHUB_BASE_REF",
-        "WEB_TARGETED_BASE_REF",
-        generator.CAPABILITY_GRAPH_BASE_REF_ENV,
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    # Keep the developer's global git config (hooks path, signing) out of the
-    # temp repository so the test is hermetic.
-    global_config = tmp_path / "gitconfig"
-    global_config.write_text("", encoding="utf-8")
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-
-    root = tmp_path / "repo"
-    root.mkdir()
-    repo = Repo(root)
-    repo.git("init", "-q", "-b", "main")
-    repo.git("config", "user.name", "Capability Graph Test")
-    repo.git("config", "user.email", "capability-graph-test@example.invalid")
-    repo.git("config", "commit.gpgsign", "false")
-
-    repo.write_ledger([])
-    repo.commit("chore: ledger without a graph")
-    repo.write_graph(V1)
-    repo.commit("feat: capability graph v1")
-    repo.git("checkout", "-q", "-b", "feature")
-    repo.write_graph(V2)
-    repo.commit("feat: repurpose X and record breaking: []")
-
-    monkeypatch.setattr(generator, "REPO_ROOT", root)
-    monkeypatch.setattr(generator, "OUTPUTS", tuple(root / mirror for mirror in MIRRORS))
-    monkeypatch.setattr(generator, "EVOLUTION_CONTRACT_PATH", root / LEDGER_RELATIVE)
-    return repo
+from tests.helpers.capability_graph_fixture import (
+    repo as repo,
+)
 
 
 def _gate(previous: dict[str, Any] | None) -> dict[str, Any]:
@@ -228,6 +95,42 @@ def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> No
     assert set(generator._merged_workflow_predecessor_refs("main")) == expected | {verification_tip}
 
 
+def test_only_inferred_prepublication_parent_has_no_graph_history(repo: Repo) -> None:
+    unpublished = repo.git("rev-list", "--max-parents=0", "HEAD")
+
+    assert generator._read_workflow_predecessor(unpublished, allow_unpublished=True) is None
+    # A ledger or CLI declaration promises a published predecessor and remains strict.
+    with pytest.raises(subprocess.CalledProcessError):
+        generator._read_workflow_predecessor(unpublished)
+
+
+@pytest.mark.parametrize("state", ["partial", "deleted", "shallow", "malformed", "no_revision"])
+def test_inferred_parent_never_hides_missing_or_invalid_published_history(
+    repo: Repo, state: str
+) -> None:
+    unpublished = repo.git("rev-list", "--max-parents=0", "HEAD")
+    repo.git("checkout", "-q", "-b", "historical", unpublished)
+    if state == "partial":
+        mirror = repo.root / MIRRORS[1]
+        mirror.parent.mkdir(parents=True, exist_ok=True)
+        mirror.write_text(json.dumps(V1), encoding="utf-8")
+    elif state == "deleted":
+        repo.write_graph(V1)
+        repo.commit("publish graph")
+        for mirror in MIRRORS:
+            (repo.root / mirror).unlink()
+    elif state == "shallow":
+        (repo.root / ".git" / "shallow").write_text(unpublished + "\n", encoding="utf-8")
+    else:
+        graph = repo.root / GRAPH_RELATIVE
+        graph.parent.mkdir(parents=True, exist_ok=True)
+        graph.write_text("{" if state == "malformed" else "{}", encoding="utf-8")
+    historical = repo.commit("historical graph state") if state != "shallow" else unpublished
+
+    with pytest.raises((subprocess.CalledProcessError, json.JSONDecodeError, RuntimeError)):
+        generator._read_workflow_predecessor(historical, allow_unpublished=True)
+
+
 @pytest.mark.parametrize(
     ("history", "expected"),
     [
@@ -275,6 +178,9 @@ def test_base_ref_comparison_names_the_changed_action_and_fails(
     with pytest.raises(RuntimeError, match=r"unacknowledged breaking changes: actions:X") as exc:
         _gate(previous)
     assert "exact-revision deprecation" in str(exc.value)
+    monkeypatch.setattr(generator, "compile_capability_graph_from_sources", lambda: deepcopy(V2))
+    with pytest.raises(RuntimeError, match=r"unacknowledged breaking changes: actions:X"):
+        generator.build_payload(base_ref="main")
     deprecations = generator._load_evolution_deprecations()
     semantic_diff = generator._semantic_diff(previous, V2, deprecations=deprecations)
     assert semantic_diff["from_revision"] == V1_REVISION
@@ -518,3 +424,182 @@ def test_exported_archive_without_git_compares_the_file_to_itself(
 
     assert previous is not None
     assert previous["revision"] == V2_REVISION
+
+
+def test_zero_transition_is_canonical_across_ancestral_bases_and_still_checks_every_mirror(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo.git("checkout", "-q", "main")
+    first = repo.git("rev-parse", "HEAD")
+    prior = {**deepcopy(V1), "revision": "prior-format-revision"}
+    repo.write_graph(prior)
+    second = repo.commit("chore: graph format without a semantic transition")
+    compiled = {**deepcopy(V1), "revision": "current-format-revision"}
+    monkeypatch.setattr(generator, "compile_capability_graph_from_sources", lambda: compiled)
+    compatibility = Mock(wraps=generator._workflow_revision_compatibility)
+    monkeypatch.setattr(generator, "_workflow_revision_compatibility", compatibility)
+
+    first_payload = generator.build_payload(base_ref=first)
+    second_payload = generator.build_payload(base_ref=second)
+    assert json.dumps(first_payload, sort_keys=True) == json.dumps(second_payload, sort_keys=True)
+    assert first_payload["semantic_diff"]["from_revision"] is None
+    assert [call.args[2]["from_revision"] for call in compatibility.call_args_list] == [
+        V1_REVISION,
+        prior["revision"],
+    ]
+    assert first[:12] in capsys.readouterr().err
+    repo.write_graph(first_payload)
+    for base in (first, second):
+        monkeypatch.setattr(
+            "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", base]
+        )
+        assert generator.main() == 0
+
+    stale = deepcopy(first_payload)
+    stale["source_digests"]["capability_runtime_compiler"] = "stale"
+    generator.OUTPUTS[1].write_text(json.dumps(stale), encoding="utf-8")
+    for base in (first, second):
+        monkeypatch.setattr(
+            "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", base]
+        )
+        with pytest.raises(SystemExit, match="artifacts are stale"):
+            generator.main()
+
+
+def test_exact_uat_checks_the_serving_transition_and_landed_pr_mirrors(
+    repo: Repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo.git("checkout", "-q", "main")
+    serving = repo.git("rev-parse", "HEAD")
+    candidate = deepcopy(V1)
+    candidate["revision"] = V2_REVISION
+    candidate["actions"].append({**deepcopy(candidate["actions"][0]), "capability_id": "Y"})
+    monkeypatch.setattr(generator, "compile_capability_graph_from_sources", lambda: candidate)
+
+    serving_payload = generator.build_payload(base_ref=serving)
+    assert serving_payload["semantic_diff"]["added"] == ["actions:Y"]
+    repo.write_graph(serving_payload)
+    parent = repo.commit("land the additive graph")
+    pr_payload = generator.build_payload(base_ref=parent)
+    pr_payload["semantic_diff"] = {
+        key: None if key == "from_revision" else [] for key in pr_payload["semantic_diff"]
+    }
+    repo.write_graph(pr_payload)
+    repo.commit("record the zero comparison in the next reviewed graph")
+    repo.git("checkout", "-q", "-b", "uat-follow-up")
+    (repo.root / "proof.txt").touch()
+    repo.commit("land another reviewed change")
+    repo.git("checkout", "-q", "main")
+    repo.git("merge", "--no-ff", "--no-edit", "uat-follow-up")
+    monkeypatch.setattr(
+        "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", serving]
+    )
+    with pytest.raises(SystemExit, match="artifacts are stale"):
+        generator.main()
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat")
+    monkeypatch.setenv("GITHUB_SHA", repo.git("rev-parse", "HEAD"))
+    monkeypatch.setenv("CI_VALIDATION_LEVEL", "release")
+    assert generator.main() == 0
+
+    generator.OUTPUTS[1].write_text("{}\n", encoding="utf-8")
+    with pytest.raises(SystemExit, match="artifacts are stale"):
+        generator.main()
+
+    repo.write_graph(pr_payload)
+    candidate["actions"][0]["execution"]["binding_ref"] = "breaking-binding"
+    with pytest.raises(RuntimeError, match="unacknowledged breaking changes"):
+        generator.main()
+
+
+@pytest.mark.parametrize(
+    "case", ["declared", "undeclared", "missing", "action", "workflow", "policy"]
+)
+def test_reviewed_divergent_serving_history_keeps_semantics_and_revision_fences(
+    repo: Repo,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    repo.git("checkout", "-q", "main")
+    compiled = deepcopy(V1)
+    compiled["workflows"] = [
+        {
+            "capability_id": "workflow.synthetic",
+            "version": 1,
+            "execution": {"binding_ref": "workflow-binding"},
+        }
+    ]
+    monkeypatch.setattr(
+        generator, "compile_capability_graph_from_sources", lambda: deepcopy(compiled)
+    )
+    common_payload = generator.build_payload(base_ref="main")
+    repo.write_graph(common_payload)
+    repo.commit("publish the common workflow")
+    repo.git("checkout", "-q", "-b", "published-serving")
+    published = deepcopy(common_payload)
+    published["revision"] = "published-divergent"
+    published["workflow_revision_compatibility"]["current_graph_revision"] = published["revision"]
+    if case == "action":
+        published["actions"][0]["execution"]["binding_ref"] = "serving-only-action"
+    if case == "workflow":
+        published["workflows"][0]["execution"]["binding_ref"] = "serving-only-workflow"
+    if case == "policy":
+        published["workflow_revision_compatibility"]["workflows"][0]["rejected_graph_revisions"] = [
+            "candidate-current"
+        ]
+    repo.write_graph(published)
+    if case == "missing":
+        for output in generator.OUTPUTS:
+            output.unlink()
+    serving = repo.commit("publish the separate serving history")
+    repo.git("checkout", "-q", "main")
+    ledger = json.loads(generator.EVOLUTION_CONTRACT_PATH.read_text())
+    ledger["workflow_predecessor_refs"] = [] if case == "undeclared" else [serving]
+    generator.EVOLUTION_CONTRACT_PATH.write_text(json.dumps(ledger))
+    repo.commit("review the exact retained serving pin")
+    compiled["revision"] = "candidate-current"
+    compiled["actions"].append({**deepcopy(compiled["actions"][0]), "capability_id": "Y"})
+    if case == "undeclared":
+        with pytest.raises(subprocess.CalledProcessError):
+            generator.build_payload(base_ref="main", workflow_predecessor_refs=(serving,))
+        return
+    if case == "missing":
+        with pytest.raises(subprocess.CalledProcessError):
+            generator.build_payload(base_ref="main")
+        return
+    if case in {"action", "workflow", "policy"}:
+        with pytest.raises(
+            RuntimeError, match="unacknowledged breaking changes|conflicts with revision policy"
+        ):
+            generator.build_payload(base_ref="main")
+        return
+    payload = generator.build_payload(base_ref="main")
+    assert (
+        published["revision"]
+        in payload["workflow_revision_compatibility"]["workflows"][0]["compatible_graph_revisions"]
+    )
+    repo.write_graph(payload)
+    parent = repo.commit("publish the compatible successor")
+    reviewed = generator.build_payload(base_ref=parent)
+    reviewed["semantic_diff"] = {
+        key: None if key == "from_revision" else [] for key in reviewed["semantic_diff"]
+    }
+    repo.write_graph(reviewed)
+    repo.commit("record the reviewed zero comparison")
+    repo.git("checkout", "-q", "-b", "reviewed-change")
+    (repo.root / "proof.txt").touch()
+    repo.commit("reviewed unrelated change")
+    repo.git("checkout", "-q", "main")
+    repo.git("merge", "--no-ff", "--no-edit", "reviewed-change")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat")
+    monkeypatch.setenv("GITHUB_SHA", repo.git("rev-parse", "HEAD"))
+    monkeypatch.setenv("CI_VALIDATION_LEVEL", "release")
+    monkeypatch.setattr(
+        "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", serving]
+    )
+    assert generator.main() == 0
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat-isolated")
+    with pytest.raises(SystemExit, match="artifacts are stale"):
+        generator.main()
