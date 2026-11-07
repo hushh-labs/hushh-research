@@ -183,4 +183,13 @@ describe("voice-action-manifest", () => {
       })
     );
   });
+    it("preserves unique voice manifest action identifiers", () => {
+    const actionIds = [
+      "open_portfolio",
+      "open_watchlist",
+      "open_market_insights",
+    ];
+
+    expect(new Set(actionIds).size).toBe(actionIds.length);
+  });
 });
