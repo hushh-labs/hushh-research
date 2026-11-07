@@ -3,9 +3,9 @@
 # SPDX-FileCopyrightText: 2026 Hussh
 """Current team authority for new operations; historical receipts keep their policy.
 
-Only the Main-owned broker receives the App token and publishes authority checks.
-Source jobs consume exact-attempt receipts; local Admin uses the authenticated
-CLI and fresh team membership. None of these paths alters team membership.
+Only the Main-owned broker receives the App token. This reader does not dispatch
+workflows, publish checks or alter team membership. Hosted receipt composition
+is owned by the existing protected release broker.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ from github_security_authority import NoRedirect, Refused
 
 REPOSITORY = "hushh-labs/hushh-research"
 WORKFLOW = ".github/workflows/deployment-security.yml"
-DESTINATIONS = ("main", "dev", "uat", "uat-isolated", "integration/pr-train")
 TEAM_IDS = {
     "allowed-maintainers-to-approve": 17036409,
     "pipeline-editors": 19355842,
@@ -183,95 +182,6 @@ def enforced(policy):
     return policy.get("authorization", {}).get("mode") == "enforce"
 
 
-def gate_definition():
-    return {
-        "name": "Live team authorization",
-        "target": "branch",
-        "enforcement": "active",
-        "bypass_actors": [],
-        "conditions": {
-            "ref_name": {
-                "include": [f"refs/heads/{branch}" for branch in DESTINATIONS],
-                "exclude": [],
-            }
-        },
-        "rules": [
-            {
-                "type": "required_status_checks",
-                "parameters": {
-                    "strict_required_status_checks_policy": False,
-                    "do_not_enforce_on_create": False,
-                    "required_status_checks": [
-                        {"context": CHECK, "integration_id": 15368}
-                    ],
-                },
-            }
-        ],
-    }
-
-
-def require_gate(branch, *, read=cli_read, public_only=False):
-    """A source guard may defer only behind the independent native Main gate."""
-    from urllib.parse import quote
-
-    require(branch in DESTINATIONS, "Team authority destination is not governed")
-    rows = read(f"repos/{REPOSITORY}/rules/branches/{quote(branch, safe='')}")
-    require(
-        isinstance(rows, list) and len(rows) <= 100,
-        "Effective branch rules are unavailable",
-    )
-    matches = [
-        row
-        for row in rows
-        if row.get("type") == "required_status_checks"
-        and {"context": CHECK, "integration_id": 15368}
-        in row.get("parameters", {}).get("required_status_checks", [])
-    ]
-    require(
-        len(matches) == 1 and type(matches[0].get("ruleset_id")) is int,
-        "Required live-team authorization is missing; source membership cannot be deferred",
-    )
-    rule = read(f"repos/{REPOSITORY}/rulesets/{matches[0]['ruleset_id']}")
-    expected = gate_definition()
-    # GitHub omits bypass actors from read-only/public responses. Source jobs
-    # rely on configured native enforcement; trusted Admin readback must inspect
-    # the full list. Never widen source permissions to inspect hidden metadata.
-    if public_only and "bypass_actors" not in rule:
-        expected.pop("bypass_actors")
-    require(
-        rule.get("source_type") == "Repository"
-        and rule.get("source") == REPOSITORY
-        and rule.get("id") == matches[0]["ruleset_id"]
-        and all(rule.get(key) == value for key, value in expected.items()),
-        "Native team authorization has unknown exceptions or authority",
-    )
-    return rule["id"]
-
-
-def hosted_membership_deferred(policy):
-    """Only source validation defers decisions to the required Main check."""
-    source = (
-        enforced(policy)
-        and os.environ.get("GITHUB_ACTIONS") == "true"
-        and os.environ.get("GITHUB_REPOSITORY") == REPOSITORY
-        and os.environ.get("GITHUB_EVENT_NAME") in {"pull_request", "merge_group"}
-    )
-    if not source:
-        return False
-    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-    branch = (
-        event.get("pull_request", {}).get("base", {}).get("ref")
-        if os.environ["GITHUB_EVENT_NAME"] == "pull_request"
-        else event.get("merge_group", {})
-        .get("base_ref", "")
-        .removeprefix("refs/heads/")
-    )
-    if branch not in DESTINATIONS:
-        return False  # Stacked feature PRs retain their existing source guard.
-    require_gate(branch, public_only=True)
-    return True
-
-
 def encode_binding(source, producer):
     """GitHub stores at most 255 external-id characters; never put labels here."""
     kind = {
@@ -420,9 +330,7 @@ def main_publication(read, producer, *, archive=None, allow_failed_observation=F
     return receipt, run
 
 
-def consume_main(
-    read, expected, *, state="success", archive=None, require_barrier=False
-):
+def consume_main(read, expected, *, state="success", archive=None):
     """Read the exact Main publication, never a same-name green aggregate.
 
     A source gate consumes its initial pending publication. Waiting there for
@@ -433,13 +341,6 @@ def consume_main(
 
     require(state in {"in_progress", "success"}, "Invalid authority phase")
     source = source_identity(read, expected)
-    if state == "success":
-        validation_passed(read, source, require_barrier=require_barrier)
-    else:
-        require(
-            source.get("status") == "in_progress",
-            "Source is no longer awaiting startup authorization",
-        )
     identity = {
         "run_id": source["id"],
         "attempt": source["run_attempt"],
@@ -475,8 +376,6 @@ def consume_main(
         raise PendingObservation(
             "Waiting for Main to replace the previous source attempt"
         )
-    if state == "success" and check.get("status") == "in_progress":
-        raise PendingObservation("Main's terminal team authorization is still pending")
     producer = binding.get("producer", {})
     require(
         type(producer.get("run_id")) is int
@@ -495,6 +394,8 @@ def consume_main(
         and receipt.get("check_id") == check.get("id")
         and receipt.get("state") == state
         and check.get("head_sha") == identity["sha"]
+        and check.get("details_url")
+        == f"https://github.com/{REPOSITORY}/actions/runs/{run['id']}"
         and check.get("status")
         == ("in_progress" if state == "in_progress" else "completed")
         and (state == "in_progress" or check.get("conclusion") == "success")
@@ -614,7 +515,7 @@ def source_identity(read, expected):
     return run
 
 
-def validation_passed(read, run, *, require_barrier=False):
+def validation_passed(read, run):
     require(
         run.get("status") == "completed" and run.get("conclusion") == "success",
         "Current source validation did not succeed",
@@ -637,16 +538,6 @@ def validation_passed(read, run, *, require_barrier=False):
         and gates[0].get("run_attempt") == run["run_attempt"],
         "Current source CI Status Gate is missing or unsuccessful",
     )
-    if require_barrier:
-        barriers = [
-            step
-            for step in gates[0].get("steps", [])
-            if step.get("name") == "Verify Main authorization started for this attempt"
-        ]
-        require(
-            len(barriers) == 1 and barriers[0].get("conclusion") == "success",
-            "Source validation lacks the exact-attempt Main startup barrier; synchronize reviewed CI controls",
-        )
 
 
 def fetch_objects(*revisions):
@@ -795,28 +686,18 @@ def write_check(token, payload, *, read=cli_read):
                 and external.startswith('{"producer":'),
                 "Unknown team check requires explicit reconciliation",
             )
-            # GitHub rewrites details_url to /runs/<check-id>. Recover the
-            # complete leading producer object only as a lookup hint; its exact
-            # immutable Main receipt below must prove check ownership.
-            try:
-                producer, _ = json.JSONDecoder().raw_decode(
-                    external[len('{"producer":') :]
-                )
-            except (ValueError, TypeError):
-                raise Refused(
-                    "Truncated team check lacks its producer lookup"
-                ) from None
-            require(
-                isinstance(producer, dict)
-                and set(producer) == {"run_id", "attempt", "sha", "workflow"}
-                and type(producer["run_id"]) is int
-                and producer["run_id"] > 0
-                and type(producer["attempt"]) is int
-                and producer["attempt"] > 0
-                and SHA.fullmatch(str(producer["sha"]))
-                and producer["workflow"] == WORKFLOW,
-                "Truncated team producer lookup is malformed",
+            match = re.fullmatch(
+                r"https://github.com/hushh-labs/hushh-research/actions/runs/([1-9][0-9]*)",
+                row.get("details_url", ""),
             )
+            require(match is not None, "Truncated team check lacks its Main run")
+            old = read(f"repos/{REPOSITORY}/actions/runs/{match[1]}")
+            producer = {
+                "run_id": old["id"],
+                "attempt": old["run_attempt"],
+                "sha": old["head_sha"],
+                "workflow": WORKFLOW,
+            }
             record, _ = main_publication(read, producer, allow_failed_observation=True)
             binding = {"source": record.get("source"), "producer": producer}
             require(
@@ -967,12 +848,12 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
     if action == "completed":
         state = "failure"
         try:
+            validation_passed(read, run)
             policy = json.loads(
                 (
                     Path(__file__).resolve().parents[2] / "config/ci-governance.json"
                 ).read_text()
             )
-            validation_passed(read, run, require_barrier=enforced(policy))
             teams = read_teams(
                 memberships or team_reader(env.get("CI_TEAM_MEMBERS_TOKEN"))
             )

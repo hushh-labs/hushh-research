@@ -384,30 +384,14 @@ retain ordinary team-member roles, with no team-maintainer or equivalent custom
 organization role. Members cannot create teams. Check effective inherited access
 and read back changes; organization ownership is not workflow deployment approval.
 
-The Main-only team-authority job in the existing deployment-security workflow
-uses the first-party App's **Members: read** permission. It executes only Main
-code and reads candidate Git objects as data. Candidate PR/queue jobs receive no
-App key or write permission. Failed, incomplete or changed membership reads refuse
-authority; there is no static-roster fallback in the observation.
+Automatic per-PR/queue team-observer runs are withdrawn. Native protected-path
+review and queue exceptions still reference the pipeline-editor Team; required
+functional CI and combined-result validation remain independent. The authenticated
+Admin CLI reads current team membership before its exact-head decision.
 
-**Merge admission:** `Team Authorization Gate` is required independently of
-`CI Status Gate` on the five governed destinations, with no bypass. Source jobs
-verify that exact native rule before deferring membership or protected approval.
-They read Main's pending publication for their current attempt before finishing;
-Main then checks successful functional validation and fresh teams. This avoids a
-circular wait and prevents an older green authority result from clearing a rerun.
-Admin rechecks the authenticated CLI's live roles and the exact terminal Main
-receipt. Presentation URLs and job labels cannot substitute for immutable
-producer, source, attempt and artifact proof. A merge still deploys nothing.
-GitHub hides bypass actors from public readers. Source jobs verify public rule
-scope and App binding; the trusted operator verifies the full empty bypass list.
-Native enforcement and leadership-only ruleset administration own that boundary;
-candidate jobs receive no broader token to inspect private settings.
-
-Activation and source synchronization remain separate evidence: an older branch
-without the barrier must receive the reviewed operations delta before it can use
-the new admission. This merge contract does not certify that every deployment
-consumer has migrated; verify the actual Main release-broker authorization.
+Deployment Security runs only for explicitly requested releases. Legacy hosted
+source/deployment roster consumers remain transitional; do not claim all runtime
+admission is group-only. Historical observer receipts grant no new release authority.
 
 For the initial native transition, preserve a live settings snapshot and run the
 current landed Main tool with `--native-team-transition <preceding-main-sha>`.
