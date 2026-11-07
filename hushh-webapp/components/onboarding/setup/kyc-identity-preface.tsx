@@ -16,6 +16,7 @@ import {
   type KycIdentityProfile,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { cn } from "@/lib/utils";
+import { captureProductAttempt } from "@/lib/observability/product-activity-client";
 
 import { useVault } from "@/lib/vault/vault-context";
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
@@ -68,11 +69,14 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
 
     saveStartedRef.current = true;
     setIsSaveStarted(true);
+    const attempt = captureProductAttempt("kyc.save_profile", userId);
+    attempt.started();
     const saveTask = KycIdentityProfilePkmService.saveProfile({
       userId,
       vaultKey,
       vaultOwnerToken,
       profile,
+      onOutcome: attempt.settled,
     });
     onComplete();
     toast.info("Importing your profile into Memory in the background…");
