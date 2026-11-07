@@ -384,18 +384,14 @@ retain ordinary team-member roles, with no team-maintainer or equivalent custom
 organization role. Members cannot create teams. Check effective inherited access
 and read back changes; organization ownership is not workflow deployment approval.
 
-The Main-only team-authority job in the existing deployment-security workflow
-uses the first-party App's **Members: read** permission. It executes only Main
-code and reads candidate Git objects as data. Candidate PR/queue jobs receive no
-App key or write permission. Failed, incomplete or changed membership reads refuse
-authority; there is no static-roster fallback in the observation.
+Automatic per-PR/queue team-observer runs are withdrawn. Native protected-path
+review and queue exceptions still reference the pipeline-editor Team; required
+functional CI and combined-result validation remain independent. The authenticated
+Admin CLI reads current team membership before its exact-head decision.
 
-**Activation distinction:** native protected-path review already references the
-pipeline-editor Team. The Main observer publishes a separate authority check;
-it does not replace `CI Status Gate` or qualify application behavior. Legacy
-source rosters and their consumers remain during staged migration until the
-required authority check and every admission consumer are verified. An observer
-receipt alone is not proof that group-only runtime enforcement is active.
+Deployment Security runs only for explicitly requested releases. Legacy hosted
+source/deployment roster consumers remain transitional; do not claim all runtime
+admission is group-only. Historical observer receipts grant no new release authority.
 
 For the initial native transition, preserve a live settings snapshot and run the
 current landed Main tool with `--native-team-transition <preceding-main-sha>`.

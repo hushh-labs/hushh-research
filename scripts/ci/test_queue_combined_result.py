@@ -513,6 +513,7 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
     from types import SimpleNamespace
     from pathlib import Path
     import prepared_branch_governance as prepared
+    import github_team_authority as team
 
     repository = "hushh-labs/hushh-research"
     policy = json.loads((Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text())
@@ -531,6 +532,7 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
     threads = {"data": {"repository": {"pullRequest": {"reviewThreads": {
         "totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}}}}}
     with patch.object(queue, "api", side_effect=[{"login": actor}, pr, {"object": {"sha": BASE}}]) as api, \
+         patch.object(team, "local_policy", return_value=policy) as team_policy, \
          patch.object(queue, "git", side_effect=git), \
          patch.object(queue, "authority_policy", return_value=(BASE, policy)) as authority, \
          patch.object(queue, "_module", side_effect=lambda name, *_: modules[name]), \
@@ -541,6 +543,7 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
         proof = queue.owner_admin_snapshot(8891, HEAD1)
     assert proof["state"]["branch"] == branch and proof["state"]["tree"] == FIRST
     authority.assert_called_once_with(repository, branch, BASE, owner_admin=True)
+    team_policy.assert_called_once_with(policy, actor=actor, read=api)
     assert api.call_args_list[-1].args == (f"repos/{repository}/git/ref/heads/{branch}",)
     assert seen == [{"branch": branch, "verify_only": True}]
     assert run.call_args_list[0].args[0][3] == branch

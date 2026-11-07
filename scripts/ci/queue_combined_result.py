@@ -428,6 +428,9 @@ def owner_admin_snapshot(number, expected_head):
         timeout=90,
     )
     policy_revision, policy = authority_policy(repository, branch, base, owner_admin=True)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        policy = local_policy(policy, actor=actor, read=api)
     if branch == "main":
         main = policy["main"]
     else:
