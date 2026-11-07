@@ -19,6 +19,41 @@ from .protocol import _AccessMiddleware, _await, _text
 
 logger = logging.getLogger("hushh_mcp.services.email_oss.runtime")
 
+_SAFE_EXCEPTION_TYPES = frozenset(
+    {
+        "APIConnectionError",
+        "APIError",
+        "APIResponseValidationError",
+        "APIStatusError",
+        "APITimeoutError",
+        "AuthenticationError",
+        "BadRequestError",
+        "ContentFilterFinishReasonError",
+        "GraphRecursionError",
+        "HTTPStatusError",
+        "IndexError",
+        "InternalServerError",
+        "KeyError",
+        "LengthFinishReasonError",
+        "ModelCallLimitError",
+        "PermissionError",
+        "PermissionDeniedError",
+        "RateLimitError",
+        "RuntimeError",
+        "TimeoutError",
+        "TypeError",
+        "UnprocessableEntityError",
+        "ValidationError",
+        "ValueError",
+    }
+)
+
+
+def _safe_exception_type(error: Exception) -> str:
+    """Keep model, mailbox and provider exception text out of operational logs."""
+    name = type(error).__name__
+    return name if name in _SAFE_EXCEPTION_TYPES else "OtherError"
+
 
 @dataclass
 class _Turn:
@@ -45,6 +80,10 @@ class _Turn:
     code: str | None = None
     final: Any = None
     execution: Any = None
+    stage: str = "access"
+    failure_stage: str = "none"
+    failure_exception_type: str = "none"
+    failure_detail: str = "none"
 
 
 async def _prepare_graph(
@@ -108,6 +147,7 @@ async def _prepare_graph(
 
 
 async def _graph_events(runtime, turn, graph, messages):
+    turn.stage = "graph"
     config = {"recursion_limit": runtime.recursion_limit, "callbacks": []}
     with tracing_context(enabled=False):
         async with aclosing(
@@ -130,6 +170,7 @@ async def _graph_events(runtime, turn, graph, messages):
                             turn.public_message_id = message_id
                             turn.public_bytes += len(text.encode())
                             if turn.public_bytes > 128 * 1024:
+                                turn.failure_detail = "visible_byte_limit"
                                 raise ValueError("Email visible response exceeded its byte budget")
                             turn.public_text.append(text)
                             if turn.first_model_text_ms is None:
@@ -151,15 +192,20 @@ async def _graph_events(runtime, turn, graph, messages):
                                 and _text(row.content).strip()
                             ):
                                 turn.final = row
+    turn.stage = "finalize"
     await turn.context.require_access()
     if turn.final is None:
+        turn.failure_detail = "missing_final_answer"
         raise RuntimeError("Email graph ended without an assistant answer")
     if turn.public_text and (not "".join(turn.public_text).endswith(_text(turn.final.content))):
+        turn.failure_detail = "stream_final_mismatch"
         raise ValueError("Email final answer did not match its stream")
 
 
 def _finish_turn(runtime, turn):
     elapsed_ms = round((time.monotonic() - turn.started) * 1000, 2)
+    pre_failure_read_status = turn.read_receipt["status"]
+    pre_failure_source_count = len(turn.read_receipt["sources"])
     if turn.status != "ok":
         turn.directives.clear()
         turn.read_receipt = {
@@ -174,7 +220,9 @@ def _finish_turn(runtime, turn):
     logger.info(
         "email_oss.turn_completed trace=%s status=%s model_calls=%d tool_calls=%d elapsed_ms=%.2f "
         "request_id=%s first_text_ms=%s gmail_http_requests=%d gmail_api_methods=%d "
-        "gmail_http_elapsed_ms=%.2f read_status=%s failure_code=%s",
+        "gmail_http_elapsed_ms=%.2f read_status=%s failure_code=%s "
+        "failure_stage=%s failure_exception_type=%s failure_detail=%s "
+        "pre_failure_read_status=%s pre_failure_source_count=%d",
         turn.trace_id,
         turn.status,
         turn.counts["model_calls"],
@@ -187,6 +235,11 @@ def _finish_turn(runtime, turn):
         provider.get("gmail_http_elapsed_ms", 0),
         turn.read_receipt["status"],
         turn.code or "-",
+        turn.failure_stage,
+        turn.failure_exception_type,
+        turn.failure_detail,
+        pre_failure_read_status,
+        pre_failure_source_count,
     )
     result = {
         "conversationId": turn.context.conversation_id,
@@ -237,6 +290,7 @@ async def run_turn(
     try:
         async with asyncio.timeout(runtime.deadline_seconds):
             await context.require_access()
+            turn.stage = "prepare"
             graph, messages = await _prepare_graph(
                 runtime,
                 turn,
@@ -251,16 +305,22 @@ async def run_turn(
                     yield event
     except asyncio.CancelledError:
         raise
-    except PermissionError:
+    except PermissionError as error:
         turn.status, turn.code = ("unavailable", "email_authority_changed")
-    except TimeoutError:
+        turn.failure_stage = turn.stage
+        turn.failure_exception_type = _safe_exception_type(error)
+    except TimeoutError as error:
         turn.status, turn.code = (
             "unavailable",
             "email_effect_outcome_unknown" if turn.uncertain_effects else "email_deadline_exceeded",
         )
-    except Exception:
+        turn.failure_stage = turn.stage
+        turn.failure_exception_type = _safe_exception_type(error)
+    except Exception as error:
         turn.status, turn.code = (
             "unavailable",
             "email_effect_outcome_unknown" if turn.uncertain_effects else "email_runtime_failed",
         )
+        turn.failure_stage = turn.stage
+        turn.failure_exception_type = _safe_exception_type(error)
     yield {"type": "result", "result": _finish_turn(runtime, turn)}

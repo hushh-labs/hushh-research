@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -245,6 +246,48 @@ async def test_model_limit_is_error_not_tool_result_or_fabricated_final_success(
     result = await runtime.handle_turn(**turn())
     assert result["status"] == "unavailable" and result["performance"]["model_calls"] == 1
     assert result["response"] != "This final response must not be reached."
+
+
+@pytest.mark.asyncio
+async def test_failed_turn_logs_bounded_stage_and_prior_read_status_without_mail_content(caplog):
+    private_marker = "PRIVATE_MAIL_CONTENT"
+
+    class FailingAfterSearch(ToolModel):
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            if self.seen:
+                raise RuntimeError(private_marker)
+            return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    model = FailingAfterSearch(
+        responses=[AIMessage(content="", tool_calls=[call("search_threads", {"q": "invoice"})])]
+    )
+    execution = Execution()
+    runtime = EmailAgentRuntime(
+        model_factory=lambda _context: model,
+        execution_factory=lambda _context: execution,
+    )
+    caplog.set_level(logging.INFO, logger="hushh_mcp.services.email_oss.runtime")
+
+    result = await runtime.handle_turn(**turn())
+
+    assert result["status"] == "unavailable"
+    assert result["code"] == "email_runtime_failed"
+    assert len(execution.calls) == 1
+    assert "failure_stage=graph failure_exception_type=RuntimeError" in caplog.text
+    assert "pre_failure_read_status=ok pre_failure_source_count=1" in caplog.text
+    assert private_marker not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_missing_final_answer_logs_fixed_finalize_reason(caplog):
+    runtime, _, _ = make_runtime([AIMessage(content="")])
+    caplog.set_level(logging.INFO, logger="hushh_mcp.services.email_oss.runtime")
+
+    result = await runtime.handle_turn(**turn())
+
+    assert result["status"] == "unavailable"
+    assert "failure_stage=finalize failure_exception_type=RuntimeError" in caplog.text
+    assert "failure_detail=missing_final_answer" in caplog.text
 
 
 @pytest.mark.asyncio
