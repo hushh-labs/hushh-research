@@ -1249,6 +1249,18 @@ def test_catalog_covers_authored_agents_and_actions_without_dynamic_tool_names()
     mail_actions = [a for a in catalog["actions"] if a["id"].startswith("profile.gmail.")]
     assert mail_actions
     assert all(a["agentId"] == "agent_email" for a in mail_actions)
+    memory_ids = {
+        "pkm.export_memory",
+        "pkm.edit_memory",
+        "pkm.delete_memory",
+        "pkm.prepare_capture",
+        "pkm.retry_capture_section",
+        "pkm.save_capture",
+    }
+    memory_actions = [a for a in catalog["actions"] if a["id"] in memory_ids]
+    assert {a["id"] for a in memory_actions} == memory_ids
+    assert all(a["agentId"] == "agent_personal_information" for a in memory_actions)
+    assert all(a["proof"] == "client_reported" for a in memory_actions)
     chat = [a for a in catalog["actions"] if a["id"].startswith("chat:")]
     assert {a["agentId"] for a in chat} == {
         "agent_one",

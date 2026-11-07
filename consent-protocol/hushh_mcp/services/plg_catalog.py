@@ -129,7 +129,10 @@ def activity_catalog(environment: str = "production") -> dict:
         key = action["action_id"]
         # Manual controls retain their authored participant/consent handlers.
         # This attributes observations; it enables no executor.
-        surface_owner = {"one_document_delivery": "agent_documents"}.get(action["surface_id"])
+        surface_owner = {
+            "one_document_delivery": "agent_documents",
+            "pkm": "agent_personal_information",
+        }.get(action["surface_id"])
         if action["surface_id"] == "gmail" and key.startswith("profile.gmail."):
             surface_owner = "agent_email"
         if key in actions:

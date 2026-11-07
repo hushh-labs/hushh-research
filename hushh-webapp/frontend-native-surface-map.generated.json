@@ -5084,7 +5084,13 @@
       "voice_action_contract_ids": [
         "pkm.close_sharing_bundle_review",
         "pkm.close_sharing_price_review",
-        "pkm.review_sharing_price"
+        "pkm.delete_memory",
+        "pkm.edit_memory",
+        "pkm.export_memory",
+        "pkm.prepare_capture",
+        "pkm.retry_capture_section",
+        "pkm.review_sharing_price",
+        "pkm.save_capture"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -11069,5 +11075,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "57fdf0e5ad22847f3473474f0afd46856a7622b9b2befd4a8d927d95738df642"
+  "content_sha256": "440ef61cd808538fd56e84f7a75d3497d9f657e7ded1275b01f15e70297ae5f9"
 }
