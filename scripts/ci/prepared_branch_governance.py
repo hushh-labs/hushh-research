@@ -65,6 +65,11 @@ def branch_policy(policy: dict, branch: str) -> dict:
             merge_queue_bypass_users=owners, merge_queue_bypass_team_slug="",
             merge_queue_bypass_team_name="",
         )
+        if policy.get("authorization", {}).get("native_teams"):
+            source["native_team_authority"] = True
+            source["review_bypass_team_slug"] = "pipeline-editors"
+            source["merge_queue_bypass_team_slug"] = "pipeline-editors"
+            source["merge_queue_bypass_team_name"] = "pipeline-editors"
         if branch != "uat-isolated":
             source.update(
                 required_approving_reviews=0, require_code_owner_reviews=False,
@@ -86,7 +91,7 @@ def protection_payload(policy: dict) -> dict:
             "required_approving_review_count": policy["required_approving_reviews"],
             "require_last_push_approval": policy["require_last_push_approval"],
             "bypass_pull_request_allowances": {
-                "users": sorted(policy["review_bypass_users"]),
+                "users": [] if policy.get("native_team_authority") else sorted(policy["review_bypass_users"]),
                 "teams": [policy["review_bypass_team_slug"]] if policy.get("review_bypass_team_slug") else [],
                 "apps": [],
             },
@@ -243,7 +248,9 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
             raise SystemExit("Combined-result enforcement requires queue bypass to be disabled")
         team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{slug}"]) if slug else None
         actors = []
-        if native:
+        if native and source.get("native_team_authority"):
+            actors = [governance.pipeline_team_actor(read)]
+        elif native:
             for owner in source["merge_queue_bypass_users"]:
                 user = read(["api", f"users/{owner}"])
                 if user.get("login") != owner or user.get("type") != "User" or type(user.get("id")) is not int:

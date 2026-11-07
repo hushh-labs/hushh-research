@@ -254,7 +254,7 @@ def authorize(repository, branch, base, included, *, policy=None, authority_revi
         approvals = owner_approval or (guard._owner_approvals(
             repository, member["number"], member["head"], protected_owners, read=api,
         ) if protected else [])
-        require(not protected or approvals, "Protected changes need Kushal or Ankit's current-head approval")
+        require(not protected or approvals, "Protected changes need the configured pipeline editors' current-head approval")
         member["protected_approvals"] = approvals
     return included
 

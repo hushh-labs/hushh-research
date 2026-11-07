@@ -1,9 +1,12 @@
 name: Deployment Security
-run-name: Deployment security · ${{ inputs.environment_name || 'Dev/UAT request' }}
+run-name: ${{ github.event_name == 'workflow_run' && format('Team authority · {0}', github.event.workflow_run.name) || format('Deployment security · {0}', inputs.environment_name || 'Dev/UAT request') }}
 
 on:
-  # Explicit deployments only. This is not a PR worker or recurring scan.
+  # Secret checks remain explicit-deployment only. Team authorization never reads alerts.
   # The protected token remains in the Main-only ci-security environment.
+  workflow_run:
+    workflows: [PR Validation, Queue Validation]
+    types: [in_progress, completed]
   workflow_dispatch:
     inputs:
       source_request:
@@ -13,6 +16,8 @@ on:
   workflow_call:
     secrets:
       GH_SECURITY_ALERTS_TOKEN:
+        required: false
+      CI_TEAM_APP_PRIVATE_KEY:
         required: false
     inputs:
       application_ref:
@@ -64,5 +69,47 @@ jobs:
         with:
           name: deployment-security-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/deployment-security.json
+          if-no-files-found: error
+          retention-days: 7
+
+  team-authorization:
+    name: Verify live team authority
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_run'
+    runs-on: ubuntu-24.04
+    environment: ci-security
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      checks: write
+    concurrency:
+      group: team-authority-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3 (Node 24)
+        id: membership
+        if: github.event.action == 'completed'
+        with:
+          client-id: ${{ vars.CI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+          owner: hushh-labs
+          repositories: hushh-research
+          permission-members: read
+      - name: Authorize current validation from live teams
+        run: python3 scripts/ci/github_team_authority.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_TEAM_MEMBERS_TOKEN: ${{ steps.membership.outputs.token }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: team-authorization-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/team-authorization.json
           if-no-files-found: error
           retention-days: 7
