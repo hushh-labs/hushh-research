@@ -490,7 +490,7 @@ async def test_the_turn_prefers_the_browsers_projection_over_the_local_index(mon
 
     source = Path("api/routes/one/pod_turn.py").read_text(encoding="utf-8")
 
-    pushed = source.index("grounding = (payload.pkm_context")
+    pushed = source.index("grounding = payload.pkm_context")
     local = source.index("local_grounding(user_id)")
     guard = source.index("if grounding is None:")
 

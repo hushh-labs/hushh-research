@@ -31,6 +31,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_calendar",
@@ -58,10 +59,63 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_career",
       "manifest_path": "consent-protocol/hushh_mcp/agents/career/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "owner_browser",
+        "executes_in_pod": true,
+        "information_source": "pkm_projection",
+        "why": "The admitted pod memory rewrite route supplies owner messages, the current Markdown and the selected owner model to this tool-free helper. It returns a proposal; the unlocked browser validates and encrypts the durable commit. It is not a dispatchable specialist.",
+        "write_scope": "proposal_only"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_agent_tool": false,
+        "pod_dispatchable": false,
+        "pod_memory_helper": true,
+        "registered_specialist": false
+      },
+      "id": "agent_chat_memory_manager",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/chat_memory_manager/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Tool-free summarization uses the encrypted hub session checkpoint. Pod text turns use in-memory sessions without commit_chat_summary, so the summary scheduler does not run there.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [],
+        "pod_agent_tool": false,
+        "pod_dispatchable": false,
+        "pod_memory_helper": false,
+        "registered_specialist": false
+      },
+      "id": "agent_chat_stm",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/chat_stm/agent.yaml",
       "parent": "agent_one",
       "required_scopes": [],
       "status": "experimental"
@@ -83,6 +137,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_computer_use",
@@ -110,6 +165,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_connected_systems",
@@ -137,6 +193,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_connections",
@@ -166,6 +223,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_documents",
@@ -197,6 +255,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_email",
@@ -224,6 +283,7 @@
         "one_tool_names": [],
         "pod_agent_tool": true,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_files",
@@ -254,6 +314,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_kai",
@@ -281,6 +342,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_kyc",
@@ -312,6 +374,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_location",
@@ -341,6 +404,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_memory_intent",
@@ -366,6 +430,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_memory_merge",
@@ -391,6 +456,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_memory_segmentation",
@@ -420,6 +486,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_nav",
@@ -447,6 +514,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_onboarding",
@@ -472,6 +540,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_one",
@@ -505,6 +574,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_personal_information",
@@ -534,6 +604,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_pkm_structure",
@@ -559,6 +630,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_portfolio_import",
@@ -587,6 +659,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_wallet",
@@ -675,12 +748,14 @@
   "source": {
     "declaration_table": "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py::POD_SPECIALIST_EXECUTION",
     "derived_from": [
+      "consent-protocol/api/routes/one/pod_pkm_preparation.py",
       "consent-protocol/api/routes/one/pod_relay.py",
       "consent-protocol/api/routes/one/pod_specialist.py",
       "consent-protocol/hushh_mcp/adk_bridge/__init__.py",
       "consent-protocol/hushh_mcp/adk_bridge/delegation.py",
       "consent-protocol/hushh_mcp/one_adk/pod_data_door_specialist.py",
       "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+      "consent-protocol/hushh_mcp/services/chat_memory_manager.py",
       "consent-protocol/hushh_mcp/services/pod_marketplace_ports.py",
       "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py"
     ],

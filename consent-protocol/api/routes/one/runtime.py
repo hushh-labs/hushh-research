@@ -137,6 +137,17 @@ async def _managed_readiness() -> ManagedGeminiReadinessResponse:
         if policy is not None:
             descriptor = managed_text_binding(scope="one_text_chat")
             cache_binding = (policy["generation"], descriptor["config_fingerprint"])
+        else:
+            from hushh_mcp.managed_ai_config import (
+                load_managed_runtime_policy,
+                sandbox_managed_azure_enabled,
+            )
+
+            if sandbox_managed_azure_enabled():
+                transport = load_managed_runtime_policy()
+                if transport is None:
+                    raise ValueError("Sandbox Azure transport is unavailable")
+                cache_binding = ("sandbox_azure", transport["config_fingerprint"])
     except Exception:
         raise HTTPException(
             status_code=503,
@@ -333,6 +344,42 @@ async def _probe_managed_gemini(
                 model=receipt["model"],
                 location=receipt["location"] or None,
                 fallback_used=receipt["provider"] != policy["selected_provider"],
+            )
+            _managed_readiness_cache = (time.monotonic(), response)
+            _managed_readiness_binding = cache_binding
+            return response
+        if cache_binding[0] == "sandbox_azure":
+            from google.adk.models.llm_request import LlmRequest
+
+            from hushh_mcp.runtime_providers.managed_azure_text import build_azure_text_model
+
+            model = build_azure_text_model(_ONE_RUNTIME_MODEL, capability="one_text_root")
+            if model is None:
+                raise RuntimeError("Sandbox Azure configuration ended")
+            request = LlmRequest(
+                model=model.model,
+                contents=[
+                    genai_types.Content(role="user", parts=[genai_types.Part(text="Reply OK.")])
+                ],
+                config=genai_types.GenerateContentConfig(max_output_tokens=16),
+            )
+
+            async def probe():
+                return [item async for item in model.generate_content_async(request)]
+
+            results = await asyncio.wait_for(probe(), timeout=20)
+            if not any(
+                part.text and not part.thought
+                for item in results
+                if item.content and not item.error_code
+                for part in item.content.parts or []
+            ):
+                raise RuntimeError("Sandbox Azure returned no usable response")
+            response = ManagedGeminiReadinessResponse(
+                status="ready",
+                provider="azure_openai",
+                model=model.model,
+                location=None,
             )
             _managed_readiness_cache = (time.monotonic(), response)
             _managed_readiness_binding = cache_binding

@@ -4,6 +4,13 @@ import { ApiService } from "@/lib/services/api-service";
 export type ConnectionRelationship =
   "none" | "pending_outgoing" | "pending_incoming" | "connected";
 
+export type MutualConnectionPreview = { displayName: string | null; photoUrl: string | null; publicPersonRef?: string | null };
+export type MutualConnectionMetadata = {
+  mutualConnectionCount?: number;
+  mutualConnectionPreview?: MutualConnectionPreview | null;
+  mutualConnectionPreviews?: MutualConnectionPreview[];
+};
+
 /**
  * Which part of the directory a search is asking about.
  *
@@ -21,7 +28,7 @@ export type ConnectionReportReason =
   | "impersonation"
   | "other";
 
-export interface DirectoryPerson {
+export interface DirectoryPerson extends MutualConnectionMetadata {
   userId: string;
   publicPersonRef?: string | null;
   displayName: string | null;
@@ -30,9 +37,6 @@ export interface DirectoryPerson {
   maskedEmail?: string | null;
   maskedPhone?: string | null;
   relationship: ConnectionRelationship;
-  /** Absent until the backend supports shared-neighbor discovery. */
-  mutualConnectionCount?: number;
-  mutualConnectionPreview?: { displayName: string; photoUrl: string | null; publicPersonRef?: string | null } | null;
   /**
    * Whether this person holds an RIA profile verified far enough to carry a
    * capability. Server-annotated on the row rather than inferred from which tab
@@ -51,14 +55,14 @@ export interface DirectoryPage {
 
 export interface MutualConnectionsPage {
   person: { publicPersonRef: string; displayName: string | null };
-  items: { publicPersonRef: string; displayName: string | null; photoUrl: string | null }[];
+  items: NetworkPerson[];
   page: number;
   hasMore: boolean;
   totalCount: number;
 }
 
 export type NetworkDegree = 1 | 2 | 3;
-export type NetworkPerson = { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null };
+export type NetworkPerson = MutualConnectionMetadata & { publicPersonRef: string; displayName: string | null; photoUrl: string | null; networkDegree?: NetworkDegree | null; relationship?: ConnectionRelationship };
 export type NetworkPage = { person: { publicPersonRef: string; displayName: string | null } | null; items: NetworkPerson[]; page: number; hasMore: boolean; totalCount?: number };
 export type NetworkSummary = {
   person: { publicPersonRef: string; displayName: string | null };
@@ -330,7 +334,7 @@ export class ConnectionsService {
   }
   static async getPersonContext(opts: { idToken: string; counterpartUserId: string }): Promise<ConnectionPersonContext> {
     const response = await ApiService.apiFetch(`/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/context`,
-      { method: "GET", headers: authHeaders(opts.idToken) });
+      { method: "GET", cache: "no-store", headers: authHeaders(opts.idToken) });
     const result = await jsonOrThrow<ConnectionPersonContext>(response);
     if (!result || result.person?.userId !== opts.counterpartUserId || !["none","connected","pending_incoming","pending_outgoing"].includes(result.person.relationship)
       || (result.request && (typeof result.request.id !== "string" || !result.request.id || !["incoming","outgoing"].includes(result.request.direction) || !["pending","accepted","rejected","cancelled","expired"].includes(result.request.status)))

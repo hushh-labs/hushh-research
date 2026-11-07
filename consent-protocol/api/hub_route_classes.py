@@ -214,6 +214,7 @@ POST /api/one/voice/sessions
 POST /api/pkm/agent-lab/structure
 POST /api/pkm/get-context
 POST /api/pkm/memory/proposals
+POST /api/pkm/memory/rewrite
 [AUTHORITY]
 GET /api/one/finance/shares/active-recipients
 GET,PUT /api/one/plg/preferences
