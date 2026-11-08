@@ -59,7 +59,9 @@
       "kushaltrivedi5"
     ],
     "protected_pipeline_edit_users": [
-      "kushaltrivedi5"
+      "kushaltrivedi5",
+      "RGlodAkshat",
+      "ankitkumarsingh1702"
     ],
     "protected_pipeline_paths": [
       ".github/workflows/",
@@ -106,7 +108,8 @@
     "merge_users": [
       "kushaltrivedi5",
       "ankitkumarsingh1702",
-      "imsharukhan"
+      "imsharukhan",
+      "RGlodAkshat"
     ],
     "owner_admin_ruleset_name": "main owner validated merge"
   },
