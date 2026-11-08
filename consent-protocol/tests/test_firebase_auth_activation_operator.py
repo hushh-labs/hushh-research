@@ -5,6 +5,7 @@ import copy
 import json
 
 import pytest
+from sqlalchemy import text
 
 from scripts.ops import firebase_identity_activation as activation
 from scripts.ops import firebase_identity_migration as migration
@@ -18,6 +19,50 @@ from tests.test_firebase_auth_migration_operator import (
 from tests.test_firebase_auth_migration_operator import (
     postgres as postgres,
 )
+
+
+def test_workos_attribution_absence_active_binding_and_offboarding_are_pinned(database):
+    from hushh_mcp.services.enterprise_sso.membership import membership_hash
+
+    provider = Provider()
+    provider.source[0]["customAttributes"] = json.dumps(
+        {"workosOrgId": "org", "workosUserId": "person", "workosOrigin": "linked"}
+    )
+    manifest = snapshot(database, provider)
+    digest = migration.identity_hash("owner-a")
+    with database.begin() as conn:
+        conn.exec_driver_sql("ALTER TABLE account_generations ADD COLUMN identity_hash text")
+        conn.exec_driver_sql("""CREATE TABLE account_workos_memberships(
+            profile_hash text,owner_hash text,identity_hash text,generation integer,
+            origin text,offboarded_at timestamptz)""")
+        conn.execute(
+            text("""INSERT INTO account_generations(owner_hash,identity_hash,
+            identity_uid,owner_id,generation) VALUES(:digest,:digest,'owner-a','owner-a',0)"""),
+            {"digest": digest},
+        )
+    selected = {"owner-a": migration.record(provider.source[0])}
+    with database.connect() as conn:
+        absent = activation.workos_snapshot(conn, selected, manifest)
+        assert absent[digest]["membershipSha256"] == migration.sha(None)
+    with database.begin() as conn:
+        conn.execute(
+            text("""INSERT INTO account_workos_memberships VALUES(
+            :profile,:digest,:digest,0,'linked',NULL)"""),
+            {"profile": membership_hash("org", "person"), "digest": digest},
+        )
+    with database.connect() as conn:
+        active = activation.workos_snapshot(conn, selected, manifest, lock=True)
+        assert active != absent
+        with database.begin() as writer, pytest.raises(Exception, match="lock timeout"):
+            writer.exec_driver_sql("UPDATE account_workos_memberships SET offboarded_at=now()")
+        conn.rollback()
+    with database.begin() as writer:
+        writer.exec_driver_sql("UPDATE account_workos_memberships SET offboarded_at=now()")
+    with (
+        database.connect() as conn,
+        pytest.raises(migration.Refused, match="WORKOS_ATTRIBUTION_CHANGED"),
+    ):
+        activation.workos_snapshot(conn, selected, manifest)
 
 
 def test_owner_deleted_before_activation_fence_never_enables_identity(

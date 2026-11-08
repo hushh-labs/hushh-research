@@ -330,6 +330,7 @@ def operate(conn, session, source, args):
         activation_plan,
         activate,
         private_receipt,
+        workos_snapshot,
     )
 
     drain(conn)
@@ -360,6 +361,7 @@ def operate(conn, session, source, args):
             manifest,
             selected,
             export_users(session, TARGET),
+            workos=workos_snapshot(conn, selected, manifest),
         )
         plan["liveSource"] = source
         save_receipt(args.activation_manifest, plan)

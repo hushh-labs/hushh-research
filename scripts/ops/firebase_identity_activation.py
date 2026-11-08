@@ -43,7 +43,71 @@ def private_receipt(path):
     return json.loads(path.read_text())
 
 
-def activation_plan(staging, manifest, selected, actual):
+def workos_snapshot(conn, selected, manifest, *, lock=False):
+    from sqlalchemy import text
+    from hushh_mcp.services.enterprise_sso.membership import membership_hash
+
+    bindings = {row["identityHash"]: row for row in manifest["owners"]}
+    result = {}
+    for uid, user in selected.items():
+        claims = json.loads(user["customAttributes"])
+        if not any(
+            key in claims for key in ("workosOrgId", "workosUserId", "workosOrigin")
+        ):
+            continue
+        require(
+            all(
+                claims.get(key)
+                for key in ("workosOrgId", "workosUserId", "workosOrigin")
+            ),
+            "WORKOS_CLAIMS_INCOMPLETE",
+        )
+        profile = membership_hash(claims["workosOrgId"], claims["workosUserId"])
+        digest = identity_hash(uid)
+        binding = bindings[digest]
+        rows = (
+            conn.execute(
+                text(
+                    """SELECT to_jsonb(m)::text AS membership,
+            g.owner_id,g.retired_at,g.identity_uid
+            FROM public.account_workos_memberships m
+            LEFT JOIN public.account_generations g ON g.identity_hash=m.identity_hash
+             AND g.owner_hash=m.owner_hash AND g.generation=m.generation
+            WHERE m.profile_hash=:profile"""
+                    + (" FOR SHARE OF m" if lock else "")
+                ),
+                {"profile": profile},
+            )
+            .mappings()
+            .all()
+        )
+        require(
+            len(rows) <= 1 and binding["generation"] == 0, "WORKOS_ATTRIBUTION_CHANGED"
+        )
+        membership = None
+        if rows:
+            row = rows[0]
+            membership = json.loads(row["membership"])
+            require(
+                membership["owner_hash"] == binding["ownerHash"]
+                and membership["identity_hash"] == digest
+                and membership["generation"] == binding["generation"]
+                and membership["origin"] == claims["workosOrigin"]
+                and membership["offboarded_at"] is None
+                and row["retired_at"] is None
+                and row["identity_uid"] == uid
+                and identity_hash(row["owner_id"] or "") == binding["ownerHash"],
+                "WORKOS_ATTRIBUTION_CHANGED",
+            )
+        result[digest] = {
+            "profileHash": profile,
+            "origin": claims["workosOrigin"],
+            "membershipSha256": sha(membership),
+        }
+    return result
+
+
+def activation_plan(staging, manifest, selected, actual, *, workos=None):
     require(
         staging.get("phase") == "staged_disabled_verified"
         and staging.get("fencesRemoved") is True
@@ -78,6 +142,7 @@ def activation_plan(staging, manifest, selected, actual):
         "stagingOperation": staging["operation"],
         "ownerManifest": manifest,
         "targets": targets,
+        "workos": workos or {},
     }
 
 
@@ -105,6 +170,10 @@ def observe_activation(conn, session, plan, history):
 
     manifest, selected = owner_snapshot(conn, export_users(session, SOURCE))
     require(manifest == plan["ownerManifest"], "OWNER_OR_SOURCE_CHANGED")
+    require(
+        workos_snapshot(conn, selected, manifest) == plan.get("workos", {}),
+        "WORKOS_ATTRIBUTION_CHANGED",
+    )
     actual = export_users(session, TARGET)
     by_uid = {u["localId"]: u for u in actual}
     require(
@@ -201,6 +270,15 @@ def dispatch_activation(conn, session, plan, path, receipt, selected, operation)
         current = checkpoint_operation(receipt, receipt["history"])
         publish_checkpoint(conn, operation, current)
         operation = current
+        # Offboarding does not use the global release lease. Hold its existing
+        # attribution rows across HTTP; a lost session still cannot authorize
+        # replay or settlement against a changed membership. Absent bindings
+        # cannot be captured while the generation INSERT fence is installed.
+        require(
+            workos_snapshot(conn, selected, plan["ownerManifest"], lock=True)
+            == plan.get("workos", {}),
+            "WORKOS_ATTRIBUTION_CHANGED",
+        )
         response = session.post(
             f"https://identitytoolkit.googleapis.com/v1/projects/{TARGET}/accounts:update",
             json=payload,

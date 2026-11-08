@@ -112,8 +112,8 @@ readback are required before importing a retained cohort.
 
 The existing `hushh-pda-dev` project is Firebase-enabled and Auth is initialized.
 A disabled, task-created synthetic identity retained its UID through import and
-native readback, then was deleted with native absence verified. No existing
-identity was imported or changed. This proves the target SDK path, not full
+native readback, then was deleted with native absence verified. This initial fixture changed no existing identity. The current disabled cohort
+is recorded below. SDK import does not prove full
 application erasure or a Google/native sign-in journey.
 
 The Dev-owned Google provider, email/password and phone providers are now enabled;
@@ -128,9 +128,9 @@ Fresh lifecycle inventory selects 156 identities with current, validated,
 unfenced actor/vault roots. The earlier 160-identity presence preview included
 three retired identities and a providerless identity referenced only by
 `pod_lifecycle_events`; preserve those records and exclude them from ordinary
-active-account import. Historical presence alone is not import authority. None
-has been imported. Eighteen active identities have custom claims requiring explicit
-review; do not automatically carry privileged claims into another realm. A Dev-only canonical
+active-account import. Historical presence alone is not import authority. All 156 are now staged disabled under the reviewed UID/generation manifest.
+Eighteen claim-bearing identities retain mail markers and one WorkOS provenance
+boundary; no admin claim key was present. WorkOS membership must be pinned before activation. A Dev-only canonical
 SDK credential is staged in `DEV_FIREBASE_SDK_CREDENTIALS_JSON`; native permission
 readback grants Dev user management and none of the tested production Auth
 permissions. The live services still use their previous credential. The existing
@@ -174,15 +174,21 @@ and the temporary claim, using individual administrator updates that cannot
 recreate a missing UID. Each dispatch is checkpointed before HTTP in the private
 receipt and the existing native fence comments. `observe-activation` never replays
 an uncertain update. Mixed cohorts, stale receipts, extra authentication methods,
-owner retirement and foreign records refuse. Unknown outcomes retain fences.
+owner retirement and foreign records refuse. Unknown outcomes retain fences. The activation manifest also fingerprints current
+WorkOS attribution or explicit absence. Active membership rows are locked across
+the native update and readback; retirement and offboarding refuse. No membership
+is created or inferred from email.
 These operations require exclusive target-Auth administrator custody; SQL fences
 do not constrain an unrelated Firebase administrator.
 
-26 focused competing-session, interruption and credential-preservation cases pass.
+27 focused competing-session, interruption and credential-preservation cases pass.
 A real disposable Dev identity passed both staging and operator activation,
 retaining its UID, password hash, salt and original password sign-in. Its native
 absence and local PostgreSQL shutdown are verified. This is operator qualification;
-the 156 personal identities have not been imported and live sign-in is unchanged.
+156 personal identities passed disabled staging, exact native readback and fence
+removal on operator source `eb338d1cccdb`. Operation
+`bdb9c786-8098-4bd7-b5c3-6fda69eda8c3` used one import POST (HTTP 200), with no
+source identity mutation. Activation has not dispatched and live sign-in is unchanged.
 Workspace mail delegation for the Dev SDK is a separate cutover prerequisite:
 the current support-mail fallback still uses the production Firebase credential.
 
@@ -193,8 +199,8 @@ fixture-like names and 17 remain otherwise unclassified. These are unresolved
 mappings, not deletion candidates. Of the unmatched set, 51 lack retained email,
 one has a synthetic email, six have unmatched email and three have email now
 assigned to a different source UID. Email equality does not authorize a merge.
-Preserve all records. The new target has no
-users after fixture cleanup; no source identity was mutated during this work.
+Preserve all records. The new target now holds 156 disabled, operation-marked identities; no source
+identity was mutated during this work.
 
 Before cutover, reconcile those mappings and qualify any registered Dev owners beyond
 vault roots; preserve provider links, verified claims, password/MFA configuration

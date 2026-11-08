@@ -52,7 +52,7 @@ owns the exact continuation and phone-audit boundaries. Its
 records the installed project-bound erasure contract 987 and native fixture proof.
 The isolated Auth selector remains off. The refreshed active cohort is 156;
 three retired identities and one providerless, event-only identity are excluded
-from ordinary import. No identities were imported. The iOS configuration follow-up
+from ordinary import. 156 identities are imported disabled with exact native readback; activation is pending. The iOS configuration follow-up
 binds Google's client and callback to the selected Firebase plist; focused tests
 and the downloaded Dev configuration passed locally, without device sign-in.
 That fix is now merged through #9063 after exact-source CI and Team Authorization.
@@ -60,12 +60,15 @@ Dev Sandbox APNs configuration also survived a fresh Firebase reload, using one
 topic-specific `com.hushh.app` key backed up directly to Dev Secret Manager;
 all 17 prior Apple keys remain present. Production-channel and actual device
 phone/push checks remain unqualified. These steps imported no personal identity.
-The restartable Dev Auth operator passed 26 focused cases and actual disposable
+The restartable Dev Auth operator passed 27 focused cases and actual disposable
 Dev staging/activation with original-password sign-in, UID/hash/salt continuity
 and verified fixture cleanup. It imports disabled records without overwrite;
 activation updates only enabled state and the temporary claim. Native dispatch
 checkpoints prevent stale local receipts from replaying uncertain requests.
-The 156 personal identities remain unimported. Current mail still depends on the
+All 156 personal identities passed disabled staging on operator source `eb338d1cccdb`;
+one HTTP-200 import request settled, and the native fences and proxy are removed.
+The activation manifest additionally pins WorkOS attribution without creating a binding.
+No activation or live sign-in change has occurred. Current mail still depends on the
 production SDK; Dev mail delegation must qualify before canonical credential
 replacement. Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release
