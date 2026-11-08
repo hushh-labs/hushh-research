@@ -159,6 +159,33 @@ not device delivery. The production APNs channel within the Dev Firebase app and
 physical-device phone/push acceptance remain unqualified. No Auth cutover or
 personal identity import accompanied this setup.
 
+The report-first `scripts/ops/firebase_identity_migration.py` operator preserves the
+reviewed UID/generation cohort. `plan` writes a private hashed manifest; `stage`
+requires explicit Dev, `--apply`, its reviewed hash and a new receipt path. It
+imports disabled identities with `allowOverwrite=false` and an operation-bound
+marker. `observe` reconciles uncertainty without submitting another import.
+Native function/ACL qualification and durable deletion, generation and Firebase
+mutation fences survive operator-session loss; the original session must retain
+its exclusive lease for dispatch. No applied migration or database role changes.
+
+After client/credential qualification, `activation-plan` binds exact disabled
+preimages and the verified staging receipt. `activate` changes only enabled state
+and the temporary claim, using individual administrator updates that cannot
+recreate a missing UID. Each dispatch is checkpointed before HTTP in the private
+receipt and the existing native fence comments. `observe-activation` never replays
+an uncertain update. Mixed cohorts, stale receipts, extra authentication methods,
+owner retirement and foreign records refuse. Unknown outcomes retain fences.
+These operations require exclusive target-Auth administrator custody; SQL fences
+do not constrain an unrelated Firebase administrator.
+
+26 focused competing-session, interruption and credential-preservation cases pass.
+A real disposable Dev identity passed both staging and operator activation,
+retaining its UID, password hash, salt and original password sign-in. Its native
+absence and local PostgreSQL shutdown are verified. This is operator qualification;
+the 156 personal identities have not been imported and live sign-in is unchanged.
+Workspace mail delegation for the Dev SDK is a separate cutover prerequisite:
+the current support-mail fallback still uses the production Firebase credential.
+
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email
 nor phone. Of 61 unmatched vault owners, 42 have Firebase-shaped UIDs, two have

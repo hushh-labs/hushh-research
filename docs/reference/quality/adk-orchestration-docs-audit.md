@@ -60,7 +60,14 @@ Dev Sandbox APNs configuration also survived a fresh Firebase reload, using one
 topic-specific `com.hushh.app` key backed up directly to Dev Secret Manager;
 all 17 prior Apple keys remain present. Production-channel and actual device
 phone/push checks remain unqualified. These steps imported no personal identity.
-Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
+The restartable Dev Auth operator passed 26 focused cases and actual disposable
+Dev staging/activation with original-password sign-in, UID/hash/salt continuity
+and verified fixture cleanup. It imports disabled records without overwrite;
+activation updates only enabled state and the temporary claim. Native dispatch
+checkpoints prevent stale local receipts from replaying uncertain requests.
+The 156 personal identities remain unimported. Current mail still depends on the
+production SDK; Dev mail delegation must qualify before canonical credential
+replacement. Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release
 gates. Phone-only or missing source identities are not deletion authority.
 The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
