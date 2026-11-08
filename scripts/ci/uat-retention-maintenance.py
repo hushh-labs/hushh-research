@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal
 
 import release_artifact_receipts
+import release_acceptance_provenance as release_provenance
 import production_phone_receipt
 import production_phone_lease
 import production_phone_nonproducer
