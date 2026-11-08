@@ -52,10 +52,30 @@ owns the exact continuation and phone-audit boundaries. Its
 records the installed project-bound erasure contract 987 and native fixture proof.
 The isolated Auth selector remains off. The refreshed active cohort is 156;
 three retired identities and one providerless, event-only identity are excluded
-from ordinary import. No identities were imported. The iOS configuration follow-up
+from ordinary import. 156 identities passed disabled import and activation with exact native readback. The iOS configuration follow-up
 binds Google's client and callback to the selected Firebase plist; focused tests
 and the downloaded Dev configuration passed locally, without device sign-in.
-Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
+That fix is now merged through #9063 after exact-source CI and Team Authorization.
+Dev Sandbox APNs configuration also survived a fresh Firebase reload, using one
+topic-specific `com.hushh.app` key backed up directly to Dev Secret Manager;
+all 17 prior Apple keys remain present. Production-channel and actual device
+phone/push checks remain unqualified. These steps imported no personal identity.
+The restartable Dev Auth operator passed 34 focused cases and actual disposable
+Dev staging/activation with original-password sign-in, UID/hash/salt continuity
+and verified fixture cleanup. It imports disabled records without overwrite;
+activation updates only enabled state and the temporary claim. Native dispatch
+checkpoints prevent stale local receipts from replaying uncertain requests.
+All 156 personal identities passed disabled staging on operator source `eb338d1cccdb`;
+one HTTP-200 import request settled, and the native fences and proxy are removed.
+The activation manifest additionally pins WorkOS attribution without creating a binding.
+Activation completed on executor `cdc2cabca6cd`: all 156 original UIDs and credential
+postimages verified, worker exit zero, fences removed and SQL proxy released.
+No source/production identities changed. Live sign-in has not switched yet. The existing Dev SDK client now
+has only gmail.send Workspace delegation; native token minting passed, no mail was
+sent, and all seven previous grants remain unchanged. Current live mail still
+depends on the production SDK pending the coordinated canonical credential
+replacement. Two unused Dev copies of that production credential are disabled
+and native access refuses them; the live copy is still active. Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release
 gates. Phone-only or missing source identities are not deletion authority.
 The managed pilot/PR workflow remains paused. Earlier GCP/Azure journey receipts
