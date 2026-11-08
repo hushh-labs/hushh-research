@@ -353,6 +353,68 @@ class SecurityRerunTest(unittest.TestCase):
 
 class LiveTeamPolicyTest(unittest.TestCase):
 
+    def test_dev_uat_protected_edits_use_pinned_main_policy_without_candidate_grants(self):
+        import base64
+        import os
+        import queue_combined_result as queue
+        spec = importlib.util.spec_from_file_location("protected_policy", Path(__file__).with_name("verify-protected-pipeline-edits.py"))
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        repository, main_sha = "hushh-labs/hushh-research", "b" * 40
+        stale = {"authorization": {"native_teams": True}, "main": {"protected_pipeline_edit_users": ["revoked"]}}
+        approved = {"main": {"protected_pipeline_edit_users": ["current-editor"]}}
+        responses = {
+            f"repos/{repository}/git/ref/heads/main": {"object": {"type": "commit", "sha": main_sha}},
+            f"repos/{repository}/contents/config/ci-governance.json?ref={main_sha}": {
+                "path": "config/ci-governance.json", "encoding": "base64",
+                "content": base64.b64encode(json.dumps(approved).encode()).decode()},
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            event_path = Path(folder) / "event.json"
+            candidate_policy = Path(folder) / "candidate-policy.json"
+            candidate_policy.write_text(json.dumps({"main": {"protected_pipeline_edit_users": ["candidate-only"]}}))
+            event = {"repository": {"full_name": repository}, "pull_request": {
+                "base": {"sha": HEAD, "ref": "uat", "repo": {"full_name": repository}},
+                "head": {"repo": {"full_name": repository}}}}
+            env = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": repository,
+                   "GITHUB_EVENT_PATH": str(event_path)}
+            with patch.dict(os.environ, env), patch.object(guard, "POLICY_PATH", candidate_policy), \
+                 patch.object(guard.subprocess, "check_output", return_value=json.dumps(stale)), \
+                 patch.object(queue, "api", side_effect=responses.__getitem__) as read_main:
+                for branch in ("dev", "uat", "main", "uat-isolated"):
+                    event["pull_request"]["base"]["ref"] = branch
+                    event_path.write_text(json.dumps(event))
+                    read_main.reset_mock()
+                    selected = guard._load_policy()
+                    self.assertEqual(selected, approved if branch in {"dev", "uat"} else stale)
+                    self.assertEqual(read_main.call_count, 2 if branch in {"dev", "uat"} else 0)
+                    if branch in {"dev", "uat"}:
+                        for actor, expected in (("current-editor", 0), ("revoked", 1), ("candidate-only", 1)):
+                            code, _ = guard.evaluate(changed_files=["scripts/ci/test_uat_exact_ci.py"], actor=actor,
+                                allowed_users=guard.resolve_allowed_users(selected["main"]), protected_paths=["scripts/ci/"])
+                            self.assertEqual(code, expected)
+                        path = Path(__file__).resolve().parents[2] / ".agents/skills/repo-operations/scripts/pre_pr_readiness.py"
+                        spec = importlib.util.spec_from_file_location("prepared_pr_readiness", path)
+                        readiness = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(readiness)
+                        with patch.object(readiness, "_capture", return_value=json.dumps(stale)):
+                            context = {"base": HEAD, "base_ref": branch, "files": ["scripts/ci/test_uat_exact_ci.py"],
+                                       "number": None, "author": "current-editor"}
+                            self.assertTrue(readiness._protected(context)[0])
+                            context["author"] = "candidate-only"
+                            self.assertFalse(readiness._protected(context)[0])
+                event["pull_request"]["base"]["ref"] = "uat"
+                event_path.write_text(json.dumps(event))
+                with patch.object(queue, "api", side_effect=queue.Refused("unavailable")), \
+                     self.assertRaisesRegex(guard.GuardResolutionError, "Main editing policy is unavailable"):
+                    guard._load_policy()
+                for context in (event["repository"], event["pull_request"]["base"]["repo"], event["pull_request"]["head"]["repo"]):
+                    context["full_name"] = "foreign/repository"
+                    event_path.write_text(json.dumps(event))
+                    with self.assertRaisesRegex(guard.GuardResolutionError, "same-repository"):
+                        guard._load_policy()
+                    context["full_name"] = repository
+
     @staticmethod
     def owner():
         import github_team_authority

@@ -517,7 +517,7 @@ def test_owner_admin_binds_destination_policy_guard_and_exact_tree(branch):
 
     repository = "hushh-labs/hushh-research"
     policy = json.loads((Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text())
-    actor = "kushaltrivedi5"
+    actor = policy["main"]["protected_pipeline_edit_users"][0]
     pr = {"state": "open", "draft": False,
           "head": {"sha": HEAD1, "repo": {"full_name": repository}},
           "base": {"ref": branch, "sha": BASE}, "user": {"login": actor}}

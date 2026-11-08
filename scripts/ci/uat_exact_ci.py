@@ -5,8 +5,8 @@
 
 This read-only verifier grants no deployment authority by itself. The caller
 must recheck the selected source and release state under the mutation lock.
-Reviewed application and test code use the existing protected-branch trust model.
-Privileged release execution and credential clearance remain Main-owned. This
+Ordinary UAT application, tests and tooling use the protected-branch trust model.
+Release orchestration and credential clearance remain Main-owned. This
 verifier does not claim to sandbox malicious reviewed application code.
 """
 
@@ -30,11 +30,9 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
 BACKEND_TEST_MANIFEST = "consent-protocol/scripts/test-ci.manifest.txt"
 
-# Fail closed when a UAT candidate changes CI or release execution authority.
-# The Main-owned UAT workflow consumes Cloud Build recipes under deploy/ and
-# invokes a small set of candidate migration controllers with database access.
-# Those controllers remain reviewed Main authority; migration manifests and SQL
-# remain candidate content. Application source need not match Main.
+# Retained for legacy PR-chain and explicit sandbox qualification. Protected UAT
+# trusts its reviewed tooling, including build recipes and migration controllers;
+# it does not compare these paths with Main during release admission.
 AUTHORITY_PATHS = (
     ".agents",
     ".github",
@@ -154,8 +152,24 @@ def git(*arguments: str) -> bytes:
         raise Refused("Git authority lookup failed") from None
 
 
+def backend_test_inventory(source: str) -> set[str]:
+    """Validate tracked test identities without treating them as shell/options."""
+    entry = git("ls-tree", source, "--", BACKEND_TEST_MANIFEST)
+    require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
+            "UAT backend test manifest must be a regular tracked file")
+    return _backend_test_identities(git("show", f"{source}:{BACKEND_TEST_MANIFEST}"))
+
+
+def _backend_test_identities(raw: bytes) -> set[str]:
+    parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]
+    try:
+        return parser(raw.decode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise Refused("UAT backend test manifest contains invalid test identities") from None
+
+
 def verify_invocation_authority(candidate: str, authority: str) -> None:
-    """Allow reviewed dependencies/tests; protect commands that own their execution."""
+    """Retain parity for legacy isolated UAT and explicit sandbox qualification."""
     for path in MANIFEST_FILES:
         def invocation(source: str):
             raw = git("show", f"{source}:{path}")
@@ -164,17 +178,8 @@ def verify_invocation_authority(candidate: str, authority: str) -> None:
             return json.loads(raw).get("scripts", {})
         require(invocation(candidate) == invocation(authority),
                 "UAT test invocation differs from reviewed Main authority")
-    # Test identities belong to the selected application, while their executor
-    # remains byte-identical Main authority. Preserve branch-owned regressions.
-    entry = git("ls-tree", candidate, "--", BACKEND_TEST_MANIFEST)
-    require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
-            "UAT backend test manifest must be a regular tracked file")
-    parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]
-    try:
-        selected = parser(git("show", f"{candidate}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
-        required = parser(git("show", f"{authority}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
-    except (ValueError, UnicodeError):
-        raise Refused("UAT backend test manifest contains invalid test identities") from None
+    selected = backend_test_inventory(candidate)
+    required = _backend_test_identities(git("show", f"{authority}:{BACKEND_TEST_MANIFEST}"))
     require(required <= selected, "UAT backend manifest omits required Main test identities")
 
 
@@ -208,25 +213,9 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
             raise Refused("Isolated UAT serving base is not an ancestor of its candidate; reconcile the reviewed source transition") from None
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
-    def execution_tree(revision):
-        entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
-        def required(entry):
-            metadata, _, name = entry.partition(b"\t")
-            if name == BACKEND_TEST_MANIFEST.encode():
-                return False  # The existing invocation guard checks its identities separately.
-            # Prose is not privileged execution. Keep executable/symlink Markdown,
-            # metadata, controllers and every existing build/migration input bound.
-            prose = (name.startswith(b".agents/") and name.endswith((b".md", b".markdown"))
-                     or re.search(rb"(?:^|/)README\.(?:md|markdown)$", name, re.I))
-            return not (metadata.startswith(b"100644 blob ") and prose)
-        return [entry for entry in entries if required(entry)]
-    expected = execution_tree(authority)
-    observed = execution_tree(candidate)
-    require(
-        bool(expected) and observed == expected,
-        "UAT CI authority differs from reviewed Main; synchronize reviewed CI/release tooling into UAT before qualification",
-    )
-    verify_invocation_authority(candidate, authority)
+    # Native protected-path review governs UAT tooling changes before merge.
+    # Exact-source CI and serving-state admission remain separate release gates.
+    backend_test_inventory(candidate)
     return application_tree(candidate)
 
 

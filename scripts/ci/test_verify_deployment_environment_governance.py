@@ -237,9 +237,9 @@ def test_production_tripwire_matches_committed_policy() -> None:
     )
 
 
-def test_production_dispatch_accepts_only_the_approved_three_operators() -> None:
+def test_production_dispatch_accepts_only_the_approved_operators() -> None:
     root = Path(__file__).resolve().parents[2]
-    expected = {"kushaltrivedi5", "ankitkumarsingh1702", "imsharukhan"}
+    expected = {"kushaltrivedi5", "ankitkumarsingh1702", "RGlodAkshat", "imsharukhan"}
     policy = json.loads((root / "config/ci-governance.json").read_text())
     assert set(policy["main"]["merge_users"]) == expected
     env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
@@ -558,7 +558,7 @@ def main() -> int:
         test_production_cohort_drift_is_reported,
         test_a_trusted_readiness_exam_environment_must_admit_only_main,
         test_production_tripwire_matches_committed_policy,
-        test_production_dispatch_accepts_only_the_approved_three_operators,
+        test_production_dispatch_accepts_only_the_approved_operators,
         test_capacity_fixture_ignores_parent_retry_identity,
         test_capacity_rerun_requires_its_own_authorized_triggering_actor,
         test_capacity_cleanup_accepts_only_schedule_and_governed_manual_modes,
