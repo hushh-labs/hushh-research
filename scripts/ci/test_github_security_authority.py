@@ -371,12 +371,15 @@ class LiveTeamPolicyTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as folder:
             event_path = Path(folder) / "event.json"
+            candidate_policy = Path(folder) / "candidate-policy.json"
+            candidate_policy.write_text(json.dumps({"main": {"protected_pipeline_edit_users": ["candidate-only"]}}))
             event = {"repository": {"full_name": repository}, "pull_request": {
                 "base": {"sha": HEAD, "ref": "uat", "repo": {"full_name": repository}},
                 "head": {"repo": {"full_name": repository}}}}
             env = {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": repository,
                    "GITHUB_EVENT_PATH": str(event_path)}
-            with patch.dict(os.environ, env), patch.object(guard.subprocess, "check_output", return_value=json.dumps(stale)), \
+            with patch.dict(os.environ, env), patch.object(guard, "POLICY_PATH", candidate_policy), \
+                 patch.object(guard.subprocess, "check_output", return_value=json.dumps(stale)), \
                  patch.object(queue, "api", side_effect=responses.__getitem__) as read_main:
                 for branch in ("dev", "uat", "main", "uat-isolated"):
                     event["pull_request"]["base"]["ref"] = branch
@@ -390,6 +393,16 @@ class LiveTeamPolicyTest(unittest.TestCase):
                             code, _ = guard.evaluate(changed_files=["scripts/ci/test_uat_exact_ci.py"], actor=actor,
                                 allowed_users=guard.resolve_allowed_users(selected["main"]), protected_paths=["scripts/ci/"])
                             self.assertEqual(code, expected)
+                        path = Path(__file__).resolve().parents[2] / ".agents/skills/repo-operations/scripts/pre_pr_readiness.py"
+                        spec = importlib.util.spec_from_file_location("prepared_pr_readiness", path)
+                        readiness = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(readiness)
+                        with patch.object(readiness, "_capture", return_value=json.dumps(stale)):
+                            context = {"base": HEAD, "base_ref": branch, "files": ["scripts/ci/test_uat_exact_ci.py"],
+                                       "number": None, "author": "current-editor"}
+                            self.assertTrue(readiness._protected(context)[0])
+                            context["author"] = "candidate-only"
+                            self.assertFalse(readiness._protected(context)[0])
                 event["pull_request"]["base"]["ref"] = "uat"
                 event_path.write_text(json.dumps(event))
                 with patch.object(queue, "api", side_effect=queue.Refused("unavailable")), \
