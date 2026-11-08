@@ -2245,3 +2245,13 @@ executed job records an explicit inspection or cleanup mode; only cleanup plus t
 existing successful guarded steps can establish a mutation checkpoint. Missing or
 ambiguous mode evidence refuses. Historical inspection/cleanup receipts retain
 their original names and verification rules. No cadence or resource policy changes.
+
+### Main PR team-authority producer
+
+Deployment Security observes PR Validation startup and completion from Main. Its
+protected `ci-security` job reads current teams using the existing read-only App
+installation token and classifies candidate Git objects without executing them.
+Startup publishes editing authority only; completion additionally requires
+passing functional CI and fresh membership. The ordinary PR guard and queue
+policies are unchanged in this producer stage. Activate the verified receipt
+consumer separately after this producer lands; no source merge deploys an app.

@@ -227,6 +227,12 @@ jobs:
 
   repo-governance:
     name: "Governance"
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      checks: read
+      security-events: read
     needs: [paths]
     # Keep independent failure collection, but release superseded/cancelled work.
     # The final required status gate still runs always and refuses cancellation.

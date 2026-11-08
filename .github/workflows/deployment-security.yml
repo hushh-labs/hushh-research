@@ -2,6 +2,10 @@ name: Deployment Security
 run-name: Deployment security · ${{ inputs.environment_name || 'Dev/UAT request' }}
 
 on:
+  # Main reads candidate Git objects as data; candidate code never gets the App key.
+  workflow_run:
+    workflows: ["PR Validation"]
+    types: [in_progress, completed]
   # Protected clearance runs only for an explicitly requested deployment.
   workflow_dispatch:
     inputs:
@@ -36,6 +40,45 @@ permissions:
   actions: read
 
 jobs:
+  team-authority:
+    name: Verify live team authority
+    if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    environment: ci-security
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3 (Node 24)
+        id: membership
+        with:
+          client-id: ${{ vars.CI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+          owner: hushh-labs
+          repositories: hushh-research
+          permission-members: read
+      - name: Read trusted team authority without running candidate code
+        run: |
+          gh auth setup-git
+          python3 scripts/ci/github_team_authority.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_TEAM_MEMBERS_TOKEN: ${{ steps.membership.outputs.token }}
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: team-authorization-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/team-authorization.json
+          if-no-files-found: warn
+          retention-days: 7
+
   alerts:
     name: Verify repository secret clearance
     if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'

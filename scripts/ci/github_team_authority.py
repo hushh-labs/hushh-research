@@ -449,6 +449,8 @@ def await_start(env, *, read=cli_read, monotonic=None, sleep=None):
             sleep(5)
 
 
+
+
 CHECK = "Team Authorization Gate"
 SOURCE_WORKFLOWS = {
     "PR Validation": ".github/workflows/ci.yml",
@@ -608,6 +610,7 @@ def authorize_pr(read, run, policy):
         "head": head,
         "base": base,
         "branch": branch,
+        "author": pr["user"]["login"],
     }
 
 
@@ -845,10 +848,13 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
     }
     state, reason = "in_progress", "Validation is running; authorization is pending."
     details = None
-    if action == "completed":
+    # PR CI needs protected-edit authorization before it can finish. The start
+    # decision proves only authority, never passing functional validation.
+    if action == "completed" or run["event"] == "pull_request":
         state = "failure"
         try:
-            validation_passed(read, run)
+            if action == "completed":
+                validation_passed(read, run)
             policy = json.loads(
                 (
                     Path(__file__).resolve().parents[2] / "config/ci-governance.json"
@@ -868,11 +874,10 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
                 == teams,
                 "Team authority changed during validation",
             )
-            state, reason = (
-                "success",
-                "Live team authority verified; functional qualification remains CI Status Gate.",
-            )
+            state = "success" if action == "completed" else "in_progress"
+            reason = "Live team authority verified; functional qualification remains CI Status Gate."
         except (Refused, ValueError, subprocess.SubprocessError) as error:
+            details = None
             reason = str(error)
     require(
         source_identity(read, expected) == run,
