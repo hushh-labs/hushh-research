@@ -1181,6 +1181,34 @@ def test_team_native_authority_has_no_personal_bypass_or_strict_guard_exception(
     assert payload["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
         "users": [], "teams": ["pipeline-editors"], "apps": []}
 
+    # Team membership grants review authority, not repository administration.
+    # Read-only verification must work when editors have ordinary write access.
+    state["admins"].clear()
+    state["grant"] = "push"
+    for index, rule in enumerate(module.protected_pipeline_review_rulesets(policy, read=read), 10):
+        state["rules"][index] = {**rule, "id": index}
+    assert not module.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
+    for fault in ("members", "grant"):
+        saved_members, saved_grant = state["members"], state["grant"]
+        if fault == "members":
+            state["members"] = []
+        else:
+            state["grant"] = "pull"
+        try:
+            module.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError(f"Unverified reviewer authority accepted: {fault}")
+        state["members"], state["grant"] = saved_members, saved_grant
+    try:
+        module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
+    except SystemExit as error:
+        assert "repository admin" in str(error)
+    else:
+        raise AssertionError("A non-admin editor was allowed to mutate repository settings")
+    assert not state["writes"]
+
 
 def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     import os
