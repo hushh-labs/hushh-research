@@ -2,12 +2,11 @@
 
 An eligible maintainer may land their own ordinary product PR into Dev or UAT
 through the verified queue after this authority is installed on the destination.
-They do not need Kushal or Ankit to review
-an ordinary product change. GitHub's `allowed-maintainers-to-approve` team is the
+GitHub's `allowed-maintainers-to-approve` team is the
 maintainer mirror; the target's canonical policy and live branch exceptions must
 both authorize the operator. Team membership does not grant Main or production
 permission. If an ordinary review is requested, use the maintainer team rather than
-requesting Kushal/Ankit personally.
+requesting individuals personally.
 Automatic CODEOWNERS requests are reserved for protected changes. Mixed PRs
 containing CI or fundamental guidance use only the pipeline-editor review route;
 the ordinary maintainer team cannot override it.
@@ -23,9 +22,9 @@ Use this bounded preflight before requesting the queue:
    objections. Verify the combined result against the current destination. If
    that result is unproven, use the ordinary merge queue to validate it.
 3. CI, release policy and protected fundamental guidance still require the
-   current-head authorization of Kushal or Ankit. Maintainer/Admin membership
-   does not bypass this gate. Do not add either person to ordinary PRs merely
-   because the author wants to use Admin SOP.
+   current-head authorization from `pipeline-editors`. Maintainer/Admin membership
+   does not bypass this gate. Do not request pipeline editors for ordinary PRs
+   merely because the author wants to use Admin SOP.
 4. Only after those checks, request the ordinary queue for the exact head:
 
    ```bash
@@ -37,14 +36,15 @@ Use this bounded preflight before requesting the queue:
    An uncertain response requires reconciliation before retry. A merge never
    dispatches Dev, UAT or production; deployment is a separate authorized action.
 
-The queue reads the maintainer and protected-owner lists from the exact current
-protected Main revision, rechecks them before clearance and requires an owner
+The queue uses the selected protected authority and its current team observation,
+rechecks them before clearance and requires an owner
 approval for protected changes. A direct `--admin` command is a separate bypass;
 do not use it as a substitute for combined-result evidence.
 
-`./bin/hushh agents admin-merge` is the **named-owner-only** command for
-Main, Dev and UAT. It is reserved for Kushal or Ankit's own explicitly approved
-PR and verifies the current destination, exact head and successful CI evidence.
+`./bin/hushh agents admin-merge` is the **owner-only** command for
+Main, Dev, UAT and isolated UAT. It requires current `pipeline-editors` authority
+for the authenticated PR author and explicit approval of that author's captured
+PR head. It verifies the current destination, exact head and successful CI evidence.
 Other Dev/UAT maintainers use the queue above; a refusal from the owner command
 does not mean their ordinary PR needs a personal review. Main has its own
 merger cohort and code-owner review requirements, described in the
@@ -57,6 +57,19 @@ before using the direct exception; do not force a stale queue run green.
 If canonical and live branch exceptions differ, record that specific drift and
 reconcile it through a reviewed operations change. Keep required CI and protected
 review intact.
+
+## Isolated UAT and deployment
+
+Ordinary `uat-isolated` product PRs use independent maintainer approval,
+applicable CODEOWNER/latest-push review and the verified merge queue. Eligible
+Dev/UAT self-service applies to `dev` and `uat`. The owner Admin route above also
+supports `uat-isolated` when its author has the required owner authority.
+
+After landing, governed UAT dispatch admission permits an explicitly authorized,
+qualified release from either UAT source. Check team membership and the effective
+reviewed dispatch policy through the
+[canonical UAT authority table](admin-release-sop.md#uat-and-isolated-uat-authority)
+and [UAT deployment commands](../../uat-scoped-deploy/references/deploy-proof.md#deploy-command).
 
 ## Stacked pull requests
 
