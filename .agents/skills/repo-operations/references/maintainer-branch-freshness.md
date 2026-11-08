@@ -44,11 +44,23 @@ that same task. Do not hand routine sync commands back to the developer.
 3. Use the destination's normal review, combined-result CI and authorized merge
    route. Record each sync PR, landed commit and verification in the existing
    release record before closing the merge task.
-4. Resolve routine conflicts and dependencies within the task. Pause only the
+4. Prepare downstream syncs while an admitted release runs; its source and
+   workflow revision remain pinned. Do not delay preparation merely because a
+   release is active. An ordinary UAT descendant merge does not replace the
+   admitted source; serving-baseline and current-attempt checks still apply.
+   Legacy isolated-UAT exact-tip admission remains separate.
+5. Resolve routine conflicts and dependencies within the task. Pause only the
    affected sync for unresolved conflicts or missing authority/evidence, including
    migration collisions that cannot yet be reconciled. Preserve accepted SQL and
    ledger checksums; record the exact reconciliation and owner/action needed.
    Continue independent safe syncs; never report a pending destination as synchronized.
+6. If a sync is already open, compare its captured source and dependencies with
+   the current destination, coalesce overlapping patches and preserve peer work.
+   A changed head or combined tree needs current validation; an older green run
+   cannot certify it. Record the pending PR and missing tooling when inspection
+   is blocked. After landing, read back execution-authority parity and the sync
+   receipt before closing the original merge task. No sync retargets an admitted
+   release, dispatches deployment or clears a changed serving baseline.
 
 This is an agent-owned procedure, not a GitHub bot, schedule or unattended merge
 service. A GitHub UI merge with no agent running does not itself execute it.
