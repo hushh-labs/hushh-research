@@ -22,7 +22,8 @@ Source `328f02b7448d` serves through backend `consent-protocol-00359-hrh` and
 frontend `hushh-webapp-00309-gz2`, both native Ready at 100% traffic. Complete
 migration-987 qualification passed; all 82 prior ledger checksums are preserved.
 Semantic acceptance, cleanup activation and fresh Scheduler HTTP 200 passed.
-The isolated Auth selector remains off; no existing identity was imported or changed.
+The isolated Auth selector remains off. The later disabled staging below preserves
+156 existing UIDs; live sign-in has not changed.
 
 The actual owner interface passed normal password unlock, server-confirmed owner
 and generation zero, pending 10/17, exact provider time and Close/reopen checks.
@@ -191,8 +192,12 @@ absence and local PostgreSQL shutdown are verified. This is operator qualificati
 removal on operator source `eb338d1cccdb`. Operation
 `bdb9c786-8098-4bd7-b5c3-6fda69eda8c3` used one import POST (HTTP 200), with no
 source identity mutation. Activation has not dispatched and live sign-in is unchanged.
-Workspace mail delegation for the Dev SDK is a separate cutover prerequisite:
-the current support-mail fallback still uses the production Firebase credential.
+Workspace now authorizes the existing Dev SDK OAuth client
+`111315199141203280235` for `gmail.send` only. Native delegated-token minting
+for the configured sender passed; no email was sent. All seven pre-existing
+Workspace entries remain unchanged. No service account, project or mailbox was
+created. The live support-mail fallback still uses the production Firebase
+credential until the coordinated credential cutover.
 Two unused Dev secret copies (`FIREBASE_AUTH_SERVICE_ACCOUNT_JSON/1` and
 `FIREBASE_SERVICE_ACCOUNT_JSON/1`) are now disabled with native access refusal.
 Fresh checks found no references among nine all-region Dev services or five
