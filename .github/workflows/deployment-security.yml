@@ -48,12 +48,22 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Read current release-team membership
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3 (Node 24)
+        id: membership
+        with:
+          client-id: ${{ vars.CI_TEAM_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+          owner: hushh-labs
+          repositories: hushh-research
+          permission-members: read
       - name: Read protected repository inventory
         id: clearance
         run: python3 scripts/ci/deployment_security.py
         env:
           GH_TOKEN: ${{ github.token }}
           GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+          CI_TEAM_MEMBERS_TOKEN: ${{ steps.membership.outputs.token }}
           DEPLOY_SECURITY_REF: ${{ inputs.application_ref }}
           DEPLOY_SECURITY_ENVIRONMENT: ${{ inputs.environment_name }}
           DEPLOY_SECURITY_SCOPE: ${{ inputs.scope }}
