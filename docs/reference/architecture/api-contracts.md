@@ -200,7 +200,9 @@ admission, held owner incarnation and AI-selection checks before and after infer
 The request contains `user_id`, `current_markdown`, incremental `messages`
 (`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
 `{markdown}`: a proposed complete document with no persistence authority. The
-client validates and atomically commits ciphertext and its source checkpoint
+request rejects whitespace-only message content before inference and preserves
+meaningful source indentation. The client validates and atomically commits
+ciphertext and its source checkpoint
 through the existing PKM writer. Invalid generation returns a bounded failure;
 there is no partial replacement or client-visible success before storage ACK.
 The platform-aware PKM proxy/native transport and explicit pod allowlists own

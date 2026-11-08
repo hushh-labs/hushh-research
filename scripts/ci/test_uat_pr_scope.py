@@ -17,6 +17,19 @@ from uat_exact_ci_fixture import AttemptAPI, attempt_check, attempt_jobs, attemp
 
 
 class ApprovedUatScopeTest(unittest.TestCase):
+    def test_deployment_pins_require_canonical_source_and_attempt_identities(self):
+        candidate, base = "a" * 40, "b" * 40
+        self.assertEqual(prerequisites.validate_pins(candidate, "123", "2", base), (123, 2))
+        for changes in ({"run": "0"}, {"run": "01"}, {"attempt": "0"},
+                        {"attempt": "-1"}, {"sha": candidate[:-1]}, {"base": base[:-1]}):
+            pins = {"sha": candidate, "run": "123", "attempt": "2", "base": base, **changes}
+            with self.subTest(pins=pins), self.assertRaisesRegex(subject.Refused, "full SHAs and positive"):
+                prerequisites.validate_pins(**pins)
+        for field in ("run", "attempt", "base"):
+            pins = {"sha": candidate, "run": "123", "attempt": "2", "base": base, field: ""}
+            with self.subTest(missing=field), self.assertRaisesRegex(subject.Refused, "deployment requires"):
+                prerequisites.validate_pins(**pins)
+
     def test_ci_ready_inspection_selects_exact_sha_without_a_manual_pr_chain(self):
         report = prerequisites.render({"ready": True, "candidate_sha": "a" * 40,
             "base_sha": "b" * 40, "authority_sha": "c" * 40,
