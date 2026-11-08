@@ -31,10 +31,12 @@ def request(**changes):
 async def test_rewrite_supplies_only_incremental_source_and_explicit_owner_model(monkeypatch):
     selected_model = object()
     build = __import__("unittest.mock", fromlist=["Mock"]).Mock(return_value="agent")
-    run = AsyncMock(return_value={"markdown": "# Memory\n\n## Preferences\n- Coffee.\n"})
+    prepared = "    indented_note()\n\n# Memory\n\n## Preferences\n- Coffee.\n"
+    run = AsyncMock(return_value={"markdown": prepared})
     monkeypatch.setattr(memory, "build_single_turn_agent", build)
     monkeypatch.setattr(memory, "run_single_turn", run)
     result = await memory.rewrite_chat_memory(request(), model=selected_model)
+    assert result.markdown == prepared
     assert "Coffee" in result.markdown
     assert build.call_args.kwargs["model"] is selected_model
     payload = json.loads(run.call_args.kwargs["prompt_parts"])
@@ -90,9 +92,10 @@ async def test_sandbox_default_chat_and_ltm_use_azure_without_vertex(monkeypatch
     vertex.assert_not_called()
 
 
-async def test_invalid_or_failed_generation_never_returns_a_replacement(monkeypatch):
+@pytest.mark.parametrize("markdown", ["", "   ", "\n\t\r\n"])
+async def test_invalid_or_failed_generation_never_returns_a_replacement(monkeypatch, markdown):
     monkeypatch.setattr(memory, "build_single_turn_agent", lambda *a, **kw: "agent")
-    run = AsyncMock(return_value={"markdown": ""})
+    run = AsyncMock(return_value={"markdown": markdown})
     monkeypatch.setattr(memory, "run_single_turn", run)
     with pytest.raises(ValidationError):
         await memory.rewrite_chat_memory(request())

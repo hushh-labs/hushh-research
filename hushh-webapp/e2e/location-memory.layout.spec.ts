@@ -171,7 +171,7 @@ for (const width of [350, 351, 360, 393, 430, 620, 621, 639, 640, 767, 768, 1024
       const panelStyle = getComputedStyle(element);
       const row = getComputedStyle(document.querySelector('[data-testid="live-mirror-fact"] [data-slot="settings-row-title"]')!);
       const body = getComputedStyle(element.querySelector("li")!);
-      const section = getComputedStyle(element.querySelector("h2")!);
+      const section = getComputedStyle(element.querySelector(".soul-memory-document h2")!);
       const heading = document.querySelector('.app-page-header-region')!.getBoundingClientRect();
       const content = document.querySelector('.app-page-content-region')!.getBoundingClientRect();
       return {
@@ -193,15 +193,15 @@ for (const width of [350, 351, 360, 393, 430, 620, 621, 639, 640, 767, 768, 1024
     expect(styles.sectionSize).toBe("16px");
     expect(styles.headerGap).toBe(16);
     if (width < 640) {
-      const copy = await panel.getByText("The memory One uses in every conversation.").boundingBox();
-      const edit = await panel.getByRole("button", { name: "Edit memory.md" }).boundingBox();
+      const copy = await panel.getByText("What One remembers across conversations.").boundingBox();
+      const edit = await panel.getByRole("button", { name: "Edit memory" }).boundingBox();
       expect(copy!.width).toBeGreaterThan(0);
-      expect(await panel.getByText("The memory One uses in every conversation.").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await panel.getByText("What One remembers across conversations.").evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
       expect(Math.abs(copy!.x - edit!.x)).toBeLessThan(1);
       expect(edit!.y).toBeGreaterThanOrEqual(copy!.y + copy!.height);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
-    const editAction = panel.getByRole("button", { name: "Edit memory.md" });
+    const editAction = panel.getByRole("button", { name: "Edit memory" });
     const action = await editAction.evaluate(element => {
       const outer = getComputedStyle(element);
       const inner = getComputedStyle(element.firstElementChild!);
@@ -220,8 +220,8 @@ for (const width of [350, 351, 360, 393, 430, 620, 621, 639, 640, 767, 768, 1024
     expect(action.font).toEqual(["12px", "18px", "550"]);
     expect(action.outerBackground).toBe("rgba(0, 0, 0, 0)");
     await page.screenshot({ path: testInfo.outputPath(`memory-${width}-${theme}.png`), fullPage: true });
-    await page.getByRole("button", { name: "Edit memory.md" }).click();
-    await expect(page.getByRole("textbox", { name: "memory.md Markdown" })).toBeVisible();
+    await page.getByRole("button", { name: "Edit memory" }).click();
+    await expect(page.getByRole("textbox", { name: "Memory document" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Live memory preview" })).toHaveCount(0);
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(panel).toContainText("A second detail that stays aligned.");
