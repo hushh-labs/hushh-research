@@ -89,9 +89,8 @@ describe("Calendar Add account popup", () => {
 
   async function beginAddAccount() {
     render(<CalendarAgentPage />);
+    // Google's own account chooser opens straight from Add account.
     fireEvent.click(await screen.findByRole("button", { name: "Add Calendar account" }));
-    // Adding an account names every permission before Google opens.
-    fireEvent.click(await screen.findByRole("button", { name: "Continue to Google" }));
     await waitFor(() => expect((mocks.popup as unknown as {
       location: { replace: ReturnType<typeof vi.fn> };
     }).location.replace).toHaveBeenCalled());
@@ -123,19 +122,16 @@ describe("Calendar Add account popup", () => {
     );
   });
 
-  it("names every permission first and opens Google only after Continue", async () => {
-    render(<CalendarAgentPage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Add Calendar account" }));
-    const dialog = await screen.findByTestId("calendar-add-account-permissions");
-    expect(dialog).toHaveTextContent(/meeting recordings and notes/);
-    expect(dialog).toHaveTextContent(/Send meeting emails only after you review them/);
-    expect(window.open).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(window.open).not.toHaveBeenCalled();
-    expect(mocks.startConnect).not.toHaveBeenCalled();
+  it("opens Google directly with the same single consent as the first account", async () => {
+    await beginAddAccount();
+    expect(screen.queryByTestId("calendar-add-account-permissions")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Continue to Google" })).toBeNull();
+    expect(mocks.startConnect).toHaveBeenCalledWith(expect.objectContaining({
+      additional: true, accessLevel: "manage", includeMeetingFiles: true, includeMailAccess: true,
+    }));
   });
 
-  it("offers Mail for the new account once it is connected", async () => {
+  it("returns to the Board with the new account and no second Mail screen", async () => {
     await beginAddAccount();
     mocks.status.mockResolvedValue({
       configured: true, connected: true, status: "connected", access_level: "manage", scope_csv: "",
@@ -149,9 +145,9 @@ describe("Calendar Add account popup", () => {
       origin: window.location.origin, source: mocks.popup,
       data: { schemaVersion: 1, type: "google_oauth_settlement", attemptId: attempt.attemptId, service: "calendar", outcome: "succeeded" },
     })));
-    const offer = await screen.findByTestId("calendar-added-account-mail", undefined, { timeout: 5000 });
-    expect(offer).toHaveTextContent("extra@example.com");
-    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
-    await waitFor(() => expect(screen.queryByTestId("calendar-added-account-mail")).toBeNull());
+    await waitFor(() => expect(mocks.status.mock.calls.length).toBeGreaterThan(1), { timeout: 5000 });
+    expect(screen.queryByTestId("calendar-added-account-mail")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow Mail" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add Calendar account" })).toBeEnabled();
   });
 });

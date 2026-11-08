@@ -11,21 +11,20 @@ type CalendarConnectHeroProps = {
   /** Google authorization lapsed; announced to assistive tech only. */
   needsReauth: boolean;
   onConnect: () => void;
-  /**
-   * The optional email choice for a brand-new connection. Absent when the
-   * account is being reconnected, so nobody is asked twice.
-   */
-  mailChoice?: { checked: boolean; onChange: (checked: boolean) => void };
   /** Sign-in progress and cancel affordance, rendered under the action. */
   children?: ReactNode;
 };
 
-/** Everything first-time setup asks Google for, stated up front so nothing asks again later. */
+/**
+ * Everything one Google consent asks for, by product, so nothing is a surprise
+ * on Google's screen. The same set is requested for the first and every added
+ * account. Email follow-ups stay off until turned on for each account.
+ */
 const SETUP_PERMISSIONS = [
-  "See your events and when you are free",
-  "Create, move and respond to meetings you approve",
-  "Find your calendars, meeting recordings and notes",
-  "Send meeting emails only after you review them",
+  "Calendar: see events and free time; create, move and answer meetings you approve",
+  "Google Meet: find your recordings and notes",
+  "Google Drive: open Meet files and see details of files shared with you",
+  "Gmail: find meeting follow-ups once turned on; send meeting emails you review",
 ] as const;
 
 export function CalendarSetupPermissions() {
@@ -45,56 +44,6 @@ export function CalendarSetupPermissions() {
 }
 
 /**
- * The second and last first-time setup step: Mail, so sending a reviewed
- * decline or reschedule note never needs another Google prompt.
- */
-export function CalendarMailStep({
-  busy,
-  onAllow,
-  onSkip,
-  children,
-}: {
-  busy: boolean;
-  onAllow: () => void;
-  onSkip: () => void;
-  children?: ReactNode;
-}) {
-  return (
-    <section
-      aria-labelledby="calendar-mail-step-title"
-      className={`${presentationStyles.setup} mx-auto flex w-full max-w-[420px] flex-col items-center text-center md:max-w-[480px]`}
-      data-testid="calendar-mail-step"
-    >
-      <CalendarConnectIllustration />
-      <h1 id="calendar-mail-step-title" className="ui-text-agent-title mt-4">
-        One more step.
-      </h1>
-      <p className={`${presentationStyles.support} mt-2 max-w-[320px] text-muted-foreground`}>
-        Allow Mail so One can send the notes you review and spot meeting requests. Nothing is sent without your approval.
-      </p>
-      <Button
-        type="button"
-        size="prominent"
-        disabled={busy}
-        onClick={onAllow}
-        className="mx-auto mt-6 w-full max-w-[244px] shrink-0 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
-      >
-        Allow Mail
-      </Button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={onSkip}
-        className="mt-2 min-h-11 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
-      >
-        Not now
-      </button>
-      {children}
-    </section>
-  );
-}
-
-/**
  * The illustration whenever Calendar needs a connection. Presentational
  * only; the owner-bound connect flow stays with the page that renders it.
  */
@@ -103,7 +52,6 @@ export function CalendarConnectHero({
   busy,
   needsReauth,
   onConnect,
-  mailChoice,
   children,
 }: CalendarConnectHeroProps) {
   return (
@@ -124,26 +72,6 @@ export function CalendarConnectHero({
         <p role="status" className="sr-only">
           Google authorization needs to be refreshed.
         </p>
-      ) : null}
-
-      {mailChoice ? (
-        <label className="mt-6 flex w-full max-w-[320px] items-start gap-3 text-left text-sm">
-          <input
-            type="checkbox"
-            className="mt-1 size-4 shrink-0"
-            checked={mailChoice.checked}
-            disabled={busy}
-            onChange={(event) => mailChoice.onChange(event.target.checked)}
-          />
-          <span>
-            <span className="block font-medium">
-              Watch my email for meeting requests and reminders.
-            </span>
-            <span className="block text-muted-foreground">
-              Optional. Setup asks for Mail access in its next step either way.
-            </span>
-          </span>
-        </label>
       ) : null}
 
       <Button
