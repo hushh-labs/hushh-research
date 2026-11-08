@@ -1335,11 +1335,11 @@ describe("agent PKM memory helpers", () => {
         agent_id: "agent", agent_name: "One", model: "test", used_fallback: false,
         preview_cards: [{
           card_id: "card_1",
-          source_text: "## Synthetic diet\n- **Allergy:** peanuts\n- *Prefers* oat milk\n__Home city:__ Example Town",
+          source_text: "## Synthetic diet\n> - **Allergy:** peanuts\n> - *Prefers* oat milk\n__Home city:__ Example Town",
           write_mode: "confirm_first",
           target_domain: "health",
           candidate_payload: {
-            diet: { allergy: "**peanuts**", notes: "- oat milk\n- **no** dairy", language: "C#", rank: "#1 choice" },
+            diet: { allergy: "**peanuts**", notes: "> - oat milk\n> - **no** dairy", language: "C#", rank: "#1 choice" },
             dates: ["**2026-01-01**"],
             count: 3,
           },
@@ -1356,6 +1356,13 @@ describe("agent PKM memory helpers", () => {
       dates: ["2026-01-01"],
       count: 3,
     });
+  });
+
+  it.each([
+    ["# 1. Priority", "1. Priority"],
+    ["# > 5", "> 5"],
+  ])("preserves meaningful heading content after removing its marker: %s", (input, expected) => {
+    expect(toPlainMemoryText(input)).toBe(expected);
   });
 
   it.each([

@@ -104,6 +104,19 @@ async def test_invalid_or_failed_generation_never_returns_a_replacement(monkeypa
         await memory.rewrite_chat_memory(request())
 
 
+@pytest.mark.parametrize("content", [" ", "\n\t\r"])
+def test_blank_incremental_sources_are_rejected_before_inference(content):
+    item = request().messages[0].model_dump()
+    with pytest.raises(ValidationError, match="Memory source message is blank"):
+        request(messages=[{**item, "content": content}])
+
+
+def test_incremental_source_preserves_meaningful_indentation():
+    item = request().messages[0].model_dump()
+    content = "    prefers_indented_notes()\n"
+    assert request(messages=[{**item, "content": content}]).messages[0].content == content
+
+
 def test_duplicate_or_oversize_sources_are_rejected_before_inference():
     item = request().messages[0].model_dump()
     with pytest.raises(ValidationError):

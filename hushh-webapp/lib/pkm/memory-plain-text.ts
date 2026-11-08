@@ -11,6 +11,7 @@
  * was a bullet list stays a clean list of lines.
  */
 
+const QUOTE_MARKER = /^(?:[ \t]*>[ \t]?)+/;
 const LINE_MARKER = /^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+•][ \t]+|\d{1,3}[.)][ \t]+)/;
 const RULE_LINE = /^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$/;
 
@@ -28,7 +29,7 @@ export function toPlainMemoryText(value: string): string {
     .replace(/\r\n?/g, "\n")
     .split("\n")
     .filter((line) => !RULE_LINE.test(line))
-    .map((line) => stripInlineEmphasis(line.replace(LINE_MARKER, "")).trimEnd());
+    .map((line) => stripInlineEmphasis(line.replace(QUOTE_MARKER, "").replace(LINE_MARKER, "")).trimEnd());
   const plain = lines
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
