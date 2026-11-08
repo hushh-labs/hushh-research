@@ -79,7 +79,8 @@ class ReplayedReleaseFixture:
             "path": ".github/workflows/deploy-uat.yml"
             if self.environment == "uat"
             else ".github/workflows/deploy-production.yml",
-            "actor": {"login": "ankitkumarsingh1702"},
+            "actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
+            "triggering_actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
             "repository": {"id": 7, "full_name": self.repo},
             "head_repository": {"id": 7, "full_name": self.repo},
         }
@@ -191,7 +192,7 @@ class ReplayedReleaseFixture:
         if defect == "fork":
             self.run["head_repository"]["full_name"] = "other/repo"
         elif defect == "actor":
-            self.run["actor"]["login"] = "unapproved"
+            self.run["actor"]["type"] = "Bot"
         elif defect == "attempt":
             self.run["run_attempt"] = 1
         elif defect == "job_attempt":

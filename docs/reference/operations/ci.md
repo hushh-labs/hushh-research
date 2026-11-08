@@ -1281,9 +1281,23 @@ Members-read App, verifies the actual operator and rerunner, and rechecks access
 before publishing its decision. This adds no PR observer or recurring worker.
 Its additive `authorization` receipt records the admitted identities, team ID,
 source and producer; it never includes the roster or App credential. Existing
-receipt formats remain readable. This producer foundation does not yet replace
-the saved username checks in every release and queue consumer; those consumers
-must migrate before group-only access can be claimed end to end.
+receipt formats remain readable. Normal cloud releases, native publication,
+rollback and PLG frontend qualification carry that verified decision directly
+through the trusted Main job graph into their actor checks. Missing output or a
+different repository, caller, role, source, operator or attempt refuses admission;
+it cannot fall back to a saved username. UAT's target selector is read-only and
+defers operator permission to Main clearance before capacity or deployment.
+
+This JSON is a workflow-DAG binding, not a portable bearer credential. Only the
+protected producer or artifact-verified requester may issue it. Assign it from
+`needs.<security-job>.outputs.authorization` directly in the trusted assertion
+step, before candidate code and credentials; never accept it as a dispatch input
+or candidate file. The reusable Voice job receives it only from its trusted
+TestFlight parent. Historical human releases use verified canonical execution and complete outcome
+proof, without replaying current membership against past work; bot releases retain
+recorded controller authority. This historical rule grants no new operation. Separate
+read-only inspection, manual maintenance, emergency and queue consumers still need migration;
+these release-job changes do not establish group-only admission on those paths.
 
 ### Matching-branch release control
 

@@ -52,6 +52,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
+        "scripts/ci/assert-governed-actor.py",
         "scripts/ci/promotion_approval.py",
         "scripts/ci/github_team_authority.py",
         "scripts/ci/main-post-merge-smoke.sh",

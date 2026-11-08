@@ -132,6 +132,8 @@ jobs:
       - name: Authorize dispatching actor
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
 
@@ -318,6 +320,8 @@ jobs:
     with:
       release_sha: ${{ needs.preflight.outputs.release_sha }}
       security_attempt: ${{ needs.deployment-security.outputs.attempt }}
+      security_authorization: ${{ needs.deployment-security.outputs.authorization }}
+      security_application_sha: ${{ needs.deployment-security.outputs.application_sha }}
     secrets: inherit
 
   ship:
@@ -360,6 +364,8 @@ jobs:
           persist-credentials: false
       - name: Authorize build actor including individual job reruns
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - name: Preserve trusted serving revision verifier
@@ -811,6 +817,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Authorize distribution actor including individual job reruns
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - uses: actions/setup-python@v6
         with:
@@ -914,6 +923,8 @@ jobs:
       - name: Validate dispatch and original upload provenance
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SHA: ${{ inputs.sha }}
           SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
           REQUESTED_VERSION: ${{ inputs.marketing_version }}
