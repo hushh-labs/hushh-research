@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
@@ -42,6 +42,14 @@ class RewriteMemoryRequest(BaseModel):
 class RewriteMemoryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     markdown: str = Field(min_length=1, max_length=MAX_MEMORY_CHARS)
+
+    @field_validator("markdown")
+    @classmethod
+    def require_document(cls, value: str) -> str:
+        # Reject an unusable replacement without stripping meaningful Markdown indentation.
+        if not value.strip():
+            raise ValueError("Memory rewrite returned no document")
+        return value
 
 
 async def rewrite_chat_memory(body: RewriteMemoryRequest, *, model: Any = None):
