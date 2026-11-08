@@ -265,20 +265,16 @@ still require valid chronology, including an older-ID run retried later; a newer
 failed or pending attempt blocks. Incomplete inventories, stale attempts and
 unverified source, jobs or producers always refuse admission. Never correct
 provider timestamps, sort by run ID or choose only successful runs.
-If inspection reports that UAT CI authority differs from Main, this is an
-execution-tooling synchronization prerequisite, not a missing maintainer approval.
-Reconcile the reviewed Main CI/release sources into UAT without importing unrelated
-product code, then qualify the resulting UAT commit. Preserve branch-owned test
-identities: the regular backend manifest must contain canonical test paths and all
-Main-required tests; extra UAT tests are allowed. The manifest's test inventory is
-not the executable authority of its runner. Do not remove branch tests merely to
-make file bytes equal, or reuse CI evidence from before the source synchronization.
+Ordinary protected UAT trusts its reviewed application, tests and tooling. The
+shared verifier validates the selected backend manifest's format but does not
+compare its test identities, the selected CI/release files, npm script maps or
+pytest settings with Main. Build recipes and migration controllers may evolve
+through protected UAT review without a corresponding Main merge. Main still owns
+release orchestration and credential clearance. Exact/current CI, compatibility,
+health, rollback and serving-revision checks remain mandatory. Legacy isolated
+UAT retains its stricter Main tooling comparisons; production promotion retains
+its existing approval and acceptance checks.
 
-Candidate `deploy/` release recipes must match reviewed Main; changes to those
-Cloud Build recipes require a Main-reviewed operations PR. The Main-owned
-workflow also pins `consent-protocol/db/migrate.py`, `db/migration_authority.py`,
-`db/dev_migration_manifest.py`, and the UAT database target-attestation helper
-to Main. Candidate migration manifests and SQL remain application content.
 Current support requires the selected services to share that tested serving base;
 a mixed or unknown baseline refuses before mutation. Historical UAT receipt
 retention remains finite; expired evidence is not an exemption.

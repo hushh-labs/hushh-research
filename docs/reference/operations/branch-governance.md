@@ -34,14 +34,14 @@ UAT-focused work can use exact-source CI without a preceding Dev deployment.
 Select a merged application SHA from protected UAT history. Full CI runs on that exact commit
 with `scope=all` and the observed serving application as `uat_base_sha`; the
 Main-owned deployment records a typed `uat-exact-ci` predecessor. It verifies
-canonical workflow authority, reviewed invocation configuration, complete current
+canonical workflow provenance, protected UAT source, complete current
 attempts, service scope and the actual serving baseline under the deployment
 lock. It refreshes refs and repeats admission before runtime-secret changes and
 after image builds. A later failed required CI attempt or changed serving baseline refuses.
 A descendant UAT merge does not retarget or invalidate the selected application;
 a branch reset that removes it from protected history refuses. Legacy isolated
 UAT retains its exact-tip requirement.
-Reviewed application tests and dependencies may evolve; this follows the existing
+Reviewed application tests, tooling and dependencies may evolve; this follows the existing
 protected-branch trust model, not malicious-code containment.
 
 Historical acceptance and no-op receipts retain their original checks. Unknown
@@ -52,9 +52,9 @@ a source build; explicit `promote-from-dev` still requires the real accepted ima
 Historical Dev-backed receipts and direct-CI UAT receipts remain distinct and
 verifiable. Production requires the accepted UAT application and selected services;
 its historical reader does not require today's UAT tip to equal an old release.
-Cloud Build release recipes under `deploy/` remain reviewed Main authority because
-the Main-owned UAT workflow consumes them from the candidate; any candidate delta
-there refuses until the recipe change is reviewed on Main.
+Ordinary UAT consumes its protected candidate's reviewed Cloud Build recipes and
+migration controllers without Main-content parity. Main retains release
+orchestration and credential clearance; isolated UAT keeps its existing parity policy.
 
 Source implementation is not a live qualification receipt. Run full exact-candidate
 CI on protected UAT and verify current admission before deployment. Ordinary
@@ -289,7 +289,14 @@ Before deleting a local backup branch, classify its unique commits as:
 ### UAT
 
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
-2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
+2. The workflow checks out that exact application. Main owns orchestration and
+   credential clearance; ordinary UAT trusts its protected, reviewed build/test
+   and migration tooling without comparing its content with Main. Manifest
+   format, exact CI, migration compatibility and live-serving checks remain.
+   Legacy isolated UAT and production approval retain their existing policies.
+   Canonical Dev/UAT PR editing authority reads pinned protected Main
+   policy, matching queue/Admin admission; a stale destination roster cannot
+   block an approved editor. Candidate policy grants never authorize the PR.
 3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
    authority. Preserve the existing Dev/UAT cohorts. Main's approved merge operators
    match its production operators, while protected edits require pipeline-editor.
