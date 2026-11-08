@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { files, fileEntry, session } from "../fixtures/files-workspace";
+import { attempts, files, fileEntry, session } from "../fixtures/files-workspace";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import type { FileEntry } from "@/lib/files/service";
 import { FilesLocalError } from "@/lib/files/local-error";
@@ -250,7 +250,9 @@ describe("Files form submission", () => {
   );
 
   it("keeps a committed upload distinct from unconfirmed organization", async () => {
-    files.upload.mockResolvedValue({ organization: { state: "unconfirmed" } });
+    files.upload.mockResolvedValue(fileEntry({
+      size: 9, received: 9, organization: { state: "unconfirmed" },
+    }));
     render(<FilesWorkspace />);
     await waitFor(() =>
       expect(
@@ -266,6 +268,9 @@ describe("Files form submission", () => {
       ),
     );
     expect(toast.error).not.toHaveBeenCalled();
+    expect(attempts.capture).toHaveBeenCalledExactlyOnceWith("files.upload", "synthetic-owner");
+    expect(attempts.started).toHaveBeenCalledOnce();
+    expect(attempts.settled).toHaveBeenCalledExactlyOnceWith("returned");
   });
 
   it.each([
@@ -287,7 +292,7 @@ describe("Files form submission", () => {
           files.list.mockResolvedValue({ entries: [entry], cursor: "" });
           throw failure;
         })
-        .mockResolvedValueOnce({ ...entry, state: "ready" });
+        .mockResolvedValueOnce({ ...entry, received: entry.size, state: "ready" });
       render(<FilesWorkspace />);
       await waitFor(() => expect(files.list).toHaveBeenCalled());
       const input = screen.getByLabelText("Choose a file to upload");
@@ -298,11 +303,15 @@ describe("Files form submission", () => {
         exact: true,
       });
       await waitFor(() => expect(resume).not.toBeDisabled());
+      expect(attempts.started).toHaveBeenCalledOnce();
+      expect(attempts.settled).not.toHaveBeenCalled();
       if (failure instanceof FilesLocalError)
         expect(toast.error).toHaveBeenCalledWith(failure.message);
       fireEvent.click(resume);
       fireEvent.change(input, { target: { files: [file] } });
       await waitFor(() => expect(files.upload).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(attempts.settled).toHaveBeenCalledExactlyOnceWith("returned"));
+      expect(attempts.started).toHaveBeenCalledTimes(2);
       expect(files.upload.mock.calls[1][4]).toEqual(entry);
       expect(files.createFolder).not.toHaveBeenCalled();
     },

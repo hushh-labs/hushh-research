@@ -36,6 +36,7 @@ from hushh_mcp.services.app_intelligence_runtime import (  # noqa: E402
     location_workflow_api_contract_source_digest,
     service_knowledge_packages_source_digest,
 )
+from scripts import capability_graph_history as graph_history  # noqa: E402
 
 EVOLUTION_CONTRACT_PATH = ROOT / "hushh_mcp" / "agents" / "capability_graph_evolution.v1.json"
 WORKFLOW_REVISION_COMPATIBILITY_SCHEMA_VERSION = "one.workflow_revision_compatibility.v1"
@@ -730,77 +731,24 @@ def _workflow_revision_compatibility(
     }
 
 
-def _read_workflow_predecessor(ref: str) -> dict[str, Any]:
-    """Import only a committed ancestor, never an arbitrary compatibility claim."""
-
-    resolved = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "merge-base", "--is-ancestor", resolved, "HEAD"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
+def _read_workflow_predecessor(
+    ref: str, *, allow_unpublished: bool = False
+) -> dict[str, Any] | None:
+    return graph_history.read_workflow_predecessor(
+        REPO_ROOT,
+        OUTPUTS,
+        ref,
+        allow_unpublished=allow_unpublished,
+        declared_divergent=ref in _load_workflow_predecessor_refs(),
     )
-    relative = OUTPUTS[0].relative_to(REPO_ROOT).as_posix()
-    completed = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "show", f"{resolved}:{relative}"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    payload = json.loads(completed.stdout)
-    if not isinstance(payload, dict) or not payload.get("revision"):
-        raise RuntimeError("Workflow predecessor has no generated graph revision.")
-    return payload
 
 
 def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str, ...]:
-    """Keep merged histories from the base integration and later branch merges.
-
-    The base graph supplies one workflow history. A merged feature parent may
-    carry another compatible history, including through a second parent. It must
-    survive default CI without a one-off flag. Only committed ancestors are returned;
-    ``_read_workflow_predecessor`` still validates their graph and semantics.
-    """
-
     if not (REPO_ROOT / ".git").exists():
         return ()
-    base_commit = _resolve_base_commit(_resolve_base_ref(base_ref))
-    if not base_commit:
-        return ()
-    history = subprocess.run(  # noqa: S603 - fixed git executable/arguments
-        ["git", "rev-list", "--ancestry-path", "--parents", f"{base_commit}..HEAD"],  # noqa: S607
-        cwd=REPO_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.splitlines()
-    # Every listed commit descends from the base. Include ordinary commits so
-    # first-parent membership proves ancestry without a subprocess per merge.
-    lineages = [line.split() for line in history]
-    descendants = {base_commit, *(lineage[0] for lineage in lineages)}
-    predecessors: list[str] = []
-    integrated_base = False
-    for lineage in lineages:
-        if len(lineage) < 3:
-            continue
-        if base_commit in lineage[1:]:
-            integrated_base = True
-            predecessors.extend(parent for parent in lineage[1:] if parent != base_commit)
-            continue
-        if lineage[1] in descendants:
-            predecessors.extend(lineage[2:])
-        elif any(parent in descendants for parent in lineage[2:]):
-            # Isolated verification may receive the base via a second parent.
-            # Its pre-base first parent still owns a separately shipped history.
-            predecessors.extend(parent for parent in lineage[1:] if parent not in descendants)
-    return tuple(dict.fromkeys(predecessors)) if integrated_base else ()
+    return graph_history.merged_workflow_predecessor_refs(
+        REPO_ROOT, _resolve_base_commit(_resolve_base_ref(base_ref))
+    )
 
 
 def _merge_workflow_predecessor(
@@ -891,26 +839,83 @@ def build_payload(
     }
     semantic_diff = _semantic_diff(previous, graph, deprecations=deprecations)
     _require_acknowledged_semantic_changes(semantic_diff)
-    graph["semantic_diff"] = semantic_diff
+    # Ref-specific provenance is diagnostic, not a semantic transition. Only
+    # canonicalize a freshly proven zero transition; keep the original comparison
+    # for workflow admission and reject breaking changes before serializing it.
+    serialized_diff = dict(semantic_diff)
+    if not any(
+        semantic_diff.get(key) for key in ("added", "removed", "changed")
+    ) and _semantic_index(previous or {}) == _semantic_index(graph):
+        print(
+            f"capability graph comparison: from_revision={semantic_diff.get('from_revision')} "
+            "zero_semantic_transition=1",
+            file=sys.stderr,
+        )
+        serialized_diff["from_revision"] = None
+    graph["semantic_diff"] = serialized_diff
     graph["workflow_revision_compatibility"] = _workflow_revision_compatibility(
         previous,
         graph,
         semantic_diff,
     )
-    predecessors = dict.fromkeys(
+    declared_predecessors = dict.fromkeys(
         (
             *_load_workflow_predecessor_refs(),
             *workflow_predecessor_refs,
-            *_merged_workflow_predecessor_refs(base_ref),
         )
     )
+    predecessors = dict.fromkeys(
+        (*declared_predecessors, *_merged_workflow_predecessor_refs(base_ref))
+    )
     for ref in predecessors:
-        _merge_workflow_predecessor(
-            graph,
-            _read_workflow_predecessor(ref),
-            deprecations,
+        predecessor = _read_workflow_predecessor(
+            ref, allow_unpublished=ref not in declared_predecessors
         )
+        if predecessor is not None:
+            if ref in _load_workflow_predecessor_refs() and _resolve_base_commit(ref) != ref:
+                # A reviewed serving pin can belong to a retained release history.
+                # Workflow compatibility alone cannot approve changed actions.
+                transition = _semantic_diff(predecessor, graph, deprecations=deprecations)
+                _require_acknowledged_semantic_changes(transition)
+            _merge_workflow_predecessor(graph, predecessor, deprecations)
     return graph
+
+
+def _uat_pr_payload(
+    serving_payload: dict[str, Any], base_ref: str, predecessor_refs: tuple[str, ...]
+) -> dict[str, Any] | None:
+    """Replay the landed PR comparison after validating the exact serving comparison."""
+    ref = os.environ.get("GITHUB_REF")
+    isolated = os.environ.get("UAT_CI_CANDIDATE") if ref == "refs/heads/main" else None
+    source = isolated or os.environ.get("GITHUB_SHA")
+    declared_serving = (
+        ref == "refs/heads/uat" and not isolated and base_ref in _load_workflow_predecessor_refs()
+    )
+    if (
+        os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+        or (not isolated and ref not in {"refs/heads/uat", "refs/heads/uat-isolated"})
+        or os.environ.get("CI_VALIDATION_LEVEL") != "release"
+        or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
+        or (_resolve_base_commit(base_ref) != base_ref and not declared_serving)
+        or not source
+        or _resolve_base_commit("HEAD") != source
+        or _resolve_base_commit("HEAD^2") is None
+    ):
+        return None
+    parent = _resolve_base_commit("HEAD^1")
+    if parent is None:
+        return None
+    ancestry = subprocess.run(  # noqa: S603 - fixed git executable and validated commits
+        ["git", "merge-base", "--is-ancestor", base_ref, parent],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    if ancestry.returncode and (ancestry.returncode != 1 or not declared_serving):
+        return None
+    pr_payload = build_payload(base_ref=parent, workflow_predecessor_refs=predecessor_refs)
+    if {**pr_payload, "semantic_diff": serving_payload["semantic_diff"]} != serving_payload:
+        return None
+    return pr_payload
 
 
 def main() -> int:
@@ -933,11 +938,16 @@ def main() -> int:
         ),
     )
     args = parser.parse_args()
-    payload = build_payload(
-        workflow_predecessor_refs=tuple(args.workflow_predecessor_ref),
-        base_ref=args.base_ref,
-    )
+    predecessor_refs = tuple(args.workflow_predecessor_ref)
+    payload = build_payload(workflow_predecessor_refs=predecessor_refs, base_ref=args.base_ref)
     text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    if args.check and OUTPUTS[0].is_file() and OUTPUTS[0].read_text(encoding="utf-8") != text:
+        pr_payload = _uat_pr_payload(payload, _resolve_base_ref(args.base_ref), predecessor_refs)
+        if pr_payload is not None:
+            pr_text = json.dumps(pr_payload, indent=2, sort_keys=True) + "\n"
+            if OUTPUTS[0].read_text(encoding="utf-8") == pr_text:
+                print("Capability graph: verified serving transition and landed PR comparison.")
+                text = pr_text
     stale = []
     for output in OUTPUTS:
         current = output.read_text(encoding="utf-8") if output.exists() else ""

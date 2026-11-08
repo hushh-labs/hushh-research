@@ -2506,6 +2506,8 @@
       },
       "voice_action_contract_file": "app/one/calendar/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "calendar.connection.connect",
+        "calendar.connection.disconnect",
         "calendar.invitation.review",
         "calendar.read"
       ],
@@ -3195,6 +3197,7 @@
       },
       "voice_action_contract_file": "app/one/files/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "files.upload",
         "route.one_files"
       ],
       "api_dependencies": [
@@ -3280,6 +3283,7 @@
       },
       "voice_action_contract_file": "app/one/gmail/page.voice-action-contract.json",
       "voice_action_contract_ids": [
+        "kyc.save_profile",
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.receipt_sync_details",
@@ -5084,7 +5088,13 @@
       "voice_action_contract_ids": [
         "pkm.close_sharing_bundle_review",
         "pkm.close_sharing_price_review",
-        "pkm.review_sharing_price"
+        "pkm.delete_memory",
+        "pkm.edit_memory",
+        "pkm.export_memory",
+        "pkm.prepare_capture",
+        "pkm.retry_capture_section",
+        "pkm.review_sharing_price",
+        "pkm.save_capture"
       ],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
@@ -11069,5 +11079,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "57fdf0e5ad22847f3473474f0afd46856a7622b9b2befd4a8d927d95738df642"
+  "content_sha256": "cac2f765741e1a9ba460a35f388364ae701e8ea24f0864182f2f57f76cc9bfbf"
 }

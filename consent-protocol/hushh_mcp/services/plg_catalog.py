@@ -127,10 +127,38 @@ def activity_catalog(environment: str = "production") -> dict:
     agent_ids = {agent["id"] for agent in agents}
     for action in gateway["actions"]:
         key = action["action_id"]
+        # Manual controls retain their authored participant/consent handlers.
+        # This attributes observations; it enables no executor.
+        surface_owner = {
+            "one_document_delivery": "agent_documents",
+            "pkm": "agent_personal_information",
+        }.get(action["surface_id"])
+        if action["surface_id"] == "profile_world_model" and key in {
+            "profile.world_model.confirm_fact",
+            "profile.world_model.reject_fact",
+            "profile.world_model.edit_fact",
+            "profile.world_model.remove_fact",
+        }:
+            surface_owner = "agent_personal_information"
+        if action["surface_id"] == "gmail" and key.startswith("profile.gmail."):
+            surface_owner = "agent_email"
+        if action["surface_id"] == "gmail" and key == "kyc.save_profile":
+            surface_owner = "agent_kyc"
+        if action["surface_id"] == "one_files" and key == "files.upload":
+            surface_owner = "agent_files"
+        if action["surface_id"] == "one_calendar" and key in {
+            "calendar.connection.connect",
+            "calendar.connection.disconnect",
+        }:
+            surface_owner = "agent_calendar"
         if key in actions:
+            if surface_owner:
+                actions[key]["agentId"] = surface_owner
             continue
-        owner = action.get("delegate_agent_id") or aliases.get(action["surface_id"], {}).get(
-            "agentId", "agent_one"
+        owner = (
+            action.get("delegate_agent_id")
+            or surface_owner
+            or aliases.get(action["surface_id"], {}).get("agentId", "agent_one")
         )
         actions[key] = {
             "id": key,

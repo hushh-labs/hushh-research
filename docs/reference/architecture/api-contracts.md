@@ -55,6 +55,7 @@ flowchart TB
   maint --> one
 ```
 
+---
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
@@ -181,6 +182,20 @@ The existing One proxy and platform-aware service transport own client pairing.
 Native execution and release admission remain unavailable pending qualification.
 See [People calling](../one/people-calling.md) for exact privacy, schema, retention
 and remaining E2EE/native requirements.
+
+## V1 chat memory preparation
+
+`POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
+owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
+admission, held owner incarnation and AI-selection checks before and after inference.
+The request contains `user_id`, `current_markdown`, incremental `messages`
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
+`{markdown}`: a proposed complete document with no persistence authority. The
+client validates and atomically commits ciphertext and its source checkpoint
+through the existing PKM writer. Invalid generation returns a bounded failure;
+there is no partial replacement or client-visible success before storage ACK.
+The platform-aware PKM proxy/native transport and explicit pod allowlists own
+placement; unknown/private owners never fall back to Shared inference.
 
 ---
 
@@ -5770,6 +5785,56 @@ marketing subscription and carry `readAuthority=verified_owner` plus the hashed
 `ownerEpoch`; they never carry delivery authority. Identity changes and account
 reset during a snapshot invalidate it. No raw email or private content is exported.
 Production marketing/reporting contracts remain separate.
+
+Memory's explicit export, edit, delete, preparation, section retry and reviewed
+save controls report paired `pkm.*` client attempts under Personal Information.
+They retain the original owner and admission generation and expose only a closed
+action ID, opaque operation ID and phase. Their authored action contracts remain
+manual-only; observation does not add an executor or authorize a write or email.
+Preparation is distinct from saving. Partial saves, expired authority, transport
+timeouts and an unacknowledged file handoff remain unknown. A confirmed write is
+not changed to failure by a later metadata refresh. Existing aggregate Memory
+observations remain unpaired and cannot create additional attempt emails.
+
+Manual KYC profile imports in Mail and Email setup report `kyc.save_profile`
+under KYC. Both preserve the originally admitted owner and generation. Local
+Memory staging does not settle the attempt: the existing encrypted-write queue
+notifies a RAM-only, zero-payload observer after a write acknowledgement or its
+existing commit-receipt recovery. A confirmed write remains returned if local
+checkpoint cleanup needs retry; that retry cannot emit the outcome twice. A
+fully synced, already persisted no-op may return, while a duplicate of pending
+work remains unknown. Explicit no-write preparation rejection is blocked;
+transport loss, retired ownership, reset and page exit never infer a terminal
+outcome. Observers are not persisted or replayed after reload, and observer
+errors cannot change the product's result. These observations add no email
+permission and do not cover every KYC action or prove live delivery.
+
+World Model confirmation, rejection, edit and removal report under Memory.
+The shared web and native controller returns an attempt only after the current
+owner’s existing encrypted memory decision has been verified. A lost commit
+acknowledgement or retired owner remains unknown. Reports carry action metadata
+only. Fact keys, wording and evidence never enter PLG or its email body.
+
+The Mail workspace reports an explicit retry of saved receipt restoration as
+`profile.gmail.restore_saved_receipts` under Email. A current, verified saved
+snapshot is required for a returned outcome. Confirmed unavailable storage or
+invalid receipt binding can report failure. Missing snapshots, expired reads
+and retired owners or account/vault scopes supply no terminal outcome.
+Automatic hydration and the follow-up sync do not create another attempt.
+Only activity metadata is reported, with no receipt or account data.
+
+Manual Calendar connection and disconnection report against the original attempt.
+Terminal returns require an acknowledged connection or confirmed disconnection.
+Meeting file upgrades wait for the matching grant. An expired popup, a lost
+response, a handoff that leaves the page, and a same-window reload can leave the
+attempt unknown. Calendar reports contain no Google account or event details.
+
+A manual Files upload or resume starts a client attempt in the existing Files
+workspace. A complete transfer returns only after the original Files response
+reports the whole file ready. Interrupted transfers and unacknowledged outcomes
+stay unknown. Organization runs separately and cannot change the upload report.
+File identifiers, names, bytes and paths are not attached. The Files Agent's
+existing environment availability is unchanged by this reporting contract.
 
 Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
 `snapshot-dev`, with matching distinct HMAC purposes. It requires exactly

@@ -654,6 +654,7 @@ tests/test_one_follow_up_suggestions.py
 # Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
 tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
+tests/test_chat_memory_manager.py
 tests/test_conversation_titles.py
 tests/scripts/test_eval_one_first_tool.py
 tests/scripts/test_eval_one_first_tool_context.py
