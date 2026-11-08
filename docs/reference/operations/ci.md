@@ -1271,6 +1271,15 @@ trusted reusable release wiring and matching-branch cloud identity qualification
 the broker's presence alone does not enable the route. Keep `ci-security`
 Main-only and never pass its token into Dev/UAT caller jobs.
 
+The same protected job reads release-team membership through the first-party
+Members-read App, verifies the actual operator and rerunner, and rechecks access
+before publishing its decision. This adds no PR observer or recurring worker.
+Its additive `authorization` receipt records the admitted identities, team ID,
+source and producer; it never includes the roster or App credential. Existing
+receipt formats remain readable. This producer foundation does not yet replace
+the saved username checks in every release and queue consumer; those consumers
+must migrate before group-only access can be claimed end to end.
+
 ### Matching-branch release control
 
 For ordinary use, choose **Deploy** for the intended environment, keep
