@@ -5,9 +5,7 @@
 
 import importlib.util
 import json
-import os
 from pathlib import Path
-import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -430,6 +428,7 @@ class MainTeamPublisherTest(unittest.TestCase):
         fixture = LiveTeamPolicyTest()
         fixture.setUp()
         guard = queue._module('verify-protected-pipeline-edits.py', 'startup_roles_guard')
+        intake = queue._module('verify-pr-base-policy.py', 'startup_intake_policy')
         run.update(status='in_progress', conclusion=None, head_branch='feature',
                    head_repository={'full_name': team.REPOSITORY},
                    pull_requests=[{'number': 42, 'head': {'sha': HEAD}}])
@@ -446,7 +445,8 @@ class MainTeamPublisherTest(unittest.TestCase):
             event = Path(folder, 'event.json')
             env.update(GITHUB_EVENT_PATH=str(event), RUNNER_TEMP=folder)
             event.write_text(json.dumps({'action': 'in_progress', 'workflow_run': run}))
-            with patch.object(team, 'fetch_objects'), patch.object(queue, '_module', return_value=guard), \
+            modules = {'verify-protected-pipeline-edits.py': guard, 'verify-pr-base-policy.py': intake}
+            with patch.object(team, 'fetch_objects'), patch.object(queue, '_module', side_effect=lambda name, _: modules[name]), \
                  patch.object(queue, 'git', return_value='scripts/ci/test_example.py'), \
                  patch.object(guard, 'authored_change_base', return_value='c' * 40), \
                  patch.object(guard, 'semantic_pipeline_changes', return_value=[]), \
@@ -455,6 +455,20 @@ class MainTeamPublisherTest(unittest.TestCase):
                 self.assertEqual(result['state'], 'in_progress')
                 self.assertEqual(result['decision']['author'], 'principal')
                 approvals.assert_not_called()
+                pr['base']['ref'] = 'main'
+                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
+                self.assertEqual(result['state'], 'in_progress')
+                fixture.members['deploy-production'] = ['operator']
+                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
+                self.assertEqual(result['state'], 'failure')
+                # Canonical train promotions retain their existing author policy;
+                # the queue independently checks the actual merge requester.
+                run['head_branch'] = pr['head']['ref'] = 'integration/pr-train'
+                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
+                self.assertEqual(result['state'], 'in_progress')
+                run['head_branch'] = pr['head']['ref'] = 'feature'
+                fixture.members['deploy-production'] = ['principal', 'operator']
+                pr['base']['ref'] = 'uat'
                 pr['user']['login'] = 'kushaltrivedi5'  # still present in the saved policy
                 result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
                 self.assertEqual(result['state'], 'failure')
@@ -575,6 +589,7 @@ class MainTeamPublisherTest(unittest.TestCase):
 
 
 class TeamCheckLifecycleTest(unittest.TestCase):
+
 
 
     def test_start_barrier_uses_pr_run_head_not_synthetic_merge_sha(self):

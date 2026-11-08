@@ -580,8 +580,10 @@ def authorize_pr(read, run, policy):
         "PR head, repository or destination changed",
     )
     if branch == "main":
+        intake = queue._module("verify-pr-base-policy.py", "team_intake_policy")
         require(
-            pr.get("user", {}).get("login") in policy["main"]["merge_users"],
+            intake.evaluate(policy, base_ref=branch, head_ref=pr["head"]["ref"],
+                            actor=pr.get("user", {}).get("login", ""))[0],
             "Direct Main intake requires the production merger team",
         )
     head, base = run["head_sha"], pr["base"]["sha"]
