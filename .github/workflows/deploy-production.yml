@@ -754,7 +754,7 @@ jobs:
           elif [ -n "$PHONE_ROLLBACK_SHA" ]; then
             extra=(--additional-candidate-service consent-protocol)
           fi
-          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production "${extra[@]}"
+          timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment production ${extra[@]+"${extra[@]}"}
 
       - name: Capture predeploy Cloud Run state
         id: predeploy-state

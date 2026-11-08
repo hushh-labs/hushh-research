@@ -202,6 +202,9 @@ def _protected(c: dict[str, Any]) -> tuple[bool, str]:
     guard = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(guard)
     policy = json.loads(_capture(["git", "show", f"{c['base']}:config/ci-governance.json"]))
+    if c["base_ref"] in {"dev", "uat"} and policy.get("authorization", {}).get("native_teams") is True:
+        from queue_combined_result import authority_policy
+        _, policy = authority_policy("hushh-labs/hushh-research", c["base_ref"], c["base"])
     main_policy = policy.get("main")
     if not isinstance(main_policy, dict):
         raise ValueError("base protected-pipeline policy is missing")
