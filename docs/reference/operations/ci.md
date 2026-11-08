@@ -1263,13 +1263,27 @@ source CI, schema and rollback compatibility.
 The broker foundation verifies the active Dev/UAT caller, governed operator and
 rerun actor, protected application history and referenced Main implementation.
 Caller SHA, application SHA, implementation SHA and broker SHA remain separate.
-The consumer checks artifact digest, the actual inventory step and both current
-attempts. A dispatch intent is recorded before the request; a lost response stops
+The consumer checks artifact digest, complete inventory and both current
+attempts. Published step rows must show the inventory step succeeded. If GitHub
+returns an empty step list, only the exact successful Main producer's typed
+authorization, bound to the current operator, source and attempt, can establish
+execution. Historical receipts without that authorization still require step
+proof; an explicit failed/skipped step or green aggregate alone cannot clear a release.
+A dispatch intent is recorded before the request; a lost response stops
 without automatically dispatching again. Keep that intent with the release
 artifacts for read-only reconciliation. Caller activation remains dependent on
 trusted reusable release wiring and matching-branch cloud identity qualification;
 the broker's presence alone does not enable the route. Keep `ci-security`
 Main-only and never pass its token into Dev/UAT caller jobs.
+
+The same protected job reads release-team membership through the first-party
+Members-read App, verifies the actual operator and rerunner, and rechecks access
+before publishing its decision. This adds no PR observer or recurring worker.
+Its additive `authorization` receipt records the admitted identities, team ID,
+source and producer; it never includes the roster or App credential. Existing
+receipt formats remain readable. This producer foundation does not yet replace
+the saved username checks in every release and queue consumer; those consumers
+must migrate before group-only access can be claimed end to end.
 
 ### Matching-branch release control
 
