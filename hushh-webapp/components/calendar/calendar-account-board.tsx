@@ -28,6 +28,7 @@ import { CalendarInvitationActions } from "./calendar-invitation-actions";
 import { CalendarConflictPanel } from "./calendar-conflict-panel";
 import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarInvitations } from "./calendar-invitations";
+import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
 import { CalendarBookingDialog, type BookingOpening } from "./calendar-booking-dialog";
