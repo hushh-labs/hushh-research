@@ -21,7 +21,6 @@ import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
 import { boardOccasionKind, isCountedBoardEvent } from "@/lib/calendar/calendar-board-event";
 import type { GoogleCalendarAccount, GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { calendarEventPeople, calendarHusshPerson, verifiedCalendarAccountPhoto, type CalendarHusshPeople } from "@/lib/calendar/calendar-hussh-people";
-import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import type { CalendarSlotHandoff } from "@/lib/calendar/calendar-slot-handoff";
 import { GoogleCalendarService, type CalendarBoardAccount, type CalendarBoardConflict, type CalendarBoardDay, type CalendarEventSummary, type CalendarInvitation } from "@/lib/services/google-calendar-service";
 import { CalendarDateNavigation } from "./calendar-date-navigation";
@@ -29,6 +28,7 @@ import { CalendarInvitationActions } from "./calendar-invitation-actions";
 import { CalendarConflictPanel } from "./calendar-conflict-panel";
 import { CalendarCompactAction } from "./calendar-compact-action";
 import { CalendarInvitations } from "./calendar-invitations";
+import { connectionAvatarInitials } from "@/components/connections/connection-person-avatar";
 import { CalendarPersonAvatar } from "./calendar-person-avatar";
 import { CalendarInsights } from "./calendar-insights";
 import { CalendarBookingDialog, type BookingOpening } from "./calendar-booking-dialog";
@@ -39,7 +39,7 @@ import { calendarFollowupHref } from "@/lib/calendar/calendar-followup-notificat
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { consumeCalendarMeetingOAuthReturn, type CalendarMeetingReturnContext } from "@/lib/calendar/calendar-oauth-journey";
 import { calendarDate, eventTime, availabilityTimeRangeLabel, calendarResponse, CalendarMeetingIcon, meetingProvider, occasionDateLabel, occasionNote } from "./calendar-schedule-presentation";
-import { invitationDescription } from "./calendar-invitation-detail";
+import { declineReason, invitationDescription } from "./calendar-invitation-detail";
 import styles from "./calendar-account-board.module.css";
 
 type Props = {
@@ -133,7 +133,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
     <span className={styles.accountPickerLabel}>Calendar account</span>
     <DropdownMenu>
       <DropdownMenuTrigger asChild><button type="button" className={styles.accountPickerTrigger} aria-label={`Calendar account: ${selectedEmail}`} title={selectedEmail}>
-        {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedCalendarAccountPhoto(selected, selectedEmail, people)} className={styles.pickerAvatar} source="hussh" /> : null}
+        {selected ? <CalendarPersonAvatar name={selectedEmail} photoUrl={verifiedCalendarAccountPhoto(selected, selectedEmail, people)} size="sm" source="hussh" /> : null}
         <span className={styles.accountPickerEmail}>{selectedEmail}</span><ChevronDown aria-hidden="true" className={styles.accountPickerChevron} />
       </button></DropdownMenuTrigger>
       <DropdownMenuContent align="start" className={styles.accountPickerMenu}>
@@ -141,7 +141,7 @@ function CalendarAccountPicker({ accounts, value, onChange, people }: {
           {accounts.map(account => {
             const email = accountLabel(account.google_email);
             return <DropdownMenuRadioItem key={account.account_id} value={account.account_id} title={email} className={styles.accountPickerItem}>
-              <CalendarPersonAvatar name={email} photoUrl={verifiedCalendarAccountPhoto(account, email, people)} className={styles.pickerAvatar} source="hussh" />
+              <CalendarPersonAvatar name={email} photoUrl={verifiedCalendarAccountPhoto(account, email, people)} size="sm" source="hussh" />
               <span className={styles.accountPickerEmail}>{email}</span>
             </DropdownMenuRadioItem>;
           })}
@@ -266,9 +266,9 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
     const others = declinedGuests(selectedEvent, email).filter(guest => guest.email.toLowerCase() !== view?.email.toLowerCase());
     let main: { title: string; detail: string | null; reason: string } | null = null;
     if (view?.kind === "only_guest") {
-      main = { title: `${personName(view)} declined this meeting`, detail: view.display_name ? view.email : null, reason: view.comment || "No reason shared." };
+      main = { title: `${personName(view)} declined this meeting`, detail: view.display_name ? view.email : null, reason: declineReason(view.comment) };
     } else if (view || calendarResponse(selectedEvent, email) === "declined") {
-      main = { title: "You declined this meeting", detail: null, reason: view?.comment || own?.comment?.trim() || "You did not add a reason." };
+      main = { title: "You declined this meeting", detail: null, reason: declineReason(view?.comment || own?.comment) };
     }
     return main || others.length ? { main, others } : null;
   })();
@@ -443,7 +443,7 @@ export function CalendarAccountBoard({ userId, status, calendarPeople, busy, con
             {selectedEvent.description ? <p className={styles.detailDescription}>{selectedEvent.description}</p> : null}
             {!resolving && selectedDeclines ? <div className={styles.declinedNote} data-testid="calendar-declined-note">
               {selectedDeclines.main ? <section><strong>{selectedDeclines.main.title}</strong>{selectedDeclines.main.detail ? <small>{selectedDeclines.main.detail}</small> : null}<p>{selectedDeclines.main.reason}</p></section> : null}
-              {selectedDeclines.others.length ? <section><strong>{selectedDeclines.main ? "Also declined" : `Declined (${selectedDeclines.others.length})`}</strong><ul>{selectedDeclines.others.map(guest => <li key={guest.email}><span><CalendarPersonAvatar name={guest.name} photoUrl={calendarHusshPerson(people, guest.email)?.photoUrl ?? null} className={styles.inlineAvatar} source="hussh" />{guest.name}</span>{guest.name !== guest.email ? <small>{guest.email}</small> : null}{guest.comment ? <p>{guest.comment}</p> : <p className={styles.noReason}>No reason shared.</p>}</li>)}</ul></section> : null}
+              {selectedDeclines.others.length ? <section><strong>{selectedDeclines.main ? "Also declined" : `Declined (${selectedDeclines.others.length})`}</strong><ul>{selectedDeclines.others.map(guest => <li key={guest.email}><span><CalendarPersonAvatar name={guest.name} photoUrl={calendarHusshPerson(people, guest.email)?.photoUrl ?? null} className={styles.inlineAvatar} size="xs" source="hussh" />{guest.name}</span>{guest.name !== guest.email ? <small>{guest.email}</small> : null}<p className={!guest.comment?.trim() ? styles.noReason : undefined}>{declineReason(guest.comment)}</p></li>)}</ul></section> : null}
             </div> : null}
             {overlaps.length ? <div className={styles.overlapDetail}><h3><AlertTriangle aria-hidden className="size-4" />Overlapping meetings</h3>{overlaps.map(pair => { const other = otherSide(pair, selected); const event = findEvent({ accountId: other.account_id, calendarId: other.calendar_id, eventId: other.event_id }); const account = accounts.find(item => item.account_id === other.account_id); return <div key={identity(other)} className={styles.overlapItem}><strong>{event?.title || "Another meeting"}</strong><p>{accountLabel(account?.google_email || null)} · {event ? eventTime(event, zone) : "Time unavailable"}</p><p>Overlap: {availabilityTimeRangeLabel(pair.start_at, pair.end_at, zone, date)}</p></div>; })}{!board?.conflicts_complete || error ? <p role="alert">Refresh every account before resolving conflicts.</p> : <CalendarCompactAction disabled={actionBusy || busy} onClick={() => setResolving(true)}>Resolve these overlaps</CalendarCompactAction>}</div> : null}
             {selectedEvent.can_decline ? <CalendarInvitationActions key={eventIdentity(selectedEvent)} event={toInvitation(selectedEvent, selectedAccount)} userId={userId} accountId={selectedAccount.account_id} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout expectedAccountEmail={selectedAccount.google_email} onBusyChange={setActionBusy} onConnect={selectedAccount.account_id === "default" ? onConnect : () => onReconnectAccount(selectedAccount.account_id)} onMailConnect={onMailConnect} onResult={result => { if (result.calendar === "declined" || result.calendar === "accepted" || result.calendar === "tentative") { if (result.email === "sent" || (result.calendar !== "declined" && result.email === "not_sent")) { refreshOnClose.current = false; setSelected(null); setRevision(value => value + 1); } else { refreshOnClose.current = true; } } }} /> : <p className={styles.readOnly}>This event stays on its calendar. Attendance changes are available for invitations to this account.</p>}

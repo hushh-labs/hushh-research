@@ -190,7 +190,7 @@ export function CalendarBookingDialog({ opening, accounts, people, accountPeople
       {review ? <section className={styles.review} aria-label="Meeting review">
         <h3>Review details</h3>
         <p><strong>{review.plan.title}</strong> · {displayTime(review.plan.start_at)} – {new Date(review.plan.end_at).toLocaleTimeString(undefined, { timeZone: review.plan.time_zone, timeStyle: "short" })}</p>
-        <p className={styles.accountIdentity}><CalendarPersonAvatar name={reviewEmail} photoUrl={reviewPhoto} source="hussh" /><span>{reviewEmail}</span></p>
+        <p className={styles.accountIdentity}><CalendarPersonAvatar name={reviewEmail} photoUrl={reviewPhoto} size="sm" source="hussh" /><span>{reviewEmail}</span></p>
         <p>{review.plan.attendees.length ? `Invitations: ${review.plan.attendees.join(", ")}` : "Personal block · No invitations"}</p>
         <p>{review.plan.meeting_type === "google_meet" ? "Google Meet link requested" : review.plan.meeting_type === "external_link" ? review.plan.meeting_link : review.plan.location}</p>
         {review.plan.description ? <p>{review.plan.description}</p> : null}

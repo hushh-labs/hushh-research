@@ -55,25 +55,40 @@ export function isActive(request: Pick<FollowupPreviewRequest, "state">): boolea
   return ACTIVE.has(request.state);
 }
 
+function categoryRank(category: FollowupPreviewRequest["category"]): number {
+  if (category === "document_or_information" || category === "deliverable_deadline") return 0;
+  if (category === "meeting_request" || category === "schedule_change") return 1;
+  return 2;
+}
+
 /**
- * The one request a conversation row is about: the earliest verified date,
- * then explicit urgency, then the first active item. The server orders
+ * The one request a conversation row is about: verified date, explicit
+ * urgency, then document/deadline or meeting value. The server orders
  * conversations the same way, so the row and the order agree.
  */
 export function primaryRequest(entry: Pick<FollowupConversation, "preview_requests">): FollowupPreviewRequest | undefined {
   const active = entry.preview_requests.filter(isActive);
   const pool = active.length ? active : entry.preview_requests;
-  const dated = pool
-    .map(item => ({ item, at: item.due_date || item.proposed_date }))
-    .filter((entry): entry is { item: FollowupPreviewRequest; at: string } => Boolean(entry.at))
-    .sort((a, b) => a.at.localeCompare(b.at));
-  return dated[0]?.item ?? pool.find(item => item.urgency === "asap") ?? pool[0];
+  return [...pool].sort((left, right) => {
+    const leftDate = left.due_date || left.proposed_date;
+    const rightDate = right.due_date || right.proposed_date;
+    const leftRank = leftDate ? 0 : left.urgency === "asap" ? 1 : 2;
+    const rightRank = rightDate ? 0 : right.urgency === "asap" ? 1 : 2;
+    return leftRank - rightRank || categoryRank(left.category) - categoryRank(right.category)
+      || (leftDate || "9999").localeCompare(rightDate || "9999");
+  })[0];
 }
 
 export function rowSummary(entry: FollowupConversation, zone = "UTC"): { title: string; detail: string; more: number } {
   const next = primaryRequest(entry);
   const active = entry.preview_requests.filter(isActive).length || entry.active_count;
-  const detail = [next ? dueText(next, zone) : "Needs review", `From ${senderName(entry.sender)}`].join(" · ");
+  const when = next ? dueText(next, zone) : "Needs review";
+  const context = when === "No date given"
+    ? next?.category === "document_or_information" ? "Document to send"
+      : next?.category === "meeting_request" || next?.category === "schedule_change" ? "Meeting to arrange"
+      : "Action to review"
+    : when === "Urgent · No date given" ? "ASAP" : when;
+  const detail = [context, `From ${senderName(entry.sender)}`].join(" · ");
   return { title: next?.title || entry.subject, detail, more: Math.max(0, active - 1) };
 }
 
