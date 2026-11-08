@@ -294,7 +294,7 @@ Before deleting a local backup branch, classify its unique commits as:
    and migration tooling without comparing its content with Main. Manifest
    format, exact CI, migration compatibility and live-serving checks remain.
    Legacy isolated UAT and production approval retain their existing policies.
-   Same-repository Dev/UAT PR editing authority reads pinned protected Main
+   Canonical Dev/UAT PR editing authority reads pinned protected Main
    policy, matching queue/Admin admission; a stale destination roster cannot
    block an approved editor. Candidate policy grants never authorize the PR.
 3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
