@@ -85,47 +85,6 @@ def assert_read_only_uat_inspection(case, job, *, prepared=True):
 
 
 class DeploymentSecurityTest(unittest.TestCase):
-    def test_pr_membership_worker_keeps_credentials_on_main_and_never_deploys(self):
-        import yaml
-
-        root = Path(__file__).resolve().parents[2]
-        workflow = yaml.safe_load((root / ".github/workflows/deployment-security.yml").read_text())
-        trigger = workflow.get("on", workflow.get(True))["workflow_run"]
-        self.assertEqual(
-            trigger, {"workflows": ["PR Validation"], "types": ["in_progress", "completed"]}
-        )
-        job = workflow["jobs"]["team-authority"]
-        for constraint in (
-            "github.ref == 'refs/heads/main'",
-            "github.event_name == 'workflow_run'",
-            "github.event.workflow_run.event == 'pull_request'",
-        ):
-            self.assertIn(constraint, job["if"])
-        self.assertEqual(job["environment"], "ci-security")
-        self.assertEqual(
-            job["permissions"],
-            {"contents": "read", "actions": "read", "pull-requests": "read", "checks": "write"},
-        )
-        checkout = job["steps"][0]
-        self.assertEqual(
-            checkout["with"], {"ref": "${{ github.sha }}", "persist-credentials": False}
-        )
-        membership = next(step for step in job["steps"] if step.get("id") == "membership")
-        self.assertEqual(membership["with"]["permission-members"], "read")
-        self.assertEqual(
-            membership["with"]["private-key"], "${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}"
-        )
-        commands = "\n".join(step.get("run", "") for step in job["steps"])
-        self.assertIn("python3 scripts/ci/github_team_authority.py", commands)
-        self.assertNotRegex(commands, r"gcloud|pytest|npm |git checkout|git push")
-        ci = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"][
-            "repo-governance"
-        ]
-        self.assertEqual(ci["permissions"]["actions"], "read")
-        self.assertEqual(ci["permissions"]["checks"], "read")
-        self.assertNotIn("CI_TEAM_APP_PRIVATE_KEY", json.dumps(ci))
-        self.assertNotIn("CI_TEAM_MEMBERS_TOKEN", json.dumps(ci))
-
     def setUp(self):
         install_membership_fixture(self)
 
@@ -486,7 +445,7 @@ class DeploymentSecurityTest(unittest.TestCase):
         reusable = (root / ".github/workflows/deployment-security.yml").read_text()
         workflow = yaml.safe_load(reusable)
         self.assertEqual(workflow["permissions"]["actions"], "read")
-        self.assertEqual(set(workflow["jobs"]), {"alerts", "team-authority"})
+        self.assertEqual(set(workflow["jobs"]), {"alerts"})
         membership = next(
             step for step in workflow["jobs"]["alerts"]["steps"] if step.get("id") == "membership"
         )
@@ -519,7 +478,7 @@ class DeploymentSecurityTest(unittest.TestCase):
             internal = yaml.safe_load((root / ".github/workflows" / name).read_text())
             self.assertEqual(
                 set(internal.get("on", internal.get(True))),
-                {"workflow_call", "workflow_dispatch", "workflow_run"}
+                {"workflow_call", "workflow_dispatch"}
                 if name == "deployment-security.yml"
                 else {"workflow_call"},
             )

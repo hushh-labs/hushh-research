@@ -449,8 +449,6 @@ def await_start(env, *, read=cli_read, monotonic=None, sleep=None):
             sleep(5)
 
 
-
-
 CHECK = "Team Authorization Gate"
 SOURCE_WORKFLOWS = {
     "PR Validation": ".github/workflows/ci.yml",
@@ -580,10 +578,8 @@ def authorize_pr(read, run, policy):
         "PR head, repository or destination changed",
     )
     if branch == "main":
-        intake = queue._module("verify-pr-base-policy.py", "team_intake_policy")
         require(
-            intake.evaluate(policy, base_ref=branch, head_ref=pr["head"]["ref"],
-                            actor=pr.get("user", {}).get("login", ""))[0],
+            pr.get("user", {}).get("login") in policy["main"]["merge_users"],
             "Direct Main intake requires the production merger team",
         )
     head, base = run["head_sha"], pr["base"]["sha"]
@@ -612,7 +608,6 @@ def authorize_pr(read, run, policy):
         "head": head,
         "base": base,
         "branch": branch,
-        "author": pr["user"]["login"],
     }
 
 
@@ -850,13 +845,10 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
     }
     state, reason = "in_progress", "Validation is running; authorization is pending."
     details = None
-    # PR CI needs protected-edit authorization before it can finish. The start
-    # decision proves only authority, never passing functional validation.
-    if action == "completed" or run["event"] == "pull_request":
+    if action == "completed":
         state = "failure"
         try:
-            if action == "completed":
-                validation_passed(read, run)
+            validation_passed(read, run)
             policy = json.loads(
                 (
                     Path(__file__).resolve().parents[2] / "config/ci-governance.json"
@@ -876,10 +868,11 @@ def publish_main(env, read=cli_read, memberships=None, publish=None):
                 == teams,
                 "Team authority changed during validation",
             )
-            state = "success" if action == "completed" else "in_progress"
-            reason = "Live team authority verified; functional qualification remains CI Status Gate."
+            state, reason = (
+                "success",
+                "Live team authority verified; functional qualification remains CI Status Gate.",
+            )
         except (Refused, ValueError, subprocess.SubprocessError) as error:
-            details = None
             reason = str(error)
     require(
         source_identity(read, expected) == run,

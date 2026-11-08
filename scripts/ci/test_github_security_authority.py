@@ -421,83 +421,6 @@ class LiveTeamPolicyTest(unittest.TestCase):
 
 class MainTeamPublisherTest(unittest.TestCase):
 
-    def test_start_uses_actual_pr_authorization_for_added_and_revoked_editors(self):
-        import queue_combined_result as queue
-
-        team, run, env, read_source = self.fixture()
-        fixture = LiveTeamPolicyTest()
-        fixture.setUp()
-        guard = queue._module('verify-protected-pipeline-edits.py', 'startup_roles_guard')
-        intake = queue._module('verify-pr-base-policy.py', 'startup_intake_policy')
-        run.update(status='in_progress', conclusion=None, head_branch='feature',
-                   head_repository={'full_name': team.REPOSITORY},
-                   pull_requests=[{'number': 42, 'head': {'sha': HEAD}}])
-        pr = {'state': 'open', 'number': 42, 'user': {'login': 'principal'},
-              'head': {'sha': HEAD, 'ref': 'feature', 'repo': {'full_name': team.REPOSITORY}},
-              'base': {'sha': 'c' * 40, 'ref': 'uat', 'repo': {'full_name': team.REPOSITORY}}}
-
-        def read(path):
-            if path.endswith('/pulls/42'):
-                return pr
-            return read_source(path)
-
-        with tempfile.TemporaryDirectory() as folder:
-            event = Path(folder, 'event.json')
-            env.update(GITHUB_EVENT_PATH=str(event), RUNNER_TEMP=folder)
-            event.write_text(json.dumps({'action': 'in_progress', 'workflow_run': run}))
-            modules = {'verify-protected-pipeline-edits.py': guard, 'verify-pr-base-policy.py': intake}
-            with patch.object(team, 'fetch_objects'), patch.object(queue, '_module', side_effect=lambda name, _: modules[name]), \
-                 patch.object(queue, 'git', return_value='scripts/ci/test_example.py'), \
-                 patch.object(guard, 'authored_change_base', return_value='c' * 40), \
-                 patch.object(guard, 'semantic_pipeline_changes', return_value=[]), \
-                 patch.object(guard, '_owner_approvals', return_value=[]) as approvals:
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-                self.assertEqual(result['state'], 'in_progress')
-                self.assertEqual(result['decision']['author'], 'principal')
-                approvals.assert_not_called()
-                pr['base']['ref'] = 'main'
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-                self.assertEqual(result['state'], 'in_progress')
-                fixture.members['deploy-production'] = ['operator']
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-                self.assertEqual(result['state'], 'failure')
-                # Canonical train promotions retain their existing author policy;
-                # the queue independently checks the actual merge requester.
-                run['head_branch'] = pr['head']['ref'] = 'integration/pr-train'
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-                self.assertEqual(result['state'], 'in_progress')
-                run['head_branch'] = pr['head']['ref'] = 'feature'
-                fixture.members['deploy-production'] = ['principal', 'operator']
-                pr['base']['ref'] = 'uat'
-                pr['user']['login'] = 'kushaltrivedi5'  # still present in the saved policy
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-                self.assertEqual(result['state'], 'failure')
-                self.assertIsNone(result['decision'])
-                self.assertEqual(approvals.call_args.args[3], ['principal'])
-
-    def test_start_authorizes_live_editors_without_waiting_for_functional_ci(self):
-        team, run, env, read = self.fixture()
-        fixture = LiveTeamPolicyTest()
-        fixture.setUp()
-        run['status'] = 'in_progress'
-        run['conclusion'] = None
-        decision = {'kind': 'pull_request', 'number': 42, 'head': HEAD,
-                    'base': 'c' * 40, 'branch': 'uat', 'author': 'principal'}
-        with tempfile.TemporaryDirectory() as folder:
-            event = Path(folder, 'event.json')
-            env.update(GITHUB_EVENT_PATH=str(event), RUNNER_TEMP=folder)
-            event.write_text(json.dumps({'action': 'in_progress', 'workflow_run': run}))
-            with patch.object(team, 'authorize_pr', return_value=decision) as authorize, \
-                 patch.object(team, 'validation_passed', side_effect=AssertionError('startup must not wait for CI')):
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-            self.assertEqual(result['state'], 'in_progress')
-            self.assertEqual(result['decision'], decision)
-            self.assertEqual(authorize.call_args.args[2]['main']['protected_pipeline_edit_users'], ['principal'])
-            with patch.object(team, 'authorize_pr', side_effect=team.Refused('revoked author')):
-                result = team.publish_main(env, read=read, memberships=fixture.read, publish=lambda _: 1)
-            self.assertEqual(result['state'], 'failure')
-            self.assertIsNone(result['decision'])
-
     def fixture(self):
         import github_team_authority as team
         run = {'id': 40, 'run_attempt': 2, 'head_sha': HEAD, 'name': 'PR Validation', 'path': '.github/workflows/ci.yml', 'event': 'pull_request', 'workflow_id': 20, 'repository': {'full_name': team.REPOSITORY}, 'status': 'completed', 'conclusion': 'success', 'run_started_at': '2026-11-06T10:00:00Z'}
@@ -525,11 +448,7 @@ class MainTeamPublisherTest(unittest.TestCase):
             run['status'] = 'in_progress'
             event.write_text(json.dumps({'action': 'in_progress', 'workflow_run': run}))
             published = []
-            fixture = LiveTeamPolicyTest()
-            fixture.setUp()
-            with patch.object(team, 'authorize_pr', return_value={'number': 1}):
-                result = team.publish_main(env, read=read, memberships=fixture.read,
-                                           publish=lambda p: published.append(p) or 1)
+            result = team.publish_main(env, read=read, publish=lambda p: published.append(p) or 1)
             self.assertEqual(result['state'], 'in_progress')
             self.assertNotIn('conclusion', published[0])
             self.assertEqual(published[0]['status'], 'in_progress')
@@ -589,8 +508,6 @@ class MainTeamPublisherTest(unittest.TestCase):
 
 
 class TeamCheckLifecycleTest(unittest.TestCase):
-
-
 
     def test_start_barrier_uses_pr_run_head_not_synthetic_merge_sha(self):
         import github_team_authority as team

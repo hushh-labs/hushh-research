@@ -289,7 +289,11 @@ Before deleting a local backup branch, classify its unique commits as:
 ### UAT
 
 1. UAT deploys through its governed Main-owned workflow with an exact qualified application SHA.
-2. The workflow checks out that exact application; trusted release tooling remains Main-owned.
+2. The workflow checks out that exact application. Main owns orchestration and
+   credential clearance; ordinary UAT trusts its protected, reviewed build/test
+   and migration tooling without comparing its content with Main. Manifest
+   format, exact CI, migration compatibility and live-serving checks remain.
+   Legacy isolated UAT and production approval retain their existing policies.
 3. Manual dispatch uses `uat.manual_dispatch_users`, independently of Main merge
    authority. Preserve the existing Dev/UAT cohorts. Main's approved merge operators
    match its production operators, while protected edits require pipeline-editor.

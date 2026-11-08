@@ -228,7 +228,7 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
 
         def unreviewed(*args, branch):
             assert branch == "uat"
-            raise subject.Refused("UAT CI authority differs from reviewed Main")
+            raise subject.Refused("Recorded workflow authority is outside protected Main history")
 
         monkeypatch.setattr(subject.exact, "verify_git_authority", unreviewed)
     calls = 0
