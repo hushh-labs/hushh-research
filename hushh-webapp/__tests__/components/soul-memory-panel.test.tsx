@@ -51,6 +51,24 @@ beforeEach(() => {
 });
 
 describe("memory.md editor", () => {
+  it("explains the save limit, previews the draft and recovers without discarding edits", async () => {
+    render(<SoulMemoryPanel {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit memory" }));
+    const editor = screen.getByRole("textbox", { name: "Memory document" });
+    fireEvent.change(editor, { target: { value: "x".repeat(18001) } });
+    expect(editor).toHaveAttribute("aria-invalid", "true");
+    expect(editor).toHaveAccessibleDescription(/Remove 1 character to save/);
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    fireEvent.change(editor, { target: { value: "# My draft\n- Keep this memory." } });
+    expect(editor).not.toHaveAttribute("aria-invalid", "true");
+    expect(editor).not.toHaveAccessibleDescription(/Remove/);
+    expect(within(screen.getByLabelText("memory.md preview")).getByRole("heading", { name: "My draft" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(expect.objectContaining({ markdown: "# My draft\n- Keep this memory." })));
+  });
+
   it("updates the open reader from its owner's LTM notification and keeps the complete Markdown editable", async () => {
     render(<SoulMemoryPanel {...props} />);
     await screen.findByRole("heading", { name: "Memory" });

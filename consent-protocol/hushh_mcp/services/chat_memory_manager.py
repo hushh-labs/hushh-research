@@ -22,6 +22,14 @@ class MemoryMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=MAX_SOURCE_CHARS)
 
+    @field_validator("content")
+    @classmethod
+    def require_source(cls, value: str) -> str:
+        # Blank messages contain no memory; preserve indentation in valid Markdown.
+        if not value.strip():
+            raise ValueError("Memory source message is blank")
+        return value
+
 
 class RewriteMemoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
