@@ -52,7 +52,7 @@ owns the exact continuation and phone-audit boundaries. Its
 records the installed project-bound erasure contract 987 and native fixture proof.
 The isolated Auth selector remains off. The refreshed active cohort is 156;
 three retired identities and one providerless, event-only identity are excluded
-from ordinary import. 156 identities are imported disabled with exact native readback; activation is pending. The iOS configuration follow-up
+from ordinary import. 156 identities passed disabled import and activation with exact native readback. The iOS configuration follow-up
 binds Google's client and callback to the selected Firebase plist; focused tests
 and the downloaded Dev configuration passed locally, without device sign-in.
 That fix is now merged through #9063 after exact-source CI and Team Authorization.
@@ -68,7 +68,9 @@ checkpoints prevent stale local receipts from replaying uncertain requests.
 All 156 personal identities passed disabled staging on operator source `eb338d1cccdb`;
 one HTTP-200 import request settled, and the native fences and proxy are removed.
 The activation manifest additionally pins WorkOS attribution without creating a binding.
-No activation or live sign-in change has occurred. The existing Dev SDK client now
+Activation completed on executor `cdc2cabca6cd`: all 156 original UIDs and credential
+postimages verified, worker exit zero, fences removed and SQL proxy released.
+No source/production identities changed. Live sign-in has not switched yet. The existing Dev SDK client now
 has only gmail.send Workspace delegation; native token minting passed, no mail was
 sent, and all seven previous grants remain unchanged. Current live mail still
 depends on the production SDK pending the coordinated canonical credential

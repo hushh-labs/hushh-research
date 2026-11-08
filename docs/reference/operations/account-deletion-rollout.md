@@ -129,7 +129,8 @@ Fresh lifecycle inventory selects 156 identities with current, validated,
 unfenced actor/vault roots. The earlier 160-identity presence preview included
 three retired identities and a providerless identity referenced only by
 `pod_lifecycle_events`; preserve those records and exclude them from ordinary
-active-account import. Historical presence alone is not import authority. All 156 are now staged disabled under the reviewed UID/generation manifest.
+active-account import. Historical presence alone is not import authority. All 156 passed disabled staging and subsequent activation under the reviewed
+UID/generation manifest, restoring their original enabled states.
 Eighteen claim-bearing identities retain mail markers and one WorkOS provenance
 boundary; no admin claim key was present. WorkOS membership must be pinned before activation. A Dev-only canonical
 SDK credential is staged in `DEV_FIREBASE_SDK_CREDENTIALS_JSON`; native permission
@@ -195,7 +196,11 @@ absence and local PostgreSQL shutdown are verified. This is operator qualificati
 156 personal identities passed disabled staging, exact native readback and fence
 removal on operator source `eb338d1cccdb`. Operation
 `bdb9c786-8098-4bd7-b5c3-6fda69eda8c3` used one import POST (HTTP 200), with no
-source identity mutation. Activation has not dispatched and live sign-in is unchanged.
+source identity mutation. Activation on executor source `cdc2cabca6cd` completed for all 156 identities with
+exact native readback, preserved credentials and released fences. The worker exited
+zero; its SQL proxy exited and released its port. Source/production identities
+were not mutated. Live application sign-in remains unchanged until configuration
+selection and the governed rollout.
 Workspace now authorizes the existing Dev SDK OAuth client
 `111315199141203280235` for `gmail.send` only. Native delegated-token minting
 for the configured sender passed; no email was sent. All seven pre-existing
@@ -215,8 +220,8 @@ fixture-like names and 17 remain otherwise unclassified. These are unresolved
 mappings, not deletion candidates. Of the unmatched set, 51 lack retained email,
 one has a synthetic email, six have unmatched email and three have email now
 assigned to a different source UID. Email equality does not authorize a merge.
-Preserve all records. The new target now holds 156 disabled, operation-marked identities; no source
-identity was mutated during this work.
+Preserve all records. The target now holds the 156 verified activated identities; the temporary import
+markers are removed. No source identity was mutated during this work.
 
 Before cutover, reconcile those mappings and qualify any registered Dev owners beyond
 vault roots; preserve provider links, verified claims, password/MFA configuration
