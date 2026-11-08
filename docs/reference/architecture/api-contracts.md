@@ -198,7 +198,10 @@ two-person journey, platform transport and current processing-provider approval.
 owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
 admission, held owner incarnation and AI-selection checks before and after inference.
 The request contains `user_id`, `current_markdown`, incremental `messages`
-(`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. Whitespace-only messages are
+rejected during request validation before inference. Meaningful Markdown
+indentation is preserved, and `current_markdown` may be empty for initial memory.
+The response is
 `{markdown}`: a proposed complete document with no persistence authority. The
 client validates and atomically commits ciphertext and its source checkpoint
 through the existing PKM writer. Invalid generation returns a bounded failure;

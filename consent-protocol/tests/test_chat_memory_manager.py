@@ -112,6 +112,21 @@ def test_duplicate_or_oversize_sources_are_rejected_before_inference():
         request(messages=[{**item, "content": "x" * 192_001}])
 
 
+@pytest.mark.parametrize("content", [" ", "\n\t\r\n", "\u2003\u00a0"])
+def test_blank_incremental_source_is_rejected(content):
+    item = request().messages[0].model_dump()
+    with pytest.raises(ValidationError, match="Memory source message is blank"):
+        request(messages=[{**item, "content": content}])
+
+
+def test_source_validation_preserves_markdown_indentation_and_initial_empty_memory():
+    content = "    indented_note()\n\n- A meaningful memory.\n"
+    item = request().messages[0].model_dump()
+    body = request(current_markdown="", messages=[{**item, "content": content}])
+    assert body.current_markdown == ""
+    assert body.messages[0].content == content
+
+
 async def test_shared_rewrite_checks_owner_before_model(monkeypatch):
     from api.routes import pkm
 
