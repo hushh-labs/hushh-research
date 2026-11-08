@@ -736,12 +736,59 @@ class DeploymentBrokerTest(unittest.TestCase):
         }
         responses[f"{prefix}/artifacts?per_page=100"] = {"total_count": 1, "artifacts": [artifact]}
         api = SimpleNamespace(read=lambda path: deepcopy(responses[path]))
-        with patch.object(receipt_transport, "archive_read", return_value=raw):
+        with patch.object(receipt_transport, "archive_read", return_value=raw) as download:
             self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
+            reported_steps = job["steps"]
+            job["steps"] = []
+            self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
+
+            def publish(document):
+                stream = io.BytesIO()
+                with ZipFile(stream, "w") as archive:
+                    archive.writestr("deployment-security.json", json.dumps(document))
+                payload = stream.getvalue()
+                artifact.update(
+                    size_in_bytes=len(payload),
+                    digest="sha256:" + hashlib.sha256(payload).hexdigest(),
+                )
+                download.return_value = payload
+
+            legacy = deepcopy(receipt)
+            legacy.pop("authorization")
+            publish(legacy)
+            with self.assertRaisesRegex(gate.Refused, "without typed authorization"):
+                gate.consume_broker(api, request, 40, policy)
+            job["steps"] = reported_steps
+            self.assertEqual(gate.consume_broker(api, request, 40, policy), legacy)
+            job["steps"] = []
+            for key, value in [
+                ("team_id", 1),
+                ("team", "deploy-production"),
+                ("actor", {"id": 56, "login": "operator"}),
+                ("producer", {}),
+                ("source", {}),
+            ]:
+                forged = deepcopy(receipt)
+                forged["authorization"][key] = value
+                publish(forged)
+                with (
+                    self.subTest(authorization=key),
+                    self.assertRaisesRegex(gate.Refused, "binding mismatch"),
+                ):
+                    gate.consume_broker(api, request, 40, policy)
+            publish(receipt)
+            principal = responses[f"repos/{gate.REPOSITORY}/actions/runs/20"]["triggering_actor"]
+            principal["id"] = 56
+            with self.assertRaisesRegex(gate.Refused, "binding mismatch"):
+                gate.consume_broker(api, request, 40, policy)
+            principal["id"] = 55
+            job["steps"] = reported_steps
             for row, key, value in [
                 (artifact, "digest", "sha256:" + "0" * 64),
                 (artifact, "expired", True),
                 (job["steps"][0], "conclusion", "skipped"),
+                (job["steps"][0], "conclusion", "failure"),
+                (job["steps"][0], "conclusion", "cancelled"),
                 (broker, "conclusion", "failure"),
             ]:
                 original = row[key]
