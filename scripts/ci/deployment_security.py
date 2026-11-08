@@ -13,6 +13,7 @@ import time
 from urllib.parse import quote
 
 from github_security_authority import GitHub, Refused, SHA, inventory, positive
+from github_team_authority import TEAM_IDS, read_teams, team_reader
 
 REPOSITORY = "hushh-labs/hushh-research"
 BROKER_PATH = ".github/workflows/deployment-security.yml"
@@ -80,7 +81,7 @@ def verify_run(read, env: dict, *, broker: bool = False) -> dict:
     }
 
 
-def verify_deployment(read, request: dict, policy: dict) -> dict:
+def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> dict:
     """A Main broker observes one active, governed matching-branch deployment.
 
     Requested values are not authority: GitHub must independently establish the
@@ -149,7 +150,9 @@ def verify_deployment(read, request: dict, policy: dict) -> dict:
         "status": "in_progress",
         "workflow_id": workflow_id,
     }
-    allowed = set(policy[environment]["manual_dispatch_users"])
+    allowed = set(
+        policy[environment]["manual_dispatch_users"] if operators is None else operators
+    )
     if (
         workflow.get("path") != path
         or any(run.get(k) != v for k, v in expected.items())
@@ -220,12 +223,71 @@ def verify_deployment(read, request: dict, policy: dict) -> dict:
     }
 
 
+def authorize_release(read, source: dict, teams: dict, *, producer=None) -> dict:
+    """Bind a live-team decision to GitHub's actual operator and source attempt.
+
+    Only the protected Main producer calls this with the Members-read App.
+    The receipt contains admitted principals, never the private team inventory.
+    Environment labels such as native/package are not deployment capabilities.
+    """
+    caller = Path(source["workflow_path"]).name
+    surface, environment = {
+        "deploy-dev.yml": ("dev", "dev"),
+        "deploy-uat.yml": ("uat", "uat"),
+        "deploy-production.yml": ("production", "production"),
+        "ship-ios-testflight.yml": ("uat", "native"),
+        "release-ios-appstore.yml": ("production", "native"),
+        "ship-android-playstore-v1.yml": ("production", "native"),
+        "publish-hushh-mcp.yml": ("production", "package"),
+        "validate-plg-frontend-source.yml": ("production", "validation"),
+        "rollback.yml": (source["environment"], source["environment"]),
+    }.get(caller, (None, None))
+    if (
+        surface not in {"dev", "uat", "production"}
+        or source["environment"] != environment
+        or (caller == "rollback.yml" and surface not in {"uat", "production"})
+    ):
+        raise Refused("Release caller does not establish its deployment capability")
+    team = f"deploy-{surface}"
+    run = read(f"repos/{REPOSITORY}/actions/runs/{source['run_id']}")
+    if (
+        run.get("id") != source["run_id"]
+        or run.get("run_attempt") != source["attempt"]
+        or run.get("head_sha") != source.get("caller_sha", source.get("workflow_sha"))
+        or run.get("status") != "in_progress"
+        or run.get("event") != "workflow_dispatch"
+        or run.get("path", "").split("@", 1)[0] != source["workflow_path"]
+    ):
+        raise Refused("Release operator observation belongs to another source attempt")
+    principals = {}
+    for key in ("actor", "triggering_actor"):
+        user = run.get(key, {})
+        if (
+            user.get("type") != "User"
+            or user.get("login") not in teams[team]
+            or type(user.get("id")) is not int
+            or user["id"] <= 0
+        ):
+            raise Refused(
+                "Release operator or rerunner is not a current deployment-team member"
+            )
+        principals[key] = {"id": user["id"], "login": user["login"]}
+    return {
+        "schema_version": 1,
+        "team": team,
+        "team_id": TEAM_IDS[team],
+        "source": source,
+        "producer": producer or source,
+        **principals,
+    }
+
+
 def produce(env: dict, source_read, alert_read) -> dict:
     if env.get("GITHUB_WORKFLOW_REF") == f"{REPOSITORY}/{BROKER_PATH}@refs/heads/main":
         return produce_broker(env, source_read, alert_read)
     if env.get("DEPLOY_SECURITY_REQUEST"):
         raise Refused("Cross-run requests require the Main-owned broker")
-    source = verify_run(source_read, env)
+    admission = verify_run(source_read, env)
     reference = env.get("DEPLOY_SECURITY_REF", "")
     if not reference or len(reference) > 200 or any(c.isspace() for c in reference):
         raise Refused("Deployment needs a bounded application reference")
@@ -258,19 +320,26 @@ def produce(env: dict, source_read, alert_read) -> dict:
     if not isinstance(repo, dict) or repo.get("full_name") != REPOSITORY:
         raise Refused("Repository identity unavailable")
     repo_id = positive(repo.get("id"), "repository identity")
+    source = {
+        **admission,
+        "application_sha": sha,
+        "environment": environment,
+        "requested_scope": scope,
+    }
+    members = team_reader(env.get("CI_TEAM_MEMBERS_TOKEN", ""))
+    authorization = authorize_release(source_read, source, read_teams(members))
     secrets = inventory(alert_read, REPOSITORY, "secret-scanning", repo_id)
     dependencies = inventory(alert_read, REPOSITORY, "dependabot", repo_id)
     # A later attempt cannot inherit the result while the inventory is read.
-    if verify_run(source_read, env) != source:
+    if (
+        verify_run(source_read, env) != admission
+        or authorize_release(source_read, source, read_teams(members)) != authorization
+    ):
         raise Refused("Deployment authority changed during alert inventory")
     return {
         "schema_version": 1,
-        "source": {
-            **source,
-            "application_sha": sha,
-            "environment": environment,
-            "requested_scope": scope,
-        },
+        "source": source,
+        "authorization": authorization,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "secret_scanning": secrets,
         "dependabot": dependencies,
@@ -292,22 +361,36 @@ def produce_broker(
                 Path(__file__).resolve().parents[2] / "config/ci-governance.json"
             ).read_text()
         )
-    source = verify_deployment(source_read, request, policy)
+    members = team_reader(env.get("CI_TEAM_MEMBERS_TOKEN", ""))
+    teams = read_teams(members)
+    environment = request.get("environment") if isinstance(request, dict) else None
+    source = verify_deployment(
+        source_read, request, policy,
+        operators=teams.get(f"deploy-{environment}", []),
+    )
+    authorization = authorize_release(source_read, source, teams, producer=producer)
     secrets = inventory(
         alert_read, REPOSITORY, "secret-scanning", source["repository_id"]
     )
     dependencies = inventory(
         alert_read, REPOSITORY, "dependabot", source["repository_id"]
     )
+    current_teams = read_teams(members)
     if (
-        verify_deployment(source_read, request, policy) != source
+        verify_deployment(
+            source_read, request, policy,
+            operators=current_teams[f"deploy-{source['environment']}"],
+        ) != source
         or verify_run(source_read, env, broker=True) != producer
+        or authorize_release(source_read, source, current_teams, producer=producer)
+        != authorization
     ):
         raise Refused("Deployment or broker authority changed during alert inventory")
     return {
         "schema_version": 2,
         "source": source,
         "producer": producer,
+        "authorization": authorization,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "secret_scanning": secrets,
         "dependabot": dependencies,
