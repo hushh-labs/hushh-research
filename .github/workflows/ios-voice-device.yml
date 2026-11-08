@@ -11,6 +11,12 @@ on:
         description: Current attempt clearance from the trusted parent release
         required: true
         type: string
+      security_authorization:
+        required: true
+        type: string
+      security_application_sha:
+        required: true
+        type: string
     outputs:
       release_sha:
         description: Exact source SHA proved by the attached iPhone.
@@ -88,11 +94,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Authorize manual dispatching actor
         if: github.event_name == 'workflow_dispatch'
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ inputs.security_authorization || needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ inputs.security_application_sha || needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"

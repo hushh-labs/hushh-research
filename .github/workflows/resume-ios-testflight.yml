@@ -52,10 +52,13 @@ jobs:
           fi
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Validate dispatch and original upload provenance
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = main

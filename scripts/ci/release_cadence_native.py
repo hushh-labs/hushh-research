@@ -118,7 +118,8 @@ def settle_child(repository: str, request: dict, lane: str, child: dict, run: di
 def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600) -> dict:
     import time
     from release_cadence import WORKFLOWS, trusted_run
-    from release_cadence_github import configuration, receipt, recorded_authority, run_info
+    from release_cadence_github import receipt, recorded_authority, run_info
+    from release_acceptance_provenance import historical_human_dispatch
     deadline = time.monotonic() + timeout
     while True:
         run = run_info(repository, run_id)
@@ -128,8 +129,9 @@ def wait_production(repository: str, run_id: int, sha: str, timeout: int = 3600)
             break
         require(time.monotonic() < deadline, "Timed out waiting for production; upload remains blocked")
         time.sleep(15)
-    _, governance = configuration()
-    if (run.get("actor") or {}).get("login") not in governance["production"]["manual_dispatch_users"]:
+    if not historical_human_dispatch(run):
+        require((run.get("actor") or {}).get("login") == "github-actions[bot]",
+                "Production source has no historical human or controller identity")
         authority_deadline = min(deadline, time.monotonic() + 180)
         while True:
             try:
