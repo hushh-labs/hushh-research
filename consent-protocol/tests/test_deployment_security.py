@@ -157,6 +157,25 @@ class DeploymentSecurityTest(unittest.TestCase):
             gate.produce(env, read, lambda _: ([{"state": "open"}], ""))["verdict"], "blocked"
         )
 
+        # Retained Dev callers keep their exact capability; no new trigger is enabled.
+        for caller, environment in (
+            ("ios-voice-device.yml", "native"),
+            ("resume-ios-testflight.yml", "native"),
+            ("deploy-uat-one-chat.yml", "uat"),
+        ):
+            legacy_env, legacy_run, legacy_read = self.fixture()
+            legacy_run["path"] = f".github/workflows/{caller}"
+            legacy_env.update(
+                GITHUB_WORKFLOW_REF=f"{gate.REPOSITORY}/{legacy_run['path']}@refs/heads/main",
+                DEPLOY_SECURITY_ENVIRONMENT=environment,
+            )
+            with self.subTest(caller=caller):
+                receipt = gate.produce(legacy_env, legacy_read, lambda _: ([], ""))
+                self.assertEqual(receipt["authorization"]["team"], "deploy-uat")
+                legacy_env["DEPLOY_SECURITY_ENVIRONMENT"] = "production"
+                with self.assertRaises(gate.Refused):
+                    gate.produce(legacy_env, legacy_read, lambda _: ([], ""))
+
     def test_changed_attempt_and_untrusted_workflow_refuse(self):
         for key, value in [
             ("GITHUB_REF", "refs/heads/dev"),
