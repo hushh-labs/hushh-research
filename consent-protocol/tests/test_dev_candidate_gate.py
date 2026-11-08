@@ -58,7 +58,9 @@ def test_manual_ci_secret_range_includes_diverged_candidate_commits(tmp_path):
 
 
 def test_workflow_candidate_tag_fits_preview_services_and_binds_retry(tmp_path):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     resolve = next(step for step in steps if step["name"] == "Resolve fixed deployment target")
     probe = next(step for step in steps if step.get("id") == "verify-candidates")
@@ -122,7 +124,9 @@ def test_candidate_health_observes_cold_start_without_accepting_redirects(
 
 
 def test_dev_builds_immutable_candidate_before_migration_and_probes_before_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
     assert names.index("Build and pin backend image before lifecycle migration") < names.index(
@@ -142,7 +146,9 @@ def test_dev_builds_immutable_candidate_before_migration_and_probes_before_promo
 
 
 def test_dev_observations_use_order_safe_serving_state():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     for step in steps:
         if step.get("id") in {"predeploy-state", "current-state", "final-state"}:
@@ -153,22 +159,15 @@ def test_dev_observations_use_order_safe_serving_state():
 
 
 @pytest.mark.parametrize(
-    ("legacy_interface", "reviewer_layout", "expected_root", "refused"),
-    [
-        (None, None, None, False),
-        ("missing-probe", None, None, True),
-        ("unprotected-retention", None, None, True),
-        (None, "canonical", ".agents", False),
-        (None, "legacy", ".codex", False),
-        (None, "both", ".agents", False),
-        (None, "partial-canonical", None, True),
-        (None, "absent", None, True),
-    ],
+    "legacy_interface,refused",
+    [(None, False), ("missing-probe", True), ("unprotected-retention", True)],
 )
 def test_candidate_interfaces_are_checked_before_mutating_steps(
-    tmp_path, legacy_interface, reviewer_layout, expected_root, refused
+    tmp_path, legacy_interface, refused
 ):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
     assert names.index("Validate candidate build capabilities") < names.index(
@@ -186,22 +185,6 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
         (tmp_path / "scripts/ci/cloudrun-retention.sh").write_text(
             "#!/bin/bash\necho 'Usage: retention <service> [region] [keep_count]'\n"
         )
-    for root, present in (
-        (".agents", reviewer_layout in {"canonical", "both", "partial-canonical"}),
-        (".codex", reviewer_layout in {"legacy", "both", "partial-canonical"}),
-    ):
-        if not present:
-            continue
-        directory = tmp_path / root / "skills/reviewer-app-testing/scripts"
-        directory.mkdir(parents=True)
-        for filename in ("verify-reviewer-byok-navigation.mjs", "reviewer-rehearsal-preflight.mjs"):
-            if (
-                root == ".agents"
-                and reviewer_layout == "partial-canonical"
-                and filename.startswith("reviewer-")
-            ):
-                continue
-            (directory / filename).write_text("// Synthetic candidate file, never executed.\n")
     output = tmp_path / "capability-outputs"
     result = subprocess.run(  # noqa: S603 - checked-in workflow program in an isolated fixture.
         [sys.executable, "-c", program],
@@ -210,7 +193,6 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
             **os.environ,
             "BUILD_POD_IMAGE": "false",
             "DEPLOY_BACKEND": "true",
-            "RUN_REVIEWER_BYOK": "true" if reviewer_layout else "false",
             "GITHUB_OUTPUT": str(output),
         },
         text=True,
@@ -224,22 +206,19 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
         assert (
             "Candidate lacks selected preservation or owner-verification support" in result.stderr
         )
-    if expected_root:
-        script = f"{expected_root}/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs"
-        assert output.read_text() == f"reviewer_byok_script={script}\n"
-        execute = next(step for step in steps if step.get("id") == "verify-reviewer-byok")
-        assert (
-            execute["env"]["REVIEWER_BYOK_SCRIPT"]
-            == "${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}"
-        )
-        assert 'node "$REVIEWER_BYOK_SCRIPT"' in execute["run"]
-    else:
-        assert not output.exists()
+    assert not output.exists()
+    assert all(step.get("id") != "verify-reviewer-byok" for step in steps)
+    assert not any("playwright install" in step.get("run", "") for step in steps)
+    classifier = next(step for step in steps if step.get("id") == "classify-dev-release")
+    assert classifier["env"]["REVIEWER_BYOK_REQUIRED"] == "false"
+    assert classifier["env"]["REVIEWER_BYOK_OUTCOME"] == "not_requested"
 
 
 @pytest.mark.parametrize("target", ["scope-commerce-sandbox", "shared-dev", None])
 def test_preview_migration_credentials_do_not_escape_the_subprocess(tmp_path, target):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     run = next(
         s["run"]
         for s in workflow["jobs"]["deploy"]["steps"]
@@ -348,8 +327,11 @@ def test_main_owned_preview_selection_is_fixed_and_preserves_shared_defaults(
 
 
 def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
-    trigger = workflow.get("on", workflow.get(True))
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
+    dispatcher = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    trigger = dispatcher.get("on", dispatcher.get(True))
     assert trigger["workflow_dispatch"]["inputs"]["target"]["default"] == "shared-dev"
     steps = workflow["jobs"]["deploy"]["steps"]
     names = [step["name"] for step in steps]
@@ -374,7 +356,9 @@ def test_preview_bootstrap_uses_the_verified_candidate_and_attests_before_promot
 
 
 def test_preview_database_gates_use_release_contract_without_shared_dev_fallback(tmp_path):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     steps = workflow["jobs"]["deploy"]["steps"]
     contract_dir = tmp_path / "consent-protocol/db/contracts"
     contract_dir.mkdir(parents=True)
@@ -450,7 +434,9 @@ body=$(cat)
 
 
 def test_preview_public_admission_follows_authenticated_health_and_application_promotion():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     # The retired spelling sends normal owner OAuth returns to a signed-out
     # origin. Runtime callback generation and release probes use this origin.
     assert workflow["env"]["APP_FRONTEND_ORIGIN"] == "https://dev.one.hussh.ai"
@@ -527,7 +513,9 @@ def test_preview_failure_receipt_never_contains_provider_exception_details(monke
 
 
 def test_dev_secret_sync_retains_its_own_environment_policy():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/deploy-dev.yml").read_text())
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
+    )
     sync = next(
         step
         for step in workflow["jobs"]["deploy"]["steps"]

@@ -93,6 +93,20 @@ async def test_gcp_cloud_removal_preflight_uses_direct_erasure_backend_before_re
                 "podUrl": "https://agent.example",
             }
         ),
+        provision_target_for=lambda _spec: {
+            "project": "owner-project",
+            "service": "recorded-service",
+        },
+        observe_erasure_runtime=AsyncMock(
+            return_value={
+                "service": "recorded-service",
+                "serviceUid": "uid-1",
+                "revision": "revision-1",
+                "podUrl": "https://agent.example",
+                "generation": 1,
+                "image": "synthetic-image",
+            }
+        ),
     )  # Intentionally has no Azure access-revocation protocol.
     monkeypatch.setattr(PersonalAgentProvisioningService, "_backend_for", lambda *_: backend)
     compatibility = Mock()
@@ -111,16 +125,37 @@ async def test_gcp_cloud_removal_preflight_uses_direct_erasure_backend_before_re
         "status": "provisioned",
         "external_agent_id": "recorded-service",
         "user_cloud_project": "owner-project",
-        "backend_metadata": {"serviceUid": "uid-1", "url": "https://agent.example"},
+        "backend_metadata": {
+            "serviceUid": "uid-1",
+            "url": "https://agent.example",
+            "provisionAttempt": {
+                "version": 1,
+                "ownerId": "owner",
+                "phase": "provisioned",
+                "evidence": {
+                    "host_requested": {
+                        "creationAcknowledgement": {
+                            "project": "owner-project",
+                            "service": "recorded-service",
+                            "serviceUid": "uid-1",
+                            "initialGeneration": 1,
+                            "initialImage": "synthetic-image",
+                        }
+                    }
+                },
+            },
+        },
     }
     if changed:
         with pytest.raises(AzureTeardownRefused, match="CLOUD_REMOVAL_PLACEMENT_CHANGED"):
             await inspect_gcp(store, "owner", row)
         store.reserve.assert_not_awaited()
         compatibility.assert_not_called()
+        backend.observe_erasure_runtime.assert_not_awaited()
     else:
         assert (await inspect_gcp(store, "owner", row))["status"] == "cleanup_review_required"
         compatibility.assert_called_once()
+        backend.observe_erasure_runtime.assert_awaited_once()
         store.reserve.assert_awaited_once_with("owner", "digest")
 
 

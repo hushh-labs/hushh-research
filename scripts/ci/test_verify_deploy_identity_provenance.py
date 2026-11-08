@@ -53,7 +53,9 @@ def test_the_real_record_parses_and_interpolates() -> None:
         "an unresolved ${...} reached the expectation; the record reader stopped "
         "understanding the form the script uses"
     )
-    assert REAL["DEPLOY_SERVICE_ACCOUNT_EMAIL"].endswith("@hushh-pda.iam.gserviceaccount.com")
+    assert REAL["DEPLOY_SERVICE_ACCOUNT_EMAIL"].endswith(
+        "@hushh-pda.iam.gserviceaccount.com"
+    )
     assert "roles/run.admin" in REAL["DEPLOY_PROJECT_ROLES"]
     assert len(REAL["DEPLOY_PROJECT_ROLES"]) >= 6
 
@@ -61,7 +63,9 @@ def test_the_real_record_parses_and_interpolates() -> None:
 def test_the_record_as_committed_is_coherent() -> None:
     """The offline half must be green against the real files, or it is noise."""
     report = MOD.verify(_args())
-    assert report["ok"], f"the committed record fails its own invariants: {report['failures']}"
+    assert report["ok"], (
+        f"the committed record fails its own invariants: {report['failures']}"
+    )
     assert report["record_checked"] and not report["live_checked"]
 
 
@@ -86,7 +90,9 @@ def test_dropping_the_ref_clause_is_caught() -> None:
     widened["ATTRIBUTE_CONDITION"] = (
         "assertion.sub == 'repo:hushh-labs/hushh-research:environment:production'"
     )
-    assert "condition_does_not_pin_a_ref" in {f["reason"] for f in MOD.audit_record(widened, None)}
+    assert "condition_does_not_pin_a_ref" in {
+        f["reason"] for f in MOD.audit_record(widened, None)
+    }
 
 
 def test_a_condition_for_another_environment_is_caught() -> None:
@@ -99,7 +105,8 @@ def test_a_condition_for_another_environment_is_caught() -> None:
 
 def test_a_workflow_that_requests_a_different_environment_is_caught() -> None:
     reasons = {
-        f["reason"] for f in MOD.audit_record(REAL, "jobs:\n  deploy:\n    environment: staging\n")
+        f["reason"]
+        for f in MOD.audit_record(REAL, "jobs:\n  deploy:\n    environment: staging\n")
     }
     assert "workflow_environment_disagrees_with_record" in reasons
 
@@ -158,8 +165,12 @@ def test_existing_production_release_workloads_have_recorded_authority() -> None
 def test_a_console_edited_condition_is_caught() -> None:
     """The console is the way this actually drifts: edited live, never in the record."""
     provider = _live_provider()
-    provider["attributeCondition"] = "assertion.repository == 'hushh-labs/hushh-research'"
-    assert "provider_condition_drift" in _reasons(_verify_with(provider, _live_policy()))
+    provider["attributeCondition"] = (
+        "assertion.repository == 'hushh-labs/hushh-research'"
+    )
+    assert "provider_condition_drift" in _reasons(
+        _verify_with(provider, _live_policy())
+    )
 
 
 def test_a_swapped_issuer_is_caught() -> None:
@@ -183,7 +194,9 @@ def test_privilege_creep_on_the_deploy_account_is_caught() -> None:
 
 def test_a_revoked_role_is_caught() -> None:
     policy = _live_policy()
-    policy["bindings"] = [b for b in policy["bindings"] if b["role"] != "roles/run.admin"]
+    policy["bindings"] = [
+        b for b in policy["bindings"] if b["role"] != "roles/run.admin"
+    ]
     report = _verify_with(_live_provider(), policy)
     assert "deploy_role_missing" in _reasons(report)
 
@@ -225,33 +238,103 @@ def test_a_missing_record_fails_loudly() -> None:
         MOD.verify(_args(record="deploy/iam/does-not-exist.sh"))
     except MOD.RecordError:
         return
-    raise AssertionError("a missing record must raise, never yield an empty expectation")
+    raise AssertionError(
+        "a missing record must raise, never yield an empty expectation"
+    )
 
 
 def test_backup_monitor_uses_production_main_and_read_only_identity() -> None:
     # Governance runs with the runner's plain Python, before project dependency
     # installation. Keep this source-contract check standard-library-only.
-    workflow = (REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml").read_text()
+    workflow = (
+        REPO_ROOT / ".github/workflows/prod-cloudsql-backup-posture.yml"
+    ).read_text()
     lines = {line.strip() for line in workflow.splitlines()}
-    assert "    environment:\n      name: production\n      deployment: false\n" in workflow
+    assert (
+        "    environment:\n      name: production\n      deployment: false\n"
+        in workflow
+    )
     assert (
         "if: github.repository == 'hushh-labs/hushh-research' && github.ref == 'refs/heads/main'"
         in lines
     )
     assert "service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}" in lines
     assert any(line.startswith("uses: google-github-actions/auth@") for line in lines)
-    assert any(line.startswith("uses: google-github-actions/setup-gcloud@") for line in lines)
+    assert any(
+        line.startswith("uses: google-github-actions/setup-gcloud@") for line in lines
+    )
     assert MOD.audit_record(REAL, workflow) == []
     setup = (REPO_ROOT / "deploy/iam/setup_production_backup_wif.sh").read_text()
-    assert "readonly PERMISSIONS=cloudsql.instances.get,cloudsql.backupRuns.list" in setup
+    assert (
+        "readonly PERMISSIONS=cloudsql.instances.get,cloudsql.backupRuns.list" in setup
+    )
     assert "--env=production" in setup
     assert "verify-deploy-identity-provenance.py" in setup
     assert "roles/cloudsql.client" not in setup
     assert "service-accounts keys create" not in setup
 
 
+def test_matching_branch_authority_preserves_main_and_refuses_provider_drift() -> None:
+    import importlib.util
+
+    path = REPO_ROOT / "deploy/iam/setup_nonproduction_github_wif.py"
+    spec = importlib.util.spec_from_file_location("nonproduction_wif", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for environment in ("dev", "uat"):
+        expected = module.record(environment)
+        provider = {
+            "name": expected["name"],
+            "state": "ACTIVE",
+            "attributeMapping": module.MAPPING,
+            "oidc": {"issuerUri": module.ISSUER},
+            "attributeCondition": expected["legacy"],
+        }
+        calls = []
+
+        def api(method, path, body=None):
+            calls.append((method, path, body))
+            if method == "PATCH":
+                assert path == expected["name"] + "?updateMask=attributeCondition"
+                assert set(body) == {"attributeCondition"}
+                provider.update(body)
+                return {"name": expected["name"] + "/operations/fixture", "done": True}
+            return dict(provider)
+
+        assert module.reconcile(api, environment)["state"] == "main-only"
+        assert all(method == "GET" for method, _, _ in calls)
+        assert module.reconcile(api, environment, apply=True)["state"] == "ready"
+        assert sum(method == "PATCH" for method, _, _ in calls) == 1
+        assert module.reconcile(api, environment, apply=True)["changed"] is False
+        assert expected["condition"].startswith("(" + expected["legacy"] + ") || ")
+        assert (
+            f"deploy-{environment}-implementation.yml@refs/heads/main"
+            in expected["condition"]
+        )
+        assert (
+            f"deploy-{environment}.yml@refs/heads/{environment}"
+            in expected["condition"]
+        )
+        provider["attributeCondition"] = "true"
+        before = len(calls)
+        try:
+            module.reconcile(api, environment, apply=True)
+        except module.Refused:
+            pass
+        else:
+            raise AssertionError("Independent provider drift was overwritten")
+        assert all(method == "GET" for method, _, _ in calls[before:])
+    try:
+        module.record("production")
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("Nonproduction updater admitted production")
+
+
 def main() -> int:
     tests = [
+        test_matching_branch_authority_preserves_main_and_refuses_provider_drift,
         test_cleanup_scheduler_existing_role_has_exact_authority_and_setup,
         test_cleanup_scheduler_drift_or_wrong_principal_never_passes,
         test_cleanup_scheduler_record_rejects_expansion_and_missing_permissions,

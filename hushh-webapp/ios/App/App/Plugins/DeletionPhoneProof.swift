@@ -40,19 +40,22 @@ final class DeletionPhoneProofFence {
     func drainExchange() { exchangeOutstanding = false }
 }
 
-/// A deletion-only adapter. The primary Firebase identity is never replaced or linked.
+/// Owns phone challenges for primary linking and isolated deletion proof.
 final class DeletionPhoneProof {
+    private enum LinkIntent: String { case link, replace }
     private final class Operation {
         let user: FirebaseAuth.User
         let phone: String
+        let linkIntent: LinkIntent?
         let fence: DeletionPhoneProofFence
         var call: CAPPluginCall?
         var verificationID: String?
         var timeout: DispatchWorkItem?
         var cleaned = true
-        init(user: FirebaseAuth.User, phone: String, attemptID: String, call: CAPPluginCall) {
+        init(user: FirebaseAuth.User, phone: String, attemptID: String, call: CAPPluginCall, linkIntent: LinkIntent?) {
             self.user = user
             self.phone = phone
+            self.linkIntent = linkIntent
             self.call = call
             fence = DeletionPhoneProofFence(userID: user.uid, attemptID: attemptID, now: ProcessInfo.processInfo.systemUptime)
         }
@@ -75,7 +78,7 @@ final class DeletionPhoneProof {
         if Self.exchangeOwner == nil { try proof.signOut() }
     }
 
-    func start(_ call: CAPPluginCall) {
+    func start(_ call: CAPPluginCall, primaryLink: Bool = false) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard operation == nil, Self.exchangeOwner == nil else { call.reject("Phone verification is already in progress.", "phone_verification_busy"); return }
         guard let expected = call.getString("expectedUserId"), let user = primary.currentUser, user.uid == expected,
@@ -83,8 +86,14 @@ final class DeletionPhoneProof {
               let phone = call.getString("phoneNumber"), phone.range(of: "^\\+[1-9][0-9]{6,14}$", options: .regularExpression) != nil else {
             call.reject("Verify the current account and phone.", "session_changed"); return
         }
-        do { try proof.signOut() } catch { call.reject("Phone verification is unavailable.", "phone_verification_failed"); return }
-        let op = Operation(user: user, phone: phone, attemptID: attempt, call: call)
+        let intent = primaryLink ? call.getString("linkIntent").flatMap(LinkIntent.init(rawValue:)) : nil
+        if primaryLink && intent == nil {
+            call.reject("Update the app to verify a phone number.", "phone-link-upgrade-required"); return
+        }
+        if intent == nil {
+            do { try proof.signOut() } catch { call.reject("Phone verification is unavailable.", "phone_verification_failed"); return }
+        }
+        let op = Operation(user: user, phone: phone, attemptID: attempt, call: call, linkIntent: intent)
         operation = op
         expire(op, after: 120, error: "phone-verification-start-timeout")
         // App verification remains with the configured primary Firebase app; no sign-in occurs here.
@@ -97,7 +106,12 @@ final class DeletionPhoneProof {
                     self.finish(op, error: Self.safeErrorCode(error)); return
                 }
                 op.verificationID = id
-                op.call?.resolve(["attemptId": attempt, "verificationId": attempt])
+                var response = ["attemptId": attempt, "verificationId": attempt]
+                if let intent = op.linkIntent {
+                    response["linkIntent"] = intent.rawValue
+                    response["providerVerificationId"] = id
+                }
+                op.call?.resolve(response)
                 op.call = nil
                 self.expire(op, after: max(0.001, op.fence.deadline - ProcessInfo.processInfo.systemUptime))
             }
@@ -107,7 +121,9 @@ final class DeletionPhoneProof {
     func confirm(_ call: CAPPluginCall) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard let op = operation, call.getString("attemptId") == op.fence.attemptID,
-              call.getString("expectedUserId") == op.fence.userID, active(op) else {
+              call.getString("expectedUserId") == op.fence.userID,
+              op.linkIntent == nil,
+              active(op) else {
             call.reject("Request a new verification code.", "phone-verification-required"); return
         }
         guard Self.exchangeOwner == nil else { call.reject("Phone verification is already in progress.", "phone_verification_busy"); return }
@@ -197,7 +213,7 @@ final class DeletionPhoneProof {
         op.timeout = nil
         op.verificationID = nil
         var cleaned = true
-        if Self.exchangeOwner == nil || Self.exchangeOwner === op {
+        if op.linkIntent == nil && (Self.exchangeOwner == nil || Self.exchangeOwner === op) {
             do { try proof.signOut() } catch { cleaned = false }
         }
         op.cleaned = cleaned
@@ -208,7 +224,9 @@ final class DeletionPhoneProof {
     }
     private func drain(_ op: Operation) {
         // A cancelled SDK task may sign in later. Clear again only after that task drains.
-        do { try proof.signOut() } catch { return } // Keep the slot quarantined on cleanup failure.
+        if op.linkIntent == nil {
+            do { try proof.signOut() } catch { return } // Keep the slot quarantined on cleanup failure.
+        }
         op.cleaned = true
         if Self.exchangeOwner === op { Self.exchangeOwner = nil }
         op.fence.drainExchange()

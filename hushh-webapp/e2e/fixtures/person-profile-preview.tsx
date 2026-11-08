@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 import { useWebHistoryBack } from "@/lib/navigation/web-history-back";
+import { openPersonProfilePreview } from "@/lib/connections/person-profile-preview";
 
 publishValidatedAuthSessionOwner("fixture-requester");
 function Fixture() {
@@ -20,6 +21,7 @@ function Fixture() {
       selected={selected} disabled={false} ariaLabel="Select Aarav for circle" onToggle={() => setSelected(!selected)} />
     <ContactRow userId="second-peer" label="Maya Singh" selected={false} busy={false} ready onAdd={() => { throw new Error("Profile taps must not add contacts"); }} onRemove={() => {}} />
     <p role="status">{selected ? "1 selected" : "0 selected"}</p>
+    <button type="button" onClick={event => openPersonProfilePreview({ networkList: "discovery" }, event.currentTarget)}>Explore your network</button>
   </DialogContent></Dialog><PersonProfilePreview />
   <button type="button" data-fixture-native-back onClick={() => dismissTopmostOverlay()}>Native Back</button></>;
 }

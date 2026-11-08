@@ -108,7 +108,7 @@ run_stage() {
       scripts/ci/subtree-sync-check.sh
       scripts/ci/github-security-alerts.sh
       scripts/ci/verify-production-environment-governance.sh
-      ./bin/hushh codex audit --text
+      ./bin/hushh agents audit --text
       ;;
     *)
       echo "Unknown stage: $stage" >&2

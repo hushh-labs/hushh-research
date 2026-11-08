@@ -5,6 +5,7 @@ import contextvars
 import copy
 import hashlib
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -30,11 +31,13 @@ class _UnsafeProfileState(Exception):
 
 
 class ClockBoundProductionEvidenceTest(unittest.TestCase):
-    def test_clock_workflow_versions_pin_current_source_and_historical_receipts(self):
-        workflows = Path(__file__).resolve().parents[2] / ".github/workflows"
+    def test_current_clock_and_immutable_historical_worker_profiles(self):
+        root = Path(__file__).resolve().parents[2]
+        workflows = root / ".github/workflows"
 
-        def git_blob(path):
-            content = path.read_bytes()
+        def git_blob(path, revision=None):
+            content = (path.read_bytes() if revision is None else subprocess.check_output(
+                ["git", "show", f"{revision}:{path.relative_to(root)}"], cwd=root))
             header = f"blob {len(content)}\0".encode()
             return hashlib.sha1(header + content).hexdigest(), len(content)
 
@@ -42,13 +45,15 @@ class ClockBoundProductionEvidenceTest(unittest.TestCase):
             git_blob(workflows / "capacity-maintenance-clock.yml"),
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
         )
-        source_profile = records.CLOCK_BOUND_SOURCE_PROFILES[
-            profile_evidence.PROFILE_NAME
-        ]
-        self.assertEqual(
-            git_blob(workflows / "capacity-maintenance.yml"),
-            source_profile[base.WORKFLOW],
-        )
+        # Historical qualifications must keep their original source, even as
+        # current job labels and evidence readers evolve. Missing history fails.
+        for profile, revision in (
+            ("publication-aec6-blobless-v2", "b8bca9aba110ff9c838149d45041d6b9d720219e"),
+            ("publication-pass-diagnostics-v4", "383350286fdd65706cc80e2b028b901c6e174de3"),
+        ):
+            for path, expected in records.CLOCK_BOUND_SOURCE_PROFILES[profile].items():
+                with self.subTest(profile=profile, path=path):
+                    self.assertEqual(git_blob(root / path, revision), expected)
         self.assertEqual(
             clock_evidence._clock_workflow_blob_for_title("Capacity clock"),
             clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB,
@@ -340,6 +345,7 @@ class ClockDispatchTimingTest(unittest.TestCase):
                 with self.subTest(change=change):
                     self.assertIsNone(prove(broken))
 
+
 class ClockBoundNumericProofTest(unittest.TestCase):
     def test_coerced_numeric_ids_and_attempts_are_rejected(self):
         run_id = 41169264544
@@ -408,9 +414,7 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         source_profile=profile_evidence.PROFILE_NAME,
     ):
         record, worker, job, log, blobs, clock = clock_bound_fixture(41489711406)
-        current_sources = records.CLOCK_BOUND_SOURCE_PROFILES[
-            source_profile
-        ]
+        current_sources = records.CLOCK_BOUND_SOURCE_PROFILES[source_profile]
         blobs = {
             path: {"sha": sha, "size": size}
             for path, (sha, size) in current_sources.items()
@@ -480,13 +484,19 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         def api(_repository, endpoint):
             if endpoint.startswith("workflows/"):
                 total = len(clock_rows) + int(truncated)
-                return {"total_count": total, "workflow_runs": copy.deepcopy(clock_rows)}
+                return {
+                    "total_count": total,
+                    "workflow_runs": copy.deepcopy(clock_rows),
+                }
             run_id = int(endpoint.split("/", 2)[1])
             if endpoint.endswith("/attempts/1"):
-                return copy.deepcopy(clock_run if run_id == clock_run["id"] else clock_rows[1])
+                return copy.deepcopy(
+                    clock_run if run_id == clock_run["id"] else clock_rows[1]
+                )
             rows = clock_jobs.get(run_id, [])
             total = len(rows) + int(truncated and run_id == clock_run["id"])
             return {"total_count": total, "jobs": copy.deepcopy(rows)}
+
         owner.api.side_effect = api
 
         def command(*args):
@@ -503,7 +513,8 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
                         "ahead_by": 1,
                         "behind_by": 0,
                         "total_commits": 1,
-                        "commit_count": 1,
+                        "base_sha": ancestor,
+                        "merge_base_sha": ancestor,
                     }
                 )
             path_and_ref = endpoint.split("/contents/", 1)[1]
@@ -813,7 +824,6 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
             )
         self.assertEqual(len(calls), 1)
 
-
     def test_clock_attempt_timestamp_representation_keeps_identity_exact(self):
         summary = {"id": 41537628196, "run_attempt": 1,
                    "created_at": "2026-11-02T22:28:57Z", "head_sha": "a" * 40}
@@ -948,6 +958,112 @@ class DynamicProductionProfileEvidenceTest(unittest.TestCase):
         self.assertFalse(
             any("/contents/" in call.args[2] for call in owner.command.call_args_list)
         )
+
+    def test_ancestry_uses_exact_merge_base_beyond_the_commit_page(self):
+        case = self._case()
+        owner = case[0]
+        ancestor, descendant = profile_evidence.APPROVED_SOURCE_SHA, "f" * 40
+        accepted = {
+            "status": "ahead",
+            "ahead_by": 278,
+            "behind_by": 0,
+            "total_commits": 278,
+            "base_sha": ancestor,
+            "merge_base_sha": ancestor,
+        }
+        owner.compare_results[(ancestor, descendant)] = accepted
+        self.assertTrue(
+            profile_evidence._is_ancestor(owner, base.REPOSITORY, ancestor, descendant)
+        )
+        self.assertIn("per_page=1", owner.command.call_args.args[2])
+        for changed in (
+            {"status": "diverged", "behind_by": 1},
+            {"base_sha": "0" * 40},
+            {"merge_base_sha": "0" * 40},
+            {"merge_base_sha": None},
+            {"total_commits": 277},
+            {"ahead_by": True},
+        ):
+            with self.subTest(changed=changed):
+                profile_evidence._is_ancestor.cache_clear()
+                owner.compare_results[(ancestor, descendant)] = {**accepted, **changed}
+                with self.assertRaises(_UnsafeProfileState):
+                    profile_evidence._is_ancestor(
+                        owner, base.REPOSITORY, ancestor, descendant
+                    )
+
+    def test_current_refusal_qualifies_without_inventing_clock_causality(self):
+        for name in (
+            "publication-pass-diagnostics-v3",
+            "publication-pass-diagnostics-v4",
+        ):
+            with self.subTest(profile=name):
+                case = self._case(source_profile=name)
+                case[6]["run"].update(event="schedule", actor={"login": "other"})
+                case[6]["wake_job"]["completed_at"] = "2026-10-29T20:20:00Z"
+                proof = self._qualify(case)
+                self.assertEqual(proof["qualification"], "no_provider_mutation")
+                self.assertNotIn("clock_run_id", proof)
+                self.assertTrue(
+                    uat_guard._proof_record(
+                        "maintenance_publication_proof="
+                        + json.dumps(proof, sort_keys=True),
+                        allow_clock_records=True,
+                    )
+                )
+                case[0].api.assert_not_called()
+
+    def test_current_refusal_rejects_changed_helper_checkout_actor_and_effects(self):
+        name = "publication-pass-diagnostics-v3"
+        case = self._case(source_profile=name)
+        changed = {**case[5], records.PASS_DIAGNOSTICS: {"sha": "f" * 40, "size": 1}}
+        with self.assertRaises(_UnsafeProfileState):
+            self._qualify(case, blobs=changed)
+
+        def qualify(case, *, log=None):
+            owner, _, run, job, original, blobs, _ = case
+            return profile_evidence.qualify_source_refusal(
+                owner,
+                base.REPOSITORY,
+                run,
+                job,
+                log_reader=lambda *_: original if log is None else log,
+                source_reader=lambda *_: blobs,
+                workflow_path=base.WORKFLOW,
+            )
+
+        for mutation in (
+            "actor",
+            "attempt",
+            "checkout",
+            "provider_step",
+            "late_creation",
+            "transcript",
+        ):
+            with self.subTest(mutation=mutation):
+                case = self._case(source_profile=name)
+                log = case[4]
+                if mutation == "actor":
+                    case[2]["actor"] = {"login": "unrelated-user"}
+                elif mutation == "attempt":
+                    case[2]["run_attempt"] = 2
+                elif mutation == "checkout":
+                    log = log.replace(case[2]["head_sha"], "f" * 40)
+                elif mutation == "provider_step":
+                    for step in case[3]["steps"]:
+                        if (
+                            step["name"]
+                            == "Publish operational backend reference under deployment lock"
+                        ):
+                            step["conclusion"] = "success"
+                elif mutation == "late_creation":
+                    case[2]["created_at"] = "2026-10-29T23:00:00Z"
+                else:
+                    log = log.replace(
+                        "Hosted maintenance stopped:",
+                        "provider mutation started; Hosted maintenance stopped:",
+                    )
+                self.assertIsNone(qualify(case, log=log))
 
 
 class ClockRowsFanoutTest(unittest.TestCase):

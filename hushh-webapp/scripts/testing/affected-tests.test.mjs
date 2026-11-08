@@ -9,14 +9,14 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildPlan, dynamicImportRisk, executePlan } from "./affected-tests.mjs";
+import { buildPlan, dynamicImportRisk, executePlan, unitShardMatrix } from "./affected-tests.mjs";
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const REPO_ROOT = path.resolve(WEB_ROOT, "..");
 const DELETE_TEST = "__tests__/lib/flows/delete-account.test.ts";
 const DIRECT_TEST = "__tests__/services/agent-chat-client.test.ts";
 
-function buildImportGraphFixture(files, changedPaths) {
+function buildImportGraphFixture(files, changedPaths, baseFiles) {
   const tmp = mkdtempSync(path.join(os.tmpdir(), "hushh-import-graph-"));
   const repo = path.join(tmp, "repo");
   const bin = path.join(tmp, "bin");
@@ -45,7 +45,7 @@ function buildImportGraphFixture(files, changedPaths) {
     }
     writeFileSync(
       path.join(bin, "git"),
-      `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(`${Object.keys(fixtureFiles).join("\0")}\0`)});\n`,
+      `#!/usr/bin/env node\nconst originals = ${JSON.stringify(baseFiles || {})};\nif (process.argv[2] === 'show') { const name = process.argv[3].split(':').slice(1).join(':'); if (!(name in originals)) process.exit(1); process.stdout.write(originals[name]); } else process.stdout.write(${JSON.stringify(`${Object.keys(fixtureFiles).join("\0")}\0`)});\n`,
       { mode: 0o755 },
     );
     process.env.PATH = `${bin}${path.delimiter}${originalPath || ""}`;
@@ -53,6 +53,7 @@ function buildImportGraphFixture(files, changedPaths) {
       env: {
         CI_VALIDATION_LEVEL: "focused",
         CI_CHANGED_FILES: changedPaths.map((file) => `hushh-webapp/${file}`).join("\n"),
+        ...(baseFiles ? { CI_IMPACT_BASE_SHA: "a".repeat(40) } : {}),
       },
       repoRoot: repo,
     });
@@ -62,6 +63,26 @@ function buildImportGraphFixture(files, changedPaths) {
     rmSync(tmp, { recursive: true, force: true });
   }
 }
+
+test("shared UI documentation-only change avoids full units only with exact safe source proof", () => {
+  const file = "components/app-ui/bottom-chrome-column.ts";
+  const original = "/** The existing column. */\nexport const column = 'shared';\n";
+  const updated = "/** Describe the conversation column. */\nexport const column = 'shared';\n";
+  const base = { [`hushh-webapp/${file}`]: original };
+  const plan = buildImportGraphFixture({ [`hushh-webapp/${file}`]: updated }, [file], base);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.noUnitImpact, true);
+  for (const [source, proof] of [
+    [updated.replace("'shared'", "'changed'"), base],
+    [updated.replace("Describe", "@ts-check Describe"), base],
+    [updated.replace("Describe the conversation column.", "#__PURE__"), base],
+    [updated, undefined],
+  ]) {
+    const unsafe = buildImportGraphFixture({ [`hushh-webapp/${file}`]: source }, [file], proof);
+    assert.equal(unsafe.effectiveLevel, "diagnostic");
+    assert.equal(unsafe.fallbackReason, "shared_dependency");
+  }
+});
 
 test("missing or unknown selection metadata keeps the diagnostic suite", () => {
   assert.equal(buildPlan({ env: { CI_VALIDATION_LEVEL: "focused" } }).effectiveLevel, "diagnostic");
@@ -186,6 +207,7 @@ test("affected shard exits before npm setup; diagnostic shard still reaches its 
       encoding: "utf8",
       env: {
         ...process.env,
+        HUSHH_WEB_TEST_MAX_WORKERS: "2",
         PATH: `${bin}${path.delimiter}${process.env.PATH}`,
         NPM_TEST_LOG: npmLog,
         CI_VALIDATION_LEVEL: level,
@@ -304,6 +326,16 @@ test("known native and browser harness inputs stay with their other owner", () =
       "hushh-webapp/ios/App/AppTests/NativeSupportTests.swift",
       "hushh-webapp/ios/App/AppTests/AccountFlowTests.swift",
       "hushh-webapp/scripts/testing/phone-conflict-flow.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.mjs",
+      "hushh-webapp/scripts/testing/affected-tests.test.mjs",
+      "hushh-webapp/scripts/architecture/verify-design-system.mjs",
+      "hushh-webapp/scripts/architecture/verify-render-performance.mjs",
+      "hushh-webapp/scripts/design/verify-apple-hierarchy.mjs",
+      "hushh-webapp/scripts/architecture/ui-review-receipts.mjs",
+      "hushh-webapp/scripts/architecture/verify-ui-contracts.mjs",
+      "hushh-webapp/scripts/architecture/back-navigation.test.mjs",
+      "hushh-webapp/scripts/voice/search-contracts.test.mjs",
+      "hushh-webapp/scripts/voice/sync-search-contracts.mjs",
     ].join("\n"),
   } });
   assert.equal(plan.effectiveLevel, "focused");
@@ -502,6 +534,39 @@ test("shadowed unit imports select their whole owner and runtime imports remain 
   assert.equal(cjsRuntime.fallbackReason, "computed_dynamic_import_dependency");
 });
 
+test("changed JSON test fixtures retain their importing tests without diagnostic expansion", () => {
+  const fixture = "__tests__/fixtures/calendar-chat-controlled-results.json";
+  const owner = "__tests__/components/calendar-chat-controlled-flow.test.tsx";
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${fixture}`]: '{"status":"review_required"}\n',
+    [`hushh-webapp/${owner}`]: 'import result from "../fixtures/calendar-chat-controlled-results.json"; void result;\n',
+  }, [fixture]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.relatedFiles, [fixture]);
+  assert.equal(plan.noUnitImpact, false);
+
+  const missing = buildImportGraphFixture({}, [fixture]);
+  assert.equal(missing.effectiveLevel, "diagnostic");
+  assert.equal(missing.fallbackReason, "missing_changed_source");
+});
+
+test("nested fixtures and component voice contracts remain related-test inputs", () => {
+  const paths = [
+    "__tests__/components/profile/mocks.tsx",
+    "components/one-voice/panel.voice-action-contract.json",
+  ];
+  const plan = buildImportGraphFixture({
+    [`hushh-webapp/${paths[0]}`]: "export const person = {};\n",
+    [`hushh-webapp/${paths[1]}`]: "{}\n",
+    "hushh-webapp/__tests__/components/profile.test.tsx":
+      'import { person } from "./profile/mocks"; void person;\n',
+  }, paths);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.deepEqual(plan.relatedFiles, paths);
+  assert.equal(plan.noUnitImpact, false);
+});
+
 test("other-owner inputs do not hide changed unit tests or unknown runtime JSON", () => {
   const registered = `contracts/kai/${["kai-action-gateway", ".vnext.json"].join("")}`;
   const mixed = buildImportGraphFixture({
@@ -514,6 +579,8 @@ test("other-owner inputs do not hide changed unit tests or unknown runtime JSON"
     "ios/App/AppTests/NativeSupportTests.swift",
     "ios/App/AppTests/AccountFlowTests.swift",
     "scripts/testing/phone-conflict-flow.mjs",
+    "scripts/testing/affected-tests.mjs",
+    "scripts/testing/affected-tests.test.mjs",
     registered,
     "app/one/setup/finance/import/page.voice-action-contract.json",
     "cache-coherence-screen-manifest.generated.json",
@@ -577,4 +644,59 @@ test("styling-only changes have no unit execution while runtime modules remain s
   assert.equal(style.effectiveLevel, "focused");
   assert.equal(style.noUnitImpact, true);
   assert.equal(style.fallbackReason, null);
+});
+
+
+test("resolved runtime dynamic imports select their test owners without a full suite", () => {
+  const plan = buildImportGraphFixture({
+    "hushh-webapp/lib/changed.ts": "export const changed = true;\n",
+    "hushh-webapp/components/runtime-loader.ts":
+      'const MODULE_PATH = "@/lib/changed"; export const load = () => import(MODULE_PATH);\n',
+    "hushh-webapp/__tests__/loader.test.ts":
+      'import { load } from "@/components/runtime-loader"; export { load };\n',
+  }, ["lib/changed.ts"]);
+  assert.equal(plan.effectiveLevel, "focused");
+  assert.equal(plan.fallbackReason, null);
+  assert.deepEqual(plan.directFiles, ["__tests__/loader.test.ts"]);
+});
+
+test("ordinary related failures still run independent direct cases and remain failed", () => {
+  const plan = { effectiveLevel: "release", relatedFiles: ["lib/fixture.ts"],
+    directFiles: [DELETE_TEST], coreFiles: [DELETE_TEST], excludeFiles: [] };
+  const calls = [];
+  const status = executePlan(plan, {
+    runVitestCommand(args) {
+      calls.push(args);
+      if (args.includes("related")) {
+        const output = args.find(a => a.startsWith("--outputFile.json=")).slice("--outputFile.json=".length);
+        writeFileSync(output, JSON.stringify({ testResults: [{ name: path.join(WEB_ROOT, DIRECT_TEST) }] }));
+        return { status: 1 };
+      }
+      return { status: 0 };
+    },
+    runFullSuite() { throw Error("Must not repeat the full suite after a known test failure"); },
+  });
+  assert.equal(status, 1);
+  assert.equal(calls.length, 2);
+  for (const exit of [null, 124, 130, 137, 143]) {
+    let runs = 0;
+    const interrupted = executePlan(plan, { runVitestCommand() { runs++; return { status: exit }; } });
+    assert.notEqual(interrupted, 0);
+    assert.equal(runs, 1);
+  }
+});
+
+
+test("unit concurrency preserves focused ownership and complete diagnostic fallback", () => {
+  for (const level of ["focused", "release"]) {
+    assert.deepEqual(unitShardMatrix({ effectiveLevel: level }), { shard: ["1/1"] });
+  }
+  for (const plan of [undefined, null, {}, { effectiveLevel: "diagnostic" }, { effectiveLevel: "unknown" }]) {
+    assert.deepEqual(unitShardMatrix(plan), { shard: ["1/3", "2/3", "3/3"] });
+  }
+  const result = spawnSync(process.execPath,
+    [path.join(WEB_ROOT, "scripts/testing/affected-tests.mjs"), "unit-matrix"],
+    { encoding: "utf8", env: { ...process.env, CI_VALIDATION_LEVEL: "unknown" } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { shard: ["1/3", "2/3", "3/3"] });
 });

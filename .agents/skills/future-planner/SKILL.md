@@ -82,5 +82,5 @@ Non-owned surfaces:
 ```bash
 python3 .agents/skills/codex-skill-authoring/scripts/skill_lint.py
 ./bin/hushh docs verify
-./bin/hushh codex audit
+./bin/hushh agents audit
 ```

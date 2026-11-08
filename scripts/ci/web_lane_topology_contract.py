@@ -15,52 +15,33 @@ def _assert_job_name(block: str, name: str) -> None:
     assert f'    name: "{name}"' in block, f"job name must be {name}"
 
 
-def _assert_targeted_pair(workflow: str, playwright: str) -> None:
+def _assert_targeted_node(workflow: str) -> None:
     node = _job_block(workflow, "web-targeted-check")
-    browser = _job_block(workflow, "web-targeted-browser")
     _assert_job_name(node, "Web Targeted Contracts (node)")
-    _assert_job_name(browser, "Web Targeted Contracts (browser)")
     assert "WEB_TARGETED_PART: node" in node
-    assert "WEB_TARGETED_PART: browser" in browser
-    assert "PLAYWRIGHT_SHARD: \"\"" in node
-    assert "PLAYWRIGHT_SHARD: \"\"" in browser
-    assert "strategy:" not in node and "strategy:" not in browser
-    assert "steps: &web_targeted_steps" in node
-    assert "steps: *web_targeted_steps" in browser
-    steps = node.split("      - name: Run targeted web contract checks\n", 1)[1]
-    execution = steps.split("\n      - name:", 1)[0]
-    assert execution.count("PLAYWRIGHT_SHARD:") == 1, (
-        "duplicate PLAYWRIGHT_SHARD environment key"
-    )
-    assert "WEB_TARGETED_PART: ${{ env.WEB_TARGETED_PART }}" in execution
-    assert "PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}" in execution
-    assert (
-        "PLAYWRIGHT_LINE_REPORTER: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}"
-        in execution
-    )
-    assert 'process.env.PLAYWRIGHT_LINE_REPORTER === "1"' in playwright
-    assert '[["github"], ["line"]]' in playwright
-    assert (
-        "env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'"
-        in node
-    )
-    assert (
-        "env.WEB_TARGETED_PART == 'node' || steps.browser-plan.outputs.browser_required != 'false'"
-        in node
-    )
-    assert "name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}" in node
-    assert "timeout-minutes: 40" in node
-    assert "timeout-minutes: 40" in browser
-    assert "PLAYWRIGHT_SHARD: ${{ matrix.shard }}" not in node + browser
+    assert "run: bash scripts/ci/orchestrate.sh web-targeted" in node
+    assert "playwright install" not in workflow
+    assert "web-targeted-browser:" not in workflow
+    assert "document-webkit-check:" not in workflow
+    assert "WEB_BROWSER" not in workflow and "DOCUMENT_WEBKIT" not in workflow
+    assert "run: bash scripts/ci/integration-check.sh --ci-core" in workflow
 
 
 def _assert_unit_job(workflow: str) -> None:
     unit = _job_block(workflow, "web-full-suite-check")
     _assert_job_name(unit, "Web Unit Contracts")
-    assert "strategy:" not in unit
-    assert "WEB_FULL_SUITE_SHARD: \"\"" in unit
+    assert "fail-fast: false" in unit and "max-parallel: 3" in unit
+    assert "needs: [preflight-gate, repo-governance]" in unit
+    assert "fromJSON(needs.repo-governance.outputs.unit_matrix" in unit
+    assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" in unit
     assert "run: bash scripts/ci/orchestrate.sh web-full-suite" in unit
-    assert "WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}" not in unit
+    for shard in ("1/1", "1/3", "2/3", "3/3"):
+        assert f"name: Verify unit shard ({shard})" in unit
+        assert f"if: matrix.shard == '{shard}'" in unit
+    governance = _job_block(workflow, "repo-governance")
+    assert "unit_matrix: ${{ steps.unit-plan.outputs.matrix }}" in governance
+    assert "affected-tests.mjs unit-matrix" in governance
+    assert 'CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"' in governance
 
 
 def _assert_database_pair(workflow: str) -> None:
@@ -82,25 +63,18 @@ def _assert_status_gate(workflow: str) -> None:
     gate = _job_block(workflow, "ci-status")
     required_jobs = (
         "web-targeted-check",
-        "web-targeted-browser",
         "web-full-suite-check",
         "protocol-database-check",
         "protocol-database-check-two",
-        "document-webkit-check",
     )
     needs = gate.split("    needs:\n", 1)[1].split("\n    if:", 1)[0]
     for job in required_jobs:
         assert f"- {job}" in needs, f"ci-status must need {job}"
-    assert "WEB_BROWSER=\"${{ needs['web-targeted-browser'].result }}\"" in gate
     assert 'WEB_TARGETED="${{ needs[\'web-targeted-check\'].result }}"' in gate
     assert 'WEB_FULL_SUITE="${{ needs[\'web-full-suite-check\'].result }}"' in gate
     assert 'PROTOCOL_DATABASE="${{ needs[\'protocol-database-check\'].result }}"' in gate
     assert (
         "PROTOCOL_DATABASE_TWO=\"${{ needs['protocol-database-check-two'].result }}\""
-        in gate
-    )
-    assert (
-        'if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi'
         in gate
     )
     assert (
@@ -121,10 +95,6 @@ def _assert_status_gate(workflow: str) -> None:
     )
     assert not re.search(r"^  web-editor-performance-check:$", workflow, re.M)
     assert "WEB_EDITOR_PERF" not in gate
-    document = _job_block(workflow, "document-webkit-check")
-    assert 'name: "Protected Document WebKit (macOS)"' in document
-    assert "--ci-macos-webkit" in document and "test:layout-editor-performance" not in document
-    assert '"$DOCUMENT_WEBKIT" != success' in gate
 
 
 def assert_web_lane_topology(
@@ -132,7 +102,7 @@ def assert_web_lane_topology(
 ) -> None:
     job_ids = re.findall(r"^  ([a-z][a-z0-9-]*):$", workflow, re.M)
     assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
-    _assert_targeted_pair(workflow, playwright)
+    _assert_targeted_node(workflow)
     _assert_unit_job(workflow)
     _assert_database_pair(workflow)
     _assert_status_gate(workflow)

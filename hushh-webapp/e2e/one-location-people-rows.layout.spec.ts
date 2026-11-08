@@ -203,7 +203,7 @@ for (const dark of [false, true]) {
       await page.goto(await buildFixture(dark, [], markup));
       await awaitProductFont(page);
       const draft = page.locator("[data-invite-draft]");
-      await expect(draft.getByRole("heading", { name: "Invite before sharing", exact: true })).toBeVisible();
+      await expect(draft.getByRole("heading", { name: "Invite to Circle", exact: true })).toBeVisible();
       await expect(draft.getByText("No location shared")).toHaveCount(0);
       await expect(draft.getByText("They approve first.")).toHaveCount(0);
       await expect(page.locator("[data-invite-created]").getByRole("button", { name: "Done", exact: true })).toHaveCount(0);

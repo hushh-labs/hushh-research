@@ -31,9 +31,10 @@ Local runtime uses three separate terminals (one component each):
   lint
   test
   ci [--include-advisory]
-  codex <subcommand>
+  agents <subcommand>
 
 Operational commands:
+  diagnose uat-vertex --build-id <Cloud-Build-UUID>
   docs verify
   env bootstrap
   env use --mode <local|uat|dev|prod> [--dry-run]
@@ -53,7 +54,7 @@ Run:
   ./bin/hushh protocol --help
   ./bin/hushh sync --help
   ./bin/hushh rollback --help
-  ./bin/hushh codex --help
+  ./bin/hushh agents --help
 EOF
 }
 
@@ -111,23 +112,24 @@ Usage:
 EOF
 }
 
-codex_usage() {
+agents_usage() {
   cat <<'EOF'
 Usage:
-  ./bin/hushh codex onboard [--json|--text]
-  ./bin/hushh codex scan summary [--json|--text]
-  ./bin/hushh codex scan section <docs|frontend|backend|skills|commands> [--json|--text] [--verbose]
-  ./bin/hushh codex scan validate [--json|--text]
-  ./bin/hushh codex route-task <workflow-id> [--json|--text] [--verbose]
-  ./bin/hushh codex impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
-  ./bin/hushh codex list-workflows [--json|--text] [--verbose]
-  ./bin/hushh codex pre-pr (--base-ref <target> [--body-file <path>] | --pr <number>) [--report-path <path>] [--json|--text]
-  ./bin/hushh codex pre-pr --diagnostic [--include-advisory] [--report-path <path>] [--json|--text]
-  ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
-  ./bin/hushh codex ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
-  ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
-  ./bin/hushh codex audit [--json|--text]
-  ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
+  ./bin/hushh agents onboard [--json|--text]
+  ./bin/hushh agents scan summary [--json|--text]
+  ./bin/hushh agents scan section <docs|frontend|backend|skills|commands> [--json|--text] [--verbose]
+  ./bin/hushh agents scan validate [--json|--text]
+  ./bin/hushh agents route-task <workflow-id> [--json|--text] [--verbose]
+  ./bin/hushh agents impact <workflow-id> [--path <repo-path>]... [--json|--text] [--verbose]
+  ./bin/hushh agents list-workflows [--json|--text] [--verbose]
+  ./bin/hushh agents pre-pr (--base-ref <target> [--body-file <path>] | --pr <number>) [--report-path <path>] [--json|--text]
+  ./bin/hushh agents pre-pr --diagnostic [--include-advisory] [--report-path <path>] [--json|--text]
+  ./bin/hushh agents ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
+  ./bin/hushh agents admin-merge --pr <number> --sha <head> --receipt <path> [--apply]
+  ./bin/hushh agents ci-rerun --run-id <id> --expected-attempt <n> --sha <sha> [--failed|--all|--job-id <id>] [--json|--text]
+  ./bin/hushh agents data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
+  ./bin/hushh agents audit [--json|--text]
+  ./bin/hushh agents rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF
 }
 
@@ -479,9 +481,9 @@ run_compose() {
   exec bash "$REPO_ROOT/scripts/runtime/compose_stack.sh" "$@"
 }
 
-run_codex() {
+run_agents() {
   [ "$#" -ge 1 ] || {
-    codex_usage
+    agents_usage
     exit 1
   }
 
@@ -511,20 +513,20 @@ run_codex() {
 
   case "$subcommand" in
     scan)
-      [ "${#args[@]}" -ge 1 ] || die "codex scan requires a subcommand"
+      [ "${#args[@]}" -ge 1 ] || die "agents scan requires a subcommand"
       case "${args[0]}" in
         summary)
           exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" summary "$format_flag"
           ;;
         section)
-          [ "${#args[@]}" -ge 2 ] || die "codex scan section requires <docs|frontend|backend|skills|commands>"
+          [ "${#args[@]}" -ge 2 ] || die "agents scan section requires <docs|frontend|backend|skills|commands>"
           exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" section "${args[@]:1}" "$format_flag"
           ;;
         validate)
           exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" validate "$format_flag"
           ;;
         *)
-          die "Unknown codex scan subcommand: ${args[0]}"
+          die "Unknown agents scan subcommand: ${args[0]}"
           ;;
       esac
       ;;
@@ -541,11 +543,11 @@ run_codex() {
       exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" list-workflows "$format_flag"
       ;;
     route-task)
-      [ "${#args[@]}" -ge 1 ] || die "codex route-task requires <workflow-id>"
+      [ "${#args[@]}" -ge 1 ] || die "agents route-task requires <workflow-id>"
       exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" route-task "${args[@]}" "$format_flag"
       ;;
     impact)
-      [ "${#args[@]}" -ge 1 ] || die "codex impact requires <workflow-id>"
+      [ "${#args[@]}" -ge 1 ] || die "agents impact requires <workflow-id>"
       exec python3 "$REPO_ROOT/.agents/skills/repo-context/scripts/repo_scan.py" impact "${args[@]}" "$format_flag"
       ;;
     pre-pr)
@@ -559,6 +561,9 @@ run_codex() {
         exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "${args[@]}" "$format_flag"
       fi
       exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_monitor.py" "$format_flag"
+      ;;
+    admin-merge)
+      exec python3 "$REPO_ROOT/scripts/ci/queue_combined_result.py" owner-merge "${args[@]}"
       ;;
     ci-rerun)
       exec python3 "$REPO_ROOT/.agents/skills/repo-operations/scripts/ci_rerun.py" "${args[@]}" "$format_flag"
@@ -579,14 +584,14 @@ run_codex() {
       if [ "${#args[@]}" -gt 0 ]; then
         exec python3 "$REPO_ROOT/.agents/skills/autonomous-rca-governance/scripts/rca_runner.py" "${args[@]}" "$format_flag"
       fi
-      die "codex rca requires --surface <uat|runtime|ci>"
+      die "agents rca requires --surface <uat|runtime|ci>"
       ;;
     -h|--help|help)
-      codex_usage
+      agents_usage
       exit 0
       ;;
     *)
-      die "Unknown codex subcommand: $subcommand"
+      die "Unknown agents subcommand: $subcommand"
       ;;
   esac
 }
@@ -918,11 +923,16 @@ EOF
   protocol)
     run_protocol "$@"
     ;;
-  codex)
-    run_codex "$@"
+  agents|codex)
+    run_agents "$@"
     ;;
   sync)
     run_sync "$@"
+    ;;
+  diagnose)
+    [ "${1:-}" = "uat-vertex" ] || die "Expected: diagnose uat-vertex --build-id <Cloud-Build-UUID>"
+    shift
+    exec python3 "$REPO_ROOT/scripts/ci/summarize_uat_managed_vertex_logs.py" "$@"
     ;;
   rollback)
     run_rollback "$@"

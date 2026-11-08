@@ -102,7 +102,21 @@ def require_success(result: subprocess.CompletedProcess[str], operation: str) ->
 
 def verify_request(target_sha: str) -> None:
     if os.environ.get("GITHUB_REF_NAME") != "main":
-        raise AdmissionError("UAT admission requires a main-branch dispatch")
+        from release_acceptance_provenance import deployment_authority
+        try:
+            run_id = int(os.environ["GITHUB_RUN_ID"])
+            observed = json.loads(require_success(command([
+                "gh", "api", f"repos/hushh-labs/hushh-research/actions/runs/{run_id}",
+            ]), "UAT caller verification"))
+            authority = deployment_authority(observed, "uat")
+            if (os.environ.get("GITHUB_REF_NAME") != "uat"
+                    or observed.get("run_attempt") != int(os.environ["GITHUB_RUN_ATTEMPT"])
+                    or observed.get("status") != "in_progress"
+                    or authority["caller_sha"] != os.environ.get("GITHUB_SHA")
+                    or authority["tooling_sha"] != os.environ.get("RELEASE_TOOLING_SHA")):
+                raise ValueError("current caller or implementation changed")
+        except (KeyError, TypeError, ValueError) as error:
+            raise AdmissionError("UAT admission requires verified Main implementation provenance") from error
     if not re.fullmatch(r"[0-9a-f]{40}", target_sha):
         raise AdmissionError("UAT admission requires an exact 40-character SHA")
     actor = os.environ.get("GITHUB_ACTOR", "")
@@ -111,6 +125,22 @@ def verify_request(target_sha: str) -> None:
                  "--surface", "uat", "--actor", actor]),
         "UAT actor governance",
     )
+    source_branch = os.environ.get("UAT_SOURCE_BRANCH", "uat")
+    if source_branch == "uat-isolated":
+        # Isolated qualification belongs to the Main run, so validate its
+        # bound application and approval before and after the capacity wait.
+        require_success(command([
+            sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+            "validate-deployment", "--source-branch", source_branch, "--sha", target_sha,
+            "--authority-sha", os.environ.get("RELEASE_TOOLING_SHA", ""),
+            "--ci-run-id", os.environ.get("CI_RUN_ID", ""),
+            "--ci-attempt", os.environ.get("CI_ATTEMPT", ""),
+            "--base-sha", os.environ.get("CI_BASE_SHA", ""),
+            "--approved-scope", os.environ.get("APPROVED_SCOPE", ""),
+        ]), "exact isolated application SHA and CI validation")
+        return
+    if source_branch != "uat":
+        raise AdmissionError("Unrecognized protected UAT source branch")
     require_success(command(["git", "fetch", "--no-tags", "origin", "main", "uat"]),
                     "UAT source refresh")
 
@@ -188,7 +218,7 @@ def resolved_scope(target_sha: str, requested_scope: str) -> Any:
         raise AdmissionError("UAT deploy scope cannot be verified") from exc
 
 
-def capacity_args(mode: str, decision: Any | None) -> list[str]:
+def capacity_args(mode: str, decision: Any | None, target_sha: str | None = None) -> list[str]:
     args = [sys.executable, str(ROOT / "scripts/ci/runtime-capacity-budget.py"),
             "--environment", "uat", "--report-only", "--output", "json"]
     if mode == "one-chat":
@@ -196,6 +226,8 @@ def capacity_args(mode: str, decision: Any | None) -> list[str]:
     if decision is None:
         raise AdmissionError("full UAT admission lacks a resolved scope")
     if decision.deploy_backend:
+        if target_sha is not None:
+            args += ["--target-sha", target_sha]
         return [*args, "--candidate-service", "consent-protocol",
                 "--candidate-service", "consent-protocol-drive-worker"]
     if decision.deploy_frontend:
@@ -203,8 +235,8 @@ def capacity_args(mode: str, decision: Any | None) -> list[str]:
     raise AdmissionError("UAT deploy scope has no candidate lane")
 
 
-def capacity_report(mode: str, decision: Any | None) -> dict[str, Any]:
-    result = command(capacity_args(mode, decision))
+def capacity_report(mode: str, decision: Any | None, target_sha: str | None = None) -> dict[str, Any]:
+    result = command(capacity_args(mode, decision, target_sha))
     # A temporary extra job can disappear while this bounded observer waits.
     # Only this exact inventory shape is retryable. Missing profiled jobs,
     # malformed output and authentication/query failures remain fatal.
@@ -309,7 +341,7 @@ def _wait_for_capacity(
             and not decision.deploy_backend
         )
         try:
-            report = capacity_report(mode, decision)
+            report = capacity_report(mode, decision, target_sha)
         except TransientJobInventoryDrift as exc:
             report = None
             last_projection = str(exc)
@@ -337,7 +369,7 @@ def _wait_for_capacity(
                 )
                 continue
             try:
-                final_report = capacity_report(mode, final_decision)
+                final_report = capacity_report(mode, final_decision, target_sha)
             except TransientJobInventoryDrift as exc:
                 final_report = None
                 last_projection = str(exc)

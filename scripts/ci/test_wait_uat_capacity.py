@@ -39,6 +39,39 @@ class FakeClock:
 
 
 class ApplicationAuthorityTests(unittest.TestCase):
+    def test_isolated_capacity_requires_pinned_main_qualification_and_approval(self):
+        candidate, base, authority, head = ("a" * 40, "b" * 40, "c" * 40, "d" * 40)
+        approval = f"{base}:{base}:8821={head}"
+        environment = {
+            "GITHUB_REF_NAME": "main",
+            "UAT_SOURCE_BRANCH": "uat-isolated",
+            "RELEASE_TOOLING_SHA": authority,
+            "CI_RUN_ID": "42",
+            "CI_ATTEMPT": "2",
+            "CI_BASE_SHA": base,
+            "APPROVED_SCOPE": approval,
+        }
+        for code in (0, 1):
+            with (
+                self.subTest(code=code),
+                patch.dict(wait.os.environ, environment),
+                patch.object(wait, "command", side_effect=[
+                    subprocess.CompletedProcess([], 0, "", ""),
+                    subprocess.CompletedProcess([], code, "", "qualification refused" if code else ""),
+                ]) as run,
+            ):
+                if code:
+                    with self.assertRaisesRegex(wait.AdmissionError, "qualification refused"):
+                        wait.verify_request(candidate)
+                else:
+                    wait.verify_request(candidate)
+                self.assertEqual(run.call_args.args[0], [
+                    sys.executable, str(ROOT / "scripts/ci/uat_release_prerequisites.py"),
+                    "validate-deployment", "--source-branch", "uat-isolated", "--sha", candidate,
+                    "--authority-sha", authority, "--ci-run-id", "42", "--ci-attempt", "2",
+                    "--base-sha", base, "--approved-scope", approval,
+                ])
+
     def test_application_authority_requires_protected_uat_history(self):
         for history in ("main", "uat", "unplaced"):
             with self.subTest(history=history):
@@ -96,6 +129,10 @@ class CapacityAdmissionTests(unittest.TestCase):
              "--candidate-service", "consent-protocol-drive-worker"],
         )
         self.assertEqual(wait.capacity_args("full", frontend)[-1], "--frontend-only")
+        target = "a" * 40
+        bound = wait.capacity_args("full", backend, target)
+        self.assertEqual(bound[bound.index("--target-sha") + 1], target)
+        self.assertNotIn("--target-sha", wait.capacity_args("full", frontend, target))
         self.assertEqual(
             wait.capacity_args("one-chat", None)[-2:],
             ["--inherit-candidate-service", "consent-protocol"],
@@ -345,8 +382,8 @@ class CapacityAdmissionTests(unittest.TestCase):
 
 
 class WorkflowWiringTests(unittest.TestCase):
-    def test_both_requests_wait_outside_shared_mutation_lock(self) -> None:
-        for filename in ("deploy-uat.yml", "deploy-uat-one-chat.yml"):
+    def test_uat_requests_wait_outside_shared_mutation_lock(self) -> None:
+        for filename in ("deploy-uat-implementation.yml",):
             with self.subTest(workflow=filename):
                 source = (ROOT / ".github/workflows" / filename).read_text()
                 self.assertIn("group: uat-release-requests-", source)
@@ -362,7 +399,7 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
                 self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
-        full = (ROOT / ".github/workflows/deploy-uat.yml").read_text()
+        full = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
         self.assertIn("inputs.scope == 'frontend' && 'frontend' || 'backend'", full)
         self.assertIn("needs: [select-target, wait-capacity, deployment-security]", full)
         self.assertLess(
@@ -414,13 +451,6 @@ class WorkflowWiringTests(unittest.TestCase):
                 'gcloud run services update-traffic "${{ env.FRONTEND_SERVICE }}"'
             ),
         )
-        one_chat = (ROOT / ".github/workflows/deploy-uat-one-chat.yml").read_text()
-        self.assertIn("group: uat-release-requests-backend", one_chat)
-        self.assertIn("needs: [wait-capacity, deployment-security]", one_chat)
-        self.assertLess(
-            one_chat.index("- name: Enforce UAT database connection budget"),
-            one_chat.index("- name: Deploy and verify only the backend service"),
-        )
 
     def test_hourly_cleanup_has_no_waiting_followup(self):
         source = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
@@ -459,8 +489,9 @@ class InspectionPublicationTests(unittest.TestCase):
             pass
         workflow = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
         for environment, label in (("uat", "UAT"), ("production", "Production")):
-            expression = "github.event_name == 'workflow_dispatch' && !inputs.apply"
-            self.assertIn(expression + f" && '{label} revision inspection' || '{label} bounded revision cleanup'", workflow)
+            self.assertIn(f"name: {label} revision maintenance", workflow)
+            self.assertIn("name: 'Maintenance mode: inspection'", workflow)
+            self.assertIn("name: 'Maintenance mode: cleanup'", workflow)
             job = {"name": f"{label} revision inspection", "status": "completed", "conclusion": "failure", "steps": [
                 {"name": f"Prepare or finish eligible {environment} revision cleanup", "conclusion": "failure"},
                 {"name": f"Save {environment} cleanup checkpoint", "conclusion": "skipped"}]}
@@ -470,6 +501,20 @@ class InspectionPublicationTests(unittest.TestCase):
             job["name"] = f"{label} bounded revision cleanup"
             with self.assertRaisesRegex(UnsafeState, "without publishing"):
                 publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+            job["name"] = f"{label} revision maintenance"
+            original = job["steps"].copy()
+            for modes, expected in ((["inspection"], False), (["cleanup"], "without publishing"),
+                                    ([], "mode"), (["inspection", "cleanup"], "mode")):
+                with self.subTest(environment=environment, modes=modes):
+                    job["steps"] = original + [{"name": f"Maintenance mode: {mode}",
+                                                "conclusion": "success" if mode in modes else "skipped"}
+                                                for mode in ("inspection", "cleanup")]
+                    if expected is False:
+                        self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+                    else:
+                        with self.assertRaisesRegex(UnsafeState, expected):
+                            publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+
 
 
 if __name__ == "__main__":

@@ -88,7 +88,7 @@ def test_uat_decides_generation_admission_before_secrets_and_the_deletion_fence(
 ) -> None:
     # A bad value fails Cloud Build and the HushhTech pairing fails startup; both
     # must stop the release before runtime secrets sync or the fence installs.
-    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml")
     steps = _workflow_steps(workflow)
     decision = steps.index(GENERATION_DECISION)
     assert decision < steps.index("Sync canonical hosted runtime secrets")
@@ -139,7 +139,7 @@ def test_uat_refuses_the_hushhtech_client_while_the_serving_backend_admits_gener
 ) -> None:
     # Turning admission off and the client on in one release would still restart the
     # serving revision's instances into a refused startup after secrets sync.
-    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat.yml")
+    workflow = _read(REPO_ROOT / ".github/workflows/deploy-uat-implementation.yml")
     steps = _workflow_steps(workflow)
     refusal = steps.index(SERVING_REFUSAL)
     assert steps.index("Capture predeploy Cloud Run state") < refusal
@@ -203,7 +203,7 @@ def test_uat_refuses_the_hushhtech_client_while_the_serving_backend_admits_gener
 def test_generation_admission_runs_on_shared_dev_and_stays_off_in_production(
     tmp_path: Path, admission: str, owner_split: bool, expected: str | None
 ) -> None:
-    dev = _read(REPO_ROOT / ".github/workflows/deploy-dev.yml")
+    dev = _read(REPO_ROOT / ".github/workflows/deploy-dev-implementation.yml")
     steps = _workflow_steps(dev)
     assert steps.index(GENERATION_DECISION) < steps.index(
         "Apply dev DB migrations and predeploy schema gate"

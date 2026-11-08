@@ -40,9 +40,10 @@
     ".agents/skills/repo-operations/references/anti-rationalization.md"
   ],
   "required_commands": [
-    "./bin/hushh codex ci-status",
-    "./scripts/ci/orchestrate.sh core",
-    "./bin/hushh codex rca --surface uat --text",
+    "./bin/hushh agents ci-status",
+    "CI_VALIDATION_LEVEL=focused CI_CHANGED_FILES_FILE=/path/to/changed-files.txt scripts/ci/repo-governance-check.sh",
+    "CI_VALIDATION_LEVEL=diagnostic scripts/ci/repo-governance-check.sh",
+    "./bin/hushh agents rca --surface uat --text",
     "./bin/hushh docs verify",
     "./scripts/ci/verify-main-branch-protection.sh",
     "./scripts/ci/apply-governance.py",
@@ -52,15 +53,15 @@
     {
       "id": "repo-operations",
       "commands": [
-        "./bin/hushh codex ci-status",
+        "./bin/hushh agents ci-status",
         "./scripts/ci/orchestrate.sh core",
-        "./bin/hushh codex rca --surface uat --text",
+        "./bin/hushh agents rca --surface uat --text",
         "./bin/hushh docs verify",
         "./scripts/ci/verify-main-branch-protection.sh",
         "./scripts/ci/verify-production-environment-governance.sh"
       ],
       "tests": [
-        "./bin/hushh codex rca --surface uat --text",
+        "./bin/hushh agents rca --surface uat --text",
         "./bin/hushh docs verify",
         "./scripts/ci/verify-main-branch-protection.sh",
         "./scripts/ci/verify-production-environment-governance.sh"

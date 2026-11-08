@@ -17,15 +17,15 @@
     "docs/reference/operations/coding-agent-mcp.md"
   ],
   "required_commands": [
-    "./bin/hushh codex scan summary",
-    "./bin/hushh codex scan section skills",
-    "./bin/hushh codex list-workflows"
+    "./bin/hushh agents scan summary",
+    "./bin/hushh agents scan section skills",
+    "./bin/hushh agents list-workflows"
   ],
   "verification_bundle": {
     "id": "repo-orientation",
     "commands": [
-      "./bin/hushh codex scan summary",
-      "./bin/hushh codex audit"
+      "./bin/hushh agents scan summary",
+      "./bin/hushh agents audit"
     ],
     "tests": []
   },

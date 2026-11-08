@@ -25,7 +25,6 @@ LANES = {
     "frontend": (
         "web-core-check",
         "web-targeted-check",
-        "web-targeted-browser",
         "web-full-suite-check",
         "integration-check",
     ),
@@ -39,7 +38,7 @@ LANES = {
     "ios": ("ios-native-check",),
     "android": ("android-native-check",),
     "editor": (),
-    "document": ("document-webkit-check", "integration-check"),
+    "document": ("integration-check",),
 }
 # No path filter: these must succeed on every event.
 AUTHORITY = (
@@ -50,7 +49,7 @@ AUTHORITY = (
     "preflight-gate",
     "dco-check",
 )
-PULL_REQUEST_ONLY = ("pr-base-policy", "main-freshness-gate")
+PULL_REQUEST_ONLY = ("pr-base-policy",)
 ALL_JOBS = sorted(
     {*AUTHORITY, *PULL_REQUEST_ONLY, *(lane for lanes in LANES.values() for lane in lanes)}
 )
@@ -65,7 +64,9 @@ class Run:
     event: str
     attempt: int = 1
     base_ref: str = ""
+    ref: str = ""
     scope: str = ""
+    inputs: dict[str, str] = field(default_factory=dict)
     outputs: dict[str, str] = field(default_factory=dict)
     results: dict[str, str] = field(default_factory=dict)
 
@@ -127,6 +128,10 @@ def _resolve(text: str, run: Run) -> str:
             "github.sha": HEAD_SHA,
             "github.token": "stub-token",
             "inputs.scope": run.scope,
+            **{
+                f"inputs.{name}": run.inputs.get(name, "")
+                for name in ("uat_base_sha", "uat_candidate_sha", "uat_candidate_tree")
+            },
         }
         assert expression in contexts, (
             f"CI Status Gate reads ${{{{ {expression} }}}}, which this harness does not "
@@ -161,11 +166,19 @@ def _verdict(run: Run, tmp_path: Path) -> tuple[bool, str]:
     assert set(run.results) >= set(ALL_JOBS), "the scenario must give every needed job a result"
     output = ""
     for step in _gate()["steps"]:
+        # Artifact production is tested by the queue receipt owner. This harness
+        # executes the actual verdict scripts, not checkout/upload actions.
+        if "uses" in step or step.get("name") == "Record tested merge inputs":
+            continue
         condition = step.get("if")
         if condition is not None:
             conditions = {
                 "github.event_name == 'workflow_dispatch'": run.event == "workflow_dispatch",
                 "github.run_attempt > 1": run.attempt > 1,
+                "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/New_memory_architecutre'": (
+                    run.event == "workflow_dispatch"
+                    and run.ref == "refs/heads/New_memory_architecutre"
+                ),
             }
             assert condition in conditions, f"unmodelled step condition: {condition}"
             if not conditions[condition]:
@@ -181,7 +194,7 @@ def _failing_runs() -> list[tuple[str, Run]]:
     runs: list[tuple[str, Run]] = []
     for name, lanes in LANES.items():
         for lane in lanes:
-            for result in ("skipped", "cancelled"):
+            for result in ("skipped", "cancelled", "failure"):
                 runs.append(
                     (
                         f"{name}-selects-{lane}-{result}",
@@ -199,13 +212,6 @@ def _failing_runs() -> list[tuple[str, Run]]:
         runs.append((f"dispatch-{job}-skipped", DISPATCH.with_result(job, "skipped")))
     runs += [
         ("pr-base-policy-skipped", EVERYTHING.with_result("pr-base-policy", "skipped")),
-        ("freshness-skipped-into-main", EVERYTHING.with_result("main-freshness-gate", "skipped")),
-        (
-            "freshness-skipped-into-train",
-            replace(EVERYTHING, base_ref="integration/pr-train").with_result(
-                "main-freshness-gate", "skipped"
-            ),
-        ),
         (
             "editor-output-undecided",
             replace(EVERYTHING, outputs={**EVERYTHING.outputs, "editor": ""}),
@@ -215,14 +221,6 @@ def _failing_runs() -> list[tuple[str, Run]]:
         ("dispatch-backend-scope", replace(DISPATCH, scope="backend")),
         ("dispatch-unknown-scope", replace(DISPATCH, scope="unknown")),
     ]
-    for base in ("dev", "uat"):
-        for result in ("skipped", "cancelled", "failure"):
-            runs.append(
-                (
-                    f"{base}-freshness-{result}",
-                    replace(EVERYTHING, base_ref=base).with_result("main-freshness-gate", result),
-                )
-            )
     return runs
 
 
@@ -232,6 +230,11 @@ def _passing_runs() -> list[tuple[str, Run]]:
     ]
     runs += [
         ("everything-selected", EVERYTHING),
+        ("combined-merge-result", replace(DISPATCH, event="merge_group")),
+        (
+            "failed-drift-guidance-is-advisory",
+            EVERYTHING.with_result("main-freshness-gate", "failure"),
+        ),
         ("dev-freshness-passed", replace(EVERYTHING, base_ref="dev")),
         ("uat-freshness-passed", replace(EVERYTHING, base_ref="uat")),
         ("nothing-selected", _selected()),
@@ -243,6 +246,10 @@ def _passing_runs() -> list[tuple[str, Run]]:
         ),
         ("dispatch-auto", DISPATCH),
         ("dispatch-all", replace(DISPATCH, scope="all")),
+        (
+            "release-without-native-impact",
+            replace(_dispatch(_selected(frontend=True, backend=True, document=True)), scope="all"),
+        ),
     ]
     return runs
 
@@ -298,6 +305,16 @@ def test_negative_control_a_green_run_passes(name: str, run: Run, tmp_path: Path
     )
 
 
+@pytest.mark.parametrize("override", ["uat_base_sha", "uat_candidate_sha", "uat_candidate_tree"])
+def test_sandbox_branch_gate_rejects_overrides_to_its_actual_source(tmp_path: Path, override: str):
+    sandbox = replace(DISPATCH, ref="refs/heads/New_memory_architecutre")
+    assert _verdict(sandbox, tmp_path)[0]
+
+    passed, output = _verdict(replace(sandbox, inputs={override: HEAD_SHA}), tmp_path)
+    assert not passed
+    assert "without UAT source overrides" in output
+
+
 def test_summary_reports_selected_unselected_blocked_and_first_failure(
     tmp_path: Path,
 ) -> None:
@@ -338,7 +355,7 @@ def test_manual_branch_verdict_cannot_satisfy_pr_protection() -> None:
     # This is a branch-protection identity boundary, not an outcome shortcut.
     # The guarded branch names are deliberately absent from the dispatch name.
     assert _gate()["name"] == (
-        "${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}"
+        "${{ github.event_name == 'merge_group' && 'Combined Result Gate' || github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}"
     )
 
 

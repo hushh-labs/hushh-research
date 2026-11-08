@@ -2,6 +2,7 @@
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
 import { useDocumentFeedStream } from "@/lib/feed/use-document-feed-stream";
@@ -3599,6 +3600,7 @@ function ProfilePageContent({
             />
           }
         />
+        <NetworkVisibilitySetting />
         <SettingsRow
           icon={PROFILE_ICONS.visibility}
           iconTone="capability"
@@ -4965,7 +4967,7 @@ function ProfilePageContent({
             provider={cloudCleanupProvider ?? undefined} purpose={cloudCleanupProvider === "gcp" ? "remove_cloud" : "account"}
             continueAccountDeletion={cloudCleanupProvider === "gcp"}
             onUnlock={() => { setShowDeleteConfirm(false); requestVaultUnlock("delete_account"); }}
-            onFinish={handleDeleteAccount} /> : null}
+            onFinish={handleDeleteAccount} onLeave={handleSignOut} /> : null}
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
             <AlertDialogCancel
               className="w-full sm:w-auto"

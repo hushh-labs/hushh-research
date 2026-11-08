@@ -511,3 +511,113 @@ def test_exact_uat_checks_the_serving_transition_and_landed_pr_mirrors(
     candidate["actions"][0]["execution"]["binding_ref"] = "breaking-binding"
     with pytest.raises(RuntimeError, match="unacknowledged breaking changes"):
         generator.main()
+
+
+@pytest.mark.parametrize(
+    "case", ["declared", "undeclared", "missing", "action", "workflow", "policy"]
+)
+def test_reviewed_divergent_serving_history_keeps_semantics_and_revision_fences(
+    repo: Repo,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    repo.git("checkout", "-q", "main")
+    compiled = deepcopy(V1)
+    compiled["workflows"] = [
+        {
+            "capability_id": "workflow.synthetic",
+            "version": 1,
+            "execution": {"binding_ref": "workflow-binding"},
+        }
+    ]
+    monkeypatch.setattr(
+        generator, "compile_capability_graph_from_sources", lambda: deepcopy(compiled)
+    )
+    common_payload = generator.build_payload(base_ref="main")
+    repo.write_graph(common_payload)
+    repo.commit("publish the common workflow")
+    repo.git("checkout", "-q", "-b", "published-serving")
+    published = deepcopy(common_payload)
+    published["revision"] = "published-divergent"
+    published["workflow_revision_compatibility"]["current_graph_revision"] = published["revision"]
+    if case == "action":
+        published["actions"][0]["execution"]["binding_ref"] = "serving-only-action"
+    if case == "workflow":
+        published["workflows"][0]["execution"]["binding_ref"] = "serving-only-workflow"
+    if case == "policy":
+        published["workflow_revision_compatibility"]["workflows"][0]["rejected_graph_revisions"] = [
+            "candidate-current"
+        ]
+    repo.write_graph(published)
+    if case == "missing":
+        for output in generator.OUTPUTS:
+            output.unlink()
+    serving = repo.commit("publish the separate serving history")
+    repo.git("checkout", "-q", "main")
+    ledger = json.loads(generator.EVOLUTION_CONTRACT_PATH.read_text())
+    ledger["workflow_predecessor_refs"] = [] if case == "undeclared" else [serving]
+    generator.EVOLUTION_CONTRACT_PATH.write_text(json.dumps(ledger))
+    repo.commit("review the exact retained serving pin")
+    compiled["revision"] = "candidate-current"
+    compiled["actions"].append({**deepcopy(compiled["actions"][0]), "capability_id": "Y"})
+    if case == "undeclared":
+        with pytest.raises(subprocess.CalledProcessError):
+            generator.build_payload(base_ref="main", workflow_predecessor_refs=(serving,))
+        return
+    if case == "missing":
+        with pytest.raises(subprocess.CalledProcessError):
+            generator.build_payload(base_ref="main")
+        return
+    if case in {"action", "workflow", "policy"}:
+        with pytest.raises(
+            RuntimeError, match="unacknowledged breaking changes|conflicts with revision policy"
+        ):
+            generator.build_payload(base_ref="main")
+        return
+    payload = generator.build_payload(base_ref="main")
+    assert (
+        published["revision"]
+        in payload["workflow_revision_compatibility"]["workflows"][0]["compatible_graph_revisions"]
+    )
+    repo.write_graph(payload)
+    parent = repo.commit("publish the compatible successor")
+    reviewed = generator.build_payload(base_ref=parent)
+    reviewed["semantic_diff"] = {
+        key: None if key == "from_revision" else [] for key in reviewed["semantic_diff"]
+    }
+    repo.write_graph(reviewed)
+    repo.commit("record the reviewed zero comparison")
+    repo.git("checkout", "-q", "-b", "reviewed-change")
+    (repo.root / "proof.txt").touch()
+    repo.commit("reviewed unrelated change")
+    repo.git("checkout", "-q", "main")
+    repo.git("merge", "--no-ff", "--no-edit", "reviewed-change")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat")
+    monkeypatch.setenv("GITHUB_SHA", repo.git("rev-parse", "HEAD"))
+    monkeypatch.setenv("CI_VALIDATION_LEVEL", "release")
+    monkeypatch.setattr(
+        "sys.argv", ["generate_capability_graph.py", "--check", "--base-ref", serving]
+    )
+    assert generator.main() == 0
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat-isolated")
+    with pytest.raises(SystemExit, match="artifacts are stale"):
+        generator.main()
+    # The Main-owned TestFlight gate must preserve the same normal-UAT
+    # comparison after its exact-source/backend acceptance preflight.
+    head = repo.git("rev-parse", "HEAD")
+    workflow = "hushh-labs/hushh-research/.github/workflows/ship-ios-testflight.yml@refs/heads/main"
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("UAT_CI_CANDIDATE", head)
+    monkeypatch.setenv("SOURCE_BRANCH", "uat")
+    monkeypatch.setenv("GITHUB_WORKFLOW_REF", workflow)
+    assert generator.main() == 0
+    for field, value in (
+        ("SOURCE_BRANCH", "uat-isolated"),
+        ("GITHUB_WORKFLOW_REF", workflow.replace("ship-ios-testflight", "ci")),
+        ("UAT_CI_CANDIDATE", parent),
+    ):
+        with monkeypatch.context() as wrong:
+            wrong.setenv(field, value)
+            with pytest.raises(SystemExit, match="artifacts are stale"):
+                generator.main()

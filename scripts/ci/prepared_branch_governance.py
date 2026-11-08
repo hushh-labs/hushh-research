@@ -10,10 +10,72 @@ comes from the authored team, never from an arbitrary template's bypass list.
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
+import re
 import subprocess
 from urllib.parse import quote
+
+
+def queue_rules(policy: dict, rules: list[dict]) -> list[dict]:
+    """Apply reviewed queue limits without changing merge or review authority."""
+    repository = policy.get("repository", {})
+    ceiling = repository.get("merge_queue_check_timeout_minutes")
+    builds = repository.get("merge_queue_max_entries_to_build")
+    result = copy.deepcopy(rules)
+    if ceiling is None and builds is None:  # Historical policy remains readable.
+        return result
+    if ceiling is not None and (type(ceiling) is not int or not 1 <= ceiling <= 360):
+        raise SystemExit("Invalid merge queue response ceiling")
+    # Admission currently roots every group at the landed destination. Parallel
+    # speculative bases require predecessor-chain authority and settlement proof.
+    if builds is not None and (type(builds) is not int or builds != 1):
+        raise SystemExit("Only one destination-rooted queue build is qualified")
+    queues = [rule for rule in result if rule.get("type") == "merge_queue"]
+    if len(queues) != 1 or not isinstance(queues[0].get("parameters"), dict):
+        raise SystemExit("Queue limits require one complete queue rule")
+    if ceiling is not None:
+        queues[0]["parameters"]["check_response_timeout_minutes"] = ceiling
+    if builds is not None:
+        queues[0]["parameters"]["max_entries_to_build"] = builds
+    return result
+
+
+def branch_policy(policy: dict, branch: str) -> dict:
+    """Project named-owner exceptions without changing shared cohorts."""
+    config = policy["branch_flow"]["prepared_branches"][branch]
+    source = copy.deepcopy(policy[config["policy_key"]])
+    if branch == "uat-isolated":
+        source.update(
+            required_approving_reviews=1, require_code_owner_reviews=True,
+            require_last_push_approval=True, require_strict_status_checks=True,
+            require_conversation_resolution=True,
+        )
+    if config.get("owner_admin_ruleset_name"):
+        owners = sorted(policy["main"]["protected_pipeline_edit_users"])
+        if (branch not in {"dev", "uat", "uat-isolated"} or config["owner_admin_ruleset_name"] != f"{branch} owner validated merge"
+                or not owners or not set(owners) <= set(source["review_bypass_users"])):
+            raise SystemExit("Prepared Admin merge requires an approved destination and existing protected owners")
+        source.update(
+            owner_admin_ruleset_name=config["owner_admin_ruleset_name"],
+            merge_users=sorted(source["review_bypass_users"]),
+            protected_pipeline_edit_users=owners,
+            review_bypass_users=owners, review_bypass_team_slug="",
+            merge_queue_bypass_users=owners, merge_queue_bypass_team_slug="",
+            merge_queue_bypass_team_name="",
+        )
+        if policy.get("authorization", {}).get("native_teams"):
+            source["native_team_authority"] = True
+            source["review_bypass_team_slug"] = "pipeline-editors"
+            source["merge_queue_bypass_team_slug"] = "pipeline-editors"
+            source["merge_queue_bypass_team_name"] = "pipeline-editors"
+        if branch != "uat-isolated":
+            source.update(
+                required_approving_reviews=0, require_code_owner_reviews=False,
+                require_last_push_approval=False, require_strict_status_checks=False,
+            )
+    return source
 
 
 def protection_payload(policy: dict) -> dict:
@@ -29,8 +91,8 @@ def protection_payload(policy: dict) -> dict:
             "required_approving_review_count": policy["required_approving_reviews"],
             "require_last_push_approval": policy["require_last_push_approval"],
             "bypass_pull_request_allowances": {
-                "users": sorted(policy["review_bypass_users"]),
-                "teams": [policy["review_bypass_team_slug"]],
+                "users": [] if policy.get("native_team_authority") else sorted(policy["review_bypass_users"]),
+                "teams": [policy["review_bypass_team_slug"]] if policy.get("review_bypass_team_slug") else [],
                 "apps": [],
             },
         },
@@ -42,7 +104,7 @@ def protection_payload(policy: dict) -> dict:
     }
 
 
-def _write(endpoint: str, payload: dict, method: str) -> None:
+def _write(endpoint: str, payload: dict | list[str], method: str) -> None:
     result = subprocess.run(
         ["gh", "api", "--method", method, endpoint, "--input", "-"],
         input=json.dumps(payload), capture_output=True, text=True,
@@ -89,7 +151,72 @@ def _assert_no_unowned_protection(current: dict, desired: dict | None = None) ->
             raise SystemExit(f"Existing {key} requires explicit reconciliation")
 
 
-def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply: bool) -> None:
+def _same_actors(actual, expected):
+    """GitHub may reorder actors; retain duplicates and compare every field."""
+    if not isinstance(actual, list) or not isinstance(expected, list):
+        return False
+    return sorted(json.dumps(actor, sort_keys=True) for actor in actual) == sorted(
+        json.dumps(actor, sort_keys=True) for actor in expected
+    )
+
+
+def _same_queue(actual, expected, *, snapshot=False):
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    if not _same_actors(actual.get("bypass_actors"), expected.get("bypass_actors")):
+        return False
+    if snapshot:
+        return {k: v for k, v in actual.items() if k != "bypass_actors"} == {
+            k: v for k, v in expected.items() if k != "bypass_actors"
+        }
+    return all(actual.get(k) == v for k, v in expected.items() if k != "bypass_actors")
+
+
+STAGE_B_AUTHORITY_PATHS = (
+    ".github/workflows/ci.yml", ".github/workflows/queue-validation.yml",
+    "scripts/ci/queue_combined_result.py", "scripts/ci/verify-protected-pipeline-edits.py",
+    "scripts/ci/verify-queue-entry-reuses-pr-validation.py", "scripts/ci/apply-governance.py",
+    "scripts/ci/prepared_branch_governance.py", "config/ci-governance.json",
+)
+
+
+def verify_destination_authority(branch: str, *, repo: str, read, expected=None, policy=None):
+    """Never relax reviews while the destination still executes stale queue authority."""
+    revisions = {}
+    for ref in ("main", branch):
+        obj = read(["api", f"repos/{repo}/git/ref/heads/{ref}"]).get("object", {})
+        if obj.get("type") != "commit" or not re.fullmatch(r"[a-f0-9]{40}", str(obj.get("sha", ""))):
+            raise SystemExit("Queue authority source revision is unproven")
+        revisions[ref] = obj["sha"]
+    if expected is not None and revisions["main"] != expected:
+        raise SystemExit("Main authority advanced; replan before changing protections")
+    if branch == "uat-isolated":
+        # Isolated keeps classic review and strict CI. This transition only
+        # narrows existing exceptions, so its old queue code can stay in place.
+        item = read(["api", f"repos/{repo}/contents/config/ci-governance.json?ref={revisions['main']}"])
+        try:
+            content = item.get("content")
+            if (policy is None or item.get("path") != "config/ci-governance.json"
+                    or item.get("encoding") != "base64"
+                    or not isinstance(content, str) or len(content) > 350_000
+                    or json.loads(base64.b64decode("".join(content.split()), validate=True)) != policy):
+                raise ValueError("Policy mismatch")
+        except (ValueError, UnicodeError) as error:
+            raise SystemExit("Isolated Admin policy must match protected Main") from error
+        return revisions["main"]
+    for path in STAGE_B_AUTHORITY_PATHS:
+        objects = []
+        for ref in ("main", branch):
+            item = read(["api", f"repos/{repo}/contents/{path}?ref={revisions[ref]}"])
+            if item.get("path") != path or item.get("type") != "file" or not re.fullmatch(r"[a-f0-9]{40}", str(item.get("sha", ""))):
+                raise SystemExit("Queue authority blob is missing or malformed")
+            objects.append(item["sha"])
+        if objects[0] != objects[1]:
+            raise SystemExit(f"Destination queue authority is stale: {path}; source-sync before Stage B")
+    return revisions["main"]
+
+
+def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply: bool, governance=None) -> None:
     prepared = policy["branch_flow"]["prepared_branches"]
     # Validate the entire request before any API call or mutation.
     if not branches or any(branch not in prepared for branch in branches):
@@ -98,7 +225,7 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
     plans = []
     for branch in dict.fromkeys(branches):
         config = prepared[branch]
-        source = policy[config["policy_key"]]
+        source = branch_policy(policy, branch)
         name = config["merge_queue_ruleset_name"]
         matches = [r for r in rulesets if r["name"] == name]
         templates = [r for r in rulesets if r["name"] == source["merge_queue_ruleset_name"]]
@@ -108,20 +235,49 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         queue = [r for r in template["rules"] if r["type"] == "merge_queue"]
         if template["enforcement"] != "active" or len(queue) != 1 or not queue[0].get("parameters"):
             raise SystemExit(f"Unqualified queue template for {branch}")
-        team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{source['merge_queue_bypass_team_slug']}"])
+        slug = source.get("merge_queue_bypass_team_slug")
+        native = bool(config.get("owner_admin_ruleset_name"))
+        if native:
+            if governance is None:
+                raise SystemExit("Native prepared review requires the existing governance verifier")
+            governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
+            authority = verify_destination_authority(branch, repo=repo, read=read, policy=policy)
+        else:
+            authority = None
+        if not native and source.get("require_strict_status_checks") is False and (slug or source.get("merge_queue_bypass_users")):
+            raise SystemExit("Combined-result enforcement requires queue bypass to be disabled")
+        team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{slug}"]) if slug else None
+        actors = []
+        if native and source.get("native_team_authority"):
+            actors = [governance.pipeline_team_actor(read)]
+        elif native:
+            for owner in source["merge_queue_bypass_users"]:
+                user = read(["api", f"users/{owner}"])
+                if user.get("login") != owner or user.get("type") != "User" or type(user.get("id")) is not int:
+                    raise SystemExit("Owner queue exception identity is unavailable")
+                actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
         desired_queue = {
             "name": name, "target": "branch", "enforcement": "active",
             "conditions": {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}},
-            "bypass_actors": [{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}],
-            "rules": copy.deepcopy(queue),
+            "bypass_actors": actors if native else ([{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}] if team else []),
+            "rules": queue_rules(policy, queue),
         }
         current_queue = None
+        if native and not matches:
+            raise SystemExit("Native review transition requires the existing exact-ref queue")
         if matches:
             current_queue = read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"])
             if current_queue.get("target") != "branch" or current_queue.get("conditions") != desired_queue["conditions"]:
                 raise SystemExit(f"Refusing to retarget existing ruleset {name}")
             if any(r["type"] != "merge_queue" for r in current_queue["rules"]):
                 raise SystemExit(f"Refusing to replace unrelated rules in {name}")
+            if native and not (_same_actors(current_queue.get("bypass_actors", []), [])
+                               or _same_actors(current_queue.get("bypass_actors", []), actors)):
+                legacy_slug = policy[config["policy_key"]].get("review_bypass_team_slug")
+                legacy_team = read(["api", f"orgs/{repo.split('/')[0]}/teams/{legacy_slug}"]) if legacy_slug else {}
+                legacy_bypass = [{"actor_id": legacy_team.get("id"), "actor_type": "Team", "bypass_mode": "pull_request"}]
+                if not legacy_team.get("id") or not _same_actors(current_queue.get("bypass_actors"), legacy_bypass):
+                    raise SystemExit("Unexpected queue bypass actors require explicit reconciliation")
         endpoint = f"repos/{repo}/branches/{quote(branch, safe='')}/protection"
         code, output, error = raw(["api", endpoint], check=False)
         if code and "(HTTP 404)" not in error:
@@ -130,16 +286,48 @@ def reconcile(policy: dict, branches: list[str], *, repo: str, read, raw, apply:
         read(["api", f"repos/{repo}/git/ref/heads/{quote(branch, safe='')}"])
         current = json.loads(output) if not code else {}
         desired = protection_payload(source)
-        _assert_no_unowned_protection(current, desired)
-        plans.append((branch, endpoint, desired, current, desired_queue, current_queue, matches))
-    for branch, endpoint, desired, current, queue, previous, matches in plans:
+        if native:
+            legacy = protection_payload(policy[config["policy_key"]])
+            legacy["required_status_checks"]["strict"] = (
+                True if branch == "uat-isolated"
+                else (current.get("required_status_checks") or {}).get("strict")
+            )
+            _assert_no_unowned_protection(current, legacy)
+            if not _same_protection(current, desired) and not _same_protection(current, legacy):
+                raise SystemExit("Prepared review protection differs from both exact legacy and replacement policy")
+        else:
+            _assert_no_unowned_protection(current, desired)
+        plans.append((branch, endpoint, desired, current, desired_queue, current_queue, matches, native, authority))
+    for branch, endpoint, desired, current, queue, previous, matches, native, authority in plans:
         protection_changed = not _same_protection(current, desired)
-        queue_changed = previous is None or any(previous.get(k) != v for k, v in queue.items())
+        queue_changed = previous is None or not _same_queue(previous, queue)
         print(f"  {branch}: protection_change={protection_changed}, queue_change={queue_changed}")
         if not apply:
             continue
-        if protection_changed:
-            _write(endpoint, desired, "PUT")
+        if native:
+            verify_destination_authority(branch, repo=repo, read=read, expected=authority, policy=policy)
+            governance.reconcile_owner_admin_ruleset(policy, branch=branch, apply=True, read=read, repo=repo)
+            governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
+            governance.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read, repo=repo)
+            # Do not overwrite a peer's intervening branch or queue changes.
+            if read(["api", endpoint]) != current or (previous is not None and
+                    not _same_queue(read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"]), previous, snapshot=True)):
+                raise SystemExit("Prepared branch changed during planning; inspect and retry")
+        # Remove bypass before relaxing branch-age checks; partial failure must
+        # retain the stricter boundary, not permit an unchecked direct merge.
         if queue_changed:
             suffix = f"/{matches[0]['id']}" if matches else ""
             _write(f"repos/{repo}/rulesets{suffix}", queue, "PUT" if matches else "POST")
+        if native:
+            installed_queue = read(["api", f"repos/{repo}/rulesets/{matches[0]['id']}"])
+            if not _same_queue(installed_queue, queue):
+                raise SystemExit("Owner-only queue readback failed; classic reviews retained")
+            governance.reconcile_protected_pipeline_review(policy, verify_only=True, read=read)
+            governance.reconcile_owner_admin_ruleset(policy, branch=branch, verify_only=True, read=read, repo=repo)
+            verify_destination_authority(branch, repo=repo, read=read, expected=authority, policy=policy)
+            if read(["api", endpoint]) != current:
+                raise SystemExit("Classic protection changed before mutation; peer state retained")
+        if protection_changed:
+            _write(endpoint, desired, "PUT")
+        if native and not _same_protection(read(["api", endpoint]), desired):
+            raise SystemExit("Prepared protection outcome unconfirmed; inspect before retry")

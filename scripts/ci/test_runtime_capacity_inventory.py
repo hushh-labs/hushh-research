@@ -51,7 +51,7 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
         )
         config = self.profile["environments"]["uat"]
         self.service_names = sorted(
-            [*config["services"], *config["non_database_services"]]
+            [*config["services"], "hushh-webapp"]
         )
         self.job_names = list(config["jobs"])
         self.rows: dict[tuple[str, ...], object] = {
@@ -93,29 +93,29 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
         )
         return copy.deepcopy(self.rows[args[:length]])
 
-    def test_optional_personal_backend_cannot_attach_to_uat_sql(self) -> None:
-        name = "backend-dev-ankit"
-        revision = f"{name}-revision"
-        self.rows[("run", "services", "list")].append({"metadata": {"name": name}})
-        self.rows[("run", "services", "describe", name)] = {
-            "status": {
-                "traffic": [{"revisionName": revision, "percent": 100}],
-                "latestReadyRevisionName": revision,
-            },
-        }
-        metadata = {
-            "name": revision,
-            "annotations": {
-                "run.googleapis.com/cloudsql-instances": "hushh-pda-uat:us-central1:backend-dev-ankit-pg",
-            },
-        }
-        self.rows[("run", "revisions", "list", f"--service={name}")] = [
-            {"metadata": metadata},
-        ]
-        with mock.patch.object(budget, "gcloud_json", side_effect=self.read):
-            self.assertNotIn(name, budget.collect(self.profile, "uat")["services"])
-            metadata["annotations"]["run.googleapis.com/cloudsql-instances"] = CONNECTION
-            with self.assertRaisesRegex(budget.BudgetError, "attaches to budgeted Cloud SQL"):
+    def test_unrelated_project_resources_do_not_join_application_admission(self) -> None:
+        # The one-uat experiment caused a real UAT release refusal. It is not
+        # part of this application's deployment or database capacity contract.
+        for kind, name in (("services", "one-uat"), ("jobs", "one-uat-migrate")):
+            self.rows[("run", kind, "list")].append({"metadata": {"name": name}})
+        with mock.patch.object(budget, "gcloud_json", side_effect=self.read) as observed:
+            result = budget.collect(self.profile, "uat")
+        config = self.profile["environments"]["uat"]
+        self.assertEqual(set(result["services"]), set(config["services"]))
+        self.assertEqual(set(result["jobs"]), set(config["jobs"]))
+        self.assertFalse(any(
+            name in call.args for name in ("one-uat", "one-uat-migrate")
+            for call in observed.call_args_list
+        ))
+        # Unrelated resources cannot substitute for a missing application owner.
+        original = copy.deepcopy(self.rows[("run", "services", "list")])
+        for name in ("consent-protocol", "hushh-webapp"):
+            self.rows[("run", "services", "list")] = [
+                row for row in original if row["metadata"]["name"] != name
+            ]
+            with self.subTest(missing=name), mock.patch.object(
+                budget, "gcloud_json", side_effect=self.read
+            ), self.assertRaisesRegex(budget.BudgetError, "required .* services missing"):
                 budget.collect(self.profile, "uat")
 
     def test_bounded_uat_reads_preserve_complete_serial_inventory(self) -> None:
@@ -188,7 +188,7 @@ class RuntimeCapacityCollectionTest(unittest.TestCase):
     def test_parallel_inventory_still_rejects_incomplete_or_sql_capable_non_database_services(
         self,
     ) -> None:
-        name = self.profile["environments"]["uat"]["non_database_services"][0]
+        name = "hushh-webapp"
         key = ("run", "revisions", "list", f"--service={name}")
         original = copy.deepcopy(self.rows)
         for defect, message in (

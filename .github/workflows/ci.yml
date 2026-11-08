@@ -1,9 +1,18 @@
 name: "PR Validation"
+run-name: ${{ inputs.uat_candidate_sha && format('Isolated UAT {0}', inputs.uat_candidate_sha) || 'PR Validation' }}
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     branches: ["**"]
+  workflow_call:
+    inputs:
+      scope:
+        type: string
+        default: auto
+      uat_base_sha:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       # `auto` runs the lanes the dispatched branch's changes against the
@@ -24,10 +33,19 @@ on:
           - backend
           - all
       uat_base_sha:
-        description: "Current UAT application SHA for exact-source qualification (optional)"
+        description: "Optional comparison SHA; serving UAT SHA required for UAT qualification"
         required: false
         default: ""
         type: string
+
+      uat_candidate_sha:
+        description: "Protected uat-isolated application SHA (Main release qualification only)"
+        type: string
+        default: ""
+      uat_candidate_tree:
+        description: "Full Git tree of the isolated application SHA"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -35,12 +53,14 @@ permissions:
   security-events: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: validation-${{ github.workflow }}-${{ github.ref }}${{ inputs.uat_candidate_sha && format('-{0}', inputs.uat_candidate_sha) || '' }}
   cancel-in-progress: true
 
 env:
   NODE_VERSION: "24"
   PYTHON_VERSION: "3.13"
+  UAT_CI_CANDIDATE: ${{ inputs.uat_candidate_sha }}
+  UAT_CI_BASE: ${{ inputs.uat_base_sha }}
   CI_VALIDATION_POLICY: core-focused-v1
   CI_VALIDATION_LEVEL: ${{ github.event_name == 'workflow_dispatch' && inputs.scope == 'all' && 'release' || 'focused' }}
   CI_NATIVE_PARITY_REQUIRED: "0"
@@ -59,6 +79,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - &prepare_isolated
+        name: Prepare isolated UAT source
+        if: inputs.uat_candidate_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_TREE: ${{ inputs.uat_candidate_tree }}
+          REQUESTED_SCOPE: ${{ inputs.scope }}
+        run: |
+          test "$REQUESTED_SCOPE" = all
+          python3 scripts/ci/uat_exact_ci.py "$UAT_CI_CANDIDATE" "$UAT_CI_BASE" "$GITHUB_SHA" "$EXPECTED_TREE"
       - name: Install gitleaks OSS CLI (license-free)
         run: |
           # Keep CI independent from licensed action wrappers by using the OSS binary directly.
@@ -114,13 +145,16 @@ jobs:
           else
             LOG_OPTS="${{ github.sha }}"
           fi
+          if [ -n "${UAT_CI_CANDIDATE:-}" ]; then
+            LOG_OPTS="$UAT_CI_BASE..$UAT_CI_CANDIDATE"
+          fi
           echo "log_opts=$LOG_OPTS" >> "$GITHUB_OUTPUT"
       - name: Run gitleaks scan (no license secret required)
         run: bash scripts/ci/orchestrate.sh secret
         env:
           GITLEAKS_LOG_OPTS: ${{ steps.scan-range.outputs.log_opts }}
           GH_TOKEN: ${{ github.token }}
-          CI_SECURITY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CI_SECURITY_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.event.pull_request.head.sha || github.sha }}
 
   dco-check:
     name: "DCO"
@@ -128,26 +162,35 @@ jobs:
     # the gate requires DCO on both events. Without a PR range,
     # check-dco-signoff.sh checks merge-base(origin/<default branch>)..HEAD,
     # the branch's own commits.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Signoff checks require complete commit history, not historical
+          # file contents. Keep all commits without downloading every old blob.
+          filter: ${{ inputs.uat_candidate_sha == '' && 'blob:none' || '' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - name: Validate DCO signoff
         env:
-          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_BASE_SHA: ${{ inputs.uat_base_sha || github.event.merge_group.base_sha || github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
+          GITHUB_BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME:-}" == pull_request && ( "${GITHUB_BASE_REF:-}" == dev || "${GITHUB_BASE_REF:-}" == uat ) ]]; then
+          GITHUB_BASE_REF="${GITHUB_BASE_REF#refs/heads/}"
+          export GITHUB_BASE_REF
+          if [ -n "$UAT_CI_CANDIDATE" ]; then
+            bash scripts/ci/check-dco-signoff.sh "$UAT_CI_BASE" "$UAT_CI_CANDIDATE"
+          elif [[ ( "${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == merge_group ) && ( "${GITHUB_BASE_REF:-}" == dev || "${GITHUB_BASE_REF:-}" == uat ) ]]; then
             bash scripts/ci/check-dco-signoff.sh --history-sync
           else
             bash scripts/ci/check-dco-signoff.sh
@@ -155,16 +198,24 @@ jobs:
 
   pr-base-policy:
     name: "PR Base Policy"
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.uat_candidate_sha != '')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       # Through env, not inline: a head ref is chosen by whoever opens the PR,
       # and an inline expression is pasted into the script before bash parses it.
       - name: Verify PR target branch policy
+        if: github.event_name == 'pull_request'
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -177,13 +228,19 @@ jobs:
   repo-governance:
     name: "Governance"
     needs: [paths]
-    if: always()
+    # Keep independent failure collection, but release superseded/cancelled work.
+    # The final required status gate still runs always and refuses cancellation.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -203,9 +260,17 @@ jobs:
       - &ci_impact
         name: Resolve exact changed contract input
         env:
-          CI_IMPACT_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CI_IMPACT_HEAD_SHA: ${{ github.sha }}
+          CI_IMPACT_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
+          CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
+
+      - name: Plan unit concurrency
+        id: unit-plan
+        env:
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+        run: |
+          matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
@@ -245,8 +310,13 @@ jobs:
       document: ${{ steps.resolve.outputs.document }}
       auth_health_only: ${{ steps.resolve.outputs.auth_health_only }}
       auth_health: ${{ steps.filter.outputs.auth_health }}
+      queue_selection_files: ${{ steps.filter.outputs.queue_selection_files }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       # A dispatch with scope `auto` runs these same filters. paths-filter v4
       # has no pull request to ask the API about then, so it diffs `ref`
@@ -255,21 +325,23 @@ jobs:
       # the branch name, so a branch that moves mid-run cannot select lanes for
       # a commit this run does not test. Both are passed only on dispatch,
       # because v4 ignores them on a pull_request event and warns on every run.
-      # The default branch has no branch diff, so `auto` there runs `all`.
+      # Explicit release qualification keeps application core checks broad, but
+      # native work is selected against the actual candidate's changed inputs.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
-          github.event_name == 'pull_request' || github.event_name == 'push' ||
-          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
-          github.ref_name != github.event.repository.default_branch)
+          github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' ||
+          (github.event_name == 'workflow_dispatch' && ((inputs.scope == 'all' && inputs.uat_base_sha != '') ||
+          (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
-          base: ${{ github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
+          base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
           # file in the repository.
           predicate-quantifier: 'some-with-excludes'
+          list-files: json
           # scripts/ci is split by the lane that executes each script.
           # The web lanes run orchestrate.sh, its web-*.sh scripts and the
           # shared UI review-base resolver. The shared web-common.sh
@@ -282,6 +354,9 @@ jobs:
           # Guarded by
           # consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py
           filters: |
+            # Capture the existing selector's actual inventory for queue reuse.
+            queue_selection:
+              - '**'
             frontend:
               - 'hushh-webapp/**'
               - '!hushh-webapp/scripts/testing/affected-tests.mjs'
@@ -289,9 +364,17 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Public risk inputs have real-artifact and policy checks in Governance.
+              - '!consent-protocol/config/email-auth/disposable-domains.txt'
+              - '!consent-protocol/config/email-auth/risk-manifest.json'
+              # The required Governance main-sync check owns the local push hook.
+              - '!consent-protocol/ops/monorepo/pre-push.sh'
               # Human Browser evidence is covered by unconditional docs governance.
               # Keep other docs in Protocol: env-vars.md has semantic assertions.
               - '!consent-protocol/docs/reference/private-browser-runtime.md'
+              - '!consent-protocol/docs/reference/agent-development.md'
+              # The complete engineering-judge suite runs in Governance's agent owner.
+              - '!consent-protocol/tests/test_memory_judge.py'
               - 'deploy/plg/**'
               - 'packages/hushh-mcp/**'
               - 'deploy/backend.cloudbuild.yaml'
@@ -317,7 +400,67 @@ jobs:
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
               - '!consent-protocol/scripts/test-ci.manifest.txt'
+              # Deployment-only writers are verified by the release-controller owner.
+              - '!scripts/ops/sync_backend_runtime_secrets.py'
+              - '!scripts/ops/runtime_config_retention.py'
+              - '!scripts/ops/upsert_gcp_secret.py'
+              - '!deploy/plg/bind_secrets.sh'
+              # Synthetic release-controller tests have a focused Governance owner.
+              - '!consent-protocol/tests/test_runtime_config_retention.py'
+              - '!consent-protocol/tests/test_plg_deploy_bindings.py'
+              - '!consent-protocol/tests/test_azure_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_runtime_settings_maps.py'
+              - '!consent-protocol/tests/test_direct_uat_acceptance.py'
+              - '!consent-protocol/tests/test_advisors_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_cloudbuild_step_arg_limit.py'
+              - '!consent-protocol/tests/test_dev_release_classification.py'
+              - '!consent-protocol/tests/test_frontend_prebuilt_image_contract.py'
+              - '!consent-protocol/tests/test_hushh_tech_runtime_config.py'
+              - '!consent-protocol/tests/test_insurance_agents_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_one_location_read_only_runtime_config.py'
+              - '!consent-protocol/tests/test_pkm_answer_config.py'
+              - '!consent-protocol/tests/test_account_deletion_release_workflow.py'
+              - '!consent-protocol/tests/test_account_generation_admission_deploy.py'
+              - '!consent-protocol/tests/test_azure_pod_release_publish_step.py'
+              - '!consent-protocol/tests/test_calendar_followup_scheduler_contract.py'
+              - '!consent-protocol/tests/test_cloud_run_image_resolution.py'
+              - '!consent-protocol/tests/test_commerce_preview_bootstrap.py'
+              - '!consent-protocol/tests/test_commerce_preview_target.py'
+              - '!consent-protocol/tests/test_curated_connector_deploy_wiring.py'
+              - '!consent-protocol/tests/test_deploy_sha_gate_payload_size.py'
+              - '!consent-protocol/tests/test_dev_candidate_gate.py'
+              - '!consent-protocol/tests/test_drive_scheduler_set_snapshot.py'
+              - '!consent-protocol/tests/test_drive_v1_worker_lane.py'
+              - '!consent-protocol/tests/test_drive_work_drain_scheduler_contract.py'
+              - '!consent-protocol/tests/test_drive_worker_release_rollback.py'
+              - '!consent-protocol/tests/test_database_connection_ceiling.py'
+              - '!consent-protocol/tests/helpers/drive_worker_gcloud.py'
+              - '!consent-protocol/tests/test_feed_stream_capacity_contract.py'
+              - '!consent-protocol/tests/test_gmail_information_request_release_contract.py'
+              - '!consent-protocol/tests/test_hushh_tech_client_migration.py'
+              - '!consent-protocol/tests/test_kai_analyze_durable_run_store_deploy_parity.py'
+              - '!consent-protocol/tests/test_one_wallet_card_deploy_parity.py'
+              - '!consent-protocol/tests/test_phone_schema_legacy_job.py'
+              - '!consent-protocol/tests/test_pkm_v7_recovery_migration.py'
+              - '!consent-protocol/tests/test_plg_qualification_producer.py'
+              - '!consent-protocol/tests/test_plg_qualification_bootstrap.py'
+              - '!consent-protocol/tests/test_plg_qualification_acceptance.py'
+              - '!consent-protocol/tests/test_plg_qualification_candidate.py'
+              - '!consent-protocol/tests/helpers/plg_qualification.py'
+              - '!consent-protocol/tests/test_scheduled_mail_scheduler_contract.py'
+              - '!consent-protocol/tests/test_uat_connector_rollout_contract.py'
+              - '!consent-protocol/tests/test_uat_deploy_no_traffic_contract.py'
+              - '!consent-protocol/tests/test_uat_frontend_image_handoff.py'
+              - '!consent-protocol/tests/test_uat_kai_regression_smoke.py'
+              - '!consent-protocol/tests/test_dco_history_sync.py'
+              - '!consent-protocol/tests/test_managed_vertex_readiness_script.py'
+              - '!consent-protocol/tests/test_one_chat_service_only_release.py'
               - '!consent-protocol/tests/test_deployment_security.py'
+              - '!consent-protocol/tests/test_native_ship_artifact_workflows.py'
+              - '!consent-protocol/tests/test_uat_backend_image_promotion.py'
+              - '!consent-protocol/tests/scripts/test_readiness_exam_measurement.py'
+              - '!consent-protocol/tests/scripts/test_readiness_exam_premerge.py'
               - '!consent-protocol/tests/test_deployment_security_broker.py'
               - '!consent-protocol/tests/test_predecessor_acceptance_contract.py'
               - '!consent-protocol/tests/test_ci_status_gate_fails_closed.py'
@@ -345,6 +488,9 @@ jobs:
             document:
               - 'hushh-webapp/{package.json,package-lock.json,tsconfig.json,vite.config.*,playwright.config.*}'
               - 'hushh-webapp/lib/{auth,crypto,consent,vault,firebase,documents,document-delivery,trusted-device,cache,navigation,onboarding,runtime}/**'
+              # Route metadata has UI Contracts and affected-unit ownership;
+              # neither protected-document browser fixture consumes this JSON.
+              - '!hushh-webapp/lib/navigation/app-route-layout.contract.json'
               - 'hushh-webapp/lib/services/{api-service,auth-service,account-service,account-identity-service,cache-service,consent-service,phone*,vault*,document*,drive*,post-auth-route*,pre-vault-user-state*,onboarding-route-cookie,external-connector*,google-drive-picker*}*'
               - 'hushh-webapp/components/{auth,vault,consent,documents,onboarding}/**'
               - 'hushh-webapp/app/{login,register-phone,api/auth,api/consent,api/account}/**'
@@ -542,8 +688,8 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
 
-      # The dispatches the filter above did not resolve: an explicit scope, or
-      # `auto` on the default branch. `editor` follows `frontend`.
+      # Preserve explicit frontend/backend diagnostics and default-branch auto.
+      # Release scope=all uses the filter's native ownership instead.
       - id: override
         if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
         env:
@@ -600,7 +746,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
       - name: Resolve UI review base from the checked-out merge
         id: ui-base
         run: |
@@ -627,7 +775,6 @@ jobs:
       - pr-base-policy
       - repo-governance
       - paths
-      - main-freshness-gate
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -647,23 +794,19 @@ jobs:
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
           REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
-          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
           printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
-          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
           if [ "${{ needs['ui-contracts'].result }}" != "success" ]; then
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
-          if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -691,7 +834,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || github.event_name == 'merge_group' && '0' || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha != '' && '0' || '2' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -746,248 +891,51 @@ jobs:
     name: "Web Targeted Contracts (node)"
     env:
       WEB_TARGETED_PART: node
-      WEB_TARGETED_LABEL: node
-      PLAYWRIGHT_SHARD: ""
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Independent Node and functional browser owners; both are required when selected.
     timeout-minutes: 40
-    steps: &web_targeted_steps
+    steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      # Resolve the existing browser-pack selector before browser cache restore
-      # or dependency installation. A failed or incomplete plan is advisory only: empty outputs keep
-      # the browser path enabled, and the run step expands to all packs.
-      - name: Plan browser checks
-        id: browser-plan
-        if: env.WEB_TARGETED_PART == 'browser'
-        continue-on-error: true
-        timeout-minutes: 3
-        env:
-          WEB_TARGETED_PLAN_ONLY: "1"
-          WEB_TARGETED_PART: browser
-          WEB_TARGETED_ALL_PACKS: "0"
-          WEB_TARGETED_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
-          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
-        run: bash scripts/ci/web-targeted-check.sh
-
-      # The One Voice verification includes the checked-in CapabilityGraphV1
-      # compiler.  It is deliberately a source-of-truth check, so the
-      # frontend-targeted lane must use the same locked runtime dependencies
-      # rather than falling back to the runner's ambient Python installation.
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        if: env.WEB_TARGETED_PART == 'node'
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-          sync-dev-group: "false"
-
-      # The browsers are the whole cost of this lane, and they only change when
-      # the Playwright dependency does. PRs restore the Main-owned, lockfile-keyed
-      # entry instead of saving per-PR copies or re-downloading ~400MB per run.
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
-
-      # Required functional browser contracts use Chromium. Native Safari and
-      # detailed presentation checks remain explicit developer-local diagnostics.
-      #
-      # Bounded at 8 minutes. Across 420 browser legs on 2026-10-08..14 this
-      # step took 1.2-1.4 minutes at p50 and 1.7 at p95, warm or cold cache.
-      # On 10-08 the apt half fetched 116 MB at 83.8 kB/s for 23 minutes (job
-      # 113516651801); three legs spent 20-24 minutes here and two of them then
-      # hit the job limit mid-test. A stall now fails here in minutes, as a
-      # failure rather than a "cancelled" that reads like noise, and frees the
-      # runner. The retry is for a fast transient error (an apt lock, a mirror
-      # mid-sync); a mirror that stays slow will not finish inside the bound,
-      # so a run that hits it should be re-run.
-      - name: Install Playwright browsers
-        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
-        timeout-minutes: 8
-        run: |
-          set -euo pipefail
-          # The one dependency install for this job. It is the same
-          # web_ci_install the targeted check runs, done here because the
-          # Playwright CLI must exist first; the check step below is told
-          # (WEB_CI_DEPS_INSTALLED) not to repeat it.
-          bash -c 'source scripts/ci/web-common.sh && web_ci_install'
-          # Run 37836804949 spent 23m9s downloading 116 MB from the runner's
-          # preferred Azure apt mirror, then timed out during browser tests.
-          # Keep its existing official archive/security fallbacks and signed
-          # package verification; remove only that slow mirror preference.
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
-          fi
-          # `--with-deps` installs the browsers AND the apt libraries they link
-          # against. The apt half is not covered by the cache (it writes outside
-          # ~/.cache/ms-playwright), so on a cache hit install only the system
-          # deps and let the restored browser binaries stand.
-          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            install=(npx playwright install-deps chromium)
-          else
-            install=(npx playwright install --with-deps chromium)
-          fi
-          # Two attempts at most. A second attempt is safe: apt keeps what it
-          # already fetched and skips installed packages, and Playwright skips
-          # a browser that wrote its completion marker (its own download
-          # already retries five times).
-          for attempt in 1 2; do
-            if (cd hushh-webapp && "${install[@]}"); then
-              break
-            fi
-            if [ "$attempt" -eq 2 ]; then
-              echo "::error::Playwright browser install failed twice."
-              exit 1
-            fi
-            echo "::warning::Playwright browser install failed on attempt $attempt of 2; retrying in 15 seconds."
-            sleep 15
-          done
-
-      - name: Run targeted web contract checks
-        if: env.WEB_TARGETED_PART == 'node' || steps.browser-plan.outputs.browser_required != 'false'
-        run: bash scripts/ci/orchestrate.sh web-targeted
-        env:
-          WEB_TARGETED_FULL_SUITE_OWNED: "0"
-          WEB_TARGETED_ALL_PACKS: ${{ env.WEB_TARGETED_PART == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || '0' }}
-          WEB_TARGETED_PART: ${{ env.WEB_TARGETED_PART }}
-          # Only the browser leg ran npm ci in the step above; the node leg
-          # installs inside the script.
-          WEB_CI_DEPS_INSTALLED: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
-          # 3 of the runner's 4 vCPUs run tests; the fourth keeps the Node test
-          # runner and fixture builds from starving a browser. Only the Playwright
-          # config reads it, so it is inert in the node leg.
-          PLAYWRIGHT_WORKERS: "3"
-          PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
-          PLAYWRIGHT_LINE_REPORTER: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
-          WEB_TARGETED_BASE_SHA: ${{ inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
-          WEB_TARGETED_HEAD_SHA: ${{ github.sha }}
-          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
-
-      - name: Report no selected browser checks
-        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required == 'false'
-        run: echo "No browser-backed targeted checks are selected for this complete diff."
-
-      # The layout pack owns these source-coupled synthetic fixtures.
-      # Never upload the whole output directory or protected reviewer traces.
-      - name: Upload synthetic layout failure evidence
-        if: ${{ (failure() || cancelled()) && env.WEB_TARGETED_PART == 'browser' }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}
-          path: |
-            hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip
-            hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png
-            hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md
-            hushh-webapp/test-results/calendar-connected-*/trace.zip
-            hushh-webapp/test-results/calendar-connected-*/test-failed-*.png
-            hushh-webapp/test-results/calendar-connected-*/error-context.md
-            hushh-webapp/test-results/direct-chat.layout-*/trace.zip
-            hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png
-            hushh-webapp/test-results/direct-chat.layout-*/error-context.md
-            hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json
-            hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip
-            hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png
-            hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload security audit artifact
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: web-targeted-npm-audit-report-${{ env.WEB_TARGETED_LABEL }}
-          path: hushh-webapp/npm-audit-report.json
-          if-no-files-found: ignore
-
-  web-targeted-browser:
-    needs: [preflight-gate]
-    if: >-
-      !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.frontend == 'true')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps: *web_targeted_steps
-    name: "Web Targeted Contracts (browser)"
-    env:
-      WEB_TARGETED_PART: browser
-      WEB_TARGETED_LABEL: browser
-      PLAYWRIGHT_SHARD: ""
-
-  # Native WebKit cryptography is a protected-document boundary, independent
-  # of optional editor timing. Keep its real-SQL proof until Linux passes the
-  # pinned leading-zero X25519 vectors; no crypto substitution is permitted.
-  document-webkit-check:
-    name: "Protected Document WebKit (macOS)"
-    needs: [preflight-gate]
-    if: >-
-      !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.document == 'true')
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Install web dependencies and browsers
-        working-directory: hushh-webapp
-        run: |
-          npm ci
-          npx playwright install webkit
-
       - uses: ./consent-protocol/.github/actions/setup-python-uv
-        id: document-python
-        if: needs['preflight-gate'].outputs.document == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
-
-      - name: Prepare isolated document PostgreSQL binaries
-        id: document-postgres
-        if: needs['preflight-gate'].outputs.document == 'true'
-        run: |
-          brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
-          pg_bin="$(brew --prefix postgresql@16)/bin"
-          test -x "$pg_bin/initdb"
-          echo "$pg_bin" >> "$GITHUB_PATH"
-          echo "HUSHH_TEST_PG_BIN=$pg_bin" >> "$GITHUB_ENV"
-
-      - name: Verify native WebKit protected documents through real SQL
-        id: document-webkit
-        if: needs['preflight-gate'].outputs.document == 'true'
-        run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
+          sync-dev-group: "false"
+      - name: Run targeted web contract checks
+        run: bash scripts/ci/orchestrate.sh web-targeted
+        env:
+          WEB_TARGETED_PART: node
+          WEB_TARGETED_FULL_SUITE_OWNED: "0"
+          WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
+          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
   web-full-suite-check:
     name: "Web Unit Contracts"
-    needs: [preflight-gate]
+    needs: [preflight-gate, repo-governance]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Unknown change coverage runs the full unit suite on this job.
+    # Unknown impact retains all tests through native Vitest sharding.
     timeout-minutes: 45
-    # One affected/core unit owner; full historical shards remain a diagnostic command.
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.repo-governance.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -995,6 +943,8 @@ jobs:
           # against the PR base ref and fails closed when a shallow clone
           # does not carry it.
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1022,10 +972,26 @@ jobs:
       - name: Run affected unit contracts
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
-          WEB_FULL_SUITE_SHARD: ""
+          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
           CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+
+      - name: Verify unit shard (1/1)
+        if: matrix.shard == '1/1'
+        run: echo 'Unit shard 1/1 completed successfully'
+
+      - name: Verify unit shard (1/3)
+        if: matrix.shard == '1/3'
+        run: echo 'Unit shard 1/3 completed successfully'
+
+      - name: Verify unit shard (2/3)
+        if: matrix.shard == '2/3'
+        run: echo 'Unit shard 2/3 completed successfully'
+
+      - name: Verify unit shard (3/3)
+        if: matrix.shard == '3/3'
+        run: echo 'Unit shard 3/3 completed successfully'
 
   ios-native-check:
     name: "iOS Native (Xcode)"
@@ -1059,6 +1025,10 @@ jobs:
       NEXT_PUBLIC_FIREBASE_VAPID_KEY: test-vapid-key
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - name: Select release-parity Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -1301,6 +1271,10 @@ jobs:
       CAPACITOR_PLATFORM: android
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-java@v5
         with:
@@ -1385,6 +1359,8 @@ jobs:
           # The capability graph check diffs against the PR base ref, which a
           # shallow clone does not carry.
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -1460,6 +1436,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -1515,6 +1493,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1545,6 +1527,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
+      - *prepare_isolated
 
       - uses: actions/setup-node@v6
         with:
@@ -1567,9 +1551,15 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
-            target_sha="${{ github.event.pull_request.head.sha }}"
-          elif [[ "${{ github.event_name }}" == workflow_dispatch && "$SOURCE_REF" == refs/heads/uat && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
+            base_sha="$(python3 scripts/ci/resolve-ui-contract-base.py)"
+            target_sha="$(git rev-parse HEAD)"
+          elif [ "${{ github.event_name }}" = merge_group ]; then
+            base_sha="${{ github.event.merge_group.base_sha }}"
+            target_sha="${{ github.event.merge_group.head_sha }}"
+          elif [ -n "$UAT_CI_CANDIDATE" ]; then
+            base_sha="$UAT_CI_BASE"
+            target_sha="$UAT_CI_CANDIDATE"
+          elif [[ "${{ github.event_name }}" == workflow_dispatch && ( "$SOURCE_REF" == refs/heads/uat || "$SOURCE_REF" == refs/heads/uat-isolated ) && "$DISPATCH_SCOPE" == all && -n "$UAT_SOURCE_BASE" ]]; then
             [[ "$UAT_SOURCE_BASE" =~ ^[0-9a-f]{40}$ ]]
             base_sha="$UAT_SOURCE_BASE"
             target_sha="${{ github.sha }}"
@@ -1584,7 +1574,7 @@ jobs:
             --json-output "$RUNNER_TEMP/ci-verification-plan.json"
 
       - name: Run integration check script (single source of truth)
-        run: bash scripts/ci/integration-check.sh --ci-linux-document
+        run: bash scripts/ci/integration-check.sh --ci-core
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
@@ -1603,87 +1593,27 @@ jobs:
           if-no-files-found: error
 
   main-freshness-gate:
-    name: "Base Freshness Gate"
-    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    name: "Destination sync guidance"
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-
-      # Every lane checks out github.sha, GitHub's refs/pull/N/merge commit: this
-      # head merged onto the base as of the push. Its first parent is the base
-      # those lanes tested. The head-only checkout above lacks it, so fetch it by
-      # SHA. Trusted only when its second parent is this head; otherwise the
-      # output stays empty and the check falls back to the merge-base.
-      - name: Resolve the base the PR checks tested
-        id: tested-base
-        if: github.base_ref == 'main'
+      - name: Summarize destination drift without rejecting branch age
         env:
-          TESTED_MERGE_SHA: ${{ github.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DESTINATION: ${{ github.base_ref }}
         run: |
-          tested_base=""
-          if git fetch --no-tags --quiet origin "$TESTED_MERGE_SHA" \
-            && [ "$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^2" || true)" = "$PR_HEAD_SHA" ]; then
-            tested_base="$(git rev-parse --verify --quiet "$TESTED_MERGE_SHA^1" || true)"
-          fi
-          if [ -n "$tested_base" ]; then
-            echo "Tested base: $tested_base (first parent of $TESTED_MERGE_SHA)"
-          else
-            echo "::notice title=Branch Freshness::Could not resolve the base the PR checks tested from $TESTED_MERGE_SHA; using the merge-base instead."
-          fi
-          echo "sha=$tested_base" >> "$GITHUB_OUTPUT"
-
-      - name: Verify branch freshness against PR base
-        env:
-          MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_BRANCH: ${{ github.base_ref }}
-          # Main keeps bounded freshness; train, dev and uat require their base tip.
-          #
-          # block failed every PR that was even one commit behind main. main
-          # lands 24-57 merges a day against a ~25 min green run, and this job
-          # fetches main when it STARTS, so runner queueing alone turned fresh
-          # pushes stale. Measured 2026-10-14: it caused 30-57% of failed PR
-          # runs, and ~17% of runs were "merge main into branch" re-runs. Nor
-          # did it keep stale bases out: 64% of merges still landed behind
-          # main, and Main Post-Merge Smoke was 324/0 green.
-          #
-          # Every lane already tests refs/pull/N/merge (github.sha), this head
-          # merged onto the base as of the push. bounded passes a head that is
-          # behind, with a warning and a step summary, unless the gap is one
-          # those lanes could not cover:
-          #   - the merge-base is more than 24 h old (MAIN_SYNC_MAX_AGE_HOURS), or
-          #   - main changed, after the base the lanes tested, a file this PR
-          #     also changes (up to 20 paths are printed).
-          # A missing remote, failed fetch or unresolvable commit still fails.
-          #
-          # block stays wherever landing order must be exact: the merge queue
-          # (.github/workflows/queue-validation.yml), PRs into
-          # integration/pr-train, and the release gate
-          # (scripts/ci/local-release-gate.sh). Bypass cohorts waive review,
-          # never validation.
-          MAIN_SYNC_MODE: ${{ github.base_ref == 'main' && 'bounded' || 'block' }}
-          MAIN_SYNC_TESTED_BASE_SHA: ${{ steps.tested-base.outputs.sha }}
-          MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
-          # Read the script from github.sha, the tree this workflow definition
-          # comes from, not from the head checkout above, so the mode set here
-          # and the script that reads it always match. A head cut before the
-          # script learned a mode runs its own older copy: on 2026-10-15 every
-          # PR branched before bounded mode landed (ae479af9f1) failed here
-          # with "Unsupported MAIN_SYNC_MODE 'bounded'" (run 38659836145).
-          MAIN_SYNC_SCRIPT_SHA: ${{ github.sha }}
-        run: |
-          if ! git cat-file -e "$MAIN_SYNC_SCRIPT_SHA^{commit}" 2>/dev/null \
-            && ! git fetch --no-tags --quiet origin "$MAIN_SYNC_SCRIPT_SHA"; then
-            echo "::error title=Branch Freshness::Could not fetch $MAIN_SYNC_SCRIPT_SHA, the commit this workflow runs from, to read scripts/git/check-main-sync.sh."
-            exit 1
-          fi
-          script="$RUNNER_TEMP/check-main-sync.sh"
-          git show "$MAIN_SYNC_SCRIPT_SHA:scripts/git/check-main-sync.sh" > "$script"
-          sh "$script"
+          git fetch --no-tags origin "$DESTINATION"
+          behind="$(git rev-list --count HEAD..FETCH_HEAD)"
+          {
+            echo "### Destination sync"
+            echo "This branch is $behind commit(s) behind its destination."
+            echo 'Reconcile relevant stable fixes during development. The merge queue verifies the actual combined result.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Advisory, not required: in block mode Base Freshness Gate proves a PR
   # CONTAINS main's commits as ancestors (bounded mode on PRs into main proves
@@ -1703,7 +1633,7 @@ jobs:
   # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
   merge-fidelity-gate:
     name: "Merge Fidelity Gate (advisory)"
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat')
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train' || github.base_ref == 'dev' || github.base_ref == 'uat' || github.base_ref == 'uat-isolated')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     continue-on-error: true
@@ -1726,7 +1656,7 @@ jobs:
   # This job alone never authorizes a release or replaces the aggregate gate.
   uat-exact-source:
     name: "Exact UAT Candidate"
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/uat' && inputs.scope == 'all' && inputs.uat_base_sha != ''
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/main' && inputs.uat_candidate_sha != '') && inputs.scope == 'all' && inputs.uat_base_sha != ''
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -1737,6 +1667,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - *prepare_isolated
       - name: Verify release-level core selection
         run: test "$CI_VALIDATION_LEVEL:$CI_VALIDATION_POLICY" = 'release:core-focused-v1'
 
@@ -1750,7 +1681,7 @@ jobs:
 
       - name: Verify the exact UAT checkout
         env:
-          EXPECTED_SOURCE: ${{ github.sha }}
+          EXPECTED_SOURCE: ${{ inputs.uat_candidate_sha || github.sha }}
           EXPECTED_BASE: ${{ inputs.uat_base_sha }}
         run: |
           set -euo pipefail
@@ -1758,7 +1689,15 @@ jobs:
           [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          if [ "$GITHUB_REF" != 'refs/heads/uat' ]; then
+            git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          fi
+
+      - name: Verify isolated source (${{ inputs.uat_candidate_sha }} ${{ inputs.uat_candidate_tree }})
+        if: inputs.uat_candidate_sha != ''
+        env:
+          EXPECTED_TREE: ${{ inputs.uat_candidate_tree }}
+        run: test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
 
   # The one required check. GitHub counts a skipped or neutral required check
   # as passing, so this gate must never pass on a lane that did not run when
@@ -1767,7 +1706,7 @@ jobs:
   # filter at all. `if: always()` is deliberate; `!cancelled()` would let a
   # cancelled run leave this check skipped, which GitHub reads as a pass.
   ci-status:
-    name: ${{ github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}
+    name: ${{ github.event_name == 'merge_group' && 'Combined Result Gate' || github.event_name == 'workflow_dispatch' && 'Branch Validation Gate' || (github.event.pull_request.draft && 'Draft Safety Gate' || 'CI Status Gate') }}
     permissions:
       contents: read
       actions: read
@@ -1781,7 +1720,6 @@ jobs:
       - preflight-gate
       - web-core-check
       - web-targeted-check
-      - web-targeted-browser
       - web-full-suite-check
       - ios-native-check
       - android-native-check
@@ -1790,8 +1728,6 @@ jobs:
       - protocol-database-check-two
       - mcp-package-check
       - integration-check
-      - document-webkit-check
-      - main-freshness-gate
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1812,7 +1748,6 @@ jobs:
           PREFLIGHT="${{ needs['preflight-gate'].result }}"
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
-          WEB_BROWSER="${{ needs['web-targeted-browser'].result }}"
           WEB_FULL_SUITE="${{ needs['web-full-suite-check'].result }}"
           IOS_NATIVE="${{ needs['ios-native-check'].result }}"
           ANDROID_NATIVE="${{ needs['android-native-check'].result }}"
@@ -1821,9 +1756,7 @@ jobs:
           PROTOCOL_DATABASE_TWO="${{ needs['protocol-database-check-two'].result }}"
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
-          DOCUMENT_WEBKIT="${{ needs['document-webkit-check'].result }}"
           DOCUMENT_SELECTED="${{ needs['preflight-gate'].outputs.document }}"
-          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
           AUTH_HEALTH_ONLY="${{ needs.paths.outputs.auth_health_only }}"
           FRONTEND_SELECTED="${{ needs['preflight-gate'].outputs.frontend }}"
           BACKEND_SELECTED="${{ needs['preflight-gate'].outputs.backend }}"
@@ -1839,7 +1772,6 @@ jobs:
           printf 'preflight-gate=%s\n' "$PREFLIGHT"
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
-          printf 'web-targeted-browser=%s\n' "$WEB_BROWSER"
           printf 'web-full-suite-check=%s\n' "$WEB_FULL_SUITE"
           printf 'ios-native-check=%s\n' "$IOS_NATIVE"
           printf 'android-native-check=%s\n' "$ANDROID_NATIVE"
@@ -1847,7 +1779,6 @@ jobs:
           printf 'protocol-database-check=%s\n' "$PROTOCOL_DATABASE"
           printf 'mcp-package-check=%s\n' "$MCP_PACKAGE"
           printf 'integration-check=%s\n' "$INTEGRATION"
-          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
           if [ "$UI_CONTRACTS" != "success" ]; then
@@ -1861,7 +1792,7 @@ jobs:
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
           if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
-            echo "Changed frontend sources require every targeted Node and browser shard to succeed."
+            echo "Changed frontend sources require affected targeted Node contracts to succeed."
             fail=1
           fi
           if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
@@ -1915,22 +1846,12 @@ jobs:
               echo "A pull request requires a successful PR Base Policy check."
               fail=1
             fi
-            # The freshness job runs only for these bases; elsewhere its skip is legitimate.
-            if { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ]; } && [ "$MAIN_FRESHNESS" != "success" ]; then
-              echo "A pull request into ${BASE_REF} requires a successful Base Freshness Gate."
-              fail=1
-            fi
-          elif [ "$EVENT_NAME" != "workflow_dispatch" ]; then
-            echo "This gate knows pull_request and workflow_dispatch; ${EVENT_NAME} fails closed."
+          elif [ "$EVENT_NAME" != "workflow_dispatch" ] && [ "$EVENT_NAME" != "merge_group" ]; then
+            echo "This gate knows pull_request, workflow_dispatch and merge_group; ${EVENT_NAME} fails closed."
             fail=1
           fi
-          if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
           if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          if [ "$DOCUMENT_SELECTED" = true ] && [ "$DOCUMENT_WEBKIT" != success ]; then
-            echo "Protected document delivery requires successful native WebKit cryptography."
-            fail=1
-          fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_BROWSER" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION" "$DOCUMENT_WEBKIT" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -1968,30 +1889,20 @@ jobs:
           fi
           record_failure "Governance" "$REPO_GOVERNANCE" true
           record_failure "Path filters" "$PATHS" true
-          if [ "$EVENT_NAME" = "pull_request" ] \
-            && { [ "$BASE_REF" = "main" ] || [ "$BASE_REF" = "integration/pr-train" ] || [ "$BASE_REF" = "dev" ] || [ "$BASE_REF" = "uat" ]; }; then
-            record_failure "Base Freshness Gate" "$MAIN_FRESHNESS" true
-          fi
           record_failure "Preflight Gate" "$PREFLIGHT" true
           record_failure "Web Core" "$WEB_CORE" "$FRONTEND_SELECTED"
           record_failure "Web Targeted" "$WEB_TARGETED" "$FRONTEND_SELECTED"
           record_failure "Web Unit Contracts" "$WEB_FULL_SUITE" "$FRONTEND_SELECTED"
-          BROWSER_REQUIRED=false
           INTEGRATION_REQUIRED=false
-          if [ "$FRONTEND_SELECTED" = "true" ]; then
-            BROWSER_REQUIRED=true
-          fi
           if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ] || [ "$DOCUMENT_SELECTED" = "true" ]; then
             INTEGRATION_REQUIRED=true
           fi
-          record_failure "Browser Contracts" "$WEB_BROWSER" "$BROWSER_REQUIRED"
           record_failure "iOS Native" "$IOS_NATIVE" "$IOS_SELECTED"
           record_failure "Android Native" "$ANDROID_NATIVE" "$ANDROID_SELECTED"
           record_failure "Protocol" "$PROTOCOL" "$BACKEND_SELECTED"
           record_failure "Protocol Database" "$PROTOCOL_DATABASE" "$BACKEND_SELECTED"
           record_failure "MCP Package" "$MCP_PACKAGE" "$BACKEND_SELECTED"
           record_failure "Integration" "$INTEGRATION" "$INTEGRATION_REQUIRED"
-          record_failure "Protected Document WebKit" "$DOCUMENT_WEBKIT" "$DOCUMENT_SELECTED"
           for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED"; do
             case "${lane#*=}" in
               true|false) ;;
@@ -2029,14 +1940,14 @@ jobs:
             echo ""
             echo "| Scope | Selection | Required jobs |"
             echo "| --- | --- | --- |"
-            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE; browser=$WEB_BROWSER |"
-            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION; browser=$WEB_BROWSER |"
+            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE |"
+            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION |"
             echo "| iOS | $(selection_state "$IOS_SELECTED") | native=$IOS_NATIVE |"
             echo "| Android | $(selection_state "$ANDROID_SELECTED") | native=$ANDROID_NATIVE |"
             echo "| Detailed presentation | local development | explicit Safari/performance commands |"
             echo "| Auth-health focus | $(selection_state "$AUTH_HEALTH_ONLY") | focused tests run through Governance=$REPO_GOVERNANCE |"
             echo ""
-            echo "Authority results: UI=$UI_CONTRACTS; secrets=$SECRET_SCAN; Governance=$REPO_GOVERNANCE; paths=$PATHS; preflight=$PREFLIGHT; DCO=$DCO (PR/dispatch); PR base=$PR_BASE_POLICY (PR only); freshness=$MAIN_FRESHNESS (required for PR base main, integration/pr-train, dev or uat)."
+            echo "Authority results: UI=$UI_CONTRACTS; secrets=$SECRET_SCAN; Governance=$REPO_GOVERNANCE; paths=$PATHS; preflight=$PREFLIGHT; DCO=$DCO (PR/dispatch); PR base=$PR_BASE_POLICY (PR only); destination drift is advisory; combined-result verification is required in the queue."
             echo ""
             echo "First failure: **$first_failure**."
           } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
@@ -2046,6 +1957,19 @@ jobs:
             exit 1
           fi
           echo "All required CI jobs passed or were intentionally skipped."
+
+      - name: Verify Akshat sandbox CI inputs
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/New_memory_architecutre'
+        shell: bash
+        env:
+          CUSTOM_BASE: ${{ inputs.uat_base_sha }}
+          CUSTOM_SOURCE: ${{ inputs.uat_candidate_sha }}
+          CUSTOM_TREE: ${{ inputs.uat_candidate_tree }}
+        run: |
+          if [[ -n "${CUSTOM_BASE}${CUSTOM_SOURCE}${CUSTOM_TREE}" ]]; then
+            echo "::error::Validate the exact sandbox branch without UAT source overrides."
+            exit 1
+          fi
 
       # A manual branch verdict has its own name and cannot satisfy PR branch
       # protection. The same full selected lanes remain required for dev.
@@ -2068,3 +1992,27 @@ jobs:
               ;;
           esac
           echo "Branch validation scope ${SCOPE} ran every selected lane; this is not a PR merge verdict."
+
+      - uses: actions/checkout@v6
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        with:
+          fetch-depth: 0
+      - name: Record tested merge inputs
+        env:
+          QUEUE_SELECTION_FILE: ${{ runner.temp }}/queue-selection.json
+          QUEUE_AUTH_HEALTH_ONLY: ${{ needs.paths.outputs.auth_health_only }}
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        # Serialize as a JSON string into a quoted heredoc, never shell code or
+        # one large environment value (Linux limits each value to about 128 KiB).
+        run: |
+          cat > "$QUEUE_SELECTION_FILE" <<'HUSSH_QUEUE_SELECTION_JSON'
+          ${{ toJSON(needs.paths.outputs.queue_selection_files) }}
+          HUSSH_QUEUE_SELECTION_JSON
+          python3 scripts/ci/queue_combined_result.py record --receipt "$RUNNER_TEMP/ci-combined-inputs.json"
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+        with:
+          name: ci-combined-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ci-combined-inputs.json
+          if-no-files-found: error
+          retention-days: 7

@@ -14,6 +14,16 @@ maintenance = importlib.import_module("uat-retention-maintenance")
 
 
 class OneChatRetentionTest(unittest.TestCase):
+    def test_retired_history_uses_repository_bound_numeric_identity(self):
+        endpoint = "workflows/deploy-uat-one-chat.yml/runs?per_page=100"
+        with mock.patch.object(maintenance, "command", return_value='{"workflow_runs": []}') as command:
+            self.assertEqual(maintenance.api("hushh-labs/hushh-research", endpoint), {"workflow_runs": []})
+            command.assert_called_once_with(
+                "gh", "api", "repos/hushh-labs/hushh-research/actions/workflows/382099846/runs?per_page=100")
+            with self.assertRaises(maintenance.retention.UnsafeState):
+                maintenance.api("other/repository", endpoint)
+            self.assertEqual(command.call_count, 1)
+
     def setUp(self) -> None:
         self.backend = "consent-protocol-02121-abc"
         self.old_backend = "consent-protocol-02118-yed"

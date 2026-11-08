@@ -1615,6 +1615,154 @@
     },
     {
       "aliases": [
+        "Explore your network",
+        "explore my network",
+        "browse my network"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "connect.explore_network",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Opens viewer-relative network discovery with exact 1st, 2nd and 3rd degree filters. Only consented paths qualify; mutual connections remain people directly connected to both you and a target.",
+      "execution": {
+        "binding_ref": "semantic_action:connect.explore_network",
+        "executor": {
+          "kind": "existing_ui_semantic_action",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "local_handler",
+          "status": "wired",
+          "target": "connect.explore_network"
+        }
+      },
+      "goal_id": "goal.connect.explore_network",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Explore your network",
+      "navigation": {
+        "fallback": "connect.explore_network",
+        "routes": [
+          "/one/connect"
+        ],
+        "screens": [
+          "connect"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "network",
+        "first degree",
+        "second degree",
+        "third degree"
+      ],
+      "settlement_proof": "directive_ledger_settlement",
+      "side_effect": {
+        "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open Connect",
         "open connect",
         "connect",
@@ -28088,6 +28236,158 @@
     },
     {
       "aliases": [
+        "Browse this person\u2019s network"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "people.profile.browse_network",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The profile shows viewer-relative degree and direct shared neighbors. Zero mutuals hide the control, one opens its available profile, and multiple open a list. View connections appears only when the server authorizes this active direct connection after the target opts in.",
+      "execution": {
+        "binding_ref": "render:people.profile.browse_network",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.people.profile.browse_network",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Browse this person\u2019s network",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "network",
+        "mutual",
+        "connections"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Choose Country Code",
         "choose country code",
         "select country",
@@ -44238,6 +44538,159 @@
     },
     {
       "aliases": [
+        "Share my connection list"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.network_visibility.choose",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner explicitly chooses whether active direct connections may browse their connection list and shared edges may contribute anonymous extended-network degree labels. Private contacts and information grants are unaffected. Existing users start private.",
+      "execution": {
+        "binding_ref": "render:profile.network_visibility.choose",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.network_visibility.choose",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Share my connection list",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/my-data"
+        ],
+        "screens": [
+          "profile_my_data"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "network",
+        "connections",
+        "visibility",
+        "privacy"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open RIA Client Account Detail",
         "open account detail",
         "show client account detail",
@@ -49523,7 +49976,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "f8eff115b5f73821edeccda8502fa420027aef32ea9a7f2383de419240bc50e8",
+      "projection_digest": "93c7caca31cae2cea4e71c93bf5e84af5463f1930fc2ee9b649e2a36ceadd2ad",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -49533,7 +49986,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "a87a76a81c0bdf34e602c1e65c7751d0dafd3e81c26dc325e38682bcf03a697e",
+        "capability_graph_evolution": "625e5b5c5fa2d95cc65fce912f130719559b91b55636ec1fed62dcd39be9eb45",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -49542,7 +49995,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9ea5b914a24b6f47",
+      "source_revision": "54ad44da9d67fca0",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51060,7 +51513,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9ea5b914a24b6f47",
+    "source_revision": "54ad44da9d67fca0",
     "web": {
       "actions": [
         {
@@ -51103,7 +51556,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "97dbc8c92162e334488d9a53c0d1cc079adeb41bed9399cf283f8b484a477b43",
+      "projection_digest": "0b33331ed9689e25d51681a9666868046af11a3ffe352443cb680eadab3fac50",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51113,7 +51566,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "a87a76a81c0bdf34e602c1e65c7751d0dafd3e81c26dc325e38682bcf03a697e",
+        "capability_graph_evolution": "625e5b5c5fa2d95cc65fce912f130719559b91b55636ec1fed62dcd39be9eb45",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -51122,7 +51575,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "9ea5b914a24b6f47",
+      "source_revision": "54ad44da9d67fca0",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -52679,7 +53132,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9ea5b914a24b6f47",
+  "revision": "54ad44da9d67fca0",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -53045,6 +53498,7 @@
       "action_ids": [
         "connect.accept_request",
         "connect.cancel_request",
+        "connect.explore_network",
         "connect.open_connections",
         "connect.open_nearby",
         "connect.open_people",
@@ -54669,12 +55123,22 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:connect.explore_network",
+      "actions:people.profile.browse_network",
+      "actions:profile.network_visibility.choose"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/connect",
+      "services:service.connections",
+      "workflows:workflow.setup.connections"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": null,
+    "deprecated": [
+      "workflows:workflow.setup.connections"
+    ],
+    "from_revision": "004257ba752d0a72",
     "migrated": [],
     "removed": []
   },
@@ -54990,6 +55454,46 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.browse_network",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "browse_network",
+          "path": "/api/one/connections/network",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.network_summary",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "network_summary",
+          "path": "/api/one/connections/network/summary",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.network_visibility",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "network_visibility",
+          "path": "/api/one/connections/network/visibility",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.patch.update_network_visibility",
+          "kind": "backend_api_endpoint",
+          "method": "PATCH",
+          "operation_name": "update_network_visibility",
+          "path": "/api/one/connections/network/visibility",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.list_connection_requests",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -55098,7 +55602,7 @@
       "executor_hierarchy": [
         {
           "action_ids": [],
-          "discovered_endpoint_count": 17,
+          "discovered_endpoint_count": 21,
           "kind": "backend_api",
           "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
           "status": "adapter_required"
@@ -56990,25 +57494,26 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "a87a76a81c0bdf34e602c1e65c7751d0dafd3e81c26dc325e38682bcf03a697e",
+    "capability_graph_evolution": "625e5b5c5fa2d95cc65fce912f130719559b91b55636ec1fed62dcd39be9eb45",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "17f7a78bf1b63e26603f504d394baf8b2248e0d30038172da7a91cfa02c30716",
+    "kai_action_gateway": "bbc82a763c7d45d8887c168f79477b76ace0cc04943b3d6b80f245fa91fa239a",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "003c5b217d1febfd4465e23fb19ede5b325d80b5afeccf5ecb258eee3894f388",
-    "route_orchestration_index": "f36fe4ed1bf2256d5d3d7ac71c67b209aee7f16f9bc18862ac3faa8bb703fe86",
+    "route_orchestration_index": "2f7c319fcc0a0a96b0dee159e1edb50bdd5c23fbaef941b212aae4b44f1d77e7",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "9ea5b914a24b6f47",
+  "source_revision": "54ad44da9d67fca0",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9ea5b914a24b6f47",
+    "current_graph_revision": "54ad44da9d67fca0",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -57242,6 +57747,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a0cd8997edf6708d",
           "a165740521c96115",
@@ -57278,6 +57784,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -57410,6 +57917,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "05b225bb370b6e59",
           "06db6538bfac1f45",
           "07974bdfcc821de5",
@@ -57496,6 +58004,7 @@
           "9e28477ae61ba4ef",
           "9e340c6f107b27c0",
           "9e76e7495565063d",
+          "9ea5b914a24b6f47",
           "a2b80c4cd47f7fc6",
           "a3401ab3147c4d60",
           "a638cd4ec38b0442",
@@ -57509,6 +58018,7 @@
           "aee5093562958f50",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b78352783d3460bc",
           "bf818f0b3141079a",
           "c19f96c7fd08b9c1",
@@ -57558,142 +58068,34 @@
       },
       {
         "compatible_graph_revisions": [
-          "06db6538bfac1f45",
-          "07974bdfcc821de5",
-          "089dd4c9f391ecfd",
-          "09508ecac56d001c",
-          "0d1f4106e4b3ae29",
-          "0e067db9029f2723",
-          "101c32b70ab14a4d",
-          "141da451575ab2fc",
-          "14b86b8e434fc15c",
-          "2168af5df998b238",
-          "22194555a3198d88",
-          "22cf4ef00a31d756",
-          "237337e95eed6c93",
-          "2748dec227779c3d",
-          "27a5c64caf11b36c",
-          "283f224907a43920",
-          "2873f483995a8fbe",
-          "2c04c08ee031a8ba",
-          "31f94a0eab00184e",
-          "35982be19f859840",
-          "38ba4c36bc194c1a",
-          "3b4a692078832301",
-          "3c485e1154148116",
-          "3c84c070fec88a19",
-          "3ca0acc32164b14d",
-          "3d7452b2e4a5dbe2",
-          "427976fdc9c31f85",
-          "43c428db7505bdee",
-          "45004b343a415b2d",
-          "45be718cd9891cd4",
-          "476a8c21042e9057",
-          "483f2c0de996d0be",
-          "4be733c76f5be2bb",
-          "4d911004af4b252b",
-          "4f5bda58994aac11",
-          "517c9930b9afa60f",
-          "51c19a1b7121c147",
-          "53c411e01494034b",
-          "55b716a16f80dacd",
-          "57ed1be834d905e3",
-          "5996287e8a4d4b35",
-          "5c956819a0408b8a",
-          "5e3f5578cbabd453",
-          "6211b0f6552f51b8",
-          "63a45baaa90e4e2f",
-          "657c474596de4d84",
-          "685be55b649cd9fc",
-          "6889f5062bd36428",
-          "6a5e47527ae2308f",
-          "6c50871945709c21",
-          "6e3d660eb6ab0f37",
-          "6e5f5a12b0a2f4ec",
-          "6f64b2b5731c4d8d",
-          "71994ca61dcf303b",
-          "7418c12411dea739",
-          "77a51f213fb0e5e7",
-          "8052e8fc866f98cd",
-          "8258d1f315a04ea0",
-          "86c6f54fcf77ae8c",
-          "892bcac722d55357",
-          "8afa7c0f35f622a7",
-          "8b2c2ce0335c1211",
-          "8c9ff82fc2da6cbf",
-          "8d6d782606fc5ce1",
-          "8ed4b64eb88ea5b3",
-          "9031503093c4ce05",
-          "92b77194586ee568",
-          "92de5fb3a6624f72",
-          "957832fcdae13952",
-          "960bad66c0a7f295",
-          "9b5521cadef9905c",
-          "9e28477ae61ba4ef",
-          "9e340c6f107b27c0",
-          "a2b80c4cd47f7fc6",
-          "a3401ab3147c4d60",
-          "a638cd4ec38b0442",
-          "a6a99d8a8ceae915",
-          "a6f024675114ad63",
-          "a70ab77c9974866f",
-          "aaec4987307cbdee",
-          "ac971edb713a113d",
-          "ace929102322f9c0",
-          "ad3f61d47487e20e",
-          "aee5093562958f50",
-          "b1edc9765961aa04",
-          "b28721bce54d8cdf",
-          "b78352783d3460bc",
-          "c19f96c7fd08b9c1",
-          "c39f0674bed1fca1",
-          "c9235cd9b5598475",
-          "ca4e044ae69e49f0",
-          "ca681a264a9ac17a",
-          "cc8583ed18265cdb",
-          "cd963fae74716e9b",
-          "d09d158e6855de4f",
-          "d189716db83ece80",
-          "d3007ff6184e4f81",
-          "d4bb763b08bb6ad3",
-          "da2d10114db8c364",
-          "da71e0a6ad9e3e1d",
-          "dc84beb721eb8553",
-          "de6d576a06f1dde6",
-          "df4366957bbf9e17",
-          "e29b1163bbf8a333",
-          "e50712a0470113b4",
-          "e72a95655f220acd",
-          "e746225912756998",
-          "e8271249204ca000",
-          "e96761ff3e2db4d2",
-          "eafe0dcb94f7f923",
-          "ebdc0bba363a1784",
-          "ed663d3d6a6d82c5",
-          "f0c409450ab444ad",
-          "f2366731e915e5b5",
-          "fa8ce03e294e7564",
-          "fb9264b42c8db59f",
-          "fb9a089556077ad3",
-          "fd8802940355dd20",
-          "fed9c40b9bb74ea8"
+          "b3c51a0a9d2d96e8"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
+          "06db6538bfac1f45",
+          "07974bdfcc821de5",
           "087fe0af56da1339",
+          "089dd4c9f391ecfd",
+          "09508ecac56d001c",
           "0b5a745ab3af9c5e",
+          "0d1f4106e4b3ae29",
           "0d62d7eee4a25fa1",
+          "0e067db9029f2723",
           "0e6a579ea26b2b2f",
           "0ed573b111c33adc",
           "0f847cb897c39c4a",
           "1016f2f0efc0cbd7",
+          "101c32b70ab14a4d",
           "114ef930def0cdbb",
           "12bc858aab243003",
           "12f82fc1dec40c31",
           "13eb411a1421dc9f",
+          "141da451575ab2fc",
+          "14b86b8e434fc15c",
           "14c6b22d359cc06b",
           "17feeafcddfeca14",
           "1805aa6d316a11c0",
@@ -57703,62 +58105,102 @@
           "1cd7d528295ec9d1",
           "1d676482f1105e19",
           "1de69a43f289bcd9",
+          "2168af5df998b238",
+          "22194555a3198d88",
           "22b91ec0916f167f",
+          "22cf4ef00a31d756",
+          "237337e95eed6c93",
+          "2748dec227779c3d",
+          "27a5c64caf11b36c",
           "27c9fbd5a1b01b65",
+          "283f224907a43920",
+          "2873f483995a8fbe",
           "2978b8513e4b94e7",
           "2a7746fbb31459cf",
           "2a9dba3f2461797f",
           "2b3e32824cb9d1c4",
           "2b74dd366e283e03",
           "2b85a6a97747a2d6",
+          "2c04c08ee031a8ba",
           "2c5daa16c578e219",
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
           "306cedaea444603c",
+          "31f94a0eab00184e",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
+          "35982be19f859840",
           "3618b09083db26c6",
           "37cb394043f0f125",
+          "38ba4c36bc194c1a",
           "3993b73221f2be93",
+          "3b4a692078832301",
           "3c364d0a46aab416",
+          "3c485e1154148116",
+          "3c84c070fec88a19",
+          "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
+          "3d7452b2e4a5dbe2",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
           "412347810e5f697b",
           "41fcabe47a6c84ca",
+          "427976fdc9c31f85",
           "4290bffc350511d9",
+          "43c428db7505bdee",
           "4498aedb2e5e2aca",
           "44b7ceb2261dee51",
+          "45004b343a415b2d",
           "454780a997b07892",
+          "45be718cd9891cd4",
           "463b7d0356056f19",
+          "476a8c21042e9057",
+          "483f2c0de996d0be",
           "4a1ab2ed7ba2fdf1",
           "4b63581cd41944f9",
+          "4be733c76f5be2bb",
           "4d1bf6b5a6a45c65",
           "4d6e699fcd39cfe3",
+          "4d911004af4b252b",
+          "4f5bda58994aac11",
           "4fd986111b6fa432",
           "5009d0612016fd66",
           "511758965444c3bb",
           "514233a33ab8fa37",
+          "517c9930b9afa60f",
+          "51c19a1b7121c147",
           "525e1bea6e22f1da",
           "52aa88e60c0dd4a2",
+          "53c411e01494034b",
           "55a233b9b6e923ea",
+          "55b716a16f80dacd",
+          "57ed1be834d905e3",
           "5909c4277d032171",
           "594add96607b6147",
+          "5996287e8a4d4b35",
+          "5c956819a0408b8a",
           "5dd05b725c815199",
           "5dd50f009b116724",
+          "5e3f5578cbabd453",
           "5fe7cf2eaf8964c8",
           "60f052ad508244d1",
+          "6211b0f6552f51b8",
           "62fecdf7944d63a5",
+          "63a45baaa90e4e2f",
           "6448b901792d40a4",
+          "657c474596de4d84",
           "65ab266e1b246630",
           "66bd2c14003aab77",
           "67d1bf3603c35644",
+          "685be55b649cd9fc",
+          "6889f5062bd36428",
           "6a0b757235ce00a0",
           "6a2a7c280f69e9e0",
+          "6a5e47527ae2308f",
           "6a987992e57a50e3",
           "6a9cae53fbedb8e9",
           "6ae4aaa57eb4e7fe",
@@ -57769,75 +58211,114 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6c50871945709c21",
+          "6e3d660eb6ab0f37",
+          "6e5f5a12b0a2f4ec",
           "6ef509dcda1fb0a3",
+          "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
+          "71994ca61dcf303b",
           "71ed8af339174fae",
           "71f054528fd84ee6",
           "72155688eff9b624",
+          "7418c12411dea739",
           "771cbd282b3b3c1a",
+          "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "7dfe20ea4e593ddb",
           "804a8fd643783c90",
+          "8052e8fc866f98cd",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
           "81da1803f271bd92",
+          "8258d1f315a04ea0",
           "82e741080f6a22ff",
           "847b5d41cc16757e",
           "84be89d1ef3db994",
           "85499847624cc916",
           "8593556d6d3e23d4",
           "861314d5e7b95ff6",
+          "86c6f54fcf77ae8c",
           "8845cf8eae4a24fb",
           "88e824b5f2a3a37d",
+          "892bcac722d55357",
+          "8afa7c0f35f622a7",
+          "8b2c2ce0335c1211",
           "8bd0ffe364fc552e",
+          "8c9ff82fc2da6cbf",
           "8d4a819bd126b823",
+          "8d6d782606fc5ce1",
           "8d723d6871b7b118",
           "8e37ce83397a3ac7",
           "8e7504c56c6fdfc8",
           "8eced9f041d6ab65",
+          "8ed4b64eb88ea5b3",
           "900ec7f1fc730bd8",
+          "9031503093c4ce05",
           "90de2a8d40819efe",
           "9195b95c1e25685f",
+          "92b77194586ee568",
+          "92de5fb3a6624f72",
           "934f53f787f43981",
           "94e751d14ffa29a9",
           "9503b7156b53ae3c",
+          "957832fcdae13952",
+          "960bad66c0a7f295",
           "9685a4f3c74e2591",
           "970a4b8802728663",
           "982f6c71300d5430",
           "985f269cad82aa7c",
           "99f8c9ff56a09d49",
           "9ae223df4c27d20f",
+          "9b5521cadef9905c",
           "9c797354f3ce3b52",
           "9d5d8ccd75c7d202",
           "9d786fec1d5617bb",
           "9e0e176fc7891c1d",
+          "9e28477ae61ba4ef",
+          "9e340c6f107b27c0",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
+          "a2b80c4cd47f7fc6",
+          "a3401ab3147c4d60",
           "a3c80f8f58422628",
           "a470a69ce2ec2250",
           "a4be6b9f6bd5e161",
           "a4e4c3976f85ab29",
           "a557b6e430688973",
+          "a638cd4ec38b0442",
           "a670375ba9af6300",
+          "a6a99d8a8ceae915",
           "a6b414c81c0d0c88",
           "a6bf0b459c104e2c",
+          "a6f024675114ad63",
+          "a70ab77c9974866f",
           "a7f9652ad6898a0c",
           "a7faf3fd04605e90",
+          "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "ac971edb713a113d",
+          "ace929102322f9c0",
+          "ad3f61d47487e20e",
+          "aee5093562958f50",
           "af06ae26b8943fb1",
           "af42538767aa6642",
           "af57e85f060b7a4e",
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
+          "b1edc9765961aa04",
+          "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
+          "b78352783d3460bc",
           "b81f3be586a45c6a",
           "b883582b09e1be66",
           "b9a36b2860d0022c",
@@ -57851,60 +58332,87 @@
           "bfea0bb3d07eca1f",
           "c055c42ec3fc7da8",
           "c118b9582508fec4",
+          "c19f96c7fd08b9c1",
           "c1df11d262f16eea",
           "c257cdc2d62edab3",
           "c2e7e299b49c5228",
           "c2f60a0a18e23643",
           "c32bec5a75d64734",
+          "c39f0674bed1fca1",
           "c4365d405790f94d",
           "c58f84b46c451af7",
           "c610b2f9c5fc9385",
           "c846a385fad8df04",
+          "c9235cd9b5598475",
           "ca45fcf41af6e723",
+          "ca4e044ae69e49f0",
+          "ca681a264a9ac17a",
           "cb4b4f653c99fc16",
+          "cc8583ed18265cdb",
           "cccecbbc8438b3aa",
+          "cd963fae74716e9b",
           "ce3d0f0b6b9d9199",
           "cf08fb61503832fb",
           "d01f9a7a5198c5c9",
+          "d09d158e6855de4f",
           "d1893c1a136dc255",
+          "d189716db83ece80",
           "d2fb4bf373169b8d",
+          "d3007ff6184e4f81",
           "d3412cfe7b8de515",
           "d35991b5b3028036",
           "d3e820220dacdce1",
           "d42b3ae73085154e",
           "d49a8c46e5581c02",
           "d4b2dd7b65a583c6",
+          "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
           "d96de7a17419d091",
           "d98448584de64472",
           "d9d2250f35c35733",
+          "da2d10114db8c364",
+          "da71e0a6ad9e3e1d",
           "db3cc261469c8291",
           "db9c1ca05979d69a",
           "dc84474d7b197bb0",
+          "dc84beb721eb8553",
           "dc8f4bacebd2e0cf",
+          "de6d576a06f1dde6",
           "df37a235665ef89d",
+          "df4366957bbf9e17",
+          "e29b1163bbf8a333",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
+          "e50712a0470113b4",
           "e59793b27ab57818",
           "e5ef67418f260a1f",
           "e5fc447004cb9ff6",
           "e64a0a56bd563562",
+          "e72a95655f220acd",
+          "e746225912756998",
           "e80eda39021a5b07",
+          "e8271249204ca000",
           "e957417b1eacbe4b",
           "e9620aafd44c12ae",
+          "e96761ff3e2db4d2",
           "ea183f0f5321f862",
+          "eafe0dcb94f7f923",
+          "ebdc0bba363a1784",
           "ec434ef7854db523",
           "ec4de76bb707c51c",
           "ecca156af65fac1f",
+          "ed663d3d6a6d82c5",
           "edaa00dc65d3cb12",
           "edf0ef85a69b4938",
           "eea61b54dab81d44",
           "ef88720ce177a379",
+          "f0c409450ab444ad",
           "f0d84e300bb39de3",
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
+          "f2366731e915e5b5",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
@@ -57913,17 +58421,23 @@
           "f7445aa56d82a9cf",
           "f81cd566f223f92d",
           "f91ecbcca5e10b42",
+          "fa8ce03e294e7564",
           "fac4fe10478339eb",
           "fb7a6340d119acec",
+          "fb9264b42c8db59f",
+          "fb9a089556077ad3",
           "fbac9497545a7c39",
-          "fe7124ad349b7300"
+          "fd8802940355dd20",
+          "fe7124ad349b7300",
+          "fed9c40b9bb74ea8"
         ],
-        "workflow_digest": "c76bf652175be4095c4643f3c5be960ce43c6c86552d731f26f57b1dc150b819",
+        "workflow_digest": "476fcbe83d3cf1b43bd8cc6956ba1d9ed7403492882c5a4aa0305c7195c99a73",
         "workflow_id": "workflow.setup.connections",
         "workflow_version": 1
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "05b225bb370b6e59",
           "06db6538bfac1f45",
@@ -58114,6 +58628,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "a0cd8997edf6708d",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
@@ -58142,6 +58657,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -58317,11 +58833,14 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "0e067db9029f2723",
           "22cf4ef00a31d756",
           "3c485e1154148116",
           "8258d1f315a04ea0",
           "8b2c2ce0335c1211",
+          "9ea5b914a24b6f47",
+          "b3c51a0a9d2d96e8",
           "d189716db83ece80",
           "e29b1163bbf8a333",
           "e96761ff3e2db4d2"
@@ -58719,6 +59238,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -58952,6 +59472,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a0cd8997edf6708d",
           "a165740521c96115",
@@ -58988,6 +59509,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -59120,6 +59642,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -59353,6 +59876,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a0cd8997edf6708d",
           "a165740521c96115",
@@ -59389,6 +59913,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -59519,6 +60044,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "004257ba752d0a72",
           "00e49f65025341a1",
           "04d7065bab2886cd",
           "04ed9dcd1e9c89ae",
@@ -59752,6 +60278,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "9ea5b914a24b6f47",
           "9f73e84abaa708e0",
           "a0cd8997edf6708d",
           "a165740521c96115",
@@ -59788,6 +60315,7 @@
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
           "b28721bce54d8cdf",
+          "b3c51a0a9d2d96e8",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
           "b81f3be586a45c6a",
@@ -60409,6 +60937,46 @@
         {
           "authorization": "firebase_auth",
           "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.browse_network",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "browse_network",
+          "path": "/api/one/connections/network",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.network_summary",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "network_summary",
+          "path": "/api/one/connections/network/summary",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.get.network_visibility",
+          "kind": "backend_api_endpoint",
+          "method": "GET",
+          "operation_name": "network_visibility",
+          "path": "/api/one/connections/network/visibility",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
+          "capability_id": "api.connections.patch.update_network_visibility",
+          "kind": "backend_api_endpoint",
+          "method": "PATCH",
+          "operation_name": "update_network_visibility",
+          "path": "/api/one/connections/network/visibility",
+          "service_id": "connections"
+        },
+        {
+          "authorization": "firebase_auth",
+          "binding_status": "discovered_unbound",
           "capability_id": "api.connections.get.list_connection_requests",
           "kind": "backend_api_endpoint",
           "method": "GET",
@@ -60543,7 +61111,7 @@
         "executor_hierarchy": [
           {
             "action_ids": [],
-            "discovered_endpoint_count": 17,
+            "discovered_endpoint_count": 21,
             "kind": "backend_api",
             "reason": "Discovered endpoints are intentionally unbound until an audited action adapter registers one.",
             "status": "adapter_required"

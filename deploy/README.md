@@ -36,7 +36,7 @@ the exact protected UAT tip against the actual accepted serving base. Main smoke
 alone cannot qualify a Main-only application SHA.
 
 Governed Write/Maintain operators can discover prerequisites entirely in Actions:
-**Deploy to UAT → Run workflow → main → operation=inspect**. Leave other inputs
+**Deploy to UAT → Run workflow → uat → operation=inspect**. Leave other inputs
 at defaults. This reads protected source and serving revision metadata through
 the existing UAT workload identity, creates no deployment record or acceptance,
 and changes no runtime state. The summary provides the application/base and
@@ -44,16 +44,17 @@ existing CI status. Wait for an in-flight run; inspect a failed run before retry
 
 When qualification is missing, run **PR Validation** on **uat**, `scope=all`,
 using the shown `uat_base_sha`. After success inspect again to obtain verified
-current run/attempt/base pins. Then select `operation=deploy` from Main:
+current run/attempt/base pins. Then select `operation=deploy` from the protected UAT caller:
 
 ```bash
-gh workflow run deploy-uat.yml --ref main -f operation=inspect
+gh workflow run deploy-uat.yml --ref uat -f operation=inspect
 # Only when the inspection requires new qualification:
 gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<observed-serving-base>
 # Inspect again after success, then use its exact pins:
-gh workflow run deploy-uat.yml --ref main -f operation=deploy -f scope=auto \
+gh workflow run deploy-uat.yml --ref uat -f operation=deploy -f scope=auto \
   -f sha=<qualified-protected-uat-tip> -f ci_run_id=<run-id> \
-  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base>
+  -f ci_run_attempt=<current-attempt> -f ci_base_sha=<qualified-serving-base> \
+  -f approved_scope='<serving-backend-SHA>:<serving-frontend-SHA>:<PR-number>=<PR-head-SHA>'
 ```
 
 New deployments require all qualification pins and validate them before security,
@@ -64,13 +65,32 @@ admin login or copy of its credential. An inspection result grants no release au
 
 `scope=auto` compares each serving service with the selected application and covers
 accumulated changes. Force a lane only with complete target-to-serving delta proof.
-A blank SHA selects the protected UAT tip, never the latest Main application.
-A qualified exact per-service receipt may establish a pin-free `NO_OP`; no build,
-traffic or release-tag update occurs. A later different CI run does not invalidate
-historical acceptance, but a failed/pending rerun of the pinned run still blocks it.
-New admission requires the literal serving-base-labelled CI job; historical static
-job names remain readable only through retained acceptance. Requalify legacy CI
-before attempting a new deployment.
+Deployment requires an explicit SHA and approved scope. The governed dispatcher
+attests the reviewed release PR and both observed service bases. Review the full
+PR delta from the serving base before merging. If other developers' changes
+would be included, obtain explicit approval for the identified PRs or prepare
+an isolated candidate. The landed tree must match the pinned PR head, and the
+PR comparison base must match the qualified serving tree. A concurrent landing
+that changes the approved delta or a serving-base change requires requalification.
+Use the separately protected `uat-isolated` source when the shared branch
+contains changes outside the approved scope. Start it at the observed serving
+SHA and land the reviewed release PR there. Dispatch the full qualification from
+Main with the exact isolated application commit, its Git tree and the observed
+serving baseline:
+
+```bash
+gh workflow run ci.yml --ref main -f scope=all \
+  -f uat_candidate_sha=<protected-isolated-tip> \
+  -f uat_candidate_tree=<git-tree-of-isolated-tip> \
+  -f uat_base_sha=<observed-serving-base>
+```
+
+Each selected lane tests a disposable checkout at the application SHA with
+reviewed Main validation tooling. Deployment uses the original application
+tree and rechecks shared build recipes, credentialed migration controls, the
+exact Main CI attempt and both serving revisions. Set `source_branch=uat-isolated`
+on inspection and deployment from the protected `uat` caller. Both sources
+share the same UAT runtime and release lock.
 
 A failed first deploy attempt can be ignored during selection only with complete,
 rechecked job/step evidence that its explicit runtime-mutation boundary and all
@@ -389,6 +409,76 @@ remain responsible for application rollout.
 Cloud Build files are implementation inputs. Their presence does not authorize
 direct human builds or traffic changes.
 
+### Akshat's personal backend
+
+The Main-owned personal backend workflow binds `RGlodAkshat` to
+`hushh-pda-uat/us-central1/backend-dev-akshat` and grants
+`i-akshat@hush1one.com` invoker and viewer access on that service. The
+initial approval for `5f4dcb772a66a303fb925f267246bc2e17b0ba9f` remains
+available through the pinned archive path.
+
+Land the UAT capacity entry before creating the Cloud Run service. Provision
+the dedicated `backend-dev-akshat-pg` Cloud SQL instance, initialize the
+`backend_dev_akshat` database from the approved source, and verify startup
+under its own database role. Provision the same-name Artifact Registry
+repository, the `hushh-pda-uat-backend-dev-akshat-builds` source bucket,
+separate `backend-dev-akshat` and `backend-dev-akshat-build` service
+accounts, and the four `BACKEND_DEV_AKSHAT_*` secrets. Scope runtime and
+builder access to their own resources. The existing UAT WIF deployer
+submits the build and deploys the image.
+
+Configure the isolated Firebase project `hushh-akshat-sandbox-auth` for
+the sandbox runtime and localhost session signer. Enable the Google sign-in
+provider for sandbox test accounts and authorize `localhost`. The approved backend
+source resolves its Firebase project through Google ADC. Verify that a
+sandbox Firebase token works and a shared-project token is refused. Use
+sandbox test accounts and fixtures.
+
+For a new source, run the canonical CI workflow on `New_memory_architecutre`
+and wait for its Branch Validation Gate. The branch must keep Main's CI and
+release tooling and contain the original sandbox baseline. CI tests the actual
+branch SHA with the usual change selection against Main. Each dispatch accepts
+the exact, current, green branch tip without a per-commit owner review.
+
+```bash
+gh workflow run ci.yml --ref New_memory_architecutre -f scope=auto
+# After Branch Validation Gate succeeds on the intended branch SHA:
+gh workflow run deploy-personal-backend.yml --ref main -f sandbox=akshat -f "sha=$sha"
+```
+
+The Main checkout creates the archive, then the deployer writes an immutable
+generation to the dedicated bucket. The sandbox build publishes an immutable
+image digest. The revision uses the dedicated Azure Entra client with
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` and a revision tag bound to the
+source, deploy recipe and workflow attempt.
+
+The original approved source still requires the pinned Git tar mode and its
+generation-qualified object and compressed SHA-256. This path does not enable
+Azure.
+
+Download the `backend-dev-akshat-receipt` artifact to the exact source
+worktree's Git metadata directory. Run the launcher from a checkout of the
+Main tooling and pass the path to the exact source worktree.
+
+```bash
+source_tree=/path/to/akshat-source
+receipt="$(git -C "$source_tree" rev-parse --path-format=absolute --git-path hushh-personal-backend)"
+gh run download "$run_id" -R hushh-labs/hushh-research \
+  --name backend-dev-akshat-receipt --dir "$(dirname "$receipt")"
+deploy/dev-personal-backend.sh "$source_tree" --check
+deploy/dev-personal-backend.sh "$source_tree"
+```
+
+The launcher uses Akshat's gcloud login for the Cloud Run tunnel. For the
+frontend, supply `HUSHH_SANDBOX_FIREBASE_WEB_CONFIG` from the dedicated
+Firebase web app and `GOOGLE_APPLICATION_CREDENTIALS` for its impersonated
+`localhost-sandbox-auth` service account. Verify the frontend on
+`http://localhost:3000` after the proxy reaches the pinned backend. Set
+`HUSHH_SANDBOX_PHONE_TESTS=1` when using the registered fictional numbers
+with a source that supports this test setting. Test codes belong only in the
+dedicated Firebase project's Auth configuration. Do not enable real SMS billing
+for this fixture flow.
+
 ## Environment and secret contracts
 
 Canonical owners:
@@ -576,7 +666,7 @@ repair command into an alternative release path.
 
 1. Classify CI, deploy, runtime, schema, provenance, or semantic failure before
    editing.
-2. Start with `./bin/hushh codex rca --surface uat --text` for UAT failures.
+2. Start with `./bin/hushh agents rca --surface uat --text` for UAT failures.
 3. Inspect the exact failing GitHub job/step and its artifacts.
 4. Apply the smallest owner-routed correction, rerun local parity, and dispatch
    a new governed workflow from an eligible SHA.

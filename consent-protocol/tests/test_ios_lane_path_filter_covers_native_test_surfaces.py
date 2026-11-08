@@ -238,6 +238,15 @@ def _step_running(steps: list[dict], *fragments: str) -> dict:
     raise AssertionError(f"No step runs any of {fragments}")
 
 
+def test_release_native_filter_runs_for_all_and_uses_the_isolated_candidate():
+    step = _paths_filter_step()
+    condition = " ".join(step["if"].split())
+    assert "(inputs.scope == 'all' && inputs.uat_base_sha != '') ||" in condition
+    assert "(inputs.scope == 'auto' &&" in condition
+    assert "inputs.uat_candidate_sha || github.sha" in step["with"]["ref"]
+    assert "inputs.uat_base_sha" in step["with"]["base"]
+
+
 def test_ios_filter_patterns_are_slash_anchored_and_point_at_real_paths() -> None:
     # gitignore rules treat a slash-free pattern as "any depth" while picomatch
     # anchors it at the root. Requiring a slash keeps this test's engine and
@@ -300,20 +309,18 @@ def test_upstream_backend_check_mirrors_the_checkout_depth_and_base_ref() -> Non
     assert base_ref.startswith("origin/") and "github.base_ref" in base_ref
 
 
-def test_queue_validation_is_a_pass_through_that_runs_no_lane() -> None:
-    # Queue Validation reuses PR Validation's verdict for an identical tree.
-    # A CI lane re-added there would need its own merge-group base handling
-    # (GITHUB_BASE_REF is unset on merge_group), which this file used to pin.
+def test_queue_combined_checks_reuse_the_existing_lane_owner() -> None:
+    # Changed combined inputs use the existing lane selection, not a second
+    # copy of native/browser jobs. Exact matching evidence can still be reused.
     workflow = _load_workflow(QUEUE_WORKFLOW_PATH)
     jobs = workflow["jobs"]
-    assert set(jobs) == {"pr-validation-reuse", "main-freshness-gate", "ci-status"}, sorted(jobs)
+    assert set(jobs) == {"admission", "combined-checks", "ci-status"}, sorted(jobs)
     assert jobs["ci-status"]["name"] == "CI Status Gate"
-    reuse = _step_running(
-        _steps(workflow, "pr-validation-reuse"), "verify-queue-entry-reuses-pr-validation.py"
-    )
-    assert reuse.get("env", {}).get("MERGE_GROUP_HEAD_SHA") == (
-        "${{ github.event.merge_group.head_sha }}"
-    )
+    combined = jobs["combined-checks"]
+    assert combined["uses"] == "./.github/workflows/ci.yml"
+    assert combined["if"] == "needs.admission.outputs.reuse == 'false'"
+    assert jobs["ci-status"]["needs"] == ["admission", "combined-checks"]
+    _step_running(_steps(workflow, "ci-status"), "queue_combined_result.py finish")
     assert "orchestrate.sh" not in QUEUE_WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
@@ -321,8 +328,7 @@ def test_editor_performance_stays_local_without_an_automatic_job() -> None:
     ci = _load_workflow(MONO_WORKFLOW_PATH)
     jobs = ci["jobs"]
     assert "web-editor-performance-check" not in jobs
-    assert jobs["document-webkit-check"]["name"] == "Protected Document WebKit (macOS)"
-    assert "outputs.editor" not in str(jobs["document-webkit-check"].get("if") or "")
+    assert "document-webkit-check" not in jobs
     assert "editor" in ci["jobs"]["paths"]["outputs"]
     assert not any("outputs.editor" in str(job.get("if") or "") for job in jobs.values())
 

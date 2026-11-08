@@ -81,6 +81,7 @@ vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
     getCurrentUser: vi.fn(() => null),
     restoreNativeSession: mocks.restoreNativeSession,
+    reloadPhoneVerificationUser: () => mocks.restoreNativeSession({ nativeOnly: true }),
     signOut: mocks.authServiceSignOut,
     startPhoneLinkVerification: mocks.phoneStart,
     startPhoneReplacementVerification: mocks.phoneStart,

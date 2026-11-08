@@ -52,7 +52,7 @@ def _flag_values(workflow_text: str) -> list[str]:
 def test_uat_exercises_durable_run_store() -> None:
     """UAT is the canary: it must always run the durable path so the
     cross-instance regression surfaces in UAT before it can reach prod."""
-    values = _flag_values(_read(".github/workflows/deploy-uat.yml"))
+    values = _flag_values(_read(".github/workflows/deploy-uat-implementation.yml"))
     assert values, f"{_FLAG} missing from deploy-uat.yml"
     assert all(v == "true" for v in values), (
         f"UAT must keep {_FLAG}=true so the durable run store is continuously "

@@ -27,7 +27,7 @@ and domain ownership, with deeper folders only for distinct responsibilities.
 
 The canonical operating contract now lives in `.agents/instructions.md`, loaded
 explicitly by root `AGENTS.md`. Skill, workflow, and lane consumers move together;
-declarations live in `.agents/config.toml`. Every development host reads the same
+declarations live in `.agents/config.json`. Every development host reads the same
 canonical sources; no startup hook or native discovery tree is installed.
 
 ## Inspected baseline

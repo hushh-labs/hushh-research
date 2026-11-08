@@ -7,6 +7,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parents[2]
 _DCO_CHECK = _REPO / "scripts" / "ci" / "check-dco-signoff.sh"
 
@@ -81,11 +83,14 @@ def _history_sync_fixture(root: Path, *, signed_child: bool = True):
     return base, main, head, env, response
 
 
+@pytest.mark.parametrize("event", ["pull_request", "merge_group"])
 def test_history_sync_excludes_only_provider_confirmed_protected_main_history(
     tmp_path: Path,
+    event: str,
 ) -> None:
     root = tmp_path / "history-sync"
     base, main, head, env, _ = _history_sync_fixture(root)
+    env["GITHUB_EVENT_NAME"] = event
     env["DCO_TRUSTED_MAIN_SHA"] = head
     result = subprocess.run(  # noqa: S603
         ["bash", str(_DCO_CHECK), "--history-sync"],
@@ -182,12 +187,13 @@ def test_ordinary_pr_range_keeps_strict_dco_behavior(tmp_path: Path) -> None:
     assert result.returncode != 0 and "Missing DCO signoff" in result.stderr
 
 
-def test_ci_limits_history_sync_mode_to_dev_and_uat_pull_requests() -> None:
+def test_ci_limits_history_sync_mode_to_dev_and_uat_reviewed_changes() -> None:
     workflow = (_REPO / ".github/workflows/ci.yml").read_text()
     job = workflow.split("  dco-check:\n", 1)[1].split("\n  pr-base-policy:", 1)[0]
-    assert "GITHUB_BASE_REF: ${{ github.base_ref }}" in job
+    assert "GITHUB_BASE_REF: ${{ github.base_ref || github.event.merge_group.base_ref }}" in job
     assert "GH_TOKEN: ${{ github.token }}" in job
     assert '"${GITHUB_EVENT_NAME:-}" == pull_request' in job
+    assert '"${GITHUB_EVENT_NAME:-}" == merge_group' in job
     assert '"${GITHUB_BASE_REF:-}" == dev' in job
     assert '"${GITHUB_BASE_REF:-}" == uat' in job
     assert "check-dco-signoff.sh --history-sync" in job

@@ -735,7 +735,11 @@ def _read_workflow_predecessor(
     ref: str, *, allow_unpublished: bool = False
 ) -> dict[str, Any] | None:
     return graph_history.read_workflow_predecessor(
-        REPO_ROOT, OUTPUTS, ref, allow_unpublished=allow_unpublished
+        REPO_ROOT,
+        OUTPUTS,
+        ref,
+        allow_unpublished=allow_unpublished,
+        declared_divergent=ref in _load_workflow_predecessor_refs(),
     )
 
 
@@ -868,6 +872,11 @@ def build_payload(
             ref, allow_unpublished=ref not in declared_predecessors
         )
         if predecessor is not None:
+            if ref in _load_workflow_predecessor_refs() and _resolve_base_commit(ref) != ref:
+                # A reviewed serving pin can belong to a retained release history.
+                # Workflow compatibility alone cannot approve changed actions.
+                transition = _semantic_diff(predecessor, graph, deprecations=deprecations)
+                _require_acknowledged_semantic_changes(transition)
             _merge_workflow_predecessor(graph, predecessor, deprecations)
     return graph
 
@@ -876,14 +885,28 @@ def _uat_pr_payload(
     serving_payload: dict[str, Any], base_ref: str, predecessor_refs: tuple[str, ...]
 ) -> dict[str, Any] | None:
     """Replay the landed PR comparison after validating the exact serving comparison."""
+    ref = os.environ.get("GITHUB_REF")
+    isolated = os.environ.get("UAT_CI_CANDIDATE") if ref == "refs/heads/main" else None
+    source = isolated or os.environ.get("GITHUB_SHA")
+    # TestFlight is dispatched from Main, but its preflight admits an exact
+    # protected UAT source and the serving comparison recorded by release CI.
+    normal_testflight = (
+        bool(isolated)
+        and os.environ.get("SOURCE_BRANCH") == "uat"
+        and os.environ.get("GITHUB_WORKFLOW_REF")
+        == "hushh-labs/hushh-research/.github/workflows/ship-ios-testflight.yml@refs/heads/main"
+    )
+    declared_serving = (
+        (ref == "refs/heads/uat" and not isolated) or normal_testflight
+    ) and base_ref in _load_workflow_predecessor_refs()
     if (
         os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-        or os.environ.get("GITHUB_REF") != "refs/heads/uat"
+        or (not isolated and ref not in {"refs/heads/uat", "refs/heads/uat-isolated"})
         or os.environ.get("CI_VALIDATION_LEVEL") != "release"
         or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
-        or _resolve_base_commit(base_ref) != base_ref
-        or not os.environ.get("GITHUB_SHA")
-        or _resolve_base_commit("HEAD") != os.environ["GITHUB_SHA"]
+        or (_resolve_base_commit(base_ref) != base_ref and not declared_serving)
+        or not source
+        or _resolve_base_commit("HEAD") != source
         or _resolve_base_commit("HEAD^2") is None
     ):
         return None
@@ -895,7 +918,7 @@ def _uat_pr_payload(
         cwd=REPO_ROOT,
         check=False,
     )
-    if ancestry.returncode:
+    if ancestry.returncode and (ancestry.returncode != 1 or not declared_serving):
         return None
     pr_payload = build_payload(base_ref=parent, workflow_predecessor_refs=predecessor_refs)
     if {**pr_payload, "semantic_diff": serving_payload["semantic_diff"]} != serving_payload:

@@ -751,6 +751,11 @@ do not put them in command arguments, logs, source, environment examples or file
 Secret provisioning grants no deploy or traffic authority. Never copy this UAT
 credential to another environment.
 
+Secret upsert retains all previous versions, including when the payload is
+unchanged. The version-inventory helper is read-only: version age does not prove
+that serving, rollback, scheduled-job or alias references are absent. Version
+destruction requires a separately qualified reference-aware cleanup operation.
+
 Receipt images currently send no Referer. Logo.dev Referer-based domain restrictions
 reject these requests, so the approved publishable token must support that existing
 policy. Do not change the component's referrer policy to enable a restricted token.
@@ -1287,7 +1292,7 @@ Operator sequence, after final CI and review:
 
 1. Merge the reviewed PR; apply release migration 305 through the existing manifest/migration verification path, then verify the three schema contracts. Historical payment rows with null mode and historical approvals without composition consent remain blocked pending explicit reconciliation; do not infer mode or grant consent in a backfill.
 2. Deploy backend/frontend from the same reviewed SHA with answer payments/composer default off. Preserve Drive credentials, flags, Google configuration and UAT `ENVIRONMENT`. Bind answer test credentials first and verify the signed provider webhook's exact mode, actual Checkout completion, duplicate/late events, full refund and verified owner settlement with the two accounts. Test-mode payments do not establish live account readiness.
-3. Configure `deploy/answers/setup_answer_work_drain_scheduler.sh` using its documented environment, project, service-account and audience options. Verify authenticated drain execution, logs and actual expired/refund/payout transitions. The current UAT scheduler inventory has no answer-work job; checked-in worker code is not evidence of a running deployed worker. Keep drain enabled for owed money when admission/composition is paused.
+3. Qualify settlement before opening paid admission. First deploy with the environment's `ANSWER_WORK_DRAIN_*_ENABLED=true` and `PKM_ANSWER_PAYMENTS_*_ENABLED=false`. The trusted release reconciles the three fixed timeout/refund/payout jobs and proves fresh authenticated execution. Dev uses its own project, identity and audience; the isolated commerce preview does not inherit these flags. Only a later reviewed release may enable new payments. It verifies the already working settlement configuration before mutation, rechecks the serving baseline and actual candidate settings before promotion, and observes the candidate's normal scheduled execution afterward. A payment-enabled release never creates, resumes or rewrites financial jobs. Retain settlement and mode-bound credentials for existing obligations when closing new admission; disabling their drain requires separate reconciled retirement. A failed setup cannot be treated as readiness to accept new payments.
 4. Retain test-mode credentials when switching new purchases to live. Each existing checkout, delivery, refund and payout stays bound to its stored mode; absent credentials leave owed work pending without consuming a provider attempt. NULL-mode historical orders require authenticated Event/current Session reconciliation. Re-enable only with a verified live-mode owner account; never promote a legacy, stale, deleted or unverified Connect mapping.
 5. After the separate provider retention review and owner disclosure, select dedicated live answer key/signing-secret bindings, set the answer mode to live and explicitly enable the composer/provider-reviewed/payment gates. In UAT the live slots are `STRIPE_LIVE_SECRET_KEY` and `STRIPE_LIVE_WEBHOOK_SECRET`; leave the ordinary Drive bindings alone. Reverify platform and owner accounts and the live endpoint mode; the operator performs deployment and any real purchase.
 

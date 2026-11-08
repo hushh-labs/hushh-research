@@ -1,99 +1,95 @@
 name: "Queue Validation"
 
-# A thin pass-through, not a second copy of CI (2026-09).
-#
-# This workflow used to re-run the whole CI surface on every merge group. No PR
-# has entered the queue since 2026-09-01 (maintainers bypass it), and its
-# web-full step was red in each of its last six runs, so it validated nothing
-# that merged. The full Vitest suite and the contract verifiers it ran now gate
-# every frontend PR in PR Validation (`Web Full Suite (Vitest)`).
-#
-# It is kept, rather than deleted, because `main` requires the `CI Status Gate`
-# check and has an active merge-queue ruleset: a PR that enters the queue needs
-# a `CI Status Gate` on its merge group, or the entry times out and is dropped.
-#
-# The pass-through never vouches for content CI has not seen. It accepts a
-# merge group only when its git tree is identical to the PR head's tree and the
-# latest PR Validation run on that head passed `CI Status Gate`; see
-# scripts/ci/verify-queue-entry-reuses-pr-validation.py. The freshness gate
-# still runs on the merge group itself.
-
+# Validate the actual combined source. Reuse requires identical tested inputs;
+# otherwise call the existing affected-contract workflow on this merge group.
 on:
   merge_group:
-    branches: [main, integration/pr-train, dev, uat]
+    branches: [main, integration/pr-train, dev, uat, uat-isolated]
 
 permissions:
   contents: read
   pull-requests: read
   actions: read
+  security-events: read
 
+# Main/Dev/UAT build one native queue candidate at a time. A rebuilt temporary
+# ref supersedes the prior candidate; other destinations keep per-ref groups.
+# GitHub does not guarantee event order: a late obsolete event can cause a safe
+# cancellation/retry, but cannot authorize stale source (admission rechecks it).
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: queue-${{ contains(fromJSON('["refs/heads/main","refs/heads/dev","refs/heads/uat"]'), github.event.merge_group.base_ref) && github.event.merge_group.base_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  pr-validation-reuse:
-    name: "Reuse PR Validation Result"
+  admission:
+    name: "Merge authority and tested inputs"
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      reuse: ${{ steps.plan.outputs.reuse }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ github.sha }}
-
-      - name: Require PR Validation to have passed on this exact tree
+          ref: ${{ github.event.merge_group.head_sha }}
+          fetch-depth: 0
+      # Authority code comes from the protected destination, not the candidate
+      # asking to change it. Candidate checks still inspect the combined tree.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.merge_group.base_sha }}
+          path: .queue-authority
+          persist-credentials: false
+      - name: Inspect every queued PR and its current validation
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
-          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-        run: python3 scripts/ci/verify-queue-entry-reuses-pr-validation.py
-
-  main-freshness-gate:
-    name: "Base Freshness Gate"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v6
+        run: python3 .queue-authority/scripts/ci/queue_combined_result.py plan --receipt "$RUNNER_TEMP/queue-inputs.json"
+      - uses: actions/upload-artifact@v7
         with:
-          fetch-depth: 0
-          ref: ${{ github.sha }}
+          name: queue-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/queue-inputs.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Verify queue freshness against merge-group base
-        env:
-          MAIN_SYNC_REMOTE: origin
-          MAIN_SYNC_MODE: block
-          MAIN_SYNC_CURRENT_BRANCH: ${{ github.ref_name }}
-          QUEUE_BASE_REF: ${{ github.event.merge_group.base_ref }}
-        run: |
-          case "$QUEUE_BASE_REF" in
-            refs/heads/main|refs/heads/integration/pr-train|refs/heads/dev|refs/heads/uat)
-              base="${QUEUE_BASE_REF#refs/heads/}" ;;
-            *) echo "Missing or unsupported merge-group base; refusing freshness check." >&2; exit 1 ;;
-          esac
-          MAIN_SYNC_BRANCH="$base" sh scripts/git/check-main-sync.sh
+  combined-checks:
+    name: "Combined source"
+    needs: admission
+    if: needs.admission.outputs.reuse == 'false'
+    uses: ./.github/workflows/ci.yml
 
   ci-status:
     name: "CI Status Gate"
-    needs:
-      - pr-validation-reuse
-      - main-freshness-gate
+    needs: [admission, combined-checks]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Validate queue job outcomes
-        shell: bash
+      - name: Require an unambiguous validation result
+        env:
+          ADMISSION: ${{ needs.admission.result }}
+          REUSE: ${{ needs.admission.outputs.reuse }}
+          COMBINED: ${{ needs.combined-checks.result }}
         run: |
-          PR_VALIDATION_REUSE="${{ needs['pr-validation-reuse'].result }}"
-          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
-
-          printf 'pr-validation-reuse=%s\n' "$PR_VALIDATION_REUSE"
-          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
-
-          # Both jobs always run on a merge group, so anything but success
-          # (skipped included) fails the gate.
-          if [ "$PR_VALIDATION_REUSE" != "success" ] || [ "$MAIN_FRESHNESS" != "success" ]; then
-            echo "Queue validation failed."
-            exit 1
-          fi
-          echo "Queue validation passed."
+          test "$ADMISSION" = success
+          case "$REUSE:$COMBINED" in
+            true:skipped|false:success) ;;
+            *) echo "Combined-result validation did not succeed." >&2; exit 1 ;;
+          esac
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.merge_group.head_sha }}
+          fetch-depth: 0
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.merge_group.base_sha }}
+          path: .queue-authority
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: queue-inputs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/queue-admission
+      - name: Recheck membership, review and validation attempts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMBINED_RESULT: ${{ needs.combined-checks.result }}
+        run: python3 .queue-authority/scripts/ci/queue_combined_result.py finish --receipt "$RUNNER_TEMP/queue-admission/queue-inputs.json"

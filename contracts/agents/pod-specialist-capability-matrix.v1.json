@@ -29,6 +29,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_calendar",
@@ -56,6 +57,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_career",
@@ -81,6 +83,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_computer_use",
@@ -108,6 +111,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_connected_systems",
@@ -135,6 +139,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_connections",
@@ -164,6 +169,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_documents",
@@ -195,6 +201,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_email",
@@ -222,6 +229,7 @@
         "one_tool_names": [],
         "pod_agent_tool": true,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_files",
@@ -252,6 +260,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_kai",
@@ -279,6 +288,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_kyc",
@@ -310,6 +320,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_location",
@@ -339,6 +350,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_memory_intent",
@@ -364,6 +376,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_memory_merge",
@@ -389,6 +402,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_memory_segmentation",
@@ -418,6 +432,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_nav",
@@ -445,6 +460,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_onboarding",
@@ -470,6 +486,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_one",
@@ -503,6 +520,7 @@
         ],
         "pod_agent_tool": false,
         "pod_dispatchable": true,
+        "pod_memory_helper": false,
         "registered_specialist": true
       },
       "id": "agent_personal_information",
@@ -532,6 +550,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_pkm_structure",
@@ -557,6 +576,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_portfolio_import",
@@ -585,6 +605,7 @@
         "one_tool_names": [],
         "pod_agent_tool": false,
         "pod_dispatchable": false,
+        "pod_memory_helper": false,
         "registered_specialist": false
       },
       "id": "agent_wallet",
@@ -673,12 +694,14 @@
   "source": {
     "declaration_table": "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py::POD_SPECIALIST_EXECUTION",
     "derived_from": [
+      "consent-protocol/api/routes/one/pod_pkm_preparation.py",
       "consent-protocol/api/routes/one/pod_relay.py",
       "consent-protocol/api/routes/one/pod_specialist.py",
       "consent-protocol/hushh_mcp/adk_bridge/__init__.py",
       "consent-protocol/hushh_mcp/adk_bridge/delegation.py",
       "consent-protocol/hushh_mcp/one_adk/pod_data_door_specialist.py",
       "consent-protocol/hushh_mcp/one_adk/text_runtime.py",
+      "consent-protocol/hushh_mcp/services/chat_memory_manager.py",
       "consent-protocol/hushh_mcp/services/pod_marketplace_ports.py",
       "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py"
     ],

@@ -12,9 +12,9 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 |---|---|
 | `.agents/instructions.md` (loaded by root `AGENTS.md`) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
 | `.agents/skills/` | Canonical portable and governed **skills**; read these sources directly |
-| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.toml`), read by every development host |
+| `.agents/subagents/` | Canonical authored **subagent** lanes (`*.md`), read by every development host |
 | `.agents/skills/`, `.agents/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
-| `.agents/config.toml` | Bounded execution and declared tool connections; host capability remains separately verified |
+| `.agents/config.json` | Bounded engineering execution; host tools remain separately configured and verified |
 | `.agents/evals/`, `.agents/imports/` | Routing cases and pinned third-party resources |
 | `docs/reference/architecture/private-agent-north-star.md` | Private-agent requirements and qualified implementation evidence |
 | `docs/reference/quality/adk-orchestration-docs-audit.md` | Current Founder/CTO readiness decision: source, serving revisions, measured journeys and blockers |
@@ -94,8 +94,8 @@ Verification:
 4. State remaining risks or unverified areas clearly.
 5. Write core tests only. A new test must protect a real contract: a regression that actually happened, a security, consent, vault or trust boundary, or a public API or schema shape. Guard a security boundary with one focused test plus a negative control that fails on the broken code. Do not add tests that restate the implementation, snapshot markup, cover trivial wiring, or duplicate an existing test.
 6. Extend the nearest existing test file before creating a new one, and delete or merge a redundant test rather than keeping both.
-7. Test the changed contract with its nearest authoritative owner and reuse unchanged evidence. Do not make the full local core mirror a prerequisite for every push. Governance validation uses `focused` for live policy gates plus affected controller, retention or agent regression owners; `release` adds the core release-authority checks and affected owners; `diagnostic` runs the historical full set, including non-security size, docs and agent-hygiene checks. CI supplies its exact changed-file list; missing or unknown input fails conservatively. Use GitHub Actions for required web and actual native-platform contracts. Safari-specific layout and web performance checks are developer-local when those contracts change; run native checks only when native code or a native contract changes. Keep security, source-authority and protected-pipeline checks blocking at every level.
-8. Batch fixes into one finished push. A newer PR push cancels the active `PR Validation` and starts another hosted run; do not push or dispatch on a timer to watch CI. For an eligible same-head retry, use `./bin/hushh codex ci-rerun` with the exact run, attempt and SHA. Do not dispatch a standalone security worker: release alert clearance is part of the protected Deployment Security job in the exact release workflow, and missing or stale clearance blocks release.
+7. Test the changed contract with the nearest authoritative suite. Reuse unchanged evidence and remove demonstrated duplicate execution. Ordinary PR pushes need affected checks, not a mandatory full local core mirror. Release candidates use core journeys plus affected features; broaden only for changed dependencies or unresolved risk. Appearance, spacing, colors, icons and animation measurements are developer diagnostics, not required delivery checks. Preserve functional, consent, ownership and recovery boundaries through affected unit/service/API/database tests. Automated app-browser journeys and browser-engine qualification are explicit diagnostics, not required PR, queue or release checks. One’s Browser capability and its runtime authority tests are separate and remain required when affected.
+8. Push one completed, locally verified batch. A newer push cancels superseded PR validation. Diagnose the original failure, then retry failed jobs only when source is unchanged through the existing governed command. Independent validation commands should finish and report all failures together with a final nonzero result. Setup, invalid selection, cancellation and unsafe fixtures stop dependent work. Never apply collect-all behavior to authorization, migrations, candidate verification or traffic promotion.
 9. Never loosen, skip or weaken a real gate to go faster; make the check cheaper instead.
 
 For a local core run, supply `CI_IMPACT_BASE_SHA` only when the actual PR target
@@ -231,9 +231,9 @@ explicitly loads this operating contract before routing or implementation.
 | Source | Contract |
 | --- | --- |
 | `.agents/skills/<id>/` | Portable practice or governed owner/spoke; one authored behavior |
-| `.agents/subagents/<lane>.toml` | Read-only engineering evidence lanes, separate from runtime product agents |
+| `.agents/subagents/<lane>.md` | Read-only engineering evidence lanes, separate from runtime product agents |
 | `.agents/workflows/<id>/` | Existing workflow IDs, composed ownership, checks and handoff authority |
-| `.agents/config.toml` | Shared execution limits and tool declarations; no vendor directory hierarchy |
+| `.agents/config.json` | Shared execution limits; no vendor directory hierarchy |
 | `.agents/routing/` | One provider-neutral routing CLI and its evaluation fixtures |
 
 Every skill has matching directory/name frontmatter. Governed skills additionally
@@ -261,7 +261,7 @@ Route every non-trivial task before implementation or delegation. Use
 Repository precedence:
 
 1. `AGENTS.md` sets policy and hard gates, subject to higher-priority host and user instructions.
-2. `./bin/hushh codex route-task <workflow-id>` resolves the recurring workflow.
+2. `./bin/hushh agents route-task <workflow-id>` resolves the recurring workflow.
 3. `workflow.json` composes `owner_skill`, `default_spoke`, required reads/commands, handoff chain, verification bundle and risk tags.
 4. `SKILL.md` supplies the lane procedure. Architecture references establish domain truth when supported by source; historical and future plans retain their stated limits.
 
