@@ -1263,8 +1263,13 @@ source CI, schema and rollback compatibility.
 The broker foundation verifies the active Dev/UAT caller, governed operator and
 rerun actor, protected application history and referenced Main implementation.
 Caller SHA, application SHA, implementation SHA and broker SHA remain separate.
-The consumer checks artifact digest, the actual inventory step and both current
-attempts. A dispatch intent is recorded before the request; a lost response stops
+The consumer checks artifact digest, complete inventory and both current
+attempts. Published step rows must show the inventory step succeeded. If GitHub
+returns an empty step list, only the exact successful Main producer's typed
+authorization, bound to the current operator, source and attempt, can establish
+execution. Historical receipts without that authorization still require step
+proof; an explicit failed/skipped step or green aggregate alone cannot clear a release.
+A dispatch intent is recorded before the request; a lost response stops
 without automatically dispatching again. Keep that intent with the release
 artifacts for read-only reconciliation. Caller activation remains dependent on
 trusted reusable release wiring and matching-branch cloud identity qualification;
