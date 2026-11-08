@@ -40,7 +40,22 @@ def _load_policy() -> dict:
         raw = subprocess.check_output(
             ["git", "show", f"{base}:config/ci-governance.json"], cwd=REPO_ROOT, text=True
         )
-        return json.loads(raw)
+        policy = json.loads(raw)
+        branch = event["pull_request"]["base"].get("ref")
+        if branch in {"dev", "uat"} and policy.get("authorization", {}).get("native_teams") is True:
+            repository = "hushh-labs/hushh-research"
+            pr = event["pull_request"]
+            if (os.environ.get("GITHUB_REPOSITORY") != repository
+                    or event.get("repository", {}).get("full_name") != repository
+                    or any(pr.get(side, {}).get("repo", {}).get("full_name") != repository
+                           for side in ("base", "head"))):
+                raise GuardResolutionError("Main policy requires a same-repository Dev/UAT PR")
+            from queue_combined_result import authority_policy
+            try:
+                _, policy = authority_policy(repository, branch, base)
+            except (ValueError, OSError, subprocess.SubprocessError):
+                raise GuardResolutionError("Protected Main editing policy is unavailable") from None
+        return policy
     return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
 
 
