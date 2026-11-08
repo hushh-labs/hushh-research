@@ -8,6 +8,7 @@ import sys
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from unittest.mock import patch
 
 # The protocol lane owns the pinned YAML dependency used by workflow contracts.
 CI_DIR = str(Path(__file__).resolve().parents[2] / "scripts/ci")
@@ -20,6 +21,23 @@ finally:
 
 SHA = "a" * 40
 APP = "b" * 40
+
+
+def install_membership_fixture(case):
+    case.memberships = {
+        slug: [{"id": 55, "login": "operator", "type": "User"}] for slug in gate.TEAM_IDS
+    }
+
+    def read(path):
+        slug = path.split("/")[3]
+        if "/members?" in path:
+            return deepcopy(case.memberships[slug])
+        return {"id": gate.TEAM_IDS[slug], "slug": slug, "parent": None}
+
+    case.member_read = read
+    reader = patch.object(gate, "team_reader", return_value=read)
+    reader.start()
+    case.addCleanup(reader.stop)
 
 
 def assert_read_only_uat_inspection(case, job, *, prepared=True):
@@ -66,6 +84,9 @@ def assert_read_only_uat_inspection(case, job, *, prepared=True):
 
 
 class DeploymentSecurityTest(unittest.TestCase):
+    def setUp(self):
+        install_membership_fixture(self)
+
     def fixture(self):
         env = {
             "GITHUB_REPOSITORY": gate.REPOSITORY,
@@ -87,6 +108,8 @@ class DeploymentSecurityTest(unittest.TestCase):
             "status": "in_progress",
             "path": ".github/workflows/deploy-dev.yml",
             "repository": {"full_name": gate.REPOSITORY},
+            "actor": {"id": 55, "login": "operator", "type": "User"},
+            "triggering_actor": {"id": 55, "login": "operator", "type": "User"},
         }
 
         def read(path):
@@ -110,6 +133,9 @@ class DeploymentSecurityTest(unittest.TestCase):
         self.assertEqual(result["verdict"], "clear")
         self.assertEqual(result["source"]["application_sha"], APP)
         self.assertEqual(result["source"]["attempt"], 2)
+        self.assertEqual(result["authorization"]["team"], "deploy-dev")
+        self.assertEqual(result["authorization"]["source"], result["source"])
+        self.assertNotIn("memberships", result["authorization"])
         self.assertEqual(result["dependabot"]["open"], 1)
         self.assertEqual(
             gate.produce(env, read, lambda _: ([{"state": "open"}], ""))["verdict"], "blocked"
@@ -135,6 +161,31 @@ class DeploymentSecurityTest(unittest.TestCase):
 
         with self.assertRaises(gate.Refused):
             gate.produce(env, read, alerts)
+        for caller, environment, team in [
+            ("ship-ios-testflight.yml", "native", "deploy-uat"),
+            ("release-ios-appstore.yml", "native", "deploy-production"),
+            ("ship-android-playstore-v1.yml", "native", "deploy-production"),
+            ("publish-hushh-mcp.yml", "package", "deploy-production"),
+            ("validate-plg-frontend-source.yml", "validation", "deploy-production"),
+            ("rollback.yml", "uat", "deploy-uat"),
+            ("rollback.yml", "production", "deploy-production"),
+        ]:
+            with self.subTest(caller=caller, environment=environment):
+                env, run, read = self.fixture()
+                path = f".github/workflows/{caller}"
+                run["path"] = path
+                env["GITHUB_WORKFLOW_REF"] = f"{gate.REPOSITORY}/{path}@refs/heads/main"
+                env["DEPLOY_SECURITY_ENVIRONMENT"] = environment
+                result = gate.produce(env, read, lambda _: ([], ""))
+                self.assertEqual(result["authorization"]["team"], team)
+                run["triggering_actor"] = {"id": 56, "login": "outsider", "type": "User"}
+                with self.assertRaisesRegex(gate.Refused, "rerunner"):
+                    gate.produce(env, read, lambda _: self.fail("Unauthorized inventory read"))
+                env["DEPLOY_SECURITY_ENVIRONMENT"] = "dev"
+                with self.assertRaisesRegex(gate.Refused, "capability"):
+                    gate.produce(
+                        env, read, lambda _: self.fail("Wrong capability reached inventory")
+                    )
 
     def test_missing_credentials_and_incomplete_inventory_refuse(self):
         with self.assertRaises(gate.Refused):
@@ -368,7 +419,20 @@ class DeploymentSecurityTest(unittest.TestCase):
         workflow = yaml.safe_load(reusable)
         self.assertEqual(workflow["permissions"]["actions"], "read")
         self.assertEqual(set(workflow["jobs"]), {"alerts"})
-        self.assertNotIn("CI_TEAM_APP_PRIVATE_KEY", reusable)
+        membership = next(
+            step for step in workflow["jobs"]["alerts"]["steps"] if step.get("id") == "membership"
+        )
+        self.assertEqual(membership["with"]["permission-members"], "read")
+        self.assertEqual(
+            membership["with"]["private-key"], "${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}"
+        )
+        inventory_step = next(
+            step for step in workflow["jobs"]["alerts"]["steps"] if step.get("id") == "clearance"
+        )
+        self.assertEqual(
+            inventory_step["env"]["CI_TEAM_MEMBERS_TOKEN"],
+            "${{ steps.membership.outputs.token }}",
+        )
         declaration = workflow.get("on", workflow.get(True))["workflow_call"]
         self.assertEqual(
             declaration.get("secrets"),
@@ -435,6 +499,9 @@ class DeploymentSecurityTest(unittest.TestCase):
 
 
 class DeploymentBrokerTest(unittest.TestCase):
+    def setUp(self):
+        install_membership_fixture(self)
+
     def fixture(self):
         import json
 
@@ -459,8 +526,8 @@ class DeploymentBrokerTest(unittest.TestCase):
             "path": ".github/workflows/deploy-dev.yml",
             "repository": repo,
             "head_repository": repo,
-            "actor": {"login": "operator"},
-            "triggering_actor": {"login": "operator"},
+            "actor": {"id": 55, "login": "operator", "type": "User"},
+            "triggering_actor": {"id": 55, "login": "operator", "type": "User"},
             "referenced_workflows": [
                 {
                     "path": f"{gate.REPOSITORY}/{gate.IMPLEMENTATIONS['dev']}@{SHA}",
@@ -517,11 +584,16 @@ class DeploymentBrokerTest(unittest.TestCase):
 
     def test_main_broker_binds_matching_branch_source_and_rechecks_attempts(self):
         env, request, source, broker, responses, policy = self.fixture()
+        # A new live member need not be present in the source policy's old roster.
+        policy["dev"]["manual_dispatch_users"] = []
         result = gate.produce_broker(env, responses.__getitem__, lambda _: ([], ""), policy=policy)
         self.assertEqual(result["source"]["attempt"], 2)
         self.assertEqual(result["producer"]["attempt"], 1)
         self.assertEqual(result["source"]["application_sha"], APP)
         self.assertEqual(result["source"]["tooling_sha"], SHA)
+        self.assertEqual(result["authorization"]["team"], "deploy-dev")
+        self.assertEqual(result["authorization"]["producer"], result["producer"])
+        self.assertEqual(result["authorization"]["actor"]["id"], 55)
         for target in (source, broker):
             with self.subTest(target=target["id"]):
                 old_attempt = target["run_attempt"]
@@ -533,6 +605,27 @@ class DeploymentBrokerTest(unittest.TestCase):
                 with self.assertRaises(gate.Refused):
                     gate.produce_broker(env, responses.__getitem__, alerts, policy=policy)
                 target["run_attempt"] = old_attempt
+
+    def test_removed_member_and_revocation_during_inventory_refuse(self):
+        env, _, _, _, responses, policy = self.fixture()
+        replacement = {"id": 56, "login": "other", "type": "User"}
+        self.memberships["allowed-maintainers-to-approve"].append(replacement)
+        self.memberships["deploy-dev"] = [replacement]
+        with self.assertRaises(gate.Refused):
+            gate.produce_broker(
+                env,
+                responses.__getitem__,
+                lambda _: self.fail("Revoked member reached protected inventory"),
+                policy=policy,
+            )
+        self.memberships["deploy-dev"] = [{"id": 55, "login": "operator", "type": "User"}]
+
+        def revoke(_):
+            self.memberships["deploy-dev"] = [replacement]
+            return [], ""
+
+        with self.assertRaises(gate.Refused):
+            gate.produce_broker(env, responses.__getitem__, revoke, policy=policy)
 
     def test_uat_broker_separates_protected_application_from_caller(self):
         _, request, source, _, responses, _ = self.fixture()
@@ -674,12 +767,59 @@ class DeploymentBrokerTest(unittest.TestCase):
         }
         responses[f"{prefix}/artifacts?per_page=100"] = {"total_count": 1, "artifacts": [artifact]}
         api = SimpleNamespace(read=lambda path: deepcopy(responses[path]))
-        with patch.object(receipt_transport, "archive_read", return_value=raw):
+        with patch.object(receipt_transport, "archive_read", return_value=raw) as download:
             self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
+            reported_steps = job["steps"]
+            job["steps"] = []
+            self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
+
+            def publish(document):
+                stream = io.BytesIO()
+                with ZipFile(stream, "w") as archive:
+                    archive.writestr("deployment-security.json", json.dumps(document))
+                payload = stream.getvalue()
+                artifact.update(
+                    size_in_bytes=len(payload),
+                    digest="sha256:" + hashlib.sha256(payload).hexdigest(),
+                )
+                download.return_value = payload
+
+            legacy = deepcopy(receipt)
+            legacy.pop("authorization")
+            publish(legacy)
+            with self.assertRaisesRegex(gate.Refused, "without typed authorization"):
+                gate.consume_broker(api, request, 40, policy)
+            job["steps"] = reported_steps
+            self.assertEqual(gate.consume_broker(api, request, 40, policy), legacy)
+            job["steps"] = []
+            for key, value in [
+                ("team_id", 1),
+                ("team", "deploy-production"),
+                ("actor", {"id": 56, "login": "operator"}),
+                ("producer", {}),
+                ("source", {}),
+            ]:
+                forged = deepcopy(receipt)
+                forged["authorization"][key] = value
+                publish(forged)
+                with (
+                    self.subTest(authorization=key),
+                    self.assertRaisesRegex(gate.Refused, "binding mismatch"),
+                ):
+                    gate.consume_broker(api, request, 40, policy)
+            publish(receipt)
+            principal = responses[f"repos/{gate.REPOSITORY}/actions/runs/20"]["triggering_actor"]
+            principal["id"] = 56
+            with self.assertRaisesRegex(gate.Refused, "binding mismatch"):
+                gate.consume_broker(api, request, 40, policy)
+            principal["id"] = 55
+            job["steps"] = reported_steps
             for row, key, value in [
                 (artifact, "digest", "sha256:" + "0" * 64),
                 (artifact, "expired", True),
                 (job["steps"][0], "conclusion", "skipped"),
+                (job["steps"][0], "conclusion", "failure"),
+                (job["steps"][0], "conclusion", "cancelled"),
                 (broker, "conclusion", "failure"),
             ]:
                 original = row[key]
