@@ -554,6 +554,31 @@ def test_main_policy_separates_mergers_reviews_and_uat_access(module) -> None:
     assert policy["branch_flow"]["prepared_branches"]["uat"]["policy_key"] == "uat_merge"
     assert policy["uat_merge"]["merge_queue_bypass_users"] == policy["pr_train"]["merge_queue_bypass_users"]
 
+    # The approved team grants must reach legacy consumers without restoring
+    # the removed pipeline editor's protected authority.
+    owners = ["ankitkumarsingh1702", "RGlodAkshat"]
+    assert main["protected_pipeline_edit_users"] == owners
+    assert main["merge_queue_bypass_users"] == owners
+    assert policy["uat_merge"]["protected_pipeline_edit_users"] == owners
+    path = Path(__file__).with_name("verify-protected-pipeline-edits.py")
+    spec = importlib.util.spec_from_file_location("committed_protected_guard", path)
+    assert spec and spec.loader
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    for actor, expected in (("RGlodAkshat", 0), ("ankitkumarsingh1702", 0), ("kushaltrivedi5", 1)):
+        code, message = guard.evaluate(
+            changed_files=["config/ci-governance.json"], actor=actor,
+            allowed_users=guard.resolve_allowed_users(main),
+            protected_paths=main["protected_pipeline_paths"],
+        )
+        assert code == expected, message
+    code, message = guard.evaluate(
+        changed_files=["config/ci-governance.json"], actor="unapproved-contributor",
+        allowed_users=guard.resolve_allowed_users(main),
+        protected_paths=main["protected_pipeline_paths"], owner_approvals=["kushaltrivedi5"],
+    )
+    assert code == 1, message
+
 
 
 def test_main_queue_bypass_is_removed_before_relaxing_strict_checks(module) -> None:
