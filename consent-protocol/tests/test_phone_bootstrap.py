@@ -218,7 +218,10 @@ def test_unowned_lock_refuses_without_mutation(bootstrap_case):
     assert not state.mutations
 
 
-@pytest.mark.parametrize("misroute", ["workflow", "job", "attempt", "job-replay", "actor", None])
+@pytest.mark.parametrize(
+    "misroute",
+    ["workflow", "job", "attempt", "job-replay", "actor", "triggering-actor", None],
+)
 def test_runtime_requires_the_exact_running_canonical_production_job(
     bootstrap_case, monkeypatch, misroute
 ):
@@ -231,11 +234,10 @@ def test_runtime_requires_the_exact_running_canonical_production_job(
         "event": "workflow_dispatch",
         "repository": {"full_name": state.module.REPOSITORY},
         "head_repository": {"full_name": state.module.REPOSITORY},
-        "actor": {
-            "login": json.loads((ROOT / "config/ci-governance.json").read_text())["production"][
-                "manual_dispatch_users"
-            ][0]
-        },
+        # Historical provenance binds both human identities; today's roster
+        # neither grants authority to nor invalidates this retained execution.
+        "actor": {"login": "synthetic-deployer", "id": 101, "type": "User"},
+        "triggering_actor": {"login": "synthetic-rerunner", "id": 102, "type": "User"},
     }
     monkeypatch.setenv("GITHUB_RUN_ID", "42")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
@@ -247,7 +249,9 @@ def test_runtime_requires_the_exact_running_canonical_production_job(
     elif misroute == "attempt":
         owner["run_attempt"] = 3
     elif misroute == "actor":
-        owner["actor"]["login"] = "synthetic-unapproved-actor"
+        owner["actor"]["id"] = 0
+    elif misroute == "triggering-actor":
+        owner["triggering_actor"]["type"] = "Bot"
     job = {
         "name": "Deploy Production Scope",
         "status": "in_progress",
