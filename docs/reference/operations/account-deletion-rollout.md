@@ -163,7 +163,9 @@ The report-first `scripts/ops/firebase_identity_migration.py` operator preserves
 reviewed UID/generation cohort. `plan` writes a private hashed manifest; `stage`
 requires explicit Dev, `--apply`, its reviewed hash and a new receipt path. It
 imports disabled identities with `allowOverwrite=false` and an operation-bound
-marker. `observe` reconciles uncertainty without submitting another import.
+marker. After a governed hub deployment, `plan --staging-receipt` can refresh the
+live source pin only for the unchanged, settled disabled cohort; it never imports
+again or changes its historical receipt. `observe` reconciles uncertainty without submitting another import.
 Native function/ACL qualification and durable deletion, generation and Firebase
 mutation fences survive operator-session loss; the original session must retain
 its exclusive lease for dispatch. No applied migration or database role changes.
@@ -181,7 +183,7 @@ is created or inferred from email.
 These operations require exclusive target-Auth administrator custody; SQL fences
 do not constrain an unrelated Firebase administrator.
 
-27 focused competing-session, interruption and credential-preservation cases pass.
+32 focused competing-session, interruption and credential-preservation cases pass.
 A real disposable Dev identity passed both staging and operator activation,
 retaining its UID, password hash, salt and original password sign-in. Its native
 absence and local PostgreSQL shutdown are verified. This is operator qualification;
@@ -191,6 +193,11 @@ removal on operator source `eb338d1cccdb`. Operation
 source identity mutation. Activation has not dispatched and live sign-in is unchanged.
 Workspace mail delegation for the Dev SDK is a separate cutover prerequisite:
 the current support-mail fallback still uses the production Firebase credential.
+Two unused Dev secret copies (`FIREBASE_AUTH_SERVICE_ACCOUNT_JSON/1` and
+`FIREBASE_SERVICE_ACCOUNT_JSON/1`) are now disabled with native access refusal.
+Fresh checks found no references among nine all-region Dev services or five
+us-central1 jobs. Canonical SDK version423 remains enabled for the live service;
+no production IAM or service-account key was changed.
 
 Read-only Dev inventory qualified 279 guarded tables and found 217 vault owners.
 156 match source Firebase identities: 146 have email and ten have neither email

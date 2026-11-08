@@ -3,10 +3,14 @@
 
 import copy
 import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.ops import firebase_identity_activation as activation
 from scripts.ops import firebase_identity_migration as migration
 from tests.test_firebase_auth_migration_operator import (
@@ -19,6 +23,57 @@ from tests.test_firebase_auth_migration_operator import (
 from tests.test_firebase_auth_migration_operator import (
     postgres as postgres,
 )
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "source_revision_only",
+        "target_credential",
+        "unsettled_import",
+        "source_identity",
+        "receipt_collision",
+    ],
+)
+def test_post_deployment_plan_refresh_reuses_only_exact_settled_staging(database, tmp_path, change):
+    provider = Provider()
+    manifest = snapshot(database, provider)
+    receipt = tmp_path / "staged.json"
+    with database.connect() as conn:
+        migration.stage(conn, provider, manifest, receipt, resume=False)
+    retained = receipt.read_bytes()
+    if change == "target_credential":
+        provider.target[0]["phoneNumber"] = "+16505550100"
+    if change == "source_identity":
+        provider.source[0]["displayName"] = "changed"
+    if change == "unsettled_import":
+        state = json.loads(retained)
+        state["phase"] = "dispatched_or_uncertain"
+        migration.save_receipt(receipt, state)
+    args = SimpleNamespace(
+        action="plan",
+        apply=False,
+        staging_receipt=receipt,
+        manifest=tmp_path / "fresh.json",
+        receipt=None,
+        activation_manifest=None,
+    )
+    if change == "receipt_collision":
+        args.manifest = receipt
+    with database.connect() as conn:
+        if change == "source_revision_only":
+            result = migration.operate(conn, provider, "new-deployed-source", args)
+            fresh = json.loads(args.manifest.read_text())
+            assert fresh.pop("liveSource") == "new-deployed-source" and fresh == manifest
+            assert result["existingUsersChanged"] == 0 and receipt.read_bytes() == retained
+        else:
+            with pytest.raises(migration.Refused):
+                migration.operate(conn, provider, "new-deployed-source", args)
+            if change == "receipt_collision":
+                assert receipt.read_bytes() == retained
+            else:
+                assert not args.manifest.exists()
+    assert len(provider.posts) == 1
 
 
 def test_workos_attribution_absence_active_binding_and_offboarding_are_pinned(database):

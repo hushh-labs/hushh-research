@@ -325,51 +325,89 @@ def arguments():
     return parser.parse_args()
 
 
-def operate(conn, session, source, args):
+def plan_staging(conn, session, source, args, manifest, selected):
     from scripts.ops.firebase_identity_activation import (
         activation_plan,
-        activate,
+        private_receipt,
+    )
+
+    require(not args.apply, "PLAN_IS_READ_ONLY")
+    actual = export_users(session, TARGET)
+    if actual:
+        require(
+            args.staging_receipt and fences_absent(conn),
+            "QUALIFIED_STAGING_REQUIRED",
+        )
+        # A governed hub deployment may change liveSource after staging.
+        # Requalify the unchanged cohort without altering the original
+        # receipt or ever importing an already-present identity again.
+        activation_plan(
+            private_receipt(args.staging_receipt), manifest, selected, actual
+        )
+    manifest["liveSource"] = source
+    save_receipt(args.manifest, manifest)
+    return {
+        "owners": len(selected),
+        "manifestSha256": sha(manifest),
+        "existingUsersChanged": 0,
+    }
+
+
+def plan_activation(conn, session, source, args, manifest, selected):
+    from scripts.ops.firebase_identity_activation import (
+        activation_plan,
         private_receipt,
         workos_snapshot,
     )
 
+    require(
+        not args.apply and args.staging_receipt and args.activation_manifest,
+        "ACTIVATION_PLAN_PATHS_REQUIRED",
+    )
+    require(fences_absent(conn), "STAGING_FENCES_PRESENT")
+    plan = activation_plan(
+        private_receipt(args.staging_receipt),
+        manifest,
+        selected,
+        export_users(session, TARGET),
+        workos=workos_snapshot(conn, selected, manifest),
+    )
+    plan["liveSource"] = source
+    save_receipt(args.activation_manifest, plan)
+    return {
+        "owners": len(selected),
+        "manifestSha256": sha(plan),
+        "existingUsersChanged": 0,
+    }
+
+
+def operate(conn, session, source, args):
+    from scripts.ops.firebase_identity_activation import activate, private_receipt
+
+    paths = [
+        path
+        for path in (
+            args.manifest,
+            args.receipt,
+            args.staging_receipt,
+            args.activation_manifest,
+        )
+        if path is not None
+    ]
+    require(
+        len({path.resolve() for path in paths}) == len(paths),
+        "EVIDENCE_PATHS_MUST_DIFFER",
+    )
     drain(conn)
     manifest, selected = owner_snapshot(conn, export_users(session, SOURCE))
     conn.rollback()
     if args.action == "plan":
-        require(
-            not args.apply and not export_users(session, TARGET), "TARGET_NOT_EMPTY"
-        )
-        manifest["liveSource"] = source
-        save_receipt(args.manifest, manifest)
-        return {
-            "owners": len(selected),
-            "manifestSha256": sha(manifest),
-            "existingUsersChanged": 0,
-        }
+        return plan_staging(conn, session, source, args, manifest, selected)
     reviewed = private_receipt(args.manifest)
     require(reviewed.pop("liveSource") == source, "LIVE_SOURCE_CHANGED")
     require(reviewed == manifest, "OWNER_OR_SOURCE_CHANGED")
     if args.action == "activation-plan":
-        require(
-            not args.apply and args.staging_receipt and args.activation_manifest,
-            "ACTIVATION_PLAN_PATHS_REQUIRED",
-        )
-        require(fences_absent(conn), "STAGING_FENCES_PRESENT")
-        plan = activation_plan(
-            private_receipt(args.staging_receipt),
-            manifest,
-            selected,
-            export_users(session, TARGET),
-            workos=workos_snapshot(conn, selected, manifest),
-        )
-        plan["liveSource"] = source
-        save_receipt(args.activation_manifest, plan)
-        return {
-            "owners": len(selected),
-            "manifestSha256": sha(plan),
-            "existingUsersChanged": 0,
-        }
+        return plan_activation(conn, session, source, args, manifest, selected)
     require(args.apply and args.receipt is not None, "EXPLICIT_APPLY_REQUIRED")
     plan = {**reviewed, "liveSource": source}
     if args.action in {"activate", "observe-activation"}:
