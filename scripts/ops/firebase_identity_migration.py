@@ -427,8 +427,9 @@ def main():
         ):
             with engine.connect() as conn:
                 from db.firebase_erasure_adoption import qualification_sql
+                from sqlalchemy import text
 
-                conn.exec_driver_sql(qualification_sql(required=True))
+                conn.execute(text(qualification_sql(required=True)))
                 conn.rollback()
                 print(canonical(operate(conn, session, source, args)))
 
