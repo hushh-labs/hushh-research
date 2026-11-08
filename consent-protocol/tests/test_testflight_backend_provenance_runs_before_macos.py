@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,8 +48,12 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     # The resolver comes from the release SHA, as it did in the ship job.
     assert 'git show "$EXPECTED_SHA:scripts/ci/resolve-cloud-run-serving-state.py"' in run
     assert 'gcloud run services describe "$BACKEND_SERVICE"' in run
-    assert "metadata.labels.deploy-sha" in run
+    assert '.metadata.labels["deploy-sha"]' in run
     assert 'test "$actual_sha" = "$EXPECTED_SHA"' in run
+    assert 'test "$actual_tree" = "$expected_tree"' in run
+    assert 'require-deploy-sha-on-main.sh "$actual_sha"' in run
+    assert "verify-predecessor-acceptance.py testflight-uat" in run
+    assert '--source-branch "$SOURCE_BRANCH"' in run
 
 
 def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check() -> None:
@@ -57,6 +62,57 @@ def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check(
     assert "preflight" in ship["needs"]
     assert "needs.preflight.result == 'success'" in ship["if"]
     assert CHECK not in _names(ship)
+
+
+@pytest.mark.parametrize("source_branch", ("uat", "uat-isolated"))
+def test_isolated_native_gate_restores_candidate_after_qualified_verifier(
+    tmp_path, source_branch
+) -> None:
+    def git(*args):
+        return subprocess.check_output(  # noqa: S603 - fixed fixture repo and Git commands
+            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+
+    git("init")
+    git("config", "user.name", "Synthetic release fixture")
+    git("config", "user.email", "synthetic@example.invalid")
+    graph = tmp_path / "consent-protocol/scripts/generate_capability_graph.py"
+    graph.parent.mkdir(parents=True)
+    graph.write_text("qualified verifier\n")
+    git("add", ".")
+    git("commit", "-m", "Main verifier")
+    authority = git("rev-parse", "HEAD")
+    graph.write_text("candidate verifier\n")
+    git("commit", "-am", "Isolated source")
+    candidate = git("rev-parse", "HEAD")
+    (tmp_path / "testflight-capability-graph.py").write_text("qualified verifier\n")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    npm = fake_bin / "npm"
+    npm.write_text(
+        "#!/bin/bash\n"
+        'test "$UAT_CI_CANDIDATE" = "$RELEASE_SHA" || exit 98\n'
+        'test "$(cat consent-protocol/scripts/generate_capability_graph.py)" = "qualified verifier" || exit 99\n'
+        "exit 7\n"
+    )
+    npm.chmod(0o755)
+    steps = {step.get("name"): step for step in _jobs()["ship"]["steps"]}
+    step = steps["Run local One Voice safety and native contract gates"]
+    result = subprocess.run(  # noqa: S603 - checked-in shell with synthetic authority
+        ["bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env={
+            "PATH": f"{fake_bin}:{os.defpath}",
+            "ISOLATED_AUTHORITY": authority,
+            "RELEASE_SHA": candidate,
+            "SOURCE_BRANCH": source_branch,
+            "RUNNER_TEMP": str(tmp_path),
+        },
+        capture_output=True,
+    )
+    assert result.returncode == 7, result.stderr
+    assert graph.read_text() == "candidate verifier\n"
+    assert git("diff", "--", str(graph)) == ""
 
 
 def test_testflight_packaging_override_preserves_archive_and_recovery_identity(tmp_path) -> None:
@@ -125,6 +181,20 @@ def test_testflight_packaging_override_preserves_archive_and_recovery_identity(t
         "marketing_version": "1.4.3",
         "bundle_id": "com.hushh.app",
     }
+    for branch in ("uat", "uat-isolated"):
+        environment.update(
+            SOURCE_BRANCH=branch,
+            ISOLATED_REVISION="consent-protocol-test",
+            ISOLATED_RUN="99",
+            GITHUB_RUN_ATTEMPT="2",
+        )
+        receipt = run_step("Preserve uploaded build identity for recovery")
+        assert receipt.returncode == 0, receipt.stderr
+        recorded = json.loads((tmp_path / "testflight-upload-receipt.json").read_text())
+        assert recorded["source_branch"] == branch
+        assert recorded["uat_backend_revision"] == "consent-protocol-test"
+        assert recorded["uat_deployment_run_id"] == 99
+        assert recorded["upload_attempt"] == 2
 
     extension = app / "PlugIns/Notifications.appex/Info.plist"
     with extension.open("wb") as handle:
