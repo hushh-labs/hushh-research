@@ -603,3 +603,21 @@ def test_reviewed_divergent_serving_history_keeps_semantics_and_revision_fences(
     monkeypatch.setenv("GITHUB_REF", "refs/heads/uat-isolated")
     with pytest.raises(SystemExit, match="artifacts are stale"):
         generator.main()
+    # The Main-owned TestFlight gate must preserve the same normal-UAT
+    # comparison after its exact-source/backend acceptance preflight.
+    head = repo.git("rev-parse", "HEAD")
+    workflow = "hushh-labs/hushh-research/.github/workflows/ship-ios-testflight.yml@refs/heads/main"
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("UAT_CI_CANDIDATE", head)
+    monkeypatch.setenv("SOURCE_BRANCH", "uat")
+    monkeypatch.setenv("GITHUB_WORKFLOW_REF", workflow)
+    assert generator.main() == 0
+    for field, value in (
+        ("SOURCE_BRANCH", "uat-isolated"),
+        ("GITHUB_WORKFLOW_REF", workflow.replace("ship-ios-testflight", "ci")),
+        ("UAT_CI_CANDIDATE", parent),
+    ):
+        with monkeypatch.context() as wrong:
+            wrong.setenv(field, value)
+            with pytest.raises(SystemExit, match="artifacts are stale"):
+                generator.main()

@@ -7,8 +7,9 @@ exact-head Admin PR landing or environment dispatch sequence.
 
 ## Visual Map
 
-UAT deployment requires an explicit landed application SHA and approved release
-PR scope. Inspection can read the protected tip and serving revisions.
+UAT deployment requires an explicitly selected, qualified application SHA from
+protected UAT history. Inspection reads the current protected tip and serving
+revisions; neither inspection nor merging deploys an application.
 
 ```mermaid
 flowchart LR
@@ -25,18 +26,21 @@ flowchart LR
 The protected Dev branch is the configured development intake and the default
 source for governed Dev deployment. Preserve its history and qualify the exact
 candidate; an active branch does not prove that its tip is serving. The protected
-UAT tip is eligible after its approved PR scope and predecessor gates are qualified.
+UAT candidate is eligible after its exact-source CI and serving-baseline gates are qualified.
 Main remains the release-control source; this transition
 does not rewind application source or database history.
 
 UAT-focused work can use exact-source CI without a preceding Dev deployment.
-The application must be the protected UAT tip. Full CI runs on that exact commit
+Select a merged application SHA from protected UAT history. Full CI runs on that exact commit
 with `scope=all` and the observed serving application as `uat_base_sha`; the
 Main-owned deployment records a typed `uat-exact-ci` predecessor. It verifies
 canonical workflow authority, reviewed invocation configuration, complete current
 attempts, service scope and the actual serving baseline under the deployment
 lock. It refreshes refs and repeats admission before runtime-secret changes and
-after image builds. A later failed CI rerun, moved tip or changed baseline refuses.
+after image builds. A later failed required CI attempt or changed serving baseline refuses.
+A descendant UAT merge does not retarget or invalidate the selected application;
+a branch reset that removes it from protected history refuses. Legacy isolated
+UAT retains its exact-tip requirement.
 Reviewed application tests and dependencies may evolve; this follows the existing
 protected-branch trust model, not malicious-code containment.
 
@@ -121,8 +125,9 @@ On 26 October 2026, Dev was created from Main `b819614ccc` and both prepared
 branches' protection passed live readback. UAT history reconciliation and the
 selective-promotion authority remain separate from this protection checkpoint.
 
-Manual UAT deployment pins the protected candidate, approved PR head and both
-serving SHAs. A Main-only SHA is not a normal UAT source. Direct UAT also requires
+Manual UAT deployment pins the protected candidate, its exact CI attempt and both
+serving SHAs. The manual approved-PR chain is retained for legacy isolated UAT,
+not required for ordinary UAT. A Main-only SHA is not a normal UAT source. Direct UAT also requires
 the exact full-scope candidate run, current attempt and observed serving base.
 Historical Main-backed receipts remain readable under their original contract.
 
