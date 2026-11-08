@@ -453,3 +453,44 @@ def test_added_authentication_credentials_refuse_staging_and_activation(extra):
         "validSince": None,
     }
     assert activation.observed_state({**wanted, **extra}, wanted, target, "operation") == "foreign"
+
+
+def test_owner_snapshot_batches_on_the_original_database_session(database):
+    from unittest.mock import patch
+
+    from sqlalchemy import event
+
+    from hushh_mcp.services import account_generation_service as generations
+
+    users = [dict(USER, localId=f"legacy-{i}") for i in range(64)]
+    with database.begin() as conn:
+        conn.execute(text("DELETE FROM actor_profiles; DELETE FROM vault_keys"))
+        conn.execute(
+            text("INSERT INTO actor_profiles(user_id) VALUES(:uid)"),
+            [{"uid": user["localId"]} for user in users],
+        )
+    queries = []
+
+    def observed(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    event.listen(database, "before_cursor_execute", observed)
+    try:
+        with (
+            database.connect() as conn,
+            patch.object(
+                generations, "get_db_connection", side_effect=AssertionError("foreign SQL session")
+            ),
+        ):
+            manifest, selected = migration.owner_snapshot(conn, users)
+            assert len(manifest["owners"]) == len(selected) == 64
+            assert len(queries) <= 8
+            queries.clear()
+            conn.execute(
+                text("UPDATE actor_profiles SET user_id=:owner WHERE user_id='legacy-0'"),
+                {"owner": "acct_" + "a" * 32},
+            )
+            with pytest.raises(migration.Refused, match="OWNER_MAPPING_REFUSED"):
+                migration.owner_snapshot(conn, users)
+    finally:
+        event.remove(database, "before_cursor_execute", observed)

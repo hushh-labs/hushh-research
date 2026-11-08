@@ -48,19 +48,28 @@ def owner_snapshot(conn, users):
     )
     by_uid = {u["localId"]: u for u in users}
     require(len(by_uid) == len(users), "SOURCE_DUPLICATE_UID")
+    owners = sorted(owner for owner in owners if identity_hash(owner) not in retired)
+    identities = AccountGenerationService.firebase_identities_for_owners(
+        owners, connection=conn
+    )
+    require(set(identities) == set(owners), "OWNER_MAPPING_REFUSED")
+    generations = dict(
+        conn.execute(
+            text(
+                "SELECT owner_hash,generation FROM account_generations WHERE owner_hash=ANY(:owners)"
+            ),
+            {"owners": [identity_hash(owner) for owner in owners]},
+        ).all()
+    )
     selected, bindings, unresolved = {}, [], []
-    for owner in sorted(owners):
-        if identity_hash(owner) in retired:
-            continue
-        uid = AccountGenerationService.identity_in_transaction(conn, owner)
+    for owner in owners:
+        uid = identities[owner]
+        require(bool(uid), "OWNER_MAPPING_REFUSED")
         if uid not in by_uid:
             unresolved.append(identity_hash(owner))
             continue
         require(uid not in selected, "MULTIPLE_OWNERS_FOR_IDENTITY")
-        generation = conn.execute(
-            text("SELECT generation FROM account_generations WHERE owner_hash=:owner"),
-            {"owner": identity_hash(owner)},
-        ).scalar_one_or_none()
+        generation = generations.get(identity_hash(owner))
         selected[uid] = record(by_uid[uid])
         bindings.append(
             {
