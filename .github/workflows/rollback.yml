@@ -115,10 +115,13 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
@@ -336,10 +339,13 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"

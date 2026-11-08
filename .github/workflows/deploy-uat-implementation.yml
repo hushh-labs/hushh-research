@@ -182,6 +182,7 @@ jobs:
     outputs:
       application_sha: ${{ steps.clearance.outputs.sha }}
       attempt: ${{ steps.clearance.outputs.attempt }}
+      authorization: ${{ steps.clearance.outputs.authorization }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -264,9 +265,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ job.workflow_sha }}
 
-
-      - name: Assert manual UAT dispatch actor policy
-        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
 
       - name: Resolve deployment SHA
         id: resolve-sha
@@ -458,6 +456,9 @@ jobs:
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"

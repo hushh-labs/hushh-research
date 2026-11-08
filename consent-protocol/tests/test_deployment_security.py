@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Hussh
 """Real deployment credential and exact-attempt boundaries after worker retirement."""
 
+import json
 import os
 import subprocess
 import sys
@@ -136,6 +137,21 @@ class DeploymentSecurityTest(unittest.TestCase):
         self.assertEqual(result["authorization"]["team"], "deploy-dev")
         self.assertEqual(result["authorization"]["source"], result["source"])
         self.assertNotIn("memberships", result["authorization"])
+        context = {
+            **env,
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY_ID": "9",
+            "GITHUB_ACTOR": "operator",
+            "GITHUB_ACTOR_ID": "55",
+            "GITHUB_TRIGGERING_ACTOR": "operator",
+            "RELEASE_APPLICATION_SHA": APP,
+        }
+        gate.verify_forwarded_authorization(
+            context,
+            json.dumps(gate.forwarded_authorization(result, context)),
+            "dev",
+            "operator",
+        )
         self.assertEqual(result["dependabot"]["open"], 1)
         self.assertEqual(
             gate.produce(env, read, lambda _: ([{"state": "open"}], ""))["verdict"], "blocked"
@@ -412,6 +428,17 @@ class DeploymentSecurityTest(unittest.TestCase):
                             "${{ needs.deployment-security.outputs.attempt }}",
                         )
                         continue
+                    for step in job["steps"]:
+                        if "assert-governed-actor.py" in step.get("run", ""):
+                            issuer = (
+                                "pod-security"
+                                if key == "pod-publication"
+                                else "deployment-security"
+                            )
+                            self.assertEqual(
+                                step["env"]["RELEASE_AUTHORIZATION"],
+                                "${{ needs." + issuer + ".outputs.authorization }}",
+                            )
                     self.assertEqual(
                         job["steps"][0]["name"], "Require current-attempt deployment security"
                     )
@@ -461,6 +488,14 @@ class DeploymentSecurityTest(unittest.TestCase):
         check = hardware["jobs"]["hardware-capture"]["steps"][0]
         self.assertEqual(check["env"]["SECURITY_ATTEMPT"], "${{ inputs.security_attempt }}")
         self.assertIn('"$SECURITY_ATTEMPT" != "$GITHUB_RUN_ATTEMPT"', check["run"])
+        actor = next(
+            step
+            for step in hardware["jobs"]["hardware-capture"]["steps"]
+            if "assert-governed-actor.py" in step.get("run", "")
+        )
+        self.assertEqual(
+            actor["env"]["RELEASE_AUTHORIZATION"], "${{ inputs.security_authorization }}"
+        )
         self.assertIn("environment: ci-security", reusable)
         self.assertIn("ref: ${{ github.sha }}", reusable)
         self.assertNotIn("application_ref }}\n          persist", reusable)
@@ -627,6 +662,70 @@ class DeploymentBrokerTest(unittest.TestCase):
         with self.assertRaises(gate.Refused):
             gate.produce_broker(env, responses.__getitem__, revoke, policy=policy)
 
+    def test_verified_main_decision_reaches_actor_guard_without_saved_roster(self):
+        import importlib.util
+        import json
+
+        env, request, _, _, responses, policy = self.fixture()
+        policy["dev"]["manual_dispatch_users"] = []
+        receipt = gate.produce_broker(env, responses.__getitem__, lambda _: ([], ""), policy=policy)
+        self.assertEqual(
+            gate.verify_deployment_source(responses.__getitem__, request),
+            receipt["source"],
+        )
+        context = {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY": gate.REPOSITORY,
+            "GITHUB_REPOSITORY_ID": "9",
+            "GITHUB_RUN_ID": "20",
+            "GITHUB_RUN_ATTEMPT": "2",
+            "GITHUB_SHA": "c" * 40,
+            "GITHUB_REF": "refs/heads/dev",
+            "GITHUB_WORKFLOW_REF": f"{gate.REPOSITORY}/.github/workflows/deploy-dev.yml@refs/heads/dev",
+            "GITHUB_ACTOR": "operator",
+            "GITHUB_ACTOR_ID": "55",
+            "GITHUB_TRIGGERING_ACTOR": "operator",
+            "RELEASE_APPLICATION_SHA": APP,
+            "RELEASE_TOOLING_SHA": SHA,
+        }
+        document = gate.forwarded_authorization(receipt, context)
+        raw = json.dumps(document)
+        gate.verify_forwarded_authorization(context, raw, "dev", "operator")
+        for key, value in [
+            ("GITHUB_REPOSITORY_ID", "10"),
+            ("GITHUB_RUN_ID", "21"),
+            ("GITHUB_RUN_ATTEMPT", "3"),
+            ("GITHUB_SHA", "d" * 40),
+            ("GITHUB_ACTOR_ID", "56"),
+            ("GITHUB_TRIGGERING_ACTOR", "outsider"),
+            ("GITHUB_REF", "refs/heads/uat"),
+            ("RELEASE_APPLICATION_SHA", "d" * 40),
+            ("RELEASE_TOOLING_SHA", "d" * 40),
+        ]:
+            with self.subTest(key=key), self.assertRaises(gate.Refused):
+                gate.verify_forwarded_authorization({**context, key: value}, raw, "dev", "operator")
+        with self.assertRaises(gate.Refused):
+            gate.verify_forwarded_authorization(context, raw, "production", "operator")
+        legacy = deepcopy(receipt)
+        legacy.pop("authorization")
+        with self.assertRaises(gate.Refused):
+            gate.forwarded_authorization(legacy, context)
+
+        spec = importlib.util.spec_from_file_location(
+            "actor_guard", Path(CI_DIR) / "assert-governed-actor.py"
+        )
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        with (
+            patch.object(sys, "argv", ["actor_guard", "--surface", "dev", "--actor", "operator"]),
+            patch.dict(os.environ, {**context, "RELEASE_AUTHORIZATION": raw}, clear=True),
+            patch.object(Path, "read_text", side_effect=AssertionError("saved roster consulted")),
+        ):
+            self.assertEqual(guard.main(), 0)
+            os.environ["RELEASE_AUTHORIZATION"] = ""
+            with self.assertRaises(SystemExit):
+                guard.main()
+
     def test_uat_broker_separates_protected_application_from_caller(self):
         _, request, source, _, responses, _ = self.fixture()
         prefix = f"repos/{gate.REPOSITORY}"
@@ -713,7 +812,7 @@ class DeploymentBrokerTest(unittest.TestCase):
                 raise gate.Refused("dispatch outcome unknown")
 
             with (
-                patch.object(gate, "verify_deployment", return_value={}),
+                patch.object(gate, "verify_deployment_source", return_value={}),
                 self.assertRaises(gate.Refused),
             ):
                 gate.request_broker(env, api=api)
@@ -722,7 +821,7 @@ class DeploymentBrokerTest(unittest.TestCase):
             self.assertEqual(calls[0][1]["ref"], "main")
             self.assertTrue((Path(directory) / "deployment-security-request.json").exists())
             with (
-                patch.object(gate, "verify_deployment", return_value={}),
+                patch.object(gate, "verify_deployment_source", return_value={}),
                 self.assertRaises(FileExistsError),
             ):
                 gate.request_broker(env, api=api)
@@ -769,6 +868,10 @@ class DeploymentBrokerTest(unittest.TestCase):
         api = SimpleNamespace(read=lambda path: deepcopy(responses[path]))
         with patch.object(receipt_transport, "archive_read", return_value=raw) as download:
             self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
+            self.assertEqual(
+                gate.consume_broker(api, request, 40, {"dev": {"manual_dispatch_users": []}}),
+                receipt,
+            )
             reported_steps = job["steps"]
             job["steps"] = []
             self.assertEqual(gate.consume_broker(api, request, 40, policy), receipt)
@@ -791,6 +894,8 @@ class DeploymentBrokerTest(unittest.TestCase):
                 gate.consume_broker(api, request, 40, policy)
             job["steps"] = reported_steps
             self.assertEqual(gate.consume_broker(api, request, 40, policy), legacy)
+            with self.assertRaises(gate.Refused):
+                gate.consume_broker(api, request, 40)
             job["steps"] = []
             for key, value in [
                 ("team_id", 1),

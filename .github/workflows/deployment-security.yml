@@ -28,6 +28,8 @@ on:
         value: ${{ jobs.alerts.outputs.sha }}
       attempt:
         value: ${{ jobs.alerts.outputs.attempt }}
+      authorization:
+        value: ${{ jobs.alerts.outputs.authorization }}
 
 permissions:
   contents: read
@@ -43,6 +45,7 @@ jobs:
     outputs:
       sha: ${{ steps.clearance.outputs.sha }}
       attempt: ${{ steps.clearance.outputs.attempt }}
+      authorization: ${{ steps.clearance.outputs.authorization }}
     steps:
       - uses: actions/checkout@v6
         with:

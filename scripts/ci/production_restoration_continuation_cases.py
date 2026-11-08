@@ -252,7 +252,7 @@ class RestorationContinuationCases:
                     if defect == "attempt":
                         self.run["run_attempt"] = 3
                     elif defect == "actor":
-                        self.run["triggering_actor"]["login"] = "unapproved-fixture-actor"
+                        self.run["triggering_actor"]["type"] = "Bot"
                     elif defect == "source":
                         fixture["release"]["sha"] = "9" * 40
                     elif defect in {"activation", "other_failure"}:

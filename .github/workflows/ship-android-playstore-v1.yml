@@ -118,6 +118,9 @@ jobs:
 
       - name: Authorize production dispatch actor
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"
