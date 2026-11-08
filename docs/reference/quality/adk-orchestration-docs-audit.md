@@ -60,7 +60,7 @@ Dev Sandbox APNs configuration also survived a fresh Firebase reload, using one
 topic-specific `com.hushh.app` key backed up directly to Dev Secret Manager;
 all 17 prior Apple keys remain present. Production-channel and actual device
 phone/push checks remain unqualified. These steps imported no personal identity.
-The restartable Dev Auth operator passed 32 focused cases and actual disposable
+The restartable Dev Auth operator passed 34 focused cases and actual disposable
 Dev staging/activation with original-password sign-in, UID/hash/salt continuity
 and verified fixture cleanup. It imports disabled records without overwrite;
 activation updates only enabled state and the temporary claim. Native dispatch
@@ -68,8 +68,10 @@ checkpoints prevent stale local receipts from replaying uncertain requests.
 All 156 personal identities passed disabled staging on operator source `eb338d1cccdb`;
 one HTTP-200 import request settled, and the native fences and proxy are removed.
 The activation manifest additionally pins WorkOS attribution without creating a binding.
-No activation or live sign-in change has occurred. Current mail still depends on the
-production SDK; Dev mail delegation must qualify before canonical credential
+No activation or live sign-in change has occurred. The existing Dev SDK client now
+has only gmail.send Workspace delegation; native token minting passed, no mail was
+sent, and all seven previous grants remain unchanged. Current live mail still
+depends on the production SDK pending the coordinated canonical credential
 replacement. Two unused Dev copies of that production credential are disabled
 and native access refuses them; the live copy is still active. Existing Dev/UAT users have not been cut over. UID continuity, all client paths, production
 credential isolation and project-bound erasure qualification remain release

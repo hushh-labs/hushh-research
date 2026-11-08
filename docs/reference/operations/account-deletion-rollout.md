@@ -184,7 +184,11 @@ is created or inferred from email.
 These operations require exclusive target-Auth administrator custody; SQL fences
 do not constrain an unrelated Firebase administrator.
 
-32 focused competing-session, interruption and credential-preservation cases pass.
+34 focused competing-session, interruption, credential-preservation and batch-resolution
+cases pass. The operator reuses the existing owner batch resolver on the original
+qualified SQL connection. A fresh 156-owner plan retained its exact manifest and
+reduced observed proxy-to-exit time from 33 to seven seconds; activation timing
+is not yet measured.
 A real disposable Dev identity passed both staging and operator activation,
 retaining its UID, password hash, salt and original password sign-in. Its native
 absence and local PostgreSQL shutdown are verified. This is operator qualification;
