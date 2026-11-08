@@ -364,7 +364,9 @@ jobs:
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - name: Preserve trusted serving revision verifier
         if: inputs.source_branch == 'uat' || inputs.source_branch == 'uat-isolated'
-        run: cp scripts/ci/resolve-cloud-run-serving-state.py "$RUNNER_TEMP/testflight-serving-state.py"
+        run: |
+          cp scripts/ci/resolve-cloud-run-serving-state.py "$RUNNER_TEMP/testflight-serving-state.py"
+          cp consent-protocol/scripts/generate_capability_graph.py "$RUNNER_TEMP/testflight-capability-graph.py"
       - name: Check out exact release SHA
         uses: actions/checkout@v6
         with:
@@ -493,14 +495,20 @@ jobs:
         env:
           ISOLATED_AUTHORITY: ${{ needs.preflight.outputs.isolated_authority }}
           RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+          SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
         run: |
           set -euo pipefail
           if [[ -n "$ISOLATED_AUTHORITY" ]]; then
-            # Exact UAT CI used this verifier with the candidate. Use it
-            # for the same checks, then restore the candidate before packaging.
+            # Preserve the accepted isolated verifier. Normal UAT uses the
+            # reviewed Main verifier that understands its serving history.
+            # Restore the exact candidate before packaging in either case.
             graph=consent-protocol/scripts/generate_capability_graph.py
             trap 'git restore --worktree -- "$graph"' EXIT
-            git show "$ISOLATED_AUTHORITY:$graph" > "$graph"
+            if [[ "$SOURCE_BRANCH" == uat ]]; then
+              cp "$RUNNER_TEMP/testflight-capability-graph.py" "$graph"
+            else
+              git show "$ISOLATED_AUTHORITY:$graph" > "$graph"
+            fi
             export UAT_CI_CANDIDATE="$RELEASE_SHA" CI_VALIDATION_LEVEL=release
           fi
           npm run --prefix hushh-webapp verify:one-voice

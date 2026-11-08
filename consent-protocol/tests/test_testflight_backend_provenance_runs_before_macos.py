@@ -16,6 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,7 +64,10 @@ def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check(
     assert CHECK not in _names(ship)
 
 
-def test_isolated_native_gate_restores_candidate_after_qualified_verifier(tmp_path) -> None:
+@pytest.mark.parametrize("source_branch", ("uat", "uat-isolated"))
+def test_isolated_native_gate_restores_candidate_after_qualified_verifier(
+    tmp_path, source_branch
+) -> None:
     def git(*args):
         return subprocess.check_output(  # noqa: S603 - fixed fixture repo and Git commands
             ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
@@ -81,6 +85,7 @@ def test_isolated_native_gate_restores_candidate_after_qualified_verifier(tmp_pa
     graph.write_text("candidate verifier\n")
     git("commit", "-am", "Isolated source")
     candidate = git("rev-parse", "HEAD")
+    (tmp_path / "testflight-capability-graph.py").write_text("qualified verifier\n")
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     npm = fake_bin / "npm"
@@ -100,6 +105,8 @@ def test_isolated_native_gate_restores_candidate_after_qualified_verifier(tmp_pa
             "PATH": f"{fake_bin}:{os.defpath}",
             "ISOLATED_AUTHORITY": authority,
             "RELEASE_SHA": candidate,
+            "SOURCE_BRANCH": source_branch,
+            "RUNNER_TEMP": str(tmp_path),
         },
         capture_output=True,
     )
