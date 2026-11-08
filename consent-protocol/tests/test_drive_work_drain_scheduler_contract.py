@@ -558,10 +558,21 @@ def _rehearse_selected_profile_overlay(workspace, temporary, selected, environme
     block = block.replace("${{ needs.wait-capacity.outputs.scope }}", "backend").replace(
         "${{ steps.resolve-sha.outputs.sha }}", target
     )
+    # Python bounds this local rehearsal so macOS needs no GNU timeout.
+    # Keep the real profile resolver and its arguments; the hosted deadline
+    # remains in the authored workflow.
+    deadline = "timeout --signal=TERM --kill-after=2s 295s "
+    assert block.count(deadline) == 1
+    block = block.replace(deadline, "", 1)
     (temporary / "release-tools").mkdir()
     env = {**git_env, "RUNNER_TEMP": str(temporary)}
     subprocess.run(  # noqa: S603 - authored workflow fragment, fake cloud transport, no release credentials
-        ["bash", "-euc", block], cwd=workspace, env=env, check=True, capture_output=True
+        ["bash", "-euc", block],
+        cwd=workspace,
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=30,
     )
     git("checkout", "--detach", target)
     checkout = next(step["run"] for step in steps if step.get("name") == "Checkout deployment SHA")
