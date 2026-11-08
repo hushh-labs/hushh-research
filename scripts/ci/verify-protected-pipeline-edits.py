@@ -47,9 +47,8 @@ def _load_policy() -> dict:
             pr = event["pull_request"]
             if (os.environ.get("GITHUB_REPOSITORY") != repository
                     or event.get("repository", {}).get("full_name") != repository
-                    or any(pr.get(side, {}).get("repo", {}).get("full_name") != repository
-                           for side in ("base", "head"))):
-                raise GuardResolutionError("Main policy requires a same-repository Dev/UAT PR")
+                    or pr["base"].get("repo", {}).get("full_name") != repository):
+                raise GuardResolutionError("Main policy requires a canonical Dev/UAT destination")
             from queue_combined_result import authority_policy
             try:
                 _, policy = authority_policy(repository, branch, base)

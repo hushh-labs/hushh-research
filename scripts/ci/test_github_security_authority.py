@@ -408,10 +408,15 @@ class LiveTeamPolicyTest(unittest.TestCase):
                 with patch.object(queue, "api", side_effect=queue.Refused("unavailable")), \
                      self.assertRaisesRegex(guard.GuardResolutionError, "Main editing policy is unavailable"):
                     guard._load_policy()
-                for context in (event["repository"], event["pull_request"]["base"]["repo"], event["pull_request"]["head"]["repo"]):
+                # A fork cannot redirect policy authority, but ordinary fork
+                # contributions must retain their existing admission behavior.
+                event["pull_request"]["head"]["repo"]["full_name"] = "contributor/fork"
+                event_path.write_text(json.dumps(event))
+                self.assertEqual(guard._load_policy(), approved)
+                for context in (event["repository"], event["pull_request"]["base"]["repo"]):
                     context["full_name"] = "foreign/repository"
                     event_path.write_text(json.dumps(event))
-                    with self.assertRaisesRegex(guard.GuardResolutionError, "same-repository"):
+                    with self.assertRaisesRegex(guard.GuardResolutionError, "canonical Dev/UAT"):
                         guard._load_policy()
                     context["full_name"] = repository
 
