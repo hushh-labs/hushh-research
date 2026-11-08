@@ -273,10 +273,18 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool = False, ve
     if not verify_only and (actor.get("type") != "User" or actor.get("login") not in owners):
         raise SystemExit("Only a protected owner may install native pipeline review")
     def verify_admins():
-        for owner in owners:
+        principals = owners
+        if policy.get("authorization", {}).get("native_teams"):
+            # Native review authority comes from the verified team and its
+            # repository grant below. Only a settings mutation needs an admin.
+            if not apply:
+                return
+            principals = [actor.get("login")]
+        for owner in principals:
             permission = read(["api", f"repos/{REPO}/collaborators/{owner}/permission"])
             if permission.get("permission") != "admin" or permission.get("user", {}).get("login") != owner:
-                raise SystemExit("Reviewer team grants require all configured protected owners to be repository admins")
+                raise SystemExit("Reviewer settings changes require a repository admin" if policy.get("authorization", {}).get("native_teams")
+                                 else "Reviewer team grants require all configured protected owners to be repository admins")
 
     verify_admins()
     team_id = desired_rules[0]["rules"][0]["parameters"]["required_reviewers"][0]["reviewer"]["id"]
