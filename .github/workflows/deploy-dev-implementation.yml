@@ -87,6 +87,7 @@ jobs:
     outputs:
       application_sha: ${{ steps.clearance.outputs.sha }}
       attempt: ${{ steps.clearance.outputs.attempt }}
+      authorization: ${{ steps.clearance.outputs.authorization }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -177,6 +178,9 @@ jobs:
 
       - name: Assert manual dev dispatch actor policy
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface dev --actor "${GITHUB_ACTOR}"
@@ -2162,6 +2166,8 @@ jobs:
       - name: Admit Main-owned pod publication
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.pod-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.pod-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           LEGACY_BUILD_FLAG: ${{ inputs.build_pod_image && 'true' || 'false' }}
         run: |

@@ -365,6 +365,8 @@ jobs:
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -409,6 +411,8 @@ jobs:
         if: inputs.restoration_validation_run != ''
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY_RUN: ${{ inputs.restoration_validation_run }}
           REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
@@ -3364,6 +3368,8 @@ jobs:
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -3710,6 +3716,9 @@ jobs:
             --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
 
       - name: Assert production dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
 
       - name: Validate deployment SHA against main
@@ -4338,6 +4347,9 @@ jobs:
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"
