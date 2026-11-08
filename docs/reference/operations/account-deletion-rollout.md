@@ -198,8 +198,8 @@ for the configured sender passed; no email was sent. All seven pre-existing
 Workspace entries remain unchanged. No service account, project or mailbox was
 created. The live support-mail fallback still uses the production Firebase
 credential until the coordinated credential cutover.
-Two unused Dev secret copies (`FIREBASE_AUTH_SERVICE_ACCOUNT_JSON/1` and
-`FIREBASE_SERVICE_ACCOUNT_JSON/1`) are now disabled with native access refusal.
+Two unused legacy Dev SDK secret copies are now disabled with native access
+refusal; their exact version coordinates remain in the private retirement receipt.
 Fresh checks found no references among nine all-region Dev services or five
 us-central1 jobs. Canonical SDK version423 remains enabled for the live service;
 no production IAM or service-account key was changed.
