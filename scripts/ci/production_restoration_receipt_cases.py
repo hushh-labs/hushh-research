@@ -63,7 +63,7 @@ class RestorationServingReceiptCases:
             hashlib.sha256(path.read_bytes()).hexdigest(),
         )
         self.run.update(
-            conclusion="success", run_attempt=attempt, actor={"login": "kushaltrivedi5"}
+            conclusion="success", run_attempt=attempt, actor={"login": "kushaltrivedi5", "id": 2, "type": "User"}
         )
         previous = record["previousServices"]["consent-protocol"]
         admission = {

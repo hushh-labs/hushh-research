@@ -67,6 +67,26 @@ def deployment_job_name(run: dict, environment: str, name: str) -> str:
     return name if authority["caller_branch"] == "main" else f"Deploy / {name}"
 
 
+def historical_human_dispatch(run: dict) -> bool:
+    """Origin eligibility for terminal evidence, never permission for new work.
+
+    The caller must verify canonical Main execution/reusable provenance and the
+    complete release outcome. Today's team roster cannot reauthorize or erase a
+    previously executed release. Automated sources retain controller evidence.
+    """
+    return (
+        run.get("status") == "completed"
+        and run.get("event") == "workflow_dispatch"
+        and all(
+            isinstance(run.get(key), dict)
+            and run[key].get("type") == "User"
+            and type(run[key].get("id")) is int and run[key]["id"] > 0
+            and isinstance(run[key].get("login"), str) and bool(run[key]["login"])
+            for key in ("actor", "triggering_actor")
+        )
+    )
+
+
 def bounded_artifact_inventory(inventory: object) -> list[dict]:
     """Reject incomplete or malformed artifact listings before examining pins."""
     require(isinstance(inventory, dict), "Artifact inventory is malformed")

@@ -71,6 +71,9 @@ jobs:
 
       - name: Require governed production actors
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           [[ "$(git -C authority rev-parse HEAD)" == "$GITHUB_SHA" ]]
