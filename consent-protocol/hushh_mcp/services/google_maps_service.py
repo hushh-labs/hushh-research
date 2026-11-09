@@ -646,10 +646,7 @@ class GoogleMapsService:
                     },
                 )
             except httpx.HTTPError as exc:
-                raise GoogleMapsError(
-                    f"Nearby place lookup failed: {exc}",
-                    status_code=502,
-                ) from exc
+                raise GoogleMapsError("Nearby place lookup failed.", status_code=502) from exc
         if response.status_code >= 400:
             logger.warning(
                 "maps.reverse_geocode nearby upstream %s",
@@ -1253,17 +1250,19 @@ class GoogleMapsService:
                     params={"latlng": f"{lat},{lng}", "key": key},
                 )
             except httpx.HTTPError as exc:
-                raise GoogleMapsError(f"Reverse geocode failed: {exc}", status_code=502) from exc
+                raise GoogleMapsError("Reverse geocode failed.", status_code=502) from exc
+        if response.status_code == 403:
+            return await self._nearest_place_address(key=key, lat=lat, lng=lng)
         if response.status_code >= 400:
             logger.warning("maps.reverse_geocode upstream %s", response.status_code)
             raise GoogleMapsError("Reverse geocode failed.", status_code=502)
-        data = response.json()
+        data = _provider_object(response, "Reverse geocode")
         results = data.get("results") or []
         if not results:
             provider_status = str(data.get("status") or "").strip().upper()
-            if provider_status == "REQUEST_DENIED":
+            if provider_status in {"REQUEST_DENIED", "ZERO_RESULTS"}:
                 return await self._nearest_place_address(key=key, lat=lat, lng=lng)
-            if provider_status in {"", "OK", "ZERO_RESULTS"}:
+            if provider_status in {"", "OK"}:
                 return {
                     "name": None,
                     "formattedAddress": None,

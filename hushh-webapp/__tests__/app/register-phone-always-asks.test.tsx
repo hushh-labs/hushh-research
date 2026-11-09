@@ -187,7 +187,7 @@ describe("PhoneMandatePageContent always asks", () => {
     expect(syncOnboardingJourneyMock).not.toHaveBeenCalled();
   });
 
-  it.each(["/one/location/invite/real_token", "/circle/join?invite=real_token"])("admits invite verification for an established account and returns to %s", async (target) => {
+  it.each(["/one/location/invite/real_token", "/circle/join?invite=real_token", "/one/location/check-in"])("admits explicit verification for an established account and returns to %s", async (target) => {
     shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
     searchParamsMock.mockReturnValue(new URLSearchParams({ redirect: target }));
     resolveAfterLoginMock.mockResolvedValue(target);

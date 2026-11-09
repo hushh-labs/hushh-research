@@ -13,6 +13,12 @@ LOCATION_SHARE_DURATION_MODES = {
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
 }
 
+LOCATION_PEER_UNAVAILABLE = "LOCATION_PEER_UNAVAILABLE"
+LOCATION_PEER_UNAVAILABLE_MESSAGE = (
+    "Someone you selected is no longer available. Choose someone else."
+)
+
+
 LOCATION_CAPABILITY_SCOPES = [
     "cap.location.live.share",
     "cap.location.live.view",
