@@ -138,7 +138,9 @@ test("@presentation Calendar account pickers show verified portraits and readabl
     await page.getByRole("tab", { name: section, exact: true }).click();
     const owner = page.getByRole("button", { name: "Calendar account: qa-owner@example.com" });
     await expect.poll(() => owner.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
-    await owner.click();
+    if (section === "Invitations") await expect(page.getByRole("tab", { name: "Pending (2)" })).toBeVisible();
+    await owner.press("Enter");
+    await expect(owner).toHaveAttribute("aria-expanded", "true");
     const work = page.getByRole("menuitemradio", { name: /qa-work@example.com/ });
     await expect.poll(() => work.locator("[data-photo-source=hussh] img").evaluate(image => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0)).toBe(true);
     await expect(work.locator("[data-slot=avatar-fallback]")).toHaveText("Q");
@@ -196,7 +198,7 @@ for (const width of [390, 1440]) {
   });
 }
 for (const width of [320, 390, 1440]) {
-  test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }) => {
+  test(`connected Calendar geometry, timeline, windows and shared session recovery at ${width}px`, async ({ page }, testInfo) => {
     const { errors, unexpectedRequests, calls, failAvailability } = await openFixture(page, width);
     const tabs = page.getByRole("tablist", { name: "Calendar navigation" });
     const tabBounds = (await tabs.boundingBox())!;
@@ -273,7 +275,9 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("Choose calendars and alternative meeting hours. Free time checks the whole selected day.");
     await expect(page.getByRole("dialog").getByRole("combobox", { name: "Time zone" })).toHaveCount(0);
-    for (let index = 0; index < 6; index++) { await page.keyboard.press("Tab"); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
+    // macOS WebKit uses Option-Tab to include all interactive controls.
+    const focusNext = process.platform === "darwin" && testInfo.project.name === "webkit" ? "Alt+Tab" : "Tab";
+    for (let index = 0; index < 6; index++) { await page.keyboard.press(focusNext); expect(await page.getByRole("dialog").evaluate(element => element.contains(document.activeElement))).toBe(true); }
     await page.keyboard.press("Escape");
     await expect(menu).toBeFocused();
     await tabs.getByRole("tab", { name: "Schedule", exact: true }).focus();
@@ -621,6 +625,7 @@ for (const width of [390, 1280]) {
     await page.getByRole("tab", { name: "Insights", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Executive snapshot" })).toBeVisible();
     await expect(page.getByText("8", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Focus opportunities" })).toHaveCount(0);
     await page.screenshot({ animations: "disabled", path: path.join(screenshotDirectory, `insights-overview-${width}.png`), fullPage: true });
     const libraryEntry = page.getByRole("button", { name: /Recordings & Notes/ });
     await libraryEntry.scrollIntoViewIfNeeded();
