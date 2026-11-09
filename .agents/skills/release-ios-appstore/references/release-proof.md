@@ -51,6 +51,8 @@ already on `main`.
 ## Internal TestFlight source boundary
 
 UAT TestFlight runs from trusted Main and signs a qualified protected UAT source.
+Ordinary UAT may select an accepted commit in protected history; a later source-only
+sync does not replace it. Legacy isolated UAT retains its exact-tip requirement.
 Build/signing scripts and configuration must match the reviewed Main authority.
 The uninvoked `phone-conflict-flow.mjs` diagnostic and affected-test selectors are
 excluded from that comparison; their differing test coverage is preserved.
