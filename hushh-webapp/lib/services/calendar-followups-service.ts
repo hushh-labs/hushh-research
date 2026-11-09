@@ -128,14 +128,15 @@ export class CalendarFollowupsService {
     return value;
   }
 
-  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<string> {
+  static async resolve(userId: string, accountId: string, requestId: string, idToken: string, ownerToken: string, signal?: AbortSignal): Promise<{ conversationId: string; requestId: string }> {
     if (!validUuid(requestId)) throw new Error("Choose a valid request.");
-    const value = await this.post<{ account_id: string; conversation_id: string }>("resolve", {
+    const value = await this.post<{ account_id: string; conversation_id: string; request_id?: string }>("resolve", {
       user_id: userId, account_id: accountId, request_id: requestId,
     }, idToken, ownerToken, signal);
     validateAccount(value, accountId);
-    if (!validUuid(value.conversation_id)) throw new Error("Follow-up source was unavailable.");
-    return value.conversation_id;
+    const resolvedRequestId = value.request_id === undefined ? requestId : value.request_id;
+    if (!validUuid(value.conversation_id) || !validUuid(resolvedRequestId)) throw new Error("Follow-up source was unavailable.");
+    return { conversationId: value.conversation_id, requestId: resolvedRequestId };
   }
 
   static async change(userId: string, accountId: string, request: FollowupRequest, action: "done" | "dismiss" | "snooze" | "set_reminder", reminderAt: string | null, idToken: string, ownerToken: string): Promise<{ id: string; revision: number; state: string; reminder_at: string | null }> {

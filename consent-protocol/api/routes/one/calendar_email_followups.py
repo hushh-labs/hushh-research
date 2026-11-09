@@ -288,9 +288,9 @@ async def resolve_followup(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         store, monitor, grant = await _current_monitor(firebase_uid, payload.account_id)
-        conversation_id = await store.conversation_for_request(monitor, str(payload.request_id))
+        target = await store.resolve_request(monitor, str(payload.request_id))
         await _require_current(store, monitor, grant)
-        return {"account_id": payload.account_id, "conversation_id": conversation_id}
+        return {"account_id": payload.account_id, **target}
     except Exception as exc:
         raise _http(exc) from None
 

@@ -25,6 +25,7 @@ from hushh_mcp.services.calendar_email_followup_relevance import (
     same_obligation_wording,
     same_sender_domain,
     similar_titles,
+    title_tokens,
 )
 from hushh_mcp.services.calendar_email_followup_store_types import (
     FollowupStateError,
@@ -407,6 +408,7 @@ _ACTIVE = ("needs_review", "pending", "snoozed")
 _CLOSED = ("done", "dismissed")
 _ROW = """SELECT r.id,r.kind,r.state,r.reminder_at,r.reminder_is_manual,r.due_date,
     r.proposed_date,r.proposed_at,r.after_date,r.source_internal_date_ms,
+    r.last_source_internal_date_ms,r.category,r.responsibility,r.due_relation,
     r.title_ciphertext,r.conversation_id,c.sender_ciphertext
     FROM calendar_email_followup_requests r
     JOIN calendar_email_followup_conversations c ON c.id=r.conversation_id"""
@@ -448,7 +450,11 @@ def _carry_decision(
         from_row["reminder_is_manual"]
         and from_row["reminder_at"]
         and from_row["reminder_at"] > now
-        and not keep["reminder_at"]
+        and (
+            not keep["reminder_is_manual"]
+            or keep["reminder_at"] is None
+            or keep["reminder_at"] <= now
+        )
     ):
         state, reminder, manual = "pending", from_row["reminder_at"], True
     if state is None:
@@ -523,6 +529,7 @@ def apply_replacement(
         or not target
         or new["conversation_id"] != target["conversation_id"]
         or new["kind"] != target["kind"]
+        or new["source_internal_date_ms"] <= target["last_source_internal_date_ms"]
         or target["state"] == "source_unavailable"
         or not same_obligation_wording(
             open_value(new["title_ciphertext"], new_id, "title"),
@@ -546,8 +553,8 @@ def apply_replacement(
 def merge_duplicates(conn: Any, monitor: Monitor, row_id: str, *, open_value: Open) -> int:
     """Fold restatements of one obligation, across emails, into its earliest request.
 
-    Two requests are one obligation only when the whole identity agrees: kind,
-    every date, the sender's domain, and wording that names the same numbers.
+    Only consider requests with the same typed deadline and responsibility,
+    matching sender domains and no conflicting terms or numbers in their titles.
     A different exam, assignment or meeting differs in at least one. Only
     requests assessed under the current contract take part, so a row waiting
     for reassessment is never judged by an older reading. Each merged request
@@ -584,7 +591,9 @@ def merge_duplicates(conn: Any, monitor: Monitor, row_id: str, *, open_value: Op
             AND r.due_date IS NOT DISTINCT FROM :due_date
             AND r.proposed_date IS NOT DISTINCT FROM :proposed_date
             AND r.proposed_at IS NOT DISTINCT FROM :proposed_at
-            AND r.after_date=:after_date
+            AND r.after_date=:after_date AND r.category IS NOT DISTINCT FROM :category
+            AND r.responsibility=:responsibility
+            AND r.due_relation IS NOT DISTINCT FROM :due_relation
             ORDER BY r.source_internal_date_ms,r.id LIMIT 25 FOR UPDATE OF r"""
             ),
             {
@@ -597,6 +606,9 @@ def merge_duplicates(conn: Any, monitor: Monitor, row_id: str, *, open_value: Op
                 "proposed_date": own["proposed_date"],
                 "proposed_at": own["proposed_at"],
                 "after_date": own["after_date"],
+                "category": own["category"],
+                "responsibility": own["responsibility"],
+                "due_relation": own["due_relation"],
             },
         )
         .mappings()
@@ -612,7 +624,12 @@ def merge_duplicates(conn: Any, monitor: Monitor, row_id: str, *, open_value: Op
         )
 
     def same_obligation(left: tuple[str, str], right: tuple[str, str]) -> bool:
-        return same_obligation_wording(left[0], right[0]) and same_sender_domain(left[1], right[1])
+        left_terms, right_terms = title_tokens(left[0]), title_tokens(right[0])
+        return (
+            (left_terms <= right_terms or right_terms <= left_terms)
+            and same_obligation_wording(left[0], right[0])
+            and same_sender_domain(left[1], right[1])
+        )
 
     known = {str(row["id"]): identity(row) for row in (own, *peers)}
     own_identity = known[str(own["id"])]

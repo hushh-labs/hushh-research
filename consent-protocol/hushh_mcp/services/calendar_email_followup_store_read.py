@@ -55,7 +55,8 @@ _BUCKET = f"""CASE
   WHEN {_DAY} IS NULL THEN CASE
     WHEN (r.responsibility='owner' OR r.urgency='asap')
      AND r.source_internal_date_ms>=:fresh_ms THEN 'upcoming' ELSE 'history' END
-  WHEN {_DAY}>=:today THEN 'upcoming'
+  WHEN {_DAY}>:today OR ({_DAY}=:today AND
+    (r.due_date IS NULL OR r.due_relation IS DISTINCT FROM 'before')) THEN 'upcoming'
   WHEN r.kind<>'meeting' AND r.responsibility='owner'
    AND r.after_date IN ('owed','unspecified') THEN 'overdue'
   ELSE 'history' END"""
@@ -120,7 +121,8 @@ ORDER BY ranked.conversation_id,{_ORDER[view]}"""  # nosec B608 # composed only 
 # restated each. Requests the owner has closed stay visible here.
 _DETAIL = f"""{_LIVE}
 SELECT r.*,ranked.bucket,
-  (SELECT count(*) FROM calendar_email_followup_requests m WHERE m.merged_into=r.id) AS repeat_count
+  (SELECT count(*) FROM calendar_email_followup_requests m
+   WHERE m.merged_into=r.id AND m.user_id=r.user_id AND m.account_id=r.account_id) AS repeat_count
 FROM ranked JOIN calendar_email_followup_requests r ON r.id=ranked.request_id
 WHERE ranked.conversation_id=CAST(:conversation_id AS UUID)
 ORDER BY r.source_internal_date_ms,r.id"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated

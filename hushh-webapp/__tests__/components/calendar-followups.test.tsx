@@ -84,15 +84,16 @@ describe("Calendar Insights Follow-ups account boundary", () => {
     expect(service.post.mock.calls.some(([, body]) => body.account_id === "account_B")).toBe(false);
   });
 
-  it("retains a failed notification link and retries the exact request", async () => {
-    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${callId}`);
+  it("retains a failed notification link and retries the resolved request", async () => {
+    const mergedId = "55555555-5555-4555-8555-555555555557";
+    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${mergedId}`);
     service.status.mockResolvedValue({
       account_id: "account_B", mail_connected: true, monitoring_enabled: true,
       background_available: true, scan_state: "complete", incomplete_source_count: 0,
       notifications_enabled: true, historical_start_at: null, time_zone: "Asia/Kolkata",
     });
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: callId });
     const request = (preview: typeof bList.conversations[0]["preview_requests"][number]) => ({
       ...preview, source_excerpt: "Could we have a call on 27 October", due_relation: null,
       proposed_at: null, time_zone: "Asia/Kolkata", responsibility: "owner",
@@ -104,10 +105,10 @@ describe("Calendar Insights Follow-ups account boundary", () => {
       requests: bList.conversations[0].preview_requests.map(request),
     });
     const handled = vi.fn();
-    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={callId} onDeepLinkHandled={handled} />);
+    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={mergedId} onDeepLinkHandled={handled} />);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByText("Follow-ups could not be checked. Try again.")).toBeInTheDocument();
-    expect(window.location.search).toContain(callId);
+    expect(window.location.search).toContain(mergedId);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(handled).toHaveBeenCalledOnce());
     expect(window.location.search).not.toContain("followupRequest");
@@ -123,7 +124,7 @@ describe("Calendar Insights Follow-ups account boundary", () => {
       notifications_enabled: true, historical_start_at: null, time_zone: "Asia/Kolkata",
     });
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: documentId });
     service.detail.mockResolvedValue({
       ...bList.conversations[0], account_id: "account_B", requests: [],
     });

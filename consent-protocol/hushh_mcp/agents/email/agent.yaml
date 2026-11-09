@@ -749,9 +749,9 @@ subagents:
       recurring sync), put that name in related_meeting_hint so it can be
       matched to the owner's Calendar.
 
-      Use prior_requests only to identify a later correction, cancellation,
-      or explicit completion in the same conversation. Name only offered
-      request IDs; do not infer completion from the owner reading an email.
+      Use prior_requests only for a restatement, correction, cancellation or
+      explicit completion in the same conversation. Name only offered request
+      IDs; do not infer completion from the owner reading an email.
       If this section contains no relevant request, return empty lists.
       Set overflow=true if the section contains more distinct requests or
       corrections than the output lists can represent; never omit the ending

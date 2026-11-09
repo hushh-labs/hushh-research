@@ -1675,3 +1675,6 @@ tests/test_direct_calls_postgres.py
 tests/test_direct_calls_routes.py
 tests/test_direct_calls_voip.py
 tests/services/test_direct_message_route_cipher.py
+
+# Calendar Follow-ups temporal, scoped read, and migration 454 contracts.
+tests/services/test_calendar_email_followup_temporal_postgres.py

@@ -78,7 +78,7 @@ Request states are `needs_review`, `pending`, `done`, `snoozed`, `dismissed`, `c
 | Required declaration | Contract |
 | --- | --- |
 | Owning agent and manifest | Existing `agent_email`; new tool-free `agent_email_followup_extractor` child in `consent-protocol/hushh_mcp/agents/email/agent.yaml`. |
-| Output | `FollowupChunkAssessmentV1`: ordered, distinct request candidates and same-thread update references, each with exact source excerpt, local index, kind, original wording, supported zoned time or explicit ambiguity, and section identity. |
+| Output | `FollowupChunkAssessmentV1` under assessment version 3 adds `after_date` and offered `supersedes_request_id` to ordered request candidates with exact source evidence. |
 | Validator | Admit only offered message, thread and section refs; prove exact excerpt membership and global offset; reject duplicate durable identities, out-of-order update refs, unsupported time zones and malformed output. It does not create a request or due instant by interpreting sender text itself. |
 | Live evaluation before promotion | Run a consented, held-out owner-mail fixture and opt-in pilot before enabling the monitor outside development. Require 100% source attribution, no automatic send/booking/PKM effects, and reviewed precision/recall for multi-request, tail, correction and ambiguous-date cases. Keep the feature kill switch closed until the result is recorded. |
 
@@ -86,7 +86,7 @@ One confirmed reminder schedule is attached to one pending request revision. The
 
 ## Review and action contract
 
-Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations, with View all only when more exist; the expanded view loads further bounded pages on demand. The detail surface shows source date, sender, a short excerpt, related requests, exact due wording, and current reminder. Open email reads the complete source body for the verified account/message into the detail surface without retaining it. A reminder target opens its account and focuses the exact request after a current read. List, review, and refresh distinguish `mail_unavailable`, `monitoring_off`, `loading`, `complete_empty`, `partial`, and `error`; stale same-account content may remain during refresh, but an incomplete scan is never presented as empty.
+Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations, with View all only when more exist; the expanded view loads further bounded pages on demand. The detail surface shows source date, sender, a short excerpt, related requests, exact due wording, and current reminder. Open email reads the complete source body for the verified account/message into the detail surface without retaining it. A reminder target opens its account and focuses the current request after a current read. If a delivered reminder refers to a folded request, the same-account lineage resolves to the surviving request and the original source stays sealed. List, review, and refresh distinguish `mail_unavailable`, `monitoring_off`, `loading`, `complete_empty`, `partial`, and `error`; stale same-account content may remain during refresh, but an incomplete scan is never presented as empty.
 
 Mark done, reminder edits, Snooze, and Dismiss return committed revisions before the UI claims success. A proposed call stays `not_booked`. Review meeting passes the selected account and available details to the existing Calendar booking preview; any missing details are requested. Opening a review never executes the proposal. Only the existing explicit confirm path can create an event, and its returned provider event ID is the booked outcome.
 
@@ -99,12 +99,13 @@ live model judges real mail, and no shared database has had 454 applied.
 **Which list a request is in** is computed from the clock and the stored verdict on every
 read, in SQL, before the page is chosen, so an expired item can never occupy a slot that
 is then hidden by the client. Nothing is marked done, dismissed or deleted because a date
-passed. The owner's local day comes from the monitor's time zone.
+passed. The owner's local day comes from the monitor's time zone. A deadline stated as
+"before" a date passes at the start of that date, matching reminder expiry.
 
 | View | A live, un-merged request is in it when |
 | --- | --- |
-| `upcoming` (default) | dated today or later; or undated, the owner's or urgent, and first seen within 45 days |
-| `overdue` | dated before today, the owner's own, not a meeting proposal, and `after_date` is `owed` or `unspecified` |
+| `upcoming` (default) | dated today or later with an unpassed deadline; or undated, the owner's or urgent, and first seen within 45 days |
+| `overdue` | past its deadline, the owner's own, not a meeting proposal, and `after_date` is `owed` or `unspecified` |
 | `snoozed` | snoozed until a time that has not come; it returns to its date-based list when that time passes |
 | `history` | closed by the owner or its source; a lapsed opportunity (`after_date=lapses`); a past meeting proposal; work that is not the owner's; an undated ask older than 45 days |
 
@@ -127,10 +128,11 @@ date or the word urgent never admits a request.
 
 **One obligation, many emails.** A request that restates another is folded into the earliest
 one (`merged_into`, hidden from lists, own sealed source kept) only when owner, account,
-kind, every date, sender domain and wording all agree, wording agreeing only if it names the
-same numbers ("assignment 1" is not "assignment 2"), and each absorbed request matches the
-survivor itself. A model-named replacement additionally needs the same conversation and
-kind and matching wording, and two candidates claiming one request replace nothing.
+kind, category, responsibility, date relation, dates and sender domain agree, and the titles
+share the same numbers and contain no conflicting terms. Each absorbed request must match
+the survivor itself. A model-named replacement also needs the same conversation and kind,
+matching wording, and a message newer than the target's latest source revision. Two
+candidates claiming one request replace nothing.
 Ambiguous matches stay separate. Done, dismissed, a future snooze and a future manual
 reminder move onto the survivor; a merged request keeps no reminder, so one obligation
 alerts once.

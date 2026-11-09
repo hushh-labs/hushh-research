@@ -20,6 +20,7 @@ from sqlalchemy.exc import DBAPIError
 from api.routes.one import calendar_email_followups as routes
 from hushh_mcp.services.calendar_email_followup_extraction import CompleteAssessment
 from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
+from hushh_mcp.services.calendar_email_followup_store_types import FollowupStateError
 from tests.google_oauth_postgres_support import OWNER
 from tests.services.test_calendar_email_followup_oauth_postgres import (
     MIGRATIONS,
@@ -219,7 +220,10 @@ async def test_a_deadline_that_passes_moves_between_lists_without_any_write(foll
         _ask(message, "Send the report before 12 November.", "Send the report", "2026-11-12"),
     )
     assert _titles(await _listing(store, account_id, now=TODAY)) == ["Send the report"]
-    later = TODAY + timedelta(days=5)
+    later = datetime(2026, 11, 11, 18, 30, tzinfo=UTC)  # start of 12 Nov in Asia/Kolkata
+    assert _titles(await _listing(store, account_id, now=later - timedelta(seconds=1))) == [
+        "Send the report"
+    ]
     assert _titles(await _listing(store, account_id, now=later)) == []
     assert _titles(await _listing(store, account_id, "overdue", now=later)) == ["Send the report"]
     assert [row["state"] for row in _rows(engine)] == ["pending"]
@@ -414,6 +418,21 @@ async def test_the_same_obligation_in_two_emails_is_one_request_that_keeps_both_
     monitor = await store.monitor(user_id=OWNER, account_id=account_id)
     detail = await store.detail(monitor, listing["conversations"][0]["id"], now=TODAY)
     assert [request["repeat_count"] for request in detail["requests"]] == [1]
+    with engine.begin() as connection:
+        old_id = connection.execute(
+            text("SELECT id FROM calendar_email_followup_requests WHERE merged_into IS NOT NULL")
+        ).scalar_one()
+    target = await routes.resolve_followup(
+        routes.RequestSelection(user_id=OWNER, account_id=account_id, request_id=old_id),
+        response=Response(),
+        firebase_uid=OWNER,
+        owner={"user_id": OWNER},
+    )
+    assert target == {
+        "account_id": account_id,
+        "conversation_id": detail["id"],
+        "request_id": detail["requests"][0]["id"],
+    }
     # The owner's decision on the survivor holds for the obligation.
     request = detail["requests"][0]
     await store.mutate_request(
@@ -485,26 +504,28 @@ async def test_ambiguous_restatements_stay_separate(followup_pg):
         account_id, "m-4", "Submit assignment 1", "2026-11-20", sender="Dean <dean@college.test>"
     )  # another sender
     await add(other, "m-5", "Submit assignment 1", "2026-11-20")  # another account
-    assert (await _listing(store, account_id))["total_conversations"] == 4
+    await add(account_id, "m-6", "Submit signed Form W-9 to Finance", "2026-11-20")
+    await add(account_id, "m-7", "Submit signed Form W-9 to Legal", "2026-11-20")
+    assert (await _listing(store, account_id))["total_conversations"] == 6
     assert (await _listing(store, other))["total_conversations"] == 1
     assert not any(row["merged_into"] for row in _rows(engine))
 
 
-async def _extended(store, account_id, *, supersedes, title="Register for July 2026 exam", **kw):
+async def _extended(store, account_id, *, supersedes, source_delta_ms=1):
     """A later email in the same thread moves the deadline, naming the request it replaces."""
     first = _message("m-original", "Register for the exam before 15 November.")
     later = dataclasses.replace(
         _message("m-extended", "The deadline is extended to 20 November."),
         thread_id=first.thread_id,
+        internal_date_ms=first.internal_date_ms + source_delta_ms,
     )
     candidate = _ask(
         later,
         "The deadline is extended to 20 November.",
-        title,
+        "Register for July 2026 exam",
         "2026-11-20",
         after_date="lapses",
         supersedes_request_id=supersedes(),
-        **kw,
     )
     await _put(store, account_id, later, candidate)
 
@@ -557,6 +578,44 @@ async def test_a_proven_extension_replaces_the_earlier_request_and_keeps_the_dec
     else:
         assert upcoming["total_conversations"] == 0  # the decision followed the new date
         assert (await _listing(store, account_id, "history"))["total_conversations"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("action", "state"), [("set_reminder", "pending"), ("snooze", "snoozed")])
+async def test_a_replacement_keeps_the_owners_future_reminder(followup_pg, action, state):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    original = await _original(store, account_id)
+    monitor, request = await _request_for(store, account_id, "Register for July 2026 exam")
+    reminder = datetime.now(UTC) + timedelta(days=1)
+    await store.mutate_request(
+        monitor,
+        request_id=original,
+        expected_revision=request["revision"],
+        idempotency_key=str(uuid.uuid4()),
+        action=action,
+        reminder_at=reminder,
+    )
+
+    await _extended(store, account_id, supersedes=lambda: original)
+    rows = _rows(engine)
+    assert rows[0]["merged_into"] and not rows[0]["has_reminder"]
+    with engine.begin() as connection:
+        kept = connection.execute(
+            text("""SELECT state,reminder_at,reminder_is_manual
+                 FROM calendar_email_followup_requests WHERE merged_into IS NULL""")
+        ).one()
+    assert tuple(kept) == (state, reminder, True)
+
+
+@pytest.mark.asyncio
+async def test_an_older_message_cannot_replace_a_newer_request(followup_pg):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    original = await _original(store, account_id)
+    await _extended(store, account_id, supersedes=lambda: original, source_delta_ms=-1)
+    assert len(_rows(engine)) == 2
+    assert not any(row["merged_into"] for row in _rows(engine))
 
 
 @pytest.mark.asyncio
@@ -905,3 +964,53 @@ async def test_viewing_the_list_and_detail_writes_nothing(followup_pg):
             outbox
             == connection.execute(text("SELECT count(*) FROM system_push_outbox")).scalar_one()
         )
+
+
+@pytest.mark.asyncio
+async def test_read_projections_are_owner_and_account_scoped(followup_pg):
+    service, store, engine = followup_pg
+    account_id = await _monitored_account(service)
+    other_id = await _account(service, "synthetic-c", "c@example.test")
+    first = _message("m-owner", "Send the signed agreement before 20 November.")
+    other = _message("m-other-account", "Submit the lab record before 20 November.")
+    await _put(store, account_id, first, _ask(first, first.body, "Signed agreement", "2026-11-20"))
+    await _put(store, other_id, other, _ask(other, other.body, "Lab record", "2026-11-20"))
+
+    first_page = await _listing(store, account_id)
+    other_page = await _listing(store, other_id)
+    assert _titles(first_page) == ["Signed agreement"]
+    assert _titles(other_page) == ["Lab record"]
+    assert (
+        first_page["view_counts"]
+        == other_page["view_counts"]
+        == {
+            "upcoming": 1,
+            "overdue": 0,
+            "snoozed": 0,
+            "history": 0,
+        }
+    )
+    conversation = first_page["conversations"][0]["id"]
+    first_request = first_page["conversations"][0]["preview_requests"][0]["id"]
+    other_request = other_page["conversations"][0]["preview_requests"][0]["id"]
+    monitor = await store.monitor(user_id=OWNER, account_id=account_id)
+    other_monitor = await store.monitor(user_id=OWNER, account_id=other_id)
+    foreign_owner = dataclasses.replace(monitor, user_id="synthetic-other-owner")
+    assert (await store.list_conversations(foreign_owner, now=TODAY))["total_conversations"] == 0
+    for foreign_monitor in (other_monitor, foreign_owner):
+        with pytest.raises(FollowupStateError, match="conversation_unavailable"):
+            await store.detail(foreign_monitor, conversation, now=TODAY)
+    with pytest.raises(FollowupStateError, match="invalid_view"):
+        await _listing(store, account_id, view="upcoming') OR TRUE --")
+
+    # The ID-only FK can accept a malformed edge outside the canonical writer.
+    with engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE calendar_email_followup_requests SET merged_into=CAST(:target AS UUID)
+                 WHERE id=CAST(:request AS UUID)"""),
+            {"target": first_request, "request": other_request},
+        )
+    detail = await store.detail(monitor, conversation, now=TODAY)
+    assert [request["repeat_count"] for request in detail["requests"]] == [0]
+    with pytest.raises(FollowupStateError, match="request_unavailable"):
+        await store.resolve_request(other_monitor, other_request)

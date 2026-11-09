@@ -66,20 +66,39 @@ class _RequestRead:
         return await asyncio.to_thread(read)
 
     async def conversation_for_request(self, monitor: Monitor, request_id: str) -> str:
-        def read() -> str:
+        return (await self.resolve_request(monitor, request_id))["conversation_id"]
+
+    async def resolve_request(self, monitor: Monitor, request_id: str) -> dict[str, str]:
+        """Resolve a delivered reminder to the current request within its account."""
+
+        def read() -> dict[str, str]:
             with self.db.engine.begin() as conn:
-                conversation_id = conn.execute(
-                    text("""SELECT conversation_id FROM calendar_email_followup_requests
-                    WHERE id=CAST(:id AS UUID) AND user_id=:user_id AND account_id=:account_id"""),
-                    {
-                        "id": request_id,
-                        "user_id": monitor.user_id,
-                        "account_id": monitor.account_id,
-                    },
-                ).scalar()
-            if not conversation_id:
+                target = (
+                    conn.execute(
+                        text("""WITH RECURSIVE lineage AS (
+                        SELECT id,conversation_id,merged_into FROM calendar_email_followup_requests
+                        WHERE id=CAST(:id AS UUID) AND user_id=:user_id AND account_id=:account_id
+                        UNION
+                        SELECT r.id,r.conversation_id,r.merged_into
+                        FROM calendar_email_followup_requests r JOIN lineage l ON r.id=l.merged_into
+                        WHERE r.user_id=:user_id AND r.account_id=:account_id
+                    )
+                    SELECT id,conversation_id FROM lineage WHERE merged_into IS NULL"""),
+                        {
+                            "id": request_id,
+                            "user_id": monitor.user_id,
+                            "account_id": monitor.account_id,
+                        },
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+            if target is None:
                 raise FollowupStateError("request_unavailable")
-            return str(conversation_id)
+            return {
+                "request_id": str(target["id"]),
+                "conversation_id": str(target["conversation_id"]),
+            }
 
         return await asyncio.to_thread(read)
 

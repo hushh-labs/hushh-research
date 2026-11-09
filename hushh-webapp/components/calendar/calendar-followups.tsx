@@ -278,7 +278,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
 
   const retryDetail = async () => {
     if (!selectedId) return;
-    if (await openDetail(selectedId, undefined, deepLinkRequestId || undefined) && deepLinkRequestId) {
+    if (await openDetail(selectedId, undefined, focusedRequestId || deepLinkRequestId || undefined) && deepLinkRequestId) {
       finishDeepLink(deepLinkRequestId);
     }
   };
@@ -289,11 +289,11 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       try {
         const ownerToken = getVaultOwnerToken();
         if (!ownerToken) throw new Error("Unlock One to open this follow-up.");
-        const conversationId = await CalendarFollowupsService.resolve(
+        const target = await CalendarFollowupsService.resolve(
           userId, accountId, deepLinkRequestId, await getIdToken(), ownerToken, lifetime.current?.signal,
         );
         if (lifetime.current?.signal.aborted) return;
-        if (!await openDetail(conversationId, undefined, deepLinkRequestId)) return;
+        if (!await openDetail(target.conversationId, undefined, target.requestId)) return;
         finishDeepLink(deepLinkRequestId);
       } catch (failure) { setError(displayError(failure)); }
     })();
