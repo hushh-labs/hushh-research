@@ -382,8 +382,9 @@ def test_candidate_pkm_evaluator_inherits_exact_revision_resources(
 
 
 @pytest.mark.parametrize("pwm_provider", ["azure_openai_web_search", "azure_openai_tavily"])
+@pytest.mark.parametrize("mode", ["full", "core"])
 def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict(
-    tmp_path: Path, pwm_provider: str
+    tmp_path: Path, pwm_provider: str, mode: str
 ) -> None:
     build = yaml.safe_load(_read("deploy/backend.cloudbuild.yaml"))
     steps = build["steps"]
@@ -407,8 +408,17 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             {
                 "pwm_research": {"provider": "vertex_google_search"},
                 "pwm_research_uat": {"provider": pwm_provider},
+                "managed_provider_selection": {"uat": "azure_openai"},
             }
         ),
+        encoding="utf-8",
+    )
+    helper = tmp_path / "scripts/ci/managed_provider_readiness.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        "import sys\n"
+        "if sys.argv[1:] != ['configured-provider']: raise SystemExit(2)\n"
+        "print('azure_openai')\n",
         encoding="utf-8",
     )
     fake_bin = tmp_path / "bin"
@@ -436,7 +446,8 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         "PROJECT_ID": "hushh-pda-uat",
         "BUILD_ID": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "_DEPLOY_ENV": "uat",
-        "_MANAGED_READINESS_MODE": "full",
+        "_MANAGED_READINESS_MODE": mode,
+        "READINESS_QUALIFICATION_MODE": mode,
         "_REGION": "us-central1",
         "_CLOUD_RUN_NO_TRAFFIC": "true",
         "_RUNTIME_SERVICE_ACCOUNT": "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com",
@@ -452,6 +463,7 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
         ("missing_http", digest, runtime_identity, 1, True),
         ("missing_managed", digest, runtime_identity, 1, True),
         ("wrong_scope", digest, runtime_identity, 1, True),
+        ("wrong_mode", digest, runtime_identity, 1, True),
         ("ok", "gcr.io/hushh-pda-uat/consent-protocol:mutable", runtime_identity, 1, False),
         ("ok", digest, "other-runtime@hushh-pda-uat.iam.gserviceaccount.com", 1, False),
     )
@@ -471,6 +483,13 @@ def test_azure_pwm_uat_probe_requires_exact_runtime_identity_and_success_verdict
             {"azure_managed_text_contract": "ok", "scopes": 1 if verdict == "wrong_scope" else 2},
             {"azure_pwm_runtime_probe_result": "failed" if verdict == "failed" else "ok"},
         ]
+        if mode == "core":
+            records[-1]["qualification_mode"] = "core"
+        if verdict == "wrong_mode":
+            if mode == "core":
+                records[-1].pop("qualification_mode")
+            else:
+                records[-1]["qualification_mode"] = "core"
         if verdict == "missing_http":
             records.pop(0)
         if verdict == "missing_managed":
