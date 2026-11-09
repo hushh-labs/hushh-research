@@ -1,13 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { bookingInstant } from "@/lib/calendar/calendar-booking-time";
 import type { AdvisorReview } from "@/lib/advisor-review/contract";
 import { AdvisorReviewService } from "@/lib/advisor-review/service";
 import type { FinanceShareContext } from "@/lib/services/finance-sharing-service";
+import { AdvisorDatePicker, AdvisorDurationPicker, AdvisorTimePicker, AdvisorTimeZonePicker } from "./advisor-meeting-pickers";
+import { AdvisorCalendarConnection, useAdvisorCalendar } from "./advisor-calendar-connection";
 import styles from "./advisor-review.module.css";
 
 type Run = (work: () => Promise<unknown>) => Promise<void>;
@@ -23,13 +24,16 @@ export function AdvisorMeetingPanel({
   run: Run;
 }) {
   const [date, setDate] = useState("");
-  const [time, setTime] = useState("");
+  const [hour, setHour] = useState("");
+  const [minute, setMinute] = useState("");
+  const time = hour && minute ? `${hour}:${minute}` : "";
   const [duration, setDuration] = useState("30");
   const [zone, setZone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    () => calendarTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone),
   );
   const meeting = review.meeting;
   const advisor = context.userId === review.advisorUserId;
+  const calendar = useAdvisorCalendar(context);
   const act = (action: string) =>
     run(() =>
       AdvisorReviewService.meeting(
@@ -190,46 +194,12 @@ export function AdvisorMeetingPanel({
             void choose();
           }}
         >
-          <div className={styles.row}>
-            <label className={styles.field}>
-              Date
-              <Input
-                required
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-              />
-            </label>
-            <label className={styles.field}>
-              Time
-              <Input
-                required
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-              />
-            </label>
-            <label className={styles.field}>
-              Duration
-              <select
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-              >
-                <option value="15">15 minutes</option>
-                <option value="30">30 minutes</option>
-                <option value="60">60 minutes</option>
-              </select>
-            </label>
+          <div className="grid grid-cols-2 gap-2">
+            <div className={styles.field}><span className="ui-text-form-label">Date</span><AdvisorDatePicker value={date} zone={zone} onChange={setDate} disabled={busy} /></div>
+            <div className={styles.field}><span className="ui-text-form-label">Time · 24h</span><AdvisorTimePicker hour={hour} minute={minute} onHour={setHour} onMinute={setMinute} disabled={busy} /></div>
           </div>
-          <label className={styles.field}>
-            Time zone
-            <Input
-              required
-              value={zone}
-              onChange={(e) => setZone(e.target.value)}
-              placeholder="Asia/Kolkata"
-            />
-          </label>
+          <div className={styles.field}><span className="ui-text-form-label">Duration</span><AdvisorDurationPicker value={duration} onChange={setDuration} disabled={busy} /></div>
+          <div className={styles.field}><span className="ui-text-form-label">Time zone</span><AdvisorTimeZonePicker value={zone} date={date} time={time} onChange={setZone} disabled={busy} /></div>
           <div className={styles.actions}>
             <ShellActionSurface
               variant="pill"
@@ -255,16 +225,7 @@ export function AdvisorMeetingPanel({
           </ShellActionSurface>
         </div>
       ) : null}
-      <div className={styles.notice}>
-        <p className="ui-text-helper-text">
-          {advisor
-            ? "You need a connected Google Calendar with scheduling permission. Connecting or reconnecting keeps this request saved."
-            : "You can receive an email invitation and join without connecting Calendar. Connect it if you want this meeting in your calendar."}
-        </p>
-        <Link href="/one/calendar" className="ui-text-button-label">
-          Connect or manage Calendar
-        </Link>
-      </div>
+      <AdvisorCalendarConnection calendar={calendar} advisor={advisor} />
     </section>
   );
 }

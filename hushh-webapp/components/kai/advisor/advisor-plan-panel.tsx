@@ -60,10 +60,11 @@ export function AdvisorPlanPanel({
   return (
     <section className={styles.card}>
       <h3 className="ui-text-section-label">Advisor plan</h3>
-      <p className="ui-text-helper-text">
-        Stripe test mode · no real money. A subscription never grants trading
-        permission or extra portfolio access.
-      </p>
+      <p className="ui-text-helper-text">Stripe test mode</p>
+      <details className="ui-text-helper-text">
+        <summary>About the optional plan</summary>
+        <p>Test payments use no real money. Plans grant no trading permission or extra portfolio access.</p>
+      </details>
       {review.plan ? (
         <div className={styles.stack}>
           <div>
@@ -144,7 +145,7 @@ export function AdvisorPlanPanel({
         <p className="ui-text-helper-text">
           {review.meeting?.status === "completed"
             ? "The advisor can now offer a monthly plan."
-            : "Have your introduction first. A monthly plan is optional."}
+            : "Available after the introduction."}
         </p>
       )}
       {advisor && review.meeting?.status === "completed" ? (
@@ -200,20 +201,13 @@ export function AdvisorPlanPanel({
       {advisor ? (
         <div className={styles.notice}>
           <p className="ui-text-helper-text">
-            Stripe needs your payout account, identity and bank setup before you
-            can offer a plan. Checkout remains unavailable until Stripe confirms
-            readiness.
+            Set up payouts to offer a plan.
           </p>
           <Link href="/one/profile/payouts" className="ui-text-button-label">
             Finish Stripe setup
           </Link>
         </div>
-      ) : (
-        <p className="ui-text-helper-text">
-          You do not need a Stripe account. Payment details are entered in
-          Stripe’s secure checkout.
-        </p>
-      )}
+      ) : null}
     </section>
   );
 }
