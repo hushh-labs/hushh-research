@@ -371,7 +371,7 @@ describe("PersonProfilePage native profile route", () => {
     });
   });
 
-  it("uses the shared connection avatar with the verified advisor badge for RIA profiles", async () => {
+  it("shows the shared RIA badge explanation on a verified profile", async () => {
     render(
       <PersonProfilePage
         personRef="actual-public-ref"
@@ -387,7 +387,10 @@ describe("PersonProfilePage native profile route", () => {
     expect(
       await screen.findByRole("heading", { name: "Divya Rajendran" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Verified advisor")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "RIA verified" }));
+    expect(screen.getByRole("dialog", { name: "RIA verified" })).toHaveAccessibleDescription(
+      "This person is verified as a registered investment adviser (RIA).",
+    );
     expect(
       document.querySelector('[data-avatar-size="profile"]'),
     ).not.toBeNull();
@@ -414,7 +417,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(
       await screen.findByRole("heading", { name: "Plain Person" }),
     ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Verified advisor")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "RIA verified" })).not.toBeInTheDocument();
   });
 
   it("keeps the share profile icon and label separated inside the existing action", async () => {
