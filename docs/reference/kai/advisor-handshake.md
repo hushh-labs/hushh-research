@@ -70,8 +70,9 @@ Either participant proposes a time with a real time zone; the other explicitly
 agrees. The advisor must connect Google Calendar with management permission,
 review the actual invitation and confirm through the existing one-shot Calendar
 proposal/execute boundary. The user can receive an email invitation and join
-without connecting Calendar. Both have a link to Calendar setup; missing setup
-preserves the agreed time and request.
+without connecting Calendar. Both see their own Calendar connection and can connect, reconnect or manage it.
+The scheduling form uses date, time and duration pickers and a searchable time
+zone selector. A missing Calendar connection preserves the agreed time and request.
 
 The meeting is bound to the original Google grant and a deterministic event id.
 Uncertain provider results remain unconfirmed. Check Calendar status before a

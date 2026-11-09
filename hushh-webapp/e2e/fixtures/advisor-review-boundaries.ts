@@ -39,3 +39,7 @@ export const AdvisorReviewService = {
   prepare: async () => { document.body.dataset.advisorPrepares = String(Number(document.body.dataset.advisorPrepares || 0) + 1); return { requestId: reviewId }; },
   send: async (context: { userId: string }, body: { requestId: string }) => { const calls = Number(document.body.dataset.advisorSends || 0) + 1; document.body.dataset.advisorSends = String(calls); document.body.dataset.advisorSentId = body.requestId; if (calls === 1 && document.body.dataset.advisorAck === "uncertain") throw new AdvisorReviewError("ADVISOR_UNCERTAIN", 503); return sampleReview(context.userId); },
 };
+
+export const GoogleCalendarService = {
+  status: async () => ({ status: "disconnected", connected: false }),
+};
