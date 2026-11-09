@@ -412,6 +412,18 @@ class ExactUatCiTest(unittest.TestCase):
                 subject.issue_predecessor(args)
 
     def test_frozen_ordinary_source_survives_descendant_tip_but_not_foreign_history(self):
+        import sys
+        import textwrap
+
+        repo_root = Path(subject.__file__).resolve().parents[2]
+        workflow = (repo_root / ".github/workflows/deploy-uat-implementation.yml").read_text()
+        promotion = workflow.split("        id: promote-uat-traffic\n", 1)[1]
+        promotion = promotion.split("\n      - name:", 1)[0]
+        promotion = textwrap.dedent(promotion.split("        run: |\n", 1)[1])
+        # Execute the authored source guard, ending before the unchanged cloud
+        # serving-revision guards. Git is real; only the GitHub read is synthetic.
+        guard = promotion.split('if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then\n', 1)[1]
+        guard = guard.split("check_serving() {", 1)[0]
         with tempfile.TemporaryDirectory() as root:
             def git(*args):
                 try:
@@ -422,25 +434,65 @@ class ExactUatCiTest(unittest.TestCase):
             git("config", "user.name", "Synthetic reviewer")
             git("config", "user.email", "reviewer@example.invalid")
             git("config", "core.hooksPath", "/dev/null")
+            Path(root, ".git/info/exclude").write_text("runner/\nstubs/\nbranch.json\ntraffic-marker\n")
             path = Path(root, "content")
             def commit(value):
-                path.write_text(value); git("add", "."); git("commit", "-qm", value)
+                path.write_text(value)
+                git("add", ".")
+                git("commit", "-qm", value)
                 return git("rev-parse", "HEAD").decode().strip()
             selected = commit("selected")
             tip = commit("newer merged work")
-            ref = {"protected": True, "commit": {"sha": tip}}
-            api = SimpleNamespace(read=lambda _: ref)
-            with patch.object(subject, "git", side_effect=git):
-                subject.require_protected_tip(api, selected)
-                with self.assertRaises(subject.Refused):
-                    subject.require_protected_tip(api, selected, "uat-isolated")
-                git("checkout", "--orphan", "foreign")
-                ref["commit"]["sha"] = commit("unrelated")
-                with self.assertRaises(subject.Refused):
-                    subject.require_protected_tip(api, selected)
-                ref["commit"]["sha"] = "0" * 40
-                with self.assertRaises(subject.Refused):
-                    subject.require_protected_tip(api, selected)
+            ref = {"protected": True, "commit": {"sha": selected}}
+            tools = Path(root, "runner/release-tools")
+            tools.mkdir(parents=True)
+            for name in ("uat_exact_ci.py", "process_group.py"):
+                (tools / name).write_text((repo_root / "scripts/ci" / name).read_text())
+            (tools / "github_security_authority.py").write_text(
+                "import json, os\n"
+                "class Refused(RuntimeError): pass\n"
+                "def verify_source(*args): raise AssertionError('unexpected source lookup')\n"
+                "class GitHub:\n"
+                " def __init__(self, repository, token):\n"
+                "  assert repository == 'hushh-labs/hushh-research' and token == 'synthetic-token'\n"
+                " def read(self, path):\n"
+                "  assert path == 'repos/hushh-labs/hushh-research/branches/' + os.environ['UAT_SOURCE_BRANCH']\n"
+                "  with open(os.environ['BRANCH_RESPONSE']) as handle: return json.load(handle)\n"
+            )
+            stub = Path(root, "stubs")
+            stub.mkdir()
+            gh = stub / "gh"
+            gh.write_text(f"#!{sys.executable}\nimport os\nprint(open(os.environ['BRANCH_RESPONSE']).read())\n")
+            gh.chmod(0o755)
+            response, marker = Path(root, "branch.json"), Path(root, "traffic-marker")
+
+            def run_guard(branch, allowed):
+                response.write_text(json.dumps(ref))
+                marker.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["bash", "-c", 'set -euo pipefail\n' + guard + '\nprintf promoted > "$TRAFFIC_MARKER"'],
+                    cwd=root, capture_output=True, text=True,
+                    env={**os.environ, "PATH": str(stub) + os.pathsep + os.environ["PATH"],
+                         "RUNNER_TEMP": str(tools.parent), "GH_TOKEN": "synthetic-token",
+                         "GITHUB_REPOSITORY": "hushh-labs/hushh-research",
+                         "BRANCH_RESPONSE": str(response), "TRAFFIC_MARKER": str(marker),
+                         "APPLICATION_SHA": selected, "UAT_SOURCE_BRANCH": branch},
+                )
+                self.assertEqual(result.returncode == 0, allowed, result.stderr[-1500:])
+                self.assertEqual(marker.exists(), allowed)
+
+            run_guard("uat", True)
+            ref["commit"]["sha"] = tip
+            run_guard("uat", True)
+            run_guard("uat-isolated", False)
+            ref["protected"] = False
+            run_guard("uat", False)
+            ref["protected"] = True
+            git("checkout", "--orphan", "foreign")
+            ref["commit"]["sha"] = commit("unrelated")
+            run_guard("uat", False)
+            ref["commit"]["sha"] = "0" * 40
+            run_guard("uat", False)
 
     def test_selected_services_must_match_the_ci_serving_base(self):
         base, other = "a" * 40, "b" * 40
