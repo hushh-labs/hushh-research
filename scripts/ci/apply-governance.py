@@ -87,6 +87,8 @@ def load_policy() -> dict:
 
 
 def desired_review_bypass(policy: dict, policy_key: str) -> list[str]:
+    if policy.get("authorization", {}).get("native_teams"):
+        return []
     return sorted(set(policy[policy_key]["review_bypass_users"]))
 
 

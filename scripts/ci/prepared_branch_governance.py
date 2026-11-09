@@ -46,6 +46,8 @@ def branch_policy(policy: dict, branch: str) -> dict:
     """Project named-owner exceptions without changing shared cohorts."""
     config = policy["branch_flow"]["prepared_branches"][branch]
     source = copy.deepcopy(policy[config["policy_key"]])
+    if policy.get("authorization", {}).get("native_teams"):
+        source["native_team_authority"] = True
     if branch == "uat-isolated":
         source.update(
             required_approving_reviews=1, require_code_owner_reviews=True,

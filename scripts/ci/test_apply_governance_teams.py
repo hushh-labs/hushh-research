@@ -1215,6 +1215,11 @@ def test_team_native_authority_has_no_personal_bypass_or_strict_guard_exception(
     payload = protection_payload(branch_policy(policy, "dev"))
     assert payload["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
         "users": [], "teams": ["pipeline-editors"], "apps": []}
+    for lane in ("main", "pr_train", "uat_merge"):
+        assert module.desired_review_bypass(policy, lane) == []
+    train = protection_payload(branch_policy(policy, "integration/pr-train"))
+    assert train["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
+        "users": [], "teams": ["allowed-maintainers-to-approve"], "apps": []}
 
     # Team membership grants review authority, not repository administration.
     # Read-only verification must work when editors have ordinary write access.

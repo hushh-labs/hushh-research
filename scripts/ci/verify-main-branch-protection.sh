@@ -113,9 +113,10 @@ expected_allow_auto_merge = repository_policy.get("allow_auto_merge")
 native_team_authority = bool(policy.get("authorization", {}).get("native_teams"))
 if native_team_authority:
     expected_bypass = []
-    expected_bypass_team_slug = "pipeline-editors"
-    expected_queue_bypass_team_slug = "pipeline-editors"
-    expected_queue_bypass_team_name = "pipeline-editors"
+    if branch == "main" or native_prepared:
+        expected_bypass_team_slug = "pipeline-editors"
+        expected_queue_bypass_team_slug = "pipeline-editors"
+        expected_queue_bypass_team_name = "pipeline-editors"
 repo_data = json.loads(os.environ["REPO_JSON"])
 data = json.loads(os.environ["PROTECTION_JSON"])
 rulesets = json.loads(os.environ["RULESETS_JSON"])
