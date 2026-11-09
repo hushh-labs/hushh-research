@@ -38,6 +38,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      actions: write
       id-token: write
     environment:
       name: uat
@@ -80,6 +81,11 @@ jobs:
   deploy:
     name: Deploy only consent-protocol
     needs: [wait-capacity, deployment-security]
+    permissions:
+      contents: read
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-uat

@@ -78,6 +78,7 @@ jobs:
       - name: Require governed production actors
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
           RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
@@ -293,6 +294,10 @@ jobs:
   gate:
     name: PLG Frontend Source Validation Gate
     needs: [admit, frontend, deployment-security]
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

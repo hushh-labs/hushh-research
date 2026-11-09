@@ -364,6 +364,9 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("group: deploy-uat", wait_job)
                 self.assertIn("group: deploy-uat", deploy_job)
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
+                # The read-only cloud preflight asks Main for current team authority.
+                self.assertIn("actions: write", wait_job)
+                self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", wait_job)
                 self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
         full = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()

@@ -35,6 +35,8 @@ def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
             "format('origin/{0}'",
             "github.base_ref || 'main'",
             "inputs.uat_base_sha",
+            "github.ref == 'refs/heads/dev'",
+            "inputs.scope == 'all'",
         )
     ), f"{job} must resolve the reviewed PR or exact direct-UAT base"
 
