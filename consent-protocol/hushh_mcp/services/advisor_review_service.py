@@ -146,7 +146,7 @@ class AdvisorReviewService:
                         {"id": request_id},
                     )
                     row = load(conn, viewer, request_id, locked=True)
-            result = project(row, viewer, snapshot=True, current_ui=current_ui)
+            result = project(row, viewer, snapshot=True)
             if current_ui and row["status"] == "pending" and viewer == row["advisor_user_id"]:
                 result["alreadyConnected"] = (
                     self._active_connection(conn, row["owner_user_id"], row["advisor_user_id"])
