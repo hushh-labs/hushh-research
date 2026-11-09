@@ -1,7 +1,6 @@
 tags: ["phone-${_PHONE_DEPLOY_PHASE}-${_GITHUB_RUN_ID}-${_GITHUB_RUN_ATTEMPT}"]
 # Cloud Build configuration for Python FastAPI backend
 # Deploy to: Cloud Run (service name configurable via substitutions)
-# UAT tooling-independence reproduction: comment-only difference from pinned Main.
 
 steps:
   # Step 1: Build + push with a registry LAYER CACHE (buildx, mode=max).
