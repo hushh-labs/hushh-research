@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import plistlib
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -54,6 +55,48 @@ def test_provenance_check_runs_in_the_ubuntu_preflight_after_the_sha_resolves() 
     assert 'require-deploy-sha-on-main.sh "$actual_sha"' in run
     assert "verify-predecessor-acceptance.py testflight-uat" in run
     assert '--source-branch "$SOURCE_BRANCH"' in run
+
+
+@pytest.mark.parametrize(
+    "path,allowed",
+    [
+        ("hushh-webapp/scripts/testing/phone-conflict-flow.mjs", True),
+        ("hushh-webapp/scripts/testing/phone-conflict-flow-helper.mjs", False),
+        ("hushh-webapp/scripts/native/ios-firebase-config.mjs", False),
+        ("hushh-webapp/package.json", False),
+    ],
+)
+def test_signing_parity_ignores_only_the_uninvoked_phone_diagnostic(tmp_path, path, allowed):
+    def git(*args):
+        return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
+            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+
+    git("init")
+    git("config", "user.name", "Synthetic release fixture")
+    git("config", "user.email", "synthetic@example.invalid")
+    (tmp_path / "README.md").write_text("base\n")
+    git("add", ".")
+    git("commit", "-m", "Main signing inputs")
+    authority = git("rev-parse", "HEAD")
+    changed = tmp_path / path
+    changed.parent.mkdir(parents=True, exist_ok=True)
+    changed.write_text("candidate changes\n")
+    git("add", ".")
+    git("commit", "-m", "UAT input change")
+    candidate = git("rev-parse", "HEAD")
+    resolve = next(
+        step["run"]
+        for step in _jobs()["preflight"]["steps"]
+        if step.get("name") == "Resolve exact green release SHA"
+    )
+    start = resolve.index('git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" --')
+    command = resolve[start : resolve.index(" || {", start)].replace("\\\n", " ")
+    command = command.replace("$GITHUB_SHA", authority).replace("$SHA", candidate)
+    result = subprocess.run(  # noqa: S603 - actual authored parity command, synthetic Git inputs.
+        shlex.split(command), cwd=tmp_path, capture_output=True, check=False
+    )
+    assert result.returncode == (0 if allowed else 1), result.stderr
 
 
 def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check() -> None:
