@@ -94,7 +94,6 @@ RESTORATION_FIXTURE_OWNER_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-    "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
 )
 
 
@@ -605,10 +604,11 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     backend = _filters()["backend"]
     for path in RESTORATION_FIXTURE_INPUTS:
         assert not backend.match_file(path), path
+    drive_suite = "consent-protocol/tests/test_prod_drive_deploy_contract.py"
+    assert not backend.match_file(drive_suite)
     for path in (
         "consent-protocol/tests/test_phone_schema_origin.py",
         "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-        "consent-protocol/tests/test_prod_drive_deploy_contract.py",
         "consent-protocol/hushh_mcp/services/account_deletion_service.py",
         "consent-protocol/db/schema.sql",
         "consent-protocol/migrations/20261001_example.sql",
@@ -633,6 +633,14 @@ def test_restoration_fixture_inputs_select_transitive_controller_owner_only() ->
     ]
     assert "protocol-check" not in commands
     assert "cloudrun-retention" not in commands
+    assert drive_suite in commands["release-controller-contracts"]
+    drive_plan = _governance_plan((drive_suite,))
+    assert drive_plan["selection_error"] is None
+    assert drive_plan["selected_groups"] == ["controller"]
+    assert any(
+        row["id"] == "release-controller-contracts" and drive_suite in row["argv"]
+        for row in drive_plan["commands"]
+    )
 
 
 def test_route_metadata_keeps_web_ownership_without_unrelated_document_webkit() -> None:
@@ -892,6 +900,7 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_v1_worker_lane.py",
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
         "consent-protocol/tests/test_drive_worker_release_rollback.py",
+        "consent-protocol/tests/test_prod_drive_deploy_contract.py",
         "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",

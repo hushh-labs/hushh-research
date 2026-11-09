@@ -30,7 +30,7 @@ on:
         type: string
         default: ""
       main_approval_sha:
-        description: "Optional Main merge approving identical UAT-tested application content; sha remains the exact accepted application"
+        description: "Optional Main merge approving identical CI-qualified application content; sha remains the tested application"
         required: false
         default: ""
         type: string
@@ -470,7 +470,7 @@ jobs:
           cp scripts/ci/uat_exact_ci.py scripts/ci/github_security_authority.py scripts/ci/verify-protected-pipeline-edits.py "${RUNNER_TEMP}/release-tools/"
           cp config/ci-governance.json "${RUNNER_TEMP}/release-tools/ci-governance.json"
           cp scripts/ci/production_emergency.py scripts/ci/production_auth_domain_refresh.py "${RUNNER_TEMP}/release-tools/"
-          cp scripts/ci/require-deploy-sha-on-main.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/require-deploy-sha-on-main.sh scripts/ci/promotion_approval.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-serving-state.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-deploy-scope.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-cloud-run-deploy-revision.py \
@@ -827,7 +827,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
-      - name: Require exact-SHA UAT acceptance
+      - name: Require qualified Main source
         id: predecessor-acceptance
         if: inputs.restoration_validation_run == ''
         env:
@@ -835,14 +835,15 @@ jobs:
           RELEASE_MODE: ${{ steps.dispatch-authority.outputs.mode }}
           RESOLVED_SCOPE: ${{ steps.scope.outputs.scope }}
           APPLICATION_SHA: ${{ inputs.sha }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
         run: |
           set -euo pipefail
           if [ "$RELEASE_MODE" = manual-emergency ]; then
             python3 "${RUNNER_TEMP}/release-tools/production_emergency.py" admit \
               --scope "$RESOLVED_SCOPE" --output /tmp/prod-emergency-admission.json
           else
-            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
-              --environment uat --sha "$APPLICATION_SHA" \
+            python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" main-source \
+              --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
               --scope "$RESOLVED_SCOPE" --output /tmp/prod-predecessor-acceptance.json
           fi
 
@@ -2428,9 +2429,24 @@ jobs:
         if: inputs.frontend_auth_domain_refresh
         run: python3 "${RUNNER_TEMP}/release-tools/production_auth_domain_refresh.py" candidate --receipt /tmp/prod-emergency-admission.json --candidate "${{ steps.candidate-state.outputs.frontend_revision }}"
 
+      - name: Recheck qualified Main source before traffic
+        id: main-source-recheck
+        if: inputs.restoration_validation_run == '' && steps.dispatch-authority.outputs.mode != 'manual-emergency'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLICATION_SHA: ${{ inputs.sha }}
+          MAIN_APPROVAL_SHA: ${{ inputs.main_approval_sha || inputs.sha }}
+          RESOLVED_SCOPE: ${{ steps.scope.outputs.scope }}
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" main-source \
+            --environment production --sha "$APPLICATION_SHA" --approval-sha "$MAIN_APPROVAL_SHA" \
+            --scope "$RESOLVED_SCOPE" --predecessor /tmp/prod-predecessor-acceptance.json \
+            --output /tmp/prod-main-source-rechecked.json
+
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success'))
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success')) && (inputs.restoration_validation_run != '' || steps.dispatch-authority.outputs.mode == 'manual-emergency' || steps.main-source-recheck.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -3111,6 +3127,7 @@ jobs:
           path: |
             /tmp/phone-rollback/
             /tmp/prod-predecessor-acceptance.json
+            /tmp/prod-main-source-rechecked.json
             /tmp/prod-restoration-validation.json
             /tmp/prod-restoration-pretraffic-schema.json
             /tmp/prod-restoration-prerollback-schema.json
@@ -3470,15 +3487,15 @@ jobs:
           REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
         run: bash scripts/ci/require-deploy-sha-on-main.sh "$DEPLOY_SHA"
 
-      - name: Require exact-SHA UAT acceptance
+      - name: Require qualified Main worker source
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py require \
-            --environment uat --sha "$DEPLOY_SHA" --scope backend \
-            --output "$RUNNER_TEMP/worker-stage/uat-acceptance.json"
+          "$PROTOCOL_PYTHON" scripts/ci/verify-predecessor-acceptance.py main-source \
+            --environment production --sha "$DEPLOY_SHA" --scope backend \
+            --output "$RUNNER_TEMP/worker-stage/main-qualification.json"
 
       - name: Resolve preserved production Drive mode
         id: drive-mode

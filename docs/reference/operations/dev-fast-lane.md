@@ -532,7 +532,7 @@ clocks run independently:
 - the **fast clock** (agent iterations) gets a real hosted environment gated by
   exactly one automated correctness check that already exists,
 - the **slow clock** (human signoff) keeps sole authority over what users touch,
-  through the unchanged `main` → UAT → production lane.
+  through explicit qualified Main deployment; UAT deployment is optional and never inferred.
 
 Every gate in this repo must pay for itself in caught defects. When adding a step to
 any deploy lane, name the defect class it catches; if an existing gate already catches
