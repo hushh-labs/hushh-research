@@ -135,7 +135,7 @@ jobs:
     name: Inspect UAT prerequisites (no deployment)
     env:
       UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
-    if: inputs.operation == 'inspect'
+    if: ${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

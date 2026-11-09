@@ -301,7 +301,9 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
             == "${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}"
         )
     assert inspector["environment"] == {"name": "uat", "deployment": False}
-    assert inspector["if"] == "inputs.operation == 'inspect'"
+    assert inspector["if"] == (
+        "${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect' }}"
+    )
     assert inspector["permissions"] == {
         "contents": "read",
         "actions": "write",
