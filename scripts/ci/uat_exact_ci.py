@@ -245,8 +245,11 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
 
 def verify_privileged_release_inputs(candidate: str, authority: str) -> None:
     """Application histories vary; credentialed release recipes belong to Main."""
-    require(not git("diff", "--name-only", candidate, authority, "--", *UAT_PRIVILEGED_PATHS),
-            "Privileged build or migration authority differs from Main")
+    changed = git("diff", "--name-only", candidate, authority, "--", *UAT_PRIVILEGED_PATHS)
+    require(not changed,
+            "Privileged build or migration authority differs from Main: "
+            + ", ".join(changed.decode("utf-8").splitlines())
+            + ". Sync reviewed Main release tooling into the selected branch and qualify the new revision.")
 
 
 def application_tree(candidate: str) -> str:
