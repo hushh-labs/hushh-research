@@ -2453,9 +2453,16 @@ export function OneLocationAgentPageContent({
   const [sosEmergency, setSosEmergency] = useState<EmergencyInfo | null>(null);
   const [sosEmergencyStatus, setSosEmergencyStatus] =
     useState<EmergencyNumberLookupStatus>("idle");
+  type SosLocationResolution = {
+    point: PlainLocationPoint | null;
+    failure?: LocationFailure;
+    lastKnown?: boolean;
+  };
   const sosLocationResolutionRef = useRef<{
     allowPermissionPrompt: boolean;
-    promise: Promise<PlainLocationPoint | null>;
+    ownerId: string | null;
+    sending: boolean;
+    promise: Promise<SosLocationResolution>;
   } | null>(null);
   const sosEmergencyLookupIdRef = useRef(0);
   /**
@@ -4531,6 +4538,7 @@ export function OneLocationAgentPageContent({
        * check-in confirmation draw the same line for the same reason.
        */
       requireMeasurement?: boolean;
+      maxAgeMs?: number;
       requirePoint?: boolean;
     }): Promise<{
       ready: boolean;
@@ -4619,9 +4627,13 @@ export function OneLocationAgentPageContent({
       }
 
       try {
+        const maxAgeMs = options?.maxAgeMs !== undefined && currentPermission.state === "denied"
+          ? 0
+          : options?.maxAgeMs;
         const point = await OneLocationService.captureCurrentPosition({
           fresh: options?.requireMeasurement,
           requireMeasurement: options?.requireMeasurement,
+          ...(maxAgeMs === undefined ? {} : { maxAgeMs }),
         });
         if (options?.isStale?.()) return { ready: false };
         // A coordinate in hand outranks anything the permission API says. This
@@ -4690,9 +4702,12 @@ export function OneLocationAgentPageContent({
 
         const failure: LocationFailure = denied
           ? "denied"
-          : isLocationServicesDisabled(nextPermission)
+          : locationBlockReason(nextPermission)
             ? "blocked"
-            : "no-fix";
+            : nextPermission?.state === "denied" ||
+                (options?.maxAgeMs !== undefined && currentPermission.state === "denied")
+              ? "denied"
+              : "no-fix";
         if (
           shouldSurfaceLocationError({
             hasUsableFix: false,
@@ -5719,21 +5734,33 @@ export function OneLocationAgentPageContent({
     [runEmergencyLookup, vaultOwnerToken],
   );
 
-  const resolveSosLocation = useCallback((options?: { allowPermissionPrompt?: boolean }) => {
+  const resolveSosLocation = useCallback((options?: {
+    allowPermissionPrompt?: boolean;
+    sending?: boolean;
+  }) => {
+    const ownerId = auth.userId;
+    const sending = options?.sending === true;
     const allowPermissionPrompt = options?.allowPermissionPrompt !== false;
+    const isStale = () => sosOwnerRef.current !== ownerId;
     const inFlight = sosLocationResolutionRef.current;
-    // An explicit request must not inherit the passive panel's no-prompt limit.
-    if (inFlight && (!allowPermissionPrompt || inFlight.allowPermissionPrompt)) {
+    // An explicit send must not inherit a passive warm-up or a different owner.
+    if (
+      inFlight && inFlight.ownerId === ownerId &&
+      inFlight.sending === sending &&
+      (!allowPermissionPrompt || inFlight.allowPermissionPrompt)
+    ) {
       return inFlight.promise;
     }
 
-    const resolution = (async (): Promise<PlainLocationPoint | null> => {
+    const resolution = (async (): Promise<SosLocationResolution> => {
       try {
         const result = await ensureForegroundLocationReady({
-          capturePoint: options?.allowPermissionPrompt !== false,
+          capturePoint: allowPermissionPrompt,
           requirePoint: true,
           requireMeasurement: true,
+          ...(sending ? { maxAgeMs: 30_000 } : {}),
           allowPermissionPrompt: options?.allowPermissionPrompt,
+          isStale,
           autoOpenSettings: false,
           // This runs when Save my Soul is merely OPENED. Nobody has asked for
           // anything yet, so a failure here has nothing to tell them — and on
@@ -5741,13 +5768,19 @@ export function OneLocationAgentPageContent({
           // panel is how "it keeps asking me again" happens.
           announce: false,
         });
+        if (isStale()) return { point: null };
         if (!result.ready || !result.point) {
+          const lastKnown = sending && ownerId && result.failure === "no-fix"
+            && !readOneLocationControlState(ownerId).paused
+            ? OneLocationService.getRecentSosPosition(ownerId)
+            : null;
+          if (lastKnown) return { point: lastKnown, lastKnown: true };
           setSosEmergencyStatus((current) =>
             // A number already confirmed nearby stays on screen: losing the
             // fix does not make the local emergency number wrong.
             current === "resolved" ? current : "unavailable",
           );
-          return null;
+          return { point: null, failure: result.failure };
         }
         // The point remains in foreground-only workspace memory. Merely opening
         // Save My Soul never publishes or durably persists these coordinates.
@@ -5756,23 +5789,25 @@ export function OneLocationAgentPageContent({
           setSosEmergencyStatus((current) =>
             current === "resolved" ? current : "unavailable",
           );
-          return result.point;
+          return { point: result.point };
         }
         // Country lookup continues independently so a slow Maps response never
         // delays the actual Save My Soul SMS after the user completes the hold.
         void resolveEmergencyInfoForPoint(result.point, {
           seedFromCache: true,
         });
-        return result.point;
+        return { point: result.point };
       } catch {
-        setSosEmergencyStatus((current) =>
-          current === "resolved" ? current : "unavailable",
-        );
-        return null;
+        if (!isStale()) {
+          setSosEmergencyStatus((current) =>
+            current === "resolved" ? current : "unavailable",
+          );
+        }
+        return { point: null };
       }
     })();
 
-    const entry = { allowPermissionPrompt, promise: resolution };
+    const entry = { ownerId, sending, allowPermissionPrompt, promise: resolution };
     sosLocationResolutionRef.current = entry;
     void resolution.then(
       () => {
@@ -5788,6 +5823,7 @@ export function OneLocationAgentPageContent({
     );
     return resolution;
   }, [
+    auth.userId,
     ensureForegroundLocationReady,
     resolveEmergencyInfoForPoint,
     setMyLocationPoint,
@@ -5848,8 +5884,7 @@ export function OneLocationAgentPageContent({
       // A live SOS the server holds (armed by voice or another device) blocks
       // a second batch just like this device's own record does.
       if (sosIncidentRef.current || activeSosGrantsRef.current.length || !auth.userId) return;
-      if (!vaultOwnerToken || locationPermissionBlocksSharing(permission))
-        return;
+      if (!vaultOwnerToken) return;
       let totalSelected = smsContactUserIds.length;
       const owner = auth.userId;
       const operation = sosOperations.current.begin(owner);
@@ -5859,10 +5894,11 @@ export function OneLocationAgentPageContent({
         ++smsRosterRevision.current;
         // Refresh the exact roster and its verified identities at send time.
         // A cached directory page is neither membership nor readiness authority.
-        const [roster, point] = await Promise.all([
+        const [roster, location] = await Promise.all([
           OneLocationService.getSmsRecipientRoster(vaultOwnerToken),
-          resolveSosLocation(),
+          resolveSosLocation({ sending: true }),
         ]);
+        const { point, failure, lastKnown } = location;
         if (sosOwnerRef.current !== owner) return;
         totalSelected = roster.smsContactUserIds.length;
         setSmsSystemCircleMemberIds(roster.smsContactUserIds);
@@ -5878,11 +5914,13 @@ export function OneLocationAgentPageContent({
           trackSosTriggered({
             selectedCount: totalSelected,
             reachedCount: 0,
-            unreachableCount: readyRecipients.length,
+            unreachableCount: totalSelected,
             note,
           });
           toast.error(
-            "Couldn't get your location — alert not sent. Check location permissions.",
+            failure === "denied" || failure === "blocked"
+              ? "Location access is blocked. Check your device or browser settings and try again. Alert not sent."
+              : "Couldn't get a recent location. Try again. Alert not sent.",
           );
           return;
         }
@@ -5921,7 +5959,10 @@ export function OneLocationAgentPageContent({
           if (shared < totalSelected || unreachable.length > 0) {
             toast.warning("Some contacts may miss this alert.", { classNames: { title: "!line-clamp-1" } });
           } else {
-            toast.success(reached > 0 ? "SMS alert sent." : "SMS location shared.", { classNames: { title: "!line-clamp-1" } });
+            const message = lastKnown
+              ? reached > 0 ? "SMS alert sent with your last known location." : "Last known location shared."
+              : reached > 0 ? "SMS alert sent." : "SMS location shared.";
+            toast.success(message, { classNames: { title: "!line-clamp-1" } });
           }
         }
 
@@ -5983,7 +6024,6 @@ export function OneLocationAgentPageContent({
     },
     [
       auth.userId,
-      permission,
       publishEnvelopeWithRetry,
       resolveSosLocation,
       setSosIncident,

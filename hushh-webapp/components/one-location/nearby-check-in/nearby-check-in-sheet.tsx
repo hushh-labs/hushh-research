@@ -551,10 +551,10 @@ function NearbyPersonRow({
   const connectionUnavailable =
     cta.action === "connect" && !attendee.canConnect;
   const buttonLabel = connectionUnavailable
-    ? "Not accepting requests"
+    ? "Connect unavailable"
     : cta.label;
   const accessibleLabel = connectionUnavailable
-    ? `${attendee.displayName} is not accepting connection requests`
+    ? `Connection requests unavailable for ${attendee.displayName}`
     : cta.action === "respond"
       ? `Respond to ${attendee.displayName}'s connection request`
       : `${cta.label} with ${attendee.displayName}`;
@@ -3428,7 +3428,7 @@ export function NearbyCheckInSheet({
                           Allow connection requests
                         </span>
                         <span data-location-type-role="row-description" className="mt-0.5 block text-xs leading-4 text-muted-foreground">
-                          From people checked in nearby.
+                          Available when both people have verified their phone numbers.
                         </span>
                       </span>
                       <Switch
