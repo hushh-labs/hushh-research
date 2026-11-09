@@ -1975,6 +1975,12 @@ Every deploy lane (`deploy-dev.yml`, `deploy-uat.yml`, `deploy-production.yml`)
 builds each image once, pins it to an immutable `sha256` digest, and deploys that
 digest. Nothing downstream re-resolves a mutable tag.
 
+Automatic scope compares backend-owned files with the serving backend source,
+and frontend-owned files with the serving frontend source. Mixed serving versions
+from a scoped release do not select an already-current service again merely
+because the other service is older. Shared inputs, unknown paths and the atomic
+account-lifecycle boundary still consider both baselines and select both services.
+
 **Parallel web build.** A backend + frontend release used to run the web Cloud
 Build (p50 263s, p90 333s over the last 30 UAT deploys) serially after the backend
 image build, the migration fence, the migrations and the backend candidate

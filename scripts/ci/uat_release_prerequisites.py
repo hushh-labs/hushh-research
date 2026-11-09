@@ -411,7 +411,7 @@ def render(result: dict) -> str:
              f"- Protected UAT source: `{result['candidate_sha']}`",
              f"- Observed serving base: `{result['base_sha']}`",
              f"- Main workflow authority: `{result['authority_sha']}`"]
-    if result["reason_code"] == "source_only_update":
+    if not result["ready"] and result["reason_code"] == "source_only_update":
         lines += [
             "- Source-only update: current accepted application sources require no rollout for this change.",
             "- Accepted application sources: " + ", ".join(
