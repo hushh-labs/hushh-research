@@ -368,6 +368,7 @@ jobs:
               # Governance owns the real compiler and its pure Git-fixture contracts.
               - '!consent-protocol/scripts/generate_capability_graph.py'
               - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
+              - '!consent-protocol/tests/scripts/test_managed_provider_receipt.py'
               - '!consent-protocol/tests/test_capability_graph_gate_compares_against_base.py'
               - '!consent-protocol/tests/test_capability_graph_dev_phone_history.py'
               - '!consent-protocol/tests/test_location_workflow_compatibility.py'

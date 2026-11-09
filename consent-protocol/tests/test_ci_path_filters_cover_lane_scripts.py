@@ -856,6 +856,7 @@ def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner()
 
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
         "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
         "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
         "consent-protocol/tests/test_location_workflow_compatibility.py",
