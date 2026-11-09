@@ -1251,6 +1251,7 @@ export function LocationImmersiveMap({
     (options?: {
       maxAgeMs?: number;
       fresh?: boolean;
+      requireMeasurement?: boolean;
     }): Promise<PlainLocationPoint> => {
       // A caller demanding a genuinely fresh fix must not be handed the
       // in-flight one this ref is holding — that is how the check-in anchor
@@ -1258,7 +1259,8 @@ export function LocationImmersiveMap({
       if (
         locationCaptureRef.current &&
         options?.maxAgeMs !== 0 &&
-        !options?.fresh
+        !options?.fresh &&
+        !options?.requireMeasurement
       ) {
         return locationCaptureRef.current;
       }
@@ -1285,7 +1287,7 @@ export function LocationImmersiveMap({
   // dropped a caller's `maxAgeMs: 0` — TypeScript accepts the narrower arity, so
   // it compiled clean while the check-in anchor quietly used a cached fix.
   const captureAndRememberCurrentLocation = useCallback(
-    async (options?: { maxAgeMs?: number; fresh?: boolean }) => {
+    async (options?: { maxAgeMs?: number; fresh?: boolean; requireMeasurement?: boolean }) => {
       const point = await captureCurrentLocation(options);
       if (auth.userId) {
         const workspace = readLocationWorkspaceMemory(auth.userId);
@@ -2157,6 +2159,9 @@ export function LocationImmersiveMap({
   const activePlaceLongitude = nearbyPresenceState.presence?.placeLng;
   const activePlaceLabel = nearbyPresenceState.presence?.placeLabel;
   const activeCheckedInAt = nearbyPresenceState.presence?.checkedInAt;
+  const activeCheckInLabel = hasActivePresence
+    ? activePlaceLabel?.trim() || "Your check-in place"
+    : nearbyPlaceFocus?.active ? nearbyPlaceFocus.label : null;
 
   /**
    * The sheet publishes selection focus only while it is open, but the active
@@ -2228,11 +2233,7 @@ export function LocationImmersiveMap({
     };
   }, [isCheckInSurface, displayedPlaceFocus, activeCheckedInAt, selfMarker]);
 
-  /**
-   * A venue pin is useful only while choosing: it lets the owner compare the
-   * candidate with their current position. After confirmation the avatar owns
-   * the venue coordinate, so a second green pin would duplicate the same fact.
-   */
+  /** A venue contributes a text label while choosing. The bridge draws people only. */
   const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
     if (!displayedPlaceFocus) return null;
     if (isCheckInSurface && displayedPlaceFocus.active) return null;
@@ -2287,7 +2288,13 @@ export function LocationImmersiveMap({
       ? `Your check-in at ${displayedPlaceFocus.label}`
       : "Your location";
 
+  const checkInDetailsRef = useRef<HTMLDetailsElement>(null);
   const selectSelfMarker = useCallback(() => {
+    if (isCheckInSurface && displayedPlaceFocus?.active && checkInDetailsRef.current) {
+      checkInDetailsRef.current.open = true;
+      checkInDetailsRef.current.querySelector("summary")?.focus({ preventScroll: true });
+      return;
+    }
     // A cached point may exist before consent or after it is revoked. Never let
     // even a stale queued activation disclose that coordinate to the renderer.
     if (!rendererReady || !mapSelfMarker) return;
@@ -2302,7 +2309,7 @@ export function LocationImmersiveMap({
       zoom: 15,
       animate: true,
     }).catch(() => undefined);
-  }, [mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
+  }, [displayedPlaceFocus?.active, isCheckInSurface, mapSelfMarker, moveCameraAndPublishZoom, rendererReady]);
 
   /**
    * Non-owner pins managed as one renderer batch. The owner fallback is a
@@ -2311,7 +2318,7 @@ export function LocationImmersiveMap({
   const rendererMarkers = useMemo(
     () =>
       rendererReady
-        ? visibleMarkers.filter((marker) => marker.kind !== "self")
+        ? visibleMarkers.filter((marker) => marker.kind === "person")
         : [],
     [rendererReady, visibleMarkers],
   );
@@ -3089,15 +3096,8 @@ export function LocationImmersiveMap({
           : [],
       ));
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
-        // Labels stay in the local HTML tray/search index. The native Google
-        // renderer receives coordinates and a generic accessibility title,
-        // never the private recipient name.
-        const title =
-          marker.kind === "place"
-            ? // A public venue the owner picked, so its name may reach the
-              // renderer -- unlike a private recipient's label.
-              marker.label
-            : "Private location";
+        // Private names stay in the local tray and avatar overlays.
+        const title = "Private location";
         return {
           coordinate: {
             lat: marker.point.latitude,
@@ -3109,12 +3109,9 @@ export function LocationImmersiveMap({
           ...(isNative()
             ? {
                 title,
-                snippet:
-                  marker.kind === "place"
-                    ? "Your check-in place"
-                    : "Sharing privately now",
+                snippet: "Sharing privately now",
               }
-            : avatarTitles.has(marker.key)
+              : avatarTitles.has(marker.key)
               ? {
                   title: avatarTitles.get(marker.key),
                   iconUrl: webPersonMarkerPlaceholder(isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)),
@@ -3132,7 +3129,7 @@ export function LocationImmersiveMap({
           )
             ? STALE_TINT
             : marker.tint,
-          zIndex: marker.kind === "place" ? 9 : 1,
+          zIndex: 1,
         };
       });
       const ids = mapMarkers.length ? await map.addMarkers(mapMarkers) : [];
@@ -3723,6 +3720,11 @@ export function LocationImmersiveMap({
     isCheckInSurface ? ROUTES.ONE_LOCATION_CHECK_IN : ROUTES.ONE_LOCATION_MAP,
     100,
     () => {
+      const details = checkInDetailsRef.current;
+      if (details?.open) {
+        details.open = false;
+        return true;
+      }
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
         return true;
@@ -4139,8 +4141,7 @@ export function LocationImmersiveMap({
         removing the only part of it that was answering a question.
       */}
       {rendererReady &&
-      (nearbyCheckInOpen || displayedPlaceFocus?.active) &&
-      (nearbySearchPoint || displayedPlaceFocus) ? (
+      (activeCheckInLabel || (nearbyCheckInOpen && (nearbySearchPoint || displayedPlaceFocus))) ? (
         <div
           className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
           style={{
@@ -4148,19 +4149,24 @@ export function LocationImmersiveMap({
           }}
           data-testid="one-location-nearby-search-area-legend"
         >
-          {displayedPlaceFocus?.active ? (
-            <span
-              className="flex items-center gap-2"
+          {activeCheckInLabel ? (
+            <details
+              key={activeCheckInLabel}
+              ref={checkInDetailsRef}
+              className="pointer-events-auto min-w-0"
               data-testid="one-location-nearby-place-legend"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
             >
-              <MapSelfAvatarLegend
-                avatarUrl={selfAvatarUrl}
-                displayName={selfDisplayName}
-              />
-              <span data-location-type-role="row-description" className="truncate text-foreground">
-                Checked in at {displayedPlaceFocus.label}
-              </span>
-            </span>
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-md text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+                <MapSelfAvatarLegend avatarUrl={selfAvatarUrl} displayName={selfDisplayName} />
+                <span data-location-type-role="row-description" className="min-w-0 flex-1">You’re checked in</span>
+                <ChevronDown className="size-4 shrink-0" aria-hidden />
+              </summary>
+              <p data-location-type-role="row-description" className="max-h-[30dvh] overflow-y-auto overscroll-contain pb-1 text-foreground [overflow-wrap:anywhere]">
+                {activeCheckInLabel}
+              </p>
+            </details>
           ) : nearbySearchPoint ? (
             <span className="flex items-center gap-2">
               <MapSelfAvatarLegend
@@ -4175,7 +4181,7 @@ export function LocationImmersiveMap({
               <span data-location-type-role="row-description" className="truncate text-foreground">You are here</span>
             </span>
           ) : null}
-          {displayedPlaceFocus && !displayedPlaceFocus.active ? (
+          {!activeCheckInLabel && displayedPlaceFocus ? (
             <span
               className="flex items-center gap-2"
               data-testid="one-location-nearby-place-legend"
@@ -4192,17 +4198,7 @@ export function LocationImmersiveMap({
               </span>
             </span>
           ) : null}
-          {!displayedPlaceFocus?.active &&
-          displayedPlaceFocus?.distanceMeters != null &&
-          displayedPlaceFocus.distanceMeters >= 25 ? (
-            <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
-              {displayedPlaceFocus.distanceMeters < 1_000
-                ? `${displayedPlaceFocus.distanceMeters} m`
-                : `${(displayedPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
-              from you
-            </span>
-          ) : null}
-          <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
+          {(nearbyCheckInOpen || (isCheckInSurface && displayedPlaceFocus?.active)) ? <span data-location-type-role="row-description" className="pl-[1.125rem] font-normal text-muted-foreground">
             {/* "match" is the backend's word for how it pairs attendees, and it
                 also hid a real difference: the live circle is drawn around the
                 PLACE, the search circle around the PERSON (see the circle title
@@ -4210,7 +4206,7 @@ export function LocationImmersiveMap({
             {displayedPlaceFocus?.active
               ? "500 m around your place"
               : "500 m around you"}
-          </span>
+          </span> : null}
         </div>
       ) : null}
       {status !== "unavailable" && (!mapReady || rendererPreparationPending || (isCheckInSurface && nearbyCheckInOpen && !checkInStartupReady)) ? (
@@ -4875,20 +4871,20 @@ export function LocationImmersiveMap({
                         variant="link"
                         aria-label={
                           nearbyPresenceState.presence
-                            ? `Checked in${
+                            ? `View check-in${
                                 nearbyPresenceState.attendees.length > 0
                                   ? `, ${nearbyPresenceState.attendees.length} nearby`
                                   : ""
                               }`
-                            : "Want to check in?"
+                            : "Check in"
                         }
                 data-testid="one-location-map-nearby-check-in"
                         onClick={openNearbyCheckIn}
                       >
                         <span data-location-type-role="compact-action" className="truncate">
                           {nearbyPresenceState.presence
-                            ? "Checked in"
-                            : "Want to check in?"}
+                            ? "View check-in"
+                            : "Check in"}
                         </span>
                       </Button>
                     ) : null}

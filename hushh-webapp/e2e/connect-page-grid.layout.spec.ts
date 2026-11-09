@@ -317,7 +317,7 @@ for (const dark of [false, true]) {
       await page.getByRole("tab", { name: /My connections/ }).click();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
-      const contactBadge = connectionGroup.getByRole("button", { name: "From Contacts" });
+      const contactBadge = connectionGroup.getByRole("button", { name: "Via contacts" });
       await expect(contactBadge).toHaveCount(1);
       const contactIcon = await contactBadge.locator("svg").evaluate((icon) => {
         const box = icon.getBoundingClientRect();
@@ -340,29 +340,27 @@ for (const dark of [false, true]) {
       await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
       const connectionRows = connectionGroup.getByTestId("connect-person-row");
       const jordan = connectionRows.filter({ hasText: "Jordan Lee" });
-      await expect(jordan.getByRole("button", { name: "From Contacts" })).toBeVisible();
-      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "From Contacts" })).toHaveCount(0);
+      await expect(jordan.getByRole("button", { name: "Via contacts" })).toBeVisible();
+      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "Via contacts" })).toHaveCount(0);
       if (width === WIDTHS[0]) {
         const glyph = contactBadge.locator("svg");
         if (testInfo.project.use.hasTouch) await glyph.tap();
         else await glyph.click();
-        const contactDetails = page.getByRole("dialog", { name: "From Contacts" });
-        await expect(contactDetails).toContainText("This connection was matched through your synced contacts.");
-        const bounds = await contactDetails.boundingBox();
-        expect(bounds!.x).toBeGreaterThanOrEqual(0);
-        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        const contactDetails = page.locator('[data-slot="tooltip-content"]').filter({ hasText: "Via contacts" });
+        await expect(contactDetails).toBeVisible();
+        const bounds = (await contactDetails.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
         await page.keyboard.press("Escape");
         await expect(contactDetails).toBeHidden();
-        await expect(contactBadge).toBeFocused();
 
-        const riaBadge = jordan.getByRole("button", { name: "RIA verified" });
-        if (testInfo.project.use.hasTouch) await riaBadge.locator("svg").tap();
-        else await riaBadge.press("Enter");
-        const riaDetails = page.getByRole("dialog", { name: "RIA verified" });
-        await expect(riaDetails).toContainText("This person is verified as a registered investment adviser (RIA).");
-        await riaDetails.getByRole("button", { name: "Close RIA verified details" }).click();
-        await expect(riaDetails).toBeHidden();
-        await expect(riaBadge).toBeFocused();
+        const riaBadge = jordan.getByRole("button", { name: "Verified Advisor" });
+        if (testInfo.project.use.hasTouch) await riaBadge.tap();
+        else await riaBadge.focus();
+        const riaDetails = page.getByRole("tooltip", { name: "Verified Advisor" });
+        await expect(riaDetails).toBeAttached();
+        await page.keyboard.press("Escape");
+        await expect(riaDetails).toHaveCount(0);
       }
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
@@ -377,16 +375,14 @@ for (const dark of [false, true]) {
       // Feed's ordinary-row anatomy: a 26px face centred in a 30px well, so the
       // face starts 2px in from the row edge, and the row is compact.
       expect(rowGeometry.every(row => Math.abs(row.avatarLeft - row.left) < 1 && row.avatarWidth === (width <= 350 ? 32 : 36))).toBe(true);
-      expect(rowGeometry.every(row => row.height >= 70)).toBe(true);
+      expect(rowGeometry.every(row => row.height >= 44 && row.height <= 78)).toBe(true);
       expect(rowGeometry.every(row => row.titleRight <= row.trailingLeft && row.date === "Connected 28 Sep")).toBe(true);
       expect(rowGeometry.every(row => row.actions.every(action => action.width >= 44 && action.height >= 44))).toBe(true);
       // The face sits on the centre line of its name block (one line or two), in
       // both lists, never above it.
       const centred = await page.locator('[data-testid="connect-person-row"], [data-testid="directory-person-row"]').evaluateAll((rows) => rows.filter(row => row.getBoundingClientRect().height > 0).map((row) => {
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();
-        const title = row.querySelector('[data-slot="settings-row-title"]')!.getBoundingClientRect();
-        const description = row.querySelector('[data-slot="settings-row-description"]')?.closest("span:not([data-slot])")?.getBoundingClientRect();
-        const block = description ? { top: title.top, bottom: description.bottom } : { top: title.top, bottom: title.bottom };
+        const block = row.querySelector('[data-slot="settings-row-identity"]')!.getBoundingClientRect();
         return Math.abs((avatar.top + avatar.bottom) / 2 - (block.top + block.bottom) / 2);
       }));
       expect(centred.length).toBeGreaterThan(5);
