@@ -477,7 +477,9 @@ def test_uat_backend_deploy_consumes_the_pinned_digest_without_rebuilding() -> N
         _step("Verify backend candidate readiness and exact-SHA provenance").get("run") or ""
     )
 
-    assert "deploy/backend-image.cloudbuild.yaml" in build_run
+    launch = str(_step("Start backend image build in parallel").get("run") or "")
+    assert "deploy/backend-image.cloudbuild.yaml" in launch and "--async" in launch
+    assert "--wait-only" in build_run and "gcloud builds submit" not in build_run
     assert "image_summary.digest" in build_run
     assert "^sha256:[0-9a-f]{64}$" in build_run
     assert "_SKIP_IMAGE_BUILD=true" in deploy_run

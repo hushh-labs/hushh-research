@@ -333,6 +333,40 @@ def test_frontend_image_build_config_is_frontend_scoped() -> None:
     assert resolver.classify_path("deploy/frontend.cloudbuild.yaml") == "frontend"
 
 
+def test_source_only_inspection_preserves_runtime_and_exclusion_boundaries() -> None:
+    resolver = load_module()
+    tempdir, repo = with_git_repo()
+    with tempdir:
+        base = commit_file(repo, "consent-protocol/.dockerignore", "tests/\n")
+        ops = commit_file(repo, "consent-protocol/tests/test_release.py", "# controller regression\n")
+        docs = commit_file(repo, "docs/operations.md", "Reviewed source sync\n")
+        workflow = commit_file(repo, ".github/workflows/deploy-uat-implementation.yml", "new runtime configuration\n")
+        exclusions = commit_file(repo, "consent-protocol/.dockerignore", "tests/\n!tests/**\n")
+        tests = commit_file(repo, "consent-protocol/tests/test_release.py", "# changed regression\n")
+        runtime = commit_file(repo, "consent-protocol/api/runtime.py", "print('runtime')\n")
+        run_git(repo, "mv", "consent-protocol/api/runtime.py", "docs/retired-runtime.py")
+        run_git(repo, "commit", "-m", "move runtime into documentation")
+        renamed = run_git(repo, "rev-parse", "HEAD")
+        previous_cwd = Path.cwd()
+        try:
+            import os
+
+            os.chdir(repo)
+            assert resolver.source_only_update(base, docs, "uat")
+            assert not resolver.source_only_update(docs, workflow, "uat")
+            assert not resolver.source_only_update(workflow, tests, "uat")
+            assert not resolver.source_only_update(exclusions, tests, "uat")
+            assert not resolver.source_only_update(base, "f" * 40, "uat")
+            assert not resolver.source_only_update(base, ops, "unrecognized")
+            assert not resolver.source_only_update(runtime, renamed, "uat")
+            decision = resolver.auto_decision(
+                target_sha=renamed, backend_base_sha=runtime, frontend_base_sha=runtime
+            )
+            assert decision.deploy_backend, "A removed runtime file cannot become documentation-only."
+        finally:
+            os.chdir(previous_cwd)
+
+
 def main() -> int:
     tests = [
         test_automatic_production_source_is_forward_only_under_serving_lock,
@@ -349,6 +383,7 @@ def main() -> int:
         test_auto_missing_deployed_sha_falls_back_to_all,
         test_auto_single_surface_lifecycle_change_deploys_both,
         test_frontend_image_build_config_is_frontend_scoped,
+        test_source_only_inspection_preserves_runtime_and_exclusion_boundaries,
     ]
     for test in tests:
         test()
