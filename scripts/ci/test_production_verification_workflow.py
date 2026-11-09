@@ -94,6 +94,8 @@ class ProductionVerificationWorkflowTests(unittest.TestCase):
             self.assertNotIn(forbidden, job)
         self.assertIn("ref: ${{ github.sha }}", job)
         self.assertIn("persist-credentials: false", job)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", job)
+        self.assertIn("if: always() && steps.verification-sdk.outcome == 'success'", job)
         self.assertRegex(job, r"id: backend-health\n\s+if: always\(\) && steps.before.outcome == 'success'")
         self.assertRegex(job, r"id: frontend-health\n\s+if: always\(\) && steps.before.outcome == 'success'")
         self.assertIn("https://api.hushh.ai /health 5 8 2 200", job)
