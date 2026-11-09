@@ -33,6 +33,7 @@ from hushh_mcp.services.calendar_attendance_confirmation import (
     send_reviewed_organizer_mail,
 )
 from hushh_mcp.services.calendar_decline_comment import clean_decline_reason, patch_with_comment
+from hushh_mcp.services.calendar_invitations import own_attendee
 from hushh_mcp.services.gmail_delivery_service import get_gmail_delivery_service
 from hushh_mcp.services.google_calendar_service import (
     GoogleCalendarService,
@@ -49,6 +50,21 @@ AttendanceReviewKind = Literal["legacy_owner", "workspace", "rsvp"]
 
 def _error(message: str, status: int = 422, reason: str = "calendar_invalid_request"):
     return GoogleConnectionError(message, status_code=status, reason_code=reason)
+
+
+def _require_unanswered_invitation(
+    response_status: str | None, review_kind: AttendanceReviewKind, mail_only_retry: bool
+) -> None:
+    if (
+        review_kind != "legacy_owner"
+        and not mail_only_retry
+        and response_status in {"accepted", "declined"}
+    ):
+        raise _error(
+            "You already responded to this invitation.",
+            409,
+            "calendar_invitation_already_responded",
+        )
 
 
 def _recipient_origin(value: str | None) -> str:
@@ -679,8 +695,6 @@ class CalendarScheduleService:
 
     @staticmethod
     def attendance_patch(event: dict[str, Any], response_status="declined", owner_email=None):
-        from hushh_mcp.services.calendar_invitations import own_attendee
-
         if response_status not in {"accepted", "declined", "tentative"}:
             raise _error("Choose a valid invitation response.")
         organizer = event.get("organizer") or {}
@@ -900,17 +914,13 @@ class CalendarScheduleService:
             user_id, event_id, calendar_id, binding, response_status
         )
         require_review_account_email(expected_account_email, email)
-        if mail_only_retry:
-            attendee_email = patch["attendees"][0]["email"].casefold()
-            if not any(
-                str(attendee.get("email") or "").casefold() == attendee_email
-                and attendee.get("responseStatus") == "declined"
-                for attendee in event["attendees"]
-            ):
-                raise _error(
-                    "This invitation is no longer declined. Review it again before sending Mail.",
-                    409,
-                )
+        current_status = (own_attendee(event, email, raw=True) or {}).get("responseStatus")
+        _require_unanswered_invitation(current_status, review_kind, mail_only_retry)
+        if mail_only_retry and current_status != "declined":
+            raise _error(
+                "This invitation is no longer declined. Review it again before sending Mail.",
+                409,
+            )
         conflicts, unchecked = [], []
         if response_status == "accepted":
             conflicts, unchecked = await self._invitation_conflicts(
@@ -1164,12 +1174,18 @@ class CalendarScheduleService:
         }
         try:
             await self.calendar._check_read_binding(user_id, tuple(plan["binding"]))
-            current, patch, _ = await self._event(
+            current, patch, email = await self._event(
                 user_id,
                 plan["event_id"],
                 plan.get("calendar_id", "primary"),
                 tuple(plan["binding"]),
                 plan.get("response_status", "declined"),
+            )
+            attendee_email = patch["attendees"][0]["email"].casefold()
+            attendee = own_attendee(current, email, raw=True) or {}
+            mail_only_retry = bool(plan.get("mail_only_retry"))
+            _require_unanswered_invitation(
+                attendee.get("responseStatus"), review_kind, mail_only_retry
             )
             if current["etag"] != plan["etag"] or patch != plan["patch"]:
                 raise _error("The invitation changed. Review it again before confirming.", 409)
@@ -1184,13 +1200,7 @@ class CalendarScheduleService:
                 self.calendar._reject_new_conflicts(
                     planned=plan.get("conflicts", []), current=proposed["conflicts"]
                 )
-            attendee_email = patch["attendees"][0]["email"].casefold()
-            attendee = next(
-                item
-                for item in current["attendees"]
-                if str(item.get("email") or "").casefold() == attendee_email
-            )
-            if plan.get("mail_only_retry") and attendee.get("responseStatus") != "declined":
+            if mail_only_retry and attendee.get("responseStatus") != "declined":
                 raise _error(
                     "This invitation is no longer declined. Review it again before sending Mail.",
                     409,
@@ -1199,7 +1209,7 @@ class CalendarScheduleService:
                 bool(plan.get("decline_reason"))
                 and attendee.get("comment", "") != plan["decline_reason"]
             )
-            if not plan.get("mail_only_retry") and (
+            if not mail_only_retry and (
                 attendee.get("responseStatus") != target_status or comment_changed
             ):
                 patch_attempted = True

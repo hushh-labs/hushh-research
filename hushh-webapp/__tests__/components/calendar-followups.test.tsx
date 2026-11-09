@@ -106,7 +106,8 @@ describe("Follow-ups wording", () => {
     expect(coverageNotice({ coverage: "complete", attention: null, ...base })).toBeNull();
     expect(coverageNotice({ coverage: "catching_up", attention: null, ...base })).toEqual({ tone: "quiet", text: "Catching up on your email…", action: null });
     expect(coverageNotice({ coverage: "needs_attention", attention: "reconnect_mail", ...base })?.action).toBe("reconnect");
-    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })?.action).toBe("retry");
+    expect(coverageNotice({ coverage: "needs_attention", attention: "retry_needed", ...base })).toBeNull();
+    expect(coverageNotice({ coverage: "needs_attention", attention: "provider_unavailable", ...base })).toBeNull();
   });
 });
 
@@ -216,16 +217,18 @@ describe("Calendar Insights Follow-ups card", () => {
     expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
   });
 
-  it("asks the owner to act only when retrying cannot fix it, and Check again forces a retry", async () => {
+  it("keeps verified follow-ups visible and retries quietly when email coverage is partial", async () => {
     service.status.mockResolvedValue(status("account_stuck", {
       scan_state: "partial", incomplete_source_count: 1,
       coverage: { coverage: "needs_attention", attention: "retry_needed", waiting_source_count: 0, exhausted_source_count: 1, unreadable_count: 0 },
     }));
     service.list.mockResolvedValue({ ...bList, account_id: "account_stuck" });
     render(<CalendarFollowups {...props("account_stuck")} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByText("A few emails could not be read yet.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check again" })).not.toBeInTheDocument();
     await waitFor(() => expect(service.scan).toHaveBeenCalledWith(
-      "owner", "account_stuck", "synthetic-id-token", "synthetic-owner-token", { retry: true }));
+      "owner", "account_stuck", "synthetic-id-token", "synthetic-owner-token", {}, expect.any(AbortSignal)));
   });
 
   it("continues in the background once and not again on reopening", async () => {
