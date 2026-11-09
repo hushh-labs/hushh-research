@@ -229,11 +229,9 @@ def auto_decision(
             reason="auto:fallback_missing_deployed_sha",
         )
 
-    candidate_files = changed_files_between_service_bases(
-        target_sha=target_sha,
-        backend_base_sha=backend_base_sha,
-        frontend_base_sha=frontend_base_sha,
-    )
+    backend_diff = set(run_git_diff(backend_base_sha, target_sha))
+    frontend_diff = set(run_git_diff(frontend_base_sha, target_sha))
+    candidate_files = unique_sorted([*backend_diff, *frontend_diff])
 
     backend_files: list[str] = []
     frontend_files: list[str] = []
@@ -242,10 +240,16 @@ def auto_decision(
 
     for path in candidate_files:
         classification = classify_path(path)
+        # Scoped releases can leave the services at different sources. Compare
+        # each service's inputs with its own serving baseline; the other
+        # service's older history must not redeploy already-current inputs.
+        # Shared inputs and atomic lifecycle changes still consider both diffs.
         if classification == "backend":
-            backend_files.append(path)
+            if path in backend_diff:
+                backend_files.append(path)
         elif classification == "frontend":
-            frontend_files.append(path)
+            if path in frontend_diff:
+                frontend_files.append(path)
         elif classification == "shared":
             shared_files.append(path)
         else:
