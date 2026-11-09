@@ -487,6 +487,7 @@ jobs:
               # for these exact test/helper-only edits.
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
+              - '!consent-protocol/tests/test_prod_drive_deploy_contract.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
               # These exact synthetic fixture paths have a focused controller
               # owner; edits to the separate phone-history consumer modules still
