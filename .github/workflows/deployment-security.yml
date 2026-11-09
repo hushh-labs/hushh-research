@@ -12,9 +12,9 @@ on:
   workflow_call:
     secrets:
       CI_TEAM_APP_PRIVATE_KEY:
-        required: false
+        required: true
       GH_SECURITY_ALERTS_TOKEN:
-        required: false
+        required: true
     inputs:
       application_ref:
         required: true

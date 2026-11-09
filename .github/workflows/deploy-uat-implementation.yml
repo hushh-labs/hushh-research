@@ -2,6 +2,11 @@ name: UAT deployment implementation
 
 on:
   workflow_call:
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
+      GH_SECURITY_ALERTS_TOKEN:
+        required: true
     inputs:
       operation:
         description: "Inspect prerequisites without deploying, or deploy a qualified application"
@@ -184,6 +189,9 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       application_ref: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
       environment_name: uat

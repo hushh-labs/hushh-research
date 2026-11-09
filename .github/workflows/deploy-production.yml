@@ -220,6 +220,7 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: production

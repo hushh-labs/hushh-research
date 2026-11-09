@@ -26,6 +26,13 @@ the protected security job directly in the same run, without a second branch bro
 permission recheck, so revoked actors cannot keep using an earlier clearance. These
 explicit operation checks do not scan alerts or observe ordinary PR events.
 
+Environment-scoped security secrets require explicit named pass-through at every
+reusable-workflow hop, including thin caller → implementation → security job.
+Keep both names declared and required; their values remain in `ci-security`.
+Do not remove those mappings because the caller has no environment, or replace
+them with broad secret inheritance. The existing deployment-security contract
+tests own this boundary.
+
 # Hussh Repo Operations Skill
 
 ## Purpose and Trigger
