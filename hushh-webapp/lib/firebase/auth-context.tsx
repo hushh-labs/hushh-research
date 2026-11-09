@@ -2047,7 +2047,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return currentUser;
   }, [phoneRecovery, requirePhoneVerificationOwner]);
   const confirmPhoneLinkedDeletion = useCallback((input: LinkedDeletionInput) => {
-    const principal = principalRef.current;
     const releaseProof = () => {
       phoneRecovery.cancelNativeStart();
       phoneTransferProofRef.current = null;
@@ -2055,17 +2054,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (!Capacitor.isNativePlatform()) resetRecaptcha();
       phoneVerificationOwnerRef.current = null;
     };
+    // A requested deletion links nothing here; the receiving owner verifies the number again.
     return confirmLinkedDeletion(input, {
       user: () => userRef.current,
       retained: () => phoneTransferProofRef.current?.phone === input.phoneNumber ? phoneTransferProofRef.current : null,
       requireOwner: requirePhoneVerificationOwner,
       releaseProof,
-      finalize: (verified) => {
-        releaseProof();
-        applyAuthUser(verified, principal);
-      },
     });
-  }, [applyAuthUser, phoneRecovery, requirePhoneVerificationOwner]);
+  }, [phoneRecovery, requirePhoneVerificationOwner]);
 
   const confirmPhoneReplacement = confirmPhoneVerification;
 

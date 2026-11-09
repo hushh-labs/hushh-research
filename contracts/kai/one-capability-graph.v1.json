@@ -31359,7 +31359,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "description": "Open an in-place review to delete the account currently linked to this verified number when the number's fresh real-SMS proof was retained. Deletion needs an explicit acknowledgement; without a retained proof, or while in-place deletion is unavailable, it opens previous-account sign-in instead.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous",
         "executor": {
@@ -31515,7 +31515,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
+      "description": "Explicit human confirmation requests permanent deletion of the account linked to this number using its retained fresh SMS proof. A requested deletion is not erasure and does not link the number here; the number is verified again after it is released. It cannot be undone.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_confirm",
         "executor": {
@@ -31671,7 +31671,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
+      "description": "Cancels the deletion review before anything is sent and returns to recovery choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_cancel",
         "executor": {
@@ -31827,7 +31827,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Return to number entry after the code used for deletion expired; nothing is deleted.",
+      "description": "Return to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
       "execution": {
         "binding_ref": "render:phone_mandate.delete_previous_verify_again",
         "executor": {
@@ -53976,7 +53976,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "becd638fd52cd5f84ca4313b2b3546d6e910e94f99fced7cbd9666615925935d",
+      "projection_digest": "1c56c7c1b63a351cdaff73ff41ad78e64b3e6c4f6b4df73060d5a51a64a94985",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -53986,7 +53986,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "cfdacfe5e6c4c1390fe9330fd88faafcc80f8746177af4b9a0e39081c9c35a40",
+        "capability_graph_evolution": "24515dec0db35f205c33fb1f86f2ae25916bd1b205c65031a4c1100f16590c33",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -53995,7 +53995,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "a03037055c8114bf",
+      "source_revision": "71ad505826978287",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -55513,7 +55513,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "a03037055c8114bf",
+    "source_revision": "71ad505826978287",
     "web": {
       "actions": [
         {
@@ -55556,7 +55556,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "721a33a0fce6a40fd93dc63edc1ad1cf73de6b00c97126a6f41d63c26737c4ce",
+      "projection_digest": "69c1880338a36b4c51e09c80bac365db505c52feba26bfa94209111b3cc58f1e",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -55566,7 +55566,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "cfdacfe5e6c4c1390fe9330fd88faafcc80f8746177af4b9a0e39081c9c35a40",
+        "capability_graph_evolution": "24515dec0db35f205c33fb1f86f2ae25916bd1b205c65031a4c1100f16590c33",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -55575,7 +55575,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "a03037055c8114bf",
+      "source_revision": "71ad505826978287",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -57132,7 +57132,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "a03037055c8114bf",
+  "revision": "71ad505826978287",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -59131,10 +59131,20 @@
   "semantic_diff": {
     "added": [],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "actions:phone_mandate.delete_previous",
+      "actions:phone_mandate.delete_previous_cancel",
+      "actions:phone_mandate.delete_previous_confirm",
+      "actions:phone_mandate.delete_previous_verify_again"
+    ],
     "compatible": [],
-    "deprecated": [],
-    "from_revision": null,
+    "deprecated": [
+      "actions:phone_mandate.delete_previous",
+      "actions:phone_mandate.delete_previous_cancel",
+      "actions:phone_mandate.delete_previous_confirm",
+      "actions:phone_mandate.delete_previous_verify_again"
+    ],
+    "from_revision": "a03037055c8114bf",
     "migrated": [],
     "removed": []
   },
@@ -61494,10 +61504,10 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "cfdacfe5e6c4c1390fe9330fd88faafcc80f8746177af4b9a0e39081c9c35a40",
+    "capability_graph_evolution": "24515dec0db35f205c33fb1f86f2ae25916bd1b205c65031a4c1100f16590c33",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "08154370de6436c31e02b98ef19e6cd5da53f1ad80140600fb53104f5543bcfa",
+    "kai_action_gateway": "166524aed625ab55cb05c708aa9001f94df065543f00a8f33f643cffc6a8dbac",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
@@ -61506,9 +61516,9 @@
     "route_orchestration_index": "6fa03e0e1eaf08e87e69a5a01920e6e8ece8de5e394c63689985dc33238736aa",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "a03037055c8114bf",
+  "source_revision": "71ad505826978287",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "a03037055c8114bf",
+    "current_graph_revision": "71ad505826978287",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -61750,6 +61760,7 @@
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
@@ -62008,6 +62019,7 @@
           "9e28477ae61ba4ef",
           "9e340c6f107b27c0",
           "9e76e7495565063d",
+          "a03037055c8114bf",
           "a2b80c4cd47f7fc6",
           "a3401ab3147c4d60",
           "a638cd4ec38b0442",
@@ -62082,6 +62094,7 @@
           "78cb31ddc8e95ba8",
           "80cfa3eecb259f1e",
           "829f3232fe71d8e6",
+          "a03037055c8114bf",
           "a9caa94f1b614e5d",
           "c67a1e4d82ad4f24",
           "dc6ce006c8528745",
@@ -62635,6 +62648,7 @@
           "9e340c6f107b27c0",
           "9e76e7495565063d",
           "9e8a734a41be8c78",
+          "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a1d95f8fe1087d06",
           "a26ec99e74ba2208",
@@ -63077,6 +63091,7 @@
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
@@ -63483,6 +63498,7 @@
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
@@ -63889,6 +63905,7 @@
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",
@@ -64293,6 +64310,7 @@
           "9e76e7495565063d",
           "9e8a734a41be8c78",
           "9f73e84abaa708e0",
+          "a03037055c8114bf",
           "a0cd8997edf6708d",
           "a165740521c96115",
           "a1d95f8fe1087d06",

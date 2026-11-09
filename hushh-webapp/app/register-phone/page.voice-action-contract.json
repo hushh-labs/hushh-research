@@ -437,7 +437,7 @@
     {
       "action_id": "phone_mandate.delete_previous",
       "label": "Delete my previous account",
-      "meaning": "Open an in-place review to delete the account currently linked to this verified number. Deletion needs the number's fresh code and an explicit acknowledgement; while in-place deletion is unavailable it opens previous-account sign-in instead.",
+      "meaning": "Open an in-place review to delete the account currently linked to this verified number when the number's fresh real-SMS proof was retained. Deletion needs an explicit acknowledgement; without a retained proof, or while in-place deletion is unavailable, it opens previous-account sign-in instead.",
       "aliases": [
         "delete my previous account"
       ],
@@ -486,7 +486,7 @@
     {
       "action_id": "phone_mandate.delete_previous_confirm",
       "label": "Delete and continue",
-      "meaning": "Explicit human confirmation deletes the account linked to this number with its fresh code, then verifies the number on this account. It cannot be undone.",
+      "meaning": "Explicit human confirmation requests permanent deletion of the account linked to this number using its retained fresh SMS proof. A requested deletion is not erasure and does not link the number here; the number is verified again after it is released. It cannot be undone.",
       "aliases": [
         "delete and continue"
       ],
@@ -535,7 +535,7 @@
     {
       "action_id": "phone_mandate.delete_previous_cancel",
       "label": "Cancel deletion review",
-      "meaning": "Return to recovery choices before confirmation; an unconfirmed deletion keeps the review open until its status settles.",
+      "meaning": "Cancels the deletion review before anything is sent and returns to recovery choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",
       "aliases": [
         "cancel deletion review"
       ],
@@ -584,7 +584,7 @@
     {
       "action_id": "phone_mandate.delete_previous_verify_again",
       "label": "Verify this number again",
-      "meaning": "Return to number entry after the code used for deletion expired; nothing is deleted.",
+      "meaning": "Return to number entry after a confirmation was sent but not confirmed, or after the proof used for this review was spent or expired, including after a deletion was requested; this action deletes nothing and links no number.",
       "aliases": [
         "verify this number again"
       ],
