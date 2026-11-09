@@ -343,7 +343,10 @@ def _clock_source_profile(owner, title, source_metadata):
         expected_clock_blob is not None
         and isinstance(source_metadata, dict)
         and source_metadata.get(clock_evidence.CLOCK_WORKFLOW)
-        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]},
+        in [
+            {"sha": sha, "size": size}
+            for sha, size in clock_evidence._clock_workflow_blobs_for_title(title)
+        ],
         "capacity clock title or workflow source is unapproved",
     )
     if expected_clock_blob == clock_evidence.CURRENT_CLOCK_WORKFLOW_BLOB:
@@ -489,7 +492,10 @@ def _clock_proof(owner, repository, worker_run, candidate):
             for path, (sha, size) in expected_sources.items()
         }
         and workflow_blob
-        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]}
+        in [
+            {"sha": sha, "size": size}
+            for sha, size in clock_evidence._clock_workflow_blobs_for_title(clock_title)
+        ]
         and clock_evidence._clock_proof_matches(record, worker_run, proof),
         "capacity clock proof is incomplete or unapproved",
     )

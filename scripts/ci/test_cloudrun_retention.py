@@ -2103,9 +2103,14 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             rearm = clock.split("\n  next-check:\n", 1)[1]
             self.assertIn("      name: capacity-maintenance-clock\n      deployment: false\n", rearm)
             self.assertIn("(( elapsed < CLOCK_MIN_ELAPSED_SECONDS ))", rearm)
+            self.assertIn("for read_attempt in range(3):", rearm)
+            self.assertIn('if read_attempt == 2:\n                      raise SystemExit("Clock successor inventory is incomplete; no rearm admitted")\n                  time.sleep(2)', rearm)
             for line in clock.splitlines():
                 if "sleep" in line:
-                    self.assertEqual(line.strip(), "sleep $((attempt * 10))")
+                    self.assertIn(line.strip(), (
+                        "sleep $((attempt * 10))",
+                        "time.sleep(2)",
+                    ))
 
         check_policy(source, clock_source)
         for broken, broken_clock in (
@@ -2120,6 +2125,9 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             (source, clock_source.replace("      name: capacity-maintenance-clock\n", "      name: uat\n")),
             (source, clock_source.replace("needs.check.outputs.uat_ready == 'true' || needs.check.outputs.production_ready == 'true'", "true")),
             (source, clock_source.replace("sleep $((attempt * 10))", "sleep 3600", 1)),
+            (source, clock_source.replace("time.sleep(2)", "time.sleep(3600)", 1)),
+            (source, clock_source.replace("for read_attempt in range(3):", "for read_attempt in range(1000):", 1)),
+            (source, clock_source.replace("for read_attempt in range(3):", "while True:", 1)),
         ):
             with self.assertRaises(AssertionError):
                 check_policy(broken, broken_clock)

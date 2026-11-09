@@ -31,9 +31,10 @@ HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB = (
 )
 CURRENT_CLOCK_TITLE = "Capacity clock"
 HISTORICAL_UNNUMBERED_CLOCK_WORKFLOW_BLOB = ("0e905f3da506f5573a0c4282b8e60232be13336d", 9305)
-CURRENT_CLOCK_WORKFLOW_BLOB = ("696d51ab0f1c9631810da2aa142f61ed03f779a2", 11377)
-# Existing immutable receipts remain pinned to the run-numbered title/blob
-# pair; new dynamic qualification uses the exact current title/blob pair above.
+HISTORICAL_INVENTORY_CLOCK_WORKFLOW_BLOB = ("696d51ab0f1c9631810da2aa142f61ed03f779a2", 11377)
+CURRENT_CLOCK_WORKFLOW_BLOB = ("42ee402db08b1732895a0a62039343d6b6f3ef4c", 11993)
+# Immutable receipts retain their title/blob pairs. Dynamic qualification accepts
+# only the current workflow and the explicitly pinned pre-retry inventory version.
 _HISTORICAL_NUMBERED_CLOCK_TITLE = re.compile(
     r"Capacity clock · (?:repository_dispatch|schedule) · run [1-9][0-9]*\Z"
 )
@@ -46,6 +47,15 @@ def _clock_workflow_blob_for_title(title):
     if isinstance(title, str) and _HISTORICAL_NUMBERED_CLOCK_TITLE.fullmatch(title):
         return HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB
     return None
+
+
+def _clock_workflow_blobs_for_title(title):
+    current = _clock_workflow_blob_for_title(title)
+    if current is None:
+        return ()
+    if title == CURRENT_CLOCK_TITLE:
+        return (current, HISTORICAL_INVENTORY_CLOCK_WORKFLOW_BLOB)
+    return (current,)
 
 
 def settled_production_failure(run, job):
@@ -121,7 +131,7 @@ def _clock_proof_matches(record, worker_run, clock_proof):
     expected_clock_blob = _clock_workflow_blob_for_title(clock_record.title)
     if expected_clock_blob is None:
         return False
-    allowed_blobs = [expected_clock_blob]
+    allowed_blobs = list(_clock_workflow_blobs_for_title(clock_record.title))
     if clock_record.title == CURRENT_CLOCK_TITLE:
         allowed_blobs.append(HISTORICAL_UNNUMBERED_CLOCK_WORKFLOW_BLOB)
     if not (
