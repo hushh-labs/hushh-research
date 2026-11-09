@@ -263,7 +263,15 @@ def snapshot():
     repository, branch, group = event_context()
     included = members(group["base_sha"], group["head_sha"], queue_entries(repository, branch), branch)
     policy_revision, policy = authority_policy(repository, branch, group["base_sha"])
-    authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import request_queue_authority
+        decision = request_queue_authority(dict(os.environ), os.environ.get("QUEUE_AUTHORIZATION_PHASE", "admission"))
+        require(all(decision.get(key) == value for key, value in {
+            "repository": repository, "branch": branch, "base": group["base_sha"], "head": group["head_sha"]}.items()),
+            "Main merge permission does not match this combined source")
+        included = decision["members"]
+    else:
+        authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
     # A replaced queue ref must not retain this run's authority.
     head_ref = str(group.get("head_ref", ""))
     require(head_ref.startswith(f"refs/heads/gh-readonly-queue/{branch}/"), "Unexpected queue ref")

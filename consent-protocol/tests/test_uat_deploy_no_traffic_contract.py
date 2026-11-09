@@ -1206,13 +1206,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         step for step in steps if step["name"] == "Validate one-time Vertex probe exception"
     )
     assert validation["if"] == "inputs.skip_managed_vertex_probe_once"
-    for required in (
-        "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
-        '"$REQUESTED_SCOPE" != "all"',
-        '"$LIVE_CHECKS" != "false"',
-        '"$GITHUB_ACTOR" != "ankitkumarsingh1702"',
-    ):
-        assert required in validation["run"]
+    assert "historical one-time Vertex exception has expired" in validation["run"]
     allowed_dispatch = {
         "REQUESTED_SHA": "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2",
         "REQUESTED_SCOPE": "all",
@@ -1231,7 +1225,7 @@ def test_one_time_uat_vertex_skip_is_bound_to_the_approved_release(tmp_path: Pat
         )
         return result.returncode
 
-    assert validate_dispatch() == 0
+    assert validate_dispatch() != 0
     assert validate_dispatch(REQUESTED_SHA="b" * 40) != 0
     assert validate_dispatch(REQUESTED_SCOPE="backend") != 0
     assert validate_dispatch(LIVE_CHECKS="true") != 0

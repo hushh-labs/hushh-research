@@ -1,5 +1,5 @@
 name: Deploy to Production
-run-name: ${{ inputs.operation == 'verify_current' && 'VERIFY CURRENT PRODUCTION — read only' || 'Deploy to Production' }}
+run-name: ${{ inputs.operation == 'verify_current' && 'VERIFY CURRENT PRODUCTION — read only' || format('Production · source main · app {0} · scope {1}', inputs.sha || 'unselected', inputs.scope || 'all') }}
 
 on:
   workflow_dispatch:
@@ -123,6 +123,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   # write: this workflow tags a healthy release as "last known good"
   # (scripts/ci/tag-last-known-good.sh) so a future revert check and a
   # future rollback both have a durable anchor. Scoped to pushing tags only
@@ -176,6 +177,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: write
     outputs:
       operation: ${{ steps.validate.outputs.operation }}
     steps:
@@ -218,6 +220,7 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: production
@@ -235,6 +238,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      actions: write
     steps:
       - name: Checkout the verified Main workflow source without credentials
         uses: actions/checkout@v6
@@ -300,6 +304,11 @@ jobs:
   deploy:
     needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope
+    permissions:
+      contents: write
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase != 'worker' && inputs.phone_phase != 'activate' && inputs.restoration_activation_run_id == ''
     environment: production
@@ -365,6 +374,8 @@ jobs:
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -409,6 +420,8 @@ jobs:
         if: inputs.restoration_validation_run != ''
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RECOVERY_RUN: ${{ inputs.restoration_validation_run }}
           REQUESTED_SHA: ${{ inputs.sha || needs.deployment-security.outputs.application_sha }}
@@ -3293,7 +3306,7 @@ jobs:
     permissions:
       contents: read
       checks: read
-      actions: read
+      actions: write
       id-token: write
     steps:
       - name: Require current-attempt deployment security
@@ -3335,6 +3348,8 @@ jobs:
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -3626,6 +3641,11 @@ jobs:
     needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope · Phone activation
     if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.phone_phase == 'activate' && inputs.restoration_activation_run_id == ''
+    permissions:
+      contents: write
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 45
@@ -3681,6 +3701,9 @@ jobs:
             --check-mutations --state-dir "$RUNNER_TEMP/production-maintenance-guard"
 
       - name: Assert production dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
 
       - name: Validate deployment SHA against main
@@ -4266,6 +4289,11 @@ jobs:
     needs: [validate-dispatch, deployment-security]
     name: Deploy Production Scope · Restoration activation
     if: needs.validate-dispatch.outputs.operation == 'deploy' && github.event_name == 'workflow_dispatch' && inputs.restoration_activation_run_id != ''
+    permissions:
+      contents: write
+      checks: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     environment: production
     env:
@@ -4309,6 +4337,9 @@ jobs:
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_TRIGGERING_ACTOR"

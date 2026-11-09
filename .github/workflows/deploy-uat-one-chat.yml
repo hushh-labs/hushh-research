@@ -137,6 +137,8 @@ jobs:
       - name: Validate exact main SHA and actor
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_SHA: ${{ inputs.sha }}
           REQUIRED_BRANCH: main

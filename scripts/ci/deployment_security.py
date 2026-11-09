@@ -22,10 +22,10 @@ IMPLEMENTATIONS = {
     for name in ("dev", "uat")
 }
 CALLERS = {
-    "deploy-uat-one-chat.yml", "resume-ios-testflight.yml", "ios-voice-device.yml",
     "deploy-dev.yml",
     "deploy-uat.yml",
     "deploy-production.yml",
+    "deploy-personal-backend.yml",
     "validate-plg-frontend-source.yml",
     "release-ios-appstore.yml",
     "ship-ios-testflight.yml",
@@ -82,8 +82,8 @@ def verify_run(read, env: dict, *, broker: bool = False) -> dict:
     }
 
 
-def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> dict:
-    """A Main broker observes one active, governed matching-branch deployment.
+def verify_deployment_source(read, request: dict) -> dict:
+    """Observe one active, immutable matching-branch source; grant no permission.
 
     Requested values are not authority: GitHub must independently establish the
     caller, current attempt, protected source and Main reusable implementation.
@@ -98,7 +98,10 @@ def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> d
         "requested_scope",
         "tooling_sha",
     }
-    if not isinstance(request, dict) or set(request) != fields:
+    if not isinstance(request, dict) or set(request) not in (
+        fields,
+        fields | {"application_branch"},
+    ):
         raise Refused("Deployment security request fields are incomplete or unknown")
     environment = request["environment"]
     if (
@@ -113,6 +116,12 @@ def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> d
         }
     ):
         raise Refused("Broker only accepts explicit Dev/UAT deployment scopes")
+    application_branch = request.get("application_branch", environment)
+    if application_branch != environment and (environment, application_branch) != (
+        "uat",
+        "uat-isolated",
+    ):
+        raise Refused("Deployment application branch is not governed")
     for field in ("caller_sha", "application_sha", "tooling_sha"):
         if not isinstance(request[field], str) or not SHA.fullmatch(request[field]):
             raise Refused("Deployment security requires immutable source revisions")
@@ -142,9 +151,6 @@ def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> d
         "status": "in_progress",
         "workflow_id": workflow_id,
     }
-    allowed = set(
-        policy[environment]["manual_dispatch_users"] if operators is None else operators
-    )
     if (
         workflow.get("path") != path
         or any(run.get(k) != v for k, v in expected.items())
@@ -154,12 +160,8 @@ def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> d
             or run.get(key, {}).get("full_name") != REPOSITORY
             for key in ("repository", "head_repository")
         )
-        or any(
-            run.get(key, {}).get("login") not in allowed
-            for key in ("actor", "triggering_actor")
-        )
     ):
-        raise Refused("Source deployment identity, attempt or operator is not admitted")
+        raise Refused("Source deployment identity or attempt is not admitted")
     implementation = f"{REPOSITORY}/{IMPLEMENTATIONS[environment]}"
     references = run.get("referenced_workflows")
     if (
@@ -186,9 +188,17 @@ def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> d
         }
     ):
         raise Refused("Source does not use the recorded Main deployment implementation")
+    if application_branch == "uat-isolated":
+        selected = read(f"{prefix}/branches/uat-isolated")
+        if (
+            not isinstance(selected, dict)
+            or selected.get("protected") is not True
+            or selected.get("commit", {}).get("sha") != request["application_sha"]
+        ):
+            raise Refused("Deployment requires the protected isolated UAT tip")
     for revision, branch in (
         (request["tooling_sha"], "main"),
-        (request["application_sha"], environment),
+        (request["application_sha"], application_branch),
     ):
         comparison = read(f"{prefix}/compare/{revision}...{branch}?per_page=1&page=2")
         if (
@@ -207,6 +217,25 @@ def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> d
     }
 
 
+def verify_deployment(read, request: dict, policy: dict, *, operators=None) -> dict:
+    """Retained roster-based contract for historical receipt consumers."""
+    source = verify_deployment_source(read, request)
+    allowed = set(
+        policy[source["environment"]]["manual_dispatch_users"]
+        if operators is None else operators
+    )
+    run = read(f"repos/{REPOSITORY}/actions/runs/{source['run_id']}")
+    if (
+        run.get("id") != source["run_id"]
+        or run.get("run_attempt") != source["attempt"]
+        or run.get("head_sha") != source["caller_sha"]
+        or any(run.get(key, {}).get("login") not in allowed
+               for key in ("actor", "triggering_actor"))
+    ):
+        raise Refused("Source deployment identity, attempt or operator is not admitted")
+    return source
+
+
 def release_authorization_binding(read, source: dict, *, producer=None) -> dict:
     """Expected operation identity, not permission to execute it.
 
@@ -218,6 +247,7 @@ def release_authorization_binding(read, source: dict, *, producer=None) -> dict:
     surface, environment = {
         "deploy-dev.yml": ("dev", "dev"),
         "deploy-uat.yml": ("uat", "uat"),
+        "deploy-personal-backend.yml": ("uat", "uat"),
         "deploy-production.yml": ("production", "production"),
         "ship-ios-testflight.yml": ("uat", "native"),
         "release-ios-appstore.yml": ("production", "native"),
@@ -275,6 +305,78 @@ def authorize_release(read, source: dict, teams: dict, *, producer=None) -> dict
     ):
         raise Refused("Release operator or rerunner is not a current deployment-team member")
     return decision
+
+
+def forwarded_authorization(receipt: dict, env: dict) -> dict:
+    """Carry verified Main authority through trusted workflow job outputs only."""
+    authorization = receipt.get("authorization")
+    if receipt.get("verdict") != "clear" or not isinstance(authorization, dict):
+        raise Refused("Current release jobs require modern Main authorization")
+    repository_id = positive(int(env["GITHUB_REPOSITORY_ID"]), "repository identity")
+    if receipt["source"].get("repository_id", repository_id) != repository_id:
+        raise Refused("Release authorization repository identity changed")
+    return {
+        "schema_version": 1,
+        "repository_id": repository_id,
+        "authorization": authorization,
+    }
+
+
+def verify_forwarded_authorization(env: dict, raw: str, surface: str, actor: str) -> None:
+    """Validate a trusted Main DAG binding, not a portable bearer credential.
+
+    Main assigns this value directly from the protected producer or verified
+    requester output. Workflow inputs and candidate files are never issuers.
+    Keep this assertion before candidate code and cloud credentials.
+    """
+    if (
+        env.get("GITHUB_ACTIONS") != "true"
+        or env.get("GITHUB_REPOSITORY") != REPOSITORY
+        or not raw or len(raw) > 64 * 1024
+    ):
+        raise Refused("Release authorization requires a trusted Main job output")
+    document = json.loads(raw)
+    decision = document["authorization"]
+    source = decision["source"]
+    team = f"deploy-{surface}"
+    original, rerunner = decision["actor"], decision["triggering_actor"]
+    if (
+        document.get("schema_version") != 1
+        or positive(document.get("repository_id"), "repository identity")
+        != positive(int(env["GITHUB_REPOSITORY_ID"]), "repository identity")
+        or decision.get("schema_version") != 1
+        or decision.get("team") != team
+        or decision.get("team_id") != TEAM_IDS[team]
+        or source.get("repository") != REPOSITORY
+        or source.get("run_id") != int(env["GITHUB_RUN_ID"])
+        or source.get("attempt") != int(env["GITHUB_RUN_ATTEMPT"])
+        or source.get("caller_sha", source.get("workflow_sha")) != env["GITHUB_SHA"]
+        or env.get("GITHUB_WORKFLOW_REF")
+        != f"{REPOSITORY}/{source['workflow_path']}@{env['GITHUB_REF']}"
+        or source.get("application_sha") != env.get("RELEASE_APPLICATION_SHA")
+        or not SHA.fullmatch(str(source.get("application_sha", "")))
+        or original.get("login") != env.get("GITHUB_ACTOR")
+        or positive(original.get("id"), "original operator") != int(env["GITHUB_ACTOR_ID"])
+        or rerunner.get("login") != env.get("GITHUB_TRIGGERING_ACTOR")
+        or actor not in {original.get("login"), rerunner.get("login")}
+    ):
+        raise Refused("Release authorization does not match this job, role or attempt")
+    positive(rerunner.get("id"), "rerun operator")
+    if "tooling_sha" in source and source["tooling_sha"] != env.get("RELEASE_TOOLING_SHA"):
+        raise Refused("Release authorization does not match the Main implementation")
+    producer = decision["producer"]
+    if "tooling_sha" in source:
+        if (
+            producer.get("repository") != REPOSITORY
+            or producer.get("workflow_path") != BROKER_PATH
+            or not SHA.fullmatch(str(producer.get("workflow_sha", "")))
+            or env["GITHUB_REF"] != f"refs/heads/{source['caller_branch']}"
+        ):
+            raise Refused("Release authorization has an invalid Main producer")
+        positive(producer.get("run_id"), "Main producer run")
+        positive(producer.get("attempt"), "Main producer attempt")
+    elif producer != source or env["GITHUB_REF"] != "refs/heads/main":
+        raise Refused("Release authorization has an invalid inline Main producer")
 
 
 def produce(env: dict, source_read, alert_read) -> dict:
@@ -350,19 +452,9 @@ def produce_broker(
     if not raw or len(raw) > 4096:
         raise Refused("Broker needs one bounded deployment request")
     request = json.loads(raw)
-    if policy is None:
-        policy = json.loads(
-            (
-                Path(__file__).resolve().parents[2] / "config/ci-governance.json"
-            ).read_text()
-        )
     members = team_reader(env.get("CI_TEAM_MEMBERS_TOKEN", ""))
     teams = read_teams(members)
-    environment = request.get("environment") if isinstance(request, dict) else None
-    source = verify_deployment(
-        source_read, request, policy,
-        operators=teams.get(f"deploy-{environment}", []),
-    )
+    source = verify_deployment_source(source_read, request)
     authorization = authorize_release(source_read, source, teams, producer=producer)
     secrets = inventory(
         alert_read, REPOSITORY, "secret-scanning", source["repository_id"]
@@ -372,10 +464,7 @@ def produce_broker(
     )
     current_teams = read_teams(members)
     if (
-        verify_deployment(
-            source_read, request, policy,
-            operators=current_teams[f"deploy-{source['environment']}"],
-        ) != source
+        verify_deployment_source(source_read, request) != source
         or verify_run(source_read, env, broker=True) != producer
         or authorize_release(source_read, source, current_teams, producer=producer)
         != authorization
@@ -393,11 +482,11 @@ def produce_broker(
     }
 
 
-def consume_broker(api, request: dict, broker_run_id: int, policy: dict) -> dict:
+def consume_broker(api, request: dict, broker_run_id: int, policy: dict | None = None) -> dict:
     """Verify an exact broker result; its green aggregate alone is insufficient."""
     from github_security_receipt import archive_read, require, timestamp, unpack
 
-    source = verify_deployment(api.read, request, policy)
+    source = verify_deployment_source(api.read, request)
     prefix = f"repos/{REPOSITORY}/actions"
     identifier = positive(broker_run_id, "broker run")
     run = api.read(f"{prefix}/runs/{identifier}")
@@ -535,6 +624,15 @@ def consume_broker(api, request: dict, broker_run_id: int, policy: dict) -> dict
             ),
             "Deployment security authorization binding mismatch",
         )
+    else:
+        require(
+            isinstance(policy, dict),
+            "Current release requests cannot use historical roster-only clearance",
+        )
+        require(
+            verify_deployment(api.read, request, policy) == source,
+            "Historical release operator is not admitted by its original contract",
+        )
     # GitHub can omit all step rows even for a completed successful job.
     # Its exact Main-owned artifact already binds complete inventory and the
     # modern typed authorization to this attempt. Historical receipts retain
@@ -569,7 +667,8 @@ def consume_broker(api, request: dict, broker_run_id: int, policy: dict) -> dict
         "Deployment security broker changed during verification",
     )
     require(
-        verify_deployment(api.read, request, policy) == source,
+        (verify_deployment(api.read, request, policy) if authorization is None
+         else verify_deployment_source(api.read, request)) == source,
         "Deployment request changed during receipt verification",
     )
     return receipt
@@ -619,10 +718,10 @@ def request_broker(
         "environment": environment,
         "requested_scope": env["DEPLOY_SECURITY_SCOPE"],
     }
-    policy = json.loads(
-        (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
-    )
-    verify_deployment(api, request, policy)
+    application_branch = env.get("DEPLOY_SECURITY_APPLICATION_BRANCH")
+    if application_branch and application_branch != environment:
+        request["application_branch"] = application_branch
+    verify_deployment_source(api, request)
     intent = Path(env["RUNNER_TEMP"]) / "deployment-security-request.json"
     # The x-mode refuses a repeated invocation within the same job, including
     # uncertain dispatch. A new workflow attempt gets its own request.
@@ -661,14 +760,14 @@ def request_broker(
             from types import SimpleNamespace
 
             return consume_broker(
-                SimpleNamespace(read=api), request, identifier, policy
+                SimpleNamespace(read=api), request, identifier
             )
         require(
             run.get("status")
             in {"queued", "pending", "waiting", "requested", "in_progress"},
             "Security broker state is unavailable",
         )
-        verify_deployment(api, request, policy)
+        verify_deployment_source(api, request)
         sleep(10)
     raise Refused(f"Deployment security is still pending: {url}; no mutation admitted")
 
@@ -681,6 +780,16 @@ def main() -> int:
     args = parser.parse_args()
     try:
         env = dict(os.environ)
+        request = json.loads(env.get("DEPLOY_SECURITY_REQUEST") or "{}")
+        if request.get("kind") in {"queue", "operation"}:
+            from github_team_authority import produce_queue_request, produce_operation_request
+            api = GitHub(REPOSITORY, env.get("GH_TOKEN", ""))
+            authority_producer = produce_queue_request if request["kind"] == "queue" else produce_operation_request
+            receipt = authority_producer(env, api.read, request)
+            with Path(env["RUNNER_TEMP"], "merge-authorization.json").open("x") as output:
+                json.dump(receipt, output)
+            print("Current merge permission verified; no secret scan, application or cloud mutation performed.")
+            return 0
         if args.request_broker:
             receipt = request_broker(env)
         else:
@@ -700,6 +809,9 @@ def main() -> int:
         with Path(env["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
             output.write(f"sha={receipt['source']['application_sha']}\n")
             output.write(f"attempt={receipt['source']['attempt']}\n")
+            output.write("authorization=" + json.dumps(
+                forwarded_authorization(receipt, env), separators=(",", ":")
+            ) + "\n")
         return 0
     except (Refused, KeyError, TypeError, ValueError, OSError) as error:
         reason = (

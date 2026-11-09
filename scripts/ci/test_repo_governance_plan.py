@@ -52,6 +52,7 @@ def test_focused_selection_runs_only_known_affected_regression_groups() -> None:
 
 def test_explicit_ci_control_scripts_are_controller_owned() -> None:
     for path in (
+        "scripts/ci/assert-governed-actor.py",
         "scripts/ci/promotion_approval.py",
         "scripts/ci/github_team_authority.py",
         "scripts/ci/main-post-merge-smoke.sh",
@@ -385,7 +386,7 @@ validation_finish
     def failed():
         seen.append("first-failed")
         raise KeyError("intentional offline regression")
-    environment.test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads = failed
+    environment.test_exact_branch_inventory_refuses_wildcards_and_incomplete_reads = failed
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         assert environment.main() == 1
     assert "first-failed" in seen

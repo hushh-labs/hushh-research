@@ -40,6 +40,9 @@ env:
 jobs:
   smoke-gate:
     name: ${{ inputs.production_restoration && 'Production Recovery Validation Gate' || 'Main Post-Merge Smoke Gate' }}
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:

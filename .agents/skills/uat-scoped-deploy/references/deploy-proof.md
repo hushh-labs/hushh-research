@@ -23,7 +23,7 @@ Main-owned workflow; it does not redefine merge or bypass semantics. New
 application source must be an exact SHA in protected `uat` history. A
 Main-only SHA is not a normal UAT source.
 
-For a direct UAT candidate, inspect prerequisites from `uat` first. In Actions,
+For a direct UAT candidate, inspect prerequisites from `main` first. In Actions,
 select **Deploy to UAT → Run workflow → uat → operation=inspect**, leaving
 release inputs at defaults. This uses the governed UAT identity for read-only
 serving observations, without a deployment record or runtime mutation. The
@@ -39,9 +39,9 @@ checks still apply. Never silently substitute the new tip. New deployments rejec
 security/capacity jobs; security clearance and under-lock admission remain required:
 
 ```bash
-gh workflow run deploy-uat.yml --ref uat -f operation=inspect
+gh workflow run deploy-uat.yml --ref main -f operation=inspect
 gh workflow run ci.yml --ref uat -f scope=all -f uat_base_sha=<serving-uat-sha>
-gh workflow run deploy-uat.yml --ref uat -f scope=auto \
+gh workflow run deploy-uat.yml --ref main -f scope=auto \
   -f sha=<validated-uat-sha> -f ci_run_id=<run-id> \
   -f ci_run_attempt=<attempt> -f ci_base_sha=<serving-uat-sha>
 ```

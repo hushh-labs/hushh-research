@@ -55,6 +55,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
   checks: read
@@ -80,12 +81,19 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.upload_run_id != '' && github.sha || inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     if: inputs.upload_run_id == ''
     needs: deployment-security
     name: Resolve green UAT release source
@@ -132,6 +140,8 @@ jobs:
       - name: Authorize dispatching actor
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
 
@@ -311,6 +321,11 @@ jobs:
         run: rm -f "$RUNNER_TEMP/asc.p8"
 
   hardware-capture:
+    permissions:
+      contents: read
+      checks: read
+      actions: write
+      id-token: write
     name: Prove physical iPhone capture gate
     needs: [preflight, deployment-security]
     if: ${{ needs.preflight.result == 'success' && inputs.require_hardware == true }}
@@ -318,9 +333,17 @@ jobs:
     with:
       release_sha: ${{ needs.preflight.outputs.release_sha }}
       security_attempt: ${{ needs.deployment-security.outputs.attempt }}
+      security_authorization: ${{ needs.deployment-security.outputs.authorization }}
+      security_application_sha: ${{ needs.deployment-security.outputs.application_sha }}
     secrets: inherit
 
   ship:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Build and distribute normal UAT TestFlight build
     needs:
       - deployment-security
@@ -360,6 +383,8 @@ jobs:
           persist-credentials: false
       - name: Authorize build actor including individual job reruns
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - name: Preserve trusted serving revision verifier
@@ -783,6 +808,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   distribute:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Process and distribute uploaded TestFlight build
     needs: [preflight, ship, deployment-security]
     # Override implicit success(): the optional hardware ancestor may be skipped.
@@ -811,6 +842,9 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Authorize distribution actor including individual job reruns
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
       - uses: actions/setup-python@v6
         with:
@@ -884,6 +918,12 @@ jobs:
         run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"
 
   resume:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     if: inputs.upload_run_id != ''
     needs: deployment-security
     runs-on: ubuntu-latest
@@ -914,6 +954,8 @@ jobs:
       - name: Validate dispatch and original upload provenance
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           REQUESTED_SHA: ${{ inputs.sha }}
           SOURCE_BRANCH: ${{ inputs.source_branch || 'main' }}
           REQUESTED_VERSION: ${{ inputs.marketing_version }}

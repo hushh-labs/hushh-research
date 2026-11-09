@@ -78,6 +78,7 @@ on:
           - production
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
   checks: read
@@ -113,12 +114,19 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   preflight:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     needs: deployment-security
     name: Authorize release and admit an editable Apple version
     runs-on: ubuntu-latest
@@ -143,11 +151,13 @@ jobs:
           fi
       - uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Authorize exact main dispatch before allocating macOS
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GITHUB_TOKEN: ${{ github.token }}
           REQUIRED_BRANCH: main
           REQUIRE_CI_SUCCESS: '1'
@@ -160,6 +170,12 @@ jobs:
           bash scripts/ci/require-deploy-sha-on-main.sh "$RELEASE_SHA"
 
   release:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Build, upload & prepare iOS App Store release
     needs: [preflight, deployment-security]
     if: needs.preflight.outputs.ready == 'true'
@@ -201,11 +217,13 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert production dispatch actor policy
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -841,6 +859,12 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/app-signing.keychain-db" || true
 
   prepare:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Process and prepare uploaded App Store build
     needs: [release, deployment-security]
     if: ${{ needs.release.result == 'success' && inputs.dry_run != true }}
@@ -867,9 +891,12 @@ jobs:
         with:
           # Only tooling comes from main. Build identity is the pinned macOS
           # outputs, never this checkout's source or marketing version.
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Authorize submission actor including individual job reruns
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface production --actor "$GITHUB_ACTOR"
       - uses: actions/setup-python@v6
         with:

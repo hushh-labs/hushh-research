@@ -59,7 +59,10 @@ def _qualified_phone():
 
 
 def phone_documents(fixture):
-    fixture.run.update(conclusion="success", actor={"login": "kushaltrivedi5"})
+    fixture.run.update(
+        conclusion="success",
+        actor={"login": "kushaltrivedi5", "id": 2, "type": "User"},
+    )
     job = fixture.jobs["jobs"][0]
     job["conclusion"] = "success"
     job["steps"] = [
@@ -185,7 +188,8 @@ class LeaseFixture:
         run = copy.deepcopy(fixture.run)
         run.update(
             conclusion="success",
-            actor={"login": "kushaltrivedi5"},
+            actor={"login": "kushaltrivedi5", "id": 2, "type": "User"},
+            triggering_actor={"login": "kushaltrivedi5", "id": 2, "type": "User"},
             created_at="2026-10-21T03:00:00Z",
         )
         legacy = {

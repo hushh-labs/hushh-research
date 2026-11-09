@@ -29,6 +29,19 @@ def _emergency_fixture(monkeypatch):
         "emergency_source_ref": "hotfix/incident-123",
         "emergency_reason": "Incident 123: restore the serving account route",
     }
+
+    def admit(env, surface, actor, *, protected=False):
+        if (
+            surface != "production"
+            or not protected
+            or any(
+                env.get(key) != "operator" for key in ("GITHUB_ACTOR", "GITHUB_TRIGGERING_ACTOR")
+            )
+        ):
+            raise ValueError("Fixture operator is outside the live authorized team")
+        return {}
+
+    monkeypatch.setattr("github_team_authority.request_operation_authority", admit)
     policy = {"production": {"manual_dispatch_users": ["operator"]}}
     return module, environment, inputs, policy
 

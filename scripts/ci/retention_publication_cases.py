@@ -14,6 +14,56 @@ MAINTENANCE = importlib.import_module("uat-retention-maintenance")
 
 
 class ExistingPublicationCases:
+    def test_missing_step_metadata_needs_independent_completed_upload(self):
+        from pathlib import Path
+        stamp = "2026-11-08T03:24:36Z"
+        sha, digest = "a" * 40, "b" * 64
+        run = {"id": 42, "run_attempt": 1, "path": publication.WORKFLOW, "head_branch": "main", "head_sha": sha, "status": "completed", "conclusion": "success",
+               "event": "repository_dispatch", "display_title": "Capacity Maintenance tick (uat)",
+               "actor": {"login": "github-actions[bot]", "type": "Bot", "id": 41898282},
+               "repository": {"full_name": publication.REPOSITORY}, "head_repository": {"full_name": publication.REPOSITORY}}
+        job = {"name": "UAT revision maintenance", "run_id": 42, "run_attempt": 1, "head_sha": sha, "status": "completed", "conclusion": "success",
+               "completed_at": "2026-11-08T03:25:00Z", "steps": [
+                   {"name": name, "conclusion": "success"} for name in (
+                       "Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock", "Authenticate to uat")
+               ] + [{"name": "Save uat cleanup checkpoint", "conclusion": None}]}
+        artifact = {"id": 7, "name": "uat-retention-state", "expired": False, "digest": "sha256:"+digest,
+                    "created_at": "2026-11-08T03:24:30Z", "workflow_run": {"id": 42}}
+        bodies = ["[command]/usr/bin/git log -1 --format=%H", sha,
+                  "SHA256 digest of uploaded artifact zip is " + digest,
+                  "Artifact uat-retention-state.zip successfully finalized. Artifact ID 7", "Cleaning up orphan processes"]
+        log = "\n".join(stamp + " " + body for body in bodies)
+        receipt = {"schema_version": 1, "environment": "uat", "project": "hushh-pda-uat",
+                   "observed_run_id": 31, "release_run_id": 30, "pass_status": "complete", "pending_services": []}
+        owner = mock.Mock(LANES=MAINTENANCE.LANES, SCOPED_TICK_TITLES=MAINTENANCE.SCOPED_TICK_TITLES,
+                          retention=MAINTENANCE.retention)
+        owner._github_timestamp.side_effect = MAINTENANCE._github_timestamp
+        current = copy.deepcopy(run)
+        owner.command.side_effect = lambda *args: json.dumps(current if "/actions/runs/" in args[-1] else {"status": "identical", "merge_base_commit": {"sha": sha}})
+        owner.api.return_value = {"total_count": 1, "artifacts": [artifact]}
+        owner.download_pending_uat_state.side_effect = lambda repo, item, directory, **kw: Path(directory, "completed.json").write_text(json.dumps(receipt))
+        with mock.patch.object(publication, "_log", return_value=log):
+            self.assertIsNotNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, run, 1, job, "uat"))
+            for conclusion in ("failure", "cancelled", "skipped"):
+                with self.subTest(explicit_save=conclusion):
+                    job["steps"][-1]["conclusion"] = conclusion
+                    self.assertIsNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, run, 1, job, "uat"))
+            job["steps"][-1]["conclusion"] = None
+            current.update(run_attempt=2, conclusion="failure")
+            self.assertIsNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, run, 1, job, "uat"))
+            current.update(run_attempt=1, conclusion="success")
+            for field, value in (("path", ".github/workflows/ci.yml"), ("head_branch", "uat")):
+                wrong = dict(run, **{field: value})
+                self.assertIsNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, wrong, 1, job, "uat"))
+            job["steps"][0]["conclusion"] = "failure"
+            self.assertIsNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, run, 1, job, "uat"))
+            job["steps"][0]["conclusion"] = "success"
+            artifact["digest"] = "sha256:" + "c" * 64
+            self.assertIsNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, run, 1, job, "uat"))
+            artifact["digest"] = "sha256:" + digest
+            receipt.update(pass_status="unresolved", checkpoint_version=2, pending_services=["consent-protocol"])
+            self.assertIsNone(publication.uploaded_checkpoint_proof(owner, publication.REPOSITORY, run, 1, job, "uat"))
+
     def test_exact_thousand_run_search_cap_is_not_complete_history(self):
         rows = [{"id": number} for number in range(1, 1001)]
 
@@ -167,7 +217,8 @@ def legacy_fixture():
         "event": "workflow_dispatch",
         "repository": {"full_name": publication.REPOSITORY},
         "head_repository": {"full_name": publication.REPOSITORY},
-        "actor": {"login": "ankitkumarsingh1702"},
+        "actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
+        "triggering_actor": {"login": "ankitkumarsingh1702", "id": 1, "type": "User"},
         "status": "completed",
         "conclusion": "failure",
         "updated_at": "2026-10-27T00:00:20Z",

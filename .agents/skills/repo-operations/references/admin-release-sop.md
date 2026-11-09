@@ -93,8 +93,8 @@ CI/core authorization and required CI remain mandatory; merging never deploys.
 
 ### 3C. Main merger policy and the named-owner Admin route
 
-Main merging is restricted to `main.merge_users`, independently of deployment
-permission. CI/release/fundamental `.agents` changes need the configured pipeline editors' approval.
+Main merging and production deployment require current `deploy-production` membership;
+they remain separately requested operations. CI/release/fundamental `.agents` changes need the configured pipeline editors' approval.
 An explicit user instruction approving this bounded change is authorization to
 execute its reviewed implementation; generic admin credentials alone are not.
 
@@ -111,7 +111,7 @@ The named-owner route preserves these independent protections:
 - Baseline `CI Status Gate` from GitHub Actions, admin enforcement, conversation
   resolution and the approved Main merger restriction remain active.
 - Each destination's `<branch> owner validated merge` guard requires a PR and
-  strict current-base CI for the two owners. Other authorized mergers bypass
+  strict current-base CI for current pipeline-editor self-approval. Other authorized mergers bypass
   this additional freshness layer only; they cannot bypass the ordinary queue
   or baseline CI. Main's trusted queue restricts the actual requester to the
   approved merger cohort. Its native queue writer must not inherit a human-only
@@ -132,7 +132,7 @@ From reviewed tooling synchronized with Main, use:
 
 The first command is read-only apart from fetching Git objects and writing its
 local receipt. The second is explicit approval to merge that captured head. It
-requires the authenticated named owner to be the PR author, live policy parity,
+requires the authenticated pipeline-editor member to be the PR author, live policy parity,
 resolved conversations, no outstanding/withdrawn review objection, the current
 successful CI attempt and immutable evidence for the exact current merge tree.
 It rechecks before mutation and verifies the landed parents and tree. An uncertain
@@ -211,7 +211,7 @@ For a read-only current-release check, follow the
 [Production verification procedure](../../../../docs/reference/operations/ci.md#verify-current-production).
 
 Production requires an explicit production request and an actor in
-`production.manual_dispatch_users`. UAT success does not authorize production.
+the live `deploy-production` team. UAT success does not authorize production.
 
 Approved manual incidents follow the [incident contract](../../../../docs/reference/operations/branch-governance.md#manual-emergency-production).
 Only Dev/UAT deployment acceptance is waived; all other release gates remain.
@@ -284,8 +284,8 @@ provenance does not match, or a rollback target cannot be proved. Ordinary Main
 promotion requires reachability from `main` and successful post-merge smoke;
 curated/incident source exceptions follow section 5. Dev follows
 [Dev Fast Lane](../../../../docs/reference/operations/dev-fast-lane.md): its exact
-CI-green SHA must be reachable from the requested branch. Matching-branch callers
-use the reviewed Main-owned implementation after live routing qualification; the
-thin callers already on Main are not a pre-activation fallback: normal releases
-wait for destination synchronization and successful `inspect-routing`. Retained
-Main receipts are historical recovery evidence. Follow the CI runbook for activation. Dev does not require an application merge to `main`.
+CI-green SHA must remain in protected Dev history. Dispatch all explicit release
+entrypoints from Main; Dev/UAT select application content from their respective
+protected histories. Historical matching-branch receipts remain evidence, but
+new branch-origin dispatches are refused. Read-only `inspect-routing` verifies
+Main-origin cloud identity without deploying. Dev does not require an application merge to `main`.
