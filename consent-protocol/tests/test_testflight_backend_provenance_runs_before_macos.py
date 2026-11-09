@@ -64,6 +64,46 @@ def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check(
     assert CHECK not in _names(ship)
 
 
+@pytest.mark.parametrize(
+    ("changed_path", "expected_status"),
+    [
+        ("hushh-webapp/scripts/testing/phone-conflict-flow.mjs", 0),
+        ("hushh-webapp/scripts/testing/reviewer-test-identity.mjs", 1),
+        ("hushh-webapp/scripts/native/prepare-ios-uat-archive.mjs", 1),
+    ],
+)
+def test_uat_release_parity_keeps_branch_local_phone_browser_coverage(
+    tmp_path: Path, changed_path: str, expected_status: int
+) -> None:
+    step = next(
+        step
+        for step in _jobs()["preflight"]["steps"]
+        if step["name"] == "Resolve exact green release SHA"
+    )
+    diff = "git diff --exit-code --quiet"
+    command = diff + step["run"].split(diff, 1)[1].split("||", 1)[0]
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=tmp_path, text=True).strip()  # noqa: S603
+
+    git("init", "--quiet")
+    git("config", "user.name", "Synthetic release fixture")
+    git("config", "user.email", "synthetic@example.invalid")
+    git("commit", "--quiet", "--allow-empty", "-m", "Main")
+    main = git("rev-parse", "HEAD")
+    changed = tmp_path / changed_path
+    changed.parent.mkdir(parents=True)
+    changed.write_text("// UAT source\n", encoding="utf-8")
+    git("add", "--", changed_path)
+    git("commit", "--quiet", "-m", "UAT")
+    result = subprocess.run(  # noqa: S603 - checked-in parity command against synthetic commits
+        ["bash", "-c", command],
+        cwd=tmp_path,
+        env={**os.environ, "GITHUB_SHA": main, "SHA": git("rev-parse", "HEAD")},
+    )
+    assert result.returncode == expected_status
+
+
 @pytest.mark.parametrize("source_branch", ("uat", "uat-isolated"))
 def test_isolated_native_gate_restores_candidate_after_qualified_verifier(
     tmp_path, source_branch

@@ -172,6 +172,7 @@ jobs:
               | jq -e --arg sha "$SHA" '.protected == true and .commit.sha == $sha' >/dev/null
             # Run the candidate release controls with signing credentials only
             # when they agree with the Main dispatch revision.
+            # The phone-conflict runner is only used by branch-local browser CI.
             git diff --exit-code --quiet "$GITHUB_SHA" "$SHA" -- \
               consent-protocol/.github/actions/setup-python-uv \
               .npmrc hushh-webapp/.npmrc hushh-webapp/package.json hushh-webapp/package-lock.json \
@@ -184,6 +185,7 @@ jobs:
               ':(glob)hushh-webapp/ios/**/*.sh' \
               ':(glob)scripts/ci/*ios*' ':(glob)scripts/ci/*testflight*' \
               ':(glob)scripts/ci/*appstore*' \
+              ':(exclude)hushh-webapp/scripts/testing/phone-conflict-flow.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.mjs' \
               ':(exclude)hushh-webapp/scripts/testing/affected-tests.test.mjs' || {
                 echo "UAT native release tooling differs from the Main dispatch revision." >&2
