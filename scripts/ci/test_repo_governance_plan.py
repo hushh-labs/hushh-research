@@ -163,8 +163,12 @@ def test_restoration_fixture_paths_select_controller_owner_and_history_consumers
         "consent-protocol/tests/test_production_restoration_operation.py",
         "consent-protocol/tests/test_phone_schema_origin.py",
         "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-        "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
     )
+    drive_suite = "consent-protocol/tests/test_prod_drive_deploy_contract.py"
+    assert drive_suite in selected["release-controller-contracts"].argv
+    drive_only = build_selection({"CI_VALIDATION_LEVEL": "focused", "CI_CHANGED_FILES": drive_suite})
+    assert drive_only.groups == ("controller",)
+    assert "release-controller-contracts" in drive_only.check_ids
     assert "cloudrun-retention" not in selection.check_ids
 
 

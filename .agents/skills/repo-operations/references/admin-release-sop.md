@@ -36,7 +36,7 @@ authority. Apply the same precedence on Main, Dev and UAT:
 | Change | Review route |
 |---|---|
 | CI, release authority or protected core guidance, including mixed product/docs PRs | `@hushh-labs/pipeline-editors` only |
-| Ordinary Dev/UAT product work | Eligible maintainer self-service after required checks; request `@hushh-labs/allowed-maintainers-to-approve` only when a peer review is needed |
+| Ordinary Dev/UAT product work | Request `@hushh-labs/allowed-maintainers-to-approve` for visible routing; eligible maintainer self-service still needs no independent review after required checks |
 | Ordinary Main product work | Governed independent maintainer approval; Main requester must belong to the production merger cohort |
 
 CODEOWNERS auto-requests only protected owners. Do not add the ordinary team to
@@ -46,6 +46,14 @@ also allows ordinary changes. The existing classifier and native protected-path
 rules enforce that authority independently of the reviewer labels. Explicit
 owner-authored approval follows the bounded Admin procedure below; it does not
 waive CI. No review or merge implies permission to deploy.
+
+After creating a PR, the coding agent requests its routed Team with
+`gh pr edit <number> --add-reviewer hushh-labs/<team-slug>` and reads back
+`reviewRequests`. For a protected or mixed PR, remove the ordinary routing Team
+if present and request only `pipeline-editors`. Preserve unrelated human review
+requests. This notification does not change approval counts, live-team admission
+or self-service permission. No PR observer runs; PRs created outside this procedure
+need the same explicit routing step.
 
 ### 1. Preserve and refresh
 
@@ -195,9 +203,17 @@ readers remain available; its fixed-source exceptions do not authorize new relea
 ### 5. Dispatch only the requested environment
 
 Curated UAT requires protected source history and exact-source CI or retained Dev acceptance.
-Production retains that application's UAT receipt. A distinct `main_approval_sha`
+Production requires canonical functional CI on protected Main and a separate Main smoke; no preceding UAT deployment is mandatory. A distinct `main_approval_sha`
 must incorporate the application with an identical Git tree and Main smoke;
 see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
+
+An Admin landing can create a Main merge SHA carrying smoke while functional CI
+belongs to its tested parent. The coding agent resolves the existing
+application/Main-approval pair and verifies its frozen base, parents, complete
+tree, current CI attempt and separate Main smoke. Supply the tested Main-history
+SHA as `sha` and the landed merge as `main_approval_sha`; do not repeat full CI
+merely to bridge those identities. Focused evidence cannot stand in for broader
+release-core coverage where that is required.
 
 For direct UAT qualification and dispatch, follow the
 [UAT-scoped deploy procedure](../../uat-scoped-deploy/SKILL.md).
