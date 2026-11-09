@@ -365,6 +365,8 @@ jobs:
 
       - name: Validate production incident boundary
         id: dispatch-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Require reconciled maintenance mutations under deployment lock
@@ -3346,6 +3348,8 @@ jobs:
 
       - name: Validate production incident boundary
         id: dispatch-authority
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/production_emergency.py dispatch
 
       - name: Assert production dispatch actor policy

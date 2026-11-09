@@ -105,6 +105,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           RELEASE_AUTHORIZATION: ${{ inputs.security_authorization || needs.deployment-security.outputs.authorization }}
           RELEASE_APPLICATION_SHA: ${{ inputs.security_application_sha || needs.deployment-security.outputs.application_sha }}
         run: |
