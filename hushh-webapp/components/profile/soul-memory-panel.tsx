@@ -29,6 +29,7 @@ export function SoulMemoryPanel(options: SoulMemoryModelOptions) {
 export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
   const editorId = useId();
   const editorHelpId = useId();
+  const editorLimitId = useId();
   const {
     active,
     verified,
@@ -75,6 +76,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
         </p>
       </div>
     );
+  const excessCharacters = Math.max(0, current.draft.length - MAX_MARKDOWN_MEMORY_CHARS);
   return (
     <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
       {livePreview}
@@ -138,15 +140,16 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             </Button>
           </div>
         ) : null}
-        {editing ? (
-          <div className="space-y-[var(--app-form-section-gap)]">
-            <div className="space-y-[var(--app-form-field-gap)]">
+        <div className={editing ? "grid min-w-0 gap-6 md:grid-cols-2" : "min-w-0"}>
+          {editing ? (
+            <div className="min-w-0 space-y-[var(--app-form-field-gap)]">
               <label htmlFor={editorId} data-pkm-form-label="true" className="text-sm font-medium">
                 Memory document
               </label>
               <Textarea
                 id={editorId}
-                aria-describedby={editorHelpId}
+                aria-describedby={`${editorHelpId} ${editorLimitId}`}
+                aria-invalid={excessCharacters > 0}
                 value={current.draft}
                 disabled={saving}
                 autoFocus
@@ -157,16 +160,31 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
                 className="soul-memory-editor min-h-80"
                 onChange={(event) => model.changeDraft(event.target.value)}
               />
-              <div id={editorHelpId} data-pkm-helper="true" className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span>
-                  Use headings, lists, and links. Passwords are omitted when saving.
-                </span>
-                <span>
-                  {current.draft.length.toLocaleString()} /{" "}
-                  {MAX_MARKDOWN_MEMORY_CHARS.toLocaleString()} characters
-                </span>
-              </div>
+              <p id={editorHelpId} data-pkm-helper="true" className="text-xs text-muted-foreground">
+                Use headings, lists, and links. Passwords are omitted when saving.
+              </p>
+              <p id={editorLimitId} role="status" aria-live={excessCharacters > 0 ? "polite" : "off"} data-pkm-helper="true" className={excessCharacters > 0 ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+                {excessCharacters > 0
+                  ? `Remove ${excessCharacters.toLocaleString()} ${excessCharacters === 1 ? "character" : "characters"} to save.`
+                  : `${current.draft.length.toLocaleString()} / ${MAX_MARKDOWN_MEMORY_CHARS.toLocaleString()} characters`}
+              </p>
             </div>
+          ) : null}
+          <div className={editing ? "min-w-0 space-y-3 border-t border-[color:var(--app-separator)] pt-4 md:border-t-0 md:border-l md:pl-6 md:pt-0" : "min-w-0"}>
+            {editing ? (
+              <div className="space-y-1">
+                <SectionLabel as="h3" data-pkm-section-heading="true">Live preview</SectionLabel>
+                <RowDescription as="p">Your draft. Save changes to update memory.</RowDescription>
+              </div>
+            ) : null}
+            <SoulMemoryDocument
+              markdown={editing ? current.draft : current.document.markdown}
+              preview={editing}
+            />
+          </div>
+        </div>
+        {editing ? (
+          <div className="space-y-[var(--app-form-section-gap)] border-t border-[color:var(--app-separator)] pt-4">
             <fieldset
               className="grid min-w-0 gap-[var(--app-form-field-gap)] sm:grid-cols-3"
               disabled={saving}
@@ -221,13 +239,6 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             ) : null}
           </div>
         ) : null}
-        <div className="min-w-0 space-y-3">
-          {editing ? <SectionLabel as="h3" data-pkm-section-heading="true">Preview</SectionLabel> : null}
-          <SoulMemoryDocument
-            markdown={editing ? current.draft : current.document.markdown}
-            preview={editing}
-          />
-        </div>
       </section>
     </div>
   );

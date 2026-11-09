@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from hushh_mcp.services.calendar_email_followup_store import (
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionService
 from tests.google_oauth_postgres_support import OWNER, install_calendar_schema
+from tests.google_oauth_test_support import configure_gmail_oauth
 from tests.services.test_external_connector_lifecycle_postgres import (
     connector_postgres_url,  # noqa: F401
 )
@@ -304,3 +306,231 @@ async def test_account_b_c_connect_opt_in_switch_refresh_and_revoke(followup_pg)
     )
     assert disabled["monitoring_enabled"] is False
     assert await store.monitor(user_id=OWNER, account_id=c) is None
+
+
+# --- One Google consent: Calendar, Meet files, Drive details and Gmail --------
+
+_CALENDAR = (
+    "https://www.googleapis.com/auth/calendar.events "
+    "https://www.googleapis.com/auth/calendar.freebusy "
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+)
+_MEET = (
+    "https://www.googleapis.com/auth/meetings.space.readonly "
+    "https://www.googleapis.com/auth/drive.meet.readonly "
+    "https://www.googleapis.com/auth/drive.metadata.readonly"
+)
+_GMAIL_READ = "https://www.googleapis.com/auth/gmail.readonly"
+_GMAIL_SEND = "https://www.googleapis.com/auth/gmail.send"
+_FULL = f"openid email profile {_CALENDAR} {_MEET} {_GMAIL_READ} {_GMAIL_SEND}"
+_NO_MAIL = f"openid email profile {_CALENDAR} {_MEET}"
+
+
+@pytest.fixture
+def one_consent_pg(followup_pg, monkeypatch):
+    """The follow-up fixture with the true Mail connection table, not a stand-in."""
+    service, _, engine = followup_pg
+    legacy = (MIGRATIONS.parent / "legacy" / "init_legacy_schema.sql").read_text()
+    table = re.search(
+        r"CREATE TABLE IF NOT EXISTS kai_gmail_connections \(.*?\n\);", legacy, re.S
+    ).group(0)
+    table = re.sub(r"\s+REFERENCES vault_keys\(user_id\) ON DELETE CASCADE", "", table)
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE kai_gmail_connections CASCADE")
+        connection.exec_driver_sql(table)
+        for name in (
+            "172_gmail_combined_send_permission.sql",
+            "283_gmail_send_grant_generation.sql",
+            "442_calendar_mail_read_grant.sql",
+        ):
+            sql = (MIGRATIONS / name).read_text().replace("BEGIN;", "").replace("COMMIT;", "")
+            connection.exec_driver_sql(
+                sql.replace("SELECT install_account_deletion_write_guards();", "")
+            )
+    configure_gmail_oauth(monkeypatch)
+    monkeypatch.setenv("GMAIL_OAUTH_CLIENT_ID", "synthetic-client")
+    monkeypatch.setenv(
+        "GMAIL_OAUTH_TOKEN_KEY", base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+    )
+    from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
+
+    gmail = GmailReceiptsService()
+    gmail._db = DatabaseClient(engine=engine)
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_receipts_service.get_gmail_receipts_service", lambda: gmail
+    )
+    monkeypatch.setattr(account, "get_gmail_receipts_service", lambda: gmail)
+    return service, engine
+
+
+async def _consent(service, *, subject, granted, additional, account_id=None):
+    service._userinfo.return_value = {"sub": subject, "email": subject + "@example.test"}
+    service._post_form.return_value = {
+        "access_token": "synthetic-access-" + subject,
+        "refresh_token": "synthetic-refresh-" + subject,
+        "scope": granted,
+        "expires_in": 3600,
+    }
+    started = await service.start(
+        user_id=OWNER,
+        service="calendar",
+        access_level="manage",
+        redirect_uri=REDIRECT,
+        login_hint=None,
+        calendar_additional=additional,
+        calendar_account_id=account_id,
+        include_meeting_files=True,
+        include_mail_access=True,
+    )
+    query = parse_qs(urlparse(started["authorize_url"]).query)
+    done = await service.complete(
+        user_id=OWNER, code="synthetic-code", state=query["state"][0], redirect_uri=REDIRECT
+    )
+    return query, done
+
+
+def _row(engine, sql, **params):
+    with engine.begin() as connection:
+        return connection.execute(text(sql), params).mappings().first()
+
+
+@pytest.mark.asyncio
+async def test_first_and_added_accounts_request_the_same_scopes_straight_to_google(one_consent_pg):
+    service, _ = one_consent_pg
+    first, _ = await _consent(service, subject="synthetic-a", granted=_FULL, additional=False)
+    added, _ = await _consent(service, subject="synthetic-b", granted=_FULL, additional=True)
+    assert set(first["scope"][0].split()) == set(added["scope"][0].split())
+    assert {_GMAIL_READ, _GMAIL_SEND} <= set(first["scope"][0].split())
+    # Google's own chooser and consent, PKCE and a signed single-use state; no Hussh step.
+    for query in (first, added):
+        assert query["prompt"] == ["consent select_account"]
+        assert query["code_challenge_method"] == ["S256"] and query["state"][0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("granted, mail_on", [(_FULL, True), (_NO_MAIL, False)])
+async def test_added_account_records_the_mail_google_actually_returned(
+    one_consent_pg, granted, mail_on
+):
+    service, engine = one_consent_pg
+    _, done = await _consent(service, subject="synthetic-b", granted=granted, additional=True)
+    account_id = done["completed_account_id"]
+    row = _row(
+        engine,
+        "SELECT status, gmail_read_enabled, gmail_read_generation, scope_csv "
+        "FROM google_calendar_additional_accounts WHERE user_id=:o AND account_id=:a",
+        o=OWNER,
+        a=account_id,
+    )
+    # Declined Gmail still leaves a working Calendar account.
+    assert row["status"] == "connected" and row["gmail_read_enabled"] is mail_on
+    assert done["mail_access"] == ("granted" if mail_on else "declined")
+    assert await account.selected_mail_status(user_id=OWNER, account_id=account_id) is mail_on
+    assert (_GMAIL_READ in row["scope_csv"].split()) is mail_on
+    # Permission is not monitoring: no monitor exists until the owner turns one on.
+    assert _row(engine, "SELECT count(*) AS n FROM calendar_email_followup_monitors")["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_reconnecting_a_lapsed_added_account_still_records_mail_past_the_fence_trigger(
+    one_consent_pg,
+):
+    service, engine = one_consent_pg
+    _, first = await _consent(service, subject="synthetic-b", granted=_NO_MAIL, additional=True)
+    account_id = first["completed_account_id"]
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE google_calendar_additional_accounts SET status='needs_reauth' "
+                "WHERE user_id=:o AND account_id=:a"
+            ),
+            {"o": OWNER, "a": account_id},
+        )
+    _, again = await _consent(
+        service, subject="synthetic-b", granted=_FULL, additional=True, account_id=account_id
+    )
+    assert again["completed_account_id"] == account_id and again["mail_access"] == "granted"
+    assert await account.selected_mail_status(user_id=OWNER, account_id=account_id)
+    count = _row(
+        engine,
+        "SELECT count(*) AS n FROM google_calendar_additional_accounts WHERE user_id=:o",
+        o=OWNER,
+    )["n"]
+    assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_primary_account_mail_is_recorded_without_any_background_work(one_consent_pg):
+    service, engine = one_consent_pg
+    _, done = await _consent(service, subject="synthetic-a", granted=_FULL, additional=False)
+    assert done["mail_access"] == "granted"
+    row = _row(engine, "SELECT * FROM kai_gmail_connections WHERE user_id=:o", o=OWNER)
+    assert row["status"] == "connected" and row["revoked"] is False
+    assert row["google_sub"] == "synthetic-a" and row["send_enabled"] is True
+    assert {_GMAIL_READ, _GMAIL_SEND} <= set(row["scope_csv"].split())
+    # A grant, not a scan: no receipt sync, bootstrap, mailbox watch or history cursor.
+    assert row["auto_sync_enabled"] is False and row["bootstrap_state"] == "idle"
+    assert row["watch_status"] == "not_configured" and row["history_id"] is None
+    assert row["last_sync_status"] == "idle" and row["last_sync_at"] is None
+    assert await account.selected_mail_status(user_id=OWNER, account_id="default")
+    assert _row(engine, "SELECT count(*) AS n FROM calendar_email_followup_monitors")["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_primary_consent_never_replaces_another_accounts_mailbox(one_consent_pg):
+    service, engine = one_consent_pg
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO kai_gmail_connections(user_id, google_sub, scope_csv, status, "
+                "auto_sync_enabled) VALUES (:o, 'synthetic-other', :s, 'connected', TRUE)"
+            ),
+            {"o": OWNER, "s": _GMAIL_READ},
+        )
+    _, done = await _consent(service, subject="synthetic-a", granted=_FULL, additional=False)
+    # Calendar connected; the other mailbox and its sync setting are untouched.
+    assert done["connected"] is True and done["mail_access"] == "unavailable"
+    row = _row(engine, "SELECT * FROM kai_gmail_connections WHERE user_id=:o", o=OWNER)
+    assert row["google_sub"] == "synthetic-other" and row["auto_sync_enabled"] is True
+    assert row["scope_csv"] == _GMAIL_READ and row["refresh_token_ciphertext"] is None
+
+
+@pytest.mark.asyncio
+async def test_existing_same_account_mail_keeps_its_sync_settings_when_send_is_added(
+    one_consent_pg,
+):
+    service, engine = one_consent_pg
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO kai_gmail_connections(user_id, google_sub, scope_csv, status, "
+                "auto_sync_enabled, bootstrap_state, history_id, receipt_total) "
+                "VALUES (:o, 'synthetic-a', :s, 'connected', TRUE, 'completed', 'h-42', 7)"
+            ),
+            {"o": OWNER, "s": _GMAIL_READ},
+        )
+    _, done = await _consent(service, subject="synthetic-a", granted=_FULL, additional=False)
+    assert done["mail_access"] == "granted"
+    row = _row(engine, "SELECT * FROM kai_gmail_connections WHERE user_id=:o", o=OWNER)
+    assert {_GMAIL_READ, _GMAIL_SEND} <= set(row["scope_csv"].split()) and row["send_enabled"]
+    # The owner's existing Mail choices survive an added permission.
+    assert row["auto_sync_enabled"] is True and row["bootstrap_state"] == "completed"
+    assert row["history_id"] == "h-42" and row["receipt_total"] == 7
+
+
+@pytest.mark.asyncio
+async def test_mail_consent_is_per_account_across_a_b_and_c(one_consent_pg):
+    service, engine = one_consent_pg
+    await _consent(service, subject="synthetic-a", granted=_FULL, additional=False)
+    _, b = await _consent(service, subject="synthetic-b", granted=_NO_MAIL, additional=True)
+    _, c = await _consent(service, subject="synthetic-c", granted=_FULL, additional=True)
+    # One account's Gmail choice never decides another's.
+    assert await account.selected_mail_status(user_id=OWNER, account_id="default")
+    assert not await account.selected_mail_status(
+        user_id=OWNER, account_id=b["completed_account_id"]
+    )
+    assert await account.selected_mail_status(user_id=OWNER, account_id=c["completed_account_id"])
+    assert _row(engine, "SELECT count(*) AS n FROM calendar_email_followup_monitors")["n"] == 0
+    # Three accounts is the limit; a fourth consent is refused before any grant is written.
+    with pytest.raises(Exception, match="up to three"):
+        await _consent(service, subject="synthetic-d", granted=_FULL, additional=True)

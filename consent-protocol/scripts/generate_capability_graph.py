@@ -888,12 +888,23 @@ def _uat_pr_payload(
     ref = os.environ.get("GITHUB_REF")
     isolated = os.environ.get("UAT_CI_CANDIDATE") if ref == "refs/heads/main" else None
     source = isolated or os.environ.get("GITHUB_SHA")
-    declared_serving = (
-        ref == "refs/heads/uat" and not isolated and base_ref in _load_workflow_predecessor_refs()
+    # TestFlight is dispatched from Main, but its preflight admits an exact
+    # protected UAT source and the serving comparison recorded by release CI.
+    normal_testflight = (
+        bool(isolated)
+        and os.environ.get("SOURCE_BRANCH") == "uat"
+        and os.environ.get("GITHUB_WORKFLOW_REF")
+        == "hushh-labs/hushh-research/.github/workflows/ship-ios-testflight.yml@refs/heads/main"
     )
+    declared_serving = (
+        (ref == "refs/heads/uat" and not isolated) or normal_testflight
+    ) and base_ref in _load_workflow_predecessor_refs()
     if (
         os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-        or (not isolated and ref not in {"refs/heads/uat", "refs/heads/uat-isolated"})
+        or (
+            not isolated
+            and ref not in {"refs/heads/dev", "refs/heads/uat", "refs/heads/uat-isolated"}
+        )
         or os.environ.get("CI_VALIDATION_LEVEL") != "release"
         or not re.fullmatch(r"[0-9a-f]{40}", base_ref)
         or (_resolve_base_commit(base_ref) != base_ref and not declared_serving)

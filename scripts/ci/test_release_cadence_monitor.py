@@ -367,7 +367,7 @@ class TestFlightCompletionTest(unittest.TestCase):
         original["run_attempt"] = 2
         stale = run(302, testflight.RESUME)
         stale_value = testflight.bind_recovery(run(201), upload, 302, 1, value)
-        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer"})
+        recovery.update(run_attempt=2, triggering_actor={"login": "maintainer", "type": "User", "id": 1})
         value = testflight.bind_recovery(original, upload, 301, 2, value)
         inventory = {"total_count": 2, "workflow_runs": [stale, recovery]}
         def artifact(repo, identity, *args, **kwargs):

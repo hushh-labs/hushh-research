@@ -99,6 +99,7 @@ const connections = () =>
       photoUrl: null,
       createdAt: "2026-09-28T12:00:00Z",
       connectedFromContacts: index === 1,
+      isRia: index === 1,
     }),
   );
 const people = () => ["Avery Stone", "Blake Rivera", "Drew Morgan"].map(

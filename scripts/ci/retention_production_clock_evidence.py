@@ -30,7 +30,8 @@ HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB = (
     9365,
 )
 CURRENT_CLOCK_TITLE = "Capacity clock"
-CURRENT_CLOCK_WORKFLOW_BLOB = ("0e905f3da506f5573a0c4282b8e60232be13336d", 9305)
+HISTORICAL_UNNUMBERED_CLOCK_WORKFLOW_BLOB = ("0e905f3da506f5573a0c4282b8e60232be13336d", 9305)
+CURRENT_CLOCK_WORKFLOW_BLOB = ("696d51ab0f1c9631810da2aa142f61ed03f779a2", 11377)
 # Existing immutable receipts remain pinned to the run-numbered title/blob
 # pair; new dynamic qualification uses the exact current title/blob pair above.
 _HISTORICAL_NUMBERED_CLOCK_TITLE = re.compile(
@@ -120,6 +121,9 @@ def _clock_proof_matches(record, worker_run, clock_proof):
     expected_clock_blob = _clock_workflow_blob_for_title(clock_record.title)
     if expected_clock_blob is None:
         return False
+    allowed_blobs = [expected_clock_blob]
+    if clock_record.title == CURRENT_CLOCK_TITLE:
+        allowed_blobs.append(HISTORICAL_UNNUMBERED_CLOCK_WORKFLOW_BLOB)
     if not (
         _strict_int_equals(clock.get("id"), clock_record.run_id)
         and _strict_int_equals(clock.get("run_attempt"), 1)
@@ -141,7 +145,7 @@ def _clock_proof_matches(record, worker_run, clock_proof):
             and clock.get("conclusion") == "success"
         )
         and clock_proof.get("workflow_blob")
-        == {"sha": expected_clock_blob[0], "size": expected_clock_blob[1]}
+        in [{"sha": sha, "size": size} for sha, size in allowed_blobs]
         and _clock_job_matches(
             check,
             record,

@@ -58,6 +58,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   actions: read
   contents: read
   id-token: write
@@ -68,12 +69,18 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ github.sha }}
       environment_name: ${{ inputs.environment }}
       scope: ${{ 'all' }}
 
   rollback-uat:
+    permissions:
+      pull-requests: read
+      actions: write
+      contents: read
+      id-token: write
     needs: deployment-security
     name: "Rollback — UAT"
     if: github.event.inputs.environment == 'uat'
@@ -115,10 +122,14 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
@@ -290,7 +301,7 @@ jobs:
     name: "Rollback — Production"
     permissions:
       contents: read
-      actions: read
+      actions: write
       id-token: write
     if: github.event.inputs.environment == 'production'
     runs-on: ubuntu-latest
@@ -336,10 +347,13 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: main
+          ref: ${{ github.sha }}
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"

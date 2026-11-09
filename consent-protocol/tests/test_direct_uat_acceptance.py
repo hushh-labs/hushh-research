@@ -35,6 +35,8 @@ def test_direct_uat_ci_lanes_fetch_full_history_and_resolve_the_reviewed_base(
             "format('origin/{0}'",
             "github.base_ref || 'main'",
             "inputs.uat_base_sha",
+            "github.ref == 'refs/heads/dev'",
+            "inputs.scope == 'all'",
         )
     ), f"{job} must resolve the reviewed PR or exact direct-UAT base"
 
@@ -228,7 +230,7 @@ def test_inspection_refuses_changed_or_unprovable_source_and_live_base(monkeypat
 
         def unreviewed(*args, branch):
             assert branch == "uat"
-            raise subject.Refused("UAT CI authority differs from reviewed Main")
+            raise subject.Refused("Recorded workflow authority is outside protected Main history")
 
         monkeypatch.setattr(subject.exact, "verify_git_authority", unreviewed)
     calls = 0
@@ -301,10 +303,12 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
             == "${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}"
         )
     assert inspector["environment"] == {"name": "uat", "deployment": False}
-    assert inspector["if"] == "inputs.operation == 'inspect'"
+    assert inspector["if"] == (
+        "${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect' }}"
+    )
     assert inspector["permissions"] == {
         "contents": "read",
-        "actions": "read",
+        "actions": "write",
         "checks": "read",
         "id-token": "write",
     }

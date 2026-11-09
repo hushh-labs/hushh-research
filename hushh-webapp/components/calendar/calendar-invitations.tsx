@@ -12,6 +12,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { usePathname } from "next/navigation";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isFinalInvitationResponse } from "@/lib/calendar/calendar-event-status";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
 import { GoogleCalendarError, type CalendarAttendanceResult, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -112,7 +113,7 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
     {error ? <div role="alert" className="space-y-3"><p>Invitations could not be loaded.</p><p className={styles.muted}>{error.message}</p>{error instanceof GoogleCalendarError && error.recovery !== "retry" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", error.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</CalendarCompactAction> : <CalendarCompactAction onClick={() => void load(true)}>Retry</CalendarCompactAction>}</div> : !data ? <CalendarLoading label="Invitations loading" /> : <>
       {data.unreadable_calendars.length ? <p className={styles.muted}>Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked.</p> : null}
       <div className={styles.workspace} data-selected={Boolean(selected)}>
-        <div className={styles.listPane} aria-label="Invitation list"><h2 className={styles.sectionTitle}>{label}</h2>
+        <div className={styles.listPane} aria-label="Invitation list">{filtered.length ? <h2 className={styles.sectionTitle}>{label}</h2> : null}
           {!filtered.length ? <p className={styles.empty}>No {filter === "all" ? "" : `${filter} `}invitations {workspaceLayout ? "on this date" : "in this window"}.</p> : <ul className={styles.list}>{filtered.map(event => {
             const organizerPerson = invitationPerson(people, event.organizer?.email);
             const organizer = invitationPersonName(organizerPerson, event.organizer?.displayName, event.organizer?.email) || "Organizer";
@@ -130,6 +131,18 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
           <CalendarInvitationDetail event={selected} zone={zone} people={people} profileUserIds={profileUserIds} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
           <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
+            if (workspaceLayout && isFinalInvitationResponse(result.calendar)) {
+              const response = result.calendar;
+              setSnapshot(previous => {
+                if (previous.key !== resourceKey || !previous.data) return previous;
+                const events = previous.data.events.map(event =>
+                  event.id === selected.id && event.calendar_id === selected.calendar_id
+                    ? { ...event, response_status: response, attendees: event.attendees?.map(guest => guest.self ? { ...guest, response_status: response } : guest) }
+                    : event,
+                );
+                return { key: resourceKey, data: { ...previous.data, events } };
+              });
+            }
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP
             // leaves the review. The refresh moves it out of Pending.

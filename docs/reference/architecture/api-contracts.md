@@ -194,11 +194,23 @@ two-person journey, platform transport and current processing-provider approval.
 
 ## V1 chat memory preparation
 
+`POST /api/one/agent-chat` accepts the current owner's
+`forwardedProps.emailMemoryProjection` with a declared `budget_chars` of up to
+96,000 UTF-16 code units, matching the complete `one_memory.markdown` document.
+The document must fit both that declared budget and the server maximum. Email
+session reads and prompt preparation use the same memory bound without truncation.
+Owner matching, strict projection fields and request-only secret references remain
+required; the separate 18,000-character draft and 2,048-character fact-write limits
+are unchanged.
+
 `POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
 owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
 admission, held owner incarnation and AI-selection checks before and after inference.
 The request contains `user_id`, `current_markdown`, incremental `messages`
-(`id`, `conversationId`, `role`, `content`), and `max_tokens`. The response is
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. Whitespace-only messages are
+rejected during request validation before inference. Meaningful Markdown
+indentation is preserved, and `current_markdown` may be empty for initial memory.
+The response is
 `{markdown}`: a proposed complete document with no persistence authority. The
 client validates and atomically commits ciphertext and its source checkpoint
 through the existing PKM writer. Invalid generation returns a bounded failure;

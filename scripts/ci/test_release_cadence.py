@@ -28,7 +28,8 @@ def run(run_id, workflow="deploy-uat.yml", actor="maintainer", sha="a" * 40):
     return {"id": run_id, "path": f".github/workflows/{workflow}", "head_branch": "main",
             "repository": {"full_name": REPOSITORY}, "head_repository": {"full_name": REPOSITORY},
             "event": "workflow_dispatch", "status": "completed", "conclusion": "success",
-            "actor": {"login": actor}, "created_at": "2026-10-22T01:00:00Z",
+            "actor": {"login": actor, "type": "User", "id": 1},
+            "triggering_actor": {"login": actor, "type": "User", "id": 1}, "created_at": "2026-10-22T01:00:00Z",
             "updated_at": "2026-10-22T02:00:00Z", "head_sha": sha, "run_attempt": 1}
 
 
@@ -815,10 +816,14 @@ class AuthorityTest(unittest.TestCase):
 class ProductionJoinTest(unittest.TestCase):
     def test_join_requires_exact_healthy_provenance_and_never_latest_run(self):
         deployment = run(200, "deploy-production.yml")
+        deployment.update(
+            actor={"login": "future-maintainer", "id": 3, "type": "User"},
+            triggering_actor={"login": "future-maintainer", "id": 3, "type": "User"},
+        )
         value = {"sha": "a" * 40, "status": "healthy", "final": {"backend_revision": "candidate"},
                  "candidate": {"backend_revision": "candidate"},
                  "verification": {"backend_provenance": "success", "backend_health": "success"}}
-        with patch.object(github, "configuration", return_value=(POLICY, GOVERNANCE)), \
+        with patch.object(github, "configuration", side_effect=AssertionError("current roster consulted")), \
                 patch.object(github, "run_info", return_value=deployment) as get_run, \
                 patch.object(github, "receipt", return_value=value):
             self.assertEqual(github.wait_production(REPOSITORY, 200, "a" * 40), value)

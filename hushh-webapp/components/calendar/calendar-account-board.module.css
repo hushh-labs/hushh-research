@@ -19,8 +19,6 @@
 .accounts[data-count="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .account { min-width: 0; overflow: hidden; padding: .9rem; box-shadow: none; }
 .accountHeader { display: flex; align-items: center; gap: .6rem; min-width: 0; }
-.accountAvatar[data-slot="avatar"] { width: 2.75rem; height: 2.75rem; flex: none; border-radius: .75rem; background: var(--app-accent-surface); border: 1px solid var(--app-separator); }
-.accountAvatar :global([data-slot="avatar-fallback"]) { border-radius: .75rem; color: var(--app-accent); background: transparent; font-size: .9rem; font-weight: 600; }
 .accountIdentity { min-width: 0; flex: 1; }
 .accountName { display: block; font-size: var(--app-side-pane-row-title-size, 14px); font-weight: var(--app-side-pane-row-title-weight, 550); line-height: var(--app-side-pane-row-title-line, 21px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accountHeader button { flex: none; min-width: 44px; min-height: 44px; }
@@ -95,8 +93,6 @@
 .accountPickerTrigger:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 2px; }
 .accountPickerEmail { display: block; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .accountPickerChevron { width: 1rem; height: 1rem; flex: none; color: var(--app-secondary-label); }
-.pickerAvatar[data-slot="avatar"] { width: 1.75rem; height: 1.75rem; flex: none; border-radius: 50%; background: var(--app-accent-surface); }
-.pickerAvatar :global([data-slot="avatar-fallback"]) { font-size: .75rem; color: var(--app-accent); background: transparent; }
 .accountPickerMenu { width: min(24rem, calc(100vw - 2rem)); max-width: calc(100vw - 2rem); }
 .accountPickerItem { min-width: 0; min-height: 44px; white-space: nowrap; }
 .accountPickerItem .accountPickerEmail { font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }

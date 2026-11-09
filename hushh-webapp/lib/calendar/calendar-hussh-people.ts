@@ -88,7 +88,10 @@ export function calendarEventPeople(
     const displayName = person?.displayName?.trim() || null;
     if (!email || !person?.userId || (!photoUrl && !displayName)) continue;
     const prior = people.get(email);
-    if (prior && prior.userId !== person.userId) continue;
+    if (prior && prior.userId !== person.userId) {
+      people.delete(email);
+      continue;
+    }
     people.set(email, {
       userId: person.userId,
       displayName: displayName ?? prior?.displayName ?? null,

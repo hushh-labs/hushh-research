@@ -3,6 +3,7 @@ import { ChevronRight, type FileText } from "@/components/icons";
 import { HelperText, IdentityName } from "@/components/app-ui/typography";
 import { SectionCard } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ConnectionPersonAvatar } from "./connection-person-avatar";
+import { ConnectionStatusBadges } from "./connection-status-badges";
 import styles from "./person-profile-page.module.css";
 
 /** Presentation only. The profile keeps authority, request lifetimes and actions. */
@@ -18,6 +19,8 @@ export function PersonProfileHero({
   tasks?: ReactNode;
   footer?: ReactNode;
 }) {
+  const riaVerified = profile.verifiedRole === "Registered investment adviser";
+
   return (
     <SectionCard className={styles.hero}>
       <ProfileCover />
@@ -26,7 +29,7 @@ export function PersonProfileHero({
           <ConnectionPersonAvatar
             photoUrl={profile.photoUrl}
             label={profile.displayName}
-            verified={Boolean(profile.verifiedRole)}
+            verified={Boolean(profile.verifiedRole) && !riaVerified}
             size="profile"
             className={styles.avatar}
             fallbackClassName={styles.avatarFallback}
@@ -37,7 +40,11 @@ export function PersonProfileHero({
           <div className={styles.nameActions}>
             <div className={styles.identity}>
               <IdentityName className={styles.name} dir="auto">{profile.displayName}</IdentityName>
-              {profile.verifiedRole ? <HelperText className={styles.role}>{profile.verifiedRole}</HelperText> : null}
+              {riaVerified ? (
+                <div className={styles.role}><ConnectionStatusBadges riaVerified /></div>
+              ) : profile.verifiedRole ? (
+                <HelperText className={styles.role}>{profile.verifiedRole}</HelperText>
+              ) : null}
               <div className={styles.contactLines}>{contacts}</div>
             </div>
             <div className={styles.primaryActions} data-share-only={shareOnly}>{primaryActions}</div>

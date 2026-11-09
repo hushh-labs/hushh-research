@@ -26,6 +26,8 @@ function PopoverTrigger({
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
 }
 
+const PopoverClose = PopoverPrimitive.Close
+
 function PopoverContent({
   ref,
   className,
@@ -124,6 +126,7 @@ function PopoverDescription({
 
 export {
   Popover,
+  PopoverClose,
   PopoverTrigger,
   PopoverContent,
   PopoverAnchor,

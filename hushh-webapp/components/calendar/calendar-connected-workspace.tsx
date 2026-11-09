@@ -36,7 +36,7 @@ import { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { calendarTimeZone } from "@/lib/calendar/calendar-time-zone";
 import { calendarDaySearchRequest } from "@/lib/calendar/calendar-day-search-request";
 import { CalendarJoinLink } from "./calendar-join-link";
-import { isCalendarEventEnded } from "@/lib/calendar/calendar-event-status";
+import { isCalendarEventEnded, isFinalInvitationResponse } from "@/lib/calendar/calendar-event-status";
 export { safeMeetingUrl } from "@/lib/calendar/calendar-url";
 import { GoogleCalendarService, GoogleCalendarError, calendarFailure, type CalendarEventSummary, type CalendarSource, type CalendarAvailability, type CalendarAttendanceResult, type GoogleCalendarStatus } from "@/lib/services/google-calendar-service";
 import { CalendarAvailabilityArt, CalendarHelperIcon, CalendarTimelineRow, calendarResponse, GoogleCalendarMark, calendarDate, availabilityTimeRangeLabel, calendarProviderDayUrl, MAIN_TABS, SCHEDULE_TABS, durationLabel, eventTime, timeRangeLabel } from "./calendar-schedule-presentation";
@@ -477,7 +477,7 @@ function ConnectedSchedule({ userId, status, calendarPeople, busy, onConnect, on
           {selected.location ? <p className="text-sm">{selected.location}</p> : null}
           {selected.organizer?.email ? <p className="break-all text-sm text-muted-foreground">Organizer: {selected.organizer.email}</p> : null}
           {isCalendarEventEnded(selected, now, zone) ? <p className={`${presentationStyles.status} text-muted-foreground`}>Ended</p> : safeMeetingUrl(selected.conference_url) ? <CalendarJoinLink className={presentationStyles.joinLink} url={selected.conference_url} accountEmail={status.google_email} /> : null}
-          {selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
+          {isFinalInvitationResponse(calendarResponse(selected, status.google_email)) ? null : selected.can_decline ? <CalendarCompactAction onClick={() => { setStep("choice"); setResult(null); }}>Can't attend</CalendarCompactAction> : <p className="text-sm text-muted-foreground">Attendance changes are available on invitations to your connected account.</p>}
         </div> : step === "choice" ? <div className="space-y-4">
           <fieldset disabled={submitting || busy} className="space-y-2"><legend className="text-sm font-semibold">Can't attend</legend><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={!offerTimes} onChange={() => setOfferTimes(false)} />Decline</label><label className="flex min-h-11 items-center gap-3"><input type="radio" name="attendance" checked={offerTimes} onChange={() => setOfferTimes(true)} />Decline &amp; offer another time</label></fieldset>
           <p className="text-sm text-muted-foreground">Only your attendance response changes. The organizer keeps the meeting.</p>

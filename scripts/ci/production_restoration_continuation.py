@@ -62,18 +62,26 @@ def ports():
 
 
 def manual(run):
-    policy = json.loads((owner.ROOT / "config/ci-governance.json").read_text())
-    allowed = policy["production"]["manual_dispatch_users"]
     require(
         run.get("path") == ".github/workflows/deploy-production.yml"
         and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
         and all((run.get(key) or {}).get("full_name") == REPOSITORY
                 for key in ("repository", "head_repository"))
         and re.fullmatch(r"[0-9a-f]{40}", str(run.get("head_sha", "")))
-        and all((run.get(key) or {}).get("login") in allowed
+        and all((run.get(key) or {}).get("type") == "User"
+                and type((run.get(key) or {}).get("id")) is int
+                and run[key]["id"] > 0 and bool(run[key].get("login"))
                 for key in ("actor", "triggering_actor")),
         "both dispatch actors must be governed humans",
     )
+    if run.get("status") != "completed":
+        from github_team_authority import request_operation_authority
+        require(run.get("id") == int(os.environ["GITHUB_RUN_ID"])
+                and run.get("run_attempt") == int(os.environ["GITHUB_RUN_ATTEMPT"])
+                and run["actor"]["login"] == os.environ.get("GITHUB_ACTOR")
+                and run["triggering_actor"]["login"] == os.environ.get("GITHUB_TRIGGERING_ACTOR"),
+                "active restoration is not the authenticated operation")
+        request_operation_authority(dict(os.environ), "production", os.environ.get("GITHUB_ACTOR"))
     result = subprocess.run(
         ["git", "merge-base", "--is-ancestor", run["head_sha"], "origin/main"],
         capture_output=True, timeout=30, check=False,

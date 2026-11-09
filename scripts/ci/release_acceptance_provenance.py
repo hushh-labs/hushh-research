@@ -34,10 +34,10 @@ def deployment_authority(run: dict, environment: str) -> dict:
         "Release caller identity is unverified",
     )
     branch = run.get("head_branch")
-    if branch == "main":
+    if branch == "main" and not run.get("referenced_workflows"):
         return {"caller_sha": sha, "caller_branch": branch,
                 "implementation_path": path, "tooling_sha": sha}
-    require(environment in {"dev", "uat"} and branch == environment
+    require(environment in {"dev", "uat"} and branch in {"main", environment}
             and run.get("event") == "workflow_dispatch",
             "Release must originate from its environment branch")
     implementation = f".github/workflows/deploy-{environment}-implementation.yml"
@@ -64,7 +64,27 @@ def deployment_authority(run: dict, environment: str) -> dict:
 def deployment_job_name(run: dict, environment: str, name: str) -> str:
     """Only the canonical verified wrapper adds this exact job-name prefix."""
     authority = deployment_authority(run, environment)
-    return name if authority["caller_branch"] == "main" else f"Deploy / {name}"
+    return name if authority["implementation_path"] == run.get("path", "").split("@", 1)[0] else f"Deploy / {name}"
+
+
+def historical_human_dispatch(run: dict) -> bool:
+    """Origin eligibility for terminal evidence, never permission for new work.
+
+    The caller must verify canonical Main execution/reusable provenance and the
+    complete release outcome. Today's team roster cannot reauthorize or erase a
+    previously executed release. Automated sources retain controller evidence.
+    """
+    return (
+        run.get("status") == "completed"
+        and run.get("event") == "workflow_dispatch"
+        and all(
+            isinstance(run.get(key), dict)
+            and run[key].get("type") == "User"
+            and type(run[key].get("id")) is int and run[key]["id"] > 0
+            and isinstance(run[key].get("login"), str) and bool(run[key]["login"])
+            for key in ("actor", "triggering_actor")
+        )
+    )
 
 
 def bounded_artifact_inventory(inventory: object) -> list[dict]:

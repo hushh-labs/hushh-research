@@ -223,6 +223,7 @@ for (const width of [350, 351, 360, 393, 430, 620, 621, 639, 640, 767, 768, 1024
     await page.getByRole("button", { name: "Edit memory" }).click();
     await expect(page.getByRole("textbox", { name: "Memory document" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Live memory preview" })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`memory-editor-${width}-${theme}.png`), fullPage: true });
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(panel).toContainText("A second detail that stays aligned.");
     expect(errors).toEqual([]);
