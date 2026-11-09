@@ -125,6 +125,34 @@ def test_connection_and_snapshot_acceptance_roll_back_together(advisor_db, monke
         )
 
 
+def test_connected_acceptance_reuses_edge_and_requires_the_displayed_connection(advisor_db):
+    db, service, approved = advisor_db
+    created = service.create("alice", approved)
+    key = created["id"]
+    assert "alreadyConnected" not in service.view("bob", key)
+    assert service.view("bob", key, current_ui=True)["alreadyConnected"] is False
+    with pytest.raises(AdvisorReviewError, match="REQUEST_CHANGED"):
+        service.decide("bob", key, "accept", require_existing_connection=True)
+    assert "envelope" not in service.view("bob", key)
+    with db.engine.begin() as conn:
+        edge = conn.execute(
+            text(
+                "UPDATE connections SET status='active' WHERE user_a_id='alice' AND user_b_id='bob' RETURNING id"
+            )
+        ).scalar_one()
+    pending = service.view("bob", key, current_ui=True)
+    assert pending["alreadyConnected"] is True
+    assert "envelope" not in pending
+    service.decide("bob", key, "accept", require_existing_connection=True)
+    assert service.view("bob", key)["envelope"]["recipientKeyId"] == "bob-key"
+    with db.engine.connect() as conn:
+        assert (
+            conn.execute(text("SELECT connection_id FROM advisor_review_requests")).scalar_one()
+            == edge
+        )
+        assert conn.execute(text("SELECT count(*) FROM connection_origins")).scalar_one() == 0
+
+
 def test_accept_withdraw_race_has_one_terminal_outcome(advisor_db):
     db, service, approved = advisor_db
     created = service.create("alice", approved)

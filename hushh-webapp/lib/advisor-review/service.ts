@@ -170,7 +170,7 @@ export const AdvisorReviewService = {
   },
   view: async (c: FinanceShareContext, id: string) => {
     const result = advisorReviewSchema.parse(
-      await advisorRequest(c, `/${encodeURIComponent(id)}`),
+      await advisorRequest(c, `/${encodeURIComponent(id)}?ui=2`),
     );
     if (
       result.id !== id ||
@@ -185,7 +185,11 @@ export const AdvisorReviewService = {
     c: FinanceShareContext,
     id: string,
     action: "accept" | "decline" | "withdraw" | "stop",
-  ) => advisorRequest<AdvisorReview>(c, `/${id}/decision`, "POST", { action }),
+    requireExistingConnection = false,
+  ) => advisorRequest<AdvisorReview>(c, `/${id}/decision`, "POST", {
+    action,
+    ...(requireExistingConnection ? { requireExistingConnection: true } : {}),
+  }),
   time: (
     c: FinanceShareContext,
     id: string,

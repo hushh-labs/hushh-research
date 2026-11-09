@@ -91,11 +91,19 @@ it("withholds the snapshot and scheduling until advisor acceptance is acknowledg
   );
   fireEvent.click(screen.getByRole("button", { name: "Accept & connect" }));
   await screen.findByRole("alert");
-  expect(mocks.decide).toHaveBeenCalledWith(context, value.id, "accept");
+  expect(mocks.decide).toHaveBeenCalledWith(context, value.id, "accept", undefined);
   expect(mocks.decrypt).not.toHaveBeenCalled();
   expect(
     screen.queryByRole("button", { name: "Review Calendar booking" }),
   ).toBeNull();
+});
+
+it("offers plain Accept for an existing connection and waits for authorized snapshot access", async () => {
+  mocks.view.mockResolvedValue({ ...value, alreadyConnected: true });
+  render(<AdvisorWorkspace id={value.id} context={context} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Accept", exact: true }));
+  await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(context, value.id, "accept", true));
+  expect(mocks.decrypt).not.toHaveBeenCalled();
 });
 
 it("consumes Back while acceptance settles, then closes the workspace before its route", async () => {
