@@ -24,7 +24,7 @@ application source must be an exact SHA in protected `uat` history. A
 Main-only SHA is not a normal UAT source.
 
 For a direct UAT candidate, inspect prerequisites from `main` first. In Actions,
-select **Deploy to UAT → Run workflow → uat → operation=inspect**, leaving
+select **Deploy to UAT → Run workflow → main → operation=inspect**, leaving
 release inputs at defaults. This uses the governed UAT identity for read-only
 serving observations, without a deployment record or runtime mutation. The
 summary identifies protected tip, serving base and current CI status. Wait for

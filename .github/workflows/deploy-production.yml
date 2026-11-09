@@ -248,6 +248,8 @@ jobs:
           persist-credentials: false
       - name: Recheck trusted Main source and governed operators
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/main ]] || exit 1
@@ -271,6 +273,7 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       - name: Set up Cloud SDK
+        id: verification-sdk
         uses: google-github-actions/setup-gcloud@v3
       - name: Capture currently serving revisions before public health checks
         id: before
@@ -286,11 +289,11 @@ jobs:
         run: timeout --foreground 180s bash scripts/ci/cloudrun-http-health.sh https://one.hussh.ai / 3 8 2 200
       - name: Capture serving revisions after public health checks
         id: after
-        if: always()
+        if: always() && steps.verification-sdk.outcome == 'success'
         continue-on-error: true
         run: python3 scripts/ci/verify-current-production.py capture --output "$RUNNER_TEMP/prod-current-after.json"
       - name: Compare read-only Production observations
-        if: always()
+        if: always() && steps.verification-sdk.outcome == 'success'
         env:
           BACKEND_HEALTH: ${{ steps.backend-health.outcome == 'success' && 'success' || 'failed' }}
           FRONTEND_HEALTH: ${{ steps.frontend-health.outcome == 'success' && 'success' || 'failed' }}
