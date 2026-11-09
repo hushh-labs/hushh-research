@@ -275,6 +275,7 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
@@ -364,6 +365,13 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Governance owns the real compiler and its pure Git-fixture contracts.
+              - '!consent-protocol/scripts/generate_capability_graph.py'
+              - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
+              - '!consent-protocol/tests/scripts/test_managed_provider_receipt.py'
+              - '!consent-protocol/tests/test_capability_graph_gate_compares_against_base.py'
+              - '!consent-protocol/tests/test_capability_graph_dev_phone_history.py'
+              - '!consent-protocol/tests/test_location_workflow_compatibility.py'
               # Public risk inputs have real-artifact and policy checks in Governance.
               - '!consent-protocol/config/email-auth/disposable-domains.txt'
               - '!consent-protocol/config/email-auth/risk-manifest.json'
@@ -920,7 +928,7 @@ jobs:
           WEB_TARGETED_PART: node
           WEB_TARGETED_FULL_SUITE_OWNED: "0"
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 

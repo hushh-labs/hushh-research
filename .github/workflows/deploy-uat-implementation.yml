@@ -490,6 +490,7 @@ jobs:
           cp deploy/drive/document_reader_compatibility.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/await-prebuilt-image.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/api/routes/document_delivery.py \
@@ -581,6 +582,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/document_reader_compatibility.py" deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/process_group.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/await-prebuilt-image.sh" scripts/ci/
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
@@ -2003,6 +2005,7 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
+          trap 'result=$?; finished_at="$(date +%s)"; echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"; echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"; echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"; exit "$result"' EXIT
           source deploy/drive/uat_stripe_bindings.sh
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}##_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
@@ -2077,6 +2080,15 @@ jobs:
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
+          # Older approved images retain full qualification. Only a candidate
+          # recipe declaring the new mode may request core; the receipt also
+          # verifies the actual image producer acknowledged it.
+          qualification_mode=full
+          if grep -Fq '_MANAGED_READINESS_MODE:' deploy/backend.cloudbuild.yaml; then
+            qualification_mode=core
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_MANAGED_READINESS_MODE=${qualification_mode}"
+          fi
+          echo "qualification_mode=${qualification_mode}" >> "$GITHUB_OUTPUT"
           verify_managed_vertex_runtime=true
           if [ "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}" != "0" ]; then
             verify_managed_vertex_runtime=true
@@ -2104,17 +2116,14 @@ jobs:
           build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=/tmp/uat-backend-parallel.cloudbuild.json \
-            --suppress-logs --format='value(id)' \
+            --async --suppress-logs --format='value(id)' \
             "--substitutions=^##^${SUBSTITUTIONS}")"
           if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
             echo "Backend deployment did not return an exact Cloud Build id." >&2
             exit 1
           fi
           echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
-          finished_at="$(date +%s)"
-          echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
-          echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
-          echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/await-prebuilt-image.sh --project "${{ env.GCP_PROJECT_ID }}" --build-id "$build_id" --wait-only
 
       - name: Capture managed provider readiness receipt
         if: always() && steps.scope.outputs.deploy_backend == 'true'
@@ -2128,6 +2137,7 @@ jobs:
           READINESS_REGION: ${{ env.GCP_REGION }}
           READINESS_GITHUB_RUN: ${{ github.run_id }}
           READINESS_ENVIRONMENT: uat
+          READINESS_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
           READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
         run: |
           python3 scripts/ci/capture_managed_provider_receipt.py \

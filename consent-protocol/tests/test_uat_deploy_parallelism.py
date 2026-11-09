@@ -560,3 +560,42 @@ def test_integration_document_selection_keeps_default_and_refuses_malformed(
     document_delivery_ci.assert_integration_mode(
         tmp_path, ("--ci-linux-document",), "Linux", expected, selection
     )
+
+
+@pytest.mark.parametrize("build_status", [0, 1])
+def test_backend_build_failure_keeps_exact_id_and_elapsed_time(tmp_path, build_status):
+    """A failed remote build must remain diagnosable without resubmission."""
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    step = next(s for s in workflow["jobs"]["deploy"]["steps"] if s.get("id") == "deploy-backend")
+    source = step["run"]
+    timer = source[source.index('started_at="') : source.index("source deploy/drive/")]
+    submit = source[source.index('build_id="$(gcloud builds submit') :]
+    submit = re.sub(r"\$\{\{.*?\}\}", "synthetic-project", submit)
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    gcloud = binary / "gcloud"
+    build_id = "12345678-1234-1234-1234-123456789abc"
+    gcloud.write_text(f"#!/bin/sh\nprintf '%s\\n' '{build_id}'\n")
+    gcloud.chmod(0o700)
+    waiter = tmp_path / "scripts/ci/await-prebuilt-image.sh"
+    waiter.parent.mkdir(parents=True)
+    waiter.write_text(f"#!/bin/sh\nexit {build_status}\n")
+    output = tmp_path / "outputs"
+    result = subprocess.run(  # noqa: S603 - authored release step, synthetic CLI and paths only.
+        ["bash", "-euc", timer + "SUBSTITUTIONS=synthetic\n" + submit],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(binary) + os.pathsep + os.defpath,
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.returncode == build_status, result.stderr
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["build_id"] == build_id
+    assert int(values["finished_at_epoch"]) >= int(values["started_at_epoch"])
+    assert int(values["duration_seconds"]) >= 0
