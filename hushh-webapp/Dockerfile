@@ -1,5 +1,6 @@
 # Multi-stage build for Next.js Standalone
 # Optimized for Google Cloud Run (Node.js)
+# Pipeline test for PR #9093. This comment selects the web CI lane.
 #
 # Next.js docs: https://nextjs.org/docs/app/api-reference/config/next-config-js/output
 # Monorepo note: outputFileTracingRoot is set to ".." in next.config.ts,
