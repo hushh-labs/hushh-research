@@ -11,6 +11,7 @@ from db.db_client import get_db
 from hushh_mcp.services.advisor_review_notifications import notify_counterpart
 from hushh_mcp.services.advisor_review_store import (
     AdvisorReviewError,
+    introduction_complete,
     load,
     lock_review,
     require_accepted,
@@ -58,7 +59,7 @@ class AdvisorBillingService:
             require_accepted(conn, row)
             if advisor != row["advisor_user_id"]:
                 raise AdvisorReviewError("ADVISOR_WRONG_PARTICIPANT", 403)
-            if not row["meeting"] or decoded(row["meeting"]).get("status") != "completed":
+            if not introduction_complete(row):
                 raise AdvisorReviewError("ADVISOR_INTRODUCTION_REQUIRED", 409)
             account = payee(conn, advisor)
             existing = one(

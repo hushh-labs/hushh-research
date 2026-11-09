@@ -82,8 +82,9 @@ def expire(conn, viewer, *, request_id=None, advisor=None):
     )
 
 
-def project(row, viewer, *, snapshot=False):
+def project(row, viewer, *, snapshot=False, current_ui=False):
     is_owner = row["owner_user_id"] == viewer
+    meeting, past = meeting_parts(row)
     result = {
         "id": str(row["id"]),
         "ownerUserId": row["owner_user_id"],
@@ -99,7 +100,7 @@ def project(row, viewer, *, snapshot=False):
         "expiresAt": iso(row["expires_at"]),
         "serverNow": iso(row["server_now"]),
         "contentHash": row["content_hash"],
-        "meeting": decoded(row["meeting"]),
+        "meeting": public_meeting(meeting, current_ui=current_ui),
         "plan": decoded(row["plan"]),
         "planRevision": row["plan_revision"],
         "snapshotAvailable": bool(
@@ -110,15 +111,41 @@ def project(row, viewer, *, snapshot=False):
             and row["owner_envelope"]
         ),
     }
+    if current_ui and past:
+        result["pastMeetings"] = [public_meeting(value) for value in past]
     if snapshot and result["snapshotAvailable"]:
         result["envelope"] = decoded(row["owner_envelope"] if is_owner else row["envelope"])
     return result
 
 
-def write_meeting(conn, request_id, value):
+def meeting_parts(row):
+    active = dict(decoded(row["meeting"]) or {})
+    past = active.pop("_pastMeetings", [])
+    return active, past
+
+
+def public_meeting(meeting, *, current_ui=True):
+    if not meeting:
+        return None
+    result = {key: value for key, value in meeting.items() if not key.startswith("_")}
+    approval = meeting.get("_automaticApproval")
+    if current_ui and approval and meeting["status"] == "proposed":
+        result["automaticApprovalExpiresAt"] = approval["expiresAt"]
+    if not current_ui and result["status"] == "missing":
+        result["status"] = "cancelled"
+    return result
+
+
+def introduction_complete(row):
+    active, past = meeting_parts(row)
+    return any(meeting.get("status") == "completed" for meeting in [*past, active])
+
+
+def write_meeting(conn, request_id, value, past):
+    stored = {**value, **({"_pastMeetings": past} if past else {})}
     conn.execute(
         text(
             "UPDATE advisor_review_requests SET meeting=CAST(:value AS jsonb),updated_at=clock_timestamp() WHERE id=CAST(:id AS uuid)"
         ),
-        {"id": request_id, "value": json.dumps(value)},
+        {"id": request_id, "value": json.dumps(stored)},
     )
