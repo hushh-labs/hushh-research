@@ -777,7 +777,8 @@ The watcher logs to `tmp/devops-watch/`.
 
 Authority checks are not diagnostic work: UI Contracts, Secret Scan, DCO,
 applicable PR Base Policy, path resolution, Preflight, and
-CI Status remain blocking. Repo Governance runs its focused or release profile;
+CI Status remain blocking. Repo Governance runs its focused or release profile
+alongside unprivileged functional lanes and remains mandatory in the final gate;
 unknown changed-file selection is conservative. For selected surfaces, the
 required jobs are listed below. A selected job must succeed, while an unselected
 path lane may skip. Safari-specific layout/performance and non-security hygiene
@@ -879,13 +880,14 @@ verification. Deployment mutations retain their ordered safety checks.
 
 Fail-fast contract:
 
-1. Cheap authority checks run before expensive web/protocol/integration lanes:
-   secret scan, DCO/base-policy where applicable, path
-   resolution, and repo governance.
-2. The `Preflight Gate` fails before Next.js, full protocol, or integration
-   runners start when one of those authority checks is already failed.
-3. This intentionally saves CI minutes on governance failures. The tradeoff is
-   that green runs start heavy jobs only after preflight completes.
+1. Cheap prerequisites run before expensive web/protocol/integration lanes:
+   UI Contracts, secret scan, DCO/base policy where applicable and path resolution.
+2. The `Preflight Gate` stops dependent work when those prerequisites fail.
+3. Governance runs alongside unprivileged functional lanes; its failure still
+   refuses the final CI gate, merge and release. This removes serial waiting
+   without removing checks or granting credentials. Web Unit Contracts retain
+   their separate Governance dependency because Governance publishes their matrix.
+   Deployment authorization, migrations and traffic changes keep ordered safeguards.
 
 Required `CI Status Gate` remains the landing authority on PR and queue commits.
 Destination sync is advisory; the queue verifies the current combined code.

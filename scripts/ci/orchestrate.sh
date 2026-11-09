@@ -9,6 +9,7 @@ Usage:
 Environment flags:
   INCLUDE_ADVISORY_CHECKS=1   Also run advisory checks when stage=all
   CORE_SERIAL=1               Run the core stage's protocol and web-core checks one after the other
+  TZ                          Test timezone; defaults to UTC to match hosted CI
 
 Stage "core" is the fast local pre-push mirror: secret and governance, then
 protocol and web-core in parallel (separate Python and Node runtimes), then
@@ -28,6 +29,7 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "$#" -lt 1 ]; then
 fi
 
 STAGE="${1:-}"
+export TZ="${TZ:-UTC}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
@@ -153,8 +155,8 @@ case "$STAGE" in
     # mcp-package imports the protocol package through the Python environment the
     # protocol stage provisions, so both cheap checks run after it.
     run_stage mcp-package
-    run_stage integration
-    echo "✅ Core CI passed in $((SECONDS - started))s (web-targeted and web-full-suite run on GitHub)."
+    scripts/ci/integration-check.sh --ci-core
+    echo "✅ Core CI passed in $((SECONDS - started))s (affected hosted checks run separately)."
     ;;
   all)
     echo "== CI Parity (Local) =="
