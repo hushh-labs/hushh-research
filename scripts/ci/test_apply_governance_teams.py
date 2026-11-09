@@ -1240,7 +1240,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     grouped = [[item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]
                 for item in desired_rules[offset:offset + half]] for offset in (0, half)]
     assert grouped[0] == grouped[1]
-    assert [len(chunk) for chunk in grouped[0][:3]] == [15, 15, 8]
+    assert [len(chunk) for chunk in grouped[0][:4]] == [15, 15, 8, 8]
     assert all(0 < len(chunk) <= 15 for chunk in grouped[0])
     patterns = [pattern for chunk in grouped[0] for pattern in chunk]
     expected = {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"]}

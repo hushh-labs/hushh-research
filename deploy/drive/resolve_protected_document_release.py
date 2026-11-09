@@ -394,6 +394,7 @@ def resolve(runtime: dict, *, project: str, environment: str) -> dict[str, bool]
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--frontend-auth-domain-receipt", type=Path)
     parser.add_argument(
         "--project", choices=("hushh-pda", "hushh-pda-uat"), required=True
     )
@@ -459,8 +460,11 @@ def main() -> int:
                 target=args.target_sha,
                 verify_previous=args.verify_previous,
             )
+        unchanged_frontend = args.frontend_auth_domain_receipt is not None
+        if unchanged_frontend:
+            mode = run_path(str(ROOT / "scripts/ci/production_auth_domain_refresh.py"))["qualify_document_mode"](args, mode)
         if (
-            not args.production_restoration
+            not args.production_restoration and not unchanged_frontend
             and mode["configured"]
             and args.target_sha
             and not reader_supported(args.target_sha, args.required_ancestor)

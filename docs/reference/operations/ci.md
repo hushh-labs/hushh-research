@@ -173,6 +173,12 @@ the reviewed policy lands and active groups settle; record native readback.
 
 ## Manual deployment paths
 
+Before qualification, reconcile Main-owned recipe and migration-controller imports,
+including their SQL-generation helpers. An application-only branch may retain its
+own migration inventory; synchronizing the reviewed controller does not activate
+absent migrations or transfer an application tree to Main. Exact-input refusal is
+a source dependency to repair before launching another expensive validation.
+
 | Developer intent | Source | Required proof | Deployment |
 | --- | --- | --- | --- |
 | Feature integration | Feature PR into `dev` | Destination sync guidance and authoritative combined-result CI | Explicit Dev dispatch |
