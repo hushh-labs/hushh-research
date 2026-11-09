@@ -3866,7 +3866,7 @@ export default function ConnectPageClient() {
                                         : "Connected"
                                     }
                                     voiceLabel={connectionName}
-                                    supplement={connection.isRia === true || connection.connectedFromContacts === true ? (
+                                    titleSupplement={connection.isRia === true || connection.connectedFromContacts === true ? (
                                       <ConnectionStatusBadges
                                         riaVerified={connection.isRia === true}
                                         fromContacts={connection.connectedFromContacts === true}

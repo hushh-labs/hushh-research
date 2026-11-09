@@ -19,7 +19,7 @@ export function LocationMapCheckInControl({ owner, toneClassName, checkedIn, cou
     nativeAction={{ kind: "map-check-in", owner, context: "immersive-map-check-in", label: "Check in nearby", value: checkedIn ? "active" : "idle", onActivate: onOpen }}
     data-testid="one-location-map-nearby-check-in" onClick={onOpen}>
     <UsersRound className="h-4 w-4 shrink-0" />
-    <span data-location-type-role="compact-action" className="truncate">{checkedIn ? "Checked in" : "Check in"}</span>
+    <span data-location-type-role="compact-action" className="truncate">{checkedIn ? "View check-in" : "Check in"}</span>
   </ShellActionSurface>;
 }
 export function LocationMapLocateControl({ owner, toneClassName, busy, placeFocused, onLocate }: Base & { busy: boolean; placeFocused: boolean; onLocate: () => void }) {

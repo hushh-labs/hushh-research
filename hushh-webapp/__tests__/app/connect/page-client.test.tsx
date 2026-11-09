@@ -948,32 +948,29 @@ describe("Connect — People", () => {
     expect(rows.map(row => row.getAttribute("data-voice-label"))).toEqual([
       "Asha Contact", "Manual Friend", "Legacy Friend", "Second Contact",
     ]);
-    const contactBadge = within(rows[0]).getByRole("button", { name: "From Contacts" });
-    const riaBadge = within(rows[0]).getByRole("button", { name: "RIA verified" });
+    const contactBadge = within(rows[0]).getByRole("button", { name: "Via contacts" });
+    const riaBadge = within(rows[0]).getByRole("button", { name: "Verified Advisor" });
     const profileButton = within(rows[0]).getByRole("button", { name: "Open Asha Contact's profile" });
     expect(profileButton).not.toContainElement(contactBadge);
     expect(profileButton).not.toContainElement(riaBadge);
-    expect(within(rows[3]).getByRole("button", { name: "From Contacts" })).toBeVisible();
-    expect(within(rows[3]).queryByRole("button", { name: "RIA verified" })).toBeNull();
+    expect(within(rows[3]).getByRole("button", { name: "Via contacts" })).toBeVisible();
+    expect(within(rows[3]).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
     for (const row of rows.slice(1, 3)) {
-      expect(within(row).queryByRole("button", { name: "From Contacts" })).toBeNull();
-      expect(within(row).queryByRole("button", { name: "RIA verified" })).toBeNull();
+      expect(within(row).queryByRole("button", { name: "Via contacts" })).toBeNull();
+      expect(within(row).queryByRole("button", { name: "Verified Advisor" })).toBeNull();
     }
     expect(within(list).getAllByText("Connected")).toHaveLength(2);
 
+    expect(within(rows[0]).queryByText("Via contacts")).toBeNull();
     fireEvent.click(contactBadge);
-    expect(screen.getByRole("dialog", { name: "From Contacts" })).toHaveAccessibleDescription(
-      "This connection was matched through your synced contacts.",
-    );
-    act(() => { expect(dismissTopmostOverlay()).toBe(true); });
-    expect(screen.queryByRole("dialog", { name: "From Contacts" })).toBeNull();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Via contacts");
+    fireEvent.blur(contactBadge);
+    expect(screen.queryByRole("tooltip")).toBeNull();
 
     fireEvent.click(riaBadge);
-    expect(screen.getByRole("dialog", { name: "RIA verified" })).toHaveAccessibleDescription(
-      "This person is verified as a registered investment adviser (RIA).",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Close RIA verified details" }));
-    expect(screen.queryByRole("dialog", { name: "RIA verified" })).toBeNull();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Verified Advisor");
+    fireEvent.keyDown(riaBadge, { key: "Escape" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
@@ -1070,8 +1067,8 @@ describe("Connect — People", () => {
     expect(screen.getByRole("tab", { name: /My connections 5000/ })).toBeTruthy();
     const rows = within(screen.getByTestId("connect-my-connections-group")).getAllByTestId("connect-person-row");
     expect(rows).toHaveLength(2);
-    expect(within(rows[0]).queryByRole("button", { name: "From Contacts" })).toBeNull();
-    expect(within(rows[1]).getByRole("button", { name: "From Contacts" })).toBeVisible();
+    expect(within(rows[0]).queryByRole("button", { name: "Via contacts" })).toBeNull();
+    expect(within(rows[1]).getByRole("button", { name: "Via contacts" })).toBeVisible();
     expect(mocks.listConnectionsPage).toHaveBeenCalledWith(
       expect.objectContaining({ page: 2, limit: 50, audience: "all" }),
     );
