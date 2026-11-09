@@ -52,7 +52,7 @@ export function PersonProfilePage({ personRef = PEOPLE[0].publicPersonRef, onNet
   const [review, setReview] = useState(false);
   const person = PEOPLE.find(p => p.publicPersonRef === personRef) ?? PEOPLE[0];
   return <AppPageShell width="agent" fitContent><PersonProfileHero
-    profile={{ ...person, verifiedRole: null }}
+    profile={{ ...person, verifiedRole: person === PEOPLE[0] ? "Registered investment adviser" : null }}
     status={<span>Connected</span>} contacts={<span>Profile details</span>} primaryActions={<button type="button" onClick={() => setReview(true)}>Request information</button>} tasks={null} footer={null}
   /><PersonNetworkSummary personRef={personRef} onReady={onNetworkReady} /><Dialog modal open={review} onOpenChange={setReview}><DialogContent><DialogTitle>Review information request</DialogTitle><button type="button" onClick={() => setReview(false)}>Cancel request</button></DialogContent></Dialog></AppPageShell>;
 }

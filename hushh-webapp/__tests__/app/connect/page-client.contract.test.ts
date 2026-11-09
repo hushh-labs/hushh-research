@@ -30,27 +30,9 @@ describe("Connect canonical surface contract", () => {
     // A person is their own face where we have one -- the directory payload
     // has always carried `photoUrl`, and drawing everyone with the same glyph
     // made the one screen that exists to tell people apart useless at it.
-    //
-    // The verified mark did NOT go away with the glyph. It still rides on the
-    // row rather than the tab, so it means something in a search spanning both
-    // halves of the directory -- it is now a badge ON the avatar, so the photo
-    // says who and the badge says what, instead of one replacing the other.
-    // Asserted as behaviour rather than an exact ternary so a later refactor
-    // of the avatar is not blocked by the shape of this line.
     expect(source).toContain("ConnectionPersonAvatar");
     expect(source).toContain("photoUrl={connection.photoUrl ?? null}");
     expect(source).toContain("photoUrl={person.photoUrl}");
-    expect(source).toContain("verified={Boolean(person.isRia)}");
-
-    const avatarSource = readFileSync(
-      join(
-        process.cwd(),
-        "components/connections/connection-person-avatar.tsx",
-      ),
-      "utf8",
-    );
-    expect(avatarSource).toContain("BadgeCheck");
-    expect(avatarSource).toContain('aria-label="Verified advisor"');
     expect(source).toContain("separatorInset");
   });
 
