@@ -158,6 +158,7 @@ import {
 } from "@/lib/kai/actions/voice-action-card";
 import { getKaiActionById } from "@/lib/kai/actions/kai-action-gateway";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { ConnectionStatusBadges } from "@/components/connections/connection-status-badges";
 import {
   CONNECT_DIRECTORY_CONTENT_CLASSNAME,
   CONNECT_PAGER_BUTTON_CLASSNAME,
@@ -3496,10 +3497,6 @@ export default function ConnectPageClient() {
                                       key={person.userId}
                                       person={person}
                                       testId="directory-person-row"
-                                      // Verified is a state, and green is what this design
-                                      // system already spends on a verified one. It is on the
-                                      // row rather than on the tab so the mark still means
-                                      // something in a search that spans both.
                                       leading={
                                         <ConnectionPersonAvatar
                                           size="compact"
@@ -3507,7 +3504,6 @@ export default function ConnectPageClient() {
                                           fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(person.userId))}
                                           photoUrl={person.photoUrl}
                                           label={title}
-                                          verified={Boolean(person.isRia)}
                                         />
                                       }
                                       openLabel={`Open ${title}'s profile`}
@@ -3856,8 +3852,6 @@ export default function ConnectPageClient() {
                                         fallbackClassName={cn("text-[11px] font-semibold text-white", connectionAvatarTone(connection.userId))}
                                         photoUrl={connection.photoUrl ?? null}
                                         label={connectionName}
-                                        verified={Boolean(connection.isRia)}
-                                        fromContacts={connection.connectedFromContacts === true}
                                       />
                                     }
                                     title={connectionName}
@@ -3870,6 +3864,12 @@ export default function ConnectPageClient() {
                                         : "Connected"
                                     }
                                     voiceLabel={connectionName}
+                                    supplement={connection.isRia === true || connection.connectedFromContacts === true ? (
+                                      <ConnectionStatusBadges
+                                        riaVerified={connection.isRia === true}
+                                        fromContacts={connection.connectedFromContacts === true}
+                                      />
+                                    ) : undefined}
                                     openLabel={`Open ${connectionName}'s profile`}
                                     onOpen={
                                       connection.publicPersonRef
@@ -4025,7 +4025,6 @@ export default function ConnectPageClient() {
                             size="list"
                             photoUrl={person.photoUrl}
                             label={title}
-                            verified={Boolean(person.isRia)}
                           />
                         }
                         title={
@@ -4033,6 +4032,7 @@ export default function ConnectPageClient() {
                             {title}
                           </span>
                         }
+                        description={person.isRia === true ? <ConnectionStatusBadges riaVerified /> : undefined}
                         density="compact"
                         trailing={
                           <Button
