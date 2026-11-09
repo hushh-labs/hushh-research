@@ -193,12 +193,15 @@ def test_actual_candidate_gate_keeps_exact_digest_equality(tmp_path: Path, match
         "BACKEND_REVISION": "candidate",
         "EXPECTED_SHA": "c" * 40,
         "GITHUB_RUN_ID": "123",
+        "PREPROMOTION_UAT_GATES": "false",
+        "GCP_PROJECT_ID": "hushh-pda-uat",
         "EXPECTED_IMAGE_REFERENCE": image
         if matches
         else "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "b" * 64,
     }
     result = subprocess.run(  # noqa: S603 - extracted trusted Python gate, inert fixed fixtures
         [sys.executable, "-c", script],
+        cwd=ROOT,
         env=environment,
         capture_output=True,
         text=True,
