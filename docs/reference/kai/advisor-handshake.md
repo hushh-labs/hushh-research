@@ -8,7 +8,7 @@ flowchart LR
   Analysis --> Choose[Choose a verified advisor]
   Choose --> Approve[Approve connection and sealed Finance snapshot]
   Approve --> Pending[RIA Clients request inbox]
-  Pending --> Accept[Accept and connect atomically]
+  Pending --> Accept[Accept on the existing or newly connected edge]
   Accept --> Workspace[Participant workspace and expiring snapshot]
   Workspace --> Agree[Agree on an introduction time]
   Agree --> Calendar[Advisor reviews and confirms Google Calendar booking]
@@ -37,8 +37,9 @@ The snapshot is encrypted separately for the owner and advisor using the existin
 recipient-key system. Only ciphertext crosses the Finance request endpoint.
 
 The pending recipient sees the sender and introduction, not the snapshot.
-Verified RIA acceptance activates the canonical connection, its legacy read
-mirrors and the reference-only message in the same transaction. It does not grant
+Verified RIA acceptance reuses the active canonical connection. If a connection
+is needed, acceptance activates it with its legacy mirrors. The reference-only
+message and snapshot release share the same transaction. It does not grant
 trading, model-processing, Circle membership or any other data scope. Decline or
 withdraw removes the ciphertext. Repeated requests reuse the exact immutable
 request id; one pending or accepted workspace per owner/advisor pair prevents
