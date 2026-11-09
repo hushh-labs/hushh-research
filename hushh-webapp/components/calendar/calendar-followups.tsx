@@ -448,7 +448,7 @@ export function CalendarFollowups({ userId, accountId, accountEmail, zone, expan
       {status?.monitoring_enabled && list?.total_conversations === 0 && status.coverage?.coverage !== "catching_up" && status.scan_state === "complete" && !loading ? <p className="text-sm text-muted-foreground">No pending follow-ups.</p> : null}
       {notice ? <div className={notice.tone === "action" ? "flex flex-wrap items-center justify-between gap-2 text-sm" : "text-xs text-muted-foreground"} role="status">
         <span>{notice.text}</span>
-        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void (notice.action === "reconnect" ? reconnect() : checkAgain())}>{notice.action === "reconnect" ? "Reconnect email" : "Check again"}</Button> : null}
+        {notice.action ? <Button size="compact" variant="outline" disabled={busy} onClick={() => void reconnect()}>Reconnect email</Button> : null}
       </div> : null}
       {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
       <div className="flex items-center justify-between gap-2">
