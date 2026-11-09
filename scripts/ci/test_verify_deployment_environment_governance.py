@@ -97,10 +97,10 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     module._gh_json = fake_gh_json
 
 
-def test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> None:
+def test_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> None:
     module = _module()
     policy = _policy(module)
-    policy["dev"] = {**policy["uat"], "environment": "dev", "deployment_branches": ["dev", "main", "integration/pr-train"]}
+    policy["dev"] = {**policy["uat"], "environment": "dev", "deployment_branches": ["main"]}
     rows = [{"type": "branch", "name": name} for name in policy["dev"]["deployment_branches"]]
     inventory = {"total_count": len(rows), "branch_policies": rows}
     def read(path):
@@ -209,6 +209,7 @@ def test_production_tripwire_matches_committed_policy() -> None:
     policy = json.loads((root / "config/ci-governance.json").read_text())
     assert policy["authorization"]["native_teams"] is True
     assert not policy["production"]["manual_dispatch_users"]
+    assert all(policy[surface]["deployment_branches"] == ["main"] for surface in ("dev", "uat", "production"))
 
 
 def test_production_dispatch_accepts_only_the_approved_operators() -> None:
@@ -557,7 +558,7 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
 
 def main() -> int:
     tests = [
-        test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads,
+        test_exact_branch_inventory_refuses_wildcards_and_incomplete_reads,
         test_required_environment_variables_are_enforced,
         test_missing_environment_variable_fails_verification,
         test_production_cohort_drift_is_reported,

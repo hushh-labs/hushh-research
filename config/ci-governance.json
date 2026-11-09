@@ -154,7 +154,8 @@
       "GCP_DEPLOY_SERVICE_ACCOUNT"
     ],
     "manual_dispatch_users": [],
-    "owner_environment": "production"
+    "owner_environment": "production",
+    "deployment_branches": ["main"]
   },
   "readiness_exam": {
     "mode": "advisory",
