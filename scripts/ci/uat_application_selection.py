@@ -65,6 +65,7 @@ PRE_MUTATION_STEPS = frozenset({
     'Verify answer settlement before runtime mutation',
     'Require exact-SHA predecessor acceptance',
     'Resolve the exact accepted Dev backend image',
+    'Start backend image build in parallel',
     'Resolve retained protected document maintenance',
     'Enforce UAT database connection budget before deployment',
     'Verify prompt UAT Drive worker wake grant',
@@ -89,6 +90,7 @@ READ_ONLY_JOBS = frozenset({
 })
 PRE_MUTATION_REPORTING = frozenset({
     "Capture managed provider readiness receipt", "Record candidate PKM evaluator warning",
+    "Cancel unused parallel image builds",
     "Classify UAT release outcome", "Resolve final Cloud Run state",
     "Write UAT release status artifact", "Upload UAT deploy artifacts",
     "Upload Calendar follow-ups release evidence", "Upload PWM scheduler verification",
@@ -284,6 +286,8 @@ def inspect_deployment(repository, acceptance, deployment, needed, observed):
         return None
     return {
         "sha": application["sha"],
+        "tooling_sha": release_provenance.deployment_authority(run, "uat")["tooling_sha"],
+        "revisions": {service: application["revisions"][service] for service in touched},
         "accepted": {service: application["services"][service] for service in touched},
     }
 
@@ -300,7 +304,7 @@ def current_application(
     )
     require(type(limit) is int and 1 <= limit <= 300, "Observation bound is invalid")
     needed = {"backend", "frontend"} if scope in {"auto", "all"} else {scope}
-    accepted, observed, sources, count = {}, {}, {}, 0
+    accepted, observed, sources, tooling, revisions, count = {}, {}, {}, {}, {}, 0
     for page in range(1, 4):
         if count >= limit:
             break
@@ -320,6 +324,8 @@ def current_application(
                 return result
             accepted.update(result["accepted"])
             sources.update({service: result["sha"] for service in result["accepted"]})
+            tooling.update({service: result["tooling_sha"] for service in result["accepted"]})
+            revisions.update(result["revisions"])
             needed -= result["accepted"].keys()
             if not needed:
                 if not repository.unchanged() or not attempt_unchanged(
@@ -335,6 +341,8 @@ def current_application(
                         services=accepted,
                     ),
                     "sources": sources,
+                    "tooling": tooling,
+                    "revisions": revisions,
                 }
         if len(rows) < 100:
             break
