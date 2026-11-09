@@ -65,6 +65,7 @@ export function useCalendarConnectionStatus({
         error: "Calendar connection details couldn’t load. Refresh to try again.", loaded: true });
     }
   }, [canLoad, userId, identity]);
+  const refresh = useCallback(() => void load(), [load]);
 
   useEffect(() => {
     if (canLoad && (!current || (!snapshot.loaded && !snapshot.loading))) void load();
@@ -77,6 +78,6 @@ export function useCalendarConnectionStatus({
     loading: current && snapshot.loading,
     error: current ? snapshot.error : null,
     loaded: current && snapshot.loaded,
-    refresh: load,
+    refresh,
   };
 }
