@@ -207,6 +207,63 @@ def test_failed_reaction_cleanup_rolls_back_the_global_tombstone(projection_db, 
     assert history["content"] == "Keep on rollback" and history["reactions"]
 
 
+def test_reaction_and_whole_chat_delete_use_parent_first_lock_order(projection_db, monkeypatch):
+    _seed_people(projection_db)
+    reacting = _message_service(projection_db, monkeypatch)
+    deleting = _message_service(projection_db, monkeypatch)
+    sent = reacting.send_message("alice", recipient_user_id="bob", content="Concurrent chat delete")
+    conversation, message = sent["conversation"]["id"], sent["message"]["id"]
+    admitted, release, attempted = Event(), Event(), Event()
+    pids = {}
+    original = reacting._message_action_row
+
+    def hold(*args, **kwargs):
+        row = original(*args, **kwargs)
+        pids["reaction"] = reacting._transaction_connection.execute(
+            text("SELECT pg_backend_pid()")
+        ).scalar_one()
+        admitted.set()
+        assert release.wait(10)
+        return row
+
+    monkeypatch.setattr(reacting, "_message_action_row", hold)
+    original_delete = deleting._execute_one
+
+    def observe_delete(sql, params=None):
+        if "FOR UPDATE" in sql:
+            pids["delete"] = deleting._transaction_connection.execute(
+                text("SELECT pg_backend_pid()")
+            ).scalar_one()
+            attempted.set()
+        return original_delete(sql, params)
+
+    monkeypatch.setattr(deleting, "_execute_one", observe_delete)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        reaction = pool.submit(reacting.react_to_message, "bob", conversation, message, emoji="👍")
+        try:
+            assert admitted.wait(10)
+            deletion = pool.submit(deleting.delete_conversation, "alice", conversation)
+            assert attempted.wait(10)
+            deadline = time.monotonic() + 5
+            with projection_db.engine.connect() as monitor:
+                while time.monotonic() < deadline:
+                    blockers = monitor.execute(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": pids["delete"]}
+                    ).scalar_one()
+                    if pids["reaction"] in blockers:
+                        break
+                    time.sleep(0.02)
+                else:
+                    pytest.fail("Chat deletion never waited for the reaction transaction")
+        finally:
+            release.set()
+        assert reaction.result(timeout=10)["message"]["reactions"]
+        assert deletion.result(timeout=10)["deleted"] is True
+    assert reacting.list_messages("alice", conversation)["items"] == []
+    peer = reacting.list_messages("bob", conversation)["items"][0]
+    assert peer["content"] == "Concurrent chat delete" and peer["reactions"]
+
+
 @pytest.mark.parametrize("viewer,peer", [("alice", "bob"), ("bob", "alice")])
 def test_delete_chat_is_viewer_only_durable_and_new_messages_restore_it(
     projection_db, monkeypatch, viewer, peer

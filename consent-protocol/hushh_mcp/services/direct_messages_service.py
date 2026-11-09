@@ -1025,6 +1025,44 @@ class DirectMessagesService:
     ) -> dict[str, Any] | None:
         """Read one message through the same participant-only projection as history."""
 
+        if for_update:
+            # Whole-chat deletion locks conversation before messages. Hold the
+            # same parent-first order before the reaction trigger reads it too.
+            conversation = self._execute_one(
+                """
+                SELECT conversation.id FROM conversations conversation
+                WHERE conversation.id = CAST(:conversation_id AS UUID)
+                  AND :viewer_user_id IN (
+                    conversation.participant_a_user_id, conversation.participant_b_user_id
+                  )
+                FOR KEY SHARE OF conversation
+                """,
+                {"viewer_user_id": viewer_user_id, "conversation_id": conversation_id},
+            )
+            if conversation is None:
+                return None
+            locked = self._execute_one(
+                """
+                SELECT message.id
+                FROM messages message
+                JOIN conversations conversation ON conversation.id = message.conversation_id
+                WHERE message.id = CAST(:message_id AS UUID)
+                  AND message.conversation_id = CAST(:conversation_id AS UUID)
+                  AND :viewer_user_id IN (
+                    conversation.participant_a_user_id, conversation.participant_b_user_id
+                  )
+                FOR UPDATE OF message
+                """,
+                {
+                    "viewer_user_id": viewer_user_id,
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                },
+            )
+            if locked is None:
+                return None
+            # Read visibility and reactions after acquiring the lock, including
+            # any deletion committed while this transaction was waiting.
         return self._execute_one(
             """
             SELECT
@@ -1089,8 +1127,7 @@ class DirectMessagesService:
                 conversation.participant_b_user_id
               )
             LIMIT 1
-            """
-            + (" FOR UPDATE OF message" if for_update else ""),
+            """,
             {
                 "viewer_user_id": viewer_user_id,
                 "conversation_id": conversation_id,
@@ -2093,14 +2130,6 @@ class DirectMessagesService:
         viewer = self._normalize_user_id(viewer_user_id, field="viewerUserId")
         bounded_limit = max(1, min(int(limit or 100), 100))
         position = _decode_inbox_cursor(viewer, cursor) if cursor is not None else None
-        continuation = (
-            ""
-            if position is None
-            else """
-              AND (COALESCE(conversation.last_message_at, conversation.created_at), conversation.id)
-                  < (:cursor_time, CAST(:cursor_id AS UUID))
-        """
-        )
         rows = self._execute_many(
             """
             SELECT
@@ -2177,9 +2206,11 @@ class DirectMessagesService:
               conversation.participant_b_user_id
             )
               AND latest.id IS NOT NULL
-            """
-            + continuation
-            + """
+              AND (
+                CAST(:cursor_time AS TIMESTAMPTZ) IS NULL
+                OR (COALESCE(conversation.last_message_at, conversation.created_at), conversation.id)
+                   < (CAST(:cursor_time AS TIMESTAMPTZ), CAST(:cursor_id AS UUID))
+              )
             ORDER BY COALESCE(conversation.last_message_at, conversation.created_at) DESC,
                      conversation.id DESC
             LIMIT :limit
@@ -2187,7 +2218,8 @@ class DirectMessagesService:
             {
                 "viewer_user_id": viewer,
                 "limit": bounded_limit + 1,
-                **({"cursor_time": position[0], "cursor_id": position[1]} if position else {}),
+                "cursor_time": position[0] if position else None,
+                "cursor_id": position[1] if position else None,
             },
         )
         has_more = len(rows) > bounded_limit

@@ -2967,6 +2967,8 @@ not a frozen snapshot under arbitrary concurrent activity. Reactions reconcile
 only their own emoji while their optimistic lease remains current; completion
 never restores an older message body, receipt or tombstone. History revalidation
 remains fenced to the selected conversation and owner.
+Message actions acquire the participant conversation lock before the message
+lock, matching whole-chat deletion and the reaction trigger's parent read.
 
 Opening a person returns their participant-safe `peerDisplayName` and
 `peerPhotoUrl` alongside `peerPersonRef`, including an accepted, unblocked
