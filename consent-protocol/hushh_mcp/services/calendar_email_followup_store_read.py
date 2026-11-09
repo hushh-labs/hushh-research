@@ -78,7 +78,7 @@ _LIVE = f"""WITH live AS (
     CASE WHEN urgency_rank=0 THEN 0 WHEN day<=CAST(:today AS DATE)+7 THEN 0
          WHEN day IS NOT NULL THEN 1 ELSE 2 END AS tier
   FROM live
-)"""
+)"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
 
 # Static per view. Fewer ambiguities is the available confidence signal.
 _ORDER: dict[str, str] = {
@@ -101,11 +101,11 @@ SELECT c.id,c.subject_ciphertext,c.sender_ciphertext,c.thread_ref_ciphertext,
   (SELECT count(*) FROM live l WHERE l.conversation_id=c.id) AS request_count,
   (SELECT count(*) FROM live l WHERE l.conversation_id=c.id AND l.bucket=:view) AS active_count
 FROM best JOIN calendar_email_followup_conversations c ON c.id=best.conversation_id
-ORDER BY {order},c.latest_internal_date_ms DESC,c.id DESC LIMIT :limit OFFSET :offset"""
+ORDER BY {order},c.latest_internal_date_ms DESC,c.id DESC LIMIT :limit OFFSET :offset"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated; order is from a fixed dict keyed by a validated view
 
 
 _COUNTS = f"""{_LIVE}
-SELECT bucket,count(DISTINCT conversation_id) FROM live GROUP BY bucket"""
+SELECT bucket,count(DISTINCT conversation_id) FROM live GROUP BY bucket"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
 
 
 def _previews_sql(view: str) -> str:
@@ -113,7 +113,7 @@ def _previews_sql(view: str) -> str:
 SELECT r.*,ranked.bucket FROM ranked
 JOIN calendar_email_followup_requests r ON r.id=ranked.request_id
 WHERE ranked.conversation_id=ANY(CAST(:conversation_ids AS UUID[])) AND ranked.bucket=:view
-ORDER BY ranked.conversation_id,{_ORDER[view]}"""
+ORDER BY ranked.conversation_id,{_ORDER[view]}"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated; order is from a fixed dict keyed by a validated view
 
 
 # One conversation's live requests with their view and how many other emails
@@ -123,7 +123,7 @@ SELECT r.*,ranked.bucket,
   (SELECT count(*) FROM calendar_email_followup_requests m WHERE m.merged_into=r.id) AS repeat_count
 FROM ranked JOIN calendar_email_followup_requests r ON r.id=ranked.request_id
 WHERE ranked.conversation_id=CAST(:conversation_id AS UUID)
-ORDER BY r.source_internal_date_ms,r.id"""
+ORDER BY r.source_internal_date_ms,r.id"""  # nosec B608 # composed only from module-constant SQL fragments; no request data is interpolated
 
 
 def _utcnow() -> datetime:
