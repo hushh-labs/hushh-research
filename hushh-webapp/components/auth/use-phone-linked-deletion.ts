@@ -51,13 +51,15 @@ export function usePhoneLinkedDeletion(p: Params) {
     inFlight.current = true; setBusy(true); setError(null); guard.pending = true;
     let committed = false;
     try {
-      const user = await confirm({ operationId: prepared.operation_id, phoneNumber: phone, testCode });
+      // Once sent but unconfirmed, the same control only reads the outcome back.
+      const user = await confirm({ operationId: prepared.operation_id, phoneNumber: phone, testCode, recheck: unconfirmed });
       if (!current()) return;
       committed = true; guard.pending = false; setPrepared(null);
       await onDeleted(user);
     } catch (error) {
       if (!current() || committed) return;
-      const code = apiErrorCode(error);
+      // A sent confirmation never becomes unsent again, even after an uncoded failure.
+      const code = apiErrorCode(error) ?? (unconfirmed ? "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" : null);
       // Back is held only while a request is in flight: the server never
       // dispatches an operation twice, so leaving after a read-back is safe.
       guard.pending = false;
@@ -66,7 +68,7 @@ export function usePhoneLinkedDeletion(p: Params) {
       setFreshProof(linkedDeletionNeedsFreshProof(code));
       setError(linkedDeletionMessage(code));
     } finally { guard.pending = false; inFlight.current = false; if (current()) setBusy(false); }
-  }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError]);
+  }, [busy, confirm, conflict, current, guard, inFlight, onDeleted, phone, prepared, setBusy, setError, unconfirmed]);
 
   /** Leave the review; false only while a confirmation request is in flight. */
   const leave = useCallback(() => {

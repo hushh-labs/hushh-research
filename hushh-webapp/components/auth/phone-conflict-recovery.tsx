@@ -72,14 +72,17 @@ function LinkedDeletionReview(props: Props) {
     {settled ? null : <p className="text-sm text-muted-foreground">This permanently deletes that account and its vault. You can’t undo this.</p>}
     {props.operationError ? <p role={settled ? "status" : "alert"} className={settled ? "text-sm text-muted-foreground" : "text-sm text-destructive"}>{props.operationError}</p> : null}
     {/* A spent or expired proof deletes nothing more; only a new verification continues. */}
-    {props.deletionNeedsFreshProof ? verifyAgain(true) : <>
+    {props.deletionNeedsFreshProof ? verifyAgain(true) : props.deletionUnconfirmed ? <>
+      {/* Once a confirmation was sent, nothing can be cancelled or sent again: Check again only reads it back. */}
+      <Button type="button" className="w-full" disabled={props.busy || props.submissionBlocked} data-voice-control-id="phone-flow-delete-check" onClick={() => void props.confirmDeletion()}>{props.busy ? "Checking…" : "Check again"}</Button>
+      {verifyAgain(false)}
+    </> : <>
       <label className="flex items-start gap-3 text-sm">
         <input type="checkbox" className="mt-1" checked={acknowledged} disabled={props.busy} onChange={event => setAcknowledged(event.target.checked)} />
         <span>I understand this can’t be undone.</span>
       </label>
-      <Button type="button" variant="destructive" className="w-full" disabled={!ready} data-voice-control-id="phone-flow-delete-confirm" onClick={() => void props.confirmDeletion()}>{props.busy ? "Requesting deletion…" : props.deletionUnconfirmed ? "Check again" : "Delete and continue"}</Button>
-      {/* Once a confirmation was sent, nothing can be cancelled; leaving means verifying again. */}
-      {props.deletionUnconfirmed ? verifyAgain(false) : <Button type="button" variant="none" disabled={props.busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>}
+      <Button type="button" variant="destructive" className="w-full" disabled={!ready} data-voice-control-id="phone-flow-delete-confirm" onClick={() => void props.confirmDeletion()}>{props.busy ? "Requesting deletion…" : "Delete and continue"}</Button>
+      <Button type="button" variant="none" disabled={props.busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
     </>}
   </div>;
 }

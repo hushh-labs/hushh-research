@@ -132,10 +132,14 @@ describe("in-place deletion of the account linked to the number", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: "I understand this can’t be undone." }));
     fireEvent.click(screen.getByRole("button", { name: "Delete and continue" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("We couldn’t confirm the deletion. Check again, or contact one@hushh.ai."));
-    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    const check = screen.getByRole("button", { name: "Check again" });
+    // A sent confirmation is only read back: its own read-only control, no second destructive action.
+    expect(check).toHaveAttribute("data-voice-control-id", "phone-flow-delete-check");
+    expect(screen.queryByRole("button", { name: "Delete and continue" })).toBeNull();
+    fireEvent.click(check);
     await waitFor(() => expect(confirmLinkedDeletion).toHaveBeenCalledTimes(2));
-    // Re-reading the same operation is safe: the server never dispatches it twice.
-    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined });
+    expect(confirmLinkedDeletion).toHaveBeenNthCalledWith(1, { operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined, recheck: false });
+    expect(confirmLinkedDeletion).toHaveBeenLastCalledWith({ operationId: "op-1", phoneNumber: "+16505550101", testCode: undefined, recheck: true });
     // A sent confirmation cannot be cancelled: the exit is a new verification, never the spent choices.
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     fireEvent.click(await screen.findByRole("button", { name: "Verify this number again" }));

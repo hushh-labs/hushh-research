@@ -47,7 +47,7 @@ describe("confirmLinkedDeletion", () => {
     expect(owner.releaseProof).not.toHaveBeenCalled();
   });
 
-  it("does not release a newer same-owner attempt after a late deletion admission", async () => {
+  it("reports a late admission as requested without releasing a newer same-owner attempt", async () => {
     let admit!: (value: { operation_id: string; state: "admitted" }) => void;
     vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockReturnValue(new Promise(resolve => { admit = resolve; }));
     const owner = ports();
@@ -55,7 +55,10 @@ describe("confirmLinkedDeletion", () => {
     expect(owner.requireOwner).toHaveBeenCalledOnce();
     owner.requireOwner.mockImplementation(() => { throw new Error("Phone attempt changed"); });
     admit({ operation_id: "op-1", state: "admitted" });
-    expect((await result).message).toBe("Phone attempt changed");
+    const failure = await result;
+    // The deletion was requested either way; only the release belongs to the attempt that sent it.
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
+    expect(failure.message).toContain("Deletion requested.");
     expect(owner.releaseProof).not.toHaveBeenCalled();
   });
 
@@ -69,7 +72,42 @@ describe("confirmLinkedDeletion", () => {
     await vi.runAllTimersAsync();
     expect(apiErrorCode(await result)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
     expect(claim).not.toHaveBeenCalled();
-    // The proof stays for "Check again" on the same operation; nothing is released yet.
+    // Nothing is released while the outcome is unknown.
+    expect(owner.releaseProof).not.toHaveBeenCalled();
+  });
+
+  it("keeps a timed-out confirmation that reads back prepared unconfirmed, because it can still be admitted", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion").mockRejectedValue(new DOMException("The operation timed out.", "TimeoutError"));
+    const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "prepared" });
+    const owner = ports();
+    const result = confirmLinkedDeletion(input, owner).catch(error => error);
+    await vi.runAllTimersAsync();
+    // Never a retryable "Couldn't reach One" with Cancel while the sent request may still run.
+    expect(apiErrorCode(await result)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
+    expect(status).toHaveBeenCalledOnce();
+    expect(owner.releaseProof).not.toHaveBeenCalled();
+  });
+
+  it("rechecks by reading back only, and reports admission truthfully even after the owner fence moved", async () => {
+    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion");
+    const status = vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "admitted" });
+    // No proof is retained for this attempt any more, so none can be sent or released.
+    const owner = ports(null);
+    const failure = await confirmLinkedDeletion({ ...input, recheck: true }, owner).catch(error => error);
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_CLAIM_REQUIRED");
+    expect(confirm).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledExactlyOnceWith(user, "op-1", expect.any(Function));
+    expect(owner.releaseProof).not.toHaveBeenCalled();
+  });
+
+  it("keeps a recheck that still reads prepared unconfirmed and never sends the deletion", async () => {
+    const confirm = vi.spyOn(PhoneRecoveryService, "confirmLinkedDeletion");
+    vi.spyOn(PhoneRecoveryService, "linkedDeletionStatus").mockResolvedValue({ operation_id: "op-1", state: "prepared" });
+    const owner = ports();
+    const failure = await confirmLinkedDeletion({ ...input, recheck: true }, owner).catch(error => error);
+    expect(apiErrorCode(failure)).toBe("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
+    expect(confirm).not.toHaveBeenCalled();
     expect(owner.releaseProof).not.toHaveBeenCalled();
   });
 
