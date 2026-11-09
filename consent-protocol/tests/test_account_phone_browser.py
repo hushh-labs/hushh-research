@@ -32,7 +32,7 @@ from tests.helpers.phone_conflict_browser import (
 from tests.helpers.phone_transfer_postgres import database_url as database_url
 
 pytestmark = [pytest.mark.feature_auth_reliability, pytest.mark.trace_loop]
-SCENARIOS = {"recover", "occupied", "devices"}
+SCENARIOS = {"recover", "occupied", "delete_linked", "devices"}
 
 
 class RecordedFirebase:
@@ -309,9 +309,10 @@ def _fixture_app(pool, recorded, baseline, outcomes, monkeypatch):
         baseline.clear()
         baseline.update(await _seed(pool, files=scenario in {"recover", "occupied"}))
         recorded.active = "previous" if scenario == "devices" else "receiving-a"
-        # The sign-in handoff remains the path whenever in-place deletion is off.
+        # The sign-in handoff remains the path whenever in-place deletion is off;
+        # the recover journey proves that fallback, so it runs with deletion off.
         monkeypatch.setenv(
-            "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "delete" else "true"
+            "HUSHH_PHONE_LINKED_DELETION_ENABLED", "false" if scenario == "recover" else "true"
         )
         recorded.phone = PHONE
         recorded.claims.clear()
@@ -371,7 +372,7 @@ async def test_recorded_phone_browser_journeys(database_url, monkeypatch, browse
             )
         assert result["feature"] == "phone_conflict"
         assert result["engine"] == browser_engine
-        assert outcomes == ["recover", "occupied", "devices"]
+        assert outcomes == ["recover", "occupied", "delete_linked", "devices"]
         assert "legacy_257_handoff_rejected" in result["trace_loop"]
     finally:
         engine.dispose()

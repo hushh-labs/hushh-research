@@ -2659,7 +2659,7 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires that existing account sign-in or a different number.",
+      "completionBoundary": "Phone verification completes only after the backend confirms the number belongs to the signed-in account. A number linked to another email account requires a different number, an explicitly confirmed deletion of that account followed by fresh verification after the number is released, or that existing account sign-in.",
       "nextRoute": "/one/setup",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -2676,7 +2676,7 @@
         }
       ],
       "kind": "surface-owned",
-      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; active verification or deletion-review handoff consumes Back until the request settles. Deletion requires independent previous-account sign-in and confirmation; phone proof cannot transfer or delete the number holder. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
+      "reason": "Mandatory phone verification owns nested Back: an occupied-number conflict returns to phone entry; the in-place linked-account deletion review returns to the conflict choices only while nothing was sent, and to phone entry after a confirmation was sent or once its proof is spent or expired; active verification, deletion confirmation or the deletion-review handoff consumes Back until the request settles. Deletion needs the retained fresh SMS proof plus explicit confirmation, or previous-account sign-in when in-place deletion is unavailable; phone proof never transfers the number. Behavioral proof: phone-verification-flow-interaction.test.tsx and phone-verification-transport-recovery.test.tsx. Opaque recovery review owns Back: deletion review returns to choices; outer Back clears the continuation query. Behavioral proof: register-phone-conflict-runtime.test.tsx."
     }
   },
   {
