@@ -221,6 +221,63 @@ describe("LocationPickerMap", () => {
     expect(reverseGeocode).not.toHaveBeenCalled();
   });
 
+  it("preserves the saved address when the pin stays at or returns to its original point", async () => {
+    vi.useFakeTimers();
+    try {
+      const savedPoint = { lat: 28.6139, lng: 77.209 };
+      const savedAddress = "2 QA Test Lane";
+      const reverseGeocode = vi.fn().mockResolvedValue("Conflicting provider address");
+      const onConfirm = vi.fn();
+      render(
+        <LocationPickerMap
+          initialLatitude={savedPoint.lat}
+          initialLongitude={savedPoint.lng}
+          initialAddress={savedAddress}
+          reverseGeocode={reverseGeocode}
+          onConfirm={onConfirm}
+          onCancel={vi.fn()}
+        />,
+      );
+
+      await act(async () => {
+        listeners.get("idle")?.();
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(screen.getByText(savedAddress)).toBeInTheDocument();
+      expect(reverseGeocode).not.toHaveBeenCalled();
+
+      let finishMovedLookup: (address: string) => void = () => undefined;
+      reverseGeocode.mockImplementationOnce(() => new Promise<string>((resolve) => {
+        finishMovedLookup = resolve;
+      }));
+      currentCenter = { lat: 28.6142, lng: 77.2094 };
+      await act(async () => {
+        listeners.get("dragstart")?.();
+        listeners.get("idle")?.();
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(reverseGeocode).toHaveBeenCalledExactlyOnceWith(28.6142, 77.2094);
+
+      currentCenter = savedPoint;
+      await act(async () => {
+        listeners.get("dragstart")?.();
+        listeners.get("idle")?.();
+        finishMovedLookup("Late address for the moved pin");
+        await vi.advanceTimersByTimeAsync(350);
+      });
+      expect(screen.getByText(savedAddress)).toBeInTheDocument();
+      expect(reverseGeocode).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Confirm location" }));
+      expect(onConfirm).toHaveBeenCalledWith({
+        latitude: savedPoint.lat,
+        longitude: savedPoint.lng,
+        address: savedAddress,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("blocks confirmation until the moved centre has a matching address", async () => {
     vi.useFakeTimers();
     let resolveAddress: ((value: string | null) => void) | undefined;
