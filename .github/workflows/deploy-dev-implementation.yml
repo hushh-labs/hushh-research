@@ -39,10 +39,13 @@ on:
         required: false
         type: string
     secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
       GH_SECURITY_ALERTS_TOKEN:
-        required: false
+        required: true
 
 permissions:
+  pull-requests: read
   contents: read
   checks: read
   actions: read
@@ -77,59 +80,32 @@ concurrency:
 
 jobs:
   deployment-security:
-    name: Request Main security clearance
+    name: Deployment security
     if: inputs.target != 'pod-publication' || inputs.operation != 'deploy'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 7
     permissions:
+      pull-requests: read
       contents: read
-      actions: write
-    outputs:
-      application_sha: ${{ steps.clearance.outputs.sha }}
-      attempt: ${{ steps.clearance.outputs.attempt }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          persist-credentials: false
-      - name: Validate explicit operation
-        env:
-          OPERATION: ${{ inputs.operation }}
-          TARGET: ${{ inputs.target }}
-        run: |
-          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
-          if [[ "$OPERATION" == inspect-routing ]]; then
-            test "$TARGET" = shared-dev
-          fi
-      - name: Request and verify Main clearance
-        id: clearance
-        run: python3 scripts/ci/deployment_security.py --request-broker
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ inputs.sha || inputs.ref || 'dev' }}
-          DEPLOY_SECURITY_ENVIRONMENT: dev
-          DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: deployment-security-request-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/deployment-security-request.json
-            ${{ runner.temp }}/deployment-security.json
-          if-no-files-found: warn
-          retention-days: 7
+      actions: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
+      environment_name: dev
+      scope: ${{ inputs.scope || 'auto' }}
 
   pod-security:
     name: Pod publication security
     if: inputs.target == 'pod-publication' && inputs.operation == 'deploy'
     permissions:
+      pull-requests: read
       contents: read
       actions: read
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
       environment_name: dev
@@ -139,6 +115,12 @@ jobs:
     needs: deployment-security
     name: Deploy Dev Scope
     if: inputs.target != 'pod-publication' && inputs.operation == 'deploy'
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     environment: dev
 
@@ -153,14 +135,14 @@ jobs:
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
-      # The caller is Dev; this implementation is resolved from Main.
+      # Both caller and release implementation are Main-owned.
       # Application content remains independently selected and qualified.
-      - name: Assert manual dispatch originates from dev
+      - name: Assert manual dispatch originates from Main
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF_NAME}" != "dev" ]; then
-            echo "Refusing dev deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'dev' only."
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing dev deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
             exit 1
           fi
 
@@ -177,6 +159,10 @@ jobs:
 
       - name: Assert manual dev dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface dev --actor "${GITHUB_ACTOR}"
@@ -232,6 +218,17 @@ jobs:
           REQUIRED_CHECK_NAME: "CI Status Gate,Queue Validation,Main Post-Merge Smoke Gate,Branch Validation Gate"
         run: bash scripts/ci/require-deploy-sha-on-main.sh "${{ steps.resolve-sha.outputs.sha }}"
 
+      - name: Verify Main-owned build and migration authority
+        env:
+          APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts/ci")
+          from uat_exact_ci import verify_privileged_release_inputs
+          verify_privileged_release_inputs(os.environ["APPLICATION_SHA"], os.environ["RELEASE_TOOLING_SHA"])
+          PY
+
       - name: Checkout deployment SHA
         shell: bash
         run: |
@@ -239,6 +236,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/release-tools"
           cp scripts/ci/verify-predecessor-acceptance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/release_acceptance_provenance.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/verify-cloudrun-revision-provenance.py "${RUNNER_TEMP}/release-tools/"
           mkdir -p "${RUNNER_TEMP}/release-tools/account-deletion"
@@ -418,7 +416,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/ci/resolve-uat-verification-plan.py \
+          python3 "${RUNNER_TEMP}/release-tools/resolve-uat-verification-plan.py" \
             --target-sha "${{ steps.resolve-sha.outputs.sha }}" \
             --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
             --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
@@ -429,7 +427,7 @@ jobs:
             --json-output /tmp/dev-verification-plan.json
 
       - name: Install selected owner-verification dependencies
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -437,14 +435,11 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Prepare selected owner-verification dependencies
-        if: steps.verification-plan.outputs.requires_web_dependencies == 'true'
+        if: steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'
         shell: bash
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp
-          if [[ "${{ steps.verification-plan.outputs.run_reviewer_byok }}" == "true" ]]; then
-            (cd hushh-webapp && npx playwright install --with-deps chromium)
-          fi
 
       - name: Validate candidate build capabilities
         id: candidate-capabilities
@@ -453,7 +448,6 @@ jobs:
           BUILD_POD_IMAGE: ${{ inputs.build_pod_image && 'true' || 'false' }}
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           RUN_PKM_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
-          RUN_REVIEWER_BYOK: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
           CANDIDATE_SHA: ${{ steps.resolve-sha.outputs.sha }}
         run: |
           set -euo pipefail
@@ -466,15 +460,6 @@ jobs:
           required_files = []
           if os.environ.get("RUN_PKM_GATE") == "true":
               required_files.append("scripts/ci/run-release-pkm-gate.sh")
-          reviewer_script = None
-          if os.environ.get("RUN_REVIEWER_BYOK") == "true":
-              # Current candidates use .agents; older main candidates retain .codex.
-              # A partial canonical tree must refuse, never borrow legacy files.
-              canonical = Path(".agents/skills/reviewer-app-testing")
-              reviewer_root = (canonical if canonical.exists() else
-                               Path(".codex/skills/reviewer-app-testing")) / "scripts"
-              reviewer_script = reviewer_root / "verify-reviewer-byok-navigation.mjs"
-              required_files.extend((reviewer_script, reviewer_root / "reviewer-rehearsal-preflight.mjs"))
           if any(not Path(filename).is_file() for filename in required_files):
               raise SystemExit("Candidate lacks selected preservation or owner-verification support")
           interfaces = [
@@ -522,9 +507,6 @@ jobs:
                       "--descriptor-sha", os.environ["CANDIDATE_SHA"],
                       "--check-source-only",
                   ], check=True, timeout=45)
-          if reviewer_script is not None:
-              with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-                  output.write(f"reviewer_byok_script={reviewer_script.as_posix()}\n")
           PYBUILD
 
       - name: Sync canonical hosted runtime secrets
@@ -1420,21 +1402,6 @@ jobs:
             --web-env hushh-webapp/.env.local \
             --report-path /tmp/dev-release-verify-attempt-2.json
 
-      - name: Verify selected reviewer BYOK navigation and cold re-unlock
-        id: verify-reviewer-byok
-        if: steps.verification-plan.outputs.run_reviewer_byok == 'true' && (steps.verify-dev-1.outcome == 'success' || steps.verify-dev-2.outcome == 'success')
-        continue-on-error: true
-        shell: bash
-        env:
-          REVIEWER_APP_ORIGIN: ${{ env.APP_FRONTEND_ORIGIN }}
-          REVIEWER_APP_ROUTES: /,/one/kai?tab=portfolio,/one/pkm
-          REVIEWER_SECRET_PROJECT: ${{ env.GCP_PROJECT_ID }}
-          REVIEWER_BYOK_SCRIPT: ${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}
-        run: |
-          set -euo pipefail
-          test -n "$REVIEWER_BYOK_SCRIPT"
-          node "$REVIEWER_BYOK_SCRIPT"
-
       - name: Classify dev release outcome
         if: always()
         id: classify-dev-release
@@ -1450,14 +1417,32 @@ jobs:
           DB_OUTCOME: ${{ steps.postdeploy-db-gate.outcome }}
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-dev-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-dev-2.outcome }}
-          REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
-          REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
+          REVIEWER_BYOK_REQUIRED: "false"
+          REVIEWER_BYOK_OUTCOME: "not_requested"
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json
           import os
           from pathlib import Path
+
+          verification_outcomes = [os.environ.get(name, "") for name in (
+              "PARITY_ATTEMPT_1", "PARITY_ATTEMPT_2", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
+              "BACKEND_PROVENANCE_OUTCOME", "FRONTEND_PROVENANCE_OUTCOME", "DB_OUTCOME")]
+          if all(value in {"", "skipped"} for value in verification_outcomes):
+              reason = ("frontend_image_build_failed" if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure"
+                        else "prerequisite_failed")
+              payload = {"status": "blocked", "phase": "verification_not_reached", "release_failed": True,
+                         "blocking_classifications": [reason], "backend_failure": False, "frontend_failure": False,
+                         "parity": {"status": "not_reached", "success": False},
+                         "provenance": {"status": "not_reached"},
+                         "semantic": {"status": "not_reached", "success": False},
+                         "db_contract": {"status": "not_reached"}}
+              Path("/tmp/dev-release-classification.json").write_text(json.dumps(payload, indent=2))
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                  output.write("release_failed=true\nbackend_failure=false\nfrontend_failure=false\n")
+              print("Release verification was not reached; inspect the preceding prerequisite failure.")
+              raise SystemExit(0)
 
           def load_json(path: str) -> dict:
               candidate = Path(path)
@@ -1795,7 +1780,7 @@ jobs:
           test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         id: final-state
         shell: bash
         run: |
@@ -1945,8 +1930,8 @@ jobs:
                   "not_applicable": "${{ env.DEV_TARGET == 'scope-commerce-sandbox' }}",
                   "pkm_preservation_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
                   "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
-                  "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
-                  "reviewer_byok_outcome": "${{ steps.verify-reviewer-byok.outcome }}",
+                  "reviewer_byok_required": "false",
+                  "reviewer_byok_outcome": "not_requested",
               },
               "verification": {
                   "answer_work_drain_activation": "${{ steps.activate-answer-work-drain.outcome }}",
@@ -2079,7 +2064,7 @@ jobs:
             echo "- Requested scope: \`${{ github.event.inputs.scope }}\`"
             echo "- Verification plan: \`${{ steps.verification-plan.outputs.reason || 'isolated_preview' }}\`"
             echo "- PKM preservation: \`${{ steps.verify-pkm-preservation.outcome || 'not_selected' }}\`"
-            echo "- Reviewer BYOK: \`${{ steps.verify-reviewer-byok.outcome || 'not_selected' }}\`"
+            echo "- App-browser diagnostics: not requested by Dev deployment; run explicitly outside the release"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
             echo "- Scope reason: \`${{ steps.scope.outputs.reason }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
@@ -2129,7 +2114,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove this run's candidate tags
-        if: always() && steps.verify-candidates.outcome != 'skipped'
+        if: always() && steps.gcp-auth.outcome == 'success' && steps.verify-candidates.outcome != 'skipped'
         continue-on-error: true
         shell: bash
         run: |
@@ -2165,6 +2150,9 @@ jobs:
     needs: pod-security
     name: Pod Release Publication
     if: inputs.target == 'pod-publication' && inputs.operation == 'deploy'
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: dev
@@ -2192,6 +2180,8 @@ jobs:
       - name: Admit Main-owned pod publication
         shell: bash
         env:
+          RELEASE_AUTHORIZATION: ${{ needs.pod-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.pod-security.outputs.application_sha }}
           REQUESTED_SCOPE: ${{ inputs.scope }}
           LEGACY_BUILD_FLAG: ${{ inputs.build_pod_image && 'true' || 'false' }}
         run: |
@@ -2308,7 +2298,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = dev
+          test "$GITHUB_REF_NAME" = main
           test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
           [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Authenticate to the matching environment

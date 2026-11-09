@@ -1,7 +1,7 @@
 {
   "schema_version": "one.capability_graph_evolution.v1",
   "workflow_predecessor_refs": [
-    "31fec60d9cd0d7364639f01f678e38dc0adede1e",
+    "4b74cf8ca33e7d8d1cfe4c89bf8de7e73a3f8613",
     "0997ef846ca5bdcc1c695c132e5b1c7453edee47",
     "3e248fc4bf04df28bf677bcc6402b64d9015098f",
     "a3a88680182db2f4c71acf0363a8aaab54fd2b58",
@@ -11,6 +11,22 @@
     "684a44768f32c226a7d65f9167553116643b2229"
   ],
   "deprecations": [
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "1d87fc7992adee9c",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "004257ba752d0a72",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
     {
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.connections",
@@ -2703,6 +2719,22 @@
       "schema_version": "one.capability_deprecation.v1",
       "semantic_id": "workflows:workflow.setup.connections",
       "from_revision": "076c05cd70ea69d7",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "f6d226a2c5ca0b34",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "workflows:workflow.setup.connections",
+      "from_revision": "366da54ed07dd315",
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"

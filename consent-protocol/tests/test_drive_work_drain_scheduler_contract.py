@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -517,6 +518,79 @@ def test_scheduler_capture_rejects_malformed_or_wrong_identity(
     assert not output.exists()
 
 
+def _rehearse_selected_profile_overlay(workspace, temporary, selected, environment):
+    """Execute the authored Main preservation -> checkout -> overlay boundary."""
+    git_env = {
+        **environment,
+        "GIT_AUTHOR_NAME": "Fixture",
+        "GIT_COMMITTER_NAME": "Fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    }
+
+    def git(*arguments):
+        return subprocess.check_output(  # noqa: S603 - fixed commands in a disposable synthetic Git repository
+            ["git", "-c", "core.hooksPath=/dev/null", *arguments],
+            cwd=workspace,
+            env=git_env,
+            stderr=subprocess.PIPE,
+            text=True,
+        ).strip()
+
+    git("init", "-q")
+    git("add", "config/runtime-capacity.json")
+    git("commit", "-qm", "selected application")
+    target = git("rev-parse", "HEAD")
+    trusted = json.loads((ROOT / "config/runtime-capacity.json").read_text())
+    trusted["environments"]["uat"]["services"]["consent-protocol-drive-worker"]["candidate"][
+        "max_instances"
+    ] = 4
+    (workspace / "config/runtime-capacity.json").write_text(json.dumps(trusted))
+    git("add", "config/runtime-capacity.json")
+    git("commit", "--allow-empty", "-qm", "reviewed Main policy")
+    steps = yaml.safe_load(UAT_WORKFLOW.read_text())["jobs"]["deploy"]["steps"]
+    preserve = next(
+        step["run"] for step in steps if step.get("name") == "Preserve current release tooling"
+    )
+    block = preserve.split('"${RUNNER_TEMP}/release-tools/account-deletion/"\n', 1)[1].split(
+        "cp scripts/ops/verify_passkey_domain_associations.py", 1
+    )[0]
+    block = block.replace("${{ needs.wait-capacity.outputs.scope }}", "backend").replace(
+        "${{ steps.resolve-sha.outputs.sha }}", target
+    )
+    # Python bounds this local rehearsal so macOS needs no GNU timeout.
+    # Keep the real profile resolver and its arguments; the hosted deadline
+    # remains in the authored workflow.
+    deadline = "timeout --signal=TERM --kill-after=2s 295s "
+    assert block.count(deadline) == 1
+    block = block.replace(deadline, "", 1)
+    (temporary / "release-tools").mkdir()
+    env = {**git_env, "RUNNER_TEMP": str(temporary)}
+    subprocess.run(  # noqa: S603 - authored workflow fragment, fake cloud transport, no release credentials
+        ["bash", "-euc", block],
+        cwd=workspace,
+        env=env,
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    git("checkout", "--detach", target)
+    checkout = next(step["run"] for step in steps if step.get("name") == "Checkout deployment SHA")
+    overlay = re.search(
+        r'cp "\$\{RUNNER_TEMP\}/release-tools/runtime-capacity.json" \\\n\s+config/runtime-capacity.json',
+        checkout,
+    )
+    assert overlay is not None
+    subprocess.run(  # noqa: S603 - exact authored profile-copy command in the synthetic workspace
+        ["bash", "-euc", overlay.group()], cwd=workspace, env=env, check=True, capture_output=True
+    )
+    expected = trusted
+    expected["environments"]["uat"]["services"]["consent-protocol-drive-worker"]["candidate"][
+        "max_instances"
+    ] = selected
+    assert json.loads((workspace / "config/runtime-capacity.json").read_text()) == expected
+
+
 @pytest.mark.parametrize(
     ("worker_state", "expect_no_traffic", "expect_deploy"),
     [
@@ -608,6 +682,8 @@ def test_worker_deploy_traffic_flags_match_service_state(
             "RELEASE_RUN_ID": release_run_id,
         }
     )
+    if worker_state == "absent" and release_run_id == "12345":
+        _rehearse_selected_profile_overlay(workspace, tmp_path, worker_instances, environment)
     result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
         ["bash", str(WORKER_RELEASE)],
         cwd=workspace,

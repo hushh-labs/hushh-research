@@ -381,6 +381,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         ),
         "one_magic_intelligence_qa_emails": getattr(args, "one_magic_intelligence_qa_emails", ""),
     }
+    if args.environment == "uat":
+        config.update(dict.fromkeys(_runtime_config_retention["UAT_PLG_FLAGS"], False))
     return _scope_commerce_runtime_policy()["apply_policy"](
         _drop_empty(config), getattr(args, "scope_commerce_policy", {})
     )

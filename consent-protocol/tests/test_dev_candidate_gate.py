@@ -159,20 +159,11 @@ def test_dev_observations_use_order_safe_serving_state():
 
 
 @pytest.mark.parametrize(
-    ("legacy_interface", "reviewer_layout", "expected_root", "refused"),
-    [
-        (None, None, None, False),
-        ("missing-probe", None, None, True),
-        ("unprotected-retention", None, None, True),
-        (None, "canonical", ".agents", False),
-        (None, "legacy", ".codex", False),
-        (None, "both", ".agents", False),
-        (None, "partial-canonical", None, True),
-        (None, "absent", None, True),
-    ],
+    "legacy_interface,refused",
+    [(None, False), ("missing-probe", True), ("unprotected-retention", True)],
 )
 def test_candidate_interfaces_are_checked_before_mutating_steps(
-    tmp_path, legacy_interface, reviewer_layout, expected_root, refused
+    tmp_path, legacy_interface, refused
 ):
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/deploy-dev-implementation.yml").read_text()
@@ -194,22 +185,6 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
         (tmp_path / "scripts/ci/cloudrun-retention.sh").write_text(
             "#!/bin/bash\necho 'Usage: retention <service> [region] [keep_count]'\n"
         )
-    for root, present in (
-        (".agents", reviewer_layout in {"canonical", "both", "partial-canonical"}),
-        (".codex", reviewer_layout in {"legacy", "both", "partial-canonical"}),
-    ):
-        if not present:
-            continue
-        directory = tmp_path / root / "skills/reviewer-app-testing/scripts"
-        directory.mkdir(parents=True)
-        for filename in ("verify-reviewer-byok-navigation.mjs", "reviewer-rehearsal-preflight.mjs"):
-            if (
-                root == ".agents"
-                and reviewer_layout == "partial-canonical"
-                and filename.startswith("reviewer-")
-            ):
-                continue
-            (directory / filename).write_text("// Synthetic candidate file, never executed.\n")
     output = tmp_path / "capability-outputs"
     result = subprocess.run(  # noqa: S603 - checked-in workflow program in an isolated fixture.
         [sys.executable, "-c", program],
@@ -218,7 +193,6 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
             **os.environ,
             "BUILD_POD_IMAGE": "false",
             "DEPLOY_BACKEND": "true",
-            "RUN_REVIEWER_BYOK": "true" if reviewer_layout else "false",
             "GITHUB_OUTPUT": str(output),
         },
         text=True,
@@ -232,17 +206,12 @@ def test_candidate_interfaces_are_checked_before_mutating_steps(
         assert (
             "Candidate lacks selected preservation or owner-verification support" in result.stderr
         )
-    if expected_root:
-        script = f"{expected_root}/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs"
-        assert output.read_text() == f"reviewer_byok_script={script}\n"
-        execute = next(step for step in steps if step.get("id") == "verify-reviewer-byok")
-        assert (
-            execute["env"]["REVIEWER_BYOK_SCRIPT"]
-            == "${{ steps.candidate-capabilities.outputs.reviewer_byok_script }}"
-        )
-        assert 'node "$REVIEWER_BYOK_SCRIPT"' in execute["run"]
-    else:
-        assert not output.exists()
+    assert not output.exists()
+    assert all(step.get("id") != "verify-reviewer-byok" for step in steps)
+    assert not any("playwright install" in step.get("run", "") for step in steps)
+    classifier = next(step for step in steps if step.get("id") == "classify-dev-release")
+    assert classifier["env"]["REVIEWER_BYOK_REQUIRED"] == "false"
+    assert classifier["env"]["REVIEWER_BYOK_OUTCOME"] == "not_requested"
 
 
 @pytest.mark.parametrize("target", ["scope-commerce-sandbox", "shared-dev", None])

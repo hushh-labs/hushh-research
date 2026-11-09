@@ -7,6 +7,11 @@ import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+// These cases start the real native/TypeScript verifier, including cold parsing.
+// Bound its child process separately from the time allowed for assertions.
+const VERIFIER_PROCESS_TIMEOUT_MS = 10_000;
+const VERIFIER_TEST_TIMEOUT_MS = 15_000;
+
 describe("native plugin contract verifier", () => {
   it("requests Contacts only when the Calendar server attempt asks for guest photos", () => {
     const ios = readFileSync(path.join(process.cwd(), "ios/App/App/Plugins/HushhAuthPlugin.swift"), "utf8");
@@ -67,9 +72,10 @@ describe("native plugin contract verifier", () => {
         cwd: process.cwd(),
         encoding: "utf8",
         stdio: "pipe",
+        timeout: VERIFIER_PROCESS_TIMEOUT_MS,
       }),
     ).not.toThrow();
-  });
+  }, VERIFIER_TEST_TIMEOUT_MS);
 
   it.each([
     {
@@ -118,7 +124,7 @@ describe("native plugin contract verifier", () => {
       let failure: { status?: number; stderr?: string } | undefined;
       try {
         execFileSync(process.execPath, [path.join(appRoot, "scripts/native/verify-native-plugin-contracts.mjs")], {
-          cwd: overlay, encoding: "utf8", stdio: "pipe",
+          cwd: overlay, encoding: "utf8", stdio: "pipe", timeout: VERIFIER_PROCESS_TIMEOUT_MS,
         });
       } catch (error) {
         failure = error as typeof failure;
@@ -128,5 +134,5 @@ describe("native plugin contract verifier", () => {
     } finally {
       rmSync(overlay, { recursive: true, force: true });
     }
-  });
+  }, VERIFIER_TEST_TIMEOUT_MS);
 });

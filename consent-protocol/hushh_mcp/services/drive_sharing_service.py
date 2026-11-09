@@ -253,10 +253,9 @@ class DriveSharingService:
                 else {}
             ),
         )
-        # Saved-plan checkout wakes when the worker commits that plan. Older
-        # requests can already pay at Allow, and repeated Allows can recover a wake.
-        stages = () if result.pop("_checkout_after_plan", False) else ("sharing",)
-        await wake_drive_work_stages(*QUEUED_REQUEST_STAGES, *stages)
+        # "sharing" owns the Checkout lane, so the requester's payment ask goes
+        # out in parallel with the search instead of waiting for it.
+        await wake_drive_work_stages(*QUEUED_REQUEST_STAGES, "sharing")
         return result
 
     async def set_request_price(self, *, user_id, request_id, revision, amount_cents):

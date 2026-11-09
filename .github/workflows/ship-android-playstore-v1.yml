@@ -36,6 +36,7 @@ name: Ship Android to Google Play Store
         type: string
 
 permissions:
+  pull-requests: read
   actions: read
   contents: read
   checks: read
@@ -61,12 +62,19 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || github.sha }}
       environment_name: native
       scope: ${{ 'native' }}
 
   ship:
+    permissions:
+      pull-requests: read
+      actions: write
+      contents: read
+      checks: read
+      id-token: write
     needs: deployment-security
     name: Build & upload Android AAB (UAT backend, selected Play track)
     runs-on: ubuntu-latest
@@ -118,6 +126,10 @@ jobs:
 
       - name: Authorize production dispatch actor
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface production --actor "${GITHUB_ACTOR}"

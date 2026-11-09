@@ -509,10 +509,10 @@ function EmptyState() {
   return (
     <div className="flex max-w-xl flex-col items-start justify-center space-y-2 px-1 py-8">
       <div className="space-y-2 text-left">
-          <h3 className="text-[20px] font-medium leading-tight tracking-normal text-foreground">
+          <h3 className="ui-text-section-label">
             No analyses yet
           </h3>
-        <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
+        <p className="max-w-md ui-text-row-description">
           Search for a stock ticker below and let Agent One&apos;s multi-agent
           debate engine give you a data-driven recommendation.
         </p>
@@ -547,7 +547,7 @@ function DebateInputsCard({
 
   return (
     <SurfaceCard>
-      <SurfaceCardHeader>
+      <SurfaceCardHeader className="px-4 pb-2 pt-4">
         <div className="flex items-center justify-between gap-2">
           <SurfaceCardTitle className="flex items-center gap-2 text-sm">
             <Icon icon={MessageSquareText} size="sm" className="text-primary" aria-hidden="true" />
@@ -561,7 +561,7 @@ function DebateInputsCard({
           Start a debate directly from history using your current vault portfolio context.
         </SurfaceCardDescription>
       </SurfaceCardHeader>
-      <SurfaceCardContent className="space-y-4">
+      <SurfaceCardContent className="space-y-3 px-4 pb-4">
         {loading ? (
           <SurfaceInset className="border-dashed p-3 text-sm text-muted-foreground">
             Loading debate context from vault...
@@ -961,7 +961,7 @@ export function AnalysisHistoryDashboard({
     return (
       <div className="w-full">
         <SurfaceCard className="overflow-hidden">
-          <SurfaceCardContent className="flex min-h-52 items-center justify-center p-6">
+          <SurfaceCardContent className="flex items-center justify-center p-4">
             <HushhLoader variant="inline" label="Loading analysis history…" />
           </SurfaceCardContent>
         </SurfaceCard>
@@ -972,7 +972,7 @@ export function AnalysisHistoryDashboard({
   // ----- Empty state -----
   if (entries.length === 0) {
     return (
-      <div className="w-full space-y-6">
+      <div className="w-full space-y-3">
         <EmptyState />
         {showDebateInputs ? (
           <DebateInputsCard
@@ -988,7 +988,7 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-3">
       <AnalysisHistoryList entries={entries} onOpen={onViewHistory} onVersions={openVersions}
         onDelete={handleDeleteEntry} onDeleteTicker={handleDeleteTicker} />
 

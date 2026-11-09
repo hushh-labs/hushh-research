@@ -13,8 +13,9 @@ describe("CalendarDateNavigation", () => {
     expect(onChange).toHaveBeenLastCalledWith("2026-10-22");
 
     rerender(<CalendarDateNavigation date="2026-10-22" today="2026-10-21" onChange={onChange} />);
-    expect(screen.getByRole("button", { name: "Today" })).not.toHaveAttribute("aria-current");
-    fireEvent.click(screen.getByRole("button", { name: "Today" }));
+    expect(screen.queryByRole("button", { name: "Today", exact: true })).toBeNull();
+    expect(screen.getByRole("button", { name: "Back to today", exact: true })).not.toHaveAttribute("aria-current");
+    fireEvent.click(screen.getByRole("button", { name: "Back to today", exact: true }));
     expect(onChange).toHaveBeenLastCalledWith("2026-10-21");
     fireEvent.click(screen.getByRole("button", { name: "Previous day" }));
     expect(onChange).toHaveBeenLastCalledWith("2026-10-21");

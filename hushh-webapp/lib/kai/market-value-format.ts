@@ -1,9 +1,10 @@
-export function formatCurrency(value: number | null | undefined): string {
+export function formatCurrency(value: number | null | undefined, currency = "USD"): string {
   if (typeof value !== "number" || !Number.isFinite(value))
     return "Price unavailable";
+  const code = /^[a-z]{3}$/i.test(currency) ? currency.toUpperCase() : "USD";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: code,
     maximumFractionDigits: 2,
   }).format(value);
 }

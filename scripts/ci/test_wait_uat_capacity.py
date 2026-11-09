@@ -129,6 +129,10 @@ class CapacityAdmissionTests(unittest.TestCase):
              "--candidate-service", "consent-protocol-drive-worker"],
         )
         self.assertEqual(wait.capacity_args("full", frontend)[-1], "--frontend-only")
+        target = "a" * 40
+        bound = wait.capacity_args("full", backend, target)
+        self.assertEqual(bound[bound.index("--target-sha") + 1], target)
+        self.assertNotIn("--target-sha", wait.capacity_args("full", frontend, target))
         self.assertEqual(
             wait.capacity_args("one-chat", None)[-2:],
             ["--inherit-candidate-service", "consent-protocol"],
@@ -393,6 +397,9 @@ class WorkflowWiringTests(unittest.TestCase):
                 self.assertNotIn("group: deploy-uat", wait_job)
                 self.assertIn("group: deploy-uat", deploy_job)
                 self.assertIn("scripts/ci/wait-uat-capacity.py", wait_job)
+                # The read-only cloud preflight asks Main for current team authority.
+                self.assertIn("actions: write", wait_job)
+                self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", wait_job)
                 self.assertIn("timeout-minutes: 7", wait_job)
                 self.assertIn("--environment uat", deploy_job)
         full = (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
@@ -485,8 +492,9 @@ class InspectionPublicationTests(unittest.TestCase):
             pass
         workflow = (ROOT / ".github/workflows/capacity-maintenance.yml").read_text()
         for environment, label in (("uat", "UAT"), ("production", "Production")):
-            expression = "github.event_name == 'workflow_dispatch' && !inputs.apply"
-            self.assertIn(expression + f" && '{label} revision inspection' || '{label} bounded revision cleanup'", workflow)
+            self.assertIn(f"name: {label} revision maintenance", workflow)
+            self.assertIn("name: 'Maintenance mode: inspection'", workflow)
+            self.assertIn("name: 'Maintenance mode: cleanup'", workflow)
             job = {"name": f"{label} revision inspection", "status": "completed", "conclusion": "failure", "steps": [
                 {"name": f"Prepare or finish eligible {environment} revision cleanup", "conclusion": "failure"},
                 {"name": f"Save {environment} cleanup checkpoint", "conclusion": "skipped"}]}
@@ -496,6 +504,20 @@ class InspectionPublicationTests(unittest.TestCase):
             job["name"] = f"{label} bounded revision cleanup"
             with self.assertRaisesRegex(UnsafeState, "without publishing"):
                 publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+            job["name"] = f"{label} revision maintenance"
+            original = job["steps"].copy()
+            for modes, expected in ((["inspection"], False), (["cleanup"], "without publishing"),
+                                    ([], "mode"), (["inspection", "cleanup"], "mode")):
+                with self.subTest(environment=environment, modes=modes):
+                    job["steps"] = original + [{"name": f"Maintenance mode: {mode}",
+                                                "conclusion": "success" if mode in modes else "skipped"}
+                                                for mode in ("inspection", "cleanup")]
+                    if expected is False:
+                        self.assertFalse(publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment))
+                    else:
+                        with self.assertRaisesRegex(UnsafeState, expected):
+                            publication._attempt(owner, "hushh-labs/hushh-research", {"id": 42}, 1, environment)
+
 
 
 if __name__ == "__main__":

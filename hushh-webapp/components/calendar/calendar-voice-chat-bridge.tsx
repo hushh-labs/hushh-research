@@ -37,7 +37,7 @@ export function CalendarVoiceChatBridge() {
   useVoiceToolEffects({ onClientStep: (step, report) => {
     if (step.kind !== "continue_calendar_in_chat") return;
     const raw = step.payload.invitation as Record<string, unknown> | undefined;
-    const valid = raw && ["ownerId", "accountEmail", "calendarId", "eventId"].every(key => typeof raw[key] === "string") && ["view", "accepted", "declined", "offer_times"].includes(String(raw.decision));
+    const valid = raw && (raw.accountId === undefined || (typeof raw.accountId === "string" && raw.accountId.length > 0)) && ["ownerId", "accountEmail", "calendarId", "eventId"].every(key => typeof raw[key] === "string") && ["view", "accepted", "declined", "offer_times"].includes(String(raw.decision));
     if (step.payload.owner_id !== userId || (raw && !valid)) { report("failed", { reason: "owner_or_selection_changed" }); return; }
     const opened = continueRequest(step.payload.request, step.stepId, valid ? raw as CalendarInvitationHandoff : undefined);
     report(opened ? "ok" : "failed", { review_queued: opened });

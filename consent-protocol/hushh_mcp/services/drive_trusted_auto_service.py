@@ -210,12 +210,6 @@ class DriveTrustedAutoService:
                 if package
                 else self._authority(user_id, request_id)
             )
-            sharing_woken = False
-
-            async def wake_checkout() -> None:
-                nonlocal sharing_woken
-                sharing_woken = await self.wake("sharing") is True
-
             try:
                 await require_current()
                 service = DriveRequestBulkService(
@@ -224,22 +218,25 @@ class DriveTrustedAutoService:
                     require_owner=require_current,
                     wake=self.wake,
                 )
-                async with asyncio.timeout_at(None if deadline_at is None else deadline_at - 15):
+                if deadline_at is None:
                     await service.start_search(
                         user_id=user_id,
                         request_id=request_id,
                         authority_mode="agent_package" if package else "trusted_auto",
                         after_page=None if package else self.after_search_page,
-                        **(
-                            {"on_search_committed": wake_checkout}
-                            if not v1_only and not package
-                            else {}
-                        ),
                     )
+                else:
+                    async with asyncio.timeout_at(deadline_at - 15):
+                        await service.start_search(
+                            user_id=user_id,
+                            request_id=request_id,
+                            authority_mode="agent_package" if package else "trusted_auto",
+                            after_page=None if package else self.after_search_page,
+                        )
                 outcomes["started"] += 1
-                await self.wake("v1" if v1_only else "suggestions")
-                if not v1_only and not sharing_woken:
-                    await self.wake("sharing")
+                # Wake the new search's own slice, and the checkout lane its Pay needs.
+                for stage in ("v1",) if v1_only else ("suggestions", "sharing"):
+                    await self.wake(stage)
             except (DriveReadError, TimeoutError) as error:
                 await self.sharing.defer_trusted_search(
                     user_id=user_id, request_id=request_id, code=_defer_code(error)

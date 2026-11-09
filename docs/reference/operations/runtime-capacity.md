@@ -26,7 +26,17 @@ throughput is a separate provider allocation decision.
 reviewed database connection budget. The
 [capacity checker](../../../scripts/ci/runtime-capacity-budget.py) inventories
 retained revisions, workers, deployment candidates, job overlap and administrative
-reserve. Run it with the approved project identity:
+reserve.
+
+Ordinary UAT/production admission inspects the declared application services,
+their retained revisions, the release-owned frontend and declared jobs. Other
+services or jobs in the project do not join or block this release. Missing
+required application resources and unsafe application SQL bindings still refuse.
+The receipt states `admission_scope: profiled-application`: it does not certify
+all project workloads or unrelated consumers of the same database. Keep those
+consumers on separate databases or reconcile their demand before increasing the
+application ceiling. The fixed isolated-Dev qualification retains its complete
+project routing and execution checks. Run it with the approved project identity:
 
 ```bash
 python3 scripts/ci/runtime-capacity-budget.py --environment production --phase post-release

@@ -79,6 +79,11 @@ def attempt_jobs(
                     },
                 )
             job["steps"].append({"name": "Verify release-level core selection", "conclusion": "success"})
+        if name == "Web Unit Contracts":
+            job["steps"] = [
+                {"name": "Run affected unit contracts", "conclusion": "success"},
+                {"name": "Verify unit shard (1/1)", "conclusion": "success"},
+            ]
         if name == "Branch Validation Gate":
             job["check_run_url"] = (
                 f"https://api.github.com/repos/{subject.REPOSITORY}/check-runs/10"

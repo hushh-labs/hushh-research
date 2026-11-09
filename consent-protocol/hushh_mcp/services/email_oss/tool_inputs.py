@@ -19,7 +19,7 @@ class _Search(_Input):
     page_token: str | None = Field(default=None, max_length=2048)
     include_clean_body: bool = Field(
         default=False,
-        description="Set true for requested receipt amounts, totals or message contents when a bounded result page needs body text. For query-and-list or a series timeline using subject and received date, use false; read only selected messages afterward when their contents matter. Preserve native provider ordering in the search result.",
+        description="Set true only for requested receipt amounts, invoice totals, expense totals or content extraction: clean bodies are batched with the page. For query-and-list requests, including invoice lists, use false and preserve provider ordering.",
     )
 
 

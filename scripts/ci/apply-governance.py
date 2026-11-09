@@ -1,71 +1,30 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 Hushh
-"""Apply config/ci-governance.json to live GitHub state — the SINGLE command.
+"""Reconcile repository release safeguards without changing GitHub team rosters.
 
-This is the write-side counterpart to verify-main-branch-protection.sh (which is
-read-only / drift-detection). Editing config/ci-governance.json is the ONLY
-action a maintainer needs: this script pushes that intent to GitHub so the live
-state matches the committed policy.
+GitHub teams own membership. This command manages repository settings, review
+and queue rules; neither dry-run nor --apply adds, removes or promotes team
+members. Runtime team authorization is composed through the protected Main
+broker. A source policy or old checkout must never restore a retired member.
 
-WHAT IT SYNCS (all idempotent — safe to re-run):
-  1. repository `allow_auto_merge`
-       <- repository.allow_auto_merge
-     (required for `gh pr merge` to enqueue merge-queue PRs instead of failing
-      with enablePullRequestAutoMerge when review is still pending.)
-  2. main and integration/pr-train branch-protection `review_bypass_users`
-       <- main.review_bypass_users / pr_train.review_bypass_users
-     (the list that was silently drifting: editing the JSON never reached GitHub,
-      so a maintainer added to the JSON still couldn't approve/merge to main.)
-  3. Org team membership for every capability in MANAGED_TEAMS
-       <- the matching list in config/ci-governance.json
-     One team per capability: maintainers, pipeline editors, and one per deploy
-     lane. The teams are a DERIVED MIRROR, so people can be found and @-mentioned
-     in one place. They are never what the gate reads: assert-governed-actor.py
-     reads this JSON at workflow runtime, so the gate stays offline, deterministic,
-     and needs no org-scoped credential.
-
-     The direction matters. Config -> team means widening access costs a reviewed
-     PR touching a protected path, editable by protected_pipeline_edit_users only,
-     and leaves a diff in git log. Reading teams live would invert that: any org
-     owner or team maintainer could grant production deploy with no PR at all.
-
-     Members are added at role=member for the same reason — see TEAM_MEMBER_ROLE.
-
-USAGE:
-  python3 scripts/ci/apply-governance.py            # dry-run: show the plan, change nothing
-  python3 scripts/ci/apply-governance.py --apply    # actually push to GitHub
-
-After --apply, verify both `main` and `integration/pr-train` branch protection.
-
-Requires: gh CLI authenticated with org admin (to edit team membership) and
-repo admin (to edit branch protection).
+Use --apply only for an approved safeguard change, then verify live readback.
+The application is never deployed by this command.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 REPO = "hushh-labs/hushh-research"
 ORG = "hushh-labs"
-# Every capability in config/ci-governance.json that is also materialised as a
-# real GitHub team. The config file stays the source of truth and the only thing
-# the runtime gate reads; a team is a derived mirror, so people can be managed
-# and @-mentioned in one place without the gate ever depending on a network call
-# or an org-scoped credential.
-#
-# role=member is deliberate and load-bearing. A GitHub team *maintainer* can add
-# members to their own team, and `allowed-maintainers-to-approve` sits in main's
-# branch-protection bypass_teams — so granting that role to members would let any
-# of them hand a 15th person review bypass on main with no PR, no review and no
-# trace in this repo, routing straight around protected_pipeline_edit_users.
-# Membership changes must cost a reviewed edit to the config file.
-TEAM_MEMBER_ROLE = "member"
-
+# Historical policy projections remain readable during the team-authority transition.
+# They must never be used to write a GitHub membership roster.
 MANAGED_TEAMS: tuple[dict, ...] = (
     {
         "slug": "allowed-maintainers-to-approve",
@@ -103,7 +62,6 @@ MANAGED_TEAMS: tuple[dict, ...] = (
     },
 )
 
-TEAM_SLUG = MANAGED_TEAMS[0]["slug"]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 
@@ -121,10 +79,16 @@ def gh_json(args: list[str]):
 
 
 def load_policy() -> dict:
-    return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        return local_policy(policy)
+    return policy
 
 
 def desired_review_bypass(policy: dict, policy_key: str) -> list[str]:
+    if policy.get("authorization", {}).get("native_teams"):
+        return []
     return sorted(set(policy[policy_key]["review_bypass_users"]))
 
 
@@ -166,30 +130,6 @@ def apply_repository_settings(policy: dict, *, apply: bool) -> bool:
         raise SystemExit(f"Failed to update repository settings:\n{proc.stderr.strip()}")
     print("  ✅ repository allow_auto_merge updated on GitHub")
     return True
-
-
-_OWNERS_CACHE: set[str] | None = None
-
-
-def organization_owners() -> set[str]:
-    """Logins with org-owner (admin) rights, lowercased. Queried once per run."""
-    global _OWNERS_CACHE
-    if _OWNERS_CACHE is None:
-        members = gh_json(
-            ["api", f"orgs/{ORG}/members?role=admin", "--paginate"]
-        ) or []
-        _OWNERS_CACHE = {str(m.get("login", "")).lower() for m in members if m.get("login")}
-    return _OWNERS_CACHE
-
-
-def team_exists(slug: str) -> bool:
-    code, _, _ = gh(["api", f"orgs/{ORG}/teams/{slug}"], check=False)
-    return code == 0
-
-
-def current_team_members(slug: str = TEAM_SLUG) -> list[str]:
-    members = gh_json(["api", f"orgs/{ORG}/teams/{slug}/members", "--paginate"]) or []
-    return sorted(m["login"] for m in members if m.get("login"))
 
 
 def apply_review_bypass(
@@ -239,64 +179,6 @@ def apply_review_bypass(
     return True
 
 
-def apply_team_membership(slug: str, desired: list[str], *, apply: bool) -> bool:
-    """Make one managed team's membership match the config exactly."""
-    if not team_exists(slug):
-        print(f"  Δ team '{slug}' does not exist yet -> create with {sorted(desired)}")
-        if not apply:
-            return True
-        gh(["api", "--method", "POST", f"orgs/{ORG}/teams",
-            "-f", f"name={slug}", "-f", "privacy=closed"])
-        print(f"  ✅ created team {slug}")
-
-    cur = set(current_team_members(slug))
-    want = set(desired)
-    to_add = sorted(want - cur)
-    to_remove = sorted(cur - want)
-
-    # A member sitting at role=maintainer can add people to the team, which is a
-    # grant path that never touches this repo. Demote as part of every sync, not
-    # only when the membership set itself changed.
-    #
-    # Org owners are excluded because GitHub reports them as a maintainer of every
-    # team they belong to and refuses to demote them there. Trying anyway would
-    # make this sync claim drift on every single run and never converge, and a
-    # governance tool that always cries drift is one people learn to scroll past
-    # -- which is how the UAT cohort sat wrong in the advisory lane for as long as
-    # it did. It costs nothing in safety either: an org owner can edit branch
-    # protection and team membership directly, so their team role grants them no
-    # authority they did not already hold.
-    owners = organization_owners()
-    over_privileged = sorted(
-        login for login in (want & cur)
-        if login.lower() not in owners
-        and (gh_json(["api", f"orgs/{ORG}/teams/{slug}/memberships/{login}"]) or {})
-        .get("role") != TEAM_MEMBER_ROLE
-    )
-
-    if not to_add and not to_remove and not over_privileged:
-        print(f"  ✓ team '{slug}' already in sync: {sorted(want)}")
-        return False
-    if to_add:
-        print(f"  Δ team add: {to_add}")
-    if to_remove:
-        print(f"  Δ team remove: {to_remove}")
-    if over_privileged:
-        print(f"  Δ demote to '{TEAM_MEMBER_ROLE}': {over_privileged}")
-    if not apply:
-        return True
-    for login in sorted(set(to_add) | set(over_privileged)):
-        gh(["api", "--method", "PUT",
-            f"orgs/{ORG}/teams/{slug}/memberships/{login}",
-            "-f", f"role={TEAM_MEMBER_ROLE}"])
-        print(f"  ✅ {login} is a '{TEAM_MEMBER_ROLE}' of {slug}")
-    for login in to_remove:
-        gh(["api", "--method", "DELETE",
-            f"orgs/{ORG}/teams/{slug}/memberships/{login}"])
-        print(f"  ✅ removed {login} from {slug}")
-    return True
-
-
 def assert_teams_are_subsets_of_maintainers(policy: dict) -> None:
     """No capability may be held by someone who cannot merge.
 
@@ -321,15 +203,10 @@ def assert_teams_are_subsets_of_maintainers(policy: dict) -> None:
 
 
 def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
-    """Mirror every capability list in the config onto its GitHub team."""
+    """Teams own their membership; applying release rules must never rewrite it."""
     assert_teams_are_subsets_of_maintainers(policy)
-    changed = False
-    for team in MANAGED_TEAMS:
-        print(f"\n  team '{team['slug']}' — {team['purpose']}")
-        changed |= apply_team_membership(
-            team["slug"], team["select"](policy), apply=apply
-        )
-    return changed
+    print("  GitHub team membership is authoritative; no roster writes are performed.")
+    return False
 
 
 def protected_pipeline_review_rulesets(policy: dict, *, read=gh_json) -> list[dict]:
@@ -357,22 +234,18 @@ def protected_pipeline_review_rulesets(policy: dict, *, read=gh_json) -> list[di
     team = read(["api", f"orgs/{ORG}/teams/pipeline-editors"])
     if team.get("slug") != "pipeline-editors" or type(team.get("id")) is not int or team["id"] <= 0:
         raise SystemExit("Protected reviewer team identity is unavailable")
-    actors = []
-    for login in sorted(owners):
-        user = read(["api", f"users/{login}"])
-        if (user.get("login") != login or user.get("type") != "User"
-                or type(user.get("id")) is not int or user["id"] <= 0):
-            raise SystemExit("Protected review bypass requires a verified named user")
-        actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
-    # The installed original pair keeps its exact 30-path assignment. Append
-    # supplemental entrypoints; never shift an installed partition while adding one.
-    if len(paths) < 30 or len(paths) != len(set(paths)):
+    actors = [{"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}]
+    # Keep the installed original pair and both eight-path supplements unchanged.
+    # New entrypoints get new partitions; never reshuffle installed coverage.
+    if len(paths) < 46 or len(paths) != len(set(paths)):
         raise SystemExit("Protected review requires the original 30 distinct paths")
     def pattern(path):
         return "/" + path + ("**" if path.endswith("/") else "")
     original = sorted(pattern(path) for path in paths[:30])
-    supplemental = sorted(pattern(path) for path in paths[30:])
-    chunks = [original[:15], original[15:]] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
+    installed_supplement = sorted(pattern(path) for path in paths[30:38])
+    installed_controllers = sorted(pattern(path) for path in paths[38:46])
+    supplemental = sorted(pattern(path) for path in paths[46:])
+    chunks = [original[:15], original[15:], installed_supplement, installed_controllers] + [supplemental[i:i + 15] for i in range(0, len(supplemental), 15)]
     return [{
         "name": f"{name}{suffix} {index + 1}", "target": "branch", "enforcement": "active",
         "conditions": {"ref_name": {"include": refs, "exclude": []}},
@@ -408,10 +281,18 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool = False, ve
     if not verify_only and (actor.get("type") != "User" or actor.get("login") not in owners):
         raise SystemExit("Only a protected owner may install native pipeline review")
     def verify_admins():
-        for owner in owners:
+        principals = owners
+        if policy.get("authorization", {}).get("native_teams"):
+            # Native review authority comes from the verified team and its
+            # repository grant below. Only a settings mutation needs an admin.
+            if not apply:
+                return
+            principals = [actor.get("login")]
+        for owner in principals:
             permission = read(["api", f"repos/{REPO}/collaborators/{owner}/permission"])
             if permission.get("permission") != "admin" or permission.get("user", {}).get("login") != owner:
-                raise SystemExit("Reviewer team grants require both existing owners to be repository admins")
+                raise SystemExit("Reviewer settings changes require a repository admin" if policy.get("authorization", {}).get("native_teams")
+                                 else "Reviewer team grants require all configured protected owners to be repository admins")
 
     verify_admins()
     team_id = desired_rules[0]["rules"][0]["parameters"]["required_reviewers"][0]["reviewer"]["id"]
@@ -564,8 +445,15 @@ def reconcile_protected_pipeline_review(policy: dict, *, apply: bool = False, ve
     return bool(missing or needs_grant)
 
 
+def pipeline_team_actor(read):
+    team = read(["api", f"orgs/{ORG}/teams/pipeline-editors"])
+    if team.get("slug") != "pipeline-editors" or type(team.get("id")) is not int or team["id"] <= 0:
+        raise SystemExit("Pipeline editor team identity is unavailable")
+    return {"actor_id": team["id"], "actor_type": "Team", "bypass_mode": "pull_request"}
+
+
 def main_owner_admin_ruleset(policy: dict, *, read=gh_json, branch="main") -> dict:
-    """Native PR-only and strict CI guard for the two explicit Admin operators.
+    """Native PR-only and strict CI guard for the configured protected Admin operators.
 
     Other Main mergers bypass only this additional freshness layer. They still
     require the queue, baseline CI and GitHub's independent review controls.
@@ -583,27 +471,28 @@ def main_owner_admin_ruleset(policy: dict, *, read=gh_json, branch="main") -> di
         or owners != sorted(main["protected_pipeline_edit_users"])
         or owners != sorted(main["review_bypass_users"])
         or not set(owners) <= set(mergers)
-        or main.get("merge_queue_bypass_team_slug")
+        or (main.get("merge_queue_bypass_team_slug") and not policy.get("authorization", {}).get("native_teams"))
     ):
         raise SystemExit(
-            "Owner Admin route requires only the two explicit protected owners"
+            "Owner Admin route requires only the configured protected owners"
         )
     actors = []
-    for login in sorted(set(mergers) - set(owners)):
-        user = read(["api", f"users/{login}"])
-        if (
-            user.get("login") != login
-            or user.get("type") != "User"
-            or type(user.get("id")) is not int
-        ):
-            raise SystemExit("Owner freshness exception identity could not be verified")
-        actors.append(
-            {
-                "actor_id": user["id"],
-                "actor_type": "User",
-                "bypass_mode": "pull_request",
-            }
-        )
+    if not policy.get("authorization", {}).get("native_teams"):
+        for login in sorted(set(mergers) - set(owners)):
+            user = read(["api", f"users/{login}"])
+            if (
+                user.get("login") != login
+                or user.get("type") != "User"
+                or type(user.get("id")) is not int
+            ):
+                raise SystemExit("Owner freshness exception identity could not be verified")
+            actors.append(
+                {
+                    "actor_id": user["id"],
+                    "actor_type": "User",
+                    "bypass_mode": "pull_request",
+                }
+            )
     return {
         "name": main["owner_admin_ruleset_name"],
         "target": "branch",
@@ -712,12 +601,15 @@ def main_review_ruleset(policy: dict, *, read=gh_json) -> dict:
     owners = sorted(main["protected_pipeline_edit_users"])
     if not name or sorted(main["review_bypass_users"]) != owners or main.get("review_bypass_team_slug"):
         raise SystemExit("Main review ruleset must name only the protected owners")
-    actors = []
-    for login in owners:
-        user = read(["api", f"users/{login}"])
-        if user.get("login") != login or user.get("type") != "User" or not isinstance(user.get("id"), int):
-            raise SystemExit("Main review owner identity could not be verified")
-        actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
+    if policy.get("authorization", {}).get("native_teams"):
+        actors = [pipeline_team_actor(read)]
+    else:
+        actors = []
+        for login in owners:
+            user = read(["api", f"users/{login}"])
+            if user.get("login") != login or user.get("type") != "User" or not isinstance(user.get("id"), int):
+                raise SystemExit("Main review owner identity could not be verified")
+            actors.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
     return {
         "name": name, "target": "branch", "enforcement": "active",
         "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
@@ -873,6 +765,9 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
     qualified. Keep unrelated branch checks and ruleset rules verbatim.
     """
     main = policy["main"]
+    restrict_writers = main.get("restrict_writes_to_merge_users", True)
+    if type(restrict_writers) is not bool:
+        raise SystemExit("Main writer policy must be an explicit boolean")
     users = sorted(main.get("merge_users", []))
     owner_reviews = sorted(main.get("protected_pipeline_edit_users", []))
     if (
@@ -944,23 +839,48 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         or not any(row.get("type") == "merge_queue" for row in queue.get("rules", []))
     ):
         raise SystemExit("Main queue configuration is not the reviewed active boundary")
-    from prepared_branch_governance import queue_rules
+    from prepared_branch_governance import _same_actors, _same_queue, queue_rules
 
     desired_rules = queue_rules(policy, queue["rules"])
-    desired = {"users": users, "teams": [], "apps": []}
+    desired = {"users": users, "teams": [], "apps": []} if restrict_writers else None
     current = protection.get("restrictions") or {}
     restricted = {
         key: sorted(row[field] for row in current.get(key, []))
         for key, field in (("users", "login"), ("teams", "slug"), ("apps", "slug"))
     }
+    writer_authority = None
+    if not restrict_writers:
+        if apply:
+            import base64
+            writer_authority = gh_json(["api", f"repos/{REPO}/git/ref/heads/main"])
+            revision = writer_authority.get("object", {}).get("sha", "")
+            if not re.fullmatch(r"[0-9a-f]{40}", revision):
+                raise SystemExit("Main writer authority source is unavailable")
+            observed = gh_json(["api", f"repos/{REPO}/contents/config/ci-governance.json?ref={revision}"])
+            if json.loads(base64.b64decode(observed.get("content", ""))) != policy:
+                raise SystemExit("Reviewed Main policy must land before native writer activation")
+        # Native PR/CI/review boundaries remain independent of requester checks.
+        reconcile_protected_pipeline_review(policy, verify_only=True, read=gh_json)
+        reconcile_owner_admin_ruleset(policy, branch="main", verify_only=True, read=gh_json)
+        if not protection.get("required_conversation_resolution", {}).get("enabled") or not any(
+            row.get("context") == main["required_status_check"] and row.get("app_id") == 15368
+            for row in checks.get("checks", [])
+        ):
+            raise SystemExit("Main conversation or GitHub Actions check boundary differs")
+        if current and restricted != {"users": users, "teams": [], "apps": []}:
+            raise SystemExit("Main writer configuration has unreviewed changes; inspect before removal")
     print(
         f"  Main: merger restrictions={restricted} -> {desired}; strict={checks.get('strict')} -> false"
     )
     bypass = []
-    if main.get("merge_queue_bypass_users"):
+    if policy.get("authorization", {}).get("native_teams"):
+        reconcile_owner_admin_ruleset(policy, apply=apply, read=gh_json)
+        bypass = [pipeline_team_actor(gh_json)]
+    elif main.get("merge_queue_bypass_users"):
         # Install and read back the native strict CI/PR-only guard BEFORE granting
         # direct merge authority. Ordinary queue users never inherit this exception.
-        reconcile_owner_admin_ruleset(policy, apply=apply, read=gh_json)
+        if restrict_writers:
+            reconcile_owner_admin_ruleset(policy, apply=apply, read=gh_json)
         for login in sorted(main["merge_queue_bypass_users"]):
             user = gh_json(["api", f"users/{login}"])
             if (
@@ -978,10 +898,14 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             )
     elif main.get("merge_queue_bypass_team_slug"):
         raise SystemExit("Combined-result enforcement forbids team queue bypass")
+    if not restrict_writers and not _same_actors(queue.get("bypass_actors"), bypass):
+        raise SystemExit("Main queue exceptions differ; reconcile before writer activation")
+    writer_change = (restricted != desired if restrict_writers
+                     else protection.get("restrictions") is not None)
     changed = (
-        restricted != desired
+        writer_change
         or checks.get("strict") is not False
-        or queue.get("bypass_actors") != bypass
+        or not _same_actors(queue.get("bypass_actors"), bypass)
         or observed_scope != main_scope
         or queue["rules"] != desired_rules
     )
@@ -994,11 +918,11 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
         return changed
     from prepared_branch_governance import _write
 
-    if restricted != desired:
+    if restrict_writers and writer_change:
         for key in ("users", "teams", "apps"):
             if restricted[key] != desired[key]:
                 _write(f"{endpoint}/restrictions/{key}", desired[key], "PUT")
-    if queue.get("bypass_actors") != bypass or observed_scope != main_scope or queue["rules"] != desired_rules:
+    if not _same_actors(queue.get("bypass_actors"), bypass) or observed_scope != main_scope or queue["rules"] != desired_rules:
         body = {
             key: queue[key]
             for key in ("name", "target", "enforcement", "conditions", "rules")
@@ -1013,11 +937,33 @@ def reconcile_main_merge_policy(policy: dict, *, apply: bool) -> bool:
             {"strict": False, "checks": checks["checks"]},
             "PATCH",
         )
+    if not restrict_writers and writer_change:
+        # Remove the human-only writer filter LAST. It blocks GitHub's native
+        # queue writer; an empty user array is still a restrictive configuration.
+        expected = json.loads(json.dumps(protection))
+        expected["required_status_checks"]["strict"] = False
+        if gh_json(["api", endpoint]) != expected:
+            raise SystemExit("Main protection changed; writer restriction retained")
+        observed_queue = gh_json(["api", queue_endpoint])
+        expected_queue = dict(queue, conditions=main_scope, rules=desired_rules, bypass_actors=bypass)
+        if not _same_queue(observed_queue, expected_queue, snapshot=True):
+            raise SystemExit("Main queue changed; writer restriction retained")
+        reconcile_protected_pipeline_review(policy, verify_only=True, read=gh_json)
+        reconcile_owner_admin_ruleset(policy, branch="main", verify_only=True, read=gh_json)
+        if gh_json(["api", f"repos/{REPO}/git/ref/heads/main"]) != writer_authority:
+            raise SystemExit("Main authority advanced; writer restriction retained")
+        gh(["api", "--method", "DELETE", f"{endpoint}/restrictions"])
+        after = gh_json(["api", endpoint])
+        without_restrictions = {key: value for key, value in expected.items() if key != "restrictions"}
+        # GitHub omits the removed subresource; some API fixtures return null.
+        # Accept only those two representations, with every other field exact.
+        if after not in (without_restrictions, dict(expected, restrictions=None)):
+            raise SystemExit("Main writer readback differs; inspect before any further operation")
     return changed
 
 
 def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
-    """Repair response ceilings without changing membership or merge protections."""
+    """Repair reviewed queue limits without changing membership or merge protections."""
     from prepared_branch_governance import _write, queue_rules
 
     index = gh_json(["api", f"repos/{REPO}/rulesets?per_page=100"])
@@ -1044,7 +990,7 @@ def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
     for branch, endpoint, before, desired in plans:
         differs = before["rules"] != desired["rules"]
         changed |= differs
-        print(f"  {branch}: queue response ceiling change={differs}")
+        print(f"  {branch}: queue limit change={differs}")
         if apply and differs:
             # Never replace another operator's intervening policy change.
             if gh_json(["api", endpoint]) != before:
@@ -1054,6 +1000,107 @@ def reconcile_queue_timeouts(policy: dict, *, apply: bool) -> bool:
             if any(after.get(key) != value for key, value in desired.items()):
                 raise SystemExit("Queue repair readback differs; reconcile before retry")
     return changed
+
+
+def transition_native_teams(policy, previous, *, apply=False, read=gh_json, authority_sha=None):
+    """One-way, exact historical-policy transition; never restore revoked users."""
+    from prepared_branch_governance import _write, _same_actors, branch_policy, protection_payload
+    if not policy.get("authorization", {}).get("native_teams") or previous.get("authorization", {}).get("native_teams"):
+        raise SystemExit("Native team transition requires explicit old-to-team policy")
+    actor = read(["api", "user"])
+    members = read(["api", f"orgs/{ORG}/teams/pipeline-editors/members?per_page=100"])
+    if (not isinstance(members, list) or not 0 < len(members) < 100
+            or any(row.get("type") != "User" for row in members)
+            or actor.get("login") not in {row.get("login") for row in members}):
+        raise SystemExit("Native transition requires a current pipeline editor")
+    permission = read(["api", f"repos/{REPO}/collaborators/{actor['login']}/permission"])
+    if permission.get("permission") != "admin":
+        raise SystemExit("Native transition requires repository administration")
+    old_owners = set(previous["main"]["protected_pipeline_edit_users"])
+    if not {row.get("login") for row in members} <= old_owners:
+        raise SystemExit("Native transition cannot widen the historical exception")
+    inventory = read(["api", f"repos/{REPO}/rulesets?per_page=100"])
+    if not isinstance(inventory, list) or len(inventory) >= 100:
+        raise SystemExit("Native transition inventory is incomplete")
+    team = pipeline_team_actor(read)
+    plans = []
+    def capture(desired, legacy, compare):
+        matches = [row for row in inventory if row.get("name") == desired["name"]]
+        if len(matches) != 1:
+            raise SystemExit("Native transition requires one existing named rule")
+        path = f"repos/{REPO}/rulesets/{matches[0]['id']}"
+        before = read(["api", path])
+        if not (compare(before, legacy) or compare(before, desired)):
+            raise SystemExit(f"Native transition refuses changed authority: {desired['name']}")
+        # Preserve all API-owned/default fields and every rule. This operation
+        # changes actors only; no review/status/queue parameter can be relaxed.
+        after = {key: before[key] for key in ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")}
+        after["bypass_actors"] = desired["bypass_actors"]
+        plans.append((path, before, after, "PUT"))
+    capture(main_review_ruleset(policy, read=read), main_review_ruleset(previous, read=read), same_review_ruleset)
+    for branch in ("main", "dev", "uat", "uat-isolated"):
+        capture(main_owner_admin_ruleset(policy, read=read, branch=branch),
+                main_owner_admin_ruleset(previous, read=read, branch=branch), same_owner_admin_ruleset)
+        name = (policy["main"]["merge_queue_ruleset_name"] if branch == "main"
+                else policy["branch_flow"]["prepared_branches"][branch]["merge_queue_ruleset_name"])
+        matches = [row for row in inventory if row.get("name") == name]
+        if len(matches) != 1:
+            raise SystemExit("Native transition queue is ambiguous")
+        path = f"repos/{REPO}/rulesets/{matches[0]['id']}"
+        before = read(["api", path])
+        old = previous["main"] if branch == "main" else branch_policy(previous, branch)
+        users = []
+        for login in old["merge_queue_bypass_users"]:
+            user = read(["api", f"users/{login}"])
+            if user.get("login") != login or user.get("type") != "User" or type(user.get("id")) is not int:
+                raise SystemExit("Historical queue identity is unavailable")
+            users.append({"actor_id": user["id"], "actor_type": "User", "bypass_mode": "pull_request"})
+        if (before.get("enforcement") != "active" or before.get("target") != "branch"
+                or before.get("conditions") != {"ref_name": {"include": [f"refs/heads/{branch}"], "exclude": []}}
+                or len(before.get("rules", [])) != 1 or before["rules"][0].get("type") != "merge_queue"
+                or not (_same_actors(before.get("bypass_actors"), users)
+                        or _same_actors(before.get("bypass_actors"), [team]))):
+            raise SystemExit("Native transition refuses an unknown queue exception")
+        after = {key: before[key] for key in ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")}
+        after["bypass_actors"] = [team]
+        plans.append((path, before, after, "PUT"))
+        if branch != "main":
+            path = f"repos/{REPO}/branches/{branch}/protection/required_pull_request_reviews"
+            before = read(["api", path])
+            wanted = protection_payload(branch_policy(policy, branch))["required_pull_request_reviews"]
+            legacy = protection_payload(branch_policy(previous, branch))["required_pull_request_reviews"]
+            def bypass(value):
+                actual = value.get("bypass_pull_request_allowances", {})
+                return {kind: sorted(row[field] for row in actual.get(kind, [])) for kind, field in
+                        (("users", "login"), ("teams", "slug"), ("apps", "slug"))}
+            if bypass(before) not in [legacy["bypass_pull_request_allowances"], wanted["bypass_pull_request_allowances"]]:
+                raise SystemExit("Native transition refuses unknown classic review exceptions")
+            after = {key: before[key] for key in ("dismiss_stale_reviews", "require_code_owner_reviews",
+                    "require_last_push_approval", "required_approving_review_count")}
+            if before.get("dismissal_restrictions"):
+                raise SystemExit("Native transition preserves independent dismissal restrictions")
+            after["bypass_pull_request_allowances"] = wanted["bypass_pull_request_allowances"]
+            plans.append((path, before, after, "PATCH"))
+    result = []
+    for path, before, after, method in plans:
+        changed = (before.get("bypass_actors") != after.get("bypass_actors") if method == "PUT"
+                   else bypass(before) != after["bypass_pull_request_allowances"])
+        print(f"Native team transition: {path} change={changed}")
+        if apply and changed:
+            if authority_sha and read(["api", f"repos/{REPO}/git/ref/heads/main"]).get("object", {}).get("sha") != authority_sha:
+                raise SystemExit("Main authority advanced during native transition")
+            if read(["api", path]) != before or read(["api", f"orgs/{ORG}/teams/pipeline-editors/members?per_page=100"]) != members:
+                raise SystemExit("Native authority changed during transition; no replacement performed")
+            _write(path, after, method)
+            observed = read(["api", path])
+            if method == "PUT":
+                if any(observed.get(key) != value for key, value in after.items()):
+                    raise SystemExit("Native team transition outcome is unconfirmed")
+            elif (bypass(observed) != after["bypass_pull_request_allowances"] or
+                  any(observed.get(key) != value for key, value in after.items() if key != "bypass_pull_request_allowances")):
+                raise SystemExit("Classic team transition outcome is unconfirmed")
+        result.append({"path": path, "changed": changed, "applied": apply and changed})
+    return result
 
 
 def main() -> int:
@@ -1069,16 +1116,40 @@ def main() -> int:
                     help="Reconcile Main merger/queue restrictions after combined-result qualification.")
     ap.add_argument("--protected-pipeline-review-policy", action="store_true",
                     help="Stage A: add independent native path review while retaining all existing safeguards.")
+    ap.add_argument("--native-team-transition", metavar="PREVIOUS_MAIN_SHA",
+                    help="Reconcile exact historical user exceptions to current pipeline-editor Team; preserves all controls.")
     ap.add_argument("--queue-timeouts", action="store_true",
-                    help="Reconcile only Main/Dev/UAT queue response ceilings; preserve every other control.")
+                    help="Reconcile reviewed queue response/build limits; preserve merge and review authority.")
     args = ap.parse_args()
 
     if not POLICY_PATH.exists():
         raise SystemExit(f"Policy file not found: {POLICY_PATH}")
     policy = load_policy()
+    if args.apply:
+        operator = gh_json(["api", "user"]).get("login")
+        permissions = gh_json(["api", f"repos/{REPO}"]).get("permissions", {})
+        if operator not in policy["main"]["protected_pipeline_edit_users"] or permissions.get("admin") is not True:
+            raise SystemExit("Governance changes require current pipeline-editor membership and repository administration")
+    if args.native_team_transition:
+        prior = args.native_team_transition
+        if not re.fullmatch(r"[a-f0-9]{40}", prior):
+            raise SystemExit("Native transition requires an immutable preceding Main SHA")
+        current = gh_json(["api", f"repos/{REPO}/git/ref/heads/main"])["object"]["sha"]
+        subprocess.run(["git", "merge-base", "--is-ancestor", prior, current], check=True, timeout=30)
+        if args.apply and subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != current:
+            raise SystemExit("Native transition must execute from the landed Main revision")
+        if args.apply:
+            from github_team_authority import local_policy
+            if policy != local_policy(json.loads(subprocess.check_output(["git", "show", f"{current}:config/ci-governance.json"], text=True))):
+                raise SystemExit("Native transition policy differs from landed Main")
+            subprocess.run(["git", "diff", "--exit-code", current, "--", "scripts/ci/apply-governance.py",
+                            "scripts/ci/prepared_branch_governance.py", "config/ci-governance.json"], check=True)
+        previous = json.loads(subprocess.check_output(["git", "show", f"{prior}:config/ci-governance.json"], text=True))
+        transition_native_teams(policy, previous, apply=args.apply, authority_sha=current)
+        return 0
     if args.queue_timeouts:
         if args.branch or args.main_review_policy or args.main_merge_policy or args.protected_pipeline_review_policy:
-            raise SystemExit("Queue timeout repair cannot be combined with another governance operation")
+            raise SystemExit("Queue limit repair cannot be combined with another governance operation")
         reconcile_queue_timeouts(policy, apply=args.apply)
         return 0
 
@@ -1129,7 +1200,7 @@ def main() -> int:
         require_code_owner_reviews=policy["pr_train"].get("require_code_owner_reviews"),
     )
 
-    print("\n3. org team membership, mirrored from config/ci-governance.json")
+    print("\n3. preserve authoritative GitHub team membership")
     changed_b = sync_managed_teams(policy, apply=args.apply)
 
     print()

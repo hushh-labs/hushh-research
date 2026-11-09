@@ -44,7 +44,6 @@ from hushh_mcp.services.drive_owner_allowed import (
     request_has_document_scope,
     semantic_search_enrollment_enabled,
     semantic_search_policy_view,
-    semantic_search_request,
     valid_owner_price_cents,
     valid_request_price_cents,
     whole_dollar_request,
@@ -1482,11 +1481,6 @@ class DriveSharingStore(DriveDocumentStore):
                 **background_consent.projection(private),
                 "trustedAuto": private.get("trusted_auto") is True,
                 "autoshare": autoshare_request(private),
-                "_checkout_after_plan": (
-                    row["payment_required"] is True
-                    and row["owner_allowed_at"] is not None
-                    and semantic_search_request(private)
-                ),
                 **semantic_search_policy_view(private),
                 "semanticModelBinding": private.get("semantic_model_binding"),
                 "reusablePacket": private.get("reusable_packet"),
@@ -3532,13 +3526,6 @@ class DriveSharingStore(DriveDocumentStore):
                     "ownerAllowed": True,
                     "amountCents": amount_cents,
                     **self._request_setup(connection, row, private),
-                    **(
-                        {"_checkout_after_plan": True}
-                        if row["payment_required"] is True
-                        and row["bulk_search_started_at"] is None
-                        and semantic_search_request(private)
-                        else {}
-                    ),
                 }
             if row["revision"] != revision:
                 raise DriveSharingError("review_changed")
@@ -3650,13 +3637,6 @@ class DriveSharingStore(DriveDocumentStore):
                 "ownerAllowed": True,
                 "amountCents": amount_cents,
                 **setup,
-                **(
-                    {"_checkout_after_plan": True}
-                    if row["payment_required"] is True
-                    and row["bulk_search_started_at"] is None
-                    and semantic_search_request(allowed_private)
-                    else {}
-                ),
             }
 
         return cast(dict, await self._transaction(operation))

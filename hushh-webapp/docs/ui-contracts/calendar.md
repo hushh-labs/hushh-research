@@ -629,10 +629,10 @@ duration from exact times; there is no duration picker in this shared form.
 | **Decline & offer another time** | `calendar_invitation_offer`; disabled busy/cannot respond. Mounted workspace enters exact-time form using its own Google grants. Chat requires its vault token for the existing Mail path. Only callers that explicitly supply `onOfferTimes` use that callback instead. |
 | Cannot respond | **This calendar only allows viewing. Respond from your own Calendar invitation.** |
 | Initial decision cue | **Review your accept response before confirming.** or **Review your decline response before confirming.** Initial accepted does not automatically prepare/execute. |
-| Decline heading/help | **Why can’t you attend?**; a Calendar-only decline is available without a reason. An optional reason can accompany an explicitly reviewed organizer email. |
+| Decline heading/help | **Why can’t you attend?**; explains that declining shares the reason and sends an organiser email. |
 | Decline input | Visible/accessibility **Reason for declining**, textarea max8000 characters, no authored placeholder. Changing draft clears review/result. |
-| Decline review | **Review decline** prepares a mail-free RSVP, then **Confirm decline** performs only the Calendar response. No vault unlock or organizer message is required. |
-| Decline send | **Review decline email** in workspace (or **Decline & send email** in Chat); busy **Preparing…**; expired-review recovery **Review email again**. Disabled busy/trimmed-empty message; Chat additionally requires its existing vault token. This is an explicit send action. |
+| Decline action | **Decline** prepares grammatical reason/email and confirms internally without an email preview; **Back** returns to the event. |
+| Decline send | **Decline**, busy **Declining…**. Disabled for empty reason or missing required authority. Only confirmed RSVP plus sent Mail closes the decline dialog; partial outcomes remain visible. |
 | Offer heading/help | **Offer another time**; **Choose the exact time to propose. The duration is calculated automatically.** |
 | Offer inputs | Labels **Date**, **From**, **Until**. Accessible **Alternative date**, **Alternative start time**, **Alternative end time**. Native date/time fields; no authored placeholder. End `00:00` becomes exclusive `24:00`. |
 | Offer message | Label **Reason and message to organiser**, accessible **Message to organiser**, max8000, no placeholder. |
@@ -955,7 +955,9 @@ any encrypted To-do information.
 | Missing conversation recovery | **Open the conversation containing your Calendar request to continue.** |
 | Optional generic clarification card | Question/options are dynamic. Default confirm **Yes**, selected-option commit **Confirm**, cancel **Cancel**; no built-in No button. Single option answers on tap; multi-select waits minimum selections/Confirm. Cancel clears directive and sends cancelled status. This is shared optional UI, not a guaranteed Calendar step. |
 
-Active ADK tools are `calendar_summary,calendar_invitations,open_calendar_invitation,calendar_calendars,calendar_events,calendar_event_detail,calendar_availability,calendar_free_slots,propose_calendar_event,propose_calendar_reschedule,propose_calendar_cancellation`.
+Active ADK tools are `calendar_summary,calendar_invitations,open_calendar_invitation,calendar_calendars,calendar_events,calendar_event_detail,calendar_availability,calendar_free_slots,calendar_shared_free_slots,calendar_opening_detail,propose_calendar_event,propose_calendar_reschedule,propose_calendar_cancellation`.
+Shared free-time reads and saved-option detail use the existing Google Calendar
+activity presentation in live and restored Chat. Showing an option is read-only.
 They call backend services directly, not the connected-tab HTTP read helpers.
 Exact tools/manifest own dynamic question policy and25-second read bound.
 Proposal tool malformed response: **Could not prepare that calendar change.
@@ -1696,3 +1698,17 @@ corrected against source. Publication uses the repository's existing CI checks;
 it does not turn source inspection or synthetic fixtures into live acceptance.
 No live provider, model, browser-account or native-device journey was performed
 for this reference.
+
+### Direct attendance response
+
+The reason form has Decline and Back. Decline prepares a manifest-owned polished
+organiser email and a short grammatical attendee comment, then confirms the
+existing sealed action without an intermediate email preview. The form explains
+that the organiser receives the reason and email. Chat and Calendar share this
+contract. Alternative-time responses preserve the requested date, duration and
+window; exact proposals include the verified date/time range and timezone in Mail.
+Conflict acknowledgement remains necessary; incomplete checks do not send.
+On confirmed decline and email sent, close the dialog and refresh the Board.
+Partial/unknown results remain visible. Draft failure performs no mutation.
+The legacy Calendar-only RSVP API remains available for compatible callers but
+is not the decline form's send path. No PKM behavior or authority changes.

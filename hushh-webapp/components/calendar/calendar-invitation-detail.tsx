@@ -38,12 +38,14 @@ export function invitationPersonName(person: CalendarHusshPerson | undefined, ..
   return person?.displayName?.trim() || fallbacks.map(value => value?.trim()).find(Boolean) || "";
 }
 
-export function InvitationAvatar({ name, email, photoUrl, userId }: { name: string; email?: string | null; photoUrl?: string | null; userId?: string | null }) {
-  const identity = (email?.trim().toLowerCase() || name.trim().toLowerCase());
-  const tone = [...identity].reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 4;
+export function InvitationAvatar({ name, photoUrl, userId, size = "md" }: { name: string; email?: string | null; photoUrl?: string | null; userId?: string | null; size?: "md" | "lg" }) {
   const cleanPhoto = photoUrl?.trim() || "";
   const safePhoto = admittedPortraitSource(cleanPhoto) ? cleanPhoto : null;
-  return <CalendarPersonAvatar userId={userId} name={name} photoUrl={safePhoto} className={styles.avatar} fallbackClassName={styles.avatarFallback} tone={tone} source="hussh" />;
+  return <CalendarPersonAvatar userId={userId} name={name} photoUrl={safePhoto} className={styles.avatar} size={size} source="hussh" />;
+}
+
+export function declineReason(comment?: string | null): string {
+  return invitationDescription(comment) || "No reason shared.";
 }
 
 function guestStatus(status?: string | null) {
@@ -61,7 +63,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), prof
   const organizerName = invitationPersonName(organizerPerson, event.organizer?.displayName, event.organizer?.email) || "Organizer";
   const guests = [...(event.attendees || [])];
   const syntheticOrganizer = (organizerEmail || event.organizer?.displayName) && !guests.some(person => organizerEmail && person.email?.trim().toLowerCase() === organizerEmail)
-    ? { email: event.organizer?.email, display_name: event.organizer?.displayName, response_status: null }
+    ? { email: event.organizer?.email, display_name: event.organizer?.displayName, response_status: null, comment: null }
     : null;
   if (syntheticOrganizer) guests.unshift(syntheticOrganizer);
   const isOrganizer = (person: typeof guests[number]) => person === syntheticOrganizer || Boolean(organizerEmail && person.email?.trim().toLowerCase() === organizerEmail);
@@ -81,7 +83,7 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), prof
     <div className={styles.detailHeading}>
       <InvitationDate event={event} zone={zone} />
       <div className={styles.copy}><h2>{event.title}</h2><p className={styles.muted}>{eventTime(event, zone)}</p>
-        {join ? <div className={styles.meeting}><CalendarMeetingIcon provider={provider} /><span>{provider}</span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
+        {join ? <div className={styles.meeting}><span className={styles.meetingProvider}><CalendarMeetingIcon provider={provider} /><span>{provider}</span></span><CalendarJoinLink url={join} accountEmail={event.account_email || accountEmail} /></div> : null}
       </div>
     </div>
     {workspaceLayout ? <>
@@ -102,16 +104,16 @@ export function CalendarInvitationDetail({ event, zone, people = new Map(), prof
             {attendee.response_status === "accepted" ? <CheckCircle aria-hidden="true" weight="fill" data-accepted-indicator className={styles.guestAccepted} /> : null}
             {attendee.response_status === "declined" ? <XCircle aria-hidden="true" weight="fill" data-declined-indicator className={styles.guestDeclined} /> : null}
           </span>
-          <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">HUSSH profile photo</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small></span>
+          <span className={styles.guestCopy}><span>{name}</span>{photo ? <span className="sr-only">HUSSH profile photo</span> : null}{organizer && attendee.email && name !== attendee.email ? <small>{attendee.email}</small> : null}<small>{organizer ? `Organiser · ${guestStatus(attendee.response_status)}` : guestStatus(attendee.response_status)}</small>{attendee.response_status === "declined" ? <small className={styles.declineReason}>{declineReason(attendee.comment)}</small> : null}</span>
         </li>;
       })}</ul>
     </div></> : <>
-    <div className={styles.detailSection}><p className={styles.sectionLabel}>Organiser</p><div className={styles.person}><InvitationAvatar userId={profileId(organizerPerson)} name={organizerName} email={event.organizer?.email} photoUrl={organizerPerson?.photoUrl} /><div className={styles.copy}><p>{organizerName}</p>{organizerName !== event.organizer?.email ? <p className={styles.muted}>{event.organizer?.email}</p> : null}</div></div>
+    <div className={styles.detailSection}><p className={styles.sectionLabel}>Organiser</p><div className={styles.person}><InvitationAvatar userId={profileId(organizerPerson)} name={organizerName} email={event.organizer?.email} photoUrl={organizerPerson?.photoUrl} size="lg" /><div className={styles.copy}><p>{organizerName}</p>{organizerName !== event.organizer?.email ? <p className={styles.muted}>{event.organizer?.email}</p> : null}</div></div>
       {event.description ? <><p className={`${styles.sectionLabel} ${styles.descriptionLabel}`}>Description</p><p className={styles.description}>{invitationDescription(event.description)}</p></> : null}
       {event.location ? <p className={styles.location}><MapPin aria-hidden className="size-4 shrink-0" />{event.location}</p> : null}
     </div>
-    <div className={styles.detailSection}><p className={styles.sectionLabel}>Attendees ({event.attendees?.length || 0})</p><ul className={styles.attendees}>{event.attendees?.map((attendee, index) => <li key={`${attendee.email}:${index}`} title={attendee.email || undefined}>
-      <InvitationAvatar userId={attendee.self ? undefined : profileId(invitationPerson(people, attendee.email))} name={invitationPersonName(invitationPerson(people, attendee.email), attendee.display_name, attendee.email) || "?"} email={attendee.email} photoUrl={invitationPerson(people, attendee.email)?.photoUrl} /><span>{attendee.self ? "You" : invitationPersonName(invitationPerson(people, attendee.email), attendee.display_name, attendee.email)}</span><small>{attendee.response_status === "needsAction" ? "Awaiting reply" : attendee.response_status}</small>
+    <div className={styles.detailSection}><p className={styles.sectionLabel}>Attendees ({event.attendees?.length || 0})</p><ul className={styles.attendees}>{event.attendees?.map((attendee, index) => <li key={`${attendee.email}:${index}`} title={attendee.email || undefined} data-declined={attendee.response_status === "declined" || undefined}>
+      <InvitationAvatar userId={attendee.self ? undefined : profileId(invitationPerson(people, attendee.email))} name={invitationPersonName(invitationPerson(people, attendee.email), attendee.display_name, attendee.email) || "?"} email={attendee.email} photoUrl={invitationPerson(people, attendee.email)?.photoUrl} /><span>{attendee.self ? "You" : invitationPersonName(invitationPerson(people, attendee.email), attendee.display_name, attendee.email)}</span><small>{guestStatus(attendee.response_status)}</small>{attendee.response_status === "declined" ? <small className={styles.declineReason}>{declineReason(attendee.comment)}</small> : null}
     </li>)}</ul></div></>}
   </article>;
 }

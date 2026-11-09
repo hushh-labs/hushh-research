@@ -145,6 +145,7 @@ class PublicationRoutingTest(unittest.TestCase):
         publication = importlib.import_module("retention_publication")
         maintenance = importlib.import_module("uat-retention-maintenance")
         run, job, log, source = fixture()
+        run["actor"] = {"login": "github-actions[bot]", "id": 41898282, "type": "Bot"}
         reads = []
 
         def owner_for(served):
@@ -160,7 +161,7 @@ class PublicationRoutingTest(unittest.TestCase):
             owner.__file__ = str(Path(__file__).resolve().parent / "uat-retention-maintenance.py")
             return owner
 
-        run.update(actor={"login": "github-actions[bot]"}, triggering_actor={"login": "github-actions[bot]"})
+        run.update(actor={"login": "github-actions[bot]", "id": 41898282, "type": "Bot"}, triggering_actor={"login": "github-actions[bot]", "id": 41898282, "type": "Bot"})
         for title in (maintenance.SCOPED_TICK_TITLES["uat"], publication.UNSCOPED_TICK_TITLE):
             with self.subTest(title=title), mock.patch.object(publication, "_log", return_value=log):
                 run["display_title"], reads[:] = title, []

@@ -225,9 +225,7 @@ async def test_sdk_401_uses_vault_owned_refresh_and_never_retries_an_effect(monk
     )
     grant = ("owner", "gmail", "account-A", "connected", "revision-A")
     vault = SimpleNamespace(
-        get_bound_read_access_token=AsyncMock(
-            return_value=("synthetic-access", grant, "owner@example.test")
-        )
+        get_bound_read_access_token=AsyncMock(return_value=("synthetic-access", grant))
     )
     execution = bindings.OwnerGmailExecution(vault, "owner", AsyncMock())
     arguments = (

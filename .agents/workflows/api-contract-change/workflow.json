@@ -17,7 +17,7 @@
     "docs/reference/quality/pr-impact-checklist.md"
   ],
   "required_commands": [
-    "./bin/hushh codex route-task api-contract-change",
+    "./bin/hushh agents route-task api-contract-change",
     "cd hushh-webapp && npm run typecheck",
     "./bin/hushh protocol test-ci"
   ],

@@ -22,15 +22,37 @@ def main() -> int:
     parser.add_argument("--actor", required=True)
     args = parser.parse_args()
 
-    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
-    allowed = policy.get(args.surface, {}).get("manual_dispatch_users", [])
-    if os.environ.get("GITHUB_RUN_ATTEMPT", "1") != "1" and os.environ.get("GITHUB_TRIGGERING_ACTOR") not in allowed:
-        raise SystemExit("Rerunning a governed release requires an authorized triggering actor.")
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     event = json.loads(Path(event_path).read_text()) if event_path else {}
     inputs = event.get("inputs") or {}
     if inputs.get("cadence_origin") or inputs.get("cadence_ordinal"):
         raise SystemExit("Automatic release cadence is retired; use an explicit manual release.")
+    if "RELEASE_AUTHORIZATION" in os.environ:
+        from deployment_security import Refused, verify_forwarded_authorization
+
+        try:
+            verify_forwarded_authorization(
+                dict(os.environ), os.environ["RELEASE_AUTHORIZATION"], args.surface, args.actor
+            )
+        except (Refused, KeyError, TypeError, ValueError) as error:
+            reason = str(error) if isinstance(error, Refused) else "authorization unavailable"
+            raise SystemExit(f"Release authorization refused: {reason}") from None
+        from github_team_authority import request_operation_authority
+        request_operation_authority(dict(os.environ), args.surface, args.actor)
+        print(f"{args.surface} current-attempt live-team authorization passed.")
+        return 0
+
+    policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        from github_team_authority import request_operation_authority
+        request_operation_authority(dict(os.environ), args.surface, args.actor)
+        print(f"{args.surface} current-operation team authorization passed.")
+        return 0
+    from github_team_authority import local_policy
+    policy = local_policy(policy, actor=args.actor)
+    allowed = policy.get(args.surface, {}).get("manual_dispatch_users", [])
+    if os.environ.get("GITHUB_RUN_ATTEMPT", "1") != "1" and os.environ.get("GITHUB_TRIGGERING_ACTOR") not in allowed:
+        raise SystemExit("Rerunning a governed release requires an authorized triggering actor.")
     if args.actor not in allowed:
         joined = ", ".join(allowed) if allowed else "<none>"
         raise SystemExit(

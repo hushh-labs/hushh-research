@@ -61,42 +61,83 @@ it. The existing writer still checks current sharing and revision authority.
 Keep and Forget share equal-width, at least 44px-high targets, including narrow
 WebKit layouts and the loading/confirmation states.
 
-## Conversational capture and context transfers
+## V1 conversational STM and memory.md
 
-Chat uses the existing Memory proposal and encrypted writer, not a second memory
-store. Eligibility for an automatic private save does not publish the information,
-enable request discovery, or grant consent. Sensitive or ambiguous details require
-review; unsuccessful preparation must not be reported as a successful empty result.
+Canonical typed chat uses the complete encrypted ADK transcript until compaction.
+The model receives the current full `one_memory.markdown` document, the last
+validated STM summary, and the unsummarized conversation. No vector search or
+Wiki lookup is involved. The LTM transport permits 128,000 characters so the
+96,000-character document budget and the existing bounded app context fit without
+silently clipping the document. Specialist Gmail, Calendar, KYC and import writers
+retain their existing contracts in this release.
 
-The authored segmentation, intent, merge, structure, and One instructions live in
-their `consent-protocol/hushh_mcp/agents/*/agent.yaml` manifests. Segmentation carries
-source input as JSON; both ADK and direct-client execution use the manifest's system
-instruction. Exact source validation remains mandatory. Context transfers must
-preserve the subject, its historical, current or intended status, negation, and uncertainty.
-Unknown-information lists are not affirmative facts, and embedded instructions
-cannot authorize sharing or mutations. Repetition is not a reason to create
-duplicate memories.
+STM starts background summarization around 75% of the entire request budget:
+system instruction, tool declarations, LTM, previous summary, conversation and
+response allowance. Known model limits are explicit in `one_adk/chat_memory.py`;
+unknown models use a labelled conservative fallback. Preflight counts use an
+estimate calibrated to previous provider usage, with a margin; final provider
+input-token counts reconcile accounting. Estimates are not exact tokenization.
+Four recent user turns remain verbatim. A fixed older prefix and the previous
+summary go to the manifest-owned STM gene. The encrypted session commits the
+summary and its cutoff together only after validation and a source-prefix/CAS
+check. Failure preserves both previous values. Pending work never delays the main
+answer; at the hard budget only the model-facing oldest complete turn groups may
+be omitted temporarily. The stored transcript is never shortened.
 
-Segmentation returns at most eight candidates and an explicit
-`has_more_candidates` flag. The existing proposal `split_recommended` contract
-propagates that flag so the client can retry smaller passages. This is model-reported
-coverage, not proof that every eligible fact was found. Source and mocked contract
-tests do not establish live extraction quality for a large context transfer.
+Azure chat deployment names resolve through the server-owned
+`managed_runtime_uat.azure` descriptors before the context budget is calculated;
+they are not treated as model names or inferred from a deployment-name prefix.
+GPT-5.4 mini has a 400,000-token context window and 128,000-token maximum output
+allowance. Unknown deployments keep the labelled conservative fallback.
+Background STM resolves the canonical per-invocation model in its own task so
+the Azure owner-authority guard remains attached. Failed or revoked authority
+preserves the prior checkpoint and performs no memory commit.
 
-The shared client preparation path packs exact source spans rather than one
-request per labeled field. Headings stay with their body through retries; an
-oversized or unsplittable contextual section remains explicitly unresolved.
-Saving the successfully reviewed cards does not discard unresolved source text.
-Review is separate from Save, including when the preparation-only reviewer
-harness is enabled.
+Personal Cloud Run services named `backend-dev-<handle>` may explicitly select
+`HUSHH_SANDBOX_MANAGED_AI_PROVIDER=azure_openai` while retaining
+`ENVIRONMENT=development`. The paired `HUSHH_SANDBOX_AZURE_CLIENT_ID` selects the
+dedicated sandbox Entra runtime identity and participates in binding freshness.
+This uses the configured Azure resource, the
+`one_text_root` deployment for chat, and the existing primary text deployment for
+LTM rewrites and ordinary text genes. Readiness probes and the model preference
+response report Azure. It does not activate UAT's automatic information-processing
+approvals, grant provider credentials, or redirect owner/BYOK models. The flag is
+rejected on other services, in UAT/production and in owner pods. Deployment still
+requires approved source/configuration and Entra trust for the dedicated runtime
+identity; local mocked verification is not live Azure acceptance.
 
-Chat capture uses one session-only, counts-only status per answer. Jobs recheck
-the validated owner, vault generation, and automatic-saving policy before
-processing and encrypted writes. Policy-domain invalidation disables capture
-until the encrypted setting is read again. A confirmed write receipt stays
-successful after a session change, but cannot republish information into the new
-session; cancellation is not a rollback of a request already accepted upstream.
-Rendered continuity, extraction completeness and latency still need live proof.
+The owner-scoped browser LTM runtime accumulates full request **input tokens**
+(including repeated system/tools/memory input) since its last acknowledged rewrite.
+Its initial configurable threshold is 12,000 tokens. Explicit remember/forget,
+new-chat or switch, and five minutes of inactivity also trigger it. There is no
+five-message or guessed end-of-conversation trigger and no new save-status UI.
+Idle work requires an open, unlocked app; process suspension cannot promise a
+wall-clock background run.
+
+Azure `input_tokens` reconciles the same main-call usage record as the initial
+estimate. Cached input is already included and is not added again; reasoning and
+other output tokens do not contribute to the LTM input counter.
+
+The separate `agent_chat_memory_manager` receives only the current document and
+unprocessed role-attributed source messages, in bounded batches. It proposes a
+complete consolidated replacement rather than appending facts. The target is
+16,000 tokens within a generous 24,000-token preparation budget and the hard
+96,000-character storage limit; oversized/empty results fail without truncation.
+The browser's existing authorized encrypted writer atomically commits the document
+and encrypted source/request checkpoints. Only acknowledged request usage is
+retired; new arrivals remain pending. Generation, validation or storage failure
+retains the old document, checkpoint and unacknowledged input count. Pending source
+and accounting survive refresh in the encrypted durable resource cache.
+
+Manual document edits advance an edit generation, withdrawing old pending source
+windows so an older rewrite cannot restore a forgotten fact. Conflicting automatic
+rewrites reprepare against current memory. Source identities are content hashes per
+conversation to survive transient UI versus restored ADK message IDs; identical
+source text is deduplicated. Credentials and consent-derived invocations are
+excluded from durable extraction. Retrieved memory and tools are not independent
+owner evidence. Owner changes, lock and token renewal retire pending plaintext
+operations. Existing domain writers remain the sole storage/encryption boundary;
+no plaintext Markdown file is written to the server filesystem.
 
 ## Chat onboarding preferences
 

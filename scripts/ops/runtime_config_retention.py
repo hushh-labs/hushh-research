@@ -49,17 +49,31 @@ def _retained_referral_config(
     return {keys[0]: True, **dict(zip(keys[1:], expected_values, strict=True))}
 
 
+UAT_PLG_FLAGS = (
+    "one_plg_uat_export_enabled",
+    "one_plg_activity_uat_enabled",
+    "one_plg_attempt_email_enabled",
+)
+
+
 def _retained_plg_config(
     existing: dict[str, Any], *, project: str, environment: str
 ) -> dict[str, bool]:
     """Preserve explicit pilot settings without importing another lane's activation."""
     retained: dict[str, bool] = {}
+    foreign_uat_flags = (
+        "one_plg_dev_export_enabled",
+        "one_plg_activity_dev_enabled",
+        "one_plg_owner_export_enabled",
+    ) if environment == "uat" else ()
     for key in (
         "one_plg_export_enabled",
         "one_plg_activity_enabled",
         "one_plg_activity_all_registered",
         "one_plg_audience_enabled",
         "one_plg_subscription_enabled",
+        *UAT_PLG_FLAGS,
+        *foreign_uat_flags,
     ):
         if key not in existing:
             continue
@@ -70,16 +84,32 @@ def _retained_plg_config(
             retained[key] = value == "true"
         else:
             raise ValueError("PLG activation must be an explicit boolean")
-    if any(retained.values()) and (
+    enabled = {key for key, value in retained.items() if value}
+    if environment == "uat" and enabled:
+        if (
+            project != "hushh-pda-uat"
+            or existing.get("environment") != "uat"
+            or existing.get("google_cloud_project") != project
+            or not enabled <= {*UAT_PLG_FLAGS, "one_plg_activity_enabled"}
+            or (
+                "one_plg_activity_enabled" in enabled
+                and "one_plg_activity_uat_enabled" not in enabled
+            )
+        ):
+            raise ValueError("PLG activation does not match the UAT environment and project")
+    elif enabled and (
         environment != "production"
         or project != "hushh-pda"
         or existing.get("environment") != "production"
         or existing.get("google_cloud_project") != "hushh-pda"
+        or enabled.intersection(UAT_PLG_FLAGS)
     ):
         raise ValueError(
             "PLG activation belongs only to the production environment and project"
         )
-    return retained
+    if environment == "uat":
+        return retained
+    return {key: value for key, value in retained.items() if key not in UAT_PLG_FLAGS}
 
 
 def _retained_dev_inference_bridge(

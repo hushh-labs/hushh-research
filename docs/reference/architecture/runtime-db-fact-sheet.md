@@ -44,7 +44,7 @@ Production readiness is blocked when:
 Run:
 
 ```bash
-./bin/hushh codex data-model-audit
+./bin/hushh agents data-model-audit
 ```
 
 ## Current Table Families
@@ -263,4 +263,4 @@ The `public` schema also includes extension/operator functions (vector/trigram) 
 
 Use a read-only introspection query set against `information_schema`, `pg_catalog.pg_tables`, and `pg_proc` to refresh this file. Do not include credentials or data rows in documentation artifacts.
 
-Use [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json) and `./bin/hushh codex data-model-audit` to verify that newly created tables are classified and that legacy memory tables are not reintroduced as canonical write targets.
+Use [runtime-db-data-plane-contract.json](./runtime-db-data-plane-contract.json) and `./bin/hushh agents data-model-audit` to verify that newly created tables are classified and that legacy memory tables are not reintroduced as canonical write targets.

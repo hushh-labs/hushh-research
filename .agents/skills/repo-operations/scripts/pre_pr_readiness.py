@@ -202,6 +202,12 @@ def _protected(c: dict[str, Any]) -> tuple[bool, str]:
     guard = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(guard)
     policy = json.loads(_capture(["git", "show", f"{c['base']}:config/ci-governance.json"]))
+    if c["base_ref"] in {"dev", "uat"} and policy.get("authorization", {}).get("native_teams") is True:
+        from queue_combined_result import authority_policy
+        _, policy = authority_policy("hushh-labs/hushh-research", c["base_ref"], c["base"])
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        policy = local_policy(policy)
     main_policy = policy.get("main")
     if not isinstance(main_policy, dict):
         raise ValueError("base protected-pipeline policy is missing")
@@ -337,9 +343,8 @@ def main() -> int:
                 mirrors_workflows=["affected local checks"], diagnostic=False,
                 hosted_required=["exact-head PR admission and selected native checks"] +
                     (["cross-surface Integration"] if any(c["lanes"].values()) else []) +
-                    (["functional browser contracts"] if c["lanes"]["frontend"] else []) +
                     (["Protocol Database (1/2)", "Protocol Database (2/2)"] if c["lanes"]["backend"] else []),
-                browser_validation="hosted CI required; not executed locally",
+                browser_validation="explicit diagnostic only; not executed locally",
                 include_advisory=False, commands=commands, checks=checks,
                 next_actions=["Open or update the pull request after all focused checks pass." if ok
                               else "Resolve failed checks or provide the missing PR body before proceeding."],
@@ -415,7 +420,7 @@ def _diagnostic(args: argparse.Namespace) -> int:
             "Open or update the pull request once the local mirror is green."
             if ok
             else "Fix the failing local check before opening or updating the pull request.",
-            "Use ./bin/hushh codex ci-status --watch after the PR opens so GitHub reaches a terminal state.",
+            "Use ./bin/hushh agents ci-status --watch after the PR opens so GitHub reaches a terminal state.",
         ],
     )
 

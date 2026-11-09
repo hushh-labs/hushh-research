@@ -1,3 +1,4 @@
+import { calendarProposalReviewError } from "@/lib/agent/calendar-proposal-review";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import type {
   DelegateResult,
@@ -25,14 +26,14 @@ export async function runCalendarDirective(
 ): Promise<DelegateResult> {
   const payload = directive.payload as Record<string, unknown>;
   const proposalId = String(payload.proposalId ?? "");
-  if (payload.type !== "calendar.execute_proposal" || !proposalId) {
-    throw new Error("Calendar confirmation is invalid.");
-  }
+  const reviewError = calendarProposalReviewError(payload);
+  if (reviewError) throw new Error(reviewError);
 
   const result = await GoogleCalendarService.executeProposal({
     vaultOwnerToken,
     userId,
     proposalId,
+    accountId: String(payload.accountId),
   });
 
   notifyCalendarChanged(userId);

@@ -426,9 +426,7 @@ def download(repository: str, run_id: int, name: str, directory: Path) -> None:
 def governed_dispatch(
     run: dict, repository: str, environment: str, *, workflow: str | None = None
 ) -> bool:
-    policy = json.loads(
-        (Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text()
-    )
+    """Recognize historical origin; downstream outcome/serving proofs still apply."""
     if (
         environment == "production"
         and trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
@@ -445,8 +443,7 @@ def governed_dispatch(
     return (
         trusted_origin(run, repository, workflow or LANES[environment]["workflow"])
         and run.get("event") == "workflow_dispatch"
-        and (run.get("actor") or {}).get("login")
-        in policy[environment]["manual_dispatch_users"]
+        and release_provenance.historical_human_dispatch(run)
     )
 
 
@@ -1252,7 +1249,8 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
         jobs = result.get("jobs")
         if not isinstance(jobs, list) or result.get("total_count") != len(jobs):
             raise retention.UnsafeState("maintenance job inventory is incomplete")
-        matched = [job for job in jobs if job.get("name") == name]
+        current_name = ("UAT" if environment == "uat" else "Production") + " revision maintenance"
+        matched = [job for job in jobs if job.get("name") in {name, current_name}]
         if len(matched) != 1 or matched[0].get("status") != "completed":
             continue
         authored = matched[0].get("steps", [])
@@ -1262,6 +1260,9 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             f"Authenticate to {environment}", f"Save {environment} cleanup checkpoint",
         )):
             continue
+        if (matched[0].get("name") == current_name
+                and importlib.import_module("retention_publication").maintenance_mode(steps) != "cleanup"):
+            continue
         if artifact is not None:
             saved = steps[f"Save {environment} cleanup checkpoint"]
             created = _github_timestamp(artifact.get("created_at"))
@@ -1270,6 +1271,12 @@ def trusted_checkpoint_run(repository: str, run: dict, environment: str, artifac
             if not (created and started and finished and started - timedelta(seconds=5) <= created <= finished + timedelta(seconds=30)):
                 continue
         return True
+    # A completed immutable upload can independently prove missing step metadata.
+    publication = importlib.import_module("retention_publication")
+    for job in matched:
+        if publication.uploaded_checkpoint_proof(sys.modules[__name__], repository, run, attempt,
+                                                job, environment, artifact) is not None:
+            return True
     return False
 
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail closed when direct-UAT evidence changes or belongs to another source."""
 
+import copy
 import json
 import os
 import subprocess
@@ -25,6 +26,171 @@ from uat_exact_ci_fixture import (
 
 
 class ExactUatCiTest(unittest.TestCase):
+    def test_ordinary_uat_keeps_app_independent_but_pins_privileged_execution(self):
+        with tempfile.TemporaryDirectory(prefix="hussh-uat-authority-") as root:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
+
+            def git(*args):
+                try:
+                    return subprocess.check_output(["git", "-C", root, *args], env=env, stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError as error:
+                    raise subject.Refused("Git authority lookup failed") from error
+
+            def write(path, text):
+                target = Path(root, path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text)
+
+            def commit():
+                git("add", ".")
+                git("commit", "-qm", "fixture")
+                return git("rev-parse", "HEAD").decode().strip()
+
+            git("init", "-q")
+            git("config", "user.name", "CI fixture")
+            git("config", "user.email", "ci@example.invalid")
+            git("config", "core.hooksPath", "/dev/null")
+            for path in subject.MANIFEST_FILES:
+                write(path, "[tool.pytest.ini_options]\naddopts = '-q'\n" if path.endswith(".toml")
+                      else '{"scripts": {"test": "vitest"}}')
+            write(subject.BACKEND_TEST_MANIFEST, "tests/test_main.py\n")
+            prose = ".agents/skills/repo-operations/SKILL.md"
+            write(prose, "# Original guidance\n")
+            guarded = (".agents/config.json", ".agents/workflows/example/workflow.json",
+                       ".agents/skills/repo-operations/scripts/operator.py",
+                       "scripts/ops/sync_backend_runtime_secrets.py",
+                       "scripts/ops/scope_commerce_runtime_policy.py",
+                       "consent-protocol/db/migration_authority.py", "deploy/backend.cloudbuild.yaml",
+                       "consent-protocol/db/hosted_custody_qualification.py",
+                       "consent-protocol/db/firebase_erasure_adoption.py")
+            for path in guarded:
+                write(path, "original\n")
+            authority = commit()
+            git("update-ref", "refs/remotes/origin/main", authority)
+            write(prose, "# Updated development guidance\n")
+            candidate = commit()
+            git("checkout", "--detach", authority)
+            write("application.txt", "historical serving release from a sibling history\n")
+            serving = commit()
+            git("checkout", "--detach", candidate)
+            with patch.object(subject, "git", side_effect=git):
+                # The accepted serving commit is deliberately not an ancestor.
+                self.assertEqual(subject.verify_git_authority(candidate, serving, authority, current=False),
+                                 git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
+                with self.assertRaises(subject.Refused):
+                    subject.verify_git_authority(candidate, "0" * 40, authority, current=False)
+                self.assertEqual(subject.verify_git_authority(candidate, authority, authority, current=False),
+                                 git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
+                for path in guarded:
+                    write(path, "changed\n")
+                    changed = commit()
+                    with self.subTest(path=path):
+                        if path.startswith(("deploy/", "consent-protocol/db/")):
+                            with self.assertRaisesRegex(subject.Refused, "Privileged build or migration"):
+                                subject.verify_git_authority(changed, authority, authority, current=False)
+                        else:
+                            self.assertEqual(subject.verify_git_authority(changed, authority, authority, current=False),
+                                             git("rev-parse", f"{changed}^{{tree}}").decode().strip())
+                    write(path, "original\n")
+                    commit()
+                # Each invocation projection and branch-owned manifest may
+                # evolve independently of Main, even without Main-only tests.
+                for path in (*subject.MANIFEST_FILES, subject.BACKEND_TEST_MANIFEST):
+                    original = Path(root, path).read_text()
+                    changed_text = ("tests/test_uat_only.py\n" if path == subject.BACKEND_TEST_MANIFEST
+                                    else "[tool.pytest.ini_options]\naddopts = '-ra'\n" if path.endswith(".toml")
+                                    else '{"scripts": {"test": "vitest run"}}')
+                    write(path, changed_text)
+                    changed = commit()
+                    with self.subTest(path=path):
+                        if path in subject.UAT_PRIVILEGED_PATHS:
+                            with self.assertRaises(subject.Refused):
+                                subject.verify_git_authority(changed, serving, authority, current=False)
+                        else:
+                            self.assertEqual(subject.verify_git_authority(changed, serving, authority, current=False),
+                                             git("rev-parse", f"{changed}^{{tree}}").decode().strip())
+                        # Isolated UAT retains its former invocation contract.
+                        with self.assertRaises(subject.Refused):
+                            subject.verify_invocation_authority(changed, authority)
+                    write(path, original)
+                    commit()
+                # Exercise the real shared verifier through inspection, early
+                # deployment admission and the stored under-lock recheck.
+                import uat_release_prerequisites as prerequisites
+
+                write("deploy/backend.cloudbuild.yaml", "original\n")
+                write("hushh-webapp/package.json", '{"scripts": {"test": "vitest run"}}')
+                write(subject.BACKEND_TEST_MANIFEST, "tests/test_uat_only.py\n")
+                candidate = commit()
+                git("update-ref", "refs/remotes/origin/uat", candidate)
+                run = _attempt_run(candidate)
+                transport = _AttemptAPI(run, _attempt_jobs(candidate, serving), [run], _attempt_check(candidate))
+                protected = {"protected": True, "commit": {"sha": candidate}}
+                api = SimpleNamespace(read=lambda path: copy.deepcopy(protected)
+                                      if path.endswith("/branches/uat") else transport.read(path))
+                live = {name: {"sha": serving, "revision": name + "-00001-abc"}
+                        for name in ("backend", "frontend")}
+                args = SimpleNamespace(environment="uat", scope="all", sha=candidate,
+                    base_sha=serving, authority_sha=authority, ci_run_id=123, ci_attempt=1,
+                    backend_base_sha=serving, frontend_base_sha=serving,
+                    backend_base_revision=live["backend"]["revision"],
+                    frontend_base_revision=live["frontend"]["revision"], predecessor=None)
+                # Synthetic Git repo has no remote; refresh is the only Git
+                # operation replaced. All content/ancestry reads use real Git.
+                with patch.object(subject, "git", side_effect=lambda *a: b"" if a[0] == "fetch" else git(*a)), \
+                     patch.object(subject, "GitHub", return_value=api), \
+                     patch.object(subject, "live_serving_bases", side_effect=lambda _: copy.deepcopy(live)), \
+                     patch.dict(os.environ, {"UAT_EMAIL_AUTH_ENABLED": "false"}):
+                    self.assertTrue(prerequisites.inspect(api, authority, read_live=lambda _: copy.deepcopy(live))["ready"])
+                    prerequisites.validate_deployment(api, candidate, "123", "1", serving, authority=authority)
+                    record = subject.issue_predecessor(args)
+                    receipt = Path(root, "admission.json")
+                    receipt.write_text(json.dumps(record))
+                    options = {"read_live": lambda _: copy.deepcopy(live), "predecessor": receipt}
+                    prerequisites.verify_release_scope(api, candidate, serving, "", **options)
+                    live["frontend"]["revision"] = "frontend-00002-abc"
+                    with self.assertRaisesRegex(subject.Refused, "revisions changed"):
+                        prerequisites.verify_release_scope(api, candidate, serving, "", **options)
+                    run["conclusion"] = "failure"
+                    with self.assertRaises(subject.Refused):
+                        prerequisites.validate_deployment(api, candidate, "123", "1", serving, authority=authority)
+                    run["conclusion"] = "success"
+                    protected["protected"] = False
+                    with self.assertRaises(subject.Refused):
+                        prerequisites.validate_deployment(api, candidate, "123", "1", serving, authority=authority)
+
+    def test_tooling_independence_preserves_source_and_main_provenance_checks(self):
+        candidate, base, authority = (letter * 40 for letter in "abc")
+        for refused in (("merge-base", "--is-ancestor", candidate, "origin/uat"),
+                        ("merge-base", "--is-ancestor", authority, "origin/main"),
+                        *(("cat-file", "-e", f"{sha}^{{commit}}") for sha in (candidate, base, authority))):
+            def observed(*args):
+                if args == refused:
+                    raise subject.Refused("Unprovable source identity")
+                return b""
+            with self.subTest(refused=refused), patch.object(subject, "git", side_effect=observed), \
+                 self.assertRaisesRegex(subject.Refused, "Unprovable source identity"):
+                subject.verify_git_authority(candidate, base, authority)
+        with patch.object(subject, "git") as git_read:
+            for args, options in (((candidate, base, "bad"), {}),
+                                  ((candidate, base, authority), {"branch": "main"})):
+                with self.subTest(args=args, options=options), self.assertRaises(subject.Refused):
+                    subject.verify_git_authority(*args, **options)
+            git_read.assert_not_called()
+
+    def test_legacy_isolated_history_retains_its_reviewed_ancestry_boundary(self):
+        candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
+
+        def observed(*args):
+            if args == ("merge-base", "--is-ancestor", base, candidate):
+                raise subject.Refused("Git authority lookup failed")
+            return b""
+
+        with patch.object(subject, "git", side_effect=observed), self.assertRaisesRegex(
+            subject.Refused, "Isolated UAT serving base.*reviewed source transition"
+        ):
+            subject.verify_git_authority(candidate, base, authority, current=False, branch="uat-isolated")
+
     def test_reviewed_product_tests_and_dependencies_do_not_change_execution_authority(self):
         main = {"scripts": {"test": "vitest"}, "dependencies": {"a": "1"}}
         candidate = {**main, "dependencies": {"a": "2"}}
@@ -42,44 +208,31 @@ class ExactUatCiTest(unittest.TestCase):
             with self.assertRaises(subject.Refused):
                 subject.verify_invocation_authority("candidate", "main")
 
-    def test_branch_test_inventory_is_preserved_without_relaxing_executors(self):
+    def test_ordinary_uat_manifest_is_branch_owned_but_must_be_well_formed(self):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
         state = {"manifest": b"tests/test_main.py\ntests/services/test_uat_only.py\n",
-                 "mode": "100644", "executor_changed": False}
+                 "mode": "100644"}
 
         def observed(*args):
             if args[0] == "ls-tree":
-                if args[1] != "-r":
-                    return f"{state['mode']} blob {'d' * 40}\t{subject.BACKEND_TEST_MANIFEST}\n".encode()
-                revision = args[3]
-                code = "f" if state["executor_changed"] and revision == candidate else "e"
-                manifest = "1" if revision == authority else "2"
-                return (f"100644 blob {code * 40}\t.github/workflows/ci.yml\n"
-                        f"100644 blob {manifest * 40}\t{subject.BACKEND_TEST_MANIFEST}\n").encode()
+                self.assertEqual(args, ("ls-tree", candidate, "--", subject.BACKEND_TEST_MANIFEST))
+                return f"{state['mode']} blob {'d' * 40}\t{subject.BACKEND_TEST_MANIFEST}\n".encode()
             if args[0] == "show":
-                if args[1].endswith(subject.BACKEND_TEST_MANIFEST):
-                    return state["manifest"] if args[1].startswith(candidate + ":") else b"tests/test_main.py\n"
-                if args[1].endswith("pyproject.toml"):
-                    return b"[tool.pytest.ini_options]\naddopts = '-q'\n"
-                return b'{"scripts": {"test": "vitest"}}'
+                self.assertEqual(args, ("show", f"{candidate}:{subject.BACKEND_TEST_MANIFEST}"))
+                return state["manifest"]
             if args[0] == "rev-parse":
                 return ("9" * 40).encode()
             return b""
 
         with patch.object(subject, "git", side_effect=observed):
             self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "9" * 40)
-            state["executor_changed"] = True
-            with self.assertRaisesRegex(subject.Refused, "authority differs"):
-                subject.verify_git_authority(candidate, base, authority, current=False)
-            state["executor_changed"] = False
-            for invalid in (b"--override-ini=addopts=\n", b"tests/../outside.py\n",
+            for invalid in (b"", b"# comments only\n", b"--override-ini=addopts=\n", b"tests/../outside.py\n",
                             b"tests/test_main.py\ntests/test_main.py\n", b"\xff"):
                 state["manifest"] = invalid
                 with self.subTest(manifest=invalid), self.assertRaisesRegex(subject.Refused, "invalid test identities"):
                     subject.verify_git_authority(candidate, base, authority, current=False)
             state["manifest"] = b"tests/test_other.py\n"
-            with self.assertRaisesRegex(subject.Refused, "omits required Main test identities"):
-                subject.verify_git_authority(candidate, base, authority, current=False)
+            self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "9" * 40)
             state["manifest"] = b"tests/test_main.py\n"
             state["mode"] = "120000"
             with self.assertRaisesRegex(subject.Refused, "regular tracked file"):
@@ -97,6 +250,14 @@ class ExactUatCiTest(unittest.TestCase):
                 block = workflow.split("- name: Preserve current release tooling", 1)[1].split("\n      - name:", 1)[0]
                 script = textwrap.dedent(block.split("run: |\n", 1)[1]).replace(
                     "${{ inputs.skip_managed_vertex_probe_once }}", "false"
+                )
+                # This contract tests copied verifier dependencies. Frontend
+                # scope copies the profile without the unrelated GNU timeout
+                # used by backend capacity admission (covered by capacity tests).
+                script = script.replace("${{ needs.wait-capacity.outputs.scope }}", "frontend")
+                script = script.replace(
+                    "${{ steps.resolve-sha.outputs.sha }}",
+                    subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
                 )
                 env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
                 env["RUNNER_TEMP"] = scratch
@@ -137,16 +298,18 @@ class ExactUatCiTest(unittest.TestCase):
             if args[:1] == ("rev-parse",):
                 return ("e" * 40).encode()
             return b""
-        with patch.object(subject, "git", side_effect=observed), patch.object(subject, "verify_invocation_authority"):
-            with self.assertRaisesRegex(subject.Refused, "tip changed"):
-                subject.verify_git_authority(candidate, base, authority)
+        with patch.object(subject, "git", side_effect=observed), patch.object(subject, "backend_test_inventory"):
+            self.assertEqual(subject.verify_git_authority(candidate, base, authority), "e" * 40)
             self.assertEqual(calls[0], ("fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main", "+refs/heads/uat:refs/remotes/origin/uat"))
+            self.assertIn(("merge-base", "--is-ancestor", candidate, "origin/uat"), calls)
+            with self.assertRaisesRegex(subject.Refused, "tip changed"):
+                subject.verify_git_authority(candidate, base, authority, branch="uat-isolated")
             calls.clear()
             self.assertEqual(subject.verify_git_authority(candidate, base, authority, current=False), "e" * 40)
             self.assertNotIn(("rev-parse", "origin/uat"), calls)
             self.assertFalse(any(call[0] == "fetch" for call in calls))
 
-    def test_changed_release_recipe_or_migration_controller_is_not_reviewed_main_authority(
+    def test_isolated_uat_still_rejects_changed_release_recipe_or_migration_controller(
         self,
     ):
         candidate, base, authority = "a" * 40, "b" * 40, "c" * 40
@@ -163,19 +326,13 @@ class ExactUatCiTest(unittest.TestCase):
 
                 def observed(*args):
                     calls.append(args)
-                    if args[:1] == ("ls-tree",):
+                    if args[:1] == ("diff",):
                         covers_path = any(
                             changed_path == path
                             or changed_path.startswith(path.rstrip("/") + "/")
                             for path in args[5:]
                         )
-                        entries = [b"100644 blob stable\t.github/workflows/ci.yml\n"]
-                        if covers_path:
-                            blob = "1" * 40 if args[3] == authority else "2" * 40
-                            entries.append(
-                                f"100644 blob {blob}\t{changed_path}\n".encode()
-                            )
-                        return b"".join(entries)
+                        return (changed_path + "\n").encode() if covers_path else b""
                     if args[:1] == ("rev-parse",):
                         return ("e" * 40).encode()
                     return b""
@@ -184,15 +341,15 @@ class ExactUatCiTest(unittest.TestCase):
                     patch.object(subject, "git", side_effect=observed),
                     patch.object(subject, "verify_invocation_authority"),
                     self.assertRaisesRegex(
-                        subject.Refused, "authority differs from reviewed Main"
+                        subject.Refused, "Isolated UAT build or migration authority differs from Main"
                     ),
                 ):
                     subject.verify_git_authority(
-                        candidate, base, authority, current=False
+                        candidate, base, authority, current=False, branch="uat-isolated"
                     )
 
-                tree_reads = [call for call in calls if call[0] == "ls-tree"]
-                self.assertEqual(len(tree_reads), 2)
+                tree_reads = [call for call in calls if call[0] == "diff"]
+                self.assertEqual(len(tree_reads), 1)
                 for call in tree_reads:
                     covered = any(
                         changed_path == path
@@ -209,21 +366,60 @@ class ExactUatCiTest(unittest.TestCase):
         subject.require_protected_tip(api, candidate)
         for observed in ({"protected": False, "commit": {"sha": candidate}},
                          {"protected": True, "commit": {"sha": base}}):
-            with self.assertRaises(subject.Refused):
+            with patch.object(subject, "git", side_effect=subject.Refused("Source is not in protected history")), self.assertRaises(subject.Refused):
                 subject.require_protected_tip(SimpleNamespace(read=lambda _: observed), candidate)
         args = SimpleNamespace(environment="uat", scope="backend", sha=candidate, base_sha=base,
-            backend_base_sha=base, frontend_base_sha="", authority_sha="c" * 40,
+            backend_base_sha=base, frontend_base_sha="e" * 40, authority_sha="c" * 40,
+            backend_base_revision="consent-protocol-old", frontend_base_revision="hushh-webapp-old",
             ci_run_id=42, ci_attempt=1, predecessor=None)
-        serving = {"backend": {"sha": base, "revision": "consent-protocol-old"}}
+        serving = {"backend": {"sha": base, "revision": "consent-protocol-old"},
+                   "frontend": {"sha": "e" * 40, "revision": "hushh-webapp-old"}}
         with tempfile.TemporaryDirectory() as directory, patch.object(subject, "live_serving_bases", return_value=serving), \
              patch.object(subject, "verify_git_authority", return_value="d" * 40), \
              patch.object(subject, "verify_predecessor"):
             record = subject.issue_predecessor(args)
+            # Even before the first receipt exists, a same-SHA replacement must
+            # not silently change the rollback baseline captured by the caller.
+            serving["frontend"]["revision"] = "hushh-webapp-replaced"
+            with self.assertRaisesRegex(subject.Refused, "changed before mutation"):
+                subject.issue_predecessor(args)
+            serving["frontend"]["revision"] = args.frontend_base_revision
             args.predecessor = Path(directory) / "prior.json"
             args.predecessor.write_text(json.dumps(record))
             serving["backend"]["revision"] = "consent-protocol-replaced"
             with self.assertRaisesRegex(subject.Refused, "changed before mutation"):
                 subject.issue_predecessor(args)
+
+    def test_frozen_ordinary_source_survives_descendant_tip_but_not_foreign_history(self):
+        with tempfile.TemporaryDirectory() as root:
+            def git(*args):
+                try:
+                    return subprocess.check_output(["git", "-C", root, *args], stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError as error:
+                    raise subject.Refused("Source history is unavailable") from error
+            git("init", "-q")
+            git("config", "user.name", "Synthetic reviewer")
+            git("config", "user.email", "reviewer@example.invalid")
+            git("config", "core.hooksPath", "/dev/null")
+            path = Path(root, "content")
+            def commit(value):
+                path.write_text(value); git("add", "."); git("commit", "-qm", value)
+                return git("rev-parse", "HEAD").decode().strip()
+            selected = commit("selected")
+            tip = commit("newer merged work")
+            ref = {"protected": True, "commit": {"sha": tip}}
+            api = SimpleNamespace(read=lambda _: ref)
+            with patch.object(subject, "git", side_effect=git):
+                subject.require_protected_tip(api, selected)
+                with self.assertRaises(subject.Refused):
+                    subject.require_protected_tip(api, selected, "uat-isolated")
+                git("checkout", "--orphan", "foreign")
+                ref["commit"]["sha"] = commit("unrelated")
+                with self.assertRaises(subject.Refused):
+                    subject.require_protected_tip(api, selected)
+                ref["commit"]["sha"] = "0" * 40
+                with self.assertRaises(subject.Refused):
+                    subject.require_protected_tip(api, selected)
 
     def test_selected_services_must_match_the_ci_serving_base(self):
         base, other = "a" * 40, "b" * 40
@@ -304,7 +500,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("REQUIRED_BRANCH: ${{ inputs.ref }}", pod_gate)
         self.assertIn("Application lookup ref", workflow)
         self.assertIn(
-            "run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
+            "run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · source dev",
             caller,
         )
         self.assertIn("Source authority: protected \\`dev\\` history", workflow)
@@ -362,7 +558,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("fetch-depth: 0", checkout)
         self.assertIn("promotion_approval.py uat", selection)
         self.assertIn(
-            "run-name: UAT · app ${{ inputs.sha || 'unselected' }}",
+            "run-name: UAT · source ${{ inputs.source_branch || 'uat' }} · app ${{ inputs.sha || 'unselected' }}",
             caller,
         )
         self.assertIn('--application-sha "$REQUESTED_SHA"', selection)
@@ -373,6 +569,75 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
 
 
 class ExactUatAttemptTest(unittest.TestCase):
+    def test_unit_coverage_requires_complete_exact_shards_and_keeps_historical_receipts(self):
+        candidate, base = "a" * 40, "b" * 40
+        run = _attempt_run(candidate)
+        original = _attempt_jobs(candidate, base)
+        unit = next(job for job in original if job["name"] == "Web Unit Contracts")
+        others = [job for job in original if job is not unit]
+
+        def verify(legs, *, current=True, isolated=""):
+            jobs = others + legs
+            api = _AttemptAPI(run, jobs, [run], _attempt_check(candidate))
+            subject._verify_run_jobs(api, run, candidate, base, 123, 1,
+                                     current=current, isolated_candidate=isolated)
+
+        def leg(shard):
+            result = copy.deepcopy(unit)
+            result["name"] = f"Web Unit Contracts ({shard})"
+            result["steps"][-1]["name"] = f"Verify unit shard ({shard})"
+            return result
+
+        verify([unit])
+        verify([leg("1/1")])
+        complete = [leg(shard) for shard in ("1/3", "2/3", "3/3")]
+        verify(complete)
+        old = copy.deepcopy(unit)
+        old["steps"] = []
+        historical_workflow = ('  web-full-suite-check:\n    name: "Web Unit Contracts"\n'
+                               '    steps:\n      - env:\n          WEB_FULL_SUITE_SHARD: ""\n')
+        with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
+            verify([old], current=False)
+            observed.assert_called_once_with("show", f"{candidate}:.github/workflows/ci.yml")
+        decorated_without_marker = {**old, "name": "Web Unit Contracts (1/1)"}
+        with patch.object(subject, "git", return_value=historical_workflow.encode()) as observed:
+            with self.assertRaises(subject.Refused):
+                verify([decorated_without_marker], current=False)
+            observed.assert_not_called()
+        with patch.object(subject, "git", return_value=(historical_workflow + "    strategy: {}\n").encode()):
+            with self.assertRaises(subject.Refused):
+                verify([old], current=False)
+        cases = [[], [old], complete[:2], [leg("1/3")] * 3,
+                 [leg("1/1"), leg("2/3"), leg("3/3")], [leg("4/4")]]
+        mismatched = copy.deepcopy(complete)
+        mismatched[0]["name"], mismatched[1]["name"] = mismatched[1]["name"], mismatched[0]["name"]
+        cases.extend([mismatched, [unit, *complete], [leg("1/1"), leg("4/4")]])
+        for field, value in (("run_id", 999), ("head_sha", "c" * 40),
+                             ("status", "in_progress"), ("conclusion", "cancelled")):
+            bad = copy.deepcopy(complete)
+            bad[1][field] = value
+            cases.append(bad)
+        for steps in (
+            [{"name": "Verify unit shard (1/1)", "conclusion": "success"}],
+            [{"name": "Run affected unit contracts", "conclusion": "failure"},
+             {"name": "Verify unit shard (1/1)", "conclusion": "success"}],
+            unit["steps"] + [unit["steps"][-1]],
+        ):
+            bad = copy.deepcopy(unit)
+            bad["steps"] = steps
+            cases.append([bad])
+        for legs in cases:
+            with self.subTest(legs=legs), self.assertRaises(subject.Refused):
+                verify(legs)
+        # Each isolated shard must prepare the same exact application, too.
+        with self.assertRaises(subject.Refused):
+            subject._verify_unit_jobs(complete, candidate, 123, current=True,
+                                      isolated_candidate="d" * 40)
+        for job in complete:
+            job["steps"].insert(0, {"name": "Prepare isolated UAT source", "conclusion": "success"})
+        subject._verify_unit_jobs(complete, candidate, 123, current=True,
+                                  isolated_candidate="d" * 40)
+
     def test_exact_attempt_requires_complete_current_run_and_canonical_gates(self):
         candidate, base = "a" * 40, "b" * 40
         run = _attempt_run(candidate)
@@ -390,6 +655,17 @@ class ExactUatAttemptTest(unittest.TestCase):
         self.assertEqual(
             subject.verify_attempt(api, candidate, base, 123, 1)["run_attempt"], 1
         )
+        # Full application qualification may intentionally omit unaffected native lanes.
+        for name in ("iOS Native (Xcode)", "Android Native (Gradle)"):
+            native = next(job for job in jobs if job["name"] == name)
+            original = native["conclusion"]
+            native["conclusion"] = "skipped"
+            subject.verify_attempt(api, candidate, base, 123, 1)
+            for failure in ("failure", "cancelled"):
+                native["conclusion"] = failure
+                with self.assertRaises(subject.Refused):
+                    subject.verify_attempt(api, candidate, base, 123, 1)
+            native["conclusion"] = original
         self._assert_clock_anomaly_requires_single_run(api, candidate, base, run, runs)
         with self.assertRaises(subject.Refused):
             subject.verify_attempt(api, candidate, "d" * 40, 123, 1)

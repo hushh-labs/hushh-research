@@ -1275,6 +1275,292 @@
     },
     {
       "aliases": [
+        "Connect Calendar account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.connection.connect",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reports the person's manual attempt to connect a Calendar account or extend its access. The original connection flow retains consent and confirms the result.",
+      "execution": {
+        "binding_ref": "render:calendar.connection.connect",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.calendar.connection.connect",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Connect Calendar account",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Disconnect Calendar account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "calendar.connection.disconnect",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Reports the person's confirmed attempt to disconnect the selected Calendar account. The original Calendar flow checks the resulting connection status.",
+      "execution": {
+        "binding_ref": "render:calendar.connection.disconnect",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.calendar.connection.disconnect",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Disconnect Calendar account",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/calendar",
+          "/one/setup/calendar"
+        ],
+        "screens": [
+          "one_calendar",
+          "one_setup_calendar"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Read Calendar",
         "what is on my calendar",
         "show my calendar events",
@@ -4074,6 +4360,149 @@
       "settlement_proof": "validated_route_settlement",
       "side_effect": {
         "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save KYC profile"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "kyc.save_profile",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Imports the person's explicitly submitted identity details into private Memory. A completed outcome requires the encrypted write's acknowledgement; local staging alone does not confirm saving.",
+      "execution": {
+        "binding_ref": "render:kyc.save_profile",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.kyc.save_profile",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save KYC profile",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/gmail?workspace=kyc",
+          "/one/setup/email"
+        ],
+        "screens": [
+          "gmail",
+          "one_setup_email"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -17088,6 +17517,954 @@
       "settlement_proof": "directive_ledger_settlement",
       "side_effect": {
         "classification": "client_semantic_action"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Download Memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.export_memory",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The signed-in owner exports their unlocked Memory through the existing guarded file download or native share sheet. A cancelled handoff is not a saved file.",
+      "execution": {
+        "binding_ref": "render:pkm.export_memory",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.export_memory",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Download Memory",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "export"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Update a saved memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.edit_memory",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms an edit to an exact saved Memory field through the existing encrypted write coordinator and current sharing review. Observation contains no field name or value.",
+      "execution": {
+        "binding_ref": "render:pkm.edit_memory",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.edit_memory",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Update a saved memory",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "edit"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Forget a saved memory"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.delete_memory",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms removal of an exact saved Memory field through the existing encrypted write coordinator. Opening or cancelling the confirmation does not delete a memory.",
+      "execution": {
+        "binding_ref": "render:pkm.delete_memory",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.delete_memory",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Forget a saved memory",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "forget"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Prepare a Memory review"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.prepare_capture",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner asks Memory to prepare a note for review through the current guarded preparation path. Preparation does not save the note; duplicates or unresolved sections remain for review.",
+      "execution": {
+        "binding_ref": "render:pkm.prepare_capture",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.prepare_capture",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Prepare a Memory review",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "review"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Retry a Memory review section"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.retry_capture_section",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner retries one unresolved section of the unchanged note using its original source range. No section contents enter activity evidence, and preparation does not save memory.",
+      "execution": {
+        "binding_ref": "render:pkm.retry_capture_section",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.retry_capture_section",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry a Memory review section",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "retry"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save reviewed memories"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "vault_unlocked"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "pkm.save_capture",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The owner confirms selected prepared Memory details through the existing encrypted write path and sharing acknowledgement. A partial or retired result does not prove the whole save completed.",
+      "execution": {
+        "binding_ref": "render:pkm.save_capture",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.pkm.save_capture",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save reviewed memories",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/pkm"
+        ],
+        "screens": [
+          "pkm"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "vault_unlocked",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "memory",
+        "save"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
       },
       "supported_entrypoints": [
         "voice",
@@ -34151,6 +35528,462 @@
     },
     {
       "aliases": [
+        "Choose activity emails"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.attempt_email.choose",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person chooses an activity email choice on screen. Changing the draft does not subscribe or save it.",
+      "execution": {
+        "binding_ref": "render:profile.attempt_email.choose",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.attempt_email.choose",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Choose activity emails",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Save activity email choice"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.attempt_email.save",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person explicitly saves the activity email choice reviewed on screen. One may explain or open the form but cannot choose or submit activity email permission.",
+      "execution": {
+        "binding_ref": "render:profile.attempt_email.save",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.attempt_email.save",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Save activity email choice",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Retry activity email choice"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "manual_user_execution"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.attempt_email.retry",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "The person retries reading their saved activity email choice. This changes no subscription.",
+      "execution": {
+        "binding_ref": "render:profile.attempt_email.retry",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "RENDER",
+        "target": {
+          "path": "",
+          "status": "unwired",
+          "target": ""
+        }
+      },
+      "goal_id": "goal.profile.attempt_email.retry",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Retry activity email choice",
+      "navigation": {
+        "fallback": null,
+        "routes": [
+          "/one/profile/account"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "manual_user_execution"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": "render.data_card",
+      "required_entities": [],
+      "search_keywords": [
+        "activity emails",
+        "agent attempt",
+        "email choice"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Email preferences",
         "email preferences",
         "email updates",
@@ -50123,7 +51956,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "72047390348de6b0a7bc886d628e1e2bdfee9785b4dc16d0fb872ba96a731671",
+      "projection_digest": "369a051d36b0fcbf173f81f24066c560a0f112866de7a78275d1018d24a0fdb3",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -50133,7 +51966,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "736ab7a871a9d53e45bfe1e07e57492f62db8c8d90b4b16e42a7e8dacfc472b5",
+        "capability_graph_evolution": "3aa2df8a955cd4877336f77c7469e28075de2856e5e06b4a5b79fb27cbcdd290",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -50142,7 +51975,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f3633843012f1860",
+      "source_revision": "8ec20520da73103b",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -51660,7 +53493,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "f3633843012f1860",
+    "source_revision": "8ec20520da73103b",
     "web": {
       "actions": [
         {
@@ -51703,7 +53536,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "aa4d1ffc633a989e12e0827cba9f84403602e63efa9056a327251e83b912b1e8",
+      "projection_digest": "6bac72d8634dcb6b33f6ee229f8270c49117f8c029d14f0a0d6b075177bd43c4",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -51713,7 +53546,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "736ab7a871a9d53e45bfe1e07e57492f62db8c8d90b4b16e42a7e8dacfc472b5",
+        "capability_graph_evolution": "3aa2df8a955cd4877336f77c7469e28075de2856e5e06b4a5b79fb27cbcdd290",
         "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
         "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
         "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
@@ -51722,7 +53555,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
       },
-      "source_revision": "f3633843012f1860",
+      "source_revision": "8ec20520da73103b",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -53279,7 +55112,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "f3633843012f1860",
+  "revision": "8ec20520da73103b",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -55273,18 +57106,36 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:calendar.connection.connect",
+      "actions:calendar.connection.disconnect",
+      "actions:kyc.save_profile",
+      "actions:pkm.delete_memory",
+      "actions:pkm.edit_memory",
+      "actions:pkm.export_memory",
+      "actions:pkm.prepare_capture",
+      "actions:pkm.retry_capture_section",
+      "actions:pkm.save_capture",
+      "actions:profile.attempt_email.choose",
+      "actions:profile.attempt_email.retry",
+      "actions:profile.attempt_email.save"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "services:service.calendar",
+      "services:service.kyc"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": null,
+    "from_revision": "f3633843012f1860",
     "migrated": [],
     "removed": []
   },
   "services": [
     {
       "action_ids": [
+        "calendar.connection.connect",
+        "calendar.connection.disconnect",
         "calendar.invitation.review",
         "calendar.read",
         "setup.finish_calendar",
@@ -56061,7 +57912,9 @@
       "version": 1
     },
     {
-      "action_ids": [],
+      "action_ids": [
+        "kyc.save_profile"
+      ],
       "api_endpoints": [],
       "capability_id": "service.kyc",
       "completion": {},
@@ -57634,21 +59487,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "736ab7a871a9d53e45bfe1e07e57492f62db8c8d90b4b16e42a7e8dacfc472b5",
+    "capability_graph_evolution": "3aa2df8a955cd4877336f77c7469e28075de2856e5e06b4a5b79fb27cbcdd290",
     "capability_runtime_compiler": "ee6aa2e4c6426d214008d5eea361b08311cf44d82e2ccff50e2a462ec0d679ff",
     "capability_runtime_policy": "5ceb1c742ad929a90b4876944de12b974f36cb040130d4cd6d863b984c8210a4",
-    "kai_action_gateway": "85caa9cecae267702cd204701aab602d017137e1b44fd5bb0b4386d7649274cf",
+    "kai_action_gateway": "32f97f67650d902b1f84eed454fc44b7697112a1b179e22b93455c54b2302a4b",
     "location_agent_manifest": "4601fc2eb55fd36d1ed1b2998a96212b96f7174e238555bdecec24c8f8595632",
     "location_knowledge_package": "e031532858d6191e2a579ba08fcb098fc94b6afafe6da7c76d2b19ec8eaf34a4",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "0d4f1532fe9bae857a2bda892c4db8e8b7752d936ccd6135294deb23e0e5d840",
+    "product_agent_registry": "958bed905ee4f1673c70382f7febae45bc8a4f51f5c1bd9c10090cb2fa879b37",
     "route_orchestration_index": "b9b55fb607d8160c2e5a0f04d0c115db3f1c1ebd2303c7b2bae1ecc820573cb7",
     "service_knowledge_packages": "7fe68d2c936a08ddaa146d47eda54bd85a40863c76fb05e1b19f4a2427abe6ef"
   },
-  "source_revision": "f3633843012f1860",
+  "source_revision": "8ec20520da73103b",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "f3633843012f1860",
+    "current_graph_revision": "8ec20520da73103b",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -57711,15 +59564,18 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
           "35982be19f859840",
           "3618b09083db26c6",
+          "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
           "3993b73221f2be93",
@@ -57731,6 +59587,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -57806,6 +59663,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6c49b50b94a5d1d7",
           "6c50871945709c21",
           "6d4f353397278c4c",
           "6e3d660eb6ab0f37",
@@ -57813,6 +59671,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -57822,11 +59681,14 @@
           "72155688eff9b624",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
@@ -57836,6 +59698,7 @@
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -57921,6 +59784,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -57931,6 +59795,7 @@
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -57986,6 +59851,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -58005,6 +59871,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e2628b6fcc6cea6f",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -58038,11 +59905,13 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
+          "f6d226a2c5ca0b34",
           "f7445aa56d82a9cf",
           "f81cd566f223f92d",
           "f91ecbcca5e10b42",
@@ -58086,8 +59955,11 @@
           "283f224907a43920",
           "2873f483995a8fbe",
           "2c04c08ee031a8ba",
+          "2f9a5e01d9f2ee5b",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "35982be19f859840",
+          "366da54ed07dd315",
           "38ba4c36bc194c1a",
           "3adc9c7720dda6e7",
           "3b4a692078832301",
@@ -58095,6 +59967,7 @@
           "3c84c070fec88a19",
           "3ca0acc32164b14d",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "41ce76d431046107",
           "427976fdc9c31f85",
           "43c428db7505bdee",
@@ -58125,19 +59998,25 @@
           "685be55b649cd9fc",
           "6889f5062bd36428",
           "6a5e47527ae2308f",
+          "6c49b50b94a5d1d7",
           "6c50871945709c21",
           "6e3d660eb6ab0f37",
           "6e5f5a12b0a2f4ec",
           "6f64b2b5731c4d8d",
+          "70d968726856f988",
           "71994ca61dcf303b",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7e725415993cda04",
           "7fe68d8f752aa842",
           "8052e8fc866f98cd",
+          "81c8e85c85e36f6f",
           "83fa96225592a2c4",
           "86a81ce5c2ff6a00",
           "86c6f54fcf77ae8c",
@@ -58167,11 +60046,13 @@
           "a6f024675114ad63",
           "a70ab77c9974866f",
           "aaec4987307cbdee",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
           "aee5093562958f50",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b78352783d3460bc",
           "bab8cfa1aa259f7c",
@@ -58188,6 +60069,7 @@
           "d09d158e6855de4f",
           "d3007ff6184e4f81",
           "d4bb763b08bb6ad3",
+          "d5e9a310061c3485",
           "da2d10114db8c364",
           "da71e0a6ad9e3e1d",
           "db2187647b28df19",
@@ -58196,6 +60078,7 @@
           "de6d576a06f1dde6",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e2628b6fcc6cea6f",
           "e50712a0470113b4",
           "e6cd5a9cfb4bf0a3",
           "e72a95655f220acd",
@@ -58208,6 +60091,8 @@
           "ed663d3d6a6d82c5",
           "f0c409450ab444ad",
           "f2366731e915e5b5",
+          "f3633843012f1860",
+          "f6d226a2c5ca0b34",
           "fa8ce03e294e7564",
           "fb9264b42c8db59f",
           "fb9a089556077ad3",
@@ -58222,9 +60107,22 @@
       },
       {
         "compatible_graph_revisions": [
+          "2f9a5e01d9f2ee5b",
+          "329aa425edaeda92",
+          "3e761f3cb5bebeaf",
+          "6c49b50b94a5d1d7",
+          "70d968726856f988",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
+          "7ba2d5afaf467baa",
+          "81c8e85c85e36f6f",
           "83fa96225592a2c4",
-          "c3c7eced230a2281"
+          "aba723a8b59080fc",
+          "b255ff5e653c1324",
+          "c3c7eced230a2281",
+          "d5e9a310061c3485",
+          "f3633843012f1860"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -58643,14 +60541,17 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
           "35982be19f859840",
           "3618b09083db26c6",
+          "366da54ed07dd315",
           "38ba4c36bc194c1a",
           "3993b73221f2be93",
           "3adc9c7720dda6e7",
@@ -58661,6 +60562,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -58723,6 +60625,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6c49b50b94a5d1d7",
           "6c50871945709c21",
           "6d4f353397278c4c",
           "6e3d660eb6ab0f37",
@@ -58730,6 +60633,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "71994ca61dcf303b",
@@ -58737,10 +60641,13 @@
           "71f054528fd84ee6",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
@@ -58748,6 +60655,7 @@
           "8052e8fc866f98cd",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "83fa96225592a2c4",
           "847b5d41cc16757e",
@@ -58816,6 +60724,7 @@
           "a7faf3fd04605e90",
           "aaec4987307cbdee",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -58824,6 +60733,7 @@
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -58862,6 +60772,7 @@
           "d49a8c46e5581c02",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -58881,6 +60792,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e2628b6fcc6cea6f",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
           "e5ef67418f260a1f",
@@ -58908,9 +60820,11 @@
           "f0c409450ab444ad",
           "f0dd083b1d2493ac",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
+          "f6d226a2c5ca0b34",
           "f7445aa56d82a9cf",
           "f81cd566f223f92d",
           "fa8ce03e294e7564",
@@ -59004,18 +60918,34 @@
           "076c05cd70ea69d7",
           "0e067db9029f2723",
           "22cf4ef00a31d756",
+          "2f9a5e01d9f2ee5b",
+          "329aa425edaeda92",
+          "366da54ed07dd315",
           "3adc9c7720dda6e7",
           "3c485e1154148116",
+          "3e761f3cb5bebeaf",
           "41ce76d431046107",
           "4537aaec23a4d8c6",
           "458153bdfb331613",
           "5f7f01f13bf61e53",
+          "6c49b50b94a5d1d7",
+          "70d968726856f988",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
+          "775c9fab0b9bed32",
+          "7ba2d5afaf467baa",
+          "81c8e85c85e36f6f",
           "83fa96225592a2c4",
           "8b2c2ce0335c1211",
+          "aba723a8b59080fc",
+          "b255ff5e653c1324",
           "bab8cfa1aa259f7c",
           "c3c7eced230a2281",
-          "eb1373a534d44b22"
+          "d5e9a310061c3485",
+          "e2628b6fcc6cea6f",
+          "eb1373a534d44b22",
+          "f3633843012f1860",
+          "f6d226a2c5ca0b34"
         ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [
@@ -59470,15 +61400,18 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
           "35982be19f859840",
           "3618b09083db26c6",
+          "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
           "3993b73221f2be93",
@@ -59490,6 +61423,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -59565,6 +61499,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6c49b50b94a5d1d7",
           "6c50871945709c21",
           "6d4f353397278c4c",
           "6e3d660eb6ab0f37",
@@ -59572,6 +61507,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -59581,11 +61517,14 @@
           "72155688eff9b624",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
@@ -59595,6 +61534,7 @@
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -59680,6 +61620,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -59690,6 +61631,7 @@
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -59745,6 +61687,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -59764,6 +61707,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e2628b6fcc6cea6f",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -59797,11 +61741,13 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
+          "f6d226a2c5ca0b34",
           "f7445aa56d82a9cf",
           "f81cd566f223f92d",
           "f91ecbcca5e10b42",
@@ -59881,15 +61827,18 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
           "35982be19f859840",
           "3618b09083db26c6",
+          "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
           "3993b73221f2be93",
@@ -59901,6 +61850,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -59976,6 +61926,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6c49b50b94a5d1d7",
           "6c50871945709c21",
           "6d4f353397278c4c",
           "6e3d660eb6ab0f37",
@@ -59983,6 +61934,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -59992,11 +61944,14 @@
           "72155688eff9b624",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
@@ -60006,6 +61961,7 @@
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -60091,6 +62047,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -60101,6 +62058,7 @@
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -60154,6 +62112,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -60173,6 +62132,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e2628b6fcc6cea6f",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -60206,11 +62166,13 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
+          "f6d226a2c5ca0b34",
           "f7445aa56d82a9cf",
           "f81cd566f223f92d",
           "f91ecbcca5e10b42",
@@ -60290,15 +62252,18 @@
           "2d19aa697c321877",
           "2e0b326d76bb9185",
           "2e988a955b99831d",
+          "2f9a5e01d9f2ee5b",
           "306cedaea444603c",
           "3186f9f8f525e755",
           "31f94a0eab00184e",
+          "329aa425edaeda92",
           "32b235f681091788",
           "32eb22648d57ca04",
           "33155b599f7caa5f",
           "34ab4e29e27a1679",
           "35982be19f859840",
           "3618b09083db26c6",
+          "366da54ed07dd315",
           "37cb394043f0f125",
           "38ba4c36bc194c1a",
           "3993b73221f2be93",
@@ -60310,6 +62275,7 @@
           "3ca0acc32164b14d",
           "3d607a126bd8ddc2",
           "3d7452b2e4a5dbe2",
+          "3e761f3cb5bebeaf",
           "3f77e197ed47cf60",
           "40907773861ad847",
           "40d5079952d7dc69",
@@ -60385,6 +62351,7 @@
           "6bee2815a8d940bf",
           "6c0edc9a3b3f7d92",
           "6c20fd33cd695f9c",
+          "6c49b50b94a5d1d7",
           "6c50871945709c21",
           "6d4f353397278c4c",
           "6e3d660eb6ab0f37",
@@ -60392,6 +62359,7 @@
           "6ef509dcda1fb0a3",
           "6f64b2b5731c4d8d",
           "6fab1183e63a24c5",
+          "70d968726856f988",
           "70fa4b6189b9b76b",
           "710bd535b7febc69",
           "715bed22457a573a",
@@ -60401,11 +62369,14 @@
           "72155688eff9b624",
           "7418c12411dea739",
           "764b9cd170a9b7b3",
+          "76530a3b0879313f",
           "76f6e343ee7c02b3",
           "771cbd282b3b3c1a",
+          "775c9fab0b9bed32",
           "77a51f213fb0e5e7",
           "793d7494bf839d4a",
           "79b9fbe94c97f299",
+          "7ba2d5afaf467baa",
           "7d29dd99f31ad3ca",
           "7dfe20ea4e593ddb",
           "7e725415993cda04",
@@ -60415,6 +62386,7 @@
           "8065981a6233598e",
           "807f7c1adc601995",
           "81a213ceb7f54de5",
+          "81c8e85c85e36f6f",
           "81da1803f271bd92",
           "82b0f2c85fa6d4da",
           "82e741080f6a22ff",
@@ -60500,6 +62472,7 @@
           "aaec4987307cbdee",
           "aaec9bce8ec29c93",
           "aba61480c43d7e56",
+          "aba723a8b59080fc",
           "ac971edb713a113d",
           "ace929102322f9c0",
           "ad3f61d47487e20e",
@@ -60510,6 +62483,7 @@
           "af6fca76390c1e24",
           "afa3f4237cc584d1",
           "b1edc9765961aa04",
+          "b255ff5e653c1324",
           "b28721bce54d8cdf",
           "b514b1fb5e99b5bf",
           "b78352783d3460bc",
@@ -60565,6 +62539,7 @@
           "d4b2dd7b65a583c6",
           "d4bb763b08bb6ad3",
           "d5b3ec7b095aadab",
+          "d5e9a310061c3485",
           "d71ad90b1264bb6c",
           "d82abfd03561cb0a",
           "d8d96408bbd419cb",
@@ -60584,6 +62559,7 @@
           "df37a235665ef89d",
           "df4366957bbf9e17",
           "e06d27b000c77fa3",
+          "e2628b6fcc6cea6f",
           "e2bea9d9173fd56a",
           "e3a606aa87e944e4",
           "e50712a0470113b4",
@@ -60617,11 +62593,13 @@
           "f0dd083b1d2493ac",
           "f159d8b097f5456c",
           "f2366731e915e5b5",
+          "f3633843012f1860",
           "f37e6638e90db246",
           "f3d135dcb0d58c6f",
           "f5ab7ee0b4be478b",
           "f5e5938138c09753",
           "f6044f1a0bbd43dd",
+          "f6d226a2c5ca0b34",
           "f7445aa56d82a9cf",
           "f81cd566f223f92d",
           "f91ecbcca5e10b42",

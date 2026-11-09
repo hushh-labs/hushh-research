@@ -4,7 +4,7 @@ Use this reference when changing repo-scoped custom agents or the orchestration 
 
 The shared truth-first reasoning contract lives at `.agents/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Delegation uses that kernel for claim labels, evidence order, domain probes, and child handoff shape.
 
-Product-agent delegation (One delegating to Kai/Nav/KYC/email/location specialists at runtime) is governed by the Project-Wide Agent Architecture Doctrine in `.agents/instructions.md` (loaded by `AGENTS.md`). Shared-runtime context comes from owner-scoped, consented turn/session state, A2A task payloads, and scoped encrypted exports; the private pod has separate owner-isolated encrypted recovery and explicit recall. Delegation wraps the existing dispatch contract without breaking it. The doctrine specifies ADK modes within a runtime, official A2A Tasks across process or deployment boundaries, MCP for consented tools and resources, subsystem-owned shared state behind replaceable seams, and one routing authority per surface. This file governs ENGINEERING delegation lanes (Codex subagents); do not conflate them with product agents.
+Product-agent delegation (One delegating to Kai/Nav/KYC/email/location specialists at runtime) is governed by the Project-Wide Agent Architecture Doctrine in `.agents/instructions.md` (loaded by `AGENTS.md`). Shared-runtime context comes from owner-scoped, consented turn/session state, A2A task payloads, and scoped encrypted exports; the private pod has separate owner-isolated encrypted recovery and explicit recall. Delegation wraps the existing dispatch contract without breaking it. The doctrine specifies ADK modes within a runtime, official A2A Tasks across process or deployment boundaries, MCP for consented tools and resources, subsystem-owned shared state behind replaceable seams, and one routing authority per surface. This file governs ENGINEERING delegation lanes (coding-agent subagents); do not conflate them with product agents.
 
 ## Baseline policy
 
@@ -23,7 +23,7 @@ and Bacterial Software Architecture Gate in `.agents/instructions.md` (loaded by
 Rules:
 
 1. Specialist persona adds taste and evidence focus; it never overrides correctness, security, authority boundaries, branch discipline, or truth-first verification.
-2. Custom-agent TOML files should contain a short root-contract inheritance hook plus role-specific priorities, not duplicated doctrine.
+2. Custom-agent Markdown files should contain a short root-contract inheritance hook plus role-specific priorities, not duplicated doctrine.
 3. Child agents must apply the same optimization order as the parent: correctness, security, reliability, maintainability, scalability, simplicity, performance, then speed.
 4. A child handoff should read like a specialist owner reviewed the surface: precise claim, current repo truth, failure modes, smallest safe boundary, validations, and unresolved risk.
 5. If craft and speed conflict, the child reports the safer route and the parent decides.
@@ -105,7 +105,9 @@ Use `--phase mid` with the router and record whether the parent spawned a new re
 
 1. Keep `agents.max_threads = 6` unless a later review proves a different cap is necessary.
 2. Keep `agents.max_depth = 1` unless a later review proves recursive delegation is worth the cost and predictability risk.
-3. Treat those values as the hard host cap, not as the normal spawn target. The effective-spawn budget is `max_threads - open_child_threads - 1`.
+3. Treat these as repository caps, not as the normal spawn target. The effective
+   limit is also bounded by the actual host; this static script cannot discover
+   host capacity. The effective-spawn budget is `max_threads - open_child_threads - 1`.
 4. Always reserve one thread for recovery, synthesis, or governor-style follow-up.
 5. The CLI fallback of two read-only evidence lanes is an estimate, not a target. For identified independent work, request the matching lane count from `subagent_budget.py` with `--requested-lanes` and `--max-new-lanes`; run up to the verified effective host and repository budget when that shortens the critical path. Reuse idle child sessions and reserve recovery/synthesis capacity. Avoid duplicate investigations, overlapping file ownership and parallel heavy verification. After each handoff, verify owned workers, descendants and temporary resources are reconciled; close sessions through supported host controls. If closure is unavailable, report it and never claim a thread or its memory was released.
 6. close stale child threads sequentially; do not bulk-close or bulk-wait when the host is already near the cap.
@@ -136,7 +138,7 @@ Use these sources to detect how a skill can activate agents or subagents:
 
 1. `skill.json`: role, owner family, task types, reads, checks, and handoff targets.
 2. `.agents/workflows/*/workflow.json`: `owner_skill`, `default_spoke`, `task_type`, and explicit `delegation_policy` lanes.
-3. `.agents/subagents/*.toml`: the skill block that says which skills each read-only agent can support.
+3. `.agents/subagents/*.md`: the skill block that says which skills each read-only agent can support.
 4. `delegation_router.py`: repo-global prompt/path lane matches for workflows without explicit delegation policy.
 5. `skill_fleet_audit.py`: compact fleet table that reports each skill as `owner <skill-id>` or `spoke <skill-id>` with agents, workflows, and detection mechanisms.
 
@@ -206,7 +208,7 @@ The verified 19-lane catalog is separate from execution capacity: keep 8–19 de
 
 ## One portable framework
 
-Read root `AGENTS.md`, then the canonical sources under `.agents`. The TOML files
+Read root `AGENTS.md`, then the canonical sources under `.agents`. The Markdown files
 under `.agents/subagents` are the authored fleet. Do not create vendor directories,
 per-host adapters, startup hooks or generated Markdown copies of those lanes.
 

@@ -40,6 +40,7 @@ PRE_MUTATION_STEPS = frozenset({
     'Set up job',
     'Require current-attempt deployment security',
     'Assert manual dispatch originates from main',
+    'Assert manual dispatch originates from Main',
     'Assert manual dispatch originates from uat',
     'Capture trusted release implementation',
     'Checkout code',
@@ -77,6 +78,7 @@ PRE_MUTATION_STEPS = frozenset({
     'Install UAT browser verification dependencies',
     'Verify One Location read-only rollout prerequisites',
     'Recheck direct UAT authority and serving baseline before mutation',
+    'Recheck qualified source and both serving revisions under deployment lock',
     'Recheck approved PR scope and both serving revisions under deployment lock',
 })
 READ_ONLY_JOBS = frozenset({

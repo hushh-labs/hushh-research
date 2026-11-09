@@ -195,12 +195,14 @@ def run_info(repository: str, run_id: int) -> dict:
     return run
 
 
-def verify_controller(run: dict, repository: str, governance: dict, event: dict | None = None) -> None:
+def verify_controller(run: dict, repository: str, governance: dict, event: dict | None = None, *, historical: bool = False) -> None:
     require(trusted_run(run, repository, CONTROLLER), "Controller must run from main in this repository")
     require(run.get("event") in {"workflow_run", "workflow_dispatch", "schedule", "repository_dispatch"},
             "Unsupported controller event")
     if run["event"] == "workflow_dispatch":
-        require(run["actor"]["login"] in governance["production"]["manual_dispatch_users"],
+        from release_acceptance_provenance import historical_human_dispatch
+        require(historical_human_dispatch(run) if historical else
+                run["actor"]["login"] in governance["production"]["manual_dispatch_users"],
                 "Ungoverned reconciliation actor")
     if run["event"] == "repository_dispatch":
         require(run["actor"]["login"] == "github-actions[bot]", "Clock controller requires the repository bot")
@@ -226,10 +228,10 @@ def recorded_authority(repository: str, run: dict, state: dict | None = None) ->
             request, lane = verify_child(state, run, repository, ordinal, str(request["origin_run_id"]))
             origin = run_info(repository, request["origin_run_id"])
             _, governance = configuration()
-            verify_controller(origin, repository, governance)
+            verify_controller(origin, repository, governance, historical=True)
             source = state["sources"][request["sha"]]
             source_run = run_info(repository, source["run_id"])
-            verified_uat(source_run, source["receipt"], repository, governance["uat"]["manual_dispatch_users"])
+            verified_uat(source_run, source["receipt"], repository)
             return request, lane
     raise UnsafeRelease("Run is not bound to an authorized cadence request")
 

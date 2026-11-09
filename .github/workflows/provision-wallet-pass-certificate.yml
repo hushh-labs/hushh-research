@@ -80,6 +80,9 @@ concurrency:
 jobs:
   provision:
     name: Provision Pass Type ID + certificate
+    permissions:
+      contents: read
+      actions: write
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
@@ -102,6 +105,8 @@ jobs:
 
       - name: Assert production dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Minting an Apple certificate is an account-level, irreversible action,

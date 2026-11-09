@@ -351,14 +351,7 @@ class DriveRequestBulkService:
         raise DriveReadError("invalid_argument")
 
     async def start_search(
-        self,
-        *,
-        user_id,
-        request_id,
-        timezone="UTC",
-        authority_mode="owner",
-        after_page=None,
-        on_search_committed=None,
+        self, *, user_id, request_id, timezone="UTC", authority_mode="owner", after_page=None
     ):
         if authority_mode not in {"owner", "trusted_auto", "agent_package"}:
             raise DriveSharingError("invalid_argument")
@@ -586,11 +579,6 @@ class DriveRequestBulkService:
             **({"v1_live_request": True} if context.get("v1LiveRequest") else {}),
             **({"evidence_route": route} if route is not None else {}),
             **({"after_page": after_page} if after_page is not None else {}),
-            **(
-                {"on_search_committed": on_search_committed}
-                if on_search_committed is not None and context.get("_checkout_after_plan") is True
-                else {}
-            ),
             **({"planner_fallback": planner_fallback} if planner_fallback is not None else {}),
             **({"brain": brain.as_checkpoint()} if brain is not None else {}),
             **({"plan_source": plan_source} if plan_source is not None else {}),

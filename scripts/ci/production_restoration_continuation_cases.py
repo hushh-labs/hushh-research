@@ -252,7 +252,7 @@ class RestorationContinuationCases:
                     if defect == "attempt":
                         self.run["run_attempt"] = 3
                     elif defect == "actor":
-                        self.run["triggering_actor"]["login"] = "unapproved-fixture-actor"
+                        self.run["triggering_actor"]["type"] = "Bot"
                     elif defect == "source":
                         fixture["release"]["sha"] = "9" * 40
                     elif defect in {"activation", "other_failure"}:
@@ -323,11 +323,13 @@ class RestorationActiveVerifierCases:
         with _continuation_case(self) as (_, arguments):
             current = {**copy.deepcopy(self.run), "id": 400, "status": "in_progress", "conclusion": None}
             env = {"GITHUB_RUN_ID": "400", "GITHUB_RUN_ATTEMPT": "2",
-                   "GITHUB_SHA": current["head_sha"], "GITHUB_JOB": continuation.production_job_names.JOB_ID}
+                   "GITHUB_SHA": current["head_sha"], "GITHUB_JOB": continuation.production_job_names.JOB_ID,
+                   "GITHUB_ACTOR": current["actor"]["login"], "GITHUB_TRIGGERING_ACTOR": current["triggering_actor"]["login"]}
             for historical in (False, True):
                 inventory = _active_job_inventory(current, historical)
                 runtime = SimpleNamespace(api=lambda *_: inventory)
-                with (mock.patch.dict(os.environ, env), mock.patch.object(continuation, "ports", return_value=arguments),
+                with (mock.patch("github_team_authority.request_operation_authority", return_value={}),
+                      mock.patch.dict(os.environ, env), mock.patch.object(continuation, "ports", return_value=arguments),
                       mock.patch.object(continuation, "fresh_run", side_effect=lambda *_: current),
                       mock.patch.object(continuation, "manual", wraps=continuation.manual) as policy):
                     before = copy.deepcopy(current)
@@ -341,7 +343,8 @@ class RestorationActiveVerifierCases:
         with _continuation_case(self) as (_, arguments):
             base = {**copy.deepcopy(self.run), "id": 400, "status": "in_progress", "conclusion": None}
             env = {"GITHUB_RUN_ID": "400", "GITHUB_RUN_ATTEMPT": "2",
-                   "GITHUB_SHA": base["head_sha"], "GITHUB_JOB": continuation.production_job_names.JOB_ID}
+                   "GITHUB_SHA": base["head_sha"], "GITHUB_JOB": continuation.production_job_names.JOB_ID,
+                   "GITHUB_ACTOR": base["actor"]["login"], "GITHUB_TRIGGERING_ACTOR": base["triggering_actor"]["login"]}
             for historical in (False, True):
                 original_inventory = _active_job_inventory(base, historical)
                 for defect in defects:
@@ -371,7 +374,8 @@ class RestorationActiveVerifierCases:
                         if defect == "job_id":
                             local_env["GITHUB_JOB"] = "deploy"
                         runtime = SimpleNamespace(api=lambda *_: inventory)
-                        with (mock.patch.dict(os.environ, local_env),
+                        with (mock.patch("github_team_authority.request_operation_authority", return_value={}),
+                              mock.patch.dict(os.environ, local_env),
                               mock.patch.object(continuation, "ports", return_value=arguments),
                               mock.patch.object(continuation, "fresh_run", side_effect=lambda *_: current),
                               mock.patch.object(continuation.subprocess, "run", return_value=subprocess.CompletedProcess(

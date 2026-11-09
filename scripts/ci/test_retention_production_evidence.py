@@ -200,8 +200,8 @@ def _clock_worker_fixture(record, run_id):
         event="repository_dispatch",
         display_title=record.worker_display_title,
         created_at=record.worker_created_at,
-        actor={"login": "github-actions[bot]"},
-        triggering_actor={"login": "github-actions[bot]"},
+        actor={"login": "github-actions[bot]", "type": "Bot", "id": 41898282},
+        triggering_actor={"login": "github-actions[bot]", "type": "Bot", "id": 41898282},
         head_sha=record.worker_head_sha,
     )
     job.update(
@@ -420,8 +420,8 @@ class PublicationRoutingTest(unittest.TestCase):
     def _qualify_production(self, publication):
         run, job, log, blobs = fixture()
         run.update(
-            actor={"login": "ankitkumarsingh1702"},
-            triggering_actor={"login": "ankitkumarsingh1702"},
+            actor={"login": "ankitkumarsingh1702", "type": "User", "id": 1},
+            triggering_actor={"login": "ankitkumarsingh1702", "type": "User", "id": 1},
         )
         reads = []
 
@@ -458,8 +458,8 @@ class PublicationRoutingTest(unittest.TestCase):
             display_title="Capacity Maintenance",
             head_sha=profile.APPROVED_SOURCE_SHA,
             created_at=at("20:30:03"),
-            actor={"login": "github-actions[bot]"},
-            triggering_actor={"login": "github-actions[bot]"},
+            actor={"login": "github-actions[bot]", "type": "Bot", "id": 41898282},
+            triggering_actor={"login": "github-actions[bot]", "type": "Bot", "id": 41898282},
         )
         job.update(
             id=9990,

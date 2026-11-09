@@ -275,6 +275,7 @@ class TurnTiming:
     error_code: str = "none"
     tools_peak: int | None = None
     terminal_observed: bool = False
+    context_usage_events: list[dict[str, Any]] = field(default_factory=list)
 
     def begin_agent(self) -> None:
         if self.agent_started_at is None:
@@ -604,6 +605,11 @@ class TimedADKAgent(ADKAgent):
                 aclosing(super().run(input)) as run,
             ):
                 async for event in run:
+                    while timing.context_usage_events:
+                        yield CustomEvent(
+                            name="hussh.chat_context_usage",
+                            value=timing.context_usage_events.pop(0),
+                        )
                     event = normalize_history_error(event)
                     events = confirmations.project(event) if self.head == HEAD_ONE else [event]
                     for event in events:
@@ -855,6 +861,13 @@ def record_session_phase(phase: str, elapsed_ms: float) -> None:
     elif phase == "persistence":
         timing.session_persistence_ms += value
         timing.session_persistence_count += 1
+
+
+def record_chat_context_usage(value: dict[str, Any]) -> None:
+    """Queue content-free model accounting for this run's existing SSE stream."""
+    timing = _CURRENT_TURN.get()
+    if timing is not None:
+        timing.context_usage_events.append(dict(value))
 
 
 def timed_one_before_model(callback_context: Any, llm_request: Any) -> LlmResponse | None:

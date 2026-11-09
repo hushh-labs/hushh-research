@@ -70,20 +70,18 @@ export function ConnectorReadReceipt({ experience, onOpenConnections, onCompileD
 }) {
   const needsConnection = ["connect_required", "reconnect_required", "permission_denied"].includes(experience.status);
   const drive = experience.connector === "drive";
-  if (!drive && experience.status === "ok" && !experience.truncated) return null;
   return (
     <section aria-label={drive ? "Drive read details" : "Mail read details"} className="min-w-0 space-y-2 text-sm text-muted-foreground">
-      {(!drive && experience.status === "ok") ? null : <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2">
       <ConnectorBrandMark brand={drive ? "drive" : "gmail"} size="sm" />
       <p role="status">{!drive && experience.status === "ok" && !experience.metadataOnly
         ? "Mail text checked"
         : (drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
       </div>
-      }
       {experience.status === "ok" ? (
         <>
-          {drive ? <p>{experience.metadataOnly ? "Drive file matches" : "Drive excerpts"} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p> : null}
-          {drive && experience.sourceRefs.length > 0 && !experience.ownerCompileAvailable ? (
+          <p>{drive ? (experience.metadataOnly ? "Drive file matches" : "Drive excerpts") : (experience.metadataOnly ? "Metadata only" : "Message or attachment text")} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
+          {experience.sourceRefs.length > 0 && !experience.ownerCompileAvailable ? (
             <ul aria-label={drive ? "Document sources" : "Mail sources"} className="flex flex-wrap gap-x-3 gap-y-1">
               {experience.sourceRefs.map((ref, index) => <li key={ref}>{drive ? `${experience.metadataOnly ? "File" : "Document excerpt"} ${index + 1}${experience.sourcePages?.[index] ? ` · page ${experience.sourcePages[index]}` : ""}` : `Mail ${ref.slice(5)}`}</li>)}
             </ul>

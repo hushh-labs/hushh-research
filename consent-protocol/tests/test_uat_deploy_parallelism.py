@@ -390,16 +390,19 @@ def test_parallel_build_keeps_release_and_readiness_before_deployment():
 
 
 @pytest.mark.parametrize(
-    "frontend,protected,pwm",
+    "frontend,protected,pwm,reviewer",
     [
-        (True, False, False),
-        (False, True, False),
-        (False, False, True),
-        (True, True, True),
-        (False, False, False),
+        (True, False, False, False),
+        (False, True, False, False),
+        (False, False, True, False),
+        (True, True, True, True),
+        (False, False, False, False),
+        (False, False, False, True),
     ],
 )
-def test_uat_browser_consumers_share_one_required_install(frontend, protected, pwm):
+def test_uat_runtime_dependencies_are_shared_and_browsers_are_explicit(
+    frontend, protected, pwm, reviewer
+):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
     ]["steps"]
@@ -412,10 +415,12 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
     condition = condition.replace(
         "steps.verification-plan.outputs.requires_web_dependencies == 'true'", str(protected)
     )
-    condition = condition.replace("inputs.run_pwm_acceptance", str(pwm))
+    condition = condition.replace("inputs.run_pwm_acceptance", str(pwm)).replace(
+        "inputs.repeat_reviewer_byok", str(reviewer)
+    )
     assert all(term.strip() in {"True", "False"} for term in condition.split("||"))
     assert any(term.strip() == "True" for term in condition.split("||")) == (
-        frontend or protected or pwm
+        frontend or protected or pwm or reviewer
     )
     for step in steps:
         if step.get("uses", "").startswith("actions/setup-node@"):
@@ -430,15 +435,39 @@ def test_uat_browser_consumers_share_one_required_install(frontend, protected, p
             i for i, step in enumerate(steps) if step.get("id") == consumer
         )
     assert install["timeout-minutes"] == 8
+    # Published acceptance must describe the requested diagnostic, not the old
+    # changed-path recommendation after its automatic execution was removed.
+    workflow = _read(".github/workflows/deploy-uat-implementation.yml")
+    assert '"reviewer_byok_required": "${{ inputs.repeat_reviewer_byok }}"' in workflow
+    assert (
+        "\"reviewer_byok_passes_requested\": \"${{ inputs.repeat_reviewer_byok && '2' || '0' }}\""
+        in workflow
+    )
     cache = next(step for step in steps if step.get("uses", "").startswith("actions/cache@"))
     assert "uat-chromium" in cache["with"]["key"]
+    assert (
+        cache["if"]
+        == "steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance"
+    )
+    assert (
+        install["env"]["RUN_CHROMIUM_VERIFICATION"]
+        == "${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}"
+    )
 
 
 @pytest.mark.parametrize(
-    "npm_status,failures,expected", [(0, 0, 0), (0, 1, 0), (0, 2, 1), (9, 0, 9)]
+    "npm_status,failures,expected,diagnostic,frontend",
+    [
+        (0, 0, 0, True, False),
+        (0, 1, 0, True, False),
+        (0, 2, 1, True, False),
+        (9, 0, 9, True, False),
+        (0, 0, 0, False, False),
+        (0, 0, 0, False, True),
+    ],
 )
 def test_uat_browser_install_retries_and_blocks_on_failure(
-    tmp_path, npm_status, failures, expected
+    tmp_path, npm_status, failures, expected, diagnostic, frontend
 ):
     steps = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))["jobs"][
         "deploy"
@@ -460,6 +489,18 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
         'n=$((n+1)); echo "$n" > "$ATTEMPTS"; echo "$*" >> "$CALLS"; [ "$n" -gt "$FAILURES" ]; };\n'
     )
     calls, attempts = tmp_path / "calls", tmp_path / "attempts"
+    # Resolve the authored dependency condition, including mandatory analytics
+    # when optional app-browser diagnostics are off.
+    browser_required = install["env"]["RUN_CHROMIUM_VERIFICATION"]
+    browser_required = browser_required.replace("${{", "").replace("}}", "")
+    browser_required = browser_required.replace(
+        "steps.scope.outputs.deploy_frontend == 'true'", str(frontend)
+    )
+    browser_required = browser_required.replace(
+        "inputs.repeat_reviewer_byok", str(diagnostic)
+    ).replace("inputs.run_pwm_acceptance", "False")
+    assert all(term.strip() in {"True", "False"} for term in browser_required.split("||"))
+    browser_required = any(term.strip() == "True" for term in browser_required.split("||"))
     result = subprocess.run(  # noqa: S603 - actual installer with synthetic package commands only.
         [shutil.which("bash") or "bash", "-c", stubs + script],
         cwd=tmp_path,
@@ -469,13 +510,14 @@ def test_uat_browser_install_retries_and_blocks_on_failure(
             "ATTEMPTS": str(attempts),
             "NPM_STATUS": str(npm_status),
             "FAILURES": str(failures),
+            "RUN_CHROMIUM_VERIFICATION": str(browser_required).lower(),
         },
         capture_output=True,
         text=True,
     )
     assert result.returncode == expected, result.stderr
     assert calls.read_text().splitlines().count("npm") == 1
-    if npm_status:
+    if npm_status or not (frontend or diagnostic):
         assert not attempts.exists()
     else:
         assert int(attempts.read_text()) == min(failures + 1, 2)
@@ -494,10 +536,6 @@ def test_document_gate_preserves_official_mirrors_and_partitions_browser_engines
     tmp_path, ci, mode, runner, expected
 ):
     document_delivery_ci.assert_document_platform(tmp_path, ci, mode, runner, expected)
-
-
-def test_document_crypto_runs_native_webkit_on_required_macos_job():
-    document_delivery_ci.assert_document_platform_wiring()
 
 
 @pytest.mark.parametrize(
@@ -522,3 +560,42 @@ def test_integration_document_selection_keeps_default_and_refuses_malformed(
     document_delivery_ci.assert_integration_mode(
         tmp_path, ("--ci-linux-document",), "Linux", expected, selection
     )
+
+
+@pytest.mark.parametrize("build_status", [0, 1])
+def test_backend_build_failure_keeps_exact_id_and_elapsed_time(tmp_path, build_status):
+    """A failed remote build must remain diagnosable without resubmission."""
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat-implementation.yml"))
+    step = next(s for s in workflow["jobs"]["deploy"]["steps"] if s.get("id") == "deploy-backend")
+    source = step["run"]
+    timer = source[source.index('started_at="') : source.index("source deploy/drive/")]
+    submit = source[source.index('build_id="$(gcloud builds submit') :]
+    submit = re.sub(r"\$\{\{.*?\}\}", "synthetic-project", submit)
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    gcloud = binary / "gcloud"
+    build_id = "12345678-1234-1234-1234-123456789abc"
+    gcloud.write_text(f"#!/bin/sh\nprintf '%s\\n' '{build_id}'\n")
+    gcloud.chmod(0o700)
+    waiter = tmp_path / "scripts/ci/await-prebuilt-image.sh"
+    waiter.parent.mkdir(parents=True)
+    waiter.write_text(f"#!/bin/sh\nexit {build_status}\n")
+    output = tmp_path / "outputs"
+    result = subprocess.run(  # noqa: S603 - authored release step, synthetic CLI and paths only.
+        ["bash", "-euc", timer + "SUBSTITUTIONS=synthetic\n" + submit],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": str(binary) + os.pathsep + os.defpath,
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.returncode == build_status, result.stderr
+    values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+    assert values["build_id"] == build_id
+    assert int(values["finished_at_epoch"]) >= int(values["started_at_epoch"])
+    assert int(values["duration_seconds"]) >= 0

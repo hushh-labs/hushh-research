@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Route an intent to a repository skill, workflow, or agent and compose a briefing
-that mirrors `./bin/hushh codex route-task` semantics: workflow -> owner_skill
+that mirrors `./bin/hushh agents route-task` semantics: workflow -> owner_skill
 + default_spoke -> union(required_reads, required_commands, handoff_chain,
 risks). Agents are surfaced as advisory delegation lanes, never as primary
 winners over a matching skill or workflow (per the delegation contract).
@@ -17,13 +17,14 @@ Portable CLI output is Markdown; automatic mode accepts a JSON prompt on stdin.
 
 from __future__ import annotations
 
+import runpy
+
 import argparse
 import json
 import math
 import os
 import re
 import sys
-import tomllib
 from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,7 +52,7 @@ class Entry:
     path: Path
     name: str
     description: str
-    manifest: dict   # skill.json, workflow.json, or parsed agent TOML
+    manifest: dict   # skill.json, workflow.json, or parsed agent Markdown
 
 
 def find_repo_root(start: Path) -> Path:
@@ -88,12 +89,12 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
     return fm, body
 
 
-def _parse_agent_toml(path: Path) -> dict:
-    """Parse an agent TOML manifest. Returns `_error` envelope on failure."""
+def _parse_agent_source(path: Path) -> dict:
+    """Parse an agent Markdown manifest. Returns `_error` envelope on failure."""
     try:
-        return tomllib.loads(path.read_text())
-    except (tomllib.TOMLDecodeError, OSError, UnicodeDecodeError) as exc:
-        return {"_error": f"invalid agent TOML: {exc}"}
+        return runpy.run_path(str(Path(__file__).resolve().parents[3] / ".agents/skills/agent-orchestration-governance/scripts/framework_source_boundary.py"))["read_framework_source"](path)
+    except (ValueError, OSError, UnicodeDecodeError) as exc:
+        return {"_error": f"invalid agent Markdown: {exc}"}
 
 
 def discover(repo_root: Path) -> tuple[list[Entry], list[Entry], list[Entry]]:
@@ -148,8 +149,8 @@ def discover(repo_root: Path) -> tuple[list[Entry], list[Entry], list[Entry]]:
             )
     agents_dir = repo_root / ".agents/subagents"
     if agents_dir.is_dir():
-        for p in sorted(agents_dir.glob("*.toml")):
-            manifest = _parse_agent_toml(p)
+        for p in sorted(agents_dir.glob("*.md")):
+            manifest = _parse_agent_source(p)
             agents.append(
                 Entry(
                     kind="agent",
@@ -823,7 +824,7 @@ def compose_agent_briefing(agent: Entry, skills_by_id: dict[str, Entry]) -> str:
         out.append(f"{i}. {item}")
 
     out.append("\n## Delegation constraints\n")
-    out.append("- `agents.max_threads = 6`, `agents.max_depth = 1` (see `.codex/config.toml`)")
+    out.append("- `agents.max_threads = 6`, `agents.max_depth = 1` (see `.agents/config.json`)")
     out.append("- sandbox is read-only; edits stay with the parent session or the built-in worker")
     out.append("- not a second skill system; route domain behavior back to the listed skills")
 
@@ -872,7 +873,7 @@ def render_catalog(skills: list[Entry], workflows: list[Entry], agents: list[Ent
     out: list[str] = []
     if note:
         out.append(f"_{note}_\n")
-    out.append("# Codex catalog")
+    out.append("# Agent framework catalog")
     out.append(f"_{len(skills)} skills, {len(workflows)} workflows, {len(agents)} agents._\n")
 
     owners = [s for s in skills if s.manifest.get("role") == "owner"]
@@ -1005,7 +1006,7 @@ def render_check(
                     issues.append(f"agent `{a.name}`: referenced skill `{sid}` does not resolve")
 
     out = [
-        "# Codex tree check\n",
+        "# Agent framework check\n",
         f"_Scanned {len(skills)} skills + {len(workflows)} workflows + {len(agents)} agents under `{repo_root}/.agents`._\n",
     ]
     if not issues:
@@ -1018,7 +1019,7 @@ def render_check(
 
 def render_coverage(skills: list[Entry], workflows: list[Entry], agents: list[Entry]) -> tuple[str, int]:
     """Report how routable each entry is. Scaling aid for large codex trees."""
-    out: list[str] = ["# Codex routing coverage\n"]
+    out: list[str] = ["# Agent routing coverage\n"]
     out.append(f"_{len(skills)} skills, {len(workflows)} workflows, {len(agents)} agents._\n")
     unroutable: list[str] = []
     thin: list[str] = []

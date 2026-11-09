@@ -1,6 +1,11 @@
 import { mock, clock, research, advance } from "../fixtures/world-model-page-harness";
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+const attempts = vi.hoisted(() => ({ capture: vi.fn(), started: vi.fn(), settled: vi.fn() }));
+vi.mock("@/lib/observability/product-activity-client", async original => ({
+  ...await original<typeof import("@/lib/observability/product-activity-client")>(),
+  captureProductAttempt: attempts.capture.mockReturnValue({ started: attempts.started, settled: attempts.settled }),
+}));
 import type { PwmMemory } from "@/lib/services/world-model-decision-service";
 
 import { PersonalWorldModelPage, usePersonalWorldModelModel } from "@/components/profile/personal-world-model-page";
@@ -26,6 +31,30 @@ it("does not let a retained World Model detail consume another Profile page’s 
 });
 
 describe("Personal World Model page", () => {
+  it.each([
+    ["confirm", "confirm_fact"], ["reject", "reject_fact"], ["edit", "edit_fact"], ["remove", "remove_fact"],
+  ] as const)("reports one %s attempt after encrypted memory acknowledgement", async (operation, action) => {
+    research(offered([{ statement: "Synthetic private detail", kind: "career" }]));
+    const saved = await claim("Synthetic saved detail");
+    let acknowledge!: (value: PwmMemory) => void;
+    mock[operation].mockReturnValueOnce(new Promise<PwmMemory>(resolve => { acknowledge = resolve; }));
+    const view = renderHook(() => usePersonalWorldModelModel({ embedded: true }));
+    await waitFor(() => expect(view.result.current.sections[0]?.drafts).toHaveLength(1));
+    const fact = view.result.current.sections[0]!.drafts[0]!;
+    let writing!: Promise<void>;
+    act(() => {
+      const controls = view.result.current.actions;
+      writing = operation === "remove" ? controls.remove(saved) : operation === "edit"
+        ? controls.edit(fact, "Synthetic correction") : controls[operation](fact);
+    });
+    expect(mock[operation]).toHaveBeenCalledOnce();
+    expect(attempts.capture.mock.calls).toEqual([[`profile.world_model.${action}`, "owner-a"]]);
+    expect(attempts.started).toHaveBeenCalledOnce();
+    expect(attempts.settled).not.toHaveBeenCalled();
+    await act(async () => { acknowledge(memoryOf()); await writing; });
+    expect(attempts.settled.mock.calls).toEqual([["returned"]]);
+  });
+
   it("rejects retained statement callbacks after owner replacement and controller retirement", async () => {
     research(offered([{ statement: "Works at Hushh", kind: "career" }]));
     const view = renderHook(() => usePersonalWorldModelModel({ embedded: true }));
@@ -62,6 +91,7 @@ describe("Personal World Model page", () => {
     await waitFor(() => expect(finishRead).toBeTypeOf("function"));
     expect(view.result.current.pending.size).toBe(0);
     await act(async () => { finishWrite(memoryOf([firstClaim])); await writing; });
+    expect(attempts.settled).not.toHaveBeenCalled();
     await act(async () => { finishRead(memoryOf([nextClaim])); });
     await waitFor(() => expect(view.result.current.memory?.saved[0]?.text).toBe(nextClaim.text));
     expect(view.result.current.memory?.saved.some(item => item.text === firstClaim.text)).toBe(false);
@@ -124,6 +154,7 @@ describe("Personal World Model page", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Yes, this is right: Works at Hushh" }));
     expect(await screen.findByText("Couldn’t save. Try again.")).toBeInTheDocument();
+    expect(attempts.settled).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Yes, this is right: Works at Hushh" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "No, this isn’t right: Works at Hushh" })).toBeEnabled();
     expect(screen.queryByText("Confirmed by you")).not.toBeInTheDocument();

@@ -9,14 +9,14 @@
   background: #161618;
   border: 1px solid var(--border);
   box-shadow: 0 28px 48px -18px rgb(16 24 40 / 0.42);
-  transform: scale(0.92);
+  transform: scale(calc(var(--demo-phone-fit, 1) * 0.92));
   transition: transform 900ms var(--demo-ease);
 }
 .phone[data-demo-slide="1"] {
-  transform: scale(1);
+  transform: scale(var(--demo-phone-fit, 1));
 }
 .phone[data-demo-slide="2"] {
-  transform: scale(1.1);
+  transform: scale(calc(var(--demo-phone-fit, 1) * 1.1));
 }
 .phoneScreen {
   position: relative;
@@ -733,33 +733,25 @@
     transition: none !important;
   }
 }
-@media (max-height: 740px) and (max-width: 767px) {
-  .phone {
-    transform: scale(0.7544);
-  }
-  .phone[data-demo-slide="1"] {
-    transform: scale(0.82);
-  }
-  .phone[data-demo-slide="2"] {
-    transform: scale(0.902);
-  }
+/* Reserve room for the largest scene (428px × 1.1), while the
+   artwork keeps its original proportions and motion. */
+@container finance-demo-art (height < 472px) {
+  .phone { --demo-phone-fit: 0.70; }
 }
-
-.decision strong {
-  display: flex;
-  gap: 6px;
-  align-items: center;
+@container finance-demo-art (height < 340px) {
+  .phone { --demo-phone-fit: 0.49; }
 }
-.decision strong span {
-  color: var(--app-success-deep, #1e7b34);
-  background: color-mix(
-    in srgb,
-    var(--app-success-deep, #1e7b34) 12%,
-    transparent
-  );
-  border-radius: 50%;
-  width: 16px;
-  height: 16px;
-  text-align: center;
-  line-height: 16px;
+@container finance-demo-art (height < 240px) {
+  .phone { --demo-phone-fit: 0.32; }
+}
+@container finance-demo-art (height < 160px) {
+  .phone { --demo-phone-fit: 0.18; }
+}
+@container finance-demo-art (height < 96px) {
+  .phone { --demo-phone-fit: 0.10; }
+}
+@supports (transform: scale(calc(100px / 100px))) {
+  @container finance-demo-art (height >= 0px) {
+    .phone { --demo-phone-fit: clamp(0.10, calc((100cqh - 8px) / 472px), 1); }
+  }
 }

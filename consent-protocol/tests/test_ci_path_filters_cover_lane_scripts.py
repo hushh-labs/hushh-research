@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
@@ -10,6 +11,7 @@ from functools import cache
 from pathlib import Path
 
 import pathspec
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,9 +52,7 @@ ORCHESTRATE_RE = re.compile(r"orchestrate\.sh\s+([\w-]+)")
 EXPECTED_JOBS = {
     "web-core-check": {"frontend"},
     "web-targeted-check": {"frontend"},
-    "web-targeted-browser": {"frontend"},
     "web-full-suite-check": {"frontend"},
-    "document-webkit-check": {"document"},
     "protocol-check": {"backend"},
     "protocol-database-check": {"backend"},
     "protocol-database-check-two": {"backend"},
@@ -148,7 +148,7 @@ def _filters(patterns: dict[str, list[str]] | None = None) -> dict[str, _Filter]
 
 
 def _resolve_path_outputs(
-    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool
+    event: str, filter_outputs: dict[str, str], tmp_path: Path, *, override: bool, level="focused"
 ) -> dict[str, str]:
     """Run the workflow's real resolver with bounded synthetic filter outputs."""
     step = next(
@@ -177,7 +177,7 @@ def _resolve_path_outputs(
     env = {
         "GITHUB_OUTPUT": str(output),
         "EVENT_NAME": event,
-        "CI_VALIDATION_LEVEL": "focused",
+        "CI_VALIDATION_LEVEL": level,
         "AUTH_HEALTH_FILTER": filter_outputs.get("auth_health", ""),
         "NON_AUTH_HEALTH_FILTER": filter_outputs.get("non_auth_health", ""),
     }
@@ -304,6 +304,27 @@ def test_negated_patterns_use_the_exclusion_aware_quantifier() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "path,ios,android",
+    [
+        ("hushh-webapp/app/login/page.tsx", "false", "false"),
+        ("consent-protocol/config/email-auth/risk-manifest.json", "false", "false"),
+        ("hushh-webapp/ios/App/App/AppDelegate.swift", "true", "false"),
+        ("hushh-webapp/android/app/build.gradle", "false", "true"),
+        ("hushh-webapp/lib/capacitor/index.ts", "true", "true"),
+        ("hushh-webapp/package-lock.json", "true", "true"),
+    ],
+)
+def test_release_core_keeps_native_work_affected(path, ios, android, tmp_path):
+    outputs = {name: str(owner.match_file(path)).lower() for name, owner in _filters().items()}
+    resolved = _resolve_path_outputs(
+        "workflow_dispatch", outputs, tmp_path, override=False, level="release"
+    )
+    assert all(resolved[name] == "true" for name in ("frontend", "backend", "document"))
+    assert resolved["ios"] == ios
+    assert resolved["android"] == android
+
+
 def _auth_health_decision(paths, tmp_path, event="pull_request", override=False):
     filters = _filters()
     outputs = {
@@ -428,7 +449,6 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
         "secret-scan",
         "dco-check",
         "pr-base-policy",
-        "repo-governance",
         "paths",
     ]
 
@@ -438,6 +458,7 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     reference = "consent-protocol/docs/reference/private-browser-runtime.md"
     runtime = "consent-protocol/hushh_mcp/services/pod_binding_service.py"
     assert not backend.match_file(reference)
+    assert not backend.match_file("consent-protocol/docs/reference/agent-development.md")
     for path in (
         "consent-protocol/docs/reference/env-vars.md",
         "consent-protocol/docs/reference/future-document.md",
@@ -451,13 +472,58 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     assert not backend.match_file(".github/workflows/ci.yml")
 
 
+def test_dev_cloud_removal_operator_stays_with_its_functional_backend_owner() -> None:
+    path = "scripts/ops/recover_dev_cloud_removal.py"
+    assert _filters()["backend"].match_file(path)
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == []
+    unknown = _governance_plan(("scripts/ops/new_unowned_removal.py",))
+    assert "unrecognized scripts owner path" in unknown["selection_error"]
+
+
+def test_engineering_judge_contract_keeps_full_coverage_without_backend_selection() -> None:
+    path = "consent-protocol/tests/test_memory_judge.py"
+    backend = _filters()["backend"]
+    assert not backend.match_file(path)
+    assert backend.match_file("consent-protocol/scripts/ops/memory_judge.py")
+    assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
+    assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
+    assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
+    assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == ["agent"]
+    commands = {row["id"]: row["argv"] for row in plan["commands"]}
+    assert commands["memory-judge-contracts"][-1] == path
+    assert "protocol-check" not in commands
+
+
 def _uncovered_deletion_release_inputs(filters: dict[str, _Filter]) -> set[str]:
     paths = set(DELETION_RELEASE_INPUTS) | {
         path for path in _tracked_files() if path.startswith("deploy/account-deletion/")
     }
     assert any(path.startswith("deploy/account-deletion/") for path in paths)
     assert all((ROOT / path).is_file() for path in paths)
-    return {path for path in paths if not filters["backend"].match_file(path)}
+    focused = {
+        "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/runtime_config_retention.py",
+        "scripts/ops/upsert_gcp_secret.py",
+        "scripts/ops/prune_gcp_secret_versions.py",
+    }
+    for path in focused:
+        assert not filters["backend"].match_file(path), path
+        plan = _governance_plan((path,))
+        assert plan["selection_error"] is None
+        commands = {row["id"]: row["argv"] for row in plan["commands"]}
+        assert "account-deletion-release-workflow" in commands
+        assert (
+            "consent-protocol/tests/test_runtime_config_retention.py"
+            in commands["release-controller-contracts"]
+        )
+    return {path for path in paths - focused if not filters["backend"].match_file(path)}
 
 
 def test_environment_only_deletion_inputs_schedule_the_required_backend_lane() -> None:
@@ -621,7 +687,7 @@ def test_deletion_selection_guard_rejects_excluded_release_and_runtime_inputs() 
     excluded = {
         "deploy/account-deletion/activate_release.py",
         "deploy/backend.cloudbuild.yaml",
-        "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/passkey_domain_policy.py",
     }
     patterns = _filter_patterns()
     patterns["backend"] += ["!" + path for path in sorted(excluded)]
@@ -679,8 +745,132 @@ def test_unknown_ci_helper_is_a_fail_closed_negative_control() -> None:
     assert set(plan["selected_groups"]) == {"controller", "retention", "agent"}
 
 
+def test_public_email_risk_data_has_real_integrity_and_policy_ownership():
+    paths = (
+        "consent-protocol/config/email-auth/disposable-domains.txt",
+        "consent-protocol/config/email-auth/risk-manifest.json",
+    )
+    filters = _filters()
+    for path in paths:
+        assert not filters["backend"].match_file(path)
+        plan = _governance_plan((path,))
+        assert plan["selected_groups"] == ["controller"]
+        commands = {check["id"]: check["argv"] for check in plan["commands"]}
+        assert "email-risk-artifact-integrity" in commands
+        assert commands["email-risk-policy-contracts"][-2:] == [
+            "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
+            "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
+        ]
+    unrelated = _governance_plan((".github/workflows/ci.yml",))
+    assert not {"email-risk-artifact-integrity", "email-risk-policy-contracts"}.intersection(
+        check["id"] for check in unrelated["commands"]
+    )
+    for path in (
+        "consent-protocol/config/email-auth/unknown-risk-input.txt",
+        "consent-protocol/config/email-auth/LICENSE-disposable-domains.txt",
+        "consent-protocol/hushh_mcp/services/email_auth/domain_policy.py",
+        "consent-protocol/tests/services/test_email_auth_postgres.py",
+        "consent-protocol/db/migrations/359_independent_email_otp.sql",
+    ):
+        assert filters["backend"].match_file(path), path
+
+
+@pytest.mark.parametrize("fault", ["valid", "tampered", "redirected"])
+def test_public_email_risk_integrity_command_checks_the_actual_blob(tmp_path, fault):
+    import json
+
+    plan = _governance_plan(("consent-protocol/config/email-auth/risk-manifest.json",))
+    command = next(
+        check["argv"]
+        for check in plan["commands"]
+        if check["id"] == "email-risk-artifact-integrity"
+    )
+    program = command[command.index("-c") + 1]
+    protocol = tmp_path / "consent-protocol"
+    source = ROOT / "consent-protocol/config/email-auth"
+    data = protocol / "config/email-auth"
+    data.mkdir(parents=True)
+    (protocol / "hushh_mcp").symlink_to(
+        ROOT / "consent-protocol/hushh_mcp", target_is_directory=True
+    )
+    manifest = json.loads((source / "risk-manifest.json").read_text())
+    (data / manifest["file"]).write_bytes(
+        (source / manifest["file"]).read_bytes()
+        + (b"tampered.invalid\n" if fault == "tampered" else b"")
+    )
+    (data / manifest["license"]).write_bytes((source / manifest["license"]).read_bytes())
+    if fault == "redirected":
+        manifest["file"] = "another-input.txt"
+    (data / "risk-manifest.json").write_text(json.dumps(manifest))
+    result = subprocess.run(  # noqa: S603 - actual authored integrity command, isolated public fixture
+        [sys.executable, "-c", program], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert (result.returncode == 0) is (fault == "valid"), result.stderr
+    if fault == "tampered":
+        assert "digest mismatch" in result.stderr
+    elif fault == "redirected":
+        assert "unowned input" in result.stderr
+
+
+def test_worker_cli_fixture_keeps_both_consumer_suites_in_its_controller_owner():
+    helper = "consent-protocol/tests/helpers/drive_worker_gcloud.py"
+    consumers = {
+        "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    }
+    observed = set()
+    for path in (ROOT / "consent-protocol/tests").rglob("test_*.py"):
+        source = path.read_text()
+        if "drive_worker_gcloud" not in source:
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and (
+                    node.module == "tests.helpers.drive_worker_gcloud"
+                    or node.module == "tests.helpers"
+                    and any(item.name == "drive_worker_gcloud" for item in node.names)
+                )
+                or isinstance(node, ast.Import)
+                and any(item.name == "tests.helpers.drive_worker_gcloud" for item in node.names)
+            ):
+                observed.add(str(path.relative_to(ROOT)))
+
+    assert observed == consumers
+    filters = _filters()
+    for path in (helper, *consumers):
+        assert not filters["backend"].match_file(path)
+        plan = _governance_plan((path,))
+        commands = {check["id"]: check["argv"] for check in plan["commands"]}
+        assert consumers.issubset(commands["release-controller-contracts"])
+    assert filters["backend"].match_file("consent-protocol/tests/helpers/unknown_worker_gcloud.py")
+    launcher_plan = _governance_plan(("deploy/drive/deploy_worker_service.sh",))
+    controller = next(
+        check
+        for check in launcher_plan["commands"]
+        if check["id"] == "release-controller-contracts"
+    )
+    assert "consent-protocol/tests/test_database_connection_ceiling.py" in controller["argv"]
+
+
 def test_release_controller_fixtures_keep_coverage_without_backend_database_lanes() -> None:
     paths = (
+        "consent-protocol/tests/test_pwm_runtime_probe.py",
+        "consent-protocol/tests/scripts/test_trust_failure_verdict.py",
+        "consent-protocol/tests/scripts/test_probe_drive_activity_planner.py",
+        "consent-protocol/tests/scripts/test_readiness_exam_runner.py",
+        "consent-protocol/tests/test_vertex_capability_probe.py",
+        "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
+        "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+        "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+        "consent-protocol/tests/test_location_workflow_compatibility.py",
+        "consent-protocol/tests/test_runtime_config_retention.py",
+        "consent-protocol/tests/test_plg_deploy_bindings.py",
+        "consent-protocol/tests/test_azure_runtime_config_wiring.py",
+        "consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py",
+        "consent-protocol/tests/test_runtime_settings_maps.py",
+        "consent-protocol/tests/test_uat_application_selection.py",
+        "consent-protocol/tests/test_direct_uat_acceptance.py",
         "consent-protocol/tests/test_advisors_runtime_config_wiring.py",
         "consent-protocol/tests/test_cloudbuild_step_arg_limit.py",
         "consent-protocol/tests/test_dev_release_classification.py",
@@ -701,6 +891,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_drive_scheduler_set_snapshot.py",
         "consent-protocol/tests/test_drive_v1_worker_lane.py",
         "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
+        "consent-protocol/tests/test_drive_worker_release_rollback.py",
+        "consent-protocol/tests/test_database_connection_ceiling.py",
         "consent-protocol/tests/test_feed_stream_capacity_contract.py",
         "consent-protocol/tests/test_gmail_information_request_release_contract.py",
         "consent-protocol/tests/test_hushh_tech_client_migration.py",
@@ -709,6 +901,9 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         "consent-protocol/tests/test_phone_schema_legacy_job.py",
         "consent-protocol/tests/test_pkm_v7_recovery_migration.py",
         "consent-protocol/tests/test_plg_qualification_producer.py",
+        "consent-protocol/tests/test_plg_qualification_bootstrap.py",
+        "consent-protocol/tests/test_plg_qualification_acceptance.py",
+        "consent-protocol/tests/test_plg_qualification_candidate.py",
         "consent-protocol/tests/test_scheduled_mail_scheduler_contract.py",
         "consent-protocol/tests/test_uat_connector_rollout_contract.py",
         "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
@@ -732,6 +927,13 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     assert backend.match_file("consent-protocol/hushh_mcp/services/account_deletion_service.py")
     assert backend.match_file("consent-protocol/db/migrations/098_pkm_v7_recovery_foundation.sql")
     assert backend.match_file("consent-protocol/tests/test_new_runtime_contract.py")
+    assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
+    assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
+    assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
+    assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
+    assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
+    assert not backend.match_file("consent-protocol/scripts/verify_azure_pwm_runtime.py")
+    assert not backend.match_file("consent-protocol/scripts/managed_vertex_readiness.py")
     plan = _governance_plan((*paths, dedicated))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["controller"]
@@ -749,5 +951,40 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
         *paths,
     ]
 
+    for source in (
+        "scripts/ops/sync_backend_runtime_secrets.py",
+        "scripts/ops/runtime_config_retention.py",
+        "deploy/plg/bind_secrets.sh",
+    ):
+        assert not backend.match_file(source)
+        source_plan = _governance_plan((source,))
+        assert source_plan["selection_error"] is None
+        source_commands = {row["id"]: row["argv"] for row in source_plan["commands"]}
+        assert (
+            source_commands["release-controller-contracts"]
+            == commands["release-controller-contracts"]
+        )
+
     assert commands["account-deletion-release-workflow"][-1] == dedicated
     assert sum(dedicated in argv for argv in commands.values()) == 1
+
+    # Every consumer of this inert fixture belongs to the same focused owner;
+    # adding a consumer cannot silently leave fixture-only changes uncovered.
+    fixture = "consent-protocol/tests/helpers/plg_qualification.py"
+    assert not backend.match_file(fixture)
+    fixture_plan = _governance_plan((fixture,))
+    assert fixture_plan["selection_error"] is None
+    assert fixture_plan["selected_groups"] == ["controller"]
+    consumers = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "consent-protocol/tests").rglob("*.py")
+        if any(
+            isinstance(node, ast.ImportFrom) and node.module == "tests.helpers.plg_qualification"
+            for node in ast.walk(ast.parse(path.read_text()))
+        )
+    }
+    assert len(consumers) == 4
+    assert consumers <= set(paths)
+    assert backend.match_file("consent-protocol/tests/helpers/plg_runtime.py")
+    assert backend.match_file("consent-protocol/tests/helpers/new.py")
+    assert backend.match_file("deploy/plg/qualification_candidate.py")

@@ -8,6 +8,9 @@ maintainer mirror; the target's canonical policy and live branch exceptions must
 both authorize the operator. Team membership does not grant Main or production
 permission. If an ordinary review is requested, use the maintainer team rather than
 requesting Kushal/Ankit personally.
+Automatic CODEOWNERS requests are reserved for protected changes. Mixed PRs
+containing CI or fundamental guidance use only the pipeline-editor review route;
+the ordinary maintainer team cannot override it.
 
 Use this bounded preflight before requesting the queue:
 
@@ -39,7 +42,7 @@ protected Main revision, rechecks them before clearance and requires an owner
 approval for protected changes. A direct `--admin` command is a separate bypass;
 do not use it as a substitute for combined-result evidence.
 
-`./bin/hushh codex admin-merge` is the **named-owner-only** command for
+`./bin/hushh agents admin-merge` is the **named-owner-only** command for
 Main, Dev and UAT. It is reserved for Kushal or Ankit's own explicitly approved
 PR and verifies the current destination, exact head and successful CI evidence.
 Other Dev/UAT maintainers use the queue above; a refusal from the owner command

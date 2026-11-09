@@ -144,7 +144,7 @@ Rules:
 
 Repo-scoped exception:
 
-1. Project-scoped declarations live in `.agents/config.toml`; authored engineering lanes live in `.agents/subagents/`. Root `AGENTS.md` points every coding agent to this shared framework. Do not create vendor directories, discovery links or per-host adapters.
+1. Project-scoped declarations live in `.agents/config.json`; authored engineering lanes live in `.agents/subagents/`. Root `AGENTS.md` points every coding agent to this shared framework. Do not create vendor directories, discovery links or per-host adapters.
 2. Keep that repo config non-secret. MCP credentials and user-local server config still belong in the machine-local Codex config, not the repo.
 
 ## Repo-scoped custom agents
@@ -157,7 +157,7 @@ Read the authored `.agents/subagents/` lane through root `AGENTS.md`, then deleg
 4. Most repo custom agents should stay `read-only`.
 5. Repo custom agents inherit the parent-session model family. Repo-scoped `default_reasoning_effort` pins are allowed only for curated high-risk evidence lanes and must stay visible in `agents/`.
 6. The parent session or the built-in `worker` owns edits unless a narrower workflow says otherwise.
-7. Repo-level fan-out stays capped in `.agents/config.toml`:
+7. Repo-level fan-out stays capped in `.agents/config.json`:
    - `max_threads = 6`
    - `max_depth = 1`
 8. The effective-spawn budget is lower than the hard cap: count known open child threads, reserve one thread for recovery or synthesis, and spawn only the remaining safe lanes.
@@ -183,7 +183,7 @@ python3 .agents/skills/agent-orchestration-governance/scripts/subagent_budget.py
 
 ### Subagent close freeze RCA
 
-Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.agents/config.toml` correctly caps threads at six with depth one, and local validation passes.
+Observed failure: the host-level `close_agent` operation can block the parent Codex turn while trying to close an old child thread. This is a host lifecycle-management issue, not a repo config issue: `.agents/config.json` correctly caps threads at six with depth one, and local validation passes.
 
 Operational conclusion:
 
@@ -271,7 +271,7 @@ When working in this repo:
 Operator precedence:
 
 1. `AGENTS.md` defines repo-wide policy and hard gates.
-2. `./bin/hushh codex route-task <workflow-id>` is the executable route for recurring workflows.
+2. `./bin/hushh agents route-task <workflow-id>` is the executable route for recurring workflows.
 3. `workflow.json` defines required reads, checks, handoff chain, and deliverables.
 4. `SKILL.md` defines the lane procedure and ownership boundary.
 5. Architecture docs define domain truth when they match current code, generated contracts, and tests.
@@ -280,10 +280,10 @@ Operator precedence:
 1. Use `shadcn` MCP before adding or modifying registry-backed UI components.
 2. Use `plaid` MCP before guessing on Plaid flows, sandbox behavior, webhooks, or OAuth.
 3. Use Hussh Consent MCP when you need internal consent/data-access guidance or machine-readable internal documentation.
-4. Start with `./bin/hushh codex onboard` for first-run contributor or agent orientation.
-5. Use `./bin/hushh codex list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
-6. Use `./bin/hushh codex ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
-7. Use `./bin/hushh codex rca --surface <uat|runtime|ci>` when the task starts from a core runtime, deploy, or semantic verification failure and needs a resume-safe RCA artifact.
+4. Start with `./bin/hushh agents onboard` for first-run contributor or agent orientation.
+5. Use `./bin/hushh agents list-workflows`, `route-task <workflow-id>`, and `impact <workflow-id>` for recurring repo workflows before improvising a route.
+6. Use `./bin/hushh agents ci-status --watch` when the task depends on live PR checks or GitHub Actions state.
+7. Use `./bin/hushh agents rca --surface <uat|runtime|ci>` when the task starts from a core runtime, deploy, or semantic verification failure and needs a resume-safe RCA artifact.
 8. Use the repo-owned skill `.agents/skills/repo-context/` when the task starts with "scan the repo", "establish context", "map the codebase", or is otherwise cross-domain.
 9. Use owner skills for broad domain intake:
    - `.agents/skills/frontend/`
@@ -307,7 +307,7 @@ Operator precedence:
 18. Use `.agents/skills/codex-skill-authoring/` when creating or retrofitting repo-local Codex skills, adding skill tooling, or tightening the local taxonomy and coverage rules.
 19. Use `.agents/skills/future-planner/` for future-state roadmap concepts, R&D architecture notes, and planning-only assessments that must stay separate from north-star vision and active implementation docs.
 20. Use `.agents/skills/planning-board/` for `Hussh Engineering Core` board work and `.agents/skills/comms-community/` for public/community explanation workflows.
-21. Use `.agents/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.agents/config.toml` agent limits, or delegation authority and handoff rules.
+21. Use `.agents/skills/agent-orchestration-governance/` when changing repo-scoped custom agents, `.agents/config.json` agent limits, or delegation authority and handoff rules.
 22. Use `.agents/skills/pdf-artifact-generation/SKILL.md` for any portable PDF artifact. Every host reads the same canonical skill; `.agents/skills/founder-brief-curation/` retains its governed route pointer. Do not create host-local PDF CSS or renderers.
 23. Use [hussh-code-persona.md](./hussh-code-persona.md) as the durable engineering persona contract before turning founder-language or product non-deviation guidance into skill or agent policy.
 

@@ -1,5 +1,62 @@
 # API Contracts
 
+## Visual Map
+
+Which credential plane authorizes which FastAPI route family, and how first-party
+clients reach them through the Next.js proxy layer.
+
+```mermaid
+flowchart TB
+  subgraph creds["Credential planes"]
+    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
+    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
+    devtok["Developer Token<br/>Authorization Bearer"]
+    hct["Consent Token HCT<br/>app-bound scoped grant"]
+    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
+    anon["No auth<br/>public reads"]
+  end
+
+  subgraph client["First-party client transport"]
+    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
+    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
+  end
+
+  subgraph api["FastAPI route families in consent-protocol/api/routes"]
+    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
+    con["consent.py and sse.py<br/>/api/consent"]
+    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
+    vault["db_proxy.py<br/>/db/vault wrappers"]
+    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
+    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
+    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
+    ria["ria.py and account.py<br/>/api/ria and /api/account"]
+    dev["developer.py<br/>/api/v1 and /api/developer"]
+    commerce["scope_commerce.py<br/>/api/scope-commerce"]
+  end
+
+  fb --> vo
+  fb --> dev
+  fb --> commerce
+  anon --> pub
+  vo --> svc
+  svc --> proxy
+  proxy --> con
+  proxy --> pkm
+  proxy --> vault
+  proxy --> kai
+  proxy --> one
+  proxy --> fabric
+  proxy --> ria
+  proxy --> commerce
+  devtok --> dev
+  devtok --> fabric
+  con --> hct
+  hct --> dev
+  maint --> one
+```
+
+---
+
 ## Connection network discovery
 
 These Firebase-authenticated reads bind the viewer to the verified session and
@@ -9,7 +66,7 @@ iOS and Android use the same endpoints through `ApiService.apiFetch`.
 | Endpoint | Contract |
 | --- | --- |
 | `GET /api/one/connections/network/summary?person_ref=<UUID>` | Eligible public identity, viewer-relative `networkDegree` (`1`, `2`, `3`, or `null`), existing mutual count/preview, and `canBrowseConnections`. No internal identity, graph path, email, phone, or consent contents. |
-| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, page, and `hasMore`; filtering precedes logical pagination. |
+| `GET /api/one/connections/network` | Optional `person_ref` selects that person's shared list; omission discovers the viewer's extended network. Optional `degree=1\|2\|3` selects an exact shortest qualified distance; `query` is a name search (160 characters), `page>=1`, `limit=1..50` (20 by default). Returns eligible public people, degree, relationship, mutual metadata, page, and `hasMore`; filtering precedes logical pagination. |
 | `GET /api/one/connections/network/visibility` | The caller's own `shareConnectionList` preference. Missing or existing accounts default to false. |
 | `PATCH /api/one/connections/network/visibility` | `{ "share_connection_list": boolean }` changes only the authenticated caller's preference. Account reset clears this permission. |
 
@@ -135,62 +192,31 @@ confirmation metadata remain until reconciliation or account erasure. Production
 qualification must separately verify the migration, exact authenticated
 two-person journey, platform transport and current processing-provider approval.
 
-## Visual Map
+## V1 chat memory preparation
 
-Which credential plane authorizes which FastAPI route family, and how first-party
-clients reach them through the Next.js proxy layer.
+`POST /api/one/agent-chat` accepts the current owner's
+`forwardedProps.emailMemoryProjection` with a declared `budget_chars` of up to
+96,000 UTF-16 code units, matching the complete `one_memory.markdown` document.
+The document must fit both that declared budget and the server maximum. Email
+session reads and prompt preparation use the same memory bound without truncation.
+Owner matching, strict projection fields and request-only secret references remain
+required; the separate 18,000-character draft and 2,048-character fact-write limits
+are unchanged.
 
-```mermaid
-flowchart TB
-  subgraph creds["Credential planes"]
-    fb["Firebase ID Token<br/>bootstrap, account/financial operations and pilot metadata"]
-    vo["VAULT_OWNER Token, 24h<br/>POST /api/consent/vault-owner-token"]
-    devtok["Developer Token<br/>Authorization Bearer"]
-    hct["Consent Token HCT<br/>app-bound scoped grant"]
-    maint["Pub/Sub OIDC or<br/>X-Hushh-Maintenance-Token"]
-    anon["No auth<br/>public reads"]
-  end
-
-  subgraph client["First-party client transport"]
-    svc["hushh-webapp/lib/services<br/>snake_case to camelCase"]
-    proxy["hushh-webapp/app/api route handlers<br/>proxy to BACKEND_URL"]
-  end
-
-  subgraph api["FastAPI route families in consent-protocol/api/routes"]
-    pub["health.py, investors.py,<br/>tickers.py, agents.py"]
-    con["consent.py and sse.py<br/>/api/consent"]
-    pkm["pkm.py and pkm_routes_shared.py<br/>/api/pkm"]
-    vault["db_proxy.py<br/>/db/vault wrappers"]
-    kai["kai/ package<br/>chat, analyze, portfolio, plaid, agent chat"]
-    one["one/ package<br/>email KYC, location, a2a, adk live, feed"]
-    fabric["pwm.py and fabric.py<br/>/api/pwm and /api/fabric"]
-    ria["ria.py and account.py<br/>/api/ria and /api/account"]
-    dev["developer.py<br/>/api/v1 and /api/developer"]
-    commerce["scope_commerce.py<br/>/api/scope-commerce"]
-  end
-
-  fb --> vo
-  fb --> dev
-  fb --> commerce
-  anon --> pub
-  vo --> svc
-  svc --> proxy
-  proxy --> con
-  proxy --> pkm
-  proxy --> vault
-  proxy --> kai
-  proxy --> one
-  proxy --> fabric
-  proxy --> ria
-  proxy --> commerce
-  devtok --> dev
-  devtok --> fabric
-  con --> hct
-  hct --> dev
-  maint --> one
-```
-
----
+`POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
+owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
+admission, held owner incarnation and AI-selection checks before and after inference.
+The request contains `user_id`, `current_markdown`, incremental `messages`
+(`id`, `conversationId`, `role`, `content`), and `max_tokens`. Whitespace-only messages are
+rejected during request validation before inference. Meaningful Markdown
+indentation is preserved, and `current_markdown` may be empty for initial memory.
+The response is
+`{markdown}`: a proposed complete document with no persistence authority. The
+client validates and atomically commits ciphertext and its source checkpoint
+through the existing PKM writer. Invalid generation returns a bounded failure;
+there is no partial replacement or client-visible success before storage ACK.
+The platform-aware PKM proxy/native transport and explicit pod allowlists own
+placement; unknown/private owners never fall back to Shared inference.
 
 ## Public market quotes
 
@@ -2623,18 +2649,23 @@ revocation/reauthorization ordering is not proven by local transaction tests.
 
 New Calendar connections, including additional accounts, do not request
 `contacts.readonly` solely for guest photos. Calendar account and booking
-surfaces retain their existing verified Connection and signed-in owner photo
-context. Invitations keep the signed-in owner's verified primary/linked email
-photo and match the fetched event's organizer and
+surfaces use the current visible Hussh profile matched to each verified account
+email, including accounts with no events. Connecting a Google account does not
+assign that address the signed-in owner's Hussh identity or portrait. The owner
+photo applies only to the owner's verified primary/linked email. Invitations
+match the fetched event's organizer and
 attendee emails to the Connect directory's active, visible profiles, including
 people in Find People who are not Connections. This server-side lookup requires
 a unique exact verified email from both the identity cache and the target's
 current Firebase account, plus contact listing eligibility; it returns only
 the matching user ID and the profile name and photo Connect shows (either may
-be absent, never both), keyed by an email already in the event.
+be absent, never both), keyed by an email already in the event or a connected
+account whose current Google userinfo email is verified. Board cards, account
+pickers and booking share that same current profile projection.
 Invitation peers use only that fresh result, so a stale Connection email cannot
 override a changed Firebase identity.
-It is bounded to 100 event emails and fails to initials if lookup is unavailable.
+It is bounded to 100 emails, prioritizes verified account addresses before event
+participants, and fails to initials if lookup is unavailable.
 Missing, ambiguous, private, unverified and non-HUSSH people retain initials.
 The Connections list adds `emailVerified` from the authoritative actor profile;
 an absent field is unverified. An account card also requires
@@ -2712,6 +2743,25 @@ cancellation and authorization never execute an event. Calendar Join uses the
 event's account email for an explicit Meet pre-join reminder; the external Meet
 app or browser still chooses its own signed-in account. Other meeting providers
 open their original validated links directly.
+Calendar booking reviews retain the exact `account_id` (default, second or third
+connected account), `calendar_id`, event ID, recurring-instance identity and
+OAuth grant generation from preparation through confirmation. Mutation support
+currently accepts only `calendar_id: "primary"` within the explicitly selected
+account; a secondary calendar is rejected before provider access. Recurring
+series changes require an occurrence selection. Event changes recheck occurrence,
+ETag and grant identity before their conditional PATCH or DELETE.
+
+For rescheduling, omitted guest, location and description fields remain unchanged;
+`attendees: []`, `location: ""` and `description: ""` explicitly remove permitted
+guests or clear the named field. Reviews show removals and retain organizer,
+self, room and unrelated attendee metadata. An incomplete guest list cannot be
+reviewed. Chat's legacy and structured reviews share complete account, event,
+time, guest and notification details; incomplete or expired reviews cannot be
+confirmed. Older proposals without sealed account/calendar/grant facts require
+a new review. Invalid, missing, DST-ambiguous or nonexistent local times ask for
+clarification before provider access; explicit offsets retain their UTC instant
+and the review retains the IANA display zone.
+
 Calendar automatically loads using the current signed-in identity and its existing
 Calendar OAuth grant; it has no additional credential prompt or unlock card.
 Each provider request checks the original connection/grant binding. Disconnect,
@@ -2728,6 +2778,93 @@ proposals show busy-period warnings across the included calendars and reject
 changed availability at confirmation. Google must return an event identifier
 before creation is reported as successful; mutations are never automatically
 retried.
+
+Calendar Chat reads accept an exact `account_id`. When a fresh request has
+multiple connected accounts and no selection, the tool returns the owner-scoped
+account choices for clarification. Event, subscribed-calendar and invitation
+references retain their own account, calendar, complete opaque grant binding,
+conversation and five-minute expiry. Another account's read cannot redirect a
+reference; a conflicting explicit account is rejected. Invitation handoffs,
+inline reviews, confirmations and reconnect controls preserve this account ID,
+including when two observations have the same email. Additional accounts remain
+unsupported on single-account owner-cloud and data-door ports; those paths
+never resolve shared credentials as a fallback. Organizer Mail preparation
+requires its existing sending grant to prove the same Google subject as the
+selected Calendar grant. A different sender requires a new matching-account
+review; Calendar never changes Mail's selected account automatically.
+
+Before Calendar provider reads, the existing Calendar manifest independently
+assesses authenticated current-turn messages through a tool-free, history-free
+call on the owner's admitted model. Its exact-quote-validated action ceiling is
+bound to owner, conversation, invocation and message digest. Read-only, ambiguous,
+failed or expired assessments authorize no booking or invitation review; proposal
+tools enforce this before staging, account lookup or manage-permission controls.
+This ceiling does not grant OAuth access or replace explicit browser confirmation.
+Provider content and earlier assistant messages cannot widen it. The private
+receipt is omitted from public and durable session projections. Create,
+reschedule and cancellation converge at `_propose`; non-view invitation decisions
+check `respond` before source/account lookup. Shared Agent Chat, private pod Chat,
+private text turns and `AgentChatService.stream_one_turn` use the same One head.
+Read-only rejection leaves successful read results available for the answer;
+existing post-read restrictions remain. Read offers and context-only slot/email
+attachments establish source identity, never booking authority.
+
+An explicit booking that needs a guest uses the existing proposal tool's
+`clarification="guests"` mode before asking. This mode stages no proposal. Its
+typed pending question lives privately in the existing owner-encrypted ADK
+session for five minutes, bound to owner, app, conversation, session, originating
+invocation, authenticated message digest and exact account/grant. Only the next
+authenticated reply may complete that create review, after the same model assesses
+both owner messages. Read-only, unrelated, expired or source-changed replies fail
+closed; prose questions, provider text and attachments cannot mint this context.
+Reasking does not renew expiry, and the issuing turn cannot bypass its question.
+The root model receives request-only bounded origin words, ISO clock, local dates
+and separate requested/browser zones after restoration; the new turn's clock is
+unchanged. Grant binding stays pinned through review staging, and normal explicit
+confirmation still precedes execution. Stateless text turns cannot recover this
+authority from browser-carried history and require the booking to be restated.
+Expiry or grant loss yields one specific recovery explanation. The content-free,
+invocation-bound recovery hint stays private and grants no authority; retries do
+not repeat grant lookups. Complete requests go directly to review, and personal
+blocks require no guest. Only genuinely missing or ambiguous details need one
+grouped question; verified details are retained.
+
+Calendar event reads expose additive `local_start_at`/`local_end_at` fields in
+`display_time_zone`, preserving provider instants and all-day dates. Explicit
+`time_zone` on summary, events, event detail, busy intervals, windows and invitation
+reads/reviews overrides the current turn's display zone. Slot detail defaults to
+its saved offer zone; an explicit redisplay does not alter the private reference.
+The projection covers local and data-door reads, opening details and busy intervals.
+Relative
+dates use one server-captured user-turn timestamp, retained across regional
+failover, independently of Mail admission; explicit dates stay unchanged.
+
+`calendar_free_slots` retains completed openings in the existing encrypted ADK
+session as a private five-minute offer. It records the selected account,
+destination, exact checked calendar coverage, query window, elapsed duration,
+canonical IANA zone and ordered UTC intervals. Current typed opening searches
+check that account's Board-included subscribed calendars and expand each free
+interval into duration-sized, non-overlapping options. `coverage_complete`
+describes successful provider coverage; `suggestion_limit`, `suggestions_limited`
+and `available_slot_count` separately describe bounded options. Unreadable included
+calendars yield no verified suggestions. These are neither invitee nor all-account
+checks. One pure `opening_options` calculation also expands legacy/Voice service
+openings, batched invitation/date availability and all-account Chat suggestions.
+Board free windows remain continuous intervals; their intersections compare
+absolute instants, including fractional seconds. Shared suggestions expose
+`future_only=true`; no future options is not proof a past interval was busy.
+`propose_calendar_event(slot_ordinal=...)` resolves a
+one-based choice from this offer and rejects replacement times or a different
+target. Session recovery retains the original creation time, without renewing
+expiry. Failed or empty replacement searches retire previous offers. Public
+state snapshots and deltas exclude this private state.
+
+Slot-backed proposals recheck complete free/busy coverage before issuing a
+review and immediately before confirmed execution. Expired, past, reconnected,
+partially checked or newly busy slots require fresh openings rather than a
+"Schedule anyway" confirmation. Existing proposal expiry, single-use claims,
+included-calendar checks and explicit browser confirmation still apply.
+Availability checks do not reserve provider time atomically.
 
 The visible Schedule view refreshes every thirty seconds and on return to the
 page or network recovery, coalescing requests within three seconds. Superseded
@@ -3955,7 +4092,7 @@ These fields are additive to the canonical decision payload and mirrored in `raw
 
 Terminal payload from `POST /api/kai/portfolio/import/stream` now includes:
 
-- `portfolio_data_v2` (canonical app-consumed portfolio payload)
+- `portfolio_data_v2` (canonical portfolio payload with separate statement holding entries in `holdings`. The app groups matching entries for review. Position-level analytics and quality counters use their existing aggregation.)
 - `raw_extract_v2` (raw single-pass LLM extraction snapshot)
 - `analytics_v2` (materialized dashboard/debate/optimize metrics)
 - `quality_report_v2` (deterministic quality report and gate output)
@@ -5272,7 +5409,14 @@ unavailable row with a retry action.
 ### Connect directory mutual connections
 
 Directory rows additionally return `mutualConnectionCount` and optional
-`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`), plus
+`mutualConnectionPreviews` containing up to two eligible public identities. The
+singular field remains the first eligible preview for existing clients. The same
+metadata is returned on mutual-list and network-list rows, with viewer-relative
+`relationship` (`none`, `pending_outgoing`, `pending_incoming`, `connected`).
+Preview reads are batched across at most 50 page rows and 100 selected identities;
+final graph, block, profile and reference checks reject mid-read changes with 503.
+Counts use distinct shared
 neighbors across active canonical connections, scoped to the returned page,
 excluding blocked relationships. A bounded batch lookup resolves shared peers
 through the canonical directory's live visibility and account checks, independent
@@ -5283,6 +5427,12 @@ are added. Existing
 masked email/phone visibility remains unchanged. The Next proxy and native HTTP
 transport forward these additive fields. Older servers omit them; clients omit
 the badge rather than inventing a mutual relationship. No migration is required.
+
+The authenticated, private/no-store person-context lookup also returns the
+canonical `publicPersonRef`. UID-only portrait entry points use this reference
+to open the existing shared profile preview; they never reinterpret a UID as a
+public reference. Connection requests continue through the existing authenticated
+`POST /api/one/people/{person_ref}/connection` endpoint.
 
 ### Private email send recovery
 
@@ -5646,3 +5796,212 @@ Withdrawal sends `{granted:false}` directly without obtaining a hub grant;
 `GET /api/one/pod/memory/status` also uses the owner session. Legacy relay routes
 remain compatible with older clients; private callers never fall back to them.
 Web, iOS and Android share this service-layer transport and its exact route allowlist.
+
+## Own activity evidence
+
+The separately signed `owner-uat`, `permission-uat` and `snapshot-uat` endpoints
+are read-only and require the exact UAT project, runtime lane, collection/export
+flags and separate credential. UAT admits all registered owners without an
+account-ID tester list; anonymous identities cannot enter activity collection.
+The production all-registered flag remains off in UAT. The Matrix
+session supplies only its verified email hash; cached identity data selects a
+candidate through a bounded two-row hash lookup, but current Firebase verified identity and lifecycle/epoch checks
+authorize the result. Ambiguous candidates fail closed. Owner reads require no
+marketing subscription and carry `readAuthority=verified_owner` plus the hashed
+`ownerEpoch`; they never carry delivery authority. Identity changes and account
+reset during a snapshot invalidate it. No raw email or private content is exported.
+Production marketing/reporting contracts remain separate.
+
+Memory's explicit export, edit, delete, preparation, section retry and reviewed
+save controls report paired `pkm.*` client attempts under Personal Information.
+They retain the original owner and admission generation and expose only a closed
+action ID, opaque operation ID and phase. Their authored action contracts remain
+manual-only; observation does not add an executor or authorize a write or email.
+Preparation is distinct from saving. Partial saves, expired authority, transport
+timeouts and an unacknowledged file handoff remain unknown. A confirmed write is
+not changed to failure by a later metadata refresh. Existing aggregate Memory
+observations remain unpaired and cannot create additional attempt emails.
+
+Manual KYC profile imports in Mail and Email setup report `kyc.save_profile`
+under KYC. Both preserve the originally admitted owner and generation. Local
+Memory staging does not settle the attempt: the existing encrypted-write queue
+notifies a RAM-only, zero-payload observer after a write acknowledgement or its
+existing commit-receipt recovery. A confirmed write remains returned if local
+checkpoint cleanup needs retry; that retry cannot emit the outcome twice. A
+fully synced, already persisted no-op may return, while a duplicate of pending
+work remains unknown. Explicit no-write preparation rejection is blocked;
+transport loss, retired ownership, reset and page exit never infer a terminal
+outcome. Observers are not persisted or replayed after reload, and observer
+errors cannot change the product's result. These observations add no email
+permission and do not cover every KYC action or prove live delivery.
+
+World Model confirmation, rejection, edit and removal report under Memory.
+The shared web and native controller returns an attempt only after the current
+owner’s existing encrypted memory decision has been verified. A lost commit
+acknowledgement or retired owner remains unknown. Reports carry action metadata
+only. Fact keys, wording and evidence never enter PLG or its email body.
+
+The Mail workspace reports an explicit retry of saved receipt restoration as
+`profile.gmail.restore_saved_receipts` under Email. A current, verified saved
+snapshot is required for a returned outcome. Confirmed unavailable storage or
+invalid receipt binding can report failure. Missing snapshots, expired reads
+and retired owners or account/vault scopes supply no terminal outcome.
+Automatic hydration and the follow-up sync do not create another attempt.
+Only activity metadata is reported, with no receipt or account data.
+
+Manual Calendar connection and disconnection report against the original attempt.
+Terminal returns require an acknowledged connection or confirmed disconnection.
+Meeting file upgrades wait for the matching grant. An expired popup, a lost
+response, a handoff that leaves the page, and a same-window reload can leave the
+attempt unknown. Calendar reports contain no Google account or event details.
+
+Dev uses the same owner/epoch read contract at `owner-dev`, `permission-dev` and
+`snapshot-dev`, with matching distinct HMAC purposes. It requires exactly
+`ENVIRONMENT=dev`, `GOOGLE_CLOUD_PROJECT=hushh-pda-dev`,
+`ONE_PLG_ACTIVITY_ENABLED=true`, `ONE_PLG_ACTIVITY_DEV_ENABLED=true`,
+`ONE_PLG_DEV_EXPORT_ENABLED=true`, a separate `ONE_PLG_DEV_EXPORT_SECRET`, and
+`ONE_PLG_ACTIVITY_DEV_ACCOUNT_IDS` (1–100 explicit owners). All-registered
+collection stays off. No UAT, Production, marketing or worker key can authorize
+Dev reads. A legacy Dev revision labelled UAT fails closed; canonical Dev rollout
+must establish the correct lane before activation. Local mocks do not prove that
+rollout, and no environment is enabled by these source defaults.
+
+Production own reads use separate `owner`, `permission-owner` and `snapshot-owner`
+routes, signed with `owner.production.{owner,permission,snapshot}` purposes. They
+require the production lane/project, `ONE_PLG_OWNER_EXPORT_ENABLED=true`, enabled
+activity collection, `ONE_PLG_OWNER_ACCOUNT_IDS` (1–100 owners), and a distinct
+`ONE_PLG_OWNER_EXPORT_SECRET`. Marketing, UAT read and email-worker credentials
+cannot authorize them. They apply the same verified-owner and reset-epoch checks;
+no marketing opt-in is needed to see one's own activity. These flags are off by
+default and this contract does not establish a deployed source or complete capture.
+
+## Optional agent-attempt emails
+
+The account screen owns an explicit, default-off activity-email choice at
+`GET/PUT /api/one/plg/attempt-email/preferences`. It is separate from marketing
+permission and accepts no recipient or account override. A fresh verified owner
+email, current activity epoch and environment/project
+admission are required to enable it. Opt-out remains available when rollout is off.
+UAT permits every registered owner to make that choice; Dev and Production keep
+their configured recipient cohorts. Removing the UAT list never enables a
+preference automatically. Selection remains bounded to 20 pending deliveries,
+and every claim rechecks the current preference, recipient and lifecycle.
+The worker accepts exact Dev, UAT or Production project/lane pairs. Dev responses,
+signatures and unsubscribe links bind only to the Dev backend
+`https://consent-protocol-aqahj4iyha-uc.a.run.app`; it cannot borrow UAT authority.
+Manual-only controls cannot be submitted by an agent. The setting is operational
+permission metadata, not Live Memory, PKM content or a shareable `attr.*` scope.
+
+Migration 450 atomically queues the first accepted correlated client terminal
+report for each owner/epoch/attempt. Duplicate phases cannot create more emails;
+SDK/tool reports and uncorrelated observations do not enqueue. This inherits
+best-effort observation coverage and its existing collection limits. It does not
+establish universal attempt capture or a delivery-time guarantee.
+
+Separately signed, environment-bound `attempt-email/pull`, `claim` and `settle`
+ports give a trusted worker one send grant after checking current permission,
+verified recipient, lifecycle and epoch. Read-export keys cannot call them. Only
+closed catalog labels and reported status are returned; no prompts, tool inputs,
+results or freeform mail fields. A lost claim or submission becomes uncertain and
+is never automatically retried. Provider acceptance must not be called Inbox delivery.
+The Matrix worker uses these ports and the existing fixed single-recipient Gmail
+sender. Deployment, actual Inbox/feedback evidence and delivery latency remain
+release prerequisites; these source ports alone do not send email.
+Settlement carries only delivery/claim IDs and provider outcome. One derives the
+owner from its durable row, validates the exact claim and retires acknowledgements
+for reset/erased rows without recreating state. Matrix durably retains bounded
+opaque receipts before acknowledgement and replays them after restart before new
+provider work; no owner identity or message content is needed in that queue.
+
+Migration 451 adds actual provider-message binding and durable bounce suppression.
+Signed `attempt-email/feedback-state` and `feedback-apply` expose only bounded
+provider references, RFC message IDs and recipient hashes. A matched hard-failure
+report disables future activity emails, including re-enrollment; reports cannot
+enroll anyone or assert positive Inbox delivery. A sending/uncertain reservation
+without a durable acceptance holds feedback progression. Positively correlated
+hard failures still suppress their current owners while unrelated unsettled,
+unbound or lifecycle-blocked reports keep the page replayable. Replaying that
+page cannot increment an already-blocked preference again. Exact acceptance binding
+precedes history processing so out-of-order reports remain replayable. The worker
+may acknowledge receipts and stop reports after new enrollment is disabled.
+
+Only a definite pre-submission/provider rejection may settle with
+`notSubmitted=true` and no provider ID. It releases the exact current claim for a
+later paced cycle, at most three claims total. It cannot release an uncertain or
+accepted submission, or a newer claim. Ambiguous sends remain held. The rollback
+refuses to discard retry counts, bindings or suppression evidence.
+
+Unsubscribe links bind the exact permission generation. GET shows confirmation;
+POST revokes that choice, so email scanners and stale links cannot disable a later
+re-enrollment. Reset disables the preference and erases its outbox. Full account
+tombstones erase both; phone-orphan intent does not revoke an established choice.
+The down migration refuses nonempty state. Disable admission/dispatch for a
+behavioral rollback; do not discard preferences or uncertain-send receipts.
+### Isolated UAT people and attempt directory
+
+`POST /api/one/plg/audience-uat` is a private, read-only directory for the
+authenticated Matrix UAT workspace. It uses the same bounded filters, identity
+projection, seven-day attempt summaries and cursor expiry as `/audience`, with
+the distinct HMAC purpose `audience-uat` and project-bound UAT cursors. It requires
+the UAT auth lane, project `hushh-pda-uat`, enabled UAT activity admission,
+an explicit directory activation and a separate 32+ character directory key.
+The legacy pair is `ONE_PLG_UAT_AUDIENCE_ENABLED=true` with
+`ONE_PLG_UAT_AUDIENCE_SECRET`; the mounted UAT configuration below carries the
+same separate authority without an additional deploy binding. Owner-read, delivery and Production keys cannot
+authorize this directory. Firebase traversal and indexed identity lookups must
+use the UAT project; there is no fallback to Production.
+
+All current registered UAT accounts, including team accounts, are eligible after
+deletion/generation barriers. Disabled, deleted and anonymous accounts remain
+excluded. The version 2 response has `environment: "uat"`,
+`customerReporting: false` and `deliveryAuthorized: false`. Registration and
+directory visibility never opt anyone into email. Only whitelisted identity and
+activity metadata is returned; prompts, provider payloads and auth export fields
+are excluded. Missing or capped capture remains unknown. This source addition
+does not enable any runtime flag, provision secrets, or change release tooling.
+
+### PLG release configuration
+
+The existing `ONE_PLG_UAT_EXPORT_SECRET` mount also accepts a bounded JSON
+envelope with exactly `version: 1`, `environment: "uat"`,
+`project: "hushh-pda-uat"`, `ownerReadKey`, `audienceReadKey` and the boolean
+`audienceEnabled`. Generate independent random owner and directory keys and
+store the envelope only in that UAT Secret Manager resource. Configure Matrix's
+separate UAT owner and audience secret resources with their respective key,
+never the envelope. Neither value may equal a delivery or Production key.
+
+This is application configuration through the existing mounted secret; no
+workflow, deployment binder or runtime-config writer change is needed. Existing
+UAT collection/export flags and exact lane/project checks still apply. The
+directory is off unless `audienceEnabled` is explicitly true. Activity emails
+retain their independent worker key, runtime switch and per-owner choice.
+Malformed/duplicate/foreign-lane fields, extra fields, oversized values, reused
+keys or mixed envelope and legacy audience settings close the reads. Flat owner
+keys and the legacy explicit directory pair retain their previous behavior.
+Disabling only `audienceEnabled` preserves owner reads; rotating the envelope
+requires matching the independent Matrix keys before accepting live reads.
+
+Dev/UAT own-activity rollout uses the canonical backend runtime configuration
+writer and `deploy/plg/bind_secrets.sh`. The structured flags
+`one_plg_dev_export_enabled`, `one_plg_activity_dev_enabled`,
+`one_plg_uat_export_enabled`, `one_plg_activity_uat_enabled`,
+`one_plg_owner_export_enabled` (Production only) and
+`one_plg_attempt_email_enabled` default false. Explicit existing choices survive
+sync only for their exact environment/project; foreign-lane activation is
+rejected. The common `one_plg_activity_enabled` flag still applies, and Dev/UAT
+also require their own activity flag with all-registered off.
+
+Secrets and account cohorts are direct Secret Manager mounts, never fields in
+the structured runtime configuration. Dev mounts only its DEV read/cohort
+names, UAT only UAT, and Production retains its existing campaign mounts plus
+independent OWNER names. Each project may mount its own
+`ONE_PLG_ATTEMPT_EMAIL_SECRET` and `ONE_PLG_ATTEMPT_EMAIL_ACCOUNT_IDS` only when
+the versions are enabled. UAT no longer requires or uses its activity/attempt account-ID
+cohort mounts; Dev/Production retain those restrictions. Existing deployment
+preflight may still require the older cohort setup until its owner reconciles
+that separately; no CI/CD changes are included in this application change.
+Preview secret namespaces cannot borrow canonical PLG credentials.
+A mount cannot enroll an owner or activate delivery; current
+verified identity, owner epoch, explicit per-attempt choice and the separately
+qualified Matrix worker remain required. Keep the attempt key available for
+generation-bound unsubscribe even when new delivery is disabled.

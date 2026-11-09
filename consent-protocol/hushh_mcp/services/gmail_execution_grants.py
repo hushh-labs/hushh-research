@@ -93,8 +93,8 @@ async def read_execution_grant_binding(gmail: Any, *, user_id: str) -> tuple[str
 
 
 async def get_bound_read_access_token(
-    gmail: Any, *, user_id: str, compose: bool = False, include_account_email: bool = False
-) -> tuple[str, tuple[str, ...]] | tuple[str, tuple[str, ...], str | None]:
+    gmail: Any, *, user_id: str, compose: bool = False
+) -> tuple[str, tuple[str, ...]]:
     """Bind the token's actual row to its live grant, allowing normal refresh.
 
     _ensure_access_token returns the post-refresh row. Never pair an old
@@ -116,9 +116,4 @@ async def get_bound_read_access_token(
         raise GmailApiError(
             "Gmail connection changed", status_code=409, code="GMAIL_CONNECTION_CHANGED"
         )
-    if include_account_email:
-        # The label comes from the same post-refresh row as the admitted token.
-        # It is used only for an account-scoped Gmail web link, never authority.
-        email = token_row.get("google_email")
-        return token, binding, email if isinstance(email, str) else None
     return token, binding
