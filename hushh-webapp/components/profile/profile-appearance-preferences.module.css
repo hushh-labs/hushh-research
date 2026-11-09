@@ -113,23 +113,19 @@
   height: 18px;
 }
 
-/* Reuse the app's persisted three-way theme control, styled as the artifact's
-   compact text-only segments inside this one card. */
+/* The shared control owns its 36px pill and 44px touch targets. Keep the
+   outer measurement slot clear instead of drawing a second frame around it. */
 .themeControl {
-  width: 176px !important;
-  height: 34px !important;
-  border: 1px solid var(--profile-pane-hair, var(--app-separator));
-  border-radius: 999px;
-  background: var(--profile-pane-surface-soft, rgba(120, 120, 128, 0.14)) !important;
+  width: 216px !important;
+  max-width: 100%;
 }
 
 .themeControl button svg {
   display: none;
 }
 
-.themeControl button span {
+.themeControl button > span:first-of-type {
   display: inline !important;
-  color: var(--ios-account-label);
   font-size: 12px;
   font-weight: 550;
   line-height: 18px;
@@ -150,6 +146,24 @@
   color: var(--ios-account-label);
   font: 550 12px/18px var(--font-app-body);
   cursor: pointer;
+}
+
+/* A label plus three named choices needs more room than an ordinary trailing
+   value. Move the choices below the copy before the description is squeezed. */
+@container (max-width: 440px) {
+  .row:has(.themeControl) {
+    grid-template-columns: 22px minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .row:has(.themeControl) .trailing {
+    grid-column: 2;
+    justify-content: stretch;
+  }
+
+  .themeControl {
+    width: 100% !important;
+  }
 }
 
 @container (max-width: 335px) {
