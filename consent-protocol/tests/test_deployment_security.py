@@ -42,7 +42,11 @@ def install_membership_fixture(case):
 
 
 def assert_read_only_uat_inspection(case, job, *, prepared=True):
-    case.assertEqual(job.get("if"), "inputs.operation == 'inspect'")
+    # Inspection skips select-target; the transitive skip must not suppress it.
+    case.assertEqual(
+        job.get("if"),
+        "${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect' }}",
+    )
     case.assertEqual(job.get("environment"), {"name": "uat", "deployment": False})
     case.assertEqual(
         job.get("permissions"),
@@ -224,6 +228,8 @@ class DeploymentSecurityTest(unittest.TestCase):
         )["jobs"]["inspect-prerequisites"]
         assert_read_only_uat_inspection(self, job)
         for field, value in [
+            ("if", "inputs.operation == 'inspect'"),
+            ("if", "${{ !cancelled() && inputs.operation == 'inspect' }}"),
             ("environment", "uat"),
             ("permissions", {"contents": "write", "id-token": "write"}),
             ("secrets", {"GH_SECURITY_ALERTS_TOKEN": "forbidden"}),

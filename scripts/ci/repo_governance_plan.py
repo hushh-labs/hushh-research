@@ -353,6 +353,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
     if root == "scripts":
         if len(parts) < 2:
             return frozenset(), f"unrecognized scripts path: {path}"
+        # The Dev recovery CLI is tested by the backend owner, never executed here.
+        if path == "scripts/ops/recover_dev_cloud_removal.py":
+            return frozenset(), None
         lower = path.lower()
         if parts[1] == "release":
             return frozenset({"controller"}), None
