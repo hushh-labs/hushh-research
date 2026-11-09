@@ -15,7 +15,7 @@ import { readConnectListMemory, saveConnectListMemory, connectListScrollTop, res
 
 type Mode = "mutuals" | "connections" | "discovery";
 type Snapshot = { query: string; degree?: NetworkDegree; page: number; scrollTop: number; focusRef?: string; focusControl?: "profile" | "mutual" | "request" | "connect" };
-type ListProps = { mode: Mode; personRef?: string; visitKey: string; onReady?: () => void };
+type ListProps = { mode: Mode; personRef?: string; visitKey: string; embedded?: boolean; onReady?: () => void };
 export function networkDegreeLabel(degree: NetworkDegree | null | undefined): string | null {
   return degree === 1 ? "1st" : degree === 2 ? "2nd" : degree === 3 ? "3rd" : null;
 }
@@ -26,7 +26,7 @@ export function NetworkPeopleList(props: ListProps) {
   const generation = useSyncExternalStore(subscribeAuthSessionGeneration, getAuthSessionGeneration, () => null);
   return <NetworkListSession key={`${userId ?? "signed-out"}:${generation}`} {...props} />;
 }
-function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
+function NetworkListSession({ mode, personRef, visitKey, embedded, onReady }: ListProps) {
   const { user, userId: owner } = useAuth();
   const generation = getAuthSessionGeneration();
   const memoryKey = `network:${visitKey}`;
@@ -174,22 +174,34 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
       if (active()) setConnecting(new Set(connectionIntents.current));
     }
   };
-  return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-4 px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] sm:px-6" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
-    <header className="min-w-0 space-y-2 [overflow-wrap:anywhere]">
-      <h1 className="break-words text-xl font-semibold">{title}</h1>
-      <p className="text-sm text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : "Discover people through connections that allow network discovery. Degrees are relative to you."}</p>
+  const Heading = embedded ? "h3" : "h1";
+  return <section ref={root} className="mx-auto w-full max-w-[880px] space-y-3 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-4" data-testid={mode === "mutuals" ? "mutual-connections-list" : "network-people-list"}>
+    <header className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
+      <Heading>{title}</Heading>
+      <p className="max-w-prose text-sm leading-snug text-muted-foreground">{mode === "mutuals" ? `People connected to both you${result?.person ? ` and ${connectPersonName(result.person)}` : " and this person"}.` : mode === "connections" ? "This person has allowed their direct connections to browse this list." : "Find people through connections that allow discovery."}</p>
       {mode === "mutuals" && result?.hasMore && result.totalCount !== undefined ? <p className="text-sm text-muted-foreground">Showing {result.items.length} of {result.totalCount}</p> : null}
     </header>
     {mode !== "mutuals" ? <Input aria-label="Search network by name" placeholder="Search by name" value={query} onChange={event => { restore.current = false; setQuery(event.target.value); setPage(1); }} /> : null}
-    {mode === "discovery" ? <div className="space-y-2">
-      <div className="flex flex-wrap gap-2" aria-label="Connection degree filters">
-        {([undefined, 1, 2, 3] as const).map(value => <button key={value ?? "all"} type="button" aria-pressed={degree === value} aria-describedby="network-filter-help" className="min-h-11 rounded-full border px-4 text-sm aria-pressed:bg-primary aria-pressed:text-primary-foreground" onClick={() => { restore.current = false; setDegree(value); setPage(1); }}>{value === 1 ? "My connections" : value === 2 ? "Through connections" : value === 3 ? "Extended network" : "All"}</button>)}
+    {mode === "discovery" ? <div className="space-y-1.5">
+      <div className="grid grid-cols-2 gap-1.5 min-[480px]:flex min-[480px]:flex-wrap" role="group" aria-label="Connection degree filters">
+        {([undefined, 1, 2, 3] as const).map(value => (
+          <button
+            key={value ?? "all"}
+            type="button"
+            aria-pressed={degree === value}
+            aria-describedby="network-filter-help"
+            className="min-h-11 min-w-0 rounded-full border px-2 py-1.5 text-xs leading-tight [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground min-[360px]:text-sm sm:px-3"
+            onClick={() => { restore.current = false; setDegree(value); setPage(1); }}
+          >
+            {value === 1 ? "My connections" : value === 2 ? "Through connections" : value === 3 ? "Extended network" : "All"}
+          </button>
+        ))}
       </div>
-      <p id="network-filter-help" className="text-sm text-muted-foreground">{degree === 1 ? "People you’re directly connected to." : degree === 2 ? "People who share a connection with you." : degree === 3 ? "People one step beyond your connections’ connections, where sharing is enabled." : "People in your direct connections and wider shared network."}</p>
+      <p id="network-filter-help" className="text-sm text-muted-foreground">{degree === 1 ? "People you’re directly connected to." : degree === 2 ? "People who share a connection with you." : degree === 3 ? "People one step beyond your connections’ connections, where sharing is enabled." : "Your connections and wider network."}</p>
     </div> : null}
-    {busy && !result ? <p role="status" className="py-6 text-muted-foreground">Loading connections…</p> : null}
+    {busy && !result ? <p role="status" className="py-3 text-sm text-muted-foreground">Loading connections…</p> : null}
     {error ? <div role="alert" className="space-y-2"><p>{error}</p><button type="button" className="min-h-11 rounded-full border px-4" onClick={() => setRetry(value => value + 1)}>Try again</button></div> : null}
-    {result ? <ul className="divide-y rounded-2xl border bg-card" aria-busy={busy}>
+    {result?.items.length ? <ul className="divide-y rounded-xl border bg-card" aria-busy={busy}>
       {result.items.map(person => <NetworkPersonRow key={person.publicPersonRef} person={person}
         connecting={connecting.has(person.publicPersonRef)} connectionError={connectionErrors[person.publicPersonRef]}
         onConnect={() => void connect(person.publicPersonRef)} onRemember={() => remember(person.publicPersonRef, "mutual")} onOpen={element => {
@@ -197,7 +209,7 @@ function NetworkListSession({ mode, personRef, visitKey, onReady }: ListProps) {
         openPersonProfilePreview({ personRef: person.publicPersonRef }, element);
       }} />)}
     </ul> : null}
-    {result && !result.items.length ? <p role="status" className="py-4 text-muted-foreground">No profiles to show{query ? " for this name" : " right now"}.</p> : null}
+    {result && !result.items.length ? <p role="status" className="py-3 text-sm text-muted-foreground">No profiles to show{query ? " for this name" : " right now"}.</p> : null}
     {result && !result.hasMore && result.totalCount !== undefined && result.items.length < result.totalCount ? <p className="text-sm text-muted-foreground">Some mutual connections are unavailable to view.</p> : null}
     {result?.hasMore && !error ? <button type="button" className="min-h-11 rounded-full border px-5" disabled={busy} onClick={() => setPage(result.page + 1)}>{mode === "mutuals" ? "Load more mutual connections" : "Load more connections"}</button> : null}
   </section>;

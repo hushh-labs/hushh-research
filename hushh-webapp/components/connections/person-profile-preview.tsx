@@ -163,7 +163,7 @@ export function PersonProfilePreview() {
         <DialogTitle>{active?.networkList === "discovery" ? "Your network" : active?.networkList === "mutuals" ? "Mutual connections" : active?.networkList === "connections" ? "Connections" : "Profile"}</DialogTitle>
       </div>
       <div ref={scroll} data-network-scroll-owner className="min-h-0 overflow-y-auto overscroll-contain py-4">
-        {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} onReady={restoreVisit} /></Suspense></PreviewBoundary>
+        {active?.networkList ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading connections…</p>}><NetworkList key={active.key} mode={active.networkList} personRef={active.personRef ?? undefined} visitKey={`journey:${active.key}`} embedded onReady={restoreVisit} /></Suspense></PreviewBoundary>
           : active && personRef ? <PreviewBoundary key={active.key}><Suspense fallback={<p role="status" className="p-6">Loading profile…</p>}><Profile key={`${active.key}:${personRef}`} personRef={personRef} initialProfile={null} embedded onNetworkReady={restoreVisit} /></Suspense></PreviewBoundary>
           : <p role={resolved?.key === active?.key ? "alert" : "status"} className="p-6">{resolved?.key === active?.key ? "This profile is unavailable." : "Loading profile…"}</p>}
       </div>
