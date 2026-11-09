@@ -31,6 +31,11 @@
  * renderer, a browser, or a Maps key.
  */
 
+/** Translate a renderer's world copy to the canonical longitude interval. */
+export function wrappedLongitude(longitude: number): number {
+  return ((((longitude + 180) % 360) + 360) % 360) - 180;
+}
+
 /** Google's Mercator tile edge, in CSS pixels, at zoom 0. */
 export const MAP_WORLD_TILE_SIZE_PX = 256;
 

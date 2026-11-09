@@ -451,7 +451,10 @@ def production_predecessor_accepted(sha: str) -> bool:
     """Defer missing accepted coverage; propagate other resolver errors."""
     predecessor = run_path(str(ROOT / "scripts/ci/verify-predecessor-acceptance.py"))
     try:
-        predecessor["GitHub"]().find("uat", sha, "all")
+        from types import SimpleNamespace
+        predecessor["main_source"](SimpleNamespace(
+            environment="production", sha=sha, scope="all", approval_sha="",
+        ))
     except predecessor["MissingAcceptance"]:
         return False
     return True
@@ -484,8 +487,8 @@ def dispatch_pending(ledger: Ledger) -> None:
               for ordinal, request in requests.items() for lane, child in request["lanes"].items()
               if child["state"] in {"running", "dispatching"}}
     # Recover the second half even if the controller stopped immediately after
-    # recording the production deployment. It yields to UAT and other active
-    # bundles without losing the exact production run or redeploying it.
+    # recording the production deployment. Other active bundles retain their
+    # slot without losing the exact production run or redeploying it.
     for ordinal, request in sorted(requests.items(), key=lambda item: int(item[0])):
         children = request["lanes"]
         if ("deploy" in children and children["deploy"].get("run_id") and
@@ -496,8 +499,6 @@ def dispatch_pending(ledger: Ledger) -> None:
             else:
                 if active - {(ordinal, "production")}:
                     defer_release("another release bundle is active")
-                    return
-                if not release_admitted(ledger.repository):
                     return
                 dispatch_child(ledger, ordinal, request, "appstore")
                 return
@@ -524,15 +525,13 @@ def dispatch_pending(ledger: Ledger) -> None:
             continue
         ordinal, request = max(pending, key=lambda pair: int(pair[0]))
         if lanes[0] == "deploy":
-            if not release_admitted(ledger.repository):
-                return
             if not production_predecessor_accepted(request["sha"]):
-                defer_release("production requires complete exact-SHA UAT acceptance")
+                defer_release("production requires qualified protected Main source")
                 continue
         for lane in lanes:
-            # UAT can arrive between the two dispatches. Persist the half-pair
-            # and resume later rather than posting another competing workflow.
-            if not release_admitted(ledger.repository):
+            # TestFlight still binds the UAT backend. Production has its own
+            # environment lock and does not require preceding UAT deployment.
+            if lane == "testflight" and not release_admitted(ledger.repository):
                 return
             dispatch_child(ledger, ordinal, request, lane)
         return

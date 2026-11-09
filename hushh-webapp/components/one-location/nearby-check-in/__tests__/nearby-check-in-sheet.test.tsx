@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/services/api-client";
 
 const service = vi.hoisted(() => ({
   checkInNearby: vi.fn(),
@@ -767,6 +768,28 @@ describe("NearbyCheckInSheet", () => {
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
     expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
+  });
+
+  it("routes an unverified account to phone verification before discovering places", async () => {
+    service.getNearbyPresence.mockRejectedValue(new ApiError("Forbidden", 403, {
+      detail: { code: "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED" },
+    }));
+    const capture = vi.fn().mockResolvedValue(point);
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={capture}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Verify phone number" }));
+    expect(navigation.push).toHaveBeenCalledWith("/register-phone?redirect=%2Fone%2Flocation%2Fcheck-in");
+    expect(screen.queryByRole("button", { name: "Retry status" })).not.toBeInTheDocument();
+    expect(capture).not.toHaveBeenCalled();
+    expect(service.nearbyPlaces).not.toHaveBeenCalled();
   });
 
   it("keeps a persistent retry after the initial presence read fails", async () => {

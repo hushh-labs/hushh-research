@@ -74,6 +74,7 @@ def production_release_tools(root: Path, old_paths: tuple[str, ...]) -> list[str
         "scripts/ci/resolve-deploy-scope.py",
         "scripts/ci/production_emergency.py",
         "scripts/ci/require-deploy-sha-on-main.sh",
+        "scripts/ci/promotion_approval.py",
         "scripts/ci/resolve-cloud-run-serving-state.py",
         "scripts/ops/runtime_config_retention.py",
         "scripts/ops/production_drive_candidate_config.py",

@@ -38,19 +38,37 @@ class PendingObservation(Refused):
     """The exact Main publication has not completed; bounded read retry is safe."""
 
 
+class UnavailableRead(Refused):
+    """A read failed before returning authority evidence, not an authority denial."""
+
+    def __init__(self, status=None):
+        self.status = status
+        detail = f"HTTP {status}" if status is not None else "transport"
+        super().__init__(f"Team authority API read unavailable ({detail})")
+
+
 def require(condition, message):
     if not condition:
         raise Refused(message)
 
 
 def cli_read(path):
-    result = subprocess.run(
-        ["gh", "api", path], capture_output=True, text=True, timeout=30
-    )
-    require(
-        result.returncode == 0 and len(result.stdout) <= 2 * 1024 * 1024,
-        "Team authority API is unavailable",
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "api", path], capture_output=True, text=True, timeout=30
+        )
+    except subprocess.TimeoutExpired:
+        raise UnavailableRead() from None
+    except OSError:
+        raise Refused("Team authority CLI is unavailable") from None
+    require(len(result.stdout) <= 2 * 1024 * 1024, "Team authority API response exceeded its bound")
+    if result.returncode != 0:
+        match = re.search(r"\bHTTP (\d{3})\b", result.stderr or "")
+        status = int(match[1]) if match else None
+        if result.returncode != 4 and status in {None, 404, 408, 429, 500, 502, 503, 504}:
+            raise UnavailableRead(status)
+        detail = f"HTTP {status}" if status is not None else "CLI authentication"
+        raise Refused(f"Team authority API read refused ({detail})")
     try:
         return json.loads(result.stdout)
     except (ValueError, UnicodeError):
@@ -781,8 +799,31 @@ def _request_authority(env, request, *, read=cli_read, monotonic=None, sleep=Non
                 f"https://github.com/{REPOSITORY}/actions/runs/{identifier}", "Permission dispatch response unproved")
         intent.write_text(json.dumps({"request": request, "run_id": identifier, "state": "dispatched"}))
     deadline = monotonic() + 240
+    unavailable = set()
+
+    def observe_run():
+        # Only this idempotent GET retries; the POST and all identity checks do not.
+        first = True
+        while first or monotonic() < deadline:
+            first = False
+            try:
+                return read(f"repos/{REPOSITORY}/actions/runs/{identifier}")
+            except UnavailableRead as error:
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    break
+                if error.status not in unavailable:
+                    print(f"{error}; waiting for the original permission run, without redispatch.")
+                    unavailable.add(error.status)
+                sleep(min(5, remaining))
+        raise Refused(
+            f"Merge permission run could not be read within its deadline: "
+            f"https://github.com/{REPOSITORY}/actions/runs/{identifier}"
+        )
+
+    run = {}
     while monotonic() < deadline:
-        run = read(f"repos/{REPOSITORY}/actions/runs/{identifier}")
+        run = observe_run()
         require(run.get("id") == identifier and run.get("run_attempt") == 1 and run.get("path", "").split("@", 1)[0] == WORKFLOW
                 and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
                 and run.get("repository", {}).get("full_name") == REPOSITORY,
@@ -815,7 +856,7 @@ def _request_authority(env, request, *, read=cli_read, monotonic=None, sleep=Non
             "Merge permission publication does not bind this operation")
     require(timestamp(run["run_started_at"]) <= timestamp(receipt["recorded_at"]) <= timestamp(run["updated_at"]),
             "Merge permission publication chronology invalid")
-    require(read(f"repos/{REPOSITORY}/actions/runs/{identifier}") == run,
+    require(observe_run() == run,
             "Merge permission producer changed after publication")
     verify(read, request)
     return receipt["decision"]

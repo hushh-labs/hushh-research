@@ -19,7 +19,7 @@ export const ACTIVE_SHARE_COMPARISON_GRID_CLASSNAME =
   "grid min-w-0 grid-cols-1 gap-2.5 @min-[46rem]:grid-cols-[minmax(0,0.9fr)_repeat(2,minmax(0,1fr))] @min-[46rem]:items-center @min-[46rem]:gap-4";
 
 export const ACTIVE_SHARE_COMPARISON_CELL_CLASSNAME =
-  "grid min-h-11 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2";
+  "grid min-h-11 min-w-0 items-center gap-x-3 @min-[60rem]:grid-cols-[minmax(0,1fr)_auto]";
 
 /** Mobile groups contain one channel per recipient, without nested lane cards. */
 export const ACTIVE_SHARE_CATEGORY_ROW_CLASSNAME =

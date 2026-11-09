@@ -30,23 +30,11 @@ _MISSING_OWNERS = """
 """
 
 
-def _is_deletion_guard(exc: BaseException) -> bool:
-    """Recognize only the DB's authoritative account-erasure write fence."""
-    seen: set[int] = set()
-    while id(exc) not in seen:
-        seen.add(id(exc))
-        if getattr(getattr(exc, "diag", None), "constraint_name", None) == (
-            "account_deletion_tombstone_guard"
-        ):
-            return True
-        nested = getattr(exc, "orig", None) or exc.__cause__ or exc.__context__
-        if not isinstance(nested, BaseException):
-            break
-        exc = nested
-    return False
-
-
 def run_backfill(*, db: Any, service: Any, apply: bool, batch_size: int, max_users: int) -> dict:
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        is_account_deletion_write_guard,
+    )
+
     after_id = ""
     processed = 0
     skipped_deleted = 0
@@ -69,7 +57,7 @@ def run_backfill(*, db: Any, service: Any, apply: bool, batch_size: int, max_use
                     # A user can erase their account after this batch was read.
                     # The DB fence remains authoritative; unrelated failures stop
                     # the job rather than reporting a successful partial run.
-                    if not _is_deletion_guard(exc):
+                    if not is_account_deletion_write_guard(exc):
                         raise
                     skipped_deleted += 1
             after_id = owner_id
