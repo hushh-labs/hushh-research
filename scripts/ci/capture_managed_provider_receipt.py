@@ -66,7 +66,9 @@ def check_build(build, expected):
         and substitutions.get("_CLOUD_RUN_TAG")
         == "account-deletion-" + expected["github_run"]
         and substitutions.get("_SKIP_MANAGED_VERTEX_RUNTIME_FOR_RELEASE")
-        == str(expected["legacy_exception"]).lower(),
+        == str(expected["legacy_exception"]).lower()
+        and substitutions.get("_MANAGED_READINESS_MODE", "full")
+        == expected.get("qualification_mode", "full"),
         "build_context_mismatch",
     )
     steps = [
@@ -164,7 +166,13 @@ def from_entries(entries, expected, document, step_label):
         and aggregate.get("pwm_trust") != "failed"
         and aggregate.get("required_scopes") == sorted(readiness.SCOPES)
         and aggregate.get("required_capabilities")
-        == sorted(document["managed_runtime_uat"]["required_capabilities"]),
+        == (
+            []
+            if expected.get("qualification_mode") == "core"
+            else sorted(document["managed_runtime_uat"]["required_capabilities"])
+        )
+        and aggregate.get("qualification_mode", "full")
+        == expected.get("qualification_mode", "full"),
         "provider_readiness_unverified",
     )
     chosen = selection.get("managed_provider_selection", {})
@@ -198,6 +206,8 @@ def captured_receipt(aggregate, expected, chosen, origins, step_label, readiness
             "required_capabilities",
         )
     }
+    result["qualification_mode"] = aggregate.get("qualification_mode", "full")
+    result["secondary_diagnostics"] = aggregate.get("secondary_diagnostics", "reported")
     result["providers"] = {
         p: {
             "ready": providers[p]["ready"],

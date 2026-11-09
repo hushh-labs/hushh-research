@@ -2895,7 +2895,7 @@ jobs:
 
       - name: Resolve final Cloud Run state
         id: final-state
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (always())
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && always() && steps.gcp-auth.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -3738,6 +3738,7 @@ jobs:
           test -n "$DEPLOY_SERVICE_ACCOUNT"
 
       - name: Authenticate to Google Cloud
+        id: gcp-auth
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
@@ -4146,7 +4147,7 @@ jobs:
 
       - name: Resolve final Cloud Run state
         id: final-state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         run: |
           set -euo pipefail
           if [[ "${{ steps.activate-account-deletion.outcome }}" == success ]]; then

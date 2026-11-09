@@ -78,6 +78,11 @@ def context(env):
     document = json.loads(
         (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
     )
+    mode = env.get("READINESS_QUALIFICATION_MODE", "full")
+    if mode not in {"core", "full"}:
+        raise ValueError("Managed readiness qualification mode is invalid")
+    if mode == "core":
+        result["qualification_mode"] = mode
     result["config_fingerprint"] = fingerprint(document)
     result["legacy_exception"] = (
         env.get("READINESS_LEGACY_EXCEPTION", "false") == "true"
@@ -243,6 +248,8 @@ def collect(provider, expected, step_exit, job):
         or len(owners) != 1
         or owners[0].get("name") != job
         or environment.get("ENVIRONMENT") != "uat"
+        or environment.get("MANAGED_READINESS_MODE", "full")
+        != expected.get("qualification_mode", "full")
         or len(terminal) != 1
         or terminal[0].get("status") not in {"True", "False"}
     ):
@@ -308,12 +315,35 @@ def collect(provider, expected, step_exit, job):
         complete = (
             terminal_failed
             or complete
-            and any("managed_capabilities_probe" in value for value in values)
+            and (
+                expected.get("qualification_mode") == "core"
+                or any("managed_capabilities_probe" in value for value in values)
+            )
         )
         if complete:
             break
         if attempt < 5:
             time.sleep(5)
+    mode_verdicts = [
+        value
+        for value in values
+        if (
+            value.get("check") == "managed_vertex_runtime"
+            if provider == "vertex"
+            else value.get("azure_pwm_runtime_probe_result") == "ok"
+        )
+    ]
+    if (
+        expected.get("qualification_mode") == "core"
+        and terminal[0].get("status") == "True"
+        and step_exit == 0
+        and (
+            len(mode_verdicts) != 1
+            or mode_verdicts[0].get("qualification_mode") != "core"
+        )
+    ):
+        result["reason"] = "producer_qualification_mode_mismatch"
+        return result
     cores = [
         value["managed_text_provider_probe"]
         for value in values
@@ -369,7 +399,10 @@ def collect(provider, expected, step_exit, job):
     # A matching execution can fail optional modalities while its core text proof succeeds.
     if len(cores) == 1 and valid_core(cores[0], provider, expected, document):
         result.update(core_ready=True, core=cores[0], reason="core_ready")
-    result.update(_capability_proof().execution_diagnostics(provider, values))
+    result.update(
+        _capability_proof().execution_diagnostics(provider, values),
+        **_execution_failure(provider, values),
+    )
     if provider == "azure_openai":
         terminals = [
             v.get("azure_pwm_runtime_probe_result")
@@ -404,6 +437,27 @@ def collect(provider, expected, step_exit, job):
         # A successful ping cannot erase a later attribution/schema failure.
         result["core_ready"] = result["core_ready"] and proven and not explicit_failure
     return result
+
+
+def _execution_failure(provider, values):
+    if provider != "azure_openai":
+        return {}
+    failures = [v for v in values if "azure_pwm_runtime_probe_result" in v]
+    if (
+        len(failures) != 1
+        or failures[0].get("azure_pwm_runtime_probe_result") != "failed"
+        or failures[0].get("classification")
+        not in _capability_proof().CLASSIFICATIONS - {"dependency_ok"}
+    ):
+        return {}
+    classification = failures[0]["classification"]
+    # A terminal outage cannot erase a retained hard capability failure.
+    if any(
+        row.get("classification") in {"candidate_misconfigured", "application_broken"}
+        for row in failures[0].get("capability_failures", [])
+    ):
+        classification = "application_broken"
+    return {"failure_classification": classification}
 
 
 def evaluate(envelopes, expected, *, document=None):
@@ -455,8 +509,11 @@ def evaluate(envelopes, expected, *, document=None):
             and value.get("execution_terminal") == "True"
             and value.get("step_exit") == 0
             and valid_core(value.get("core"), provider, expected, document)
-            and valid_capabilities(
-                value.get("capability_proof"), provider, expected, document
+            and (
+                expected.get("qualification_mode") == "core"
+                or valid_capabilities(
+                    value.get("capability_proof"), provider, expected, document
+                )
             )
             and (
                 provider != "azure_openai"
@@ -485,9 +542,13 @@ def evaluate(envelopes, expected, *, document=None):
             else "unverified"
         ),
         "required_scopes": sorted(SCOPES),
-        "required_capabilities": sorted(
-            document["managed_runtime_uat"]["required_capabilities"]
-        ),
+        "qualification_mode": expected.get("qualification_mode", "full"),
+        "secondary_diagnostics": "not_run"
+        if expected.get("qualification_mode") == "core"
+        else "reported",
+        "required_capabilities": []
+        if expected.get("qualification_mode") == "core"
+        else sorted(document["managed_runtime_uat"]["required_capabilities"]),
         "context": expected,
         "providers": diagnostics,
     }
@@ -652,7 +713,14 @@ def write(path, value):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "action", choices=("record", "evaluate", "select", "worker-provider")
+        "action",
+        choices=(
+            "record",
+            "evaluate",
+            "select",
+            "worker-provider",
+            "configured-provider",
+        ),
     )
     parser.add_argument("--provider", choices=sorted(PROVIDERS))
     parser.add_argument("--job", default="")
@@ -661,6 +729,12 @@ def main():
     parser.add_argument("--run-id")
     parser.add_argument("--account")
     args = parser.parse_args()
+    if args.action == "configured-provider":
+        document = json.loads(
+            (ROOT / "consent-protocol/config/managed-ai-runtime.json").read_text()
+        )
+        print(configured_provider(document))
+        return 0
     if args.action == "worker-provider":
         print(worker_provider(args.sha, args.image, args.run_id, args.account))
         return 0

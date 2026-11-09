@@ -275,6 +275,7 @@ jobs:
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
@@ -364,6 +365,20 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Governance owns these probe/compiler controllers and their exact contracts.
+              - '!consent-protocol/scripts/generate_capability_graph.py'
+              - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
+              - '!consent-protocol/scripts/verify_azure_pwm_runtime.py'
+              - '!consent-protocol/scripts/managed_vertex_readiness.py'
+              - '!consent-protocol/tests/test_pwm_runtime_probe.py'
+              - '!consent-protocol/tests/scripts/test_trust_failure_verdict.py'
+              - '!consent-protocol/tests/scripts/test_probe_drive_activity_planner.py'
+              - '!consent-protocol/tests/scripts/test_readiness_exam_runner.py'
+              - '!consent-protocol/tests/test_vertex_capability_probe.py'
+              - '!consent-protocol/tests/scripts/test_managed_provider_receipt.py'
+              - '!consent-protocol/tests/test_capability_graph_gate_compares_against_base.py'
+              - '!consent-protocol/tests/test_capability_graph_dev_phone_history.py'
+              - '!consent-protocol/tests/test_location_workflow_compatibility.py'
               # Public risk inputs have real-artifact and policy checks in Governance.
               - '!consent-protocol/config/email-auth/disposable-domains.txt'
               - '!consent-protocol/config/email-auth/risk-manifest.json'
@@ -775,7 +790,6 @@ jobs:
       - secret-scan
       - dco-check
       - pr-base-policy
-      - repo-governance
       - paths
     if: always()
     runs-on: ubuntu-24.04
@@ -794,13 +808,11 @@ jobs:
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
-          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
-          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
 
           fail=0
@@ -808,7 +820,7 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -921,7 +933,7 @@ jobs:
           WEB_TARGETED_PART: node
           WEB_TARGETED_FULL_SUITE_OWNED: "0"
           WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
+          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 

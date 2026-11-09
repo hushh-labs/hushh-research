@@ -255,6 +255,11 @@ def test_release_phase_blocks_without_unnecessary_rollback(
         ).read_text()
     )
     steps = workflow["jobs"]["deploy"]["steps"]
+    final_state = next(step for step in steps if step.get("id") == "final-state")
+    assert "steps.gcp-auth.outcome == 'success'" in final_state["if"]
+    assert next(step for step in steps if step.get("id") == "gcp-auth")["uses"].startswith(
+        "google-github-actions/auth@"
+    )
     identifier = "classify" if environment == "production" else f"classify-{environment}-release"
     step = next(step for step in steps if step.get("id") == identifier)
     assert (

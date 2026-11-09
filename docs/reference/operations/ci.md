@@ -782,7 +782,8 @@ The watcher logs to `tmp/devops-watch/`.
 
 Authority checks are not diagnostic work: UI Contracts, Secret Scan, DCO,
 applicable PR Base Policy, path resolution, Preflight, and
-CI Status remain blocking. Repo Governance runs its focused or release profile;
+CI Status remain blocking. Repo Governance runs its focused or release profile
+alongside unprivileged functional lanes and remains mandatory in the final gate;
 unknown changed-file selection is conservative. For selected surfaces, the
 required jobs are listed below. A selected job must succeed, while an unselected
 path lane may skip. Safari-specific layout/performance and non-security hygiene
@@ -884,13 +885,14 @@ verification. Deployment mutations retain their ordered safety checks.
 
 Fail-fast contract:
 
-1. Cheap authority checks run before expensive web/protocol/integration lanes:
-   secret scan, DCO/base-policy where applicable, path
-   resolution, and repo governance.
-2. The `Preflight Gate` fails before Next.js, full protocol, or integration
-   runners start when one of those authority checks is already failed.
-3. This intentionally saves CI minutes on governance failures. The tradeoff is
-   that green runs start heavy jobs only after preflight completes.
+1. Cheap prerequisites run before expensive web/protocol/integration lanes:
+   UI Contracts, secret scan, DCO/base policy where applicable and path resolution.
+2. The `Preflight Gate` stops dependent work when those prerequisites fail.
+3. Governance runs alongside unprivileged functional lanes; its failure still
+   refuses the final CI gate, merge and release. This removes serial waiting
+   without removing checks or granting credentials. Web Unit Contracts retain
+   their separate Governance dependency because Governance publishes their matrix.
+   Deployment authorization, migrations and traffic changes keep ordered safeguards.
 
 Required `CI Status Gate` remains the landing authority on PR and queue commits.
 Destination sync is advisory; the queue verifies the current combined code.
@@ -983,21 +985,34 @@ diagnostics, grants no mutation authority, and records requested and completed
 pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
 
-UAT backend provider admission runs Azure and Vertex synthetic checks in parallel.
-The provider selected by `managed_provider_selection.uat` in the packaged
-managed AI config must pass its complete application capability bundle. A healthy
-alternate cannot override that choice. Both Azure and Vertex require One chat
-and Drive text proof. The bundle includes streamed structured text, images, PDFs,
-public search/source receipts, Location transcription/semantics, narration, Live
-audio with a function round trip, and application-compatible embeddings. Explicit
-PWM attribution/schema failures still block independently. Receipts bind the exact
-candidate image, runtime identity, provider generation and configuration.
-Vertex also exercises the production native research task with fictional,
-search-exhausted input and the shared attribution regression corpus. This proves
-task/schema and attribution boundaries without owner access; it does not claim
-that a real person's research journey was run. The UAT Vertex job uses one complete
-bundle within its existing sequence deadline and records undispatched capabilities
-as failures. General non-UAT manifest probes retain their existing gates.
+### Managed-provider readiness policy
+
+Ordinary UAT deployment requires the configured provider's **core** proof: One chat
+and Drive text scopes, current authority, structured output, attribution/schema,
+candidate health, compatibility and rollback. The exact candidate image, runtime
+identity, run/attempt and configuration bind that proof. Trust failures always block;
+an HTTP 200 is not sufficient. Core mode neither probes an unused alternate nor
+changes runtime fallback authority.
+
+Search, images, PDFs, transcription, narration, Live audio and the broader capability
+exam are **secondary diagnostics**. A secondary failure is reported as that feature's
+failure rather than a core outage. When full diagnostics were not requested, record
+`secondary_diagnostics: not_run`; do not claim those features passed. Capability
+activation and provider changes still need the affected capability's acceptance.
+The retained `full` producer mode runs the broader exam with its existing verdicts;
+it remains the default for callers that do not explicitly select core. Ordinary UAT
+uses core when the candidate recipe supports it; older approved candidates retain
+full qualification. Full provider diagnostics remain explicit, using the existing
+probe producers with `MANAGED_READINESS_MODE=full` under their admitted runtime
+identity; they do not replace core release evidence. `run_live_model_checks` retains
+its separate PKM/RIA meaning. Dev and production behavior is unchanged by this correction.
+
+For a policy-changing release candidate, run the retained functional/core set once
+on the completed candidate, plus affected security and release contracts. Do not
+repeat the full collection after each edit. Ordinary PRs use core/affected checks.
+Routine PR and deployment targets are 15–20 minutes each, measured separately from
+queue/approval waits; they are optimization targets, not deadlines that waive proof.
+
 The one-request Azure readiness leaf records its failed stage, elapsed time and
 sanitized exception class. Transport deadlines and network failures retain their
 provider-unavailable classification; that classification does not make a failed
@@ -1012,8 +1027,9 @@ clean run. Repeated timeouts require incident follow-up. The existing observabil
 provisioner owns a separate UAT release-job terminal-timeout policy at two events
 in ten minutes; configuration/readback and actual notification delivery are
 separate evidence. See [the Azure probe alert runbook](../../../deploy/observability/README.md#azure-release-probe-timeouts).
-The UAT artifact collector reads the exact successful backend Cloud Build ID from
-structured CLI output, then retrieves the successful aggregate step's receipt
+The UAT workflow records the exact backend Cloud Build ID before waiting for its
+terminal result, and records duration even on failure. The artifact collector reads
+that ID, then retrieves the aggregate step's receipt
 from Cloud Logging. It does not depend on streamed build stdout. Collection has
 a bounded ingestion retry and verifies build, run, image, runtime identity and
 canonical configuration bindings before publishing a sanitized receipt. Missing,
