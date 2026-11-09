@@ -139,6 +139,61 @@ async def test_extraction_runs_with_multiple_configured_vertex_locations(monkeyp
     assert locations == ["global"]
 
 
+@pytest.mark.asyncio
+async def test_extraction_budget_reaches_the_model_client(monkeypatch):
+    """UAT answered "Import could not be completed" for a 52-holding statement.
+
+    The route allowed the extraction 120 s, but the managed Azure client was built
+    with its own 60 s default, so a non-streamed answer that needed longer was cut
+    off with no output. The caller's budget must size the model client too.
+    """
+    from hushh_mcp.agents.portfolio_import import runtime
+
+    seen: dict[str, Any] = {}
+
+    def fake_model(model_name, **kwargs):
+        seen.update(kwargs)
+        return "model"
+
+    async def fake_single_turn(agent, **kwargs):
+        return _EXTRACTED
+
+    monkeypatch.setattr(runtime, "build_managed_regional_gemini_adk_model", fake_model)
+    monkeypatch.setattr(runtime, "build_single_turn_agent", lambda *a, **k: "agent")
+    monkeypatch.setattr(runtime, "run_single_turn", fake_single_turn)
+
+    await run_portfolio_gene(
+        gene_id="agent_portfolio_import_extract",
+        prompt="extract",
+        output_schema=_EXTRACTION_SCHEMA,
+        user_id="owner",
+        consent_token="vault-owner-token",  # noqa: S106 - test fixture token
+        timeout_seconds=120.0,
+    )
+
+    assert seen["timeout_seconds"] == 120.0
+
+
+def test_managed_azure_text_model_honours_a_caller_timeout(monkeypatch):
+    from hushh_mcp.runtime_providers import factory, managed_azure_text
+
+    captured: dict[str, Any] = {}
+
+    def fake_build(model, *, http_options=None):
+        captured["http_options"] = http_options
+        return "azure"
+
+    monkeypatch.setattr(managed_azure_text, "build_azure_text_model", fake_build)
+
+    assert (
+        factory.build_managed_regional_gemini_adk_model("gemini-default", timeout_seconds=120)
+        == "azure"
+    )
+    assert captured["http_options"] == {"timeout": 120_000}
+    factory.build_managed_regional_gemini_adk_model("gemini-default")
+    assert captured["http_options"] is None
+
+
 def _bare_objects(schema: Any, path: str = "$") -> list[str]:
     """Every OBJECT node that declares no properties (decodes to {})."""
     found: list[str] = []
