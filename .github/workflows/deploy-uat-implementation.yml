@@ -4100,7 +4100,7 @@ jobs:
           test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         id: final-state
         shell: bash
         run: |

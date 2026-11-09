@@ -449,7 +449,6 @@ def test_auth_health_focus_runs_through_required_governance(tmp_path: Path) -> N
         "secret-scan",
         "dco-check",
         "pr-base-policy",
-        "repo-governance",
         "paths",
     ]
 
@@ -492,8 +491,6 @@ def test_engineering_judge_contract_keeps_full_coverage_without_backend_selectio
     assert backend.match_file("consent-protocol/hushh_mcp/services/app_intelligence_runtime.py")
     assert backend.match_file("consent-protocol/config/capability_graph_evolution.v1.json")
     assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
-    assert not backend.match_file("consent-protocol/scripts/verify_azure_pwm_runtime.py")
-    assert not backend.match_file("consent-protocol/scripts/managed_vertex_readiness.py")
     assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
     assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
     plan = _governance_plan((path,))
@@ -935,6 +932,8 @@ def test_release_controller_fixtures_keep_coverage_without_backend_database_lane
     assert backend.match_file("consent-protocol/scripts/unknown_runtime_compiler.py")
     assert not backend.match_file("consent-protocol/scripts/generate_capability_graph.py")
     assert not backend.match_file("consent-protocol/tests/helpers/capability_graph_fixture.py")
+    assert not backend.match_file("consent-protocol/scripts/verify_azure_pwm_runtime.py")
+    assert not backend.match_file("consent-protocol/scripts/managed_vertex_readiness.py")
     plan = _governance_plan((*paths, dedicated))
     assert plan["selection_error"] is None
     assert plan["selected_groups"] == ["controller"]
