@@ -11,6 +11,7 @@ from sqlalchemy import text
 from hushh_mcp.services.calendar_email_followup_store_read import (
     conversation_view,
     page_view,
+    read_detail,
     read_page,
 )
 from hushh_mcp.services.calendar_email_followup_store_types import (
@@ -21,19 +22,27 @@ from hushh_mcp.services.calendar_email_followup_store_types import (
 
 class _RequestRead:
     async def list_conversations(
-        self, monitor: Monitor, *, limit: int = 3, offset: int = 0
+        self,
+        monitor: Monitor,
+        *,
+        limit: int = 3,
+        offset: int = 0,
+        view: str = "upcoming",
+        now: datetime | None = None,
     ) -> dict[str, Any]:
         if not 1 <= limit <= 50 or not 0 <= offset <= 100000:
             raise FollowupStateError("invalid_limit")
 
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
-                page = read_page(conn, monitor, limit=limit, offset=offset)
-            return page_view(self._open, monitor, page=page, offset=offset)
+                page = read_page(conn, monitor, limit=limit, offset=offset, view=view, now=now)
+            return page_view(self._open, monitor, page=page, offset=offset, view=view)
 
         return await asyncio.to_thread(read)
 
-    async def detail(self, monitor: Monitor, conversation_id: str) -> dict[str, Any]:
+    async def detail(
+        self, monitor: Monitor, conversation_id: str, *, now: datetime | None = None
+    ) -> dict[str, Any]:
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
                 conversation = (
@@ -51,21 +60,7 @@ class _RequestRead:
                 )
                 if not conversation:
                     raise FollowupStateError("conversation_unavailable")
-                rows = (
-                    conn.execute(
-                        text("""SELECT * FROM calendar_email_followup_requests
-                    WHERE conversation_id=CAST(:id AS UUID) AND user_id=:user_id
-                    AND account_id=:account_id AND suppressed_at IS NULL
-                    ORDER BY source_internal_date_ms,id"""),
-                        {
-                            "id": conversation_id,
-                            "user_id": monitor.user_id,
-                            "account_id": monitor.account_id,
-                        },
-                    )
-                    .mappings()
-                    .all()
-                )
+                rows = read_detail(conn, monitor, conversation_id, now=now)
             return conversation_view(self._open, monitor, dict(conversation), list(rows))
 
         return await asyncio.to_thread(read)

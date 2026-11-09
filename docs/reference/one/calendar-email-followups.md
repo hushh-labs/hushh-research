@@ -90,6 +90,77 @@ Calendar Insights renders one compact Follow-ups card for its selected account, 
 
 Mark done, reminder edits, Snooze, and Dismiss return committed revisions before the UI claims success. A proposed call stays `not_booked`. Review meeting passes the selected account and available details to the existing Calendar booking preview; any missing details are requested. Opening a review never executes the proposal. Only the existing explicit confirm path can create an event, and its returned provider event ID is the booked outcome.
 
+## Temporal eligibility, restated obligations and reassessment
+
+Status: source contract for assessment version 3 and migration 454. Source and
+disposable-PostgreSQL tests prove the host's enforcement; they do not establish how a
+live model judges real mail, and no shared database has had 454 applied.
+
+**Which list a request is in** is computed from the clock and the stored verdict on every
+read, in SQL, before the page is chosen, so an expired item can never occupy a slot that
+is then hidden by the client. Nothing is marked done, dismissed or deleted because a date
+passed. The owner's local day comes from the monitor's time zone.
+
+| View | A live, un-merged request is in it when |
+| --- | --- |
+| `upcoming` (default) | dated today or later; or undated, the owner's or urgent, and first seen within 45 days |
+| `overdue` | dated before today, the owner's own, not a meeting proposal, and `after_date` is `owed` or `unspecified` |
+| `snoozed` | snoozed until a time that has not come; it returns to its date-based list when that time passes |
+| `history` | closed by the owner or its source; a lapsed opportunity (`after_date=lapses`); a past meeting proposal; work that is not the owner's; an undated ask older than 45 days |
+
+An unknown date effect is never treated as expired. Rows written before version 3 carry
+`after_date=unspecified` and appear under Overdue until reassessed. `upcoming` is ranked by
+verified urgency or a deadline within seven days, then later dates, then undated work; within
+that, owner-assigned work first, then the earlier date, then fewer recorded ambiguities (the
+only confidence signal the ledger holds). The full view pages 15 conversations
+(`FOLLOWUP_PAGE_SIZE`); the compact Insights card shows the first two of `upcoming`.
+
+**Semantic contract.** The extraction child decides what is asked of the owner, whether the
+date is an event or a deadline, and what passing the date means. The new typed fields are
+`category=scheduled_event` (a confirmed test or appointment, its own request with its own
+date, never the registration deadline), `after_date` (`owed`, `lapses`, `unspecified`) and
+`supersedes_request_id`. The host only validates: an event with no date is dropped; a
+replacement is honoured only for a request ID the model was offered, and an unknown ID
+leaves the candidate as its own request. Promotions, plan or product notices, security
+findings and unassigned automated mail remain excluded by the model's relevance verdict; a
+date or the word urgent never admits a request.
+
+**One obligation, many emails.** A request that restates another is folded into the earliest
+one (`merged_into`, hidden from lists, own sealed source kept) only when owner, account,
+kind, every date, sender domain and wording all agree, wording agreeing only if it names the
+same numbers ("assignment 1" is not "assignment 2"), and each absorbed request matches the
+survivor itself. A model-named replacement additionally needs the same conversation and
+kind and matching wording, and two candidates claiming one request replace nothing.
+Ambiguous matches stay separate. Done, dismissed, a future snooze and a future manual
+reminder move onto the survivor; a merged request keeps no reminder, so one obligation
+alerts once.
+
+**Reassessment is bounded.** Raising the assessment version re-reads only messages that
+still back a visible request created under an older version, through the existing
+`reassess` scan mode and its checkpoints (scan progress is preserved). A message that
+backs no visible request was already judged not to be Calendar work and is never re-read;
+there is no mailbox rescan. A reassessed request is upgraded in place with its state,
+reminders and manual choices untouched, or hidden (`suppressed_at`, reason
+`reassessed_not_relevant`) when the current contract no longer supports it.
+**Older suppressed records are not reconsidered automatically.** If the new contract is
+suspected of having been too strict about them, reconsideration must be a targeted,
+owner-visible action over a named message set, not a rescan; none is built here.
+
+**Migration 454** (`454_calendar_email_followup_temporal.sql`) is additive: `after_date`
+(defaulted), `merged_into`, the `scheduled_event` category and two partial indexes. The
+previous producer's INSERT shape still works against the expanded schema. Its rollback
+hides scheduled events instead of deleting them and drops the two columns, so a
+rolled-back row reads `unspecified`; the rollback is not zero-loss once real
+assessment history exists. 453 is taken on another branch and 446/447/449 are used, so the
+number must be reconfirmed by the migration owner at merge.
+
+**Stage B handoff.** The read-only Chat boundary is unchanged: nothing here adds a Chat
+tool, proposal or write. Request-level discovery must read only
+`suppressed_at IS NULL AND merged_into IS NULL`, may rely on `after_date` and the `bucket`
+projection (`upcoming|overdue|snoozed|history`) instead of re-deriving expiry, and must
+treat `view` as an optional parameter defaulting to `upcoming`. `list` and `detail` add
+`view`, `view_counts`, `bucket`, `after_date` and `repeat_count`; no existing field changed.
+
 ## Acceptance and rollout gates
 
 - Synthetic frozen-clock evidence: a five-paragraph 10 October 2026 email has a document request in its final paragraph before 26 October and a 27 October call proposal. Both appear under one conversation as distinct requests. A configured 25 October reminder queues once into Feed and the push outbox; a later correction suppresses the obsolete revision; the call remains unbooked until explicit confirmation. These extraction tests use a deterministic mocked Email gene output, not a live model invocation.

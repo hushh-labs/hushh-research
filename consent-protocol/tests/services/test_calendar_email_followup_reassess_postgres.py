@@ -17,6 +17,7 @@ from hushh_mcp.services.calendar_email_followup_extraction import (
     ValidatedCandidate,
     _evidence_identity,
 )
+from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
 from tests.google_oauth_postgres_support import OWNER
 from tests.services.test_calendar_email_followup_oauth_postgres import (
     followup_pg as followup_pg,
@@ -186,10 +187,14 @@ async def test_reassessment_keeps_a_decision_when_the_model_rewords_the_title(fo
     reworded = _worded(store, account_id, message, "Send the signed document")
     await _reassess(store, account_id, message, [reworded])
     # The same row stands behind the new wording: decision kept, nothing duplicated.
-    assert _message_rows(engine, store, account_id, message) == [(closed, False, 2)]
+    assert _message_rows(engine, store, account_id, message) == [
+        (closed, False, ASSESSMENT_VERSION)
+    ]
     # Reassessing again finds the adopted row by its new key and adds nothing.
     await _reassess(store, account_id, message, [reworded])
-    assert _message_rows(engine, store, account_id, message) == [(closed, False, 2)]
+    assert _message_rows(engine, store, account_id, message) == [
+        (closed, False, ASSESSMENT_VERSION)
+    ]
     monitor = await store.monitor(user_id=OWNER, account_id=account_id)
     assert (await store.list_conversations(monitor, limit=10))["total_conversations"] == 0
 
@@ -211,7 +216,7 @@ async def test_reassessment_does_not_adopt_a_row_for_a_different_obligation(foll
     )
     assert _message_rows(engine, store, account_id, message) == [
         ("pending", True, 1),
-        ("pending", False, 2),
+        ("pending", False, ASSESSMENT_VERSION),
     ]
 
 
