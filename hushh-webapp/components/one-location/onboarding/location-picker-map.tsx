@@ -309,17 +309,22 @@ export function LocationPickerMap({
       if (!isValidCoordinate(lat, lng)) return;
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
       }
       centerRef.current = { lat, lng };
       setDragging(false);
+      setLocationError(null);
       const requestId = ++resolveIdRef.current;
       const original = initialPinRef.current;
       const originalAddress = haversineMeters(original, { lat, lng }) <= 1
         ? original.address
         : null;
       setAddress(originalAddress);
-      setResolving(true);
-      setLocationError(null);
+      setResolving(!originalAddress);
+      // Keep an address already associated with this pin. Reconfirming it
+      // must not replace the owner's saved address with provider copy.
+      if (originalAddress) return;
+
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null;
         const resolve = async () => {
@@ -331,12 +336,12 @@ export function LocationPickerMap({
               ).catch(() => null)
             : null;
           if (typeof serverAddress === "string" && serverAddress.trim()) return serverAddress.trim();
-          if (!mapRef.current || resolveIdRef.current !== requestId) return originalAddress;
+          if (!mapRef.current || resolveIdRef.current !== requestId) return null;
           const browserAddress = await withDeadline(
             reverseGeocodeInBrowser(lat, lng),
             Date.now() + PIN_ADDRESS_PROVIDER_TIMEOUT_MS,
           ).catch(() => null);
-          return browserAddress?.trim() || originalAddress;
+          return browserAddress?.trim() || null;
         };
         void resolve().then((next) => {
           if (resolveIdRef.current !== requestId) return;
