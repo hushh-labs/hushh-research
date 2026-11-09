@@ -6,7 +6,7 @@ Dispatch Dev, UAT and Production deployments from `main`. Application sources re
 isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
 Run names identify the application branch and SHA; the Actions Main badge identifies
 execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
-retains UAT acceptance, compatibility and rollback requirements. This operations delta
+requires qualified protected Main, compatibility and rollback without preceding UAT deployment. This operations delta
 does not publish an application, run migrations or change production traffic.
 
 Current access comes only from the live GitHub teams: ordinary review/self-service uses
@@ -73,8 +73,9 @@ candidate also on Main can use its explicit UAT CI evidence; an ordinary histori
 Main release can retain Dev-backed admission. Missing Dev image evidence selects
 a source build; explicit `promote-from-dev` still requires the real accepted image.
 Historical Dev-backed receipts and direct-CI UAT receipts remain distinct and
-verifiable. Production requires the accepted UAT application and selected services;
-its historical reader does not require today's UAT tip to equal an old release.
+verifiable. Normal production instead qualifies protected Main directly; prior UAT
+deployment is optional. The historical UAT reader and accepted-image promotion
+still verify the original application and services without requiring today's UAT tip.
 Ordinary UAT selects protected application content; privileged Cloud Build recipes
 and migration controllers must match the recorded trusted Main revision. Main retains release
 orchestration and credential clearance; isolated UAT keeps its existing parity policy.
@@ -154,11 +155,13 @@ not required for ordinary UAT. A Main-only SHA is not a normal UAT source. Direc
 the exact full-scope candidate run, current attempt and observed serving base.
 Historical Main-backed receipts remain readable under their original contract.
 
-For production, `sha` remains the UAT-accepted application. When approval landed
-as a different Main merge, `main_approval_sha` requires that merge's Main smoke,
-incorporation of the application and identical complete Git trees. The workflow
-retains this mapping and still requires UAT acceptance for the application SHA.
-No ignored paths, new content or predecessor bypass are allowed. This optional
+For production, `sha` is a CI-qualified application in protected Main history.
+A prior UAT deployment is optional. When approval landed as a different Main
+merge, `main_approval_sha` requires that merge's Main smoke, incorporation of
+the application and identical complete Git trees. Functional CI and Main smoke
+are separate mandatory proofs; smoke alone cannot authorize release. Optional
+UAT-image promotion retains its accepted-image contract.
+No ignored paths, new content or functional-qualification bypass are allowed. This optional
 manual mode cannot be mixed with cadence, restoration or phone transitions.
 
 The following work remains before the UAT selection transition:
@@ -219,9 +222,9 @@ lane. The target-branch setting does not grant a bot Main merge authority.
 |---|---|
 | Dev | Feature PRs target protected `dev`; Main-owned tooling deploys an exact CI-green SHA in protected Dev history. The `ref` input locates a SHA but does not authorize a feature-only or Main-only commit. |
 | UAT | Pin the protected UAT candidate and approved release PR. Direct UAT also requires exact full-scope CI, the current attempt and the observed serving base. Historical Main-backed receipts retain their Dev-backed checks but do not authorize a new Main-only selection. |
-| Main | Review accepted UAT content for release. When its approval merge differs from the tested application SHA, require identical complete Git trees and preserve both identities. |
+| Main | Review selected product or operations changes. Explicit production deployment requires functional CI and Main smoke for protected Main; no preceding UAT deployment is mandatory. Distinct application and approval SHAs require identical complete Git trees. |
 | Main operations/hotfix | A governed maintainer may branch from `origin/main` and open a PR directly into `main` by actor identity. CI, conversations, queue/Admin SOP and landed smoke remain mandatory. Merging does not deploy. |
-| Production | Explicit UAT-accepted application plus Main approval, or the separately approved manual emergency route. Automatic publication remains disabled. |
+| Production | Explicit qualified protected Main with functional CI, Main smoke, compatibility and rollback; no mandatory UAT deployment. The manual emergency source route remains separate. Automatic publication remains disabled. |
 | Legacy train | Preserve `integration/pr-train` history, protections and existing promotion PRs; do not use it as the default for new intake or silently promote all Dev work. |
 
 `scripts/ci/verify-pr-base-policy.py` retains governed maintainer Main authority
@@ -302,8 +305,8 @@ Before deleting a local backup branch, classify its unique commits as:
 2. The `ref` input defaults to `dev` and only locates the application SHA. The
    selected SHA must belong to protected Dev history and carry an accepted exact
    CI result; an explicit lookup ref cannot authorize branch-only content.
-3. Dev never requires `main` ancestry or `Main Post-Merge Smoke` — `main` stays the
-   UAT → production signoff lane, and Dev proves selected changes before promotion.
+3. Dev never requires `main` ancestry or `Main Post-Merge Smoke`. Main is the
+   reviewed production source; each environment qualifies its selected source independently.
 4. Dev has no promotion authority: nothing deploys to UAT or production from dev.
 5. Full contract: [dev-fast-lane.md](./dev-fast-lane.md).
 
@@ -336,9 +339,9 @@ Before deleting a local backup branch, classify its unique commits as:
 ### Production
 
 1. Production does not auto-deploy from branch pushes.
-2. Production deploys through governed dispatch with the exact UAT-accepted application SHA. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
+2. Production deploys through governed dispatch with an exact CI-qualified protected Main SHA; preceding UAT deployment is optional. A distinct Main approval merge must pass smoke, incorporate that application and preserve its entire tree.
 3. The workflow validates that the SHA is reachable from `origin/main`.
-4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
+4. Both canonical functional CI and `Main Post-Merge Smoke Gate` must succeed for the exact source/approval. A newer failed or cancelled attempt refuses older green evidence; smoke alone is insufficient.
 5. Manual operators must belong to the current `deploy-production` team. There is no unattended release exception. Automatic release cadence is retired; commits and workflow completions do not authorize deployment. See [explicit releases](./ci.md#explicit-releases-and-retired-cadence).
 6. The canonical GitHub deployment environment for this lane is `production`.
 
