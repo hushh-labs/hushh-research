@@ -184,8 +184,9 @@ The root checkout and unrelated work remain untouched throughout the landing.
    resolved scope. Force `frontend`, `backend`, or `all` only after comparing the
    complete target-to-deployed-service deltas and documenting why the automatic
    resolver is insufficient.
-4. Read the exact-SHA verification-plan artifact. It alone selects PKM and BYOK
-   reviewer lanes; do not invent a second path classifier.
+4. Read the exact-SHA verification-plan artifact. It records required PKM checks
+   and explicitly requested BYOK browser diagnostics; it never automatically
+   selects app-browser execution. Do not invent a second path classifier.
 
 UAT backend changes use the normal `deploy-uat.yml` workflow with reviewed
 backend scope. The retired One-chat cutover's historical evidence and recovery
