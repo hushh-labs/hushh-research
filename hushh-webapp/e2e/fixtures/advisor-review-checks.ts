@@ -77,6 +77,28 @@ export function registerAdvisorReviewChecks(
     });
   }
 
+  test("Finance advisor scheduling uses rounded controls and searches time zones by city", async ({ page }) => {
+    await mount(page, 393);
+    await page.getByRole("button", { name: "Open sample advisor request" }).click();
+    await page.getByRole("button", { name: "Accept & connect" }).click();
+    const workspace = page.getByRole("dialog", { name: /Advisor review/ });
+    await workspace.getByRole("button", { name: "Choose date" }).click();
+    const date = page.getByRole("dialog", { name: "Choose meeting date" });
+    await expect(date).toBeVisible();
+    expect(await date.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThan(8);
+    await page.keyboard.press("Escape");
+    await expect(workspace.getByRole("button", { name: "Choose date" })).toBeFocused();
+    await workspace.getByRole("combobox", { name: "Duration" }).click();
+    const durations = page.getByRole("listbox");
+    expect(await durations.evaluate((el) => parseFloat(getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThan(8);
+    await durations.getByRole("option", { name: "60 minutes" }).click();
+    const zone = workspace.getByRole("button", { name: /^Time zone,/ });
+    await zone.click();
+    await page.getByRole("combobox", { name: "Search time zone" }).fill("Mumbai");
+    await page.getByRole("option", { name: /Kolkata.*UTC\+05:30/ }).click();
+    await expect(zone).toHaveAccessibleName(/Kolkata/);
+  });
+
   for (const width of [393, 1440])
     for (const theme of ["light", "dark"]) {
       test(`Finance advisor request locks snapshot until acceptance at ${width}px ${theme}`, async ({
@@ -114,7 +136,7 @@ export function registerAdvisorReviewChecks(
             .evaluate((el) => getComputedStyle(el).fontSize),
         ).toBe("14px");
         await expect(
-          dialog.getByRole("link", { name: "Connect or manage Calendar" }),
+          dialog.getByRole("link", { name: "Connect Calendar" }),
         ).toHaveAttribute("href", "/one/calendar");
         await expect(
           dialog.getByRole("link", { name: "Finish Stripe setup" }),

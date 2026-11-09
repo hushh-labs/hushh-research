@@ -23,6 +23,7 @@ class CreateAdvisorReview(StrictObject):
 
 class ReviewDecision(StrictObject):
     action: Literal["accept", "decline", "withdraw", "stop"]
+    requireExistingConnection: StrictBool = False
 
 
 class MeetingTime(StrictObject):

@@ -17,7 +17,7 @@ from hushh_mcp.services.advisor_review_store import (
     project,
     require_accepted,
 )
-from hushh_mcp.services.direct_messages_service import DirectMessagesService
+from hushh_mcp.services.direct_messages_service import DirectMessagesError, DirectMessagesService
 from hushh_mcp.services.finance_sharing_service import FinanceSharingService, one, require_advisor
 
 
@@ -107,9 +107,8 @@ class AdvisorReviewService:
             )
             return {"items": [project(load(conn, viewer, str(key)), viewer) for key in ids]}
 
-    def view(self, viewer, request_id):
+    def view(self, viewer, request_id, current_ui=False):
         from hushh_mcp.services.advisor_review_store import lock_review
-        from hushh_mcp.services.direct_messages_service import DirectMessagesError
         from hushh_mcp.services.finance_sharing_service import FinanceSharingError
 
         with self.db.engine.begin() as conn:
@@ -147,9 +146,25 @@ class AdvisorReviewService:
                         {"id": request_id},
                     )
                     row = load(conn, viewer, request_id, locked=True)
-            return project(row, viewer, snapshot=True)
+            result = project(row, viewer, snapshot=True)
+            if current_ui and row["status"] == "pending" and viewer == row["advisor_user_id"]:
+                result["alreadyConnected"] = (
+                    self._active_connection(conn, row["owner_user_id"], row["advisor_user_id"])
+                    is not None
+                )
+            return result
 
-    def decide(self, viewer, request_id, action):
+    def _active_connection(self, conn, owner, advisor):
+        try:
+            return DirectMessagesService(
+                db=self.db, connection=conn, defer_notifications=True
+            ).require_active_connection(owner, advisor)
+        except DirectMessagesError as exc:
+            if exc.code in {"DIRECT_MESSAGE_CONNECTION_REQUIRED", "DIRECT_MESSAGE_BLOCKED"}:
+                return None
+            raise
+
+    def decide(self, viewer, request_id, action, require_existing_connection=False):
         with self.db.engine.begin() as conn:
             candidate = load(conn, viewer, request_id)
             pair_gate(conn, candidate["owner_user_id"], candidate["advisor_user_id"])
@@ -178,7 +193,11 @@ class AdvisorReviewService:
                     else row["envelope"]
                 )
                 FinanceSharingService._key(conn, advisor, envelope["recipientKeyId"])
-                connection_id = connect_for_review(conn, owner, advisor, request_id)
+                connection_id = self._active_connection(conn, owner, advisor)
+                if connection_id is None:
+                    if require_existing_connection:
+                        raise AdvisorReviewError("ADVISOR_REQUEST_CHANGED", 409)
+                    connection_id = connect_for_review(conn, owner, advisor, request_id)
                 _message(self.db, conn, owner, advisor, request_id)
             conn.execute(
                 text("""UPDATE advisor_review_requests SET status=:status,
