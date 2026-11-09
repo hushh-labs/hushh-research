@@ -100,7 +100,8 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
     receipt = await PhoneRecoveryService.linkedDeletionStatus(user, input.operationId, current).catch(() => receipt);
   }
   // Unsettled, or still "prepared" after an uncertain send, stays unconfirmed: never a
-  // refusal, and never cancellable, because the sent request can still be admitted.
+  // refusal and no Cancel, because the sent request can still be admitted. Leaving still
+  // asks the server to cancel it, which only takes effect before admission.
   if (unsettled(receipt) || (uncertain && receipt!.state === "prepared")) throw linkedError("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
   const deleted = receipt!.state === "admitted";
   // NOT_FOUND after proof means no live local holder remains: a fresh ordinary verification decides.

@@ -195,8 +195,10 @@ claim retained a fresh real SMS proof; otherwise, or when the API answers
 `PHONE_LINKED_DELETION_UNAVAILABLE`, it keeps the previous-account sign-in.
 The spent proof never claims the number for the requester: after the holder is
 erased and the number released, the requester verifies it again. A confirmation
-whose response was lost stays unconfirmed: **Check again** only reads its status,
-never sends it or its proof again, and it can no longer be cancelled.
+whose response was lost stays unconfirmed: **Check again** only reads its status
+and never sends it or its proof again, and the review no longer offers Cancel.
+Leaving returns to number entry and asks the server to cancel the operation,
+which only takes effect before admission.
 
 ## MCP Read-Only Tools
 

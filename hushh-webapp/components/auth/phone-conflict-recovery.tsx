@@ -62,7 +62,7 @@ function LinkedDeletionReview(props: Props & { Heading: "h1" | "h2" }) {
     {props.operationError ? <p className={styles.description} role={settled ? "status" : "alert"}>{props.operationError}</p> : null}
     {/* A spent or expired proof deletes nothing more; only a new verification continues. */}
     {props.deletionNeedsFreshProof ? verifyAgain(true) : props.deletionUnconfirmed ? <>
-      {/* Once a confirmation was sent, nothing can be cancelled or sent again: Check again only reads it back. */}
+      {/* Once a confirmation was sent, Cancel is withdrawn and nothing is sent again: Check again only reads it back. */}
       <Button type="button" variant="blue" size="prominent" fullWidth className={styles.primary} disabled={busy}
         data-voice-control-id="phone-flow-delete-check" onClick={() => void props.confirmDeletion?.()}>{busy ? "Checking…" : "Check again"}</Button>
       {verifyAgain(false)}
