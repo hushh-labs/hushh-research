@@ -190,7 +190,15 @@ deadline under its owner locks. Final erasure detaches the deleting owner's raw
 references after its tombstone exists; hashed receipts and consumed proof events
 survive erasure of either account. Provider cleanup
 and local-erasure consent are unchanged; an admitted request is not a completed
-erasure receipt. The existing UI still requires previous-account sign-in.
+erasure receipt. The phone-conflict UI opens an in-place review when the web
+claim retained a fresh real SMS proof; otherwise, or when the API answers
+`PHONE_LINKED_DELETION_UNAVAILABLE`, it keeps the previous-account sign-in.
+The spent proof never claims the number for the requester: after the holder is
+erased and the number released, the requester verifies it again. A confirmation
+whose response was lost stays unconfirmed: **Check again** only reads its status
+and never sends it or its proof again, and the review no longer offers Cancel.
+Leaving returns to number entry and asks the server to cancel the operation,
+which only takes effect before admission.
 
 ## MCP Read-Only Tools
 
