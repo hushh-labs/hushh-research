@@ -150,6 +150,7 @@ export const advisorReviewSchema = z
     serverNow: instant,
     contentHash: z.string().regex(/^[a-f0-9]{64}$/),
     snapshotAvailable: z.boolean(),
+    alreadyConnected: z.boolean().optional(),
     meeting: meetingSchema.nullable(),
     plan: planSchema.nullable(),
     planRevision: z.number().int().nonnegative(),
