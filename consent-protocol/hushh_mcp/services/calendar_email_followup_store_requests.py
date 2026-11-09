@@ -11,6 +11,7 @@ from sqlalchemy import text
 from hushh_mcp.services.calendar_email_followup_store_read import (
     conversation_view,
     page_view,
+    read_detail,
     read_page,
 )
 from hushh_mcp.services.calendar_email_followup_store_types import (
@@ -21,19 +22,27 @@ from hushh_mcp.services.calendar_email_followup_store_types import (
 
 class _RequestRead:
     async def list_conversations(
-        self, monitor: Monitor, *, limit: int = 3, offset: int = 0
+        self,
+        monitor: Monitor,
+        *,
+        limit: int = 3,
+        offset: int = 0,
+        view: str = "upcoming",
+        now: datetime | None = None,
     ) -> dict[str, Any]:
         if not 1 <= limit <= 50 or not 0 <= offset <= 100000:
             raise FollowupStateError("invalid_limit")
 
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
-                page = read_page(conn, monitor, limit=limit, offset=offset)
-            return page_view(self._open, monitor, page=page, offset=offset)
+                page = read_page(conn, monitor, limit=limit, offset=offset, view=view, now=now)
+            return page_view(self._open, monitor, page=page, offset=offset, view=view)
 
         return await asyncio.to_thread(read)
 
-    async def detail(self, monitor: Monitor, conversation_id: str) -> dict[str, Any]:
+    async def detail(
+        self, monitor: Monitor, conversation_id: str, *, now: datetime | None = None
+    ) -> dict[str, Any]:
         def read() -> dict[str, Any]:
             with self.db.engine.begin() as conn:
                 conversation = (
@@ -51,40 +60,45 @@ class _RequestRead:
                 )
                 if not conversation:
                     raise FollowupStateError("conversation_unavailable")
-                rows = (
-                    conn.execute(
-                        text("""SELECT * FROM calendar_email_followup_requests
-                    WHERE conversation_id=CAST(:id AS UUID) AND user_id=:user_id
-                    AND account_id=:account_id AND suppressed_at IS NULL
-                    ORDER BY source_internal_date_ms,id"""),
-                        {
-                            "id": conversation_id,
-                            "user_id": monitor.user_id,
-                            "account_id": monitor.account_id,
-                        },
-                    )
-                    .mappings()
-                    .all()
-                )
+                rows = read_detail(conn, monitor, conversation_id, now=now)
             return conversation_view(self._open, monitor, dict(conversation), list(rows))
 
         return await asyncio.to_thread(read)
 
     async def conversation_for_request(self, monitor: Monitor, request_id: str) -> str:
-        def read() -> str:
+        return (await self.resolve_request(monitor, request_id))["conversation_id"]
+
+    async def resolve_request(self, monitor: Monitor, request_id: str) -> dict[str, str]:
+        """Resolve a delivered reminder to the current request within its account."""
+
+        def read() -> dict[str, str]:
             with self.db.engine.begin() as conn:
-                conversation_id = conn.execute(
-                    text("""SELECT conversation_id FROM calendar_email_followup_requests
-                    WHERE id=CAST(:id AS UUID) AND user_id=:user_id AND account_id=:account_id"""),
-                    {
-                        "id": request_id,
-                        "user_id": monitor.user_id,
-                        "account_id": monitor.account_id,
-                    },
-                ).scalar()
-            if not conversation_id:
+                target = (
+                    conn.execute(
+                        text("""WITH RECURSIVE lineage AS (
+                        SELECT id,conversation_id,merged_into FROM calendar_email_followup_requests
+                        WHERE id=CAST(:id AS UUID) AND user_id=:user_id AND account_id=:account_id
+                        UNION
+                        SELECT r.id,r.conversation_id,r.merged_into
+                        FROM calendar_email_followup_requests r JOIN lineage l ON r.id=l.merged_into
+                        WHERE r.user_id=:user_id AND r.account_id=:account_id
+                    )
+                    SELECT id,conversation_id FROM lineage WHERE merged_into IS NULL"""),
+                        {
+                            "id": request_id,
+                            "user_id": monitor.user_id,
+                            "account_id": monitor.account_id,
+                        },
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
+            if target is None:
                 raise FollowupStateError("request_unavailable")
-            return str(conversation_id)
+            return {
+                "request_id": str(target["id"]),
+                "conversation_id": str(target["conversation_id"]),
+            }
 
         return await asyncio.to_thread(read)
 

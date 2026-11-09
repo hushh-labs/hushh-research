@@ -78,7 +78,7 @@ Request states are `needs_review`, `pending`, `done`, `snoozed`, `dismissed`, `c
 | Required declaration | Contract |
 | --- | --- |
 | Owning agent and manifest | Existing `agent_email`; new tool-free `agent_email_followup_extractor` child in `consent-protocol/hushh_mcp/agents/email/agent.yaml`. |
-| Output | `FollowupChunkAssessmentV1`: ordered, distinct request candidates and same-thread update references, each with exact source excerpt, local index, kind, original wording, supported zoned time or explicit ambiguity, and section identity. |
+| Output | `FollowupChunkAssessmentV1` under assessment version 3 adds `after_date` and offered `supersedes_request_id` to ordered request candidates with exact source evidence. |
 | Validator | Admit only offered message, thread and section refs; prove exact excerpt membership and global offset; reject duplicate durable identities, out-of-order update refs, unsupported time zones and malformed output. It does not create a request or due instant by interpreting sender text itself. |
 | Live evaluation before promotion | Run a consented, held-out owner-mail fixture and opt-in pilot before enabling the monitor outside development. Require 100% source attribution, no automatic send/booking/PKM effects, and reviewed precision/recall for multi-request, tail, correction and ambiguous-date cases. Keep the feature kill switch closed until the result is recorded. |
 
@@ -86,9 +86,82 @@ One confirmed reminder schedule is attached to one pending request revision. The
 
 ## Review and action contract
 
-Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations, with View all only when more exist; the expanded view loads further bounded pages on demand. The detail surface shows source date, sender, a short excerpt, related requests, exact due wording, and current reminder. Open email reads the complete source body for the verified account/message into the detail surface without retaining it. A reminder target opens its account and focuses the exact request after a current read. List, review, and refresh distinguish `mail_unavailable`, `monitoring_off`, `loading`, `complete_empty`, `partial`, and `error`; stale same-account content may remain during refresh, but an incomplete scan is never presented as empty.
+Calendar Insights renders one compact Follow-ups card for its selected account, above Executive snapshot. It shows at most two conversations, with View all only when more exist; the expanded view loads further bounded pages on demand. The detail surface shows source date, sender, a short excerpt, related requests, exact due wording, and current reminder. Open email reads the complete source body for the verified account/message into the detail surface without retaining it. A reminder target opens its account and focuses the current request after a current read. If a delivered reminder refers to a folded request, the same-account lineage resolves to the surviving request and the original source stays sealed. List, review, and refresh distinguish `mail_unavailable`, `monitoring_off`, `loading`, `complete_empty`, `partial`, and `error`; stale same-account content may remain during refresh, but an incomplete scan is never presented as empty.
 
 Mark done, reminder edits, Snooze, and Dismiss return committed revisions before the UI claims success. A proposed call stays `not_booked`. Review meeting passes the selected account and available details to the existing Calendar booking preview; any missing details are requested. Opening a review never executes the proposal. Only the existing explicit confirm path can create an event, and its returned provider event ID is the booked outcome.
+
+## Temporal eligibility, restated obligations and reassessment
+
+Status: source contract for assessment version 3 and migration 454. Source and
+disposable-PostgreSQL tests prove the host's enforcement; they do not establish how a
+live model judges real mail, and no shared database has had 454 applied.
+
+**Which list a request is in** is computed from the clock and the stored verdict on every
+read, in SQL, before the page is chosen, so an expired item can never occupy a slot that
+is then hidden by the client. Nothing is marked done, dismissed or deleted because a date
+passed. The owner's local day comes from the monitor's time zone. A deadline stated as
+"before" a date passes at the start of that date, matching reminder expiry.
+
+| View | A live, un-merged request is in it when |
+| --- | --- |
+| `upcoming` (default) | dated today or later with an unpassed deadline; or undated, the owner's or urgent, and first seen within 45 days |
+| `overdue` | past its deadline, the owner's own, not a meeting proposal, and `after_date` is `owed` or `unspecified` |
+| `snoozed` | snoozed until a time that has not come; it returns to its date-based list when that time passes |
+| `history` | closed by the owner or its source; a lapsed opportunity (`after_date=lapses`); a past meeting proposal; work that is not the owner's; an undated ask older than 45 days |
+
+An unknown date effect is never treated as expired. Rows written before version 3 carry
+`after_date=unspecified` and appear under Overdue until reassessed. `upcoming` is ranked by
+verified urgency or a deadline within seven days, then later dates, then undated work; within
+that, owner-assigned work first, then the earlier date, then fewer recorded ambiguities (the
+only confidence signal the ledger holds). The full view pages 15 conversations
+(`FOLLOWUP_PAGE_SIZE`); the compact Insights card shows the first two of `upcoming`.
+
+**Semantic contract.** The extraction child decides what is asked of the owner, whether the
+date is an event or a deadline, and what passing the date means. The new typed fields are
+`category=scheduled_event` (a confirmed test or appointment, its own request with its own
+date, never the registration deadline), `after_date` (`owed`, `lapses`, `unspecified`) and
+`supersedes_request_id`. The host only validates: an event with no date is dropped; a
+replacement is honoured only for a request ID the model was offered, and an unknown ID
+leaves the candidate as its own request. Promotions, plan or product notices, security
+findings and unassigned automated mail remain excluded by the model's relevance verdict; a
+date or the word urgent never admits a request.
+
+**One obligation, many emails.** A request that restates another is folded into the earliest
+one (`merged_into`, hidden from lists, own sealed source kept) only when owner, account,
+kind, category, responsibility, date relation, dates and sender domain agree, and the titles
+share the same numbers and contain no conflicting terms. Each absorbed request must match
+the survivor itself. A model-named replacement also needs the same conversation and kind,
+matching wording, and a message newer than the target's latest source revision. Two
+candidates claiming one request replace nothing.
+Ambiguous matches stay separate. Done, dismissed, a future snooze and a future manual
+reminder move onto the survivor; a merged request keeps no reminder, so one obligation
+alerts once.
+
+**Reassessment is bounded.** Raising the assessment version re-reads only messages that
+still back a visible request created under an older version, through the existing
+`reassess` scan mode and its checkpoints (scan progress is preserved). A message that
+backs no visible request was already judged not to be Calendar work and is never re-read;
+there is no mailbox rescan. A reassessed request is upgraded in place with its state,
+reminders and manual choices untouched, or hidden (`suppressed_at`, reason
+`reassessed_not_relevant`) when the current contract no longer supports it.
+**Older suppressed records are not reconsidered automatically.** If the new contract is
+suspected of having been too strict about them, reconsideration must be a targeted,
+owner-visible action over a named message set, not a rescan; none is built here.
+
+**Migration 454** (`454_calendar_email_followup_temporal.sql`) is additive: `after_date`
+(defaulted), `merged_into`, the `scheduled_event` category and two partial indexes. The
+previous producer's INSERT shape still works against the expanded schema. Its rollback
+hides scheduled events instead of deleting them and drops the two columns, so a
+rolled-back row reads `unspecified`; the rollback is not zero-loss once real
+assessment history exists. 453 is taken on another branch and 446/447/449 are used, so the
+number must be reconfirmed by the migration owner at merge.
+
+**Stage B handoff.** The read-only Chat boundary is unchanged: nothing here adds a Chat
+tool, proposal or write. Request-level discovery must read only
+`suppressed_at IS NULL AND merged_into IS NULL`, may rely on `after_date` and the `bucket`
+projection (`upcoming|overdue|snoozed|history`) instead of re-deriving expiry, and must
+treat `view` as an optional parameter defaulting to `upcoming`. `list` and `detail` add
+`view`, `view_counts`, `bucket`, `after_date` and `repeat_count`; no existing field changed.
 
 ## Acceptance and rollout gates
 

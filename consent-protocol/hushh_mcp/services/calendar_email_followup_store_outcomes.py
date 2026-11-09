@@ -15,7 +15,10 @@ from typing import Any, Literal
 
 from sqlalchemy import text
 
-from hushh_mcp.services.calendar_email_followup_relevance import ASSESSMENT_VERSION
+from hushh_mcp.services.calendar_email_followup_relevance import (
+    ASSESSMENT_VERSION,
+    SETTLED_ASSESSMENT_VERSION,
+)
 from hushh_mcp.services.calendar_email_followup_store_types import FollowupStateError, Monitor
 
 Outcome = Literal["assessed", "unreadable", "gone"]
@@ -109,14 +112,20 @@ def _retire_unlisted(conn: Any, monitor: Monitor, thread_hmac: str, listed: list
             text("""SELECT message_hmac FROM calendar_email_followup_scanned_messages
             WHERE user_id=:user_id AND account_id=:account_id
               AND thread_hmac=:thread_hmac AND outcome='assessed'
-            AND (assessment_version<:version OR EXISTS (
+            AND (assessment_version<:settled OR EXISTS (
               SELECT 1 FROM calendar_email_followup_requests r
               WHERE r.user_id=:user_id AND r.account_id=:account_id
                 AND r.source_message_hmac=calendar_email_followup_scanned_messages.message_hmac
                 AND r.suppressed_at IS NULL
                 AND r.assessment_version<:version))
               AND message_hmac<>ALL(CAST(:listed AS TEXT[]))"""),
-            {**scope, "thread_hmac": thread_hmac, "version": ASSESSMENT_VERSION, "listed": listed},
+            {
+                **scope,
+                "thread_hmac": thread_hmac,
+                "version": ASSESSMENT_VERSION,
+                "settled": SETTLED_ASSESSMENT_VERSION,
+                "listed": listed,
+            },
         )
         .scalars()
         .all()
@@ -143,13 +152,23 @@ class _ScanOutcomes:
             with self.db.engine.begin() as conn:  # type: ignore[attr-defined]
                 row = (
                     conn.execute(
+                        # A message settled under an earlier contract that backs no
+                        # visible request was already judged not to be Calendar work.
+                        # Only a message that still backs an older-contract request
+                        # is read again, so a version bump never re-reads a mailbox.
                         text("""SELECT s.body_digest,s.outcome,
-                        LEAST(s.assessment_version,COALESCE((
+                        CASE WHEN s.assessment_version>=:settled AND NOT EXISTS (
+                          SELECT 1 FROM calendar_email_followup_requests r
+                          WHERE r.user_id=s.user_id AND r.account_id=s.account_id
+                            AND r.source_message_hmac=s.message_hmac
+                            AND r.suppressed_at IS NULL)
+                        THEN GREATEST(s.assessment_version,:version)
+                        ELSE LEAST(s.assessment_version,COALESCE((
                           SELECT min(r.assessment_version) FROM calendar_email_followup_requests r
                           WHERE r.user_id=s.user_id AND r.account_id=s.account_id
                             AND r.source_message_hmac=s.message_hmac
                             AND r.suppressed_at IS NULL
-                        ),s.assessment_version)) AS assessment_version
+                        ),s.assessment_version)) END AS assessment_version
                         FROM calendar_email_followup_scanned_messages s
                         WHERE s.user_id=:user_id AND s.account_id=:account_id
                           AND s.message_hmac=:message_hmac"""),
@@ -157,6 +176,8 @@ class _ScanOutcomes:
                             "user_id": monitor.user_id,
                             "account_id": monitor.account_id,
                             "message_hmac": message_hmac,
+                            "settled": SETTLED_ASSESSMENT_VERSION,
+                            "version": ASSESSMENT_VERSION,
                         },
                     )
                     .mappings()
@@ -340,7 +361,7 @@ class _ScanOutcomes:
                          AND c.thread_hmac=s.thread_hmac
                         WHERE s.user_id=:user_id AND s.account_id=:account_id
                           AND s.outcome='assessed'
-                          AND (s.assessment_version<:version OR EXISTS (
+                          AND (s.assessment_version<:settled OR EXISTS (
                             SELECT 1 FROM calendar_email_followup_requests r
                             WHERE r.user_id=s.user_id AND r.account_id=s.account_id
                               AND r.source_message_hmac=s.message_hmac
@@ -353,6 +374,7 @@ class _ScanOutcomes:
                             "user_id": monitor.user_id,
                             "account_id": monitor.account_id,
                             "version": ASSESSMENT_VERSION,
+                            "settled": SETTLED_ASSESSMENT_VERSION,
                             "cutoff": cutoff_ms,
                             "fetch": limit + len(exclude),
                         },

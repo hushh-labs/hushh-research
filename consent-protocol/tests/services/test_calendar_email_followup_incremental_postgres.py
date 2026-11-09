@@ -57,6 +57,11 @@ class _Gmail:
         return sum(1 for path, _ in self.calls if path.endswith("/messages/" + message_id))
 
 
+# The scan clock these tests freeze. Reads use it too: which list a request
+# belongs to depends on the date, so the read must see the same day the scan did.
+SCAN_DAY = datetime(2026, 10, 11, tzinfo=UTC)
+
+
 def _make_due(engine) -> None:
     with engine.begin() as connection:
         connection.execute(text("UPDATE calendar_email_followup_monitors SET next_scan_at=NOW()"))
@@ -311,7 +316,12 @@ async def test_initial_scan_reads_every_page_long_body_and_recovers_a_provider_f
     assert done["coverage"]["unreadable_count"] == 1
     assert done["incomplete_source_count"] == 0
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
-    listing = await store.list_conversations(monitor, limit=10)
+    # The deadline (30 Oct) is before the scan day (1 Nov): it is unresolved work,
+    # so it leaves Upcoming but stays reachable as Overdue; nothing is closed.
+    upcoming = await store.list_conversations(monitor, limit=10, now=now)
+    assert upcoming["total_conversations"] == 0
+    assert upcoming["view_counts"] == {"upcoming": 0, "overdue": 1, "snoozed": 0, "history": 0}
+    listing = await store.list_conversations(monitor, limit=10, now=now, view="overdue")
     titles = {
         item["title"]
         for conversation in listing["conversations"]
@@ -344,10 +354,10 @@ async def test_each_account_scan_uses_only_its_own_mailbox_and_results(followup_
     assert {token for _, token in gmail_a.calls} == {"Bearer synthetic-mail-access-synthetic-iso-a"}
     assert {token for _, token in gmail_b.calls} == {"Bearer synthetic-mail-access-synthetic-iso-b"}
     listing_a = await store.list_conversations(
-        await store.monitor(user_id=OWNER, account_id=account_a), limit=10
+        await store.monitor(user_id=OWNER, account_id=account_a), limit=10, now=now
     )
     listing_b = await store.list_conversations(
-        await store.monitor(user_id=OWNER, account_id=account_b), limit=10
+        await store.monitor(user_id=OWNER, account_id=account_b), limit=10, now=now
     )
     assert listing_a["total_conversations"] == 1
     assert listing_b["total_conversations"] == 0
@@ -419,7 +429,9 @@ async def test_existing_calendar_meeting_is_linked_not_recreated_and_new_one_nee
     await _drain(store, engine, selected, gmail.transport, now=datetime(2026, 10, 11, tzinfo=UTC))
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
     # The proposal is the meeting that is already on the Calendar: no follow-up.
-    assert (await store.list_conversations(monitor, limit=10))["total_conversations"] == 0
+    assert (await store.list_conversations(monitor, limit=10, now=SCAN_DAY))[
+        "total_conversations"
+    ] == 0
 
     async def empty_calendar(**_kwargs):
         return {"events": [], "truncated": False}
@@ -436,7 +448,7 @@ async def test_existing_calendar_meeting_is_linked_not_recreated_and_new_one_nee
     monkeypatch.setattr(scan, "reconcile_candidates", reconcile_new)
     await _drain(store, engine, selected, gmail.transport, now=datetime(2026, 10, 11, tzinfo=UTC))
     monitor = await store.monitor(user_id=OWNER, account_id=selected)
-    listing = await store.list_conversations(monitor, limit=10)
+    listing = await store.list_conversations(monitor, limit=10, now=SCAN_DAY)
     request = listing["conversations"][0]["preview_requests"][0]
     # Nothing was booked: it is surfaced as a proposal that still needs the owner.
     assert request["kind"] == "meeting" and request["meeting_state"] == "proposed"
