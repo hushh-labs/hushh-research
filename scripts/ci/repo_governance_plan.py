@@ -20,6 +20,10 @@ MAX_PATH_BYTES = 2048
 REGRESSION_GROUPS = ("controller", "retention", "agent")
 VALID_LEVELS = ("focused", "release", "diagnostic")
 RELEASE_CONTROLLER_TESTS = (
+    "consent-protocol/tests/scripts/test_managed_provider_receipt.py",
+    "consent-protocol/tests/test_capability_graph_gate_compares_against_base.py",
+    "consent-protocol/tests/test_capability_graph_dev_phone_history.py",
+    "consent-protocol/tests/test_location_workflow_compatibility.py",
     "consent-protocol/tests/test_runtime_config_retention.py",
     "consent-protocol/tests/test_plg_deploy_bindings.py",
     "consent-protocol/tests/test_azure_runtime_config_wiring.py",
@@ -123,6 +127,8 @@ RiskSnapshot.load(str(manifest))
            "consent-protocol/tests/services/test_email_auth_postgres.py::test_domain_admission_requires_usable_safe_mail_route",
            "consent-protocol/tests/services/test_email_auth_postgres.py::test_required_risk_expiry_must_be_finite",
            groups=("controller",)),
+    _check("capability-graph-integrity", "uv", "run", "--frozen", "--project", "consent-protocol",
+           "python", "consent-protocol/scripts/generate_capability_graph.py", "--check", groups=("controller",)),
     _check("release-controller-contracts", "uv", "run", "--frozen", "--project", "consent-protocol",
            "python", "-m", "pytest", "-q", *RELEASE_CONTROLLER_TESTS, groups=("controller",)),
     _check("skill-lint", "python3", ".agents/skills/codex-skill-authoring/scripts/skill_lint.py", diagnostic=True),
@@ -341,6 +347,9 @@ def _path_groups(path: str) -> tuple[frozenset[str], str | None]:
         "consent-protocol/tests/test_account_deletion_release_workflow.py",
         *RESTORATION_FIXTURE_INPUTS,
         *RELEASE_CONTROLLER_TESTS,
+        "scripts/ci/capture_managed_provider_receipt.py",
+        "consent-protocol/scripts/generate_capability_graph.py",
+        "consent-protocol/tests/helpers/capability_graph_fixture.py",
         "consent-protocol/tests/helpers/plg_qualification.py",
     }:
         return frozenset({"controller"}), None

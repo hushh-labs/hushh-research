@@ -162,10 +162,13 @@ source extraction alone does not activate branch routing. No merge implies deplo
 
 Use focused or release governance with the exact changed files. The diagnostic
 profile runs the historical full set. Missing inputs stay conservative. Run the
-core mirror for cross-stage changes and `codex pre-pr` for PR impact and affected
+core mirror for cross-stage changes and `./bin/hushh agents pre-pr` for PR impact and affected
 owners. App-browser proof requires explicit diagnostics; hosted compilation and
 functional contracts do not certify live browser behavior. Use an exact-source, next-attempt retry after a
-diagnosed failure, and keep live authority and security gates blocking.
+diagnosed failure, and keep live authority and security gates blocking. Ordinary
+UAT uses core provider readiness; secondary features retain separate diagnostic
+outcomes. Follow the [CI policy](../../../docs/reference/operations/ci.md#managed-provider-readiness-policy)
+and qualify a policy-changing combined candidate once before release.
 
 ```bash
 ./bin/hushh agents ci-status
