@@ -11,7 +11,8 @@ from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from tests.services.test_calendar_attendance_service import _service
 
 
-def _review(service, *, review_kind="rsvp"):
+def _review(service, calendar, *, review_kind="rsvp"):
+    calendar.event["attendees"][1]["responseStatus"] = "needsAction"
     return asyncio.run(
         service.review(
             user_id="owner",
@@ -55,7 +56,7 @@ def test_calendar_only_confirmation_binds_account_and_claims_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service, calendar, _, mail = _service(monkeypatch)
-    review = _review(service)
+    review = _review(service, calendar)
     calendar.connections.account_id = "different-account"
     with pytest.raises(GoogleConnectionError):
         asyncio.run(
@@ -95,7 +96,7 @@ def test_attendance_review_cannot_cross_authority_routes(
     monkeypatch: pytest.MonkeyPatch, source: str, destination: str
 ) -> None:
     service, calendar, db, mail = _service(monkeypatch)
-    review = _review(service, review_kind=source)
+    review = _review(service, calendar, review_kind=source)
     with pytest.raises(GoogleConnectionError) as caught:
         if destination == "rsvp":
             asyncio.run(
@@ -125,7 +126,7 @@ def test_direct_calendar_review_rejects_replay_and_changed_grant(
     monkeypatch: pytest.MonkeyPatch, review_kind: str
 ) -> None:
     service, calendar, _, mail = _service(monkeypatch)
-    review = _review(service, review_kind=review_kind)
+    review = _review(service, calendar, review_kind=review_kind)
     confirm = service.confirm_rsvp if review_kind == "rsvp" else service.confirm
     kwargs = {
         "user_id": "owner",
@@ -153,7 +154,7 @@ def test_direct_calendar_review_rejects_read_only_grant_before_claim(
     monkeypatch: pytest.MonkeyPatch, review_kind: str
 ) -> None:
     service, calendar, db, mail = _service(monkeypatch)
-    review = _review(service, review_kind=review_kind)
+    review = _review(service, calendar, review_kind=review_kind)
     calendar.allow_manage = False
     confirm = service.confirm_rsvp if review_kind == "rsvp" else service.confirm
     kwargs = {
@@ -175,7 +176,7 @@ def test_calendar_only_review_rejects_wrong_owner_tampering_and_expiry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service, calendar, db, mail = _service(monkeypatch)
-    review = _review(service)
+    review = _review(service, calendar)
     kwargs = {"review_id": review["review_id"], "review_token": review["review_token"]}
     with pytest.raises(GoogleConnectionError) as wrong_owner:
         asyncio.run(service.confirm_rsvp(user_id="other-owner", **kwargs))
@@ -198,3 +199,38 @@ def test_calendar_only_review_rejects_wrong_owner_tampering_and_expiry(
     assert db.rows[review["review_id"]]["state"] == "prepared"
     assert not any(request.get("method") == "PATCH" for request in calendar.requests)
     assert mail.sends == []
+
+
+@pytest.mark.parametrize("review_kind", ["rsvp", "workspace"])
+@pytest.mark.parametrize("status", ["accepted", "declined"])
+async def test_final_invitation_cannot_prepare_another_direct_response(
+    monkeypatch, review_kind, status
+):
+    service, calendar, db, mail = _service(monkeypatch)
+    calendar.event["attendees"][1]["responseStatus"] = status
+    with pytest.raises(GoogleConnectionError) as caught:
+        await service.review(user_id="owner", event_id="event/id", review_kind=review_kind)
+
+    assert caught.value.reason_code == "calendar_invitation_already_responded"
+    assert not db.rows
+    assert not any(request.get("method") == "PATCH" for request in calendar.requests)
+    assert not mail.sends
+
+
+def test_confirm_rechecks_final_invitation_before_provider_write(monkeypatch):
+    service, calendar, _, mail = _service(monkeypatch)
+    review = _review(service, calendar)
+    calendar.event["attendees"][1]["responseStatus"] = "accepted"
+
+    result = asyncio.run(
+        service.confirm_rsvp(
+            user_id="owner",
+            review_id=review["review_id"],
+            review_token=review["review_token"],
+        )
+    )
+
+    assert result["calendar"] == "failed"
+    assert result["calendar_error"] == "You already responded to this invitation."
+    assert not any(request.get("method") == "PATCH" for request in calendar.requests)
+    assert not mail.sends

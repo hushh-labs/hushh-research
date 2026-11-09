@@ -14,6 +14,7 @@ from hushh_mcp.services.calendar_email_followup_account import SelectedMailAcces
 from hushh_mcp.services.calendar_email_followup_coverage import (
     MAX_MESSAGE_FAILURES,
     source_disposition,
+    source_exhausted,
 )
 from hushh_mcp.services.calendar_email_followup_extraction import ValidatedCandidate
 from hushh_mcp.services.calendar_email_followup_reader import (
@@ -121,7 +122,8 @@ async def _fail_message(
     """
     failures = checkpoint.setdefault("message_failures", {})
     count = int(failures.get(message.message_id, 0)) + 1
-    if count < MAX_MESSAGE_FAILURES:
+    source = checkpoint.get("incomplete_sources", {}).get(message.thread_id, {})
+    if count < MAX_MESSAGE_FAILURES and not source_exhausted(source):
         failures[message.message_id] = count
         raise CompleteMailReadError("analysis_unavailable", retryable=True)
     failures.pop(message.message_id, None)

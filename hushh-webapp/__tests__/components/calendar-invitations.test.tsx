@@ -57,6 +57,18 @@ describe("shared page/chat Invitations with real typed transport", () => {
     expect(mutations()).toHaveLength(0); expect(onConnect).not.toHaveBeenCalled();
   });
 
+  it.each(["accepted", "declined"] as const)("keeps a %s workspace invitation read-only", async status => {
+    invitations = [{ ...pending, response_status: status }];
+    render(view({ workspaceLayout: true }));
+    await screen.findByText("No pending invitations on this date.");
+    expect(screen.queryByRole("heading", { name: "Needs your response" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Responded" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open invitation: Client Sync" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Client Sync");
+    expect(screen.queryByLabelText("Invitation actions")).not.toBeInTheDocument();
+    expect(preparations()).toHaveLength(0);
+  });
+
   it.each(["Chris Onboarding X Agent One", "Chris  Onboarding X\u00a0Agent One", "ChrisOnboardingXAgentOne"])("preserves the provider title exactly in the list and detail: %s", async title => {
     invitations[0]!.title = title;
     render(view({ workspaceLayout: true }));
