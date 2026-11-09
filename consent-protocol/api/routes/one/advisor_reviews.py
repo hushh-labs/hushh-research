@@ -110,14 +110,18 @@ async def create(request: Request, body: CreateAdvisorReview, viewer: str = Depe
 
 
 @router.get("/{request_id}")
-async def view(request_id: UUID, viewer: str = Depends(identity)):
-    return await asyncio.to_thread(AdvisorReviewService().view, viewer, str(request_id))
+async def view(request_id: UUID, viewer: str = Depends(identity), ui: Literal["2"] | None = None):
+    return await asyncio.to_thread(AdvisorReviewService().view, viewer, str(request_id), ui == "2")
 
 
 @router.post("/{request_id}/decision")
 async def decision(request_id: UUID, body: ReviewDecision, viewer: str = Depends(identity)):
     return await asyncio.to_thread(
-        AdvisorReviewService().decide, viewer, str(request_id), body.action
+        AdvisorReviewService().decide,
+        viewer,
+        str(request_id),
+        body.action,
+        body.requireExistingConnection,
     )
 
 

@@ -137,7 +137,9 @@ export function AdvisorWorkspace({
       }
       description={
         review?.status === "pending"
-          ? "One request to connect and review a Finance snapshot."
+          ? review.alreadyConnected
+            ? "Already connected"
+            : "One request to connect and review a Finance snapshot."
           : "Your introduction, meeting and plan."
       }
       surfaceClassName={finance.detail}
@@ -178,7 +180,9 @@ export function AdvisorWorkspace({
               <div className={styles.notice}>
                 The full Finance snapshot is sealed.{" "}
                 {incoming
-                  ? "Accepting connects you and opens it."
+                  ? review.alreadyConnected
+                    ? "Accept to open the snapshot."
+                    : "Accepting connects you and opens it."
                   : "Only this advisor can open it after accepting."}{" "}
                 No subscription or payment is included.
               </div>
@@ -202,11 +206,11 @@ export function AdvisorWorkspace({
                       disabled={busy}
                       onClick={() =>
                         void run(() =>
-                          AdvisorReviewService.decide(context, id, "accept"),
+                          AdvisorReviewService.decide(context, id, "accept", review.alreadyConnected),
                         )
                       }
                     >
-                      Accept & connect
+                      {review.alreadyConnected ? "Accept" : "Accept & connect"}
                     </ShellActionSurface>
                   </>
                 ) : (
