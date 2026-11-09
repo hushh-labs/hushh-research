@@ -386,7 +386,7 @@ validation_finish
     def failed():
         seen.append("first-failed")
         raise KeyError("intentional offline regression")
-    environment.test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads = failed
+    environment.test_exact_branch_inventory_refuses_wildcards_and_incomplete_reads = failed
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
         assert environment.main() == 1
     assert "first-failed" in seen
