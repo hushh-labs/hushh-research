@@ -64,7 +64,7 @@ describe("LocationPickerMap", () => {
         };
       }
 
-      panTo(point: { lat: number; lng: number }) {
+      setCenter(point: { lat: number; lng: number }) {
         currentCenter = point;
       }
 
@@ -139,6 +139,87 @@ describe("LocationPickerMap", () => {
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 
+
+  it.each([-281.628, 438.372])("geocodes and confirms the same pin from world-copy longitude %s", async (longitude) => {
+    const onConfirm = vi.fn();
+    const reverseGeocode = vi.fn().mockResolvedValue("Kamuthi, Tamil Nadu, India");
+    render(
+      <LocationPickerMap
+        initialLatitude={37.787}
+        initialLongitude={-122.406}
+        initialAddress="San Francisco, CA 94108, USA"
+        reverseGeocode={reverseGeocode}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+        confirmLabel="Confirm pin"
+      />,
+    );
+
+    currentCenter = { lat: 9.409, lng: longitude };
+    act(() => {
+      listeners.get("dragstart")?.();
+      listeners.get("idle")?.();
+    });
+    expect(await screen.findByText("Kamuthi, Tamil Nadu, India")).toBeInTheDocument();
+    expect(reverseGeocode).toHaveBeenCalledWith(9.409, expect.closeTo(78.372));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+    expect(onConfirm).toHaveBeenCalledWith({
+      latitude: 9.409,
+      longitude: expect.closeTo(78.372),
+      address: "Kamuthi, Tamil Nadu, India",
+    });
+  });
+
+  it("confirms a GPS pin without camera idle or a matching address", async () => {
+    const onConfirm = vi.fn();
+    const reverseGeocode = vi.fn().mockResolvedValue(null);
+    render(
+      <LocationPickerMap
+        initialLatitude={37.787}
+        initialLongitude={-122.406}
+        initialAddress="San Francisco, CA 94108, USA"
+        onLocateMe={async () => ({ latitude: 9.409, longitude: 78.372 })}
+        reverseGeocode={reverseGeocode}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+        confirmLabel="Confirm pin"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Use my current location" }));
+    const confirm = screen.getByRole("button", { name: "Confirm pin" });
+    await waitFor(() => expect(reverseGeocode).toHaveBeenCalledWith(9.409, 78.372));
+    await waitFor(() => expect(confirm).toBeEnabled());
+    expect(screen.queryByText(/San Francisco/)).not.toBeInTheDocument();
+    fireEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith({ latitude: 9.409, longitude: 78.372, address: null });
+  });
+
+  it("discards a GPS fix when the picker closes while locating", async () => {
+    let resolveFix: (fix: { latitude: number; longitude: number }) => void = () => undefined;
+    const fix = new Promise<{ latitude: number; longitude: number }>((resolve) => {
+      resolveFix = resolve;
+    });
+    const reverseGeocode = vi.fn();
+    const { unmount } = render(
+      <LocationPickerMap
+        initialLatitude={28.6139}
+        initialLongitude={77.209}
+        onLocateMe={() => fix}
+        reverseGeocode={reverseGeocode}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use my current location" }));
+    unmount();
+    await act(async () => {
+      resolveFix({ latitude: 9.409, longitude: 78.372 });
+      await fix;
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+    expect(reverseGeocode).not.toHaveBeenCalled();
+  });
 
   it("blocks confirmation until the moved centre has a matching address", async () => {
     vi.useFakeTimers();

@@ -35,7 +35,10 @@ import {
   withNativeMapLock,
 } from "@/lib/one-location/native-map-lifecycle";
 import { LocationPickerUnavailable } from "./location-picker-unavailable";
+import { wrappedLongitude } from "@/lib/one-location/map-world-view";
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { cn } from "@/lib/utils";
+import { withDeadline } from "@/lib/utils/with-deadline";
 
 export type PickedLocation = {
   latitude: number;
@@ -99,6 +102,7 @@ export interface LocationPickerMapProps {
 }
 
 const PIN_REVERSE_GEOCODE_DEBOUNCE_MS = 350;
+const PIN_ADDRESS_PROVIDER_TIMEOUT_MS = 3_000;
 // Distinct id so the onboarding picker never collides with the immersive
 // "Your Map" native map instance.
 const PICKER_NATIVE_MAP_ID = "one-location-onboarding-picker-map";
@@ -112,6 +116,11 @@ function isValidCoordinate(lat: number, lng: number): boolean {
     lng >= -180 &&
     lng <= 180
   );
+}
+
+/** Google Maps may return a coordinate on another copy of the globe. */
+function rendererLongitude(longitude: number): number {
+  return longitude < -180 || longitude > 180 ? wrappedLongitude(longitude) : longitude;
 }
 
 /**
@@ -172,6 +181,13 @@ export function LocationPickerMap({
   const resolveIdRef = useRef(0);
   const debounceRef = useRef<number | null>(null);
   const hasInteractedRef = useRef(false);
+  const gestureVersionRef = useRef(0);
+  const reverseGeocodeRef = useRef(reverseGeocode);
+  const initialPinRef = useRef({
+    lat: initialLatitude,
+    lng: initialLongitude,
+    address: initialAddress,
+  });
   const mapUnavailableDescriptionId = useId();
 
   const centerRef = useRef<{ lat: number; lng: number }>({
@@ -191,8 +207,24 @@ export function LocationPickerMap({
 
   useEffect(() => {
     if (hasInteractedRef.current) return;
-    setAddress((initialAddress && initialAddress.trim()) || null);
-  }, [initialAddress]);
+    const pin = initialPinRef.current;
+    if (pin.lat !== initialLatitude || pin.lng !== initialLongitude) return;
+    pin.address = initialAddress?.trim() || null;
+    setAddress(pin.address);
+  }, [initialAddress, initialLatitude, initialLongitude]);
+
+  useEffect(() => {
+    reverseGeocodeRef.current = reverseGeocode;
+  }, [reverseGeocode]);
+
+  useEffect(() => () => {
+    gestureVersionRef.current += 1;
+    resolveIdRef.current += 1;
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  }, []);
 
   // Resolve the pinned coordinate to a human address entirely in the browser.
   // Primary path is google.maps.Geocoder (classic Geocoding API). Some Maps
@@ -274,39 +306,61 @@ export function LocationPickerMap({
 
   const scheduleResolve = useCallback(
     (lat: number, lng: number) => {
+      if (!isValidCoordinate(lat, lng)) return;
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
       }
-      // The map centre is now authoritative. Invalidate the old address before
-      // the debounce starts so Confirm cannot pair new coordinates with stale
-      // reverse-geocoded copy from the previous centre.
-      const requestId = resolveIdRef.current + 1;
-      resolveIdRef.current = requestId;
-      setAddress(null);
+      centerRef.current = { lat, lng };
+      setDragging(false);
+      const requestId = ++resolveIdRef.current;
+      const original = initialPinRef.current;
+      const originalAddress = haversineMeters(original, { lat, lng }) <= 1
+        ? original.address
+        : null;
+      setAddress(originalAddress);
       setResolving(true);
       setLocationError(null);
       debounceRef.current = window.setTimeout(() => {
         debounceRef.current = null;
-        // On native the browser JS SDK is not loaded, so the server-side
-        // reverseGeocode prop is the only resolver; the browser fallback simply
-        // returns null there and the owner completes the address on the next step.
-        const resolve = reverseGeocode ?? reverseGeocodeInBrowser;
-        void Promise.resolve(resolve(lat, lng))
-          .then((next) => {
-            if (resolveIdRef.current !== requestId) return;
-            setAddress((next && next.trim()) || null);
-          })
-          .catch(() => {
-            if (resolveIdRef.current !== requestId) return;
-            setAddress(null);
-          })
-          .finally(() => {
-            if (resolveIdRef.current === requestId) setResolving(false);
-          });
+        const resolve = async () => {
+          const serverResolver = reverseGeocodeRef.current;
+          const serverAddress = serverResolver
+            ? await withDeadline(
+                Promise.resolve().then(() => serverResolver(lat, lng)),
+                Date.now() + PIN_ADDRESS_PROVIDER_TIMEOUT_MS,
+              ).catch(() => null)
+            : null;
+          if (typeof serverAddress === "string" && serverAddress.trim()) return serverAddress.trim();
+          if (!mapRef.current || resolveIdRef.current !== requestId) return originalAddress;
+          const browserAddress = await withDeadline(
+            reverseGeocodeInBrowser(lat, lng),
+            Date.now() + PIN_ADDRESS_PROVIDER_TIMEOUT_MS,
+          ).catch(() => null);
+          return browserAddress?.trim() || originalAddress;
+        };
+        void resolve().then((next) => {
+          if (resolveIdRef.current !== requestId) return;
+          setAddress(next);
+          setResolving(false);
+        });
       }, PIN_REVERSE_GEOCODE_DEBOUNCE_MS);
     },
-    [reverseGeocode, reverseGeocodeInBrowser],
+    [reverseGeocodeInBrowser],
   );
+
+  const startDragging = useCallback(() => {
+    gestureVersionRef.current += 1;
+    hasInteractedRef.current = true;
+    setHasInteracted(true);
+    resolveIdRef.current += 1;
+    if (debounceRef.current !== null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    setAddress(null);
+    setResolving(true);
+    setDragging(true);
+  }, []);
 
   // WEB: build the interactive JS map once the API is ready. Google applies
   // colorScheme only at construction, so the container is keyed by scheme to
@@ -325,37 +379,21 @@ export function LocationPickerMap({
     });
     mapRef.current = map;
 
-    const dragStart = map.addListener("dragstart", () => {
-      hasInteractedRef.current = true;
-      setHasInteracted(true);
-      resolveIdRef.current += 1;
-      if (debounceRef.current !== null) {
-        window.clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
-      setAddress(null);
-      setResolving(true);
-      setDragging(true);
-    });
+    const dragStart = map.addListener("dragstart", startDragging);
     const idle = map.addListener("idle", () => {
       const center = map.getCenter();
       if (!center) return;
-      const lat = center.lat();
-      const lng = center.lng();
-      centerRef.current = { lat, lng };
-      setDragging(false);
+      scheduleResolve(center.lat(), rendererLongitude(center.lng()));
+    });
+    const click = map.addListener("click", (event: google.maps.MapMouseEvent) => {
+      if (!event.latLng) return;
+      const lat = event.latLng.lat();
+      const lng = rendererLongitude(event.latLng.lng());
+      if (!isValidCoordinate(lat, lng)) return;
+      map.setCenter(event.latLng);
+      startDragging();
       scheduleResolve(lat, lng);
     });
-    // Tapping the map recenters the pin on that spot (a second familiar gesture).
-    const click = map.addListener(
-      "click",
-      (event: google.maps.MapMouseEvent) => {
-        if (!event.latLng) return;
-        hasInteractedRef.current = true;
-        setHasInteracted(true);
-        map.panTo(event.latLng);
-      },
-    );
 
     return () => {
       dragStart.remove();
@@ -429,25 +467,12 @@ export function LocationPickerMap({
         nativeMapRef.current = map;
         // Dragging the native map starts a camera move: invalidate the address
         // so Confirm never pairs a new centre with stale copy.
-        await map.setOnCameraMoveStartedListener(() => {
-          hasInteractedRef.current = true;
-          setHasInteracted(true);
-          resolveIdRef.current += 1;
-          if (debounceRef.current !== null) {
-            window.clearTimeout(debounceRef.current);
-            debounceRef.current = null;
-          }
-          setAddress(null);
-          setResolving(true);
-          setDragging(true);
+        await map.setOnCameraMoveStartedListener(({ isGesture }) => {
+          if (isGesture && !superseded()) startDragging();
         });
-        // When the camera settles, the centre coordinate is authoritative — the
-        // fixed centre pin marks it. Reverse-geocode the settled centre.
         await map.setOnCameraIdleListener((data) => {
-          if (!isValidCoordinate(data.latitude, data.longitude)) return;
-          centerRef.current = { lat: data.latitude, lng: data.longitude };
-          setDragging(false);
-          scheduleResolve(data.latitude, data.longitude);
+          if (superseded()) return;
+          scheduleResolve(data.latitude, rendererLongitude(data.longitude));
         });
         setNativeStatus("ready");
       }
@@ -502,57 +527,33 @@ export function LocationPickerMap({
 
   const handleLocateMe = useCallback(async () => {
     if (!onLocateMe || locating) return;
+    const gestureVersion = gestureVersionRef.current;
     setLocating(true);
     setLocationError(null);
     try {
-      const fix = await onLocateMe();
+      const fix = await withDeadline(onLocateMe(), Date.now() + 20_000);
+      if (gestureVersion !== gestureVersionRef.current) return;
       if (fix && isValidCoordinate(fix.latitude, fix.longitude)) {
-        hasInteractedRef.current = true;
-        setHasInteracted(true);
-        resolveIdRef.current += 1;
-        if (debounceRef.current !== null) {
-          window.clearTimeout(debounceRef.current);
-          debounceRef.current = null;
-        }
-        setAddress(null);
-        setResolving(true);
-        centerRef.current = { lat: fix.latitude, lng: fix.longitude };
+        const { latitude: lat, longitude: lng } = fix;
         if (native) {
-          // `setCamera` reads `mapViewController.GMapView`, which the plugin
-          // declares as an implicitly unwrapped `GMSMapView!`. Calling it while
-          // the native map is being created or destroyed hits a nil there and
-          // traps -- EXC_BREAKPOINT in Map.setCamera(config:), which kills the
-          // app outright rather than throwing something JS could catch. The
-          // teardown above clears `nativeMapRef` synchronously but destroys the
-          // map asynchronously inside the lock, and the create effect re-runs
-          // when the theme resolves, so a tap landing in that window crashed.
-          //
-          // Take the same lock the create and destroy take, and re-read the ref
-          // inside it, so this can never overlap either one.
-          let moved = false;
+          // The Capacitor bridge must not set a camera while its native view
+          // is being created or destroyed.
           await withNativeMapLock(PICKER_NATIVE_MAP_ID, async () => {
             const map = nativeMapRef.current;
-            if (!map || status !== "ready") return;
-            // The camera-idle listener re-resolves the address after the move.
-            await map.setCamera({
-              coordinate: { lat: fix.latitude, lng: fix.longitude },
-              zoom: 17,
-              animate: true,
-            });
-            moved = true;
-          }).catch(() => undefined);
-          // No map to move (torn down, or still coming up): resolve the address
-          // for the fix directly so the pin still follows the person.
-          if (!moved) scheduleResolve(fix.latitude, fix.longitude);
+            if (map && status === "ready" && gestureVersion === gestureVersionRef.current) {
+              await map.setCamera({ coordinate: { lat, lng }, zoom: 17, animate: false });
+            }
+          });
         } else {
           const map = mapRef.current;
-          if (map) {
-            map.panTo({ lat: fix.latitude, lng: fix.longitude });
-            map.setZoom(17);
-          } else {
-            scheduleResolve(fix.latitude, fix.longitude);
-          }
+          map?.setCenter({ lat, lng });
+          map?.setZoom(17);
         }
+        if (gestureVersion !== gestureVersionRef.current) return;
+        hasInteractedRef.current = true;
+        setHasInteracted(true);
+        // Camera APIs may skip idle when the centre and zoom are unchanged.
+        scheduleResolve(lat, lng);
       } else {
         setLocationError("Move the map manually.");
       }

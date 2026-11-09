@@ -244,8 +244,8 @@ function smsCircleCapacityDescription(
   loading: boolean,
   error: string | null,
 ): string {
-  if (loading) return "Checking available places…";
-  if (error) return "Couldn’t check available places.";
+  if (loading) return "Checking how many people you can add…";
+  if (error) return "Couldn’t check how many people you can add.";
   if (remainingCapacity === 0) return "Your SMS Circle is full.";
   return `You can add ${remainingCapacity} more ${remainingCapacity === 1 ? "person" : "people"}.`;
 }
@@ -2969,8 +2969,8 @@ export function CircleDetailFlow({
 
                 <TaskSurfaceBody>
                   {peopleLoading ? (
-                    <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-5 w-5 animate-spin" />
+                    <div role="status" className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
                       Loading connections…
                     </div>
                   ) : peopleLoadError ? (

@@ -326,6 +326,26 @@ def test_circle_member_queries_use_the_shared_verified_ria_gate() -> None:
     assert "ria_profiles ria_annotation" in source
 
 
+def test_circle_add_reports_a_deleted_peer_without_retrying_the_write() -> None:
+    deleted = RuntimeError("private constraint context")
+    deleted.diag = SimpleNamespace(constraint_name="account_deletion_tombstone_guard")
+
+    class Connection:
+        def execute(self, statement, params):
+            if "pg_advisory_xact_lock_shared" not in str(statement):
+                raise deleted
+
+    service = OneLocationCircleService(db=_TransactionDb(Connection()), hmac_key="a" * 32)
+    with pytest.raises(OneLocationCircleError) as error:
+        service.create_member_invites(
+            actor_user_id="owner",
+            circle_id="550e8400-e29b-41d4-a716-446655440000",
+            invitee_user_ids=["retired"],
+        )
+    assert (error.value.status_code, error.value.code) == (409, "LOCATION_PEER_UNAVAILABLE")
+    assert "private" not in str(error.value)
+
+
 def test_eligible_connection_queries_use_the_shared_verified_ria_gate() -> None:
     import inspect
 
@@ -402,6 +422,8 @@ class _CapacityConnection:
 
     def execute(self, statement, params):
         sql = str(statement)
+        if "pg_advisory_xact_lock_shared" in sql:
+            return _Rows()
         self.sql.append(sql)
         self.params.append(dict(params))
         if "current_setting('hushh.circle_member_add_batch_id'" in sql:

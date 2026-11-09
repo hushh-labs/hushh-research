@@ -119,11 +119,44 @@ import type {
   PlainLocationPoint,
 } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { SEMANTIC_ROLE_CLASSES } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { cn } from "@/lib/utils";
 
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
+
+function nearbyPresenceLoadIssue(error: unknown): {
+  message: string;
+  action: "verify-phone" | "retry" | null;
+} {
+  const code = apiErrorCode(error);
+  if (code === "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED") {
+    return {
+      message: "Verify your phone number to check in nearby.",
+      action: "verify-phone",
+    };
+  }
+  if (error instanceof ApiError) {
+    if (error.status === 404 && code === "NEARBY_PRESENCE_UNAVAILABLE") {
+      return { message: "Nearby check-in is not available for this account.", action: null };
+    }
+    if (error.status === 401) {
+      return { message: "Your session expired. Sign in again to check in nearby.", action: null };
+    }
+    if (error.status === 429) {
+      return { message: "Too many status checks. Wait a moment and retry.", action: "retry" };
+    }
+    return {
+      message: "Nearby check-in status is temporarily unavailable. Try again shortly.",
+      action: "retry",
+    };
+  }
+  return {
+    message: "Nearby check-in could not be loaded. Check your connection and retry.",
+    action: "retry",
+  };
+}
 
 /**
  * The three stay lengths, now offered as one dropdown instead of three cells.
@@ -761,7 +794,7 @@ export function NearbyCheckInSheet({
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationRecovery, setLocationRecovery] =
     useState<LocationRecovery>(null);
-  const [presenceLoadError, setPresenceLoadError] = useState<string | null>(
+  const [presenceLoadError, setPresenceLoadError] = useState<ReturnType<typeof nearbyPresenceLoadIssue> | null>(
     null,
   );
   const [placesError, setPlacesError] = useState<string | null>(null);
@@ -899,16 +932,13 @@ export function NearbyCheckInSheet({
         }
         publishState(next);
         return next;
-      } catch {
+      } catch (error) {
         if (
           !background &&
           ownerEpochRef.current === expectedOwnerEpoch &&
           presenceReadGenerationRef.current === generation
         ) {
-          const message =
-            "Nearby check-in could not be loaded. Check your connection and retry.";
-          setPresenceLoadError(message);
-          toast.error(message);
+          setPresenceLoadError(nearbyPresenceLoadIssue(error));
         }
         return "error";
       } finally {
@@ -2610,20 +2640,31 @@ export function NearbyCheckInSheet({
                 className="mb-4 rounded-2xl border border-destructive/20 bg-destructive/10 p-3"
                 role="alert"
               >
-                <p data-location-type-role="row-description" className="text-sm text-destructive">{presenceLoadError}</p>
-                <Button data-location-type-role="compact-action"
-                  type="button"
-                  size="compact"
-                  variant="secondary"
-                  className="mt-2"
-                  disabled={loadingPresence}
-                  onClick={() => void retryPresenceLoad()}
-                >
-                  {loadingPresence ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Retry status
-                </Button>
+                <p data-location-type-role="row-description" className="text-sm text-destructive">
+                  {presenceLoadError.message}
+                </p>
+                {presenceLoadError.action === "verify-phone" ? (
+                  <Button
+                    data-location-type-role="compact-action"
+                    type="button"
+                    size="compact"
+                    className="mt-2"
+                    onClick={() => router.push(buildPhoneMandateRoute(ROUTES.ONE_LOCATION_CHECK_IN))}
+                  >
+                    Verify phone number
+                  </Button>
+                ) : presenceLoadError.action === "retry" ? (
+                  <Button
+                    data-location-type-role="compact-action"
+                    type="button"
+                    size="compact"
+                    variant="secondary"
+                    className="mt-2"
+                    onClick={() => void retryPresenceLoad()}
+                  >
+                    Retry status
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 
