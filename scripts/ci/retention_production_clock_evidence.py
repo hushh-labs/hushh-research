@@ -31,7 +31,7 @@ HISTORICAL_NUMBERED_CLOCK_WORKFLOW_BLOB = (
 )
 CURRENT_CLOCK_TITLE = "Capacity clock"
 HISTORICAL_UNNUMBERED_CLOCK_WORKFLOW_BLOB = ("0e905f3da506f5573a0c4282b8e60232be13336d", 9305)
-CURRENT_CLOCK_WORKFLOW_BLOB = ("f936be446501ef23bc15aaaa9d1389e509f4ccd8", 11356)
+CURRENT_CLOCK_WORKFLOW_BLOB = ("696d51ab0f1c9631810da2aa142f61ed03f779a2", 11377)
 # Existing immutable receipts remain pinned to the run-numbered title/blob
 # pair; new dynamic qualification uses the exact current title/blob pair above.
 _HISTORICAL_NUMBERED_CLOCK_TITLE = re.compile(

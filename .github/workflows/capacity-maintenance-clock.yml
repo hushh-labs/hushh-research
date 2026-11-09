@@ -218,7 +218,7 @@ jobs:
           prefix = f"repos/{repository}/actions"
           workflow = json.loads(subprocess.check_output(["gh", "api", prefix + "/workflows/capacity-maintenance-clock.yml"]))
           found = False
-          for state in ("pending", "queued"):
+          for state in ("pending", "queued", "waiting"):
               data = json.loads(subprocess.check_output(["gh", "api", prefix + f"/workflows/capacity-maintenance-clock.yml/runs?branch=main&status={state}&per_page=100"]))
               rows = data.get("workflow_runs")
               if not isinstance(rows, list) or data.get("total_count") != len(rows) or len(rows) >= 100:
@@ -237,7 +237,7 @@ jobs:
           PY_CLOCK
           )"
           if [[ "$successor" == true ]]; then
-            echo "An existing pending clock will perform the next check; no duplicate rearm." >> "$GITHUB_STEP_SUMMARY"
+            echo "An existing queued or waiting clock will perform the next check; no duplicate rearm." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           for attempt in 1 2 3; do

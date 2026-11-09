@@ -499,7 +499,7 @@ def test_capacity_clock_summary_reports_due_checks_scope_and_next_wait() -> None
     assert "| UAT | unknown | failure | unknown | not armed |" in failed
 
 
-def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+def _run_clock_step(started_seconds_ago: int, *, successor: dict | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real `next-check` step with a fake gh that records dispatches."""
     root = Path(__file__).resolve().parents[2]
     source = (root / ".github/workflows/capacity-maintenance-clock.yml").read_text()
@@ -516,10 +516,11 @@ def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProce
         calls = bin_dir / "calls"
         started = (datetime.now(timezone.utc) - timedelta(seconds=started_seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
         fake_gh = bin_dir / "gh"
+        waiting = json.dumps({"total_count": int(successor is not None), "workflow_runs": [successor] if successor else []})
         fake_gh.write_text(
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{calls}'\n"
-            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *--jq*) echo '{started}' ;; *'/runs?'*) echo '{{\"total_count\":0,\"workflow_runs\":[]}}' ;; *) echo '{{\"id\":42}}' ;; esac\n"
+            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *--jq*) echo '{started}' ;; *status=waiting*) echo '{waiting}' ;; *'/runs?'*) echo '{{\"total_count\":0,\"workflow_runs\":[]}}' ;; *) echo '{{\"id\":42}}' ;; esac\n"
         )
         fake_gh.chmod(0o755)
         result = subprocess.run(
@@ -543,6 +544,15 @@ def test_capacity_clock_refuses_to_queue_before_its_wait() -> None:
     late, late_posts = _run_clock_step(started_seconds_ago=3700)
     assert late.returncode == 0, late.stderr
     assert late_posts == ["api --method POST repos/org/repo/dispatches -f event_type=capacity-maintenance-clock"], late_posts
+    successor = {"id": 88, "workflow_id": 42, "path": ".github/workflows/capacity-maintenance-clock.yml",
+                 "head_branch": "main", "status": "waiting", "event": "schedule",
+                 "repository": {"full_name": "org/repo"}, "head_repository": {"full_name": "org/repo"}}
+    waiting, waiting_posts = _run_clock_step(3700, successor=successor)
+    assert waiting.returncode == 0 and waiting_posts == [], waiting.stderr
+    foreign = {**successor, "head_repository": {"full_name": "foreign/repo"}}
+    refused, refused_posts = _run_clock_step(3700, successor=foreign)
+    assert refused.returncode != 0 and refused_posts == []
+
 
 
 def main() -> int:
