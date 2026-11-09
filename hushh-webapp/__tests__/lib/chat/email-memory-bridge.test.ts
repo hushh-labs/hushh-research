@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const ports = vi.hoisted(() => ({ append: vi.fn(), lookup: vi.fn(), peek: vi.fn() }));
 vi.mock("@/lib/pkm/markdown-memory", () => ({
-  MAX_MARKDOWN_MEMORY_CHARS: 18000, appendMarkdownMemoryFacts: ports.append,
+  MAX_MARKDOWN_MEMORY_CHARS: 96000, appendMarkdownMemoryFacts: ports.append,
   peekMarkdownMemory: ports.peek, markdownMemoryToAgentContext: (memory: { markdown: string }) => ({ text: memory.markdown }),
 }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
@@ -37,7 +37,7 @@ describe("Email memory owner and commit boundary", () => {
     expect(projectEmailMemoryMdFromRam("owner-b", () => true)).toBeNull();
     expect(projectEmailMemoryMdFromRam("owner-a", () => false)).toBeNull();
     expect(projectEmailMemoryMdFromRam("owner-a", () => true)?.revision).toBe(7);
-    ports.peek.mockReturnValue({ markdown: "x".repeat(18001) });
+    ports.peek.mockReturnValue({ markdown: "x".repeat(96001) });
     expect(projectEmailMemoryMdFromRam("owner-a", () => true)).toBeNull();
     expect(ports.append).not.toHaveBeenCalled();
     expect(ports.lookup).not.toHaveBeenCalled();
