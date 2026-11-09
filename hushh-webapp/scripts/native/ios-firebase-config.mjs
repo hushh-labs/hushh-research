@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { get } from "node:https";
 import path from "node:path";
 
 export const UAT_IOS_ANALYTICS_APP_ID = "1:745506018753:ios:efea0fede200b1d1778b40";
@@ -59,6 +60,27 @@ export function verifySharedIosFirebasePlist(location) {
   });
 }
 
+async function readFirebaseClientConfig(token) {
+  const app = encodeURIComponent(UAT_IOS_ANALYTICS_APP_ID);
+  const url = `https://firebase.googleapis.com/v1beta1/projects/hushh-pda-uat/iosApps/${app}/config`;
+  const response = await new Promise((resolve, reject) => {
+    get(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15_000) }, resolve)
+      .once("error", reject);
+  });
+  if (response.statusCode !== 200) {
+    response.destroy();
+    throw new Error("Firebase config read refused");
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response) {
+    size += chunk.length;
+    if (size > 40_960) throw new Error("Firebase config response exceeded its limit");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
 export async function ensureUatIosAnalyticsPlist(appRoot) {
   const location = analyticsPlist(appRoot);
   if (!fs.existsSync(location) && process.env.GITHUB_ACTIONS === "true" && process.env.GOOGLE_GHA_CREDS_PATH) {
@@ -70,12 +92,7 @@ export async function ensureUatIosAnalyticsPlist(appRoot) {
         encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 20_000,
       }).trim();
       if (!token) throw new Error("empty token");
-      const app = encodeURIComponent(UAT_IOS_ANALYTICS_APP_ID);
-      const response = await fetch(`https://firebase.googleapis.com/v1beta1/projects/hushh-pda-uat/iosApps/${app}/config`, {
-        headers: { authorization: `Bearer ${token}` }, redirect: "error", signal: AbortSignal.timeout(15_000),
-      });
-      if (!response.ok) throw new Error("Firebase config read refused");
-      const { configFileContents } = await response.json();
+      const { configFileContents } = await readFirebaseClientConfig(token);
       if (typeof configFileContents !== "string" || configFileContents.length > 32_768) {
         throw new Error("unexpected config response");
       }
