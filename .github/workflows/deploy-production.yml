@@ -2463,7 +2463,7 @@ jobs:
 
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: env.PHONE_DEPLOY_PHASE != 'cold' && (inputs.restoration_validation_run != '' || steps.dispatch-authority.outputs.mode == 'manual-emergency' || steps.main-source-recheck.outcome == 'success') && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success'))
+        if: env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || (steps.phone-rollback-qualified.outcome == 'success' && steps.verify-connected-systems.outcome == 'success')) && (steps.scope.outputs.deploy_backend != 'true' || (steps.drive-mode.outputs.active != 'true' && (steps.predeploy-db-gate.outputs.maintenance_required || steps.document-mode.outputs.configured) != 'true') || steps.deploy-drive-worker.outcome == 'success')) && (inputs.restoration_validation_run != '' || steps.dispatch-authority.outputs.mode == 'manual-emergency' || steps.main-source-recheck.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |

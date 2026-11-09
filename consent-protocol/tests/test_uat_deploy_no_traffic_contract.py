@@ -1861,6 +1861,10 @@ def test_production_secret_parity_fails_closed_before_traffic() -> None:
     assert promote["if"].startswith(
         "env.PHONE_DEPLOY_PHASE != 'cold' && (steps.verify-parity.outcome == 'success' &&"
     )
+    recheck = next(step for step in steps if step.get("id") == "main-source-recheck")
+    assert steps.index(recheck) < steps.index(promote)
+    assert "--predecessor /tmp/prod-predecessor-acceptance.json" in recheck["run"]
+    assert "steps.main-source-recheck.outcome == 'success'" in promote["if"]
     assert '--backend-revision "${{ steps.candidate-state.outputs.backend_revision }}"' in workflow
     assert (
         '--frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}"' in workflow
