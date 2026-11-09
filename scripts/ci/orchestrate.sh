@@ -12,8 +12,9 @@ Environment flags:
 
 Stage "core" is the fast local pre-push mirror: secret and governance, then
 protocol and web-core in parallel (separate Python and Node runtimes), then
-mcp-package and integration, which need the protocol stage's Python environment. The browser layout packs (web-targeted) and the full Vitest suite
-(web-full-suite) are left to GitHub Actions, where they gate every frontend PR.
+mcp-package and integration, which need the protocol stage's Python environment.
+Ordinary PRs use affected checks. Full functional qualification is explicit;
+app-browser packs remain optional diagnostics rather than automatic PR gates.
 
 Description:
   Canonical CI stage orchestrator used by GitHub Actions and local CI wrappers.
