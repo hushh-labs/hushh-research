@@ -32,6 +32,7 @@ export type ConnectionStatus = "active" | "needs_relink";
 /** Tier A: `financial.connections_v1[item_id]`. Holds the sealed access token. */
 export interface ConnectionRecord {
   access_token: string;
+  country_on_file?: string | null;
   institution_id: string | null;
   institution_name: string | null;
   products: string[];
@@ -58,6 +59,7 @@ export interface AccountBalancesRecord {
 /** Tier A: `financial.accounts_v1[`${item_id}:${account_id}`]`. */
 export interface AccountRecord {
   account_id: string;
+  holder_category?: string | null;
   persistent_account_id: string | null;
   item_id: string;
   institution_id: string | null;
@@ -169,6 +171,21 @@ export interface IncomeStability {
 
 export type CashFlowTrend = "positive" | "flat" | "negative";
 
+export interface LinkedNetWorthScore {
+  /** Oldest refresh among the linked balances used for this score. */
+  balances_refreshed_at?: string;
+  linked_net_worth_usd: number | null;
+  country_on_file: string | null;
+  score: number | null;
+  unavailable_reason:
+    | "connection_unavailable"
+    | "no_eligible_accounts"
+    | "balance_unavailable"
+    | "unsupported_account_or_currency"
+    | "country_unavailable"
+    | null;
+}
+
 /** Tier B: `financial.derived_v1`. Private. */
 export interface DerivedFactsV1 {
   schema: "plaid-derived-v1";
@@ -177,6 +194,8 @@ export interface DerivedFactsV1 {
   total_liabilities: DerivedFact<number>;
   net_worth: DerivedFact<number>;
   net_worth_band: DerivedFact<string>;
+  /** Private Finance NWS. Absent in records written before the Finance score. */
+  nws?: DerivedFact<LinkedNetWorthScore>;
   liquid_cash: DerivedFact<number>;
   investable_assets: DerivedFact<number>;
   allocation_pct: DerivedFact<Record<string, number>>;

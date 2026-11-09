@@ -374,10 +374,10 @@ class PodTurnRelayRequest(BaseModel):
     #
     # `exclude=True` for the same reason as the credential above: it is the person's
     # holdings, and a request dump must not be able to carry it into a log line.
-    # 20000 matches the hub's own cap in agent_chat, so a projection the hub accepts
-    # cannot be 422'd here and surface as an opaque relay refusal.
+    # Match the hub's bounded memory field so a complete V1 document cannot
+    # be 422'd here and surface as an opaque relay refusal.
     pkm_context: Optional[str] = Field(
-        default=None, alias="pkmContext", max_length=20000, exclude=True
+        default=None, alias="pkmContext", max_length=128_000, exclude=True
     )
     # The recent conversation turns, carried from the browser so the pod has the
     # thread the hub would have had from its database. Without it the pod seeded

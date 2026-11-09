@@ -387,6 +387,9 @@ def test_historical_checkout_keeps_the_current_handoff_and_its_resolver(tmp_path
         if index:
             for name in names:
                 (directory / name).unlink()
+        # This fixture covers frontend-only historical handoff. Backend
+        # capacity preservation is exercised by the worker composition owner.
+        script = script.replace("${{ needs.wait-capacity.outputs.scope }}", "frontend")
         script = re.sub(r"\$\{\{[^}]+\}\}", "false", script)
         result = subprocess.run(  # noqa: S603 - real copy steps, isolated synthetic checkout.
             [shutil.which("bash"), "-c", adapters + script],

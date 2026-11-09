@@ -61,7 +61,13 @@ type KycIdentityProfilePkmWriteParams = {
   vaultKey: string | null;
   vaultOwnerToken: string | null;
   profile: KycIdentityProfile;
+  /** Manual callers only; no private values or authority are passed to observers. */
+  onOutcome?: (phase: "returned" | "blocked") => void;
 };
+
+function notifyOutcome(params: KycIdentityProfilePkmWriteParams, phase: "returned" | "blocked"): void {
+  try { params.onOutcome?.(phase); } catch { /* Preserve the product's actual result. */ }
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -155,22 +161,27 @@ export class KycIdentityProfilePkmService {
     await guard.assertCurrent();
     if (prepared && ((prepared.sourceCoverage ?? []).some(isUnresolvedSourceBlock) ||
       (prepared.previews ?? []).some(preview => preview.used_fallback || preview.error) ||
-      prepared.cards.some(card => card.preparation_requires_review))) return {
-      success: false, saveState: "failed", fullBlob: {},
-      message: "The full summary couldn't be processed. Nothing new was added; retry the import.",
-    };
+      prepared.cards.some(card => card.preparation_requires_review))) {
+      notifyOutcome(params, "blocked");
+      return { success: false, saveState: "failed", fullBlob: {},
+        message: "The full summary couldn't be processed. Nothing new was added; retry the import." };
+    }
     const facts = [
       ...suppliedIdentityFacts(params.profile),
       ...identifierFacts,
       ...markdownFactsFromCards(prepared?.cards ?? []),
     ];
-    if (!facts.length) return {
-      success: false, saveState: "failed", fullBlob: {},
-      message: "No private details could be recognized. Edit the summary and try again.",
-    };
+    if (!facts.length) {
+      notifyOutcome(params, "blocked");
+      return { success: false, saveState: "failed", fullBlob: {},
+        message: "No private details could be recognized. Edit the summary and try again." };
+    }
     const result = await stageMarkdownMemoryFacts({
       ...session, facts, completeKycIntake: true, beforeEffect: guard.assertCurrent,
       confirmation: { confirmedByUser: true, surface: "web", source: "kyc_identity_onboarding" },
+      // Staging success is not a cloud acknowledgement. Observe only the
+      // original queued mutation's commit, not a timer or a later UI refresh.
+      ...(params.onOutcome ? { onCommitted: () => notifyOutcome(params, "returned") } : {}),
     });
     return {
       success: result.success, saveState: result.success ? "saved" : "failed", fullBlob: {},

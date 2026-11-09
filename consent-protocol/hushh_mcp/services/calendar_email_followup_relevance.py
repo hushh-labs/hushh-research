@@ -16,7 +16,7 @@ from typing import Literal, Protocol, TypeVar
 
 # Bump when the extraction contract changes. Messages assessed under an older
 # version are re-assessed once, so earlier misclassifications can be corrected.
-ASSESSMENT_VERSION = 2
+ASSESSMENT_VERSION = 3
 
 Relevance = Literal["actionable", "informational", "uncertain"]
 Category = Literal[

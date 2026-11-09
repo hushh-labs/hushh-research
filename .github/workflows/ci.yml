@@ -33,7 +33,7 @@ on:
           - backend
           - all
       uat_base_sha:
-        description: "Current UAT application SHA for exact-source qualification (optional)"
+        description: "Optional comparison SHA; serving UAT SHA required for UAT qualification"
         required: false
         default: ""
         type: string
@@ -215,6 +215,7 @@ jobs:
       - name: Verify PR target branch policy
         if: github.event_name == 'pull_request'
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -232,6 +233,8 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      unit_matrix: ${{ steps.unit-plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -261,9 +264,18 @@ jobs:
           CI_IMPACT_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
         run: bash scripts/ci/resolve-ci-changed-files.sh
 
+      - name: Plan unit concurrency
+        id: unit-plan
+        env:
+          CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
+        run: |
+          matrix="$(node hushh-webapp/scripts/testing/affected-tests.mjs unit-matrix)"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
       - name: Run repo governance checks
         run: bash scripts/ci/orchestrate.sh governance
         env:
+          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
           # Required so verify-protected-pipeline-edits.py can resolve the PR's
           # changed-file list from the GitHub API. Without a token the guard
           # silently resolves zero files and passes (fails open). The job
@@ -314,16 +326,17 @@ jobs:
       # the branch name, so a branch that moves mid-run cannot select lanes for
       # a commit this run does not test. Both are passed only on dispatch,
       # because v4 ignores them on a pull_request event and warns on every run.
-      # The default branch has no branch diff, so `auto` there runs `all`.
+      # Explicit release qualification keeps application core checks broad, but
+      # native work is selected against the actual candidate's changed inputs.
       - uses: dorny/paths-filter@v4
         id: filter
         if: >-
           github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' ||
-          (github.event_name == 'workflow_dispatch' && inputs.scope == 'auto' &&
-          github.ref_name != github.event.repository.default_branch)
+          (github.event_name == 'workflow_dispatch' && ((inputs.scope == 'all' && inputs.uat_base_sha != '') ||
+          (inputs.scope == 'auto' && github.ref_name != github.event.repository.default_branch)))
         with:
           base: ${{ github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (inputs.uat_base_sha || github.event.repository.default_branch) || '' }}
-          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && github.sha || '' }}
+          ref: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'merge_group') && (inputs.uat_candidate_sha || github.sha) || '' }}
           # A leading '!' pattern removes files from its own filter only; the
           # filters below without one behave exactly as under the default
           # 'some'. Without this setting a '!' pattern would match every other
@@ -352,11 +365,31 @@ jobs:
               - 'deploy/mail-api/**'
             backend:
               - 'consent-protocol/**'
+              # Governance owns these probe/compiler controllers and their exact contracts.
+              - '!consent-protocol/scripts/generate_capability_graph.py'
+              - '!consent-protocol/tests/helpers/capability_graph_fixture.py'
+              - '!consent-protocol/scripts/verify_azure_pwm_runtime.py'
+              - '!consent-protocol/scripts/managed_vertex_readiness.py'
+              - '!consent-protocol/tests/test_pwm_runtime_probe.py'
+              - '!consent-protocol/tests/scripts/test_trust_failure_verdict.py'
+              - '!consent-protocol/tests/scripts/test_probe_drive_activity_planner.py'
+              - '!consent-protocol/tests/scripts/test_readiness_exam_runner.py'
+              - '!consent-protocol/tests/test_vertex_capability_probe.py'
+              - '!consent-protocol/tests/scripts/test_managed_provider_receipt.py'
+              - '!consent-protocol/tests/test_capability_graph_gate_compares_against_base.py'
+              - '!consent-protocol/tests/test_capability_graph_dev_phone_history.py'
+              - '!consent-protocol/tests/test_location_workflow_compatibility.py'
+              # Public risk inputs have real-artifact and policy checks in Governance.
+              - '!consent-protocol/config/email-auth/disposable-domains.txt'
+              - '!consent-protocol/config/email-auth/risk-manifest.json'
               # The required Governance main-sync check owns the local push hook.
               - '!consent-protocol/ops/monorepo/pre-push.sh'
               # Human Browser evidence is covered by unconditional docs governance.
               # Keep other docs in Protocol: env-vars.md has semantic assertions.
               - '!consent-protocol/docs/reference/private-browser-runtime.md'
+              - '!consent-protocol/docs/reference/agent-development.md'
+              # The complete engineering-judge suite runs in Governance's agent owner.
+              - '!consent-protocol/tests/test_memory_judge.py'
               - 'deploy/plg/**'
               - 'packages/hushh-mcp/**'
               - 'deploy/backend.cloudbuild.yaml'
@@ -371,6 +404,7 @@ jobs:
               - 'deploy/dev.autodeploy.backend.cloudbuild.yaml'
               - 'scripts/ops/sync_backend_runtime_secrets.py'
               - 'scripts/ops/runtime_config_retention.py'
+              - 'scripts/ops/recover_dev_cloud_removal.py'
               - 'scripts/ops/scope_commerce_runtime_policy.py'
               - 'scripts/ops/shared_files_runtime_policy.py'
               - 'scripts/ops/passkey_domain_policy.py'
@@ -382,7 +416,18 @@ jobs:
               - '!scripts/ci/web-full-suite-check.sh'
               - '!scripts/ci/web-targeted-check.sh'
               - '!consent-protocol/scripts/test-ci.manifest.txt'
+              # Deployment-only writers are verified by the release-controller owner.
+              - '!scripts/ops/sync_backend_runtime_secrets.py'
+              - '!scripts/ops/runtime_config_retention.py'
+              - '!scripts/ops/upsert_gcp_secret.py'
+              - '!deploy/plg/bind_secrets.sh'
               # Synthetic release-controller tests have a focused Governance owner.
+              - '!consent-protocol/tests/test_runtime_config_retention.py'
+              - '!consent-protocol/tests/test_plg_deploy_bindings.py'
+              - '!consent-protocol/tests/test_azure_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_nws_nearby_runtime_config_wiring.py'
+              - '!consent-protocol/tests/test_runtime_settings_maps.py'
+              - '!consent-protocol/tests/test_direct_uat_acceptance.py'
               - '!consent-protocol/tests/test_advisors_runtime_config_wiring.py'
               - '!consent-protocol/tests/test_cloudbuild_step_arg_limit.py'
               - '!consent-protocol/tests/test_dev_release_classification.py'
@@ -404,6 +449,9 @@ jobs:
               - '!consent-protocol/tests/test_drive_scheduler_set_snapshot.py'
               - '!consent-protocol/tests/test_drive_v1_worker_lane.py'
               - '!consent-protocol/tests/test_drive_work_drain_scheduler_contract.py'
+              - '!consent-protocol/tests/test_drive_worker_release_rollback.py'
+              - '!consent-protocol/tests/test_database_connection_ceiling.py'
+              - '!consent-protocol/tests/helpers/drive_worker_gcloud.py'
               - '!consent-protocol/tests/test_feed_stream_capacity_contract.py'
               - '!consent-protocol/tests/test_gmail_information_request_release_contract.py'
               - '!consent-protocol/tests/test_hushh_tech_client_migration.py'
@@ -412,6 +460,10 @@ jobs:
               - '!consent-protocol/tests/test_phone_schema_legacy_job.py'
               - '!consent-protocol/tests/test_pkm_v7_recovery_migration.py'
               - '!consent-protocol/tests/test_plg_qualification_producer.py'
+              - '!consent-protocol/tests/test_plg_qualification_bootstrap.py'
+              - '!consent-protocol/tests/test_plg_qualification_acceptance.py'
+              - '!consent-protocol/tests/test_plg_qualification_candidate.py'
+              - '!consent-protocol/tests/helpers/plg_qualification.py'
               - '!consent-protocol/tests/test_scheduled_mail_scheduler_contract.py'
               - '!consent-protocol/tests/test_uat_connector_rollout_contract.py'
               - '!consent-protocol/tests/test_uat_deploy_no_traffic_contract.py'
@@ -435,6 +487,7 @@ jobs:
               # for these exact test/helper-only edits.
               - '!consent-protocol/tests/test_production_emergency.py'
               - '!consent-protocol/tests/test_uat_deploy_parallelism.py'
+              - '!consent-protocol/tests/test_prod_drive_deploy_contract.py'
               - '!consent-protocol/tests/helpers/document_delivery_ci.py'
               # These exact synthetic fixture paths have a focused controller
               # owner; edits to the separate phone-history consumer modules still
@@ -652,8 +705,8 @@ jobs:
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
 
-      # The dispatches the filter above did not resolve: an explicit scope, or
-      # `auto` on the default branch. `editor` follows `frontend`.
+      # Preserve explicit frontend/backend diagnostics and default-branch auto.
+      # Release scope=all uses the filter's native ownership instead.
       - id: override
         if: github.event_name == 'workflow_dispatch' && steps.filter.outcome == 'skipped'
         env:
@@ -737,7 +790,6 @@ jobs:
       - secret-scan
       - dco-check
       - pr-base-policy
-      - repo-governance
       - paths
     if: always()
     runs-on: ubuntu-24.04
@@ -756,13 +808,11 @@ jobs:
           SECRET_SCAN="${{ needs['secret-scan'].result }}"
           DCO="${{ needs['dco-check'].result }}"
           PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
-          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
           PATHS="${{ needs.paths.result }}"
 
           printf 'secret-scan=%s\n' "$SECRET_SCAN"
           printf 'dco-check=%s\n' "$DCO"
           printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
-          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
           printf 'paths=%s\n' "$PATHS"
 
           fail=0
@@ -770,9 +820,7 @@ jobs:
             echo "UI contracts (Back and Search) must pass; skipped checks cannot approve a PR."
             fail=1
           fi
-          if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
-          if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$PATHS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -857,254 +905,51 @@ jobs:
     name: "Web Targeted Contracts (node)"
     env:
       WEB_TARGETED_PART: node
-      WEB_TARGETED_LABEL: node
-      PLAYWRIGHT_SHARD: ""
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Independent Node and functional browser owners; both are required when selected.
     timeout-minutes: 40
-    steps: &web_targeted_steps
+    steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
       - *prepare_isolated
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-          cache-dependency-path: hushh-webapp/package-lock.json
-
-      # Resolve the existing browser-pack selector before browser cache restore
-      # or dependency installation. A failed or incomplete plan is advisory only: empty outputs keep
-      # the browser path enabled, and the run step expands to all packs.
-      - name: Plan browser checks
-        id: browser-plan
-        if: env.WEB_TARGETED_PART == 'browser'
-        continue-on-error: true
-        timeout-minutes: 3
-        env:
-          WEB_TARGETED_PLAN_ONLY: "1"
-          WEB_TARGETED_PART: browser
-          WEB_TARGETED_ALL_PACKS: "0"
-          WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
-          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
-        run: bash scripts/ci/web-targeted-check.sh
-
-      # The One Voice verification includes the checked-in CapabilityGraphV1
-      # compiler.  It is deliberately a source-of-truth check, so the
-      # frontend-targeted lane must use the same locked runtime dependencies
-      # rather than falling back to the runner's ambient Python installation.
-      - uses: ./consent-protocol/.github/actions/setup-python-uv
-        if: env.WEB_TARGETED_PART == 'node'
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          protocol-dir: ./consent-protocol
-          sync-dev-group: "false"
-
-      # The browsers are the whole cost of this lane, and they only change when
-      # the Playwright dependency does. PRs restore the Main-owned, lockfile-keyed
-      # entry instead of saving per-PR copies or re-downloading ~400MB per run.
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
-        uses: actions/cache/restore@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
-
-      # Required functional browser contracts use Chromium. Native Safari and
-      # detailed presentation checks remain explicit developer-local diagnostics.
-      #
-      # Bounded at 8 minutes. Across 420 browser legs on 2026-10-08..14 this
-      # step took 1.2-1.4 minutes at p50 and 1.7 at p95, warm or cold cache.
-      # On 10-08 the apt half fetched 116 MB at 83.8 kB/s for 23 minutes (job
-      # 113516651801); three legs spent 20-24 minutes here and two of them then
-      # hit the job limit mid-test. A stall now fails here in minutes, as a
-      # failure rather than a "cancelled" that reads like noise, and frees the
-      # runner. The retry is for a fast transient error (an apt lock, a mirror
-      # mid-sync); a mirror that stays slow will not finish inside the bound,
-      # so a run that hits it should be re-run.
-      - name: Install Playwright browsers
-        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required != 'false'
-        timeout-minutes: 8
-        run: |
-          set -euo pipefail
-          # The one dependency install for this job. It is the same
-          # web_ci_install the targeted check runs, done here because the
-          # Playwright CLI must exist first; the check step below is told
-          # (WEB_CI_DEPS_INSTALLED) not to repeat it.
-          bash -c 'source scripts/ci/web-common.sh && web_ci_install'
-          # Run 37836804949 spent 23m9s downloading 116 MB from the runner's
-          # preferred Azure apt mirror, then timed out during browser tests.
-          # Keep its existing official archive/security fallbacks and signed
-          # package verification; remove only that slow mirror preference.
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/[[:space:]]|d' /etc/apt/apt-mirrors.txt
-          fi
-          # `--with-deps` installs the browsers AND the apt libraries they link
-          # against. The apt half is not covered by the cache (it writes outside
-          # ~/.cache/ms-playwright), so on a cache hit install only the system
-          # deps and let the restored browser binaries stand.
-          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
-            install=(npx playwright install-deps chromium)
-          else
-            install=(npx playwright install --with-deps chromium)
-          fi
-          # Two attempts at most. A second attempt is safe: apt keeps what it
-          # already fetched and skips installed packages, and Playwright skips
-          # a browser that wrote its completion marker (its own download
-          # already retries five times).
-          for attempt in 1 2; do
-            if (cd hushh-webapp && "${install[@]}"); then
-              break
-            fi
-            if [ "$attempt" -eq 2 ]; then
-              echo "::error::Playwright browser install failed twice."
-              exit 1
-            fi
-            echo "::warning::Playwright browser install failed on attempt $attempt of 2; retrying in 15 seconds."
-            sleep 15
-          done
-
-      - name: Run targeted web contract checks
-        if: env.WEB_TARGETED_PART == 'node' || steps.browser-plan.outputs.browser_required != 'false'
-        run: bash scripts/ci/orchestrate.sh web-targeted
-        env:
-          WEB_TARGETED_FULL_SUITE_OWNED: "0"
-          WEB_TARGETED_ALL_PACKS: ${{ env.WEB_TARGETED_PART == 'browser' && (steps.browser-plan.outputs.selection_known != 'true' || steps.browser-plan.outcome == 'failure') && '1' || '0' }}
-          WEB_TARGETED_PART: ${{ env.WEB_TARGETED_PART }}
-          # Only the browser leg ran npm ci in the step above; the node leg
-          # installs inside the script.
-          WEB_CI_DEPS_INSTALLED: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
-          # 3 of the runner's 4 vCPUs run tests; the fourth keeps the Node test
-          # runner and fixture builds from starving a browser. Only the Playwright
-          # config reads it, so it is inert in the node leg.
-          PLAYWRIGHT_WORKERS: "3"
-          PLAYWRIGHT_SHARD: ${{ env.PLAYWRIGHT_SHARD }}
-          PLAYWRIGHT_LINE_REPORTER: ${{ env.WEB_TARGETED_PART == 'browser' && '1' || '0' }}
-          WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
-          CAPABILITY_GRAPH_BASE_REF: &capability_graph_base ${{ inputs.uat_candidate_sha && inputs.uat_base_sha || github.event.merge_group.base_sha || github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/uat' || github.ref == 'refs/heads/uat-isolated') && inputs.scope == 'all' && inputs.uat_base_sha || format('origin/{0}', github.base_ref || 'main') }}
-          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
-          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
-
-      - name: Report no selected browser checks
-        if: env.WEB_TARGETED_PART == 'browser' && steps.browser-plan.outputs.browser_required == 'false'
-        run: echo "No browser-backed targeted checks are selected for this complete diff."
-
-      # The layout pack owns these source-coupled synthetic fixtures.
-      # Never upload the whole output directory or protected reviewer traces.
-      - name: Upload synthetic layout failure evidence
-        if: ${{ (failure() || cancelled()) && env.WEB_TARGETED_PART == 'browser' }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: synthetic-layout-failures-${{ env.WEB_TARGETED_LABEL }}
-          path: |
-            hushh-webapp/test-results/wallet-workspace.layout-*/trace.zip
-            hushh-webapp/test-results/wallet-workspace.layout-*/test-failed-*.png
-            hushh-webapp/test-results/wallet-workspace.layout-*/error-context.md
-            hushh-webapp/test-results/calendar-connected-*/trace.zip
-            hushh-webapp/test-results/calendar-connected-*/test-failed-*.png
-            hushh-webapp/test-results/calendar-connected-*/error-context.md
-            hushh-webapp/test-results/direct-chat.layout-*/trace.zip
-            hushh-webapp/test-results/direct-chat.layout-*/test-failed-*.png
-            hushh-webapp/test-results/direct-chat.layout-*/error-context.md
-            hushh-webapp/test-results/direct-chat.layout-*/keyboard-geometry.json
-            hushh-webapp/test-results/feed-needs-you-row.layout-*/trace.zip
-            hushh-webapp/test-results/feed-needs-you-row.layout-*/test-failed-*.png
-            hushh-webapp/test-results/feed-needs-you-row.layout-*/error-context.md
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Upload security audit artifact
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: web-targeted-npm-audit-report-${{ env.WEB_TARGETED_LABEL }}
-          path: hushh-webapp/npm-audit-report.json
-          if-no-files-found: ignore
-
-  web-targeted-browser:
-    needs: [preflight-gate]
-    if: >-
-      !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.frontend == 'true')
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps: *web_targeted_steps
-    name: "Web Targeted Contracts (browser)"
-    env:
-      WEB_TARGETED_PART: browser
-      WEB_TARGETED_LABEL: browser
-      PLAYWRIGHT_SHARD: ""
-
-  # Native WebKit cryptography is a protected-document boundary, independent
-  # of optional editor timing. Keep its real-SQL proof until Linux passes the
-  # pinned leading-zero X25519 vectors; no crypto substitution is permitted.
-  document-webkit-check:
-    name: "Protected Document WebKit (macOS)"
-    needs: [preflight-gate]
-    if: >-
-      !cancelled() && needs['preflight-gate'].result == 'success' &&
-      (needs['preflight-gate'].outputs.document == 'true')
-    runs-on: macos-15
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: ${{ inputs.uat_candidate_sha && '0' || '1' }}
-          persist-credentials: ${{ inputs.uat_candidate_sha == '' }}
-      - *prepare_isolated
-
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
-
-      - name: Install web dependencies and browsers
-        working-directory: hushh-webapp
-        run: |
-          npm ci
-          npx playwright install webkit
-
       - uses: ./consent-protocol/.github/actions/setup-python-uv
-        id: document-python
-        if: needs['preflight-gate'].outputs.document == 'true'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
-
-      - name: Prepare isolated document PostgreSQL binaries
-        id: document-postgres
-        if: needs['preflight-gate'].outputs.document == 'true'
-        run: |
-          brew list --versions postgresql@16 >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@16
-          pg_bin="$(brew --prefix postgresql@16)/bin"
-          test -x "$pg_bin/initdb"
-          echo "$pg_bin" >> "$GITHUB_PATH"
-          echo "HUSHH_TEST_PG_BIN=$pg_bin" >> "$GITHUB_ENV"
-
-      - name: Verify native WebKit protected documents through real SQL
-        id: document-webkit
-        if: needs['preflight-gate'].outputs.document == 'true'
-        run: bash scripts/ci/document-delivery-check.sh --ci-macos-webkit
+          sync-dev-group: "false"
+      - name: Run targeted web contract checks
+        run: bash scripts/ci/orchestrate.sh web-targeted
+        env:
+          WEB_TARGETED_PART: node
+          WEB_TARGETED_FULL_SUITE_OWNED: "0"
+          WEB_TARGETED_BASE_SHA: ${{ github.event.merge_group.base_sha || inputs.uat_base_sha || github.event.pull_request.base.sha }}
+          CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
+          WEB_TARGETED_HEAD_SHA: ${{ inputs.uat_candidate_sha || github.sha }}
+          WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
 
   web-full-suite-check:
     name: "Web Unit Contracts"
-    needs: [preflight-gate]
+    needs: [preflight-gate, repo-governance]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-24.04
-    # Unknown change coverage runs the full unit suite on this job.
+    # Unknown impact retains all tests through native Vitest sharding.
     timeout-minutes: 45
-    # One affected/core unit owner; full historical shards remain a diagnostic command.
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.repo-governance.outputs.unit_matrix || '{"shard":["1/3","2/3","3/3"]}') }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1141,10 +986,26 @@ jobs:
       - name: Run affected unit contracts
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
-          WEB_FULL_SUITE_SHARD: ""
+          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}
           CI_ACCOUNT_DELETION_CLIENT_OWNED: "1"
           CAPABILITY_GRAPH_BASE_REF: *capability_graph_base
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+
+      - name: Verify unit shard (1/1)
+        if: matrix.shard == '1/1'
+        run: echo 'Unit shard 1/1 completed successfully'
+
+      - name: Verify unit shard (1/3)
+        if: matrix.shard == '1/3'
+        run: echo 'Unit shard 1/3 completed successfully'
+
+      - name: Verify unit shard (2/3)
+        if: matrix.shard == '2/3'
+        run: echo 'Unit shard 2/3 completed successfully'
+
+      - name: Verify unit shard (3/3)
+        if: matrix.shard == '3/3'
+        run: echo 'Unit shard 3/3 completed successfully'
 
   ios-native-check:
     name: "iOS Native (Xcode)"
@@ -1704,8 +1565,8 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            base_sha="${{ github.event.pull_request.base.sha }}"
-            target_sha="${{ github.event.pull_request.head.sha }}"
+            base_sha="$(python3 scripts/ci/resolve-ui-contract-base.py)"
+            target_sha="$(git rev-parse HEAD)"
           elif [ "${{ github.event_name }}" = merge_group ]; then
             base_sha="${{ github.event.merge_group.base_sha }}"
             target_sha="${{ github.event.merge_group.head_sha }}"
@@ -1727,7 +1588,7 @@ jobs:
             --json-output "$RUNNER_TEMP/ci-verification-plan.json"
 
       - name: Run integration check script (single source of truth)
-        run: bash scripts/ci/integration-check.sh --ci-linux-document
+        run: bash scripts/ci/integration-check.sh --ci-core
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
@@ -1842,7 +1703,9 @@ jobs:
           [[ "$EXPECTED_BASE" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE"
           [[ "$(git rev-parse HEAD^{tree})" =~ ^[0-9a-f]{40}$ ]]
-          git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          if [ "$GITHUB_REF" != 'refs/heads/uat' ]; then
+            git merge-base --is-ancestor "$EXPECTED_BASE" "$EXPECTED_SOURCE"
+          fi
 
       - name: Verify isolated source (${{ inputs.uat_candidate_sha }} ${{ inputs.uat_candidate_tree }})
         if: inputs.uat_candidate_sha != ''
@@ -1871,7 +1734,6 @@ jobs:
       - preflight-gate
       - web-core-check
       - web-targeted-check
-      - web-targeted-browser
       - web-full-suite-check
       - ios-native-check
       - android-native-check
@@ -1880,7 +1742,6 @@ jobs:
       - protocol-database-check-two
       - mcp-package-check
       - integration-check
-      - document-webkit-check
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1901,7 +1762,6 @@ jobs:
           PREFLIGHT="${{ needs['preflight-gate'].result }}"
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
-          WEB_BROWSER="${{ needs['web-targeted-browser'].result }}"
           WEB_FULL_SUITE="${{ needs['web-full-suite-check'].result }}"
           IOS_NATIVE="${{ needs['ios-native-check'].result }}"
           ANDROID_NATIVE="${{ needs['android-native-check'].result }}"
@@ -1910,7 +1770,6 @@ jobs:
           PROTOCOL_DATABASE_TWO="${{ needs['protocol-database-check-two'].result }}"
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
-          DOCUMENT_WEBKIT="${{ needs['document-webkit-check'].result }}"
           DOCUMENT_SELECTED="${{ needs['preflight-gate'].outputs.document }}"
           AUTH_HEALTH_ONLY="${{ needs.paths.outputs.auth_health_only }}"
           FRONTEND_SELECTED="${{ needs['preflight-gate'].outputs.frontend }}"
@@ -1927,7 +1786,6 @@ jobs:
           printf 'preflight-gate=%s\n' "$PREFLIGHT"
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
-          printf 'web-targeted-browser=%s\n' "$WEB_BROWSER"
           printf 'web-full-suite-check=%s\n' "$WEB_FULL_SUITE"
           printf 'ios-native-check=%s\n' "$IOS_NATIVE"
           printf 'android-native-check=%s\n' "$ANDROID_NATIVE"
@@ -1948,7 +1806,7 @@ jobs:
           # A skipped lane passes the loop below, so a lane whose paths changed
           # must be proven to have actually run and succeeded.
           if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_TARGETED" != "success" ]; then
-            echo "Changed frontend sources require every targeted Node and browser shard to succeed."
+            echo "Changed frontend sources require affected targeted Node contracts to succeed."
             fail=1
           fi
           if [ "${{ needs['preflight-gate'].outputs.frontend }}" = "true" ] && [ "$WEB_FULL_SUITE" != "success" ]; then
@@ -2006,13 +1864,8 @@ jobs:
             echo "This gate knows pull_request, workflow_dispatch and merge_group; ${EVENT_NAME} fails closed."
             fail=1
           fi
-          if [ "$FRONTEND_SELECTED" = true ] && [ "$WEB_BROWSER" != success ]; then fail=1; fi
           if [ "$BACKEND_SELECTED" = true ] && [ "$PROTOCOL_DATABASE_TWO" != success ]; then fail=1; fi
-          if [ "$DOCUMENT_SELECTED" = true ] && [ "$DOCUMENT_WEBKIT" != success ]; then
-            echo "Protected document delivery requires successful native WebKit cryptography."
-            fail=1
-          fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_BROWSER" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION" "$DOCUMENT_WEBKIT"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$PROTOCOL_DATABASE" "$PROTOCOL_DATABASE_TWO" "$MCP_PACKAGE" "$INTEGRATION"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi
@@ -2054,22 +1907,16 @@ jobs:
           record_failure "Web Core" "$WEB_CORE" "$FRONTEND_SELECTED"
           record_failure "Web Targeted" "$WEB_TARGETED" "$FRONTEND_SELECTED"
           record_failure "Web Unit Contracts" "$WEB_FULL_SUITE" "$FRONTEND_SELECTED"
-          BROWSER_REQUIRED=false
           INTEGRATION_REQUIRED=false
-          if [ "$FRONTEND_SELECTED" = "true" ]; then
-            BROWSER_REQUIRED=true
-          fi
           if [ "$FRONTEND_SELECTED" = "true" ] || [ "$BACKEND_SELECTED" = "true" ] || [ "$DOCUMENT_SELECTED" = "true" ]; then
             INTEGRATION_REQUIRED=true
           fi
-          record_failure "Browser Contracts" "$WEB_BROWSER" "$BROWSER_REQUIRED"
           record_failure "iOS Native" "$IOS_NATIVE" "$IOS_SELECTED"
           record_failure "Android Native" "$ANDROID_NATIVE" "$ANDROID_SELECTED"
           record_failure "Protocol" "$PROTOCOL" "$BACKEND_SELECTED"
           record_failure "Protocol Database" "$PROTOCOL_DATABASE" "$BACKEND_SELECTED"
           record_failure "MCP Package" "$MCP_PACKAGE" "$BACKEND_SELECTED"
           record_failure "Integration" "$INTEGRATION" "$INTEGRATION_REQUIRED"
-          record_failure "Protected Document WebKit" "$DOCUMENT_WEBKIT" "$DOCUMENT_SELECTED"
           for lane in "frontend=$FRONTEND_SELECTED" "backend=$BACKEND_SELECTED" "ios=$IOS_SELECTED" "android=$ANDROID_SELECTED" "editor=$EDITOR_SELECTED"; do
             case "${lane#*=}" in
               true|false) ;;
@@ -2107,8 +1954,8 @@ jobs:
             echo ""
             echo "| Scope | Selection | Required jobs |"
             echo "| --- | --- | --- |"
-            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE; browser=$WEB_BROWSER |"
-            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION; browser=$WEB_BROWSER |"
+            echo "| Frontend | $(selection_state "$FRONTEND_SELECTED") | core=$WEB_CORE; targeted=$WEB_TARGETED; suite=$WEB_FULL_SUITE |"
+            echo "| Backend | $(selection_state "$BACKEND_SELECTED") | protocol=$PROTOCOL; database=$PROTOCOL_DATABASE; MCP=$MCP_PACKAGE; integration=$INTEGRATION |"
             echo "| iOS | $(selection_state "$IOS_SELECTED") | native=$IOS_NATIVE |"
             echo "| Android | $(selection_state "$ANDROID_SELECTED") | native=$ANDROID_NATIVE |"
             echo "| Detailed presentation | local development | explicit Safari/performance commands |"

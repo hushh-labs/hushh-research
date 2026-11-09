@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import time
+from tempfile import TemporaryDirectory
 from io import BytesIO
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
@@ -459,6 +460,71 @@ def direct_uat(args) -> dict:
         raise Refused(str(error)) from None
 
 
+def main_source(args) -> dict:
+    """Qualify protected Main directly; UAT receipts remain a separate image source."""
+    require(args.environment == "production", "Main qualification is production-only")
+    require(re.fullmatch(r"[a-f0-9]{40}", args.sha or "") is not None,
+            "Full application SHA is required")
+    approval = getattr(args, "approval_sha", "") or args.sha
+    require(re.fullmatch(r"[a-f0-9]{40}", approval) is not None,
+            "Full Main approval SHA is required")
+    scope = selected(args.scope)
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        token = subprocess.check_output(["gh", "auth", "token"], text=True, timeout=20).strip()
+    require(bool(token), "GitHub qualification credential is unavailable")
+    env = dict(os.environ, GITHUB_REPOSITORY=REPOSITORY, GITHUB_TOKEN=token,
+               REQUIRED_BRANCH="main", REQUIRE_CI_SUCCESS="1")
+    # Use the existing canonical producer/current-attempt verifier twice.
+    # Smoke and functional qualification are AND requirements, never any-of.
+    proofs = {}
+    with TemporaryDirectory(prefix="hussh-main-qualification-") as directory:
+        for kind, sha, checks in (
+            ("functional", args.sha, "CI Status Gate,Queue Validation,Branch Validation Gate"),
+            ("smoke", approval, "Main Post-Merge Smoke Gate"),
+        ):
+            output = Path(directory) / f"{kind}.json"
+            result = subprocess.run(
+                ["bash", str(Path(__file__).with_name("require-deploy-sha-on-main.sh")), sha],
+                env=dict(env, REQUIRED_CHECK_NAME=checks, DEPLOY_SHA_EVIDENCE_OUTPUT=str(output),
+                         REQUIRE_LATEST_FUNCTIONAL_CI="1" if kind == "functional" else "0"),
+                capture_output=True, text=True, timeout=180, check=False,
+            )
+            require(result.returncode == 0, f"Main {kind} qualification is missing or superseded")
+            proof = json.loads(output.read_text())
+            require(proof.get("repository") == REPOSITORY and proof.get("sha") == sha
+                    and proof.get("source_branch") == "main" and bool(proof.get("checks")),
+                    "Main qualification evidence is incomplete")
+            proofs[kind] = proof
+        mapping = None
+        if approval != args.sha:
+            import promotion_approval
+            mapping = promotion_approval.verify(args.sha, approval)
+    # Re-read the combined evidence after both independent gates complete.
+    # Hashes retain only source/run metadata, never GitHub response bodies.
+    client = GitHub()
+    for proof in proofs.values():
+        reads = proof.get("authority_reads")
+        require(isinstance(reads, dict) and bool(reads), "Main authority recheck is unavailable")
+        for path, expected in reads.items():
+            require(isinstance(path, str) and path.startswith(("runs/", "workflows/")),
+                    "Main authority read left its bounded Actions owner")
+            current = client.read(path)
+            digest = hashlib.sha256(json.dumps(current, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            require(digest == expected, "Main qualification changed during verification")
+    record = {
+        "schema_version": 1, "kind": "main-qualified-source", "status": "qualified",
+        "repository": REPOSITORY, "environment": "production", "sha": args.sha,
+        "main_approval_sha": approval, "resolved_services": sorted(scope),
+        "qualification": proofs, "application_approval": mapping,
+    }
+    prior = getattr(args, "predecessor", None)
+    if prior is not None:
+        require(json.loads(prior.read_text()) == record,
+                "Main qualification changed after release admission")
+    return record
+
+
 def pinned_backend_image(args) -> dict:
     require(
         args.environment == "dev" and args.predecessor is not None,
@@ -478,17 +544,20 @@ def pinned_backend_image(args) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat", "testflight-uat"))
-    parser.add_argument("--environment", choices=tuple(LANES), required=True)
+    parser.add_argument("command", choices=("create", "require", "backend-image", "direct-uat", "testflight-uat", "main-source"))
+    parser.add_argument("--environment", choices=(*LANES, "production"), required=True)
     parser.add_argument("--sha")
     parser.add_argument("--scope")
     parser.add_argument("--status", type=Path)
     parser.add_argument("--predecessor", type=Path)
     parser.add_argument("--base-sha")
     parser.add_argument("--authority-sha")
+    parser.add_argument("--approval-sha", default="")
     parser.add_argument("--source-branch", choices=("uat", "uat-isolated"))
     parser.add_argument("--backend-base-sha", default="")
     parser.add_argument("--frontend-base-sha", default="")
+    parser.add_argument("--backend-base-revision", default="")
+    parser.add_argument("--frontend-base-revision", default="")
     parser.add_argument("--ci-run-id", type=int)
     parser.add_argument("--ci-attempt", type=int)
     parser.add_argument("--deployment-run-id", type=int)
@@ -497,6 +566,8 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     try:
+        require(args.command == "main-source" or args.environment in LANES,
+                "Production uses Main qualification, not an environment acceptance receipt")
         if args.command == "create":
             require(args.status is not None, "Status receipt is required")
             create(args)
@@ -505,7 +576,9 @@ def main() -> int:
                 args.sha is not None and re.fullmatch(r"[a-f0-9]{40}", args.sha) is not None,
                 "Full SHA is required",
             )
-            if args.command == "testflight-uat":
+            if args.command == "main-source":
+                receipt = main_source(args)
+            elif args.command == "testflight-uat":
                 require(args.environment == "uat" and (args.deployment_run_id or 0) > 0,
                         "TestFlight requires the live UAT deployment run")
                 receipt = GitHub().accept_testflight_backend(

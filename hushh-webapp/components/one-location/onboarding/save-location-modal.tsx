@@ -10,6 +10,7 @@ import {
   type PointerEvent,
   type ReactNode,
 } from "react";
+import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import {
   ArrowLeft,
   Briefcase,
@@ -578,7 +579,8 @@ export function SaveLocationModal({
   const [customLabel, setCustomLabel] = useState("");
   const [editingPlace, setEditingPlace] = useState(false);
   const [flowStep, setFlowStep] = useState<SaveLocationFlowStep>("summary");
-  const [pickedAddress, setPickedAddress] = useState<string | null>(null);
+  const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
+  const pickedLocationRef = useRef<PickedLocation | null>(null);
   const [addressDetails, setAddressDetails] =
     useState<SavedLocationAddressDetails>(EMPTY_SAVED_LOCATION_ADDRESS_DETAILS);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -681,7 +683,8 @@ export function SaveLocationModal({
       );
       setCustomLabel(initialCustomLabel ?? "");
       setEditingPlace(false);
-      setPickedAddress(null);
+      pickedLocationRef.current = null;
+      setPickedLocation(null);
       setAddressDetails(
         initialDetails
           ? { ...EMPTY_SAVED_LOCATION_ADDRESS_DETAILS, ...initialDetails }
@@ -769,7 +772,6 @@ export function SaveLocationModal({
   useEffect(() => {
     if (!open) return;
     const next = (address && address.trim()) || null;
-    if (next) setPickedAddress(next);
     // Spread the detected address across the field it can actually answer. It
     // was previously only mined for a postal code, so a person looking at
     // "B-284/3, Rd Number 1, ..." on screen still had to retype B-284/3 into
@@ -792,8 +794,9 @@ export function SaveLocationModal({
 
   const normalizedAddressDetails =
     normalizeSavedLocationAddressDetails(addressDetails);
-  const detectedAddress =
-    stripPlusCodeSegment(pickedAddress) || resolvedAddress || "";
+  const detectedAddress = (
+    pickedLocation ? stripPlusCodeSegment(pickedLocation.address) : resolvedAddress
+  ) || "";
   /**
    * The Address line box tracks the detected address until the person types
    * over it -- the same "typed wins" rule as House or flat, just for the line
@@ -997,19 +1000,34 @@ export function SaveLocationModal({
     }
   };
 
+  const startingLatitude = mapInitial?.latitude;
+  const startingLongitude = mapInitial?.longitude;
   const updateUnifiedPickedLocation = useCallback(
     (picked: PickedLocation) => {
+      const lastPick = pickedLocationRef.current;
+      if (
+        lastPick &&
+        lastPick.latitude === picked.latitude &&
+        lastPick.longitude === picked.longitude &&
+        lastPick.address === picked.address
+      ) return;
+      const latitude = lastPick?.latitude ?? startingLatitude;
+      const longitude = lastPick?.longitude ?? startingLongitude;
+      const moved = latitude !== undefined && longitude !== undefined &&
+        haversineMeters(
+          { lat: latitude, lng: longitude },
+          { lat: picked.latitude, lng: picked.longitude },
+        ) > 1;
       onPickExactLocation?.(picked);
-      setPickedAddress(picked.address);
-      setAddressDetails((current) =>
-        detectedAddressDetails(
-          current,
-          picked.address,
-          houseOrFlatEditedRef.current,
-        ),
-      );
+      pickedLocationRef.current = picked;
+      setPickedLocation(picked);
+      setAddressDetails((current) => detectedAddressDetails(
+        moved ? { ...current, postalCode: "" } : current,
+        picked.address,
+        houseOrFlatEditedRef.current,
+      ));
     },
-    [onPickExactLocation],
+    [startingLatitude, startingLongitude, onPickExactLocation],
   );
 
   const handleConfirmMapPick = (picked: PickedLocation) => {
@@ -1149,7 +1167,7 @@ export function SaveLocationModal({
                 compact
                 initialLatitude={mapInitial!.latitude}
                 initialLongitude={mapInitial!.longitude}
-                initialAddress={pickedAddress || resolvedAddress}
+                initialAddress={detectedAddress || null}
                 initialAccuracyM={initialAccuracyM}
                 reverseGeocode={reverseGeocode}
                 onLocateMe={onLocateMe}
@@ -1236,7 +1254,7 @@ export function SaveLocationModal({
                       embedded
                       initialLatitude={mapInitial!.latitude}
                       initialLongitude={mapInitial!.longitude}
-                      initialAddress={pickedAddress || resolvedAddress}
+                      initialAddress={detectedAddress || null}
                       initialAccuracyM={initialAccuracyM}
                       reverseGeocode={reverseGeocode}
                       onLocateMe={onLocateMe}
@@ -1373,7 +1391,7 @@ export function SaveLocationModal({
             ref={mapPickerRef}
             initialLatitude={mapInitial!.latitude}
             initialLongitude={mapInitial!.longitude}
-            initialAddress={pickedAddress || resolvedAddress}
+            initialAddress={detectedAddress || null}
             initialAccuracyM={initialAccuracyM}
             reverseGeocode={reverseGeocode}
             onLocateMe={onLocateMe}

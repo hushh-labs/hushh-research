@@ -13,7 +13,7 @@ vi.mock("@/lib/capacitor/native-drawers", async (original) => ({
   ...await original<typeof import("@/lib/capacitor/native-drawers")>(),
   nativeDrawersPlatformEligible: () => native.enabled,
   nativeDrawers: () => ({
-    getCapabilities: async () => ({ profileNetWorthScore: native.scoreSupported }),
+    getCapabilities: async () => ({ profileNetWorthScore: true, profileNetWorthAmount: native.scoreSupported }),
   }),
 }));
 const url = vi.hoisted(() => ({

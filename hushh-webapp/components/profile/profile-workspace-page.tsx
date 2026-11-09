@@ -2,6 +2,7 @@
 
 import { LivingMemoryDocument } from "@/components/profile/living-memory-document";
 import { MarketingPreferencePanel } from "@/components/account/marketing-preference-panel";
+import { AttemptEmailPanel } from "@/components/account/attempt-email-panel";
 import { NetworkVisibilitySetting } from "./network-visibility-setting";
 import { useMarketingPreference } from "@/components/account/use-marketing-preference";
 
@@ -3641,6 +3642,7 @@ function ProfilePageContent({
     >
       {presentation === "native-page" && nativeAccountException !== "photo" ? <ProfileAvatarEditor /> : null}
       <MarketingPreferencePanel model={emailPreference} />
+      <AttemptEmailPanel owner={activePanel === "account" ? applicationOwnerId ?? null : null} />
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={PROFILE_ICONS.name}
@@ -4312,7 +4314,7 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:net-worth-score",
       title: "Net Worth Score",
-      content: <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary} secondary={nws.secondary} detail />,
+      content: <NetWorthScoreCard report={nws.report} status={nws.status ?? nws.coverageStatus} primary={nws.primary} secondary={nws.secondary} detail />,
     });
   } else if (!routeBlockedByVault && activePanel === "world-model") {
     // The Profile pane is how /one/profile/world-model is presented (proxy.ts
@@ -4693,7 +4695,7 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <NetWorthScoreCard report={nws.report} status={nws.status} primary={nws.primary}
-            secondary={nws.secondary} onOpen={() => openVaultBackedPanel("net-worth-score")} />
+            onOpen={() => openVaultBackedPanel("net-worth-score")} />
           <div className="profile-home-content">
             {menuGroups.map(group => <SettingsGroup key={group.id} title={group.title} separatorInset rowSizing="uniform">
               {group.entries.map(entry => <SettingsRow key={entry.id}
@@ -5244,7 +5246,7 @@ function ProfilePageContent({
       },
       groups: menuGroups, actions: menuActions,
       ...(nws.unlocked ? { scoreCard: {
-        ...netWorthScoreDisplay(nws.report), status: nws.status, primary: nws.primary, secondary: nws.secondary,
+        amount: netWorthScoreDisplay(nws.report).amount, status: nws.status, primary: nws.primary,
         onOpen: () => openVaultBackedPanel("net-worth-score"),
       } } : {}) }}
     page={{ pane: true, contentInset: "profile", bodyClassName: "profile-pane-scroll-root",

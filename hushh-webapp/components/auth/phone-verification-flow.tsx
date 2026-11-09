@@ -61,6 +61,7 @@ import { CountryPicker, InlineCountryPickerPanel } from "@/components/auth/count
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/kai/actions/voice-surface-metadata";
+import { usePhoneLinkedDeletion } from "./use-phone-linked-deletion";
 import { PhoneConflictRecovery } from "@/components/auth/phone-conflict-recovery";
 
 const FLOW_CONTROL_SHELL_CLASS_NAME =
@@ -121,6 +122,13 @@ type StartVerificationOutcome =
 
 type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
+// Code-step refusals whose fresh real-SMS proof AuthProvider retains (web claim
+// path) and that in-place deletion can act on. PHONE_SESSION_ACCOUNT_CONFLICT also
+// retains a proof, but its phone sign-in is itself an account the server only lets
+// its owner delete, so it keeps the previous-account sign-in handoff. Test codes
+// and native links never retain a proof and keep the handoff too.
+const RETAINED_PROOF_CONFLICTS = new Set(["PHONE_TRANSFER_CONFIRMATION_REQUIRED", "PHONE_ALREADY_VERIFIED"]);
+
 function phoneFailureMessage(error: unknown, fallback: string): string {
   return resolvePhoneFailureMessage(error, fallback, apiErrorCode(error));
 }
@@ -130,6 +138,9 @@ export function usePhoneVerificationFlow({
   currentPhoneNumber,
   startVerification,
   confirmVerification,
+  prepareLinkedDeletion,
+  confirmLinkedDeletion,
+  cancelLinkedDeletion,
   deletePreviousAccount,
   onCompleted,
   onContinueExisting,
@@ -168,7 +179,8 @@ export function usePhoneVerificationFlow({
   );
   const [verificationCode, setVerificationCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
-  const [conflict, setConflict] = useState<"choices" | null>(null);
+  const [conflict, setConflict] = useState<"choices" | "delete" | null>(null);
+  const [linkedProof, setLinkedProof] = useState(false);
   const [operationError, setOperationError] = useState<string | null>(null);
   const [step, setStep] = useState<VerificationStep>(
     mode === "link" && currentPhoneNumber ? "linked" : "phone",
@@ -189,6 +201,25 @@ export function usePhoneVerificationFlow({
   // `step` read from an effect that must not re-run when it changes.
   const stepRef = useRef(step);
   const changeStep = useCallback((next: VerificationStep) => { stepRef.current = next; setStep(next); }, []);
+  const deletionGuard = useMemo(() => ({ pending: false, visit }), [visit]);
+  const deletionCurrent = useCallback(
+    () => current() && allowedOperation.current?.() !== false && visit.entryRevision === entryRevision,
+    [current, visit, entryRevision],
+  );
+  const deletionFallback = useCallback(async () => {
+    await performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, deletionCurrent,
+      phoneFlowInFlightRef, setBusy, setOperationError, "Couldn’t open deletion review. Try again.");
+  }, [deletePreviousAccount, submittedPhoneNumber, deletionCurrent, phoneFlowInFlightRef]);
+  const deletion = usePhoneLinkedDeletion({
+    phone: submittedPhoneNumber, conflict, busy, guard: deletionGuard, current: deletionCurrent,
+    inFlight: phoneFlowInFlightRef, setBusy, setConflict, setError: setOperationError,
+    prepare: linkedProof ? prepareLinkedDeletion : undefined, cancel: cancelLinkedDeletion, confirm: confirmLinkedDeletion,
+    fallback: deletionFallback,
+    onDeleted: async verified => {
+      visit.verified = true; visit.verifiedUser = verified;
+      setConflict(null); changeStep("linked"); await onCompleted(verified);
+    },
+  });
   const seededOwner = useRef(ownerKey);
   useEffect(() => {
     stepRef.current = step;
@@ -251,9 +282,17 @@ export function usePhoneVerificationFlow({
     onStepChange?.(step);
   }, [onStepChange, step]);
 
+  const { leave: leaveDeletionReview, freshProof: deletionProofSpent, unconfirmed: deletionUnconfirmed } = deletion;
   const returnToPhoneNumber = useCallback(() => {
     if (!current()) return true;
     if (phoneFlowInFlightRef.current) return true;
+    // Only a review that sent nothing returns to the choices. Once a confirmation was
+    // sent and is unconfirmed, or the proof is spent or expired, the choices could
+    // offer a proof that may already be consumed, so Back returns to number entry.
+    if (conflict === "delete") {
+      if (!leaveDeletionReview()) return true;
+      if (!deletionProofSpent && !deletionUnconfirmed) { advanceEntryRevision(); setConflict("choices"); setOperationError(null); return true; }
+    }
     advanceEntryRevision();
     setVerificationCode("");
     setCodeError(null);
@@ -261,7 +300,13 @@ export function usePhoneVerificationFlow({
     setConflict(null);
     changeStep("phone");
     return true;
-  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision]);
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, leaveDeletionReview, deletionProofSpent, deletionUnconfirmed]);
+  // A sent, spent or expired proof cannot be offered again; only a new verification continues.
+  const restartVerification = useCallback(() => {
+    if (!current() || phoneFlowInFlightRef.current || conflict !== "delete" || !leaveDeletionReview()) return;
+    advanceEntryRevision(); setVerificationCode(""); setCodeError(null); setOperationError(null);
+    setConflict(null); changeStep("phone");
+  }, [current, changeStep, phoneFlowInFlightRef, advanceEntryRevision, conflict, leaveDeletionReview]);
 
   useEffect(() => {
     onBackStepChange?.(step === "code" ? returnToPhoneNumber : null);
@@ -410,8 +455,8 @@ export function usePhoneVerificationFlow({
   usePublishVoiceSurfaceMetadata(
     conflict ? {
       screenId: pathname === ROUTES.PHONE_MANDATE ? "phone_mandate" : "profile_account",
-      title: "Phone linked to another email account",
-      purpose: "Sign in to the existing account or use a different number without revealing the linked email.",
+      title: conflict === "delete" ? "Review deletion of the linked account" : "Phone linked to another email account",
+      purpose: "Review deleting the account linked to this number, or use a different number, without revealing the linked email.",
       actions: [], controls: [],
       interactionLayer: {
         schemaVersion: "voice_interaction_layer.v1", id: "phone_conflict", kind: "confirmation",
@@ -619,7 +664,7 @@ export function usePhoneVerificationFlow({
           phoneFailureMessage(error, "Couldn't send the verification code. Please try again.");
         setOperationError(message);
         if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
-          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setConflict("choices"); changeStep("code");
+          advanceEntryRevision(); setSubmittedPhoneNumber(normalizedPhone); setLinkedProof(false); setConflict("choices"); changeStep("code");
         }
         if (committed) { morphyToast.error(message); return "auto_verified"; }
         trackEvent("phone_verification_started", {
@@ -788,7 +833,9 @@ export function usePhoneVerificationFlow({
         setOperationError(message);
         if (committed) { if (options.notify) morphyToast.error(message); return "verified"; }
         if (isPhoneOwnershipConflict(error, apiErrorCode(error))) {
-          advanceEntryRevision(); setVerificationCode(""); setConflict("choices");
+          advanceEntryRevision(); setVerificationCode("");
+          setLinkedProof(!Capacitor.isNativePlatform() && RETAINED_PROOF_CONFLICTS.has(apiErrorCode(error) ?? ""));
+          setConflict("choices");
         }
         trackEvent("phone_verification_completed", {
           action: mode,
@@ -826,12 +873,6 @@ export function usePhoneVerificationFlow({
   const handleConfirmVerification = useCallback(async () => {
     await submitVerificationCode(verificationCode, { notify: true });
   }, [submitVerificationCode, verificationCode]);
-
-  const reviewPreviousDeletion = useCallback(async () => {
-    if (!current() || allowedOperation.current?.() === false || conflict !== "choices" || visit.entryRevision !== entryRevision || busy || phoneFlowInFlightRef.current) return;
-    await performPhoneRecovery(deletePreviousAccount, submittedPhoneNumber, current, phoneFlowInFlightRef, setBusy, setOperationError,
-      "Couldn’t open deletion review. Try again.");
-  }, [current, busy, deletePreviousAccount, phoneFlowInFlightRef, conflict, visit, entryRevision, submittedPhoneNumber]);
 
   useLocalOnboardingActionHandler(
     "phone_mandate.submit_code",
@@ -900,7 +941,12 @@ export function usePhoneVerificationFlow({
   );
 
   return { ready: formOwner === ownerKey, step, busy, maskedPhone, submittedPhoneNumber, verificationCode, codeError, phoneNumberError, operationError,
-    conflict, reviewPreviousDeletion, canReviewPreviousDeletion: Boolean(deletePreviousAccount),
+    conflict, reviewPreviousDeletion: deletion.review,
+    canReviewPreviousDeletion: Boolean(deletePreviousAccount || (linkedProof && prepareLinkedDeletion && confirmLinkedDeletion)),
+    deletionReview: conflict === "delete" ? deletion.prepared : null,
+    confirmDeletion: deletion.submit,
+    deletionNeedsFreshProof: deletion.freshProof, deletionUnconfirmed: deletion.unconfirmed, deletionSettled: deletion.settled,
+    restartVerification,
     countries: PHONE_COUNTRY_OPTIONS,
     selectedCountry, selectedCountryOption, selectedCountryDisplayLabel, countryQuery, countryInputValue, countryComboboxOpen,
     filteredCountryOptions, localPhoneNumber, mobileNumberLengthRange, suppressNextCountryFocusOpenRef,

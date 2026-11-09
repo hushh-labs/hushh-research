@@ -1,3 +1,9 @@
+.reviewSheet {
+  composes: app-type-compact from global;
+  font-size: var(--type-row-label-size);
+  line-height: var(--type-row-label-line);
+}
+
 .stack {
   font-size: var(--type-row-label-size, 14px);
   line-height: var(--type-row-label-line, 21px);
@@ -30,7 +36,7 @@
   min-width: 8rem;
 }
 .card {
-  padding: 1.25rem;
+  padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 1.25rem;
   background: var(--card);
@@ -158,9 +164,6 @@
   .person button {
     justify-self: end;
   }
-  .card {
-    padding: 1rem;
-  }
   .row input {
     min-width: 0;
     width: 100%;
@@ -178,6 +181,22 @@
   margin-block: 1rem;
   align-items: start;
 }
+.personaSummary {
+  margin-block: 0.875rem;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  background: var(--muted);
+}
+.personaSummary p {
+  margin-top: 0.25rem;
+}
+.quietAction {
+  min-height: 2.75rem;
+  color: var(--muted-foreground);
+  font-size: var(--type-row-description-size, 12px);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
 .reviewScore {
   display: grid;
   gap: 0.25rem;
@@ -188,7 +207,8 @@
   font-variant-numeric: tabular-nums;
 }
 .reviewScore strong {
-  font-size: 1.75rem;
+  font-size: var(--foundation-title3-size);
+  line-height: var(--foundation-title3-line);
   line-height: 1.15;
 }
 .reviewScore small {

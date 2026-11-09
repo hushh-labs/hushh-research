@@ -603,6 +603,12 @@ def test_adding_all_connections_is_exact_and_all_or_nothing_in_real_sql(db, monk
     for user_id in (*friends, "member-a", "left-b", "cooling-c"):
         _connect_to_owner(db, user_id)
     _connect_to_owner(db, "unready-d", profile=False)
+    # A retained connection and profile cannot override account erasure.
+    _connect_to_owner(db, "deleted-e")
+    db.execute_raw("""
+        INSERT INTO public.account_deletion_tombstones(user_id_hash)
+        VALUES('sha256:' || encode(digest('deleted-e', 'sha256'), 'hex'))
+    """)
     db.execute_raw(
         """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status,ended_at)
            VALUES(CAST(:circle AS UUID),'member-a','member','active',NULL),

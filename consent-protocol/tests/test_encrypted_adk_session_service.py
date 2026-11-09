@@ -833,3 +833,528 @@ def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
     assert newest_turn_answered(decoded.events)
     assert session.events[0].content.parts[1].function_call.name == REACTION_TOOL_NAME
     assert session.events[1].content.parts[0].function_response.response["emoji"] == "💛"
+
+
+def test_calendar_opening_offer_round_trip_keeps_original_expiry_and_account():
+    import time
+
+    from hushh_mcp.agents.calendar.read_offer import (
+        STATE_OPENING_OFFER,
+        CalendarOpeningOffer,
+        current_calendar_opening_offer,
+    )
+
+    binding = (
+        "owner-1",
+        "calendar",
+        "account-c",
+        "subject",
+        "connected",
+        "generation",
+        "scope-tail",
+    )
+    offer = CalendarOpeningOffer.model_validate(
+        {
+            "owner_id": "owner-1",
+            "conversation_id": "thread-1",
+            "account_id": "account-c",
+            "grant_binding": list(binding),
+            "created_at_ms": int(time.time() * 1000),
+            "window": {
+                "calendar_id": "primary",
+                "calendar_ids": ["primary"],
+                "query_start": "2099-11-04T09:00:00Z",
+                "query_end": "2099-11-04T17:00:00Z",
+                "duration_minutes": 30,
+                "time_zone": "Asia/Kolkata",
+            },
+            "slots": [
+                {
+                    "start_at": "2099-11-04T10:00:00Z",
+                    "end_at": "2099-11-04T10:30:00Z",
+                    "available_until": "2099-11-04T11:00:00Z",
+                }
+            ],
+        }
+    )
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    session = Session(
+        id="thread-1",
+        app_name="hussh_one",
+        user_id="owner-1",
+        state={STATE_OPENING_OFFER: offer.model_dump(mode="json")},
+        events=[],
+    )
+    encoded = service._encode(session)
+    assert "account-c" not in encoded["ciphertext"]
+    decoded = _decode_as(
+        service,
+        session,
+        {
+            "payload_ciphertext": encoded["ciphertext"],
+            "payload_iv": encoded["iv"],
+            "payload_tag": encoded["tag"],
+            "payload_algorithm": encoded["algorithm"],
+        },
+    )
+    assert decoded.state[STATE_OPENING_OFFER] == session.state[STATE_OPENING_OFFER]
+    kwargs = {"owner_id": "owner-1", "conversation_id": "thread-1", "grant_binding": binding}
+    restored = current_calendar_opening_offer(
+        decoded.state[STATE_OPENING_OFFER], **kwargs, now_ms=offer.created_at_ms + 300_000
+    )
+    assert (
+        restored
+        and restored.account_id == "account-c"
+        and restored.slot_at(1).start_at == "2099-11-04T10:00:00Z"
+    )
+    assert (
+        current_calendar_opening_offer(
+            decoded.state[STATE_OPENING_OFFER], **kwargs, now_ms=offer.created_at_ms + 300_001
+        )
+        is None
+    )
+    for index in range(len(binding)):
+        changed = list(binding)
+        changed[index] += "changed"
+        assert (
+            current_calendar_opening_offer(
+                decoded.state[STATE_OPENING_OFFER], **{**kwargs, "grant_binding": tuple(changed)}
+            )
+            is None
+        )
+
+
+def _stm_events(count=7, width=20):
+    return [
+        Event(
+            id=f"event-{index}-{role}",
+            author=author,
+            invocation_id=f"turn-{index}",
+            content=types.Content(
+                role=role, parts=[types.Part(text=f"{index} {role} " + "x" * width)]
+            ),
+        )
+        for index in range(count)
+        for role, author in (("user", "user"), ("model", "one"))
+    ]
+
+
+def test_stm_resolves_configured_azure_deployment_budget():
+    from hushh_mcp.one_adk import chat_memory as stm
+
+    canonical = stm.context_budget("gpt-5.4-mini")
+    assert (canonical.context, canonical.output) == (400_000, 128_000)
+    assert stm.context_budget("one-search-gpt-54-mini-eval") == canonical
+    assert stm.context_budget("unregistered-azure-deployment").kind == "unknown_model_fallback"
+
+
+@pytest.mark.asyncio
+async def test_stm_azure_background_binds_owner_and_refuses_revoked_authority(monkeypatch):
+    import json
+    from contextlib import nullcontext
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.adk_bridge import delegation
+    from hushh_mcp.one_adk import chat_memory as stm
+    from hushh_mcp.one_adk import request_secrets
+    from hushh_mcp.runtime_providers.managed_text import (
+        ManagedPrimaryTextModel,
+        ManagedTextAgent,
+        managed_text_policy,
+    )
+    from hushh_mcp.services import chat_key
+    from tests.services.test_azure_adk import message, model, response
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
+    monkeypatch.setenv("HUSHH_UAT_MANAGED_AI_PROVIDER", "azure_openai")
+    monkeypatch.delenv("HUSHH_UAT_MANAGED_TEXT_PROVIDER", raising=False)
+    monkeypatch.setattr(chat_key, "retain_request_chat_key", nullcontext)
+    authority = AsyncMock(return_value={"owner": "owner"})
+    monkeypatch.setattr(delegation, "validate_first_party_owner_token", authority)
+    monkeypatch.setattr(request_secrets, "resolve_request_secret", lambda value: value)
+    session = Session(
+        id="azure-stm",
+        app_name="one",
+        user_id="owner",
+        events=_stm_events(),
+        state={"hussh:user_id": "owner", "hussh:consent_token": "synthetic-owner-authority"},
+    )
+    snapshot = stm.summary_snapshot(session)
+    adapter, client, factory, supplier = model(
+        [
+            response(
+                message(
+                    json.dumps({"summary": "Earlier owner goals.", "cutoff": snapshot["cutoff"]})
+                )
+            )
+        ]
+    )
+    original = ManagedPrimaryTextModel(
+        model=adapter.model,
+        endpoint=adapter.endpoint,
+        client_factory=factory,
+        token_supplier=supplier,
+        processing_scope="one_text_chat",
+        policy_generation=managed_text_policy()["generation"],
+        allow_fallback=False,
+    )
+    agent = ManagedTextAgent(name="one", mode="chat", model=original)
+    service = SimpleNamespace(commit_chat_summary=AsyncMock(return_value=True))
+    invocation = SimpleNamespace(
+        session=session,
+        state=session.state,
+        agent=agent,
+        session_service=service,
+    )
+    context = SimpleNamespace(get_invocation_context=lambda: invocation)
+    try:
+        assert original.require_current is None
+        assert stm._schedule(context, snapshot)
+        assert not client.requests  # Scheduling never waits for model or owner checks.
+        await asyncio.gather(*stm._PENDING.values())
+        await asyncio.sleep(0)
+        service.commit_chat_summary.assert_awaited_once()
+        assert len(client.requests) == 1
+        assert client.requests[0]["text"]["format"]["type"] == "json_schema"
+        assert client.requests[0]["store"] is False
+        assert original.require_current is None  # Shared model was never mutated.
+
+        service.commit_chat_summary.reset_mock()
+        authority.return_value = None
+        assert stm._schedule(context, snapshot)
+        await asyncio.gather(*stm._PENDING.values())
+        await asyncio.sleep(0)
+        assert len(client.requests) == 1
+        service.commit_chat_summary.assert_not_awaited()
+        assert stm.CHECKPOINT_KEY not in session.state
+    finally:
+        for task in list(stm._PENDING.values()):
+            task.cancel()
+        if stm._PENDING:
+            await asyncio.gather(*stm._PENDING.values(), return_exceptions=True)
+
+
+def test_stm_counts_system_tools_and_ltm_and_never_cuts_a_tool_pair():
+    from google.adk.models.llm_request import LlmRequest
+
+    from hushh_mcp.one_adk.chat_memory import (
+        ContextBudget,
+        estimate_request_tokens,
+        fit_recent_context,
+    )
+
+    request = LlmRequest(
+        model="fixture",
+        contents=[
+            types.Content(role="user", parts=[types.Part(text="old " * 100)]),
+            types.Content(
+                role="model",
+                parts=[types.Part(function_call=types.FunctionCall(name="read", args={}))],
+            ),
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(name="read", response={"ok": True})
+                    )
+                ],
+            ),
+            types.Content(role="user", parts=[types.Part(text="newest")]),
+        ],
+        config=types.GenerateContentConfig(
+            system_instruction="LTM packet " * 10,
+            tools=[
+                types.Tool(
+                    function_declarations=[
+                        types.FunctionDeclaration(name="read", description="schema")
+                    ]
+                )
+            ],
+        ),
+    )
+    full = estimate_request_tokens(request)
+    no_config = request.model_copy(update={"config": types.GenerateContentConfig()})
+    assert full > estimate_request_tokens(no_config)
+    fit_recent_context(request, ContextBudget(500, 100), summary_applied=False)
+    assert [part.text for content in request.contents for part in content.parts] == ["newest"]
+
+
+def test_azure_usage_reconciles_input_once_without_adding_cached_or_reasoning_tokens(monkeypatch):
+    from hushh_mcp.one_adk import chat_memory as stm
+    from hushh_mcp.runtime_providers.azure_response_codec import _response
+    from tests.services.test_azure_adk import message, response
+
+    native = response(message("Synthetic answer."))
+    native.usage.input_tokens_details = SimpleNamespace(cached_tokens=7)
+    native.usage.output_tokens_details = SimpleNamespace(reasoning_tokens=3)
+    adapted = _response(native, allowed_names=set())
+    session = Session(id="usage", app_name="one", user_id="owner")
+    session.state[stm.USAGE_KEY] = {
+        "invocationId": "turn",
+        "modelCallId": "same-call",
+        "inputTokens": 100,
+        "outputReserveTokens": 128000,
+        "contextBudgetTokens": 400000,
+    }
+    recorded = []
+    monkeypatch.setattr(stm, "_record_usage", recorded.append)
+    stm.chat_memory_after_model(SimpleNamespace(session=session, state=session.state), adapted)
+    assert adapted.usage_metadata.cached_content_token_count == 7
+    assert adapted.usage_metadata.thoughts_token_count == 3
+    assert recorded[-1]["inputTokens"] == native.usage.input_tokens == 12
+    assert recorded[-1]["modelCallId"] == "same-call"
+    assert recorded[-1]["tokenCountMethod"] == "provider_usage"
+
+
+def test_stm_snapshot_rolls_forward_and_excludes_consent_tagged_turns():
+    from hushh_mcp.one_adk import chat_memory as stm
+    from hushh_mcp.one_adk.consent_redaction import consent_invocations_state_key
+
+    session = Session(id="s", app_name="one", user_id="owner", events=_stm_events())
+    session.state[consent_invocations_state_key("bundle")] = ["turn-1"]
+    first = stm.summary_snapshot(session)
+    assert first and all(not row["content"].startswith("1 ") for row in first["messages"])
+    checkpoint = {key: first[key] for key in ("version", "cutoff", "prefixDigest", "consentDigest")}
+    checkpoint["summary"] = "Kept the earlier owner context."
+    session.state[stm.CHECKPOINT_KEY] = checkpoint
+    session.events.extend(_stm_events(9)[14:])
+    second = stm.summary_snapshot(session)
+    assert second["previousSummary"] == checkpoint["summary"]
+    assert second["cutoff"] != first["cutoff"]
+    assert all(not row["content"].startswith("0 ") for row in second["messages"])
+    # A newly tagged old turn invalidates the prior untagged summary.
+    session.state[consent_invocations_state_key("bundle")] = ["turn-0", "turn-1"]
+    assert stm.checkpoint_prefix(session, checkpoint) is None
+
+
+@pytest.mark.asyncio
+async def test_stm_summary_commit_keeps_arrivals_and_fences_stale_summary(monkeypatch):
+    from hushh_mcp.one_adk import chat_memory as stm
+
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    rows = _Rows()
+    monkeypatch.setattr(service, "_execute", rows.execute)
+    identity = {"app_name": "one", "user_id": "owner", "session_id": "stm-thread"}
+    session = await service.create_session(**identity)
+    for event in _stm_events():
+        await service.append_event(session, event)
+    snapshot = stm.summary_snapshot(session)
+    checkpoint = {
+        key: snapshot[key] for key in ("version", "cutoff", "prefixDigest", "consentDigest")
+    }
+    checkpoint["summary"] = "Synthetic summarized owner context."
+    # An arrival wins the storage CAS between the summary's read and write.
+    arrival = _stm_events(8)[14]
+    original_replace = service._repository.replace
+    raced = False
+
+    async def replace_with_arrival(**kwargs):
+        nonlocal raced
+        if not raced:
+            raced = True
+            await service.append_event(session, arrival)
+        return await original_replace(**kwargs)
+
+    monkeypatch.setattr(service._repository, "replace", replace_with_arrival)
+    assert await service.commit_chat_summary(
+        **identity, expected_checkpoint=None, checkpoint=checkpoint
+    )
+    restored = await service.get_session(**identity)
+    assert len(restored.events) == 15 and restored.events[-1].id == arrival.id
+    assert restored.state[stm.CHECKPOINT_KEY] == checkpoint
+    assert checkpoint["summary"] not in str(rows.rows)
+    # A stale model result cannot replace a newer checkpoint.
+    stale = {**checkpoint, "summary": "Stale replacement"}
+    assert not await service.commit_chat_summary(
+        **identity, expected_checkpoint=None, checkpoint=stale
+    )
+    assert (await service.get_session(**identity)).state[stm.CHECKPOINT_KEY] == checkpoint
+
+
+@pytest.mark.asyncio
+async def test_stm_background_failure_never_waits_or_advances_checkpoint(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.llm_request import LlmRequest
+
+    from hushh_mcp.one_adk import chat_memory as stm
+    from hushh_mcp.one_adk.agui_turn_timing import _CURRENT_TURN, TurnTiming
+
+    session = Session(id="s", app_name="one", user_id="owner", events=_stm_events(width=1000))
+    service = SimpleNamespace(commit_chat_summary=AsyncMock())
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def failing(**_kwargs):
+        started.set()
+        await release.wait()
+        raise ValueError("synthetic failed summary")
+
+    monkeypatch.setattr(stm, "generate_summary", failing)
+    monkeypatch.setattr(stm, "context_budget", lambda _: stm.ContextBudget(8000, 1000))
+    context = SimpleNamespace(
+        session=session,
+        state=session.state,
+        invocation_id="new-turn",
+        get_invocation_context=lambda: SimpleNamespace(
+            session=session, session_service=service, agent=SimpleNamespace(model=object())
+        ),
+    )
+    request = LlmRequest(model="fixture", contents=[event.content for event in session.events])
+    timing = TurnTiming(head="one", run="fixture", started_at=0)
+    token = _CURRENT_TURN.set(timing)
+    try:
+        # Returns synchronously; the provider coroutine has not even started.
+        stm.chat_memory_before_model(context, request)
+        assert not started.is_set()
+        assert stm.CHECKPOINT_KEY not in session.state
+        assert len(request.contents) < len(session.events)
+        assert len(session.events) == 14
+        await started.wait()
+        assert len(stm._PENDING) == 1
+        # Same conversation cannot spawn a second competing summary.
+        stm.chat_memory_before_model(context, request)
+        assert len(stm._PENDING) == 1
+        release.set()
+        await asyncio.gather(*stm._PENDING.values())
+        await asyncio.sleep(0)
+        assert not stm._PENDING
+        service.commit_chat_summary.assert_not_awaited()
+        assert stm.CHECKPOINT_KEY not in session.state
+        usage = timing.context_usage_events[-1]
+        assert usage["tokenCountMethod"] == "conservative_utf8_bytes"
+        response = SimpleNamespace(
+            partial=False, usage_metadata=SimpleNamespace(prompt_token_count=321)
+        )
+        stm.chat_memory_after_model(context, response)
+        actual = timing.context_usage_events[-1]
+        assert actual["modelCallId"] == usage["modelCallId"]
+        assert actual["inputTokens"] == 321 and actual["tokenCountMethod"] == "provider_usage"
+    finally:
+        release.set()
+        for task in list(stm._PENDING.values()):
+            task.cancel()
+        if stm._PENDING:
+            await asyncio.gather(*stm._PENDING.values(), return_exceptions=True)
+        _CURRENT_TURN.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_stm_owner_model_gene_and_encrypted_checkpoint_cover_only_snapshot(monkeypatch):
+    import json
+    from unittest.mock import AsyncMock
+
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+
+    from hushh_mcp.one_adk import chat_memory as stm
+
+    requests = []
+    gate = asyncio.Event()
+
+    class OwnerModel(BaseLlm):
+        async def generate_content_async(self, llm_request, stream=False):
+            requests.append(llm_request)
+            await gate.wait()
+            text = llm_request.contents[-1].parts[0].text
+            payload = json.loads(text)
+            yield LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            text=json.dumps(
+                                {
+                                    "summary": "Earlier owner goals and decisions.",
+                                    "cutoff": payload["cutoff"],
+                                }
+                            )
+                        )
+                    ],
+                )
+            )
+
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    rows = _Rows()
+    monkeypatch.setattr(service, "_execute", rows.execute)
+    identity = {"app_name": "one", "user_id": "owner", "session_id": "gene-thread"}
+    session = await service.create_session(**identity)
+    for event in _stm_events():
+        await service.append_event(session, event)
+    snapshot = stm.summary_snapshot(session)
+    job = asyncio.create_task(
+        stm._summarize(service, identity, OwnerModel(model="fixture"), snapshot)
+    )
+    try:
+        for _ in range(100):
+            if requests:
+                break
+            await asyncio.sleep(0.01)
+        assert requests, "summary must execute the supplied owner model through the real ADK gene"
+        arrival = _stm_events(8)[14]
+        await service.append_event(session, arrival)
+        gate.set()
+        await job
+        restored = await service.get_session(**identity)
+        checkpoint = restored.state[stm.CHECKPOINT_KEY]
+        assert checkpoint["cutoff"] == snapshot["cutoff"]
+        assert restored.events[-1].id == arrival.id
+        request = SimpleNamespace(contents=[event.content for event in restored.events])
+        assert stm._apply_checkpoint(request, restored)
+        texts = [part.text for content in request.contents for part in content.parts]
+        assert texts[0].endswith(checkpoint["summary"])
+        assert texts[-1] == arrival.content.parts[0].text
+        assert all(not text.startswith("0 ") for text in texts)
+        assert all(any(text.startswith(f"{turn} ") for text in texts) for turn in range(3, 8))
+        # A provider failure preserves the previous summary and its exact cutoff.
+        monkeypatch.setattr(stm, "generate_summary", AsyncMock(side_effect=ValueError("failed")))
+        next_snapshot = stm.summary_snapshot(restored)
+        assert next_snapshot
+        await stm._summarize(service, identity, OwnerModel(model="fixture"), next_snapshot)
+        assert (await service.get_session(**identity)).state[stm.CHECKPOINT_KEY] == checkpoint
+    finally:
+        gate.set()
+        if not job.done():
+            job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
+
+
+def test_stm_never_swallows_queued_or_resumed_messages_from_a_covered_invocation():
+    from hushh_mcp.one_adk import chat_memory as stm
+
+    session = SimpleNamespace(events=_stm_events(), state={})
+    # A queued user input shares the previous turn's invocation. Keep that
+    # whole invocation verbatim rather than splitting at the queued message.
+    session.events[6].invocation_id = session.events[4].invocation_id
+    snapshot = stm.summary_snapshot(session)
+    assert snapshot["cutoff"] == session.events[3].id
+    checkpoint = {
+        key: snapshot[key] for key in ("version", "cutoff", "prefixDigest", "consentDigest")
+    }
+    checkpoint["summary"] = "Previously validated summary."
+    assert stm.checkpoint_prefix(session, checkpoint) is not None
+    # A late resumption with the covered invocation invalidates application;
+    # no newer message can disappear just because its invocation matches.
+    arrival = _stm_events(8)[14]
+    arrival.invocation_id = session.events[0].invocation_id
+    session.events.append(arrival)
+    assert stm.checkpoint_prefix(session, checkpoint) is None
+
+
+def test_stm_uses_documented_model_window_and_calibrates_whole_request():
+    from google.adk.models.llm_request import LlmRequest
+
+    from hushh_mcp.one_adk import chat_memory as stm
+
+    assert stm.context_budget("gemini-3.8-flash").context == 1048576
+    assert stm.context_budget("gpt-5.1").context == 400000
+    assert stm.context_budget("gpt-6-luna").context == 1050000
+    assert stm.context_budget("unknown-local").kind == "unknown_model_fallback"
+    request = LlmRequest(
+        model="gemini-3.8-flash",
+        contents=[types.Content(role="user", parts=[types.Part(text="a message")])],
+    )
+    state = {stm._CALIBRATION_KEY: {"model": request.model, "bytes": 10000, "tokens": 3000}}
+    assert stm._calibration_ratio(request, state) == pytest.approx(0.345)
+    state[stm._CALIBRATION_KEY]["model"] = "other-model"
+    assert stm._calibration_ratio(request, state) == 1.0

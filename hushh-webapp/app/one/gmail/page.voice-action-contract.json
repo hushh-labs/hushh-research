@@ -111,6 +111,31 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "kyc.save_profile",
+      "label": "Save KYC profile",
+      "meaning": "Imports the person's explicitly submitted identity details into private Memory. A completed outcome requires the encrypted write's acknowledgement; local staging alone does not confirm saving.",
+      "aliases": [],
+      "search_keywords": [],
+      "reachability": {
+        "routes": ["/one/gmail?workspace=kyc", "/one/setup/email"],
+        "screens": ["gmail", "one_setup_email"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": ["KYC profile import is open", "The person is signed in with an unlocked private vault"]
+      },
+      "guard_ids": ["manual_user_execution"],
+      "risk_level": "medium",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Only the person's explicit Save profile or Import & Continue handler may submit their identity details.",
+        "intended_handler": "KycIdentityProfilePkmService.saveProfile"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": ["components/gmail/gmail-verification-onboarding.tsx", "components/onboarding/setup/kyc-identity-preface.tsx"],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "profile.gmail.connect",
       "label": "Connect Gmail",
       "meaning": "Starts OAuth flow for Gmail receipts connector.",

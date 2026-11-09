@@ -64,7 +64,7 @@ describe("controlled Calendar tool → visible action → confirmation", () => {
     view.rerender(<AgentCalendarProposalCard {...props} busy />);
     fireEvent.click(screen.getByRole("button", { name: /Scheduling|Schedule meeting|Working/i }));
     await waitFor(() => expect(result).toHaveBeenCalledOnce());
-    expect(execute).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "synthetic-token", userId: "synthetic-owner", proposalId: "gcal_example" });
+    expect(execute).toHaveBeenCalledExactlyOnceWith({ vaultOwnerToken: "synthetic-token", userId: "synthetic-owner", proposalId: "gcal_example", accountId: "default" });
     expect(result.mock.calls[0][0]).toMatchObject({ status: "completed", type: "calendar.create" });
   });
 });

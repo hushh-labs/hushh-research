@@ -14,6 +14,7 @@ import random
 from typing import Any, Literal
 
 MAX_SOURCE_ATTEMPTS = 6
+SLOW_SOURCE_RETRY_SECONDS = 6 * 60 * 60
 SOURCE_BACKOFF_BASE_SECONDS = 60
 SOURCE_BACKOFF_CAP_SECONDS = 3600
 MAX_MESSAGE_FAILURES = 3
@@ -100,8 +101,8 @@ def coverage(
 
     ``complete``        every message in the approved period was checked.
     ``catching_up``     work remains or a recoverable retry is scheduled; no warning.
-    ``needs_attention`` only the owner can fix it: a lost grant, a source that
-                        exhausted its retries, or a provider outage.
+    ``needs_attention`` a lost grant, a provider outage, or sources in slow retry.
+                        Only a lost grant requires owner intervention.
     """
     sources = (checkpoint or {}).get("incomplete_sources", {})
     exhausted = sum(1 for entry in sources.values() if source_exhausted(entry))

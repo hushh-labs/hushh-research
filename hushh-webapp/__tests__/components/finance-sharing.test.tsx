@@ -17,6 +17,7 @@ import { FinancePortfolioSharing } from "@/components/kai/sharing/finance-portfo
 import { FinanceSharedDetail } from "@/components/kai/sharing/finance-shared-detail";
 import { FinanceSharingManager } from "@/components/kai/sharing/finance-sharing-manager";
 import { unwindBackLayer } from "@/lib/navigation/back-layers";
+import { PERSON_PROFILE_PREVIEW_EVENT } from "@/lib/connections/person-profile-preview";
 
 function goToAccess() {
   for (let index = 0; index < 2; index++) {
@@ -49,6 +50,25 @@ beforeEach(() => {
   mocks.review.mockResolvedValue("derived-review-sentinel");
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+it("opens a recipient portrait without changing the sharing selection", async () => {
+  const opened = vi.fn((event: Event) => event.preventDefault());
+  window.addEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened);
+  try {
+    const { container } = render(<FinanceShareFlow open onOpenChange={vi.fn()} model={model} source={source} />);
+    const checkbox = await screen.findByRole("checkbox", { name: "Synthetic connection" });
+    const avatar = container.querySelector<HTMLButtonElement>("[data-avatar-size] button") ?? container.querySelector<HTMLButtonElement>("button[data-avatar-size]");
+    expect(avatar).not.toBeNull();
+    fireEvent.click(avatar!);
+    expect(checkbox).not.toBeChecked();
+    expect((opened.mock.calls[0][0] as CustomEvent).detail.userId).toBe("recipient");
+    fireEvent.click(checkbox);
+    fireEvent.click(avatar!);
+    expect(checkbox).toBeChecked();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  } finally { window.removeEventListener(PERSON_PROFILE_PREVIEW_EVENT, opened); }
+});
 
 it("allows a recipient without a portfolio to manage received access but not create shares", async () => {
   mocks.history.mockImplementation(async (_context, direction) => ({ items: direction === "received" ? [grant] : [], nextCursor: null }));

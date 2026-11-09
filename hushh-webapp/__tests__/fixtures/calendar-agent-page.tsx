@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   trackEvent: vi.fn(),
   connectCalendar: vi.fn(),
   privateConnect: vi.fn(),
+  captureAttempt: vi.fn(),
+  attemptStarted: vi.fn(),
+  attemptSettled: vi.fn(),
   ownerId: "calendar-user" as string | null,
   native: false,
   authLoading: false,
@@ -42,6 +45,12 @@ vi.mock("@/lib/capacitor", () => ({
   HushhAuth: { connectCalendar: mocks.connectCalendar },
 }));
 vi.mock("@/lib/observability/client", () => ({ trackEvent: mocks.trackEvent }));
+vi.mock("@/lib/observability/product-activity-client", () => ({
+  captureProductAttempt: (...args: unknown[]) => {
+    mocks.captureAttempt(...args);
+    return { started: mocks.attemptStarted, settled: mocks.attemptSettled };
+  },
+}));
 
 vi.mock("@/lib/navigation/agent-navigation", () => ({
   navigateToAgentChat: mocks.navigateToAgentChat,

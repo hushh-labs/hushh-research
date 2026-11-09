@@ -23,7 +23,7 @@ const questions = [
   {
     key: "drawdown_response",
     prompt:
-      "If a $10,000 investment fell to $8,000 in a market downturn, what would you do first?",
+      "If your investments fell 20% in a market downturn, what would you do first?",
     choices: [
       ["reduce", "Sell some investments to limit further losses"],
       ["stay", "Keep my investments while I review my plan"],
@@ -115,14 +115,12 @@ export function FinancePersonaForm({
   onboarding = false,
   onSave,
   onDone,
-  onSkip,
   onSavingChange,
 }: {
   initial?: PersonaPreferences;
   onboarding?: boolean;
-  onSave: (preferences: PersonaPreferences) => Promise<void>;
+  onSave: (preferences: PersonaPreferences) => Promise<void | false>;
   onDone: () => void;
-  onSkip?: () => void;
   onSavingChange?: (saving: boolean) => void;
 }) {
   const id = useId();
@@ -145,8 +143,9 @@ export function FinancePersonaForm({
     onSavingChange?.(true);
     setError(null);
     try {
-      await onSave(preferences);
-      setSaved(preferences);
+      if (await onSave(preferences) === false) return;
+      if (onboarding) onDone();
+      else setSaved(preferences);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -165,20 +164,20 @@ export function FinancePersonaForm({
       <FinancePersonaReveal
         preferences={saved}
         onDone={onDone}
-        actionLabel={onboarding ? "Continue to import" : "Back to analysis"}
+        actionLabel="Back to analysis"
       />
     );
   }
 
   return (
     <form
-      className={styles.form}
+      className={onboarding ? `app-type-compact ${styles.form} ${styles.onboarding}` : styles.form}
       onSubmit={(event) => void submit(event)}
       aria-busy={busy}
     >
       {onboarding ? (
         <header>
-          <p className="ui-text-helper-text">Finance setup · Step 2 of 3</p>
+          <p className="ui-text-helper-text">Finance setup · Step 2 of 2</p>
           <h1 className="ui-text-page-title">
             Let’s build your financial persona
           </h1>
@@ -239,11 +238,6 @@ export function FinancePersonaForm({
         </p>
       ) : null}
       <footer className={styles.actions}>
-        {onSkip ? (
-          <ShellActionSurface variant="pill" onClick={onSkip} disabled={busy}>
-            Skip for now
-          </ShellActionSurface>
-        ) : null}
         <ShellActionSurface
           type="submit"
           variant="pill"

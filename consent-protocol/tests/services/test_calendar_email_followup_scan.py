@@ -229,3 +229,28 @@ async def test_reassessment_queues_the_next_stale_threads_instead_of_idling():
     checkpoint["thread_index"] = 2
     assert await _step_thread(checkpoint=checkpoint, **common) == (0, 0, True)
     assert (checkpoint["mode"], store.state) == ("history", "complete")
+
+
+def test_old_exhausted_source_is_retried_without_delaying_mail_history():
+    from datetime import timedelta
+
+    from hushh_mcp.services.calendar_email_followup_coverage import (
+        MAX_SOURCE_ATTEMPTS,
+        SLOW_SOURCE_RETRY_SECONDS,
+    )
+    from hushh_mcp.services.calendar_email_followup_scan_checkpoint import (
+        _earliest_retry_in,
+        _next_retry_batch,
+    )
+
+    now = datetime(2026, 11, 9, tzinfo=UTC)
+    source = {"attempts": MAX_SOURCE_ATTEMPTS, "retry_at_ms": 0}
+    checkpoint = {"incomplete_sources": {"old-thread": source}}
+
+    assert _next_retry_batch(checkpoint, now) == ["old-thread"]
+    assert source["retry_at_ms"] == (int(now.timestamp()) + SLOW_SOURCE_RETRY_SECONDS) * 1000
+    assert _earliest_retry_in(checkpoint, now) is None
+    assert _next_retry_batch(checkpoint, now + timedelta(minutes=5)) == []
+    assert _next_retry_batch(checkpoint, now + timedelta(seconds=SLOW_SOURCE_RETRY_SECONDS)) == [
+        "old-thread"
+    ]

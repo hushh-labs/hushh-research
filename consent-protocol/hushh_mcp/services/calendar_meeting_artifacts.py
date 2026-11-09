@@ -49,6 +49,12 @@ def _drive_error_state(error: DriveReadError, granted: AbstractSet[str] = frozen
             # the file's, so never send the person around an OAuth loop for it.
             return "resource_denied" if _UPGRADE_SCOPES <= granted else "permission_required"
         return reason
+    if error.status_code == 404:
+        # Drive answers 404, not 403, when an account cannot read an existing file ("the user
+        # doesn't have read access to a file, or the file doesn't exist"). The file was linked
+        # from this exact occurrence, so as for a 403 the next step is the organizer's; filing
+        # it as "unavailable" would read as no file at all, which is not what was found.
+        return "resource_denied"
     if str(error) == "operation_not_allowed":
         return "resource_denied"
     if str(error) == "identity_not_verified":

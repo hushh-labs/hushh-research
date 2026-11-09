@@ -17,10 +17,6 @@ from .execution_types import (
 from .mime_projection import _message_fields
 
 
-def _transient_provider_error(error) -> bool:
-    return getattr(getattr(error, "resp", None), "status", None) in {429, 500, 502, 503, 504}
-
-
 class GmailReadOperations:
     async def search_threads(self, q, max_results=25, page_token=None, include_clean_body=False):
         """One native message-search page, carrying thread IDs; no automatic paging."""
@@ -37,13 +33,7 @@ class GmailReadOperations:
             _text(page_token, 4096)
 
         async def run():
-            try:
-                listing = _payload(await self._donor.search_emails(q, max_results, page_token))
-            except Exception as error:
-                if not _transient_provider_error(error):
-                    raise
-                await self._access()
-                listing = _payload(await self._donor.search_emails(q, max_results, page_token))
+            listing = _payload(await self._donor.search_emails(q, max_results, page_token))
             entries = listing.get("messages", [])
             if not isinstance(entries, list) or len(entries) > max_results:
                 raise GmailExecutionError("invalid_provider_response")
@@ -52,51 +42,32 @@ class GmailReadOperations:
                 identity = _identifier(item.get("id") if isinstance(item, dict) else None)
                 if identity not in ids:
                     ids.append(identity)
-            responses, errors, transient = {}, set(), set()
+            responses, errors = {}, set()
 
             def received(request_id, response, exception):
                 if exception is not None:
                     errors.add(request_id)
-                    if _transient_provider_error(exception):
-                        transient.add(request_id)
                 else:
                     responses[request_id] = response
 
             # One googleapiclient HTTP batch, not N parallel httplib2 clients.
             if ids:
-
-                async def fetch_batch(batch_ids):
-                    batch = self._service.new_batch_http_request(callback=received)
-                    for identity in batch_ids:
-                        batch.add(
-                            self._service.users()
-                            .messages()
-                            .get(
-                                userId="me",
-                                id=identity,
-                                format="full",
-                                fields=_message_fields(include_clean_body),
-                            ),
-                            request_id=identity,
-                        )
-                    await self._access()
-                    await asyncio.to_thread(batch.execute)
-                    await self._access()
-
-                batch_retried = False
-                try:
-                    await fetch_batch(ids)
-                except Exception as error:
-                    if not _transient_provider_error(error):
-                        raise
-                    batch_retried = True
-                    await self._access()
-                    await fetch_batch(ids)
-                if transient and not batch_retried:
-                    retry_ids = [identity for identity in ids if identity in transient]
-                    transient.clear()
-                    await fetch_batch(retry_ids)
-                    errors.difference_update(responses)
+                batch = self._service.new_batch_http_request(callback=received)
+                for identity in ids:
+                    batch.add(
+                        self._service.users()
+                        .messages()
+                        .get(
+                            userId="me",
+                            id=identity,
+                            format="full",
+                            fields=_message_fields(include_clean_body),
+                        ),
+                        request_id=identity,
+                    )
+                await self._access()
+                await asyncio.to_thread(batch.execute)
+                await self._access()
             messages = []
             for identity in ids:
                 if identity not in responses:

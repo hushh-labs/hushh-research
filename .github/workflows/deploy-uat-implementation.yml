@@ -2,6 +2,11 @@ name: UAT deployment implementation
 
 on:
   workflow_call:
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
+      GH_SECURITY_ALERTS_TOKEN:
+        required: true
     inputs:
       operation:
         description: "Inspect prerequisites without deploying, or deploy a qualified application"
@@ -16,7 +21,7 @@ on:
         required: true
         type: string
       sha:
-        description: "Exact application SHA in protected UAT history (blank selects the protected UAT tip)"
+        description: "Exact qualified application SHA; blank only verifies an already-serving no-op"
         required: false
         type: string
       source_branch:
@@ -28,7 +33,7 @@ on:
         default: false
         type: boolean
       approved_scope:
-        description: "Approved serving baselines and reviewed PR heads"
+        description: "Legacy isolated-history approval; ordinary UAT selects its exact protected SHA"
         required: false
         type: string
       ci_run_id:
@@ -53,7 +58,7 @@ on:
         default: false
         type: boolean
       repeat_reviewer_byok:
-        description: "Repeat a selected read-only reviewer BYOK rehearsal for independent RCA acceptance"
+        description: "Explicitly run read-only app-browser diagnostics; no automatic browser rehearsal"
         required: false
         default: false
         type: boolean
@@ -126,27 +131,35 @@ concurrency:
 
 jobs:
   inspect-prerequisites:
+    needs: deployment-security
     name: Inspect UAT prerequisites (no deployment)
-    if: inputs.operation == 'inspect'
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
+    if: ${{ !cancelled() && needs.deployment-security.result == 'success' && inputs.operation == 'inspect' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read
+      actions: write
       checks: read
       id-token: write
     environment:
       name: uat
       deployment: false
     steps:
-      - name: Assert inspection originates from uat
-        run: test "$GITHUB_REF_NAME" = uat
+      - name: Assert inspection originates from Main
+        run: test "$GITHUB_REF_NAME" = main
       - name: Checkout Main inspection tooling
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0
       - name: Assert manual UAT dispatch actor policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
       - name: Refuse release overrides before authentication
         env:
@@ -169,54 +182,29 @@ jobs:
         run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"
 
   deployment-security:
-    name: Request Main security clearance
-    if: always() && (inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
+    name: Deployment security
+    if: always() && (inputs.operation == 'inspect' || inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
     needs: select-target
-    runs-on: ubuntu-24.04
-    timeout-minutes: 7
     permissions:
+      pull-requests: read
       contents: read
-      actions: write
-    outputs:
-      application_sha: ${{ steps.clearance.outputs.sha }}
-      attempt: ${{ steps.clearance.outputs.attempt }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          persist-credentials: false
-      - name: Validate explicit operation
-        env:
-          OPERATION: ${{ inputs.operation }}
-          TARGET: ${{ inputs.target }}
-        run: |
-          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
-          if [[ "$OPERATION" == inspect-routing ]]; then
-            test "$TARGET" = shared-uat
-          fi
-      - name: Request and verify Main clearance
-        id: clearance
-        run: python3 scripts/ci/deployment_security.py --request-broker
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
-          DEPLOY_SECURITY_ENVIRONMENT: uat
-          DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
-          DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: deployment-security-request-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/deployment-security-request.json
-            ${{ runner.temp }}/deployment-security.json
-          if-no-files-found: warn
-          retention-days: 7
+      actions: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
+      environment_name: uat
+      scope: ${{ inputs.scope || 'auto' }}
 
   select-target:
     name: Select UAT target
+    environment:
+      name: uat
+      deployment: false
+    env:
+      UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     permissions:
@@ -229,7 +217,7 @@ jobs:
       sha: ${{ steps.resolve-sha.outputs.sha }}
       decision: ${{ steps.resolve-sha.outputs.decision }}
     steps:
-      - name: Assert manual dispatch originates from uat
+      - name: Assert manual dispatch originates from Main
         shell: bash
         env:
           REQUESTED_TARGET: ${{ inputs.target || 'shared-uat' }}
@@ -239,8 +227,8 @@ jobs:
             echo "Refusing unsupported UAT target."
             exit 1
           fi
-          if [ "$GITHUB_REF_NAME" != uat ]; then
-            echo "Refusing UAT target selection outside uat."
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Refusing UAT target selection outside Main."
             exit 1
           fi
 
@@ -257,9 +245,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ job.workflow_sha }}
 
-
-      - name: Assert manual UAT dispatch actor policy
-        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
 
       - name: Resolve deployment SHA
         id: resolve-sha
@@ -309,13 +294,8 @@ jobs:
           LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
         run: |
           set -euo pipefail
-          if [[ "$REQUESTED_SHA" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
-                "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
-                "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
-                "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
-            echo "One-time Vertex exception is limited to the approved UAT release." >&2
-            exit 1
-          fi
+          echo "The historical one-time Vertex exception has expired; use normal qualification." >&2
+          exit 1
 
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
@@ -338,7 +318,7 @@ jobs:
     timeout-minutes: 7
     permissions:
       contents: read
-      actions: read
+      actions: write
       checks: read
       pull-requests: read
       id-token: write
@@ -399,6 +379,12 @@ jobs:
     name: Deploy UAT Scope
     needs: [select-target, wait-capacity, deployment-security]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
+    permissions:
+      contents: write
+      checks: read
+      pull-requests: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     concurrency:
       group: deploy-uat
@@ -421,12 +407,12 @@ jobs:
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
-      - name: Assert manual dispatch originates from uat
+      - name: Assert manual dispatch originates from Main
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF_NAME" != uat ]; then
-            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'uat' only."
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
             exit 1
           fi
 
@@ -451,6 +437,10 @@ jobs:
 
       - name: Assert manual UAT dispatch actor policy
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
         run: |
           set -euo pipefail
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
@@ -500,6 +490,8 @@ jobs:
           cp deploy/drive/document_reader_compatibility.py "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/cloudrun-rollback.sh "${RUNNER_TEMP}/release-tools/"
           cp scripts/ci/process_group.py "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/await-prebuilt-image.sh "${RUNNER_TEMP}/release-tools/"
+          cp scripts/ci/resolve-uat-verification-plan.py "${RUNNER_TEMP}/release-tools/"
           git log -1 --diff-filter=A --format=%H -- \
             consent-protocol/api/routes/document_delivery.py \
             > "${RUNNER_TEMP}/release-tools/protected-document-reader-commit"
@@ -533,8 +525,16 @@ jobs:
             deploy/account-deletion/activate_release.py deploy/account-deletion/activation_retirement.py deploy/account-deletion/release_source.py deploy/account-deletion/release_target.py deploy/account-deletion/setup_cleanup_scheduler.sh \
             deploy/account-deletion/verify_release_boundary.sql \
             "${RUNNER_TEMP}/release-tools/account-deletion/"
-          cp config/runtime-capacity.json \
-            "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          # Preserve Main's budget/inventory, but never resize the selected
+          # worker by overwriting its approved capacity with Main's default.
+          if [[ "${{ needs.wait-capacity.outputs.scope }}" == frontend ]]; then
+            cp config/runtime-capacity.json "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          else
+            timeout --signal=TERM --kill-after=2s 295s python3 scripts/ci/runtime-capacity-budget.py --environment uat \
+              --profile config/runtime-capacity.json \
+              --target-sha "${{ steps.resolve-sha.outputs.sha }}" --resolve-profile-only \
+              > "${RUNNER_TEMP}/release-tools/runtime-capacity.json"
+          fi
           cp scripts/ops/verify_passkey_domain_associations.py \
             "${RUNNER_TEMP}/release-tools/verify_passkey_domain_associations.py"
           cp scripts/ops/verify_uat_release.py \
@@ -582,6 +582,7 @@ jobs:
           cp "${RUNNER_TEMP}/release-tools/document_reader_compatibility.py" deploy/drive/
           cp "${RUNNER_TEMP}/release-tools/cloudrun-rollback.sh" scripts/ci/
           cp "${RUNNER_TEMP}/release-tools/process_group.py" scripts/ci/
+          cp "${RUNNER_TEMP}/release-tools/await-prebuilt-image.sh" scripts/ci/
           # Keep the current opt-in contract when verifying an older approved build.
           cp "${RUNNER_TEMP}/release-tools/verify_uat_release.py" \
             scripts/ops/verify_uat_release.py
@@ -812,6 +813,8 @@ jobs:
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
               --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --backend-base-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --frontend-base-revision "${{ steps.predeploy-state.outputs.frontend_revision }}" \
               --output /tmp/uat-predecessor-acceptance.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1054,20 +1057,22 @@ jobs:
           DEPLOY_BACKEND: ${{ steps.scope.outputs.deploy_backend }}
           DEPLOY_FRONTEND: ${{ steps.scope.outputs.deploy_frontend }}
           RUN_LIVE_MODEL_CHECKS: ${{ inputs.run_live_model_checks && 'true' || 'false' }}
+          RUN_BROWSER_DIAGNOSTICS: ${{ inputs.repeat_reviewer_byok && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/resolve-uat-verification-plan.py \
+          python3 "${RUNNER_TEMP}/release-tools/resolve-uat-verification-plan.py" \
             --target-sha "${TARGET_SHA}" \
             --backend-base-sha "${BACKEND_BASE_SHA}" \
             --frontend-base-sha "${FRONTEND_BASE_SHA}" \
             --deploy-backend "${DEPLOY_BACKEND}" \
             --deploy-frontend "${DEPLOY_FRONTEND}" \
             --run-live-model-checks "${RUN_LIVE_MODEL_CHECKS}" \
+            --run-browser-diagnostics "${RUN_BROWSER_DIAGNOSTICS:-false}" \
             --github-output "$GITHUB_OUTPUT" \
             --json-output /tmp/uat-verification-plan.json
 
       - name: Upload verification-plan artifact
-        if: always()
+        if: always() && steps.verification-plan.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
           name: uat-verification-plan
@@ -1077,7 +1082,7 @@ jobs:
           if-no-files-found: error
 
       - name: Set up Node runtime for UAT browser verification
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -1085,21 +1090,27 @@ jobs:
           cache-dependency-path: hushh-webapp/package-lock.json
 
       - name: Cache UAT Chromium binaries
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance
         uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
-          # CI's browser cache also promises WebKit; this lane installs Chromium.
+          # Frontend analytics and explicit diagnostics share Chromium only.
           key: ${{ runner.os }}-uat-chromium-${{ hashFiles('hushh-webapp/package-lock.json') }}
 
       - name: Install UAT browser verification dependencies
         id: install-browser-dependencies
-        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance
+        if: steps.scope.outputs.deploy_frontend == 'true' || steps.verification-plan.outputs.requires_web_dependencies == 'true' || inputs.run_pwm_acceptance || inputs.repeat_reviewer_byok
         timeout-minutes: 8
         shell: bash
+        env:
+          RUN_CHROMIUM_VERIFICATION: ${{ steps.scope.outputs.deploy_frontend == 'true' || inputs.repeat_reviewer_byok || inputs.run_pwm_acceptance }}
         run: |
           set -euo pipefail
           npm ci --prefix hushh-webapp --prefer-offline --no-audit --progress=false
+          if [ "${RUN_CHROMIUM_VERIFICATION:-false}" != true ]; then
+            echo "Runtime dependencies installed; selected verification does not require Chromium."
+            exit 0
+          fi
           # Keep the runner's signed archive/security fallbacks. PR CI uses this
           # same removal after the preferred Azure mirror stalled for 23 minutes.
           if [ -f /etc/apt/apt-mirrors.txt ]; then
@@ -1249,6 +1260,8 @@ jobs:
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
               --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --backend-base-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --frontend-base-revision "${{ steps.predeploy-state.outputs.frontend_revision }}" \
               --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1256,7 +1269,7 @@ jobs:
               --scope "${{ steps.scope.outputs.scope }}" --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           fi
 
-      - name: Recheck approved PR scope and both serving revisions under deployment lock
+      - name: Recheck qualified source and both serving revisions under deployment lock
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLICATION_SHA: ${{ steps.resolve-sha.outputs.sha }}
@@ -1264,7 +1277,8 @@ jobs:
           CI_BASE_SHA: ${{ inputs.ci_base_sha }}
         run: |
           python3 "${RUNNER_TEMP}/release-tools/uat_release_prerequisites.py" validate-scope-live \
-            --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH"
+            --sha "$APPLICATION_SHA" --base-sha "$CI_BASE_SHA" --approved-scope "$APPROVED_SCOPE" --source-branch "$UAT_SOURCE_BRANCH" \
+            --predecessor /tmp/uat-predecessor-acceptance.json
 
       - name: Verify answer settlement before runtime mutation
         id: answer-settlement-admission
@@ -1546,6 +1560,8 @@ jobs:
               --authority-sha "$AUTHORITY_SHA" --ci-run-id "$CI_RUN_ID" --ci-attempt "$CI_ATTEMPT" \
               --backend-base-sha "${{ steps.predeploy-state.outputs.backend_sha }}" \
               --frontend-base-sha "${{ steps.predeploy-state.outputs.frontend_sha }}" \
+              --backend-base-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --frontend-base-revision "${{ steps.predeploy-state.outputs.frontend_revision }}" \
               --predecessor /tmp/uat-predecessor-acceptance.json --output /tmp/uat-predecessor-acceptance.json
           else
             python3 "${RUNNER_TEMP}/release-tools/verify-predecessor-acceptance.py" require \
@@ -1989,6 +2005,7 @@ jobs:
         run: |
           set -euo pipefail
           started_at="$(date +%s)"
+          trap 'result=$?; finished_at="$(date +%s)"; echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"; echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"; echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"; exit "$result"' EXIT
           source deploy/drive/uat_stripe_bindings.sh
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_REVIEWER_COUNTERPART_UID_SECRET=REVIEWER_COUNTERPART_UID##_REVIEWER_COUNTERPART_VAULT_PASSPHRASE_SECRET=REVIEWER_COUNTERPART_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_ONE_VOICE_LIVE_ENABLED=true##_ONE_VOICE_CALENDAR_NARRATION_ENABLED=true##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_SCALING_CONCURRENCY_TARGET=0.20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}##_GITHUB_RUN_ATTEMPT=${{ github.run_attempt }}"
           if grep -Fq '${_PROTECTED_DOCUMENT_DELIVERY_ENABLED}' deploy/backend.cloudbuild.yaml; then
@@ -2063,6 +2080,15 @@ jobs:
           # Durable Kai analyze-run store ON in UAT: exercises the migration-125
           # persist/replay path against real Cloud SQL before prod flips it on.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_KAI_ANALYZE_DURABLE_RUN_STORE=true"
+          # Older approved images retain full qualification. Only a candidate
+          # recipe declaring the new mode may request core; the receipt also
+          # verifies the actual image producer acknowledged it.
+          qualification_mode=full
+          if grep -Fq '_MANAGED_READINESS_MODE:' deploy/backend.cloudbuild.yaml; then
+            qualification_mode=core
+            SUBSTITUTIONS="${SUBSTITUTIONS}##_MANAGED_READINESS_MODE=${qualification_mode}"
+          fi
+          echo "qualification_mode=${qualification_mode}" >> "$GITHUB_OUTPUT"
           verify_managed_vertex_runtime=true
           if [ "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}" != "0" ]; then
             verify_managed_vertex_runtime=true
@@ -2090,17 +2116,14 @@ jobs:
           build_id="$(gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=/tmp/uat-backend-parallel.cloudbuild.json \
-            --suppress-logs --format='value(id)' \
+            --async --suppress-logs --format='value(id)' \
             "--substitutions=^##^${SUBSTITUTIONS}")"
           if [[ ! "${build_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
             echo "Backend deployment did not return an exact Cloud Build id." >&2
             exit 1
           fi
           echo "build_id=${build_id}" >> "$GITHUB_OUTPUT"
-          finished_at="$(date +%s)"
-          echo "started_at_epoch=${started_at}" >> "$GITHUB_OUTPUT"
-          echo "finished_at_epoch=${finished_at}" >> "$GITHUB_OUTPUT"
-          echo "duration_seconds=$((finished_at - started_at))" >> "$GITHUB_OUTPUT"
+          bash scripts/ci/await-prebuilt-image.sh --project "${{ env.GCP_PROJECT_ID }}" --build-id "$build_id" --wait-only
 
       - name: Capture managed provider readiness receipt
         if: always() && steps.scope.outputs.deploy_backend == 'true'
@@ -2114,6 +2137,7 @@ jobs:
           READINESS_REGION: ${{ env.GCP_REGION }}
           READINESS_GITHUB_RUN: ${{ github.run_id }}
           READINESS_ENVIRONMENT: uat
+          READINESS_QUALIFICATION_MODE: ${{ steps.deploy-backend.outputs.qualification_mode || 'full' }}
           READINESS_LEGACY_EXCEPTION: ${{ inputs.skip_managed_vertex_probe_once || false }}
         run: |
           python3 scripts/ci/capture_managed_provider_receipt.py \
@@ -2815,8 +2839,14 @@ jobs:
           fi
 
           if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then
-            gh api "repos/$GITHUB_REPOSITORY/branches/$UAT_SOURCE_BRANCH" \
-              | jq -e --arg sha "$APPLICATION_SHA" '.protected and .commit.sha == $sha' >/dev/null
+            python3 - <<'PY_SOURCE'
+          import os
+          import sys
+          sys.path.insert(0, os.path.join(os.environ["RUNNER_TEMP"], "release-tools"))
+          import uat_exact_ci as exact
+          api = exact.GitHub(exact.REPOSITORY, os.environ["GH_TOKEN"])
+          exact.require_protected_tip(api, os.environ["APPLICATION_SHA"], os.environ["UAT_SOURCE_BRANCH"])
+          PY_SOURCE
             check_serving() {
               gcloud run services describe "$1" --project="$GCP_PROJECT_ID" \
                 --region="$GCP_REGION" --format=json \
@@ -3112,7 +3142,7 @@ jobs:
 
       - name: Verify reviewer BYOK navigation and cold re-unlock
         id: verify-reviewer-byok
-        if: steps.verification-plan.outputs.run_reviewer_byok == 'true' && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
+        if: inputs.repeat_reviewer_byok && (steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')
         continue-on-error: true
         shell: bash
         env:
@@ -3172,7 +3202,7 @@ jobs:
           SEMANTIC_ATTEMPT_1: ${{ steps.verify-uat-1.outcome }}
           SEMANTIC_ATTEMPT_2: ${{ steps.verify-uat-2.outcome }}
           REVIEWER_BYOK_OUTCOME: ${{ steps.verify-reviewer-byok.outcome }}
-          REVIEWER_BYOK_REQUIRED: ${{ steps.verification-plan.outputs.run_reviewer_byok }}
+          REVIEWER_BYOK_REQUIRED: ${{ inputs.repeat_reviewer_byok }}
           PWM_ACCEPTANCE_REQUIRED: ${{ inputs.run_pwm_acceptance }}
           PWM_ACCEPTANCE_OUTCOME: ${{ steps.verify-pwm-acceptance.outcome }}
           PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
@@ -3186,6 +3216,24 @@ jobs:
           import json
           import os
           from pathlib import Path
+
+          verification_outcomes = [os.environ.get(name, "") for name in (
+              "PARITY_ATTEMPT_1", "PARITY_ATTEMPT_2", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
+              "BACKEND_PROVENANCE_OUTCOME", "FRONTEND_PROVENANCE_OUTCOME", "DB_OUTCOME")]
+          if all(value in {"", "skipped"} for value in verification_outcomes):
+              reason = ("frontend_image_build_failed" if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure"
+                        else "prerequisite_failed")
+              payload = {"status": "blocked", "phase": "verification_not_reached", "release_failed": True,
+                         "blocking_classifications": [reason], "backend_failure": False, "frontend_failure": False,
+                         "parity": {"status": "not_reached", "success": False},
+                         "provenance": {"status": "not_reached"},
+                         "semantic": {"status": "not_reached", "success": False},
+                         "db_contract": {"status": "not_reached"}}
+              Path("/tmp/uat-release-classification.json").write_text(json.dumps(payload, indent=2))
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                  output.write("release_failed=true\nbackend_failure=false\nfrontend_failure=false\n")
+              print("Release verification was not reached; inspect the preceding prerequisite failure.")
+              raise SystemExit(0)
 
           def load_json(path: str) -> dict:
               candidate = Path(path)
@@ -4058,7 +4106,7 @@ jobs:
           test "$actual" = "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
       - name: Resolve final Cloud Run state
-        if: always()
+        if: always() && steps.gcp-auth.outcome == 'success'
         id: final-state
         shell: bash
         run: |
@@ -4256,7 +4304,7 @@ jobs:
                   "pkm_evaluator_runs": "${{ steps.verification-plan.outputs.pkm_evaluator_runs }}",
                   "pkm_upgrade_gate_required": "${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}",
                   "pkm_preservation_outcome": "${{ steps.verify-pkm-preservation.outcome }}",
-                  "reviewer_byok_required": "${{ steps.verification-plan.outputs.run_reviewer_byok }}",
+                  "reviewer_byok_required": "${{ inputs.repeat_reviewer_byok }}",
                   "parity_attempt_1": "${{ steps.verify-parity-1.outcome }}",
                   "parity_attempt_2": "${{ steps.verify-parity-2.outcome }}",
                   "parity_success": "${{ steps.classify-uat-release.outputs.parity_success }}",
@@ -4268,7 +4316,7 @@ jobs:
                   "semantic_success": "${{ steps.classify-uat-release.outputs.semantic_success }}",
                   "db_contract": "${{ steps.postdeploy-db-gate.outcome }}",
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
-                  "reviewer_byok_passes_requested": "${{ steps.verification-plan.outputs.run_reviewer_byok == 'true' && (inputs.repeat_reviewer_byok && '2' || '1') || '0' }}",
+                  "reviewer_byok_passes_requested": "${{ inputs.repeat_reviewer_byok && '2' || '0' }}",
                   "reviewer_byok_passes_completed": "${{ steps.verify-reviewer-byok.outputs.passes_completed || '0' }}",
                   "pwm_notification_scheduler": "${{ steps.activate-pwm-notifications.outcome }}",
                   "account_deletion_fence_required": "${{ steps.account-deletion-fence-decision.outputs.required }}",
@@ -4460,7 +4508,7 @@ jobs:
             echo "- PKM evaluator runs: \`${{ steps.verification-plan.outputs.pkm_evaluator_runs }}\`"
             echo "- Candidate PKM evaluator outcome (advisory): \`${{ steps.verify-candidate-pkm-evaluator.outputs.outcome || (steps.verification-plan.outputs.pkm_evaluator_runs == '0' && 'skipped' || 'not_run') }}\`"
             echo "- PKM upgrade gate required: \`${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}\`"
-            echo "- Reviewer BYOK required: \`${{ steps.verification-plan.outputs.run_reviewer_byok }}\`"
+            echo "- Reviewer BYOK diagnostic requested: \`${{ inputs.repeat_reviewer_byok }}\`"
             echo "- Backend deployed SHA before run: \`${{ steps.predeploy-state.outputs.backend_sha || 'unknown' }}\`"
             echo "- Account deletion fence required: \`${{ steps.account-deletion-fence-decision.outputs.required || 'not_applicable' }}\`"
             echo "- Frontend deployed SHA before run: \`${{ steps.predeploy-state.outputs.frontend_sha || 'unknown' }}\`"
@@ -4636,7 +4684,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = uat
+          test "$GITHUB_REF_NAME" = main
           test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
           [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Authenticate to the matching environment

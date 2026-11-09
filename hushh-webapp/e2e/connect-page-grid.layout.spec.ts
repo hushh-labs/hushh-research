@@ -305,7 +305,7 @@ for (const width of [393, 1440]) {
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
@@ -317,7 +317,7 @@ for (const dark of [false, true]) {
       await page.getByRole("tab", { name: /My connections/ }).click();
       const connectionGroup = page.getByTestId("connect-my-connections-group");
       await expect(connectionGroup.getByRole("heading", { name: "From contacts", exact: true })).toHaveCount(0);
-      const contactBadge = connectionGroup.getByLabel("Connected from your contacts");
+      const contactBadge = connectionGroup.getByRole("button", { name: "From Contacts" });
       await expect(contactBadge).toHaveCount(1);
       const contactIcon = await contactBadge.locator("svg").evaluate((icon) => {
         const box = icon.getBoundingClientRect();
@@ -332,15 +332,38 @@ for (const dark of [false, true]) {
           fill: getComputedStyle(icon.querySelector("g[fill]")!).fill,
           stroke: getComputedStyle(icon.querySelector("g[stroke]")!).stroke };
       });
-      expect(contactIcon.width).toBe(12);
-      expect(contactIcon.height).toBe(12);
+      expect(contactIcon.width).toBe(16);
+      expect(contactIcon.height).toBe(16);
       expect(contactIcon.fill).toBe(contactIcon.accent);
       expect(contactIcon.stroke).toBe(contactIcon.outline);
       expect(contactIcon.fill).not.toBe(contactIcon.stroke);
       await expect(connectionGroup.getByRole("heading", { name: "Other connections", exact: true })).toHaveCount(0);
       const connectionRows = connectionGroup.getByTestId("connect-person-row");
-      await expect(connectionRows.filter({ hasText: "Jordan Lee" }).locator('[data-avatar-size="compact"]').getByLabel("Connected from your contacts")).toHaveCount(1);
-      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByLabel("Connected from your contacts")).toHaveCount(0);
+      const jordan = connectionRows.filter({ hasText: "Jordan Lee" });
+      await expect(jordan.getByRole("button", { name: "From Contacts" })).toBeVisible();
+      await expect(connectionRows.filter({ hasText: "Alex Chen" }).getByRole("button", { name: "From Contacts" })).toHaveCount(0);
+      if (width === WIDTHS[0]) {
+        const glyph = contactBadge.locator("svg");
+        if (testInfo.project.use.hasTouch) await glyph.tap();
+        else await glyph.click();
+        const contactDetails = page.getByRole("dialog", { name: "From Contacts" });
+        await expect(contactDetails).toContainText("This connection was matched through your synced contacts.");
+        const bounds = await contactDetails.boundingBox();
+        expect(bounds!.x).toBeGreaterThanOrEqual(0);
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+        await page.keyboard.press("Escape");
+        await expect(contactDetails).toBeHidden();
+        await expect(contactBadge).toBeFocused();
+
+        const riaBadge = jordan.getByRole("button", { name: "RIA verified" });
+        if (testInfo.project.use.hasTouch) await riaBadge.locator("svg").tap();
+        else await riaBadge.press("Enter");
+        const riaDetails = page.getByRole("dialog", { name: "RIA verified" });
+        await expect(riaDetails).toContainText("This person is verified as a registered investment adviser (RIA).");
+        await riaDetails.getByRole("button", { name: "Close RIA verified details" }).click();
+        await expect(riaDetails).toBeHidden();
+        await expect(riaBadge).toBeFocused();
+      }
       const rowGeometry = await connectionGroup.locator('[data-testid="connect-person-row"]').evaluateAll(rows => rows.map(row => {
         const rect = row.getBoundingClientRect();
         const avatar = row.querySelector('[data-avatar-size="compact"]')!.getBoundingClientRect();

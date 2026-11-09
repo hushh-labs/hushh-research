@@ -35,6 +35,7 @@ class CalendarConnectStart(_UserRequest):
     additional: bool = False
     account_id: str | None = Field(default=None, min_length=1, max_length=128)
     include_meeting_files: bool = False
+    include_mail_access: bool = False
 
 
 class CalendarConnectComplete(_UserRequest):
@@ -74,6 +75,7 @@ class CalendarRange(BaseModel):
 
 
 class CalendarProposal(_UserRequest):
+    calendar_id: str = Field(default="primary", min_length=1, max_length=1024)
     action: Literal["create", "reschedule", "cancel"]
     event_id: str | None = Field(default=None, max_length=2048)
     title: str | None = Field(default=None, max_length=512)
@@ -157,6 +159,7 @@ async def start_connect(
             **({"calendar_additional": True} if payload.additional else {}),
             **({"calendar_account_id": payload.account_id} if payload.account_id else {}),
             **({"include_meeting_files": True} if payload.include_meeting_files else {}),
+            **({"include_mail_access": True} if payload.include_mail_access else {}),
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -304,7 +307,7 @@ async def proposal(payload: CalendarProposal, token: dict = Depends(hub_content_
         return await _selected_calendar(payload.account_id).propose(
             user_id=token["user_id"],
             action=payload.action,
-            payload=payload.model_dump(exclude={"user_id", "action"}),
+            payload=payload.model_dump(exclude={"user_id", "action"}, exclude_unset=True),
         )
     except Exception as exc:
         raise _http(exc) from exc

@@ -203,7 +203,6 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     assert "REVIEWER_" not in candidate_evaluator
     assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in release_gate
     assert "verify-reviewer-byok" in workflow
-    assert "outputs.run_reviewer_byok == 'true'" in workflow
     assert "--secret=REVIEWER_UID" in workflow
     assert "--secret=REVIEWER_VAULT_PASSPHRASE" in workflow
     # Advisory since #5526: the rehearsal still runs and is still reported, but a
@@ -220,7 +219,7 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
         "(steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success')"
     )
     assert steps["verify-reviewer-byok"]["if"] == (
-        "steps.verification-plan.outputs.run_reviewer_byok == 'true' && " + semantic_success
+        "inputs.repeat_reviewer_byok && " + semantic_success
     )
     assert steps["verify-pwm-acceptance"]["if"] == (
         "inputs.run_pwm_acceptance && " + semantic_success

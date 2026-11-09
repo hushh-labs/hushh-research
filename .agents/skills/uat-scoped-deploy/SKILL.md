@@ -57,11 +57,12 @@ Non-owned surfaces:
 1. Default to `scope=auto`; let the resolver compare the target SHA with each service's currently deployed SHA and record both requested and resolved scope.
 2. Force `frontend`, `backend`, or `all` only after target-to-deployed-service delta proof establishes that the override covers every accumulated runtime change.
 3. Use `admin-release-sop.md` for the queue-first path and any explicitly authorized Admin PR landing; do not duplicate or reinterpret its exact-head authority gate here.
-4. Dispatch `deploy-uat.yml` from `uat`; its thin caller uses the reviewed Main implementation. Select application source only from protected `uat` history. For direct UAT, qualify the protected UAT tip with full-scope CI against the observed serving base, then supply its exact SHA, run, attempt, and base to the release workflow. Main smoke or a Main-only SHA does not authorize a new UAT application selection.
+4. Dispatch `deploy-uat.yml` from `main`; select the application independently from protected `uat` history. Select application source only from protected `uat` history. For direct UAT, qualify the selected SHA in protected UAT history with full-scope CI against the observed serving base, then supply its exact SHA, run, attempt, and base to the release workflow. Ordinary UAT needs no manually assembled PR chain or serving-commit ancestry; the locked release rechecks both captured service revisions, compatibility and rollback. Main smoke or a Main-only SHA does not authorize a new UAT application selection.
 
-   A refusal that UAT CI authority differs from Main requires a reviewed
-   operations-source sync, not another personal approval. Preserve UAT application
-   code and additional canonical test identities; requalify the new commit.
+   A refusal that “Privileged build or migration authority differs from Main”
+   requires a reviewed, bounded sync of those privileged inputs, not another
+   personal approval or wholesale Main adoption. Preserve UAT application code
+   and canonical tests; qualify the resulting source before deployment.
 
    See the [deploy proof reference](references/deploy-proof.md) for exact commands.
 
@@ -69,7 +70,7 @@ Non-owned surfaces:
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
 7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
 8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
-9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, and the paid candidate evaluator runs only with `run_live_model_checks=true`; reviewer BYOK is independently selected for vault/reviewer contracts. A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted one fails closed, and the artifact keeps each accepted base's receipt. Never replace this selector with a workflow-local path list.
+9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal is required only for PKM upgrade/storage/migration contracts, and the paid candidate evaluator runs only with `run_live_model_checks=true`; app-browser reviewer BYOK runs only when explicitly requested with `repeat_reviewer_byok=true` (two read-only passes). A serving SHA is a comparison base only once UAT accepted it for that service; a missing or unaccepted one fails closed, and the artifact keeps each accepted base's receipt. Never replace this selector with a workflow-local path list.
 
 ## Handoff Rules
 

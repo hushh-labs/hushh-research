@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { DetailedPersonaForm } from "@/components/kai/onboarding/detailed-persona-form";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import {
   Sheet,
   SheetContent,
@@ -33,21 +32,34 @@ export function PortfolioPersona({
   onSaved?: () => void;
 }) {
   const [preferences, setPreferences] = useState<KaiPreferences | null>(null);
+  const [profileUnavailable, setProfileUnavailable] = useState(false);
   const [mode, setMode] = useState<"starter" | "detailed" | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
     if (context.isCurrent())
-      void KaiProfileService.getProfile(context).then((profile) => {
-        if (active && context.isCurrent()) setPreferences(profile.preferences);
-      });
+      void KaiProfileService.getProfile(context)
+        .then((profile) => {
+          if (active && context.isCurrent()) {
+            setPreferences(profile.preferences);
+            setProfileUnavailable(false);
+          }
+        })
+        .catch(() => {
+          if (active && context.isCurrent()) setProfileUnavailable(true);
+        });
     return () => {
       active = false;
     };
   }, [context]);
 
-  if (!preferences || !context.isCurrent()) return null;
+  if (!context.isCurrent()) return null;
+  if (!preferences) return (
+    <p role="status" className="ui-text-helper-text">
+      {profileUnavailable ? "Investing persona unavailable." : "Loading your investing persona…"}
+    </p>
+  );
   const hasAnswers = Boolean(
     preferences.investment_horizon ||
     preferences.drawdown_response ||
@@ -68,11 +80,11 @@ export function PortfolioPersona({
     onSaved?.();
   };
   return (
-    <section className={styles.card} aria-label="Investing persona">
+    <section className={styles.personaSummary} aria-label="Investing persona">
       <div className={styles.row}>
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="ui-text-section-label">Investing persona</h2>
+            <h3 className="ui-text-section-label">Investing persona</h3>
             <FinancePersonaBadge preferences={preferences} />
           </div>
           <p className="ui-text-helper-text">
@@ -81,22 +93,9 @@ export function PortfolioPersona({
               : "Starting profile · Your investing preferences"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {!detailed ? (
-            <ShellActionSurface
-              variant="pill"
-              onClick={() => setMode("starter")}
-            >
-              {hasAnswers ? "Retake questions" : "Build your persona"}
-            </ShellActionSurface>
-          ) : null}
-          <ShellActionSurface
-            variant="pill"
-            onClick={() => setMode("detailed")}
-          >
-            {detailed ? "Retake assessment" : "Refine your persona"}
-          </ShellActionSurface>
-        </div>
+        <button type="button" className={styles.quietAction} onClick={() => setMode(detailed ? "detailed" : "starter")}>
+          Edit persona
+        </button>
       </div>
       <Sheet
         modal
@@ -105,14 +104,18 @@ export function PortfolioPersona({
           if (!value && !saving) setMode(null);
         }}
       >
-        <SheetContent side="bottom" className="max-h-[92dvh] overflow-y-auto">
+        <SheetContent
+          side="bottom"
+          className={`${styles.reviewSheet} max-h-[92dvh] overflow-y-auto`}
+          data-app-type-context="overlay"
+        >
           <SheetHeader>
             <SheetTitle>
               {mode === "detailed"
                 ? "Refine your persona"
                 : "Let’s build your financial persona"}
             </SheetTitle>
-            <SheetDescription>
+            <SheetDescription className="ui-text-row-description">
               {mode === "detailed"
                 ? "Hushh assessment · 13 questions about risk comfort, cash needs and timing."
                 : "Update the preferences One uses in your portfolio review."}
@@ -120,6 +123,11 @@ export function PortfolioPersona({
           </SheetHeader>
           {mode ? (
             <div className="mx-auto w-full max-w-3xl px-4 pb-6">
+              {mode === "starter" ? (
+                <button type="button" className={styles.quietAction} disabled={saving} onClick={() => setMode("detailed")}>
+                  Open detailed assessment
+                </button>
+              ) : null}
               {mode === "detailed" ? (
                 <DetailedPersonaForm
                   initial={preferences}

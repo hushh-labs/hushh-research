@@ -5,8 +5,8 @@
 
 This read-only verifier grants no deployment authority by itself. The caller
 must recheck the selected source and release state under the mutation lock.
-Reviewed application and test code use the existing protected-branch trust model.
-Privileged release execution and credential clearance remain Main-owned. This
+Ordinary UAT application, tests and tooling use the protected-branch trust model.
+Release orchestration and credential clearance remain Main-owned. This
 verifier does not claim to sandbox malicious reviewed application code.
 """
 
@@ -30,11 +30,8 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
 BACKEND_TEST_MANIFEST = "consent-protocol/scripts/test-ci.manifest.txt"
 
-# Fail closed when a UAT candidate changes CI or release execution authority.
-# The Main-owned UAT workflow consumes Cloud Build recipes under deploy/ and
-# invokes a small set of candidate migration controllers with database access.
-# Those controllers remain reviewed Main authority; migration manifests and SQL
-# remain candidate content. Application source need not match Main.
+# Historical full CI parity remains readable for isolated/sandbox receipts.
+# Ordinary UAT checks only credential-owning release inputs below, not all CI prose or tests.
 AUTHORITY_PATHS = (
     ".agents",
     ".github",
@@ -79,9 +76,14 @@ ISOLATED_CI_PATHS = (
     "consent-protocol/tests/test_account_deletion_release_workflow.py",
     "consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py",
     "consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py",
+    # The isolated checkout receives Main's portable .agents manifests.
+    "consent-protocol/tests/test_memory_judge.py",
     "consent-protocol/tests/test_testflight_backend_provenance_runs_before_macos.py",
+    "consent-protocol/tests/helpers/drive_worker_gcloud.py",
     "consent-protocol/tests/helpers/document_delivery_ci.py",
     "consent-protocol/tests/helpers/predecessor_acceptance.py",
+    "consent-protocol/tests/helpers/plg_qualification.py",
+    "consent-protocol/tests/helpers/plg_runtime.py",
     "deploy/iam/setup_nonproduction_github_wif.py",
 )
 ISOLATED_RELEASE_AUTHORITY_PATHS = (
@@ -98,6 +100,30 @@ ISOLATED_RELEASE_AUTHORITY_PATHS = (
     "scripts/ops/db_migration_release_guard.py",
     "scripts/ops/email_auth_uat_release.py",
 )
+# Inputs actually executed by ordinary UAT with release credentials. Keep this
+# closure here with the existing isolated owner, not a second path classifier.
+UAT_PRIVILEGED_PATHS = (
+    "deploy/backend.cloudbuild.yaml", "deploy/backend-image.cloudbuild.yaml",
+    "deploy/frontend.cloudbuild.yaml", "deploy/frontend-image.cloudbuild.yaml",
+    "deploy/drive", "deploy/email-auth", "deploy/sso", "deploy/plg/bind_secrets.sh",
+    "scripts/deploy", "consent-protocol/db/migrate.py", "consent-protocol/db/migration_authority.py",
+    "consent-protocol/db/dev_migration_manifest.py", "consent-protocol/db/connection.py",
+    "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",
+    "consent-protocol/scripts/adopt_drive_permission_file_claims.py",
+    "consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py",
+    "scripts/ops/db_migration_release_guard.py", "scripts/ops/email_auth_uat_release.py",
+    "consent-protocol/db/private_agent_adoption.py",
+    "consent-protocol/db/hosted_custody_adoption.py",
+    "consent-protocol/db/attempt_email_adoption.py",
+    "consent-protocol/db/hosted_custody_qualification.py",
+    "consent-protocol/db/hosted_custody_acl.py",
+    "consent-protocol/db/private_agent_adoption_successors.py",
+    "consent-protocol/db/firebase_erasure_adoption.py",
+    "consent-protocol/db/legacy_cloud_removal_adoption.py",
+    "consent-protocol/db/referral_prize_activation.py",
+    "scripts/ops/validate_receipt_logo_template.py",
+)
+
 MANIFEST_FILES = (
     "hushh-webapp/package.json", "packages/hushh-mcp/package.json",
     "deploy/mail-api/package.json", "consent-protocol/pyproject.toml",
@@ -123,12 +149,15 @@ LEGACY_REQUIRED_JOBS = {
     "Web Targeted Contracts (node)",
     *(f"Web Targeted Contracts (browser-{index}-of-4)" for index in (1, 2, 3, 4)),
 }
+UNIT_JOB = "Web Unit Contracts"
+UNIT_SHARDS = ("1/1", "1/3", "2/3", "3/3")
 REQUIRED_JOBS = {
     name for name in LEGACY_REQUIRED_JOBS
     if name != "Web Editor Performance (macOS)"
     and not name.startswith("Web Full Suite (Vitest)")
     and not name.startswith("Web Targeted Contracts (browser-")
-} | {"Web Unit Contracts", "Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
+} | {UNIT_JOB}
+PRE_BROWSER_REMOVAL_JOBS = REQUIRED_JOBS | {"Web Targeted Contracts (browser)", "Protected Document WebKit (macOS)"}
 OPTIONAL_NATIVE = {"iOS Native (Xcode)", "Android Native (Gradle)"}
 AGGREGATE_JOBS = {"Preflight Gate", "Branch Validation Gate"}
 
@@ -146,8 +175,24 @@ def git(*arguments: str) -> bytes:
         raise Refused("Git authority lookup failed") from None
 
 
+def backend_test_inventory(source: str) -> set[str]:
+    """Validate tracked test identities without treating them as shell/options."""
+    entry = git("ls-tree", source, "--", BACKEND_TEST_MANIFEST)
+    require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
+            "UAT backend test manifest must be a regular tracked file")
+    return _backend_test_identities(git("show", f"{source}:{BACKEND_TEST_MANIFEST}"))
+
+
+def _backend_test_identities(raw: bytes) -> set[str]:
+    parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]
+    try:
+        return parser(raw.decode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise Refused("UAT backend test manifest contains invalid test identities") from None
+
+
 def verify_invocation_authority(candidate: str, authority: str) -> None:
-    """Allow reviewed dependencies/tests; protect commands that own their execution."""
+    """Retain parity for legacy isolated UAT and explicit sandbox qualification."""
     for path in MANIFEST_FILES:
         def invocation(source: str):
             raw = git("show", f"{source}:{path}")
@@ -156,17 +201,8 @@ def verify_invocation_authority(candidate: str, authority: str) -> None:
             return json.loads(raw).get("scripts", {})
         require(invocation(candidate) == invocation(authority),
                 "UAT test invocation differs from reviewed Main authority")
-    # Test identities belong to the selected application, while their executor
-    # remains byte-identical Main authority. Preserve branch-owned regressions.
-    entry = git("ls-tree", candidate, "--", BACKEND_TEST_MANIFEST)
-    require(re.fullmatch(rb"100(?:644|755) blob [0-9a-f]{40}\t" + BACKEND_TEST_MANIFEST.encode() + rb"\n?", entry),
-            "UAT backend test manifest must be a regular tracked file")
-    parser = runpy.run_path(str(Path(__file__).with_name("verify-protected-pipeline-edits.py")))["backend_test_identities"]
-    try:
-        selected = parser(git("show", f"{candidate}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
-        required = parser(git("show", f"{authority}:{BACKEND_TEST_MANIFEST}").decode("utf-8"))
-    except (ValueError, UnicodeError):
-        raise Refused("UAT backend test manifest contains invalid test identities") from None
+    selected = backend_test_inventory(candidate)
+    required = _backend_test_identities(git("show", f"{authority}:{BACKEND_TEST_MANIFEST}"))
     require(required <= selected, "UAT backend manifest omits required Main test identities")
 
 
@@ -182,26 +218,38 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
             "+refs/heads/main:refs/remotes/origin/main",
             f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
         )
-        require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
-                "UAT tip changed; qualify the current protected candidate")
+        if branch == "uat-isolated":
+            require(git("rev-parse", f"origin/{branch}").decode().strip() == candidate,
+                    "Isolated UAT tip changed; qualify the current protected candidate")
+        else:
+            git("merge-base", "--is-ancestor", candidate, f"origin/{branch}")
     git("merge-base", "--is-ancestor", authority, "origin/main")
-    git("merge-base", "--is-ancestor", base, candidate)
-    for source in (candidate, authority):
+    for source in (candidate, base, authority):
         git("cat-file", "-e", f"{source}^{{commit}}")
+    # Ordinary protected UAT can replace an accepted release from another
+    # history. The observed base selects affected verification; ancestry does
+    # not authorize the candidate. Preserve the legacy isolated-history gate.
     if branch == "uat-isolated":
+        try:
+            git("merge-base", "--is-ancestor", base, candidate)
+        except Refused:
+            raise Refused("Isolated UAT serving base is not an ancestor of its candidate; reconcile the reviewed source transition") from None
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
-    def execution_tree(revision):
-        entries = git("ls-tree", "-r", "--full-tree", revision, "--", *AUTHORITY_PATHS).splitlines()
-        return [entry for entry in entries if entry.partition(b"\t")[2] != BACKEND_TEST_MANIFEST.encode()]
-    expected = execution_tree(authority)
-    observed = execution_tree(candidate)
-    require(
-        bool(expected) and observed == expected,
-        "UAT CI authority differs from reviewed Main; synchronize reviewed CI/release tooling into UAT before qualification",
-    )
-    verify_invocation_authority(candidate, authority)
+    # Application and test inventories belong to UAT. Privileged recipes and
+    # migration controllers execute with release credentials and remain Main-owned.
+    verify_privileged_release_inputs(candidate, authority)
+    backend_test_inventory(candidate)
     return application_tree(candidate)
+
+
+def verify_privileged_release_inputs(candidate: str, authority: str) -> None:
+    """Application histories vary; credentialed release recipes belong to Main."""
+    changed = git("diff", "--name-only", candidate, authority, "--", *UAT_PRIVILEGED_PATHS)
+    require(not changed,
+            "Privileged build or migration authority differs from Main: "
+            + ", ".join(changed.decode("utf-8").splitlines())
+            + ". Sync reviewed Main release tooling into the selected branch and qualify the new revision.")
 
 
 def application_tree(candidate: str) -> str:
@@ -269,9 +317,21 @@ def verify_serving_bases(
 
 def require_protected_tip(api: GitHub, candidate: str, branch: str = "uat") -> None:
     require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
+    # Retain the historical helper name for deployed readers. Ordinary UAT
+    # freezes an explicit merged SHA; unrelated new merges do not replace it.
     ref = api.read(f"repos/{REPOSITORY}/branches/{branch}")
-    require(ref.get("protected") is True and ref.get("commit", {}).get("sha") == candidate,
-            "The protected UAT candidate changed during admission")
+    tip = ref.get("commit", {}).get("sha", "")
+    require(ref.get("protected") is True and SHA.fullmatch(candidate or "")
+            and SHA.fullmatch(tip), "Protected UAT source is unavailable")
+    if tip == candidate:
+        return
+    require(branch == "uat", "The protected isolated UAT candidate changed during admission")
+    try:
+        git("cat-file", "-e", f"{tip}^{{commit}}")
+    except Refused:
+        # The branch may have advanced since the checkout's full-history fetch.
+        git("fetch", "--no-tags", "origin", tip)
+    git("merge-base", "--is-ancestor", candidate, tip)
 
 
 def live_serving_bases(scope: str) -> dict[str, dict[str, str]]:
@@ -349,6 +409,54 @@ def _exact_candidate_job(jobs, base, *, allow_legacy_static=False):
 
 
 
+def _verify_unit_jobs(matches, candidate, run_id, *, current, isolated_candidate):
+    require(len(matches) in (1, 3), "UAT unit shard inventory is incomplete")
+    allowed = {f"Verify unit shard ({shard})": shard for shard in UNIT_SHARDS}
+    shards = []
+    for job in matches:
+        require(job.get("run_id") == run_id and job.get("head_sha") == candidate
+                and job.get("status") == "completed" and job.get("conclusion") == "success",
+                "UAT unit shard did not complete on the exact source")
+        steps = job.get("steps", [])
+        if isolated_candidate:
+            require(sum(step.get("name") == "Prepare isolated UAT source"
+                        and step.get("conclusion") == "success" for step in steps) == 1,
+                    "A required CI lane did not prepare the isolated application")
+        markers = [step for step in steps
+                   if step.get("name", "").startswith("Verify unit shard")]
+        # Preserve immutable predecessor evidence under its original policy.
+        # Current release qualification always requires typed coverage proof.
+        label = job.get("name")
+        if not current and len(matches) == 1 and label == UNIT_JOB and not markers:
+            try:
+                workflow = git("show", f"{candidate}:.github/workflows/ci.yml").decode("utf-8")
+            except UnicodeDecodeError:
+                raise Refused("Historical UAT workflow is not valid UTF-8") from None
+            owner = re.search(r"(?ms)^  web-full-suite-check:\n(.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)", workflow)
+            require(owner is not None
+                    and 'name: "Web Unit Contracts"' in owner[1]
+                    and 'WEB_FULL_SUITE_SHARD: ""' in owner[1]
+                    and "strategy:" not in owner[1],
+                    "Unstamped UAT unit evidence is not from the historical singleton workflow")
+            return
+        execution = [step for step in steps if step.get("name") == "Run affected unit contracts"]
+        require(len(execution) == 1 and execution[0].get("conclusion") == "success",
+                "A required UAT unit execution was not verified")
+        require(len({step.get("name") for step in markers}) == len(markers)
+                and all(step.get("name") in allowed
+                        and step.get("conclusion") in ("success", "skipped") for step in markers),
+                "UAT unit shard markers are invalid")
+        verified = [step for step in markers if step.get("conclusion") == "success"]
+        require(len(verified) == 1, "UAT unit shard coverage proof is missing or ambiguous")
+        shard = allowed[verified[0]["name"]]
+        require(label == f"{UNIT_JOB} ({shard})"
+                or (label == UNIT_JOB and len(matches) == 1 and shard == "1/1"),
+                "UAT unit job name does not match its shard marker")
+        shards.append(shard)
+    require(sorted(shards) in (["1/1"], ["1/3", "2/3", "3/3"]),
+            "UAT unit shard coverage is incomplete or duplicated")
+
+
 def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True, isolated_candidate=""):
     prefix = f"repos/{REPOSITORY}/actions"
     inventory = api.read(f"{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100")
@@ -363,8 +471,15 @@ def _verify_run_jobs(api, run, candidate, base, run_id, attempt, *, current=True
     # inventory. Current qualification requires the new release-core policy.
     legacy = not current and any(job.get("name") == "Web Full Suite (Vitest) 1/3" for job in jobs)
     exact_job = _exact_candidate_job(jobs, base, allow_legacy_static=legacy)
-    required_jobs = LEGACY_REQUIRED_JOBS if legacy else REQUIRED_JOBS
+    historical_browser = not current and any(job.get("name") == "Web Targeted Contracts (browser)" for job in jobs)
+    required_jobs = LEGACY_REQUIRED_JOBS if legacy else PRE_BROWSER_REMOVAL_JOBS if historical_browser else REQUIRED_JOBS
     for name in required_jobs:
+        if name == UNIT_JOB:
+            unit_jobs = [job for job in jobs if job.get("name") == UNIT_JOB
+                         or (job.get("name") or "").startswith(f"{UNIT_JOB} (")]
+            _verify_unit_jobs(unit_jobs, candidate, run_id, current=current,
+                              isolated_candidate=isolated_candidate)
+            continue
         matches = [job for job in jobs if job.get("name") == name]
         require(
             len(matches) == 1
@@ -579,11 +694,26 @@ def issue_predecessor(args) -> dict:
     require(args.environment == "uat", "Direct CI admission is UAT-only")
     require(args.scope in {"all", "backend", "frontend"}, "Resolved UAT scope is required")
     services = {"backend", "frontend"} if args.scope == "all" else {args.scope}
-    verify_serving_bases(args.base_sha, args.scope, args.backend_base_sha, args.frontend_base_sha)
-    serving = live_serving_bases(args.scope)
-    require(all(value["sha"] == args.base_sha for value in serving.values()),
-            "Actual UAT serving baseline changed before mutation")
     branch = getattr(args, "source_branch", "uat")
+    require(branch in SOURCE_BRANCHES, "Unrecognized protected UAT branch")
+    if branch == "uat-isolated":
+        verify_serving_bases(args.base_sha, args.scope, args.backend_base_sha, args.frontend_base_sha)
+        serving = live_serving_bases(args.scope)
+        require(all(value["sha"] == args.base_sha for value in serving.values()),
+                "Actual UAT serving baseline changed before mutation")
+    else:
+        # Snapshot both services even for a partial release. Different accepted
+        # frontend/backend SHAs are legitimate; changed revisions are not.
+        expected = {
+            "backend": {"sha": args.backend_base_sha, "revision": getattr(args, "backend_base_revision", "")},
+            "frontend": {"sha": args.frontend_base_sha, "revision": getattr(args, "frontend_base_revision", "")},
+        }
+        require(all(SHA.fullmatch(value["sha"] or "") and re.fullmatch(r"[a-z][a-z0-9-]{1,127}", value["revision"])
+                    for value in expected.values())
+                and args.base_sha in {value["sha"] for value in expected.values()},
+                "UAT qualification base must identify captured service SHAs and revisions")
+        serving = live_serving_bases("all")
+        require(serving == expected, "Actual UAT serving baseline changed before mutation")
     record = {"schema_version": 1, "kind": "uat-exact-ci", "status": "accepted", "environment": "uat",
               "repository": REPOSITORY, "sha": args.sha, "base_sha": args.base_sha,
               "authority_sha": args.authority_sha, "services": sorted(services), "serving": serving,

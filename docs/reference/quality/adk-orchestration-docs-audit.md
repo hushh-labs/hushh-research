@@ -17,7 +17,31 @@ through its bound pod, with no cloud-model fallback. Model-provider processing
 retains its disclosed boundary.
 
 
-## Current decision — 27 October 2026
+## Current decision — 9 November 2026
+
+**UAT application acceptance passed; installed-owner pod acceptance remains a
+separate workstream.** The [accepted release](https://github.com/hushh-labs/hushh-research/actions/runs/42645497579)
+serves application `0896c68f7d5e`: backend `02851-hoj` and frontend `02470-r56`,
+both at 100% traffic. Published acceptance and direct Cloud Run readback agree.
+Schema, provenance, core health, cleanup activation and Drive-worker attestation
+passed. The disposable Azure probe is absent. This does not certify installed
+Browser journeys or public managed hosting.
+
+Reviewed operations [#9153](https://github.com/hushh-labs/hushh-research/pull/9153)
+and its UAT/Dev syncs preserve frozen qualified source after descendant merges.
+[The operating guide](../operations/ci.md#main-owned-release-control) owns current
+team authorization, explicit Main-owned deployment and isolated application
+sources. Source synchronization never deploys an environment.
+
+Full UAT qualification took 18m19s; deployment execution took 38m16s, including
+worker rollout 7m55s and migration checks 4m35s. Deployment remains above the
+15–25-minute optimization target. Unqualified worker reuse or migration-ledger
+activation is not a valid shortcut. No production application rollout or new
+native publication is claimed by this checkpoint.
+
+<a id="current-decision--27-october-2026"></a>
+
+## Historical decision — 27 October 2026
 
 **Production recovery is verified. Release-system activation and installed-owner
 Browser acceptance remain open.** The compatible pre-pod Shared application

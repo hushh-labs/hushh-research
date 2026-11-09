@@ -6,6 +6,7 @@ import importlib
 import contextvars
 import json
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 import retention_preflight_evidence as evidence
 from retention_publication_source import read_source as _source
@@ -61,6 +62,18 @@ def _steps(owner, job):
     indexed = {row["name"]: row for row in rows}
     _require(owner, len(indexed) == len(rows), "maintenance steps are ambiguous")
     return indexed
+
+
+
+def maintenance_mode(steps):
+    """Static job labels need explicit mode evidence; never infer mutation."""
+    states = [steps.get(f"Maintenance mode: {mode}", {}).get("conclusion")
+              for mode in ("inspection", "cleanup")]
+    if states == ["success", "skipped"]:
+        return "inspection"
+    if states == ["skipped", "success"]:
+        return "cleanup"
+    return None
 
 
 def _current(run, number, job, environment):
@@ -151,7 +164,17 @@ def qualify(owner, repository, environment, run, job):
         if production is not None
         else evidence.actual_checkout(log, job)
     )
-    _require(owner, checkout is not None, "maintenance runner or checkout is unproved")
+    if environment == "uat" and job.get("name") == "UAT revision maintenance":
+        current = importlib.import_module("retention_uat_guard_evidence")
+        rows = evidence._raw_rows(log, job)
+        if current._static_steps(job) and rows:
+            step = next(row for row in job["steps"] if row["name"] == evidence._CHECKOUT)
+            segment = evidence._step_rows(rows, step)
+            positions = [i for i, body in enumerate(segment) if body == evidence._CHECKOUT_COMMAND]
+            if len(positions) == 1 and positions[0] + 1 < len(segment):
+                checkout = segment[positions[0] + 1]
+    _require(owner, checkout is not None and re.fullmatch(r"[0-9a-f]{40}", checkout),
+             "maintenance runner or checkout is unproved")
     blobs = _source(
         owner, repository, checkout, production.SOURCE_PATHS if production else None
     )
@@ -176,31 +199,24 @@ def qualify(owner, repository, environment, run, job):
 
 
 def _legacy_actor(owner, attempt, run, number, environment):
-    policy = json.loads(
-        (
-            owner.Path(owner.__file__).resolve().parents[2]
-            / "config/ci-governance.json"
-        ).read_text()
-    )
-    actor = (attempt.get("actor") or {}).get("login")
-    users = policy[environment]["manual_dispatch_users"]
-    _require(
-        owner,
-        attempt.get("event") in {"schedule", "repository_dispatch", "workflow_dispatch"}
-        and (
-            actor in users
-            or (
-                attempt.get("event") == "repository_dispatch"
-                and actor == "github-actions[bot]"
-                and run.get("display_title")
-                in {owner.SCOPED_TICK_TITLES[environment], UNSCOPED_TICK_TITLE}
-            )
-        )
-        and (
-            number == 1 or (attempt.get("triggering_actor") or {}).get("login") in users
-        ),
-        "maintenance legacy actor is ungoverned",
-    )
+    from release_acceptance_provenance import historical_human_dispatch
+    repository = REPOSITORY
+    event = attempt.get("event")
+    original = attempt.get("actor") or {}
+    _require(owner, event in {"schedule", "repository_dispatch", "workflow_dispatch"}
+             and attempt.get("repository", {}).get("full_name") == repository
+             and attempt.get("head_repository", {}).get("full_name") == repository,
+             "maintenance historical origin is unproved")
+    if event == "workflow_dispatch":
+        _require(owner, historical_human_dispatch(attempt), "maintenance legacy actor is ungoverned")
+    else:
+        # Captured platform scheduling is historical provenance, not current
+        # permission for a new manual operation. Current rosters cannot rewrite it.
+        _require(owner, type(original.get("id")) is int and original["id"] > 0
+                 and original.get("type") in {"User", "Bot"}
+                 and (event != "repository_dispatch" or original.get("login") == "github-actions[bot]"
+                      and run.get("display_title") in {owner.SCOPED_TICK_TITLES[environment], UNSCOPED_TICK_TITLE}),
+                 "maintenance legacy actor is ungoverned")
 
 
 def _attempt(owner, repository, run, number, environment, *, proof_lines=None):
@@ -221,7 +237,8 @@ def _attempt(owner, repository, run, number, environment, *, proof_lines=None):
             "pre-policy maintenance rerun requires reconciliation",
         )
         return _publication_time(owner, historical[0], historical[0])
-    selected = [row for row in rows if row.get("name") == name]
+    current_name = ("UAT" if environment == "uat" else "Production") + " revision maintenance"
+    selected = [row for row in rows if row.get("name") in {name, current_name}]
     _require(owner, len(selected) <= 1, "maintenance cleanup job is ambiguous")
     if not selected:
         return False
@@ -238,6 +255,11 @@ def _attempt(owner, repository, run, number, environment, *, proof_lines=None):
     steps = _steps(owner, job)
     if job.get("conclusion") == "skipped" and not steps:
         return False
+    if job.get("name") == current_name:
+        mode = maintenance_mode(steps)
+        _require(owner, mode is not None, "maintenance mode is missing or ambiguous")
+        if mode == "inspection":
+            return False  # Read-only failure cannot claim a mutation checkpoint.
     _require(
         owner,
         f"Prepare or finish eligible {environment} revision cleanup" in steps,
@@ -260,6 +282,10 @@ def _attempt(owner, repository, run, number, environment, *, proof_lines=None):
         )
     if saved == "skipped" and attempt.get("conclusion") == "success":
         return False
+    if saved is None:
+        published = uploaded_checkpoint_proof(owner, repository, run, number, job, environment)
+        if published is not None:
+            return published
     proof = (
         owner.guard_only_preflight_proof(
             repository, environment, {**run, "run_attempt": number}, job
@@ -277,6 +303,94 @@ def _attempt(owner, repository, run, number, environment, *, proof_lines=None):
     else:
         proof_lines.append(proof)
     return False
+
+
+def uploaded_checkpoint_proof(owner, repository, run, number, job, environment, artifact=None):
+    """Missing step metadata requires an independently bound immutable upload.
+
+    This recognizes completed checkpoints only. An explicit failed/cancelled Save
+    or an unresolved journal never becomes success through a green outer job.
+    """
+    import tempfile
+    from datetime import timedelta
+    from pathlib import Path
+    if (repository != REPOSITORY or run.get("path", "").split("@", 1)[0] != WORKFLOW
+            or run.get("head_branch") != "main"
+            or job.get("name") != ("UAT revision maintenance" if environment == "uat" else "Production revision maintenance")
+            or run.get("status") != "completed"
+            or run.get("conclusion") != "success" or run.get("run_attempt") != number
+            or job.get("status") != "completed" or job.get("conclusion") != "success"
+            or job.get("run_id") != run.get("id") or job.get("run_attempt") != number
+            or job.get("head_sha") != run.get("head_sha")
+            or any(run.get(key, {}).get("full_name") != repository for key in ("repository", "head_repository"))):
+        return None
+    steps = _steps(owner, job)
+    saved = steps.get(f"Save {environment} cleanup checkpoint", {})
+    if any(step.get("conclusion") in {"failure", "cancelled", "timed_out"} for step in steps.values()):
+        return None
+    if saved.get("conclusion") is not None:
+        return None
+    if not all(steps.get(name, {}).get("conclusion") == "success" for name in (
+            "Checkout mutation tooling and rollback history", "Recheck due source under the deployment lock",
+            f"Authenticate to {environment}")):
+        return None
+    _legacy_actor(owner, run, run, number, environment)
+    log = _log(owner, job)
+    rows = []
+    for line in log.removeprefix("\ufeff").splitlines():
+        stamp, _, body = line.partition(" ")
+        at = owner._github_timestamp(stamp)
+        if at is None or (rows and at < rows[-1][0]):
+            return None
+        rows.append((at, evidence._STYLE.sub("", body)))
+    if not rows or rows[-1][1] not in {"Cleaning up orphan processes", evidence.RUNNER_WARNING}:
+        return None
+    if any("##[error]" in body or "The operation was canceled" in body for _, body in rows):
+        return None
+    bodies = [body for _, body in rows]
+    positions = [i for i, body in enumerate(bodies) if body == "[command]/usr/bin/git log -1 --format=%H"]
+    if len(positions) != 1 or positions[0] + 1 == len(bodies):
+        return None
+    checkout = bodies[positions[0] + 1]
+    if not re.fullmatch(r"[0-9a-f]{40}", checkout):
+        return None
+    origin = json.loads(owner.command("gh", "api", f"repos/{repository}/compare/{checkout}...main?per_page=1&page=2"))
+    if origin.get("status") not in {"identical", "ahead"} or origin.get("merge_base_commit", {}).get("sha") != checkout:
+        return None
+    name = owner.LANES[environment]["state_artifact"]
+    inventory = owner.api(repository, f"runs/{run['id']}/artifacts?per_page=100")
+    artifacts = inventory.get("artifacts", [])
+    if inventory.get("total_count") != len(artifacts) or len(artifacts) > 100:
+        return None
+    matches = [a for a in artifacts if a.get("name") == name and a.get("expired") is False]
+    if len(matches) != 1 or artifact is not None and matches[0] != artifact:
+        return None
+    selected = matches[0]
+    if selected.get("workflow_run", {}).get("id") != run["id"]:
+        return None
+    digest = selected.get("digest", "")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+        return None
+    marker = f"Artifact {name}.zip successfully finalized. Artifact ID {selected['id']}"
+    published = [at for at, body in rows if body == marker]
+    if len(published) != 1 or bodies.count("SHA256 digest of uploaded artifact zip is " + digest[7:]) != 1:
+        return None
+    created, ended = owner._github_timestamp(selected.get("created_at")), owner._github_timestamp(job.get("completed_at"))
+    if not created or not ended or not created <= published[0] <= ended or published[0] - created > timedelta(minutes=5):
+        return None
+    with tempfile.TemporaryDirectory(prefix="hussh-checkpoint-proof-") as temporary:
+        directory = Path(temporary)
+        owner.download_pending_uat_state(repository, selected, directory, environment=environment, source_kind="saved_checkpoint")
+        completed = completion_receipt(owner, directory, environment)
+        if (not completed or completed.get("pass_status", "complete") != "complete"
+                or completed.get("pending_services", []) or completed.get("capacity_bridge")):
+            return None
+    fresh = json.loads(owner.command("gh", "api", f"repos/{repository}/actions/runs/{run['id']}"))
+    if any(fresh.get(key) != run.get(key) for key in (
+            "id", "run_attempt", "head_sha", "status", "conclusion", "path", "head_branch",
+            "event", "actor", "triggering_actor", "updated_at")):
+        return None
+    return published[0]
 
 
 def _publication_time(owner, saved, job):

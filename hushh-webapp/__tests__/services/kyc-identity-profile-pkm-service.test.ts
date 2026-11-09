@@ -62,6 +62,36 @@ describe("KYC intake uses only Soul.md personal memory", () => {
     expect(mocks.legacy).not.toHaveBeenCalled();
   });
 
+  it("observes the acknowledged encrypted KYC commit, not the earlier staging result", async () => {
+    const onOutcome = vi.fn();
+    await expect(KycIdentityProfilePkmService.saveProfile({ ...session,
+      profile: { aboutMe: "Synthetic private identity details." }, onOutcome,
+    })).resolves.toMatchObject({ success: true });
+    expect(onOutcome).not.toHaveBeenCalled();
+    const { onCommitted } = mocks.stage.mock.calls[0]![0];
+    expect(onCommitted).toEqual(expect.any(Function));
+    onCommitted();
+    expect(onOutcome).toHaveBeenCalledExactlyOnceWith("returned");
+  });
+
+  it("reports only explicit no-write preparation rejection and leaves lost acknowledgement unknown", async () => {
+    const onOutcome = vi.fn(() => { throw new Error("Synthetic observer failure"); });
+    mocks.prepare.mockResolvedValueOnce({ cards: [], previews: [], sourceCoverage: [{
+      sourceBlockId: "synthetic", disposition: "failed", detectedFactCount: 1, accountedFactCount: 0,
+    }] });
+    await expect(KycIdentityProfilePkmService.saveProfile({ ...session,
+      profile: { aboutMe: "Synthetic incomplete import." }, onOutcome,
+    })).resolves.toMatchObject({ success: false });
+    expect(onOutcome).toHaveBeenCalledExactlyOnceWith("blocked");
+    expect(mocks.stage).not.toHaveBeenCalled();
+    onOutcome.mockClear();
+    mocks.stage.mockRejectedValueOnce(new DOMException("Unconfirmed write", "TimeoutError"));
+    await expect(KycIdentityProfilePkmService.saveProfile({ ...session,
+      profile: { aboutMe: "Synthetic valid import." }, onOutcome,
+    })).rejects.toThrow("Unconfirmed write");
+    expect(onOutcome).not.toHaveBeenCalled();
+  });
+
   it("keeps eligible identity numbers locally while preventing passwords from entering model preparation or memory", async () => {
     const password = ["test-password-", "not-real"].join("");
     const passport = ["X", "1234567"].join("");

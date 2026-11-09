@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-MAX_MEMORY_CHARS = 18_000
+MAX_MEMORY_CHARS = 96_000
 MAX_FACT_CHARS = 2_048
 MEMORY_SOURCE = "one_memory.markdown"
 TAG_SECTIONS = {

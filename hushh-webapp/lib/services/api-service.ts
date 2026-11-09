@@ -4818,12 +4818,14 @@ export class ApiService {
   static async getActivePortfolioImportRun(params: {
     userId: string;
     vaultOwnerToken: string;
+    signal?: AbortSignal;
   }): Promise<Response> {
     const query = new URLSearchParams({ user_id: params.userId });
     return apiFetch(
       `/api/kai/portfolio/import/run/active?${query.toString()}`,
       {
         method: "GET",
+        signal: params.signal,
         headers: {
           Authorization: `Bearer ${params.vaultOwnerToken}`,
         },

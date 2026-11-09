@@ -84,9 +84,9 @@ describe("PortfolioImportView", () => {
       onSkip={vi.fn()} onConnectPlaid={connect} onPreloadSchema={sample} plaidLocalDualEnvironmentEnabled />);
     fireEvent.click(screen.getByRole("button", { name: /Try a sample/ }));
     expect(sample).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Load sample" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try sample" }));
     expect(sample).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: /Recommended Connect an account/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Connect an account/ }));
     expect(connect).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Connect account", exact: true }));
     expect(connect).toHaveBeenCalledWith("sandbox");
@@ -104,7 +104,7 @@ describe("PortfolioImportView", () => {
     expect(skip).not.toHaveBeenCalled();
     rerender(<PortfolioImportView presentation="onboarding" onFileSelect={file}
       onSkip={skip} plaidConfigured={false} />);
-    expect(screen.getByRole("button", { name: "Choose statement" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Upload statement" })).toBeEnabled();
     fireEvent.change(screen.getByLabelText("Choose a PDF or CSV brokerage statement"), {
       target: { files: [new File(["bad"], "not-a-statement.txt", { type: "text/plain" })] },
     });

@@ -81,7 +81,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read
+      actions: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     outputs:
@@ -201,7 +201,7 @@ jobs:
           if-no-files-found: error
 
   uat-maintenance:
-    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'UAT revision inspection' || 'UAT bounded revision cleanup' }}
+    name: UAT revision maintenance
     needs: select-release
     if: needs.select-release.outputs.uat_ready == 'true'
     runs-on: ubuntu-latest
@@ -218,6 +218,12 @@ jobs:
       GCP_REGION: us-central1
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: 'Maintenance mode: inspection'
+        if: github.event_name == 'workflow_dispatch' && !inputs.apply
+        run: echo 'Read-only revision inspection.' >> "$GITHUB_STEP_SUMMARY"
+      - name: 'Maintenance mode: cleanup'
+        if: github.event_name != 'workflow_dispatch' || inputs.apply
+        run: echo 'Bounded cleanup; ownership and checkpoint guards remain required.' >> "$GITHUB_STEP_SUMMARY"
       - name: Checkout mutation tooling and rollback history
         uses: actions/checkout@v6
         with:
@@ -288,7 +294,7 @@ jobs:
           fi
 
   cleanup:
-    name: ${{ github.event_name == 'workflow_dispatch' && !inputs.apply && 'Production revision inspection' || 'Production bounded revision cleanup' }}
+    name: Production revision maintenance
     needs: select-release
     if: needs.select-release.outputs.production_ready == 'true'
     runs-on: ubuntu-latest
@@ -310,6 +316,12 @@ jobs:
       HUSSH_PRODUCTION_MAINTENANCE_EVIDENCE_REPAIR: "true"
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: 'Maintenance mode: inspection'
+        if: github.event_name == 'workflow_dispatch' && !inputs.apply
+        run: echo 'Read-only revision inspection.' >> "$GITHUB_STEP_SUMMARY"
+      - name: 'Maintenance mode: cleanup'
+        if: github.event_name != 'workflow_dispatch' || inputs.apply
+        run: echo 'Bounded cleanup; ownership and checkpoint guards remain required.' >> "$GITHUB_STEP_SUMMARY"
       - name: Checkout mutation tooling and rollback history
         uses: actions/checkout@v6
         with:

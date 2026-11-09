@@ -34,33 +34,43 @@ _PAGE = """SELECT c.id,c.subject_ciphertext,c.sender_ciphertext,c.thread_ref_cip
     count(r.id) FILTER (WHERE r.suppressed_at IS NULL) AS request_count,
     count(r.id) FILTER (WHERE r.state IN ('pending','snoozed','needs_review')
       AND r.suppressed_at IS NULL) AS active_count,
-    min(COALESCE(r.due_date,r.proposed_date)) FILTER
-      (WHERE r.state IN ('pending','snoozed','needs_review')
-       AND r.suppressed_at IS NULL) AS next_date,
-    -- Real dates first, then undated ASAP asks, then everything else;
-    -- owner-assigned work before work whose owner is unclear.
-    min(CASE WHEN COALESCE(r.due_date,r.proposed_date) IS NOT NULL THEN 0
-             WHEN r.urgency='asap' THEN 1 ELSE 2 END) FILTER
-      (WHERE r.state IN ('pending','snoozed','needs_review')
-       AND r.suppressed_at IS NULL) AS review_rank,
-    min(CASE r.responsibility WHEN 'owner' THEN 0 ELSE 1 END) FILTER
-      (WHERE r.state IN ('pending','snoozed','needs_review')
-       AND r.suppressed_at IS NULL) AS owner_rank
+    priority.next_date,priority.review_rank,priority.category_rank,priority.owner_rank
     FROM calendar_email_followup_conversations c
     JOIN calendar_email_followup_requests r ON r.conversation_id=c.id
+    -- Rank the thread by one actual request, matching the first preview.
+    -- Independent minima can invent a dated document from two different asks.
+    JOIN LATERAL (
+      SELECT COALESCE(p.due_date,p.proposed_date) AS next_date,
+        CASE WHEN COALESCE(p.due_date,p.proposed_date) IS NOT NULL THEN 0
+             WHEN p.urgency='asap' THEN 1 ELSE 2 END AS review_rank,
+        CASE WHEN p.category IN ('document_or_information','deliverable_deadline') THEN 0
+             WHEN p.category IN ('meeting_request','schedule_change') THEN 1 ELSE 2 END AS category_rank,
+        CASE p.responsibility WHEN 'owner' THEN 0 ELSE 1 END AS owner_rank
+      FROM calendar_email_followup_requests p
+      WHERE p.conversation_id=c.id AND p.state IN ('pending','snoozed','needs_review')
+        AND p.suppressed_at IS NULL
+      ORDER BY review_rank,category_rank,next_date ASC NULLS LAST,owner_rank,
+        p.source_internal_date_ms,p.id LIMIT 1
+    ) priority ON TRUE
     WHERE c.user_id=:user_id AND c.account_id=:account_id
-    GROUP BY c.id HAVING count(r.id) FILTER
+    GROUP BY c.id,priority.next_date,priority.review_rank,priority.category_rank,
+      priority.owner_rank HAVING count(r.id) FILTER
       (WHERE r.state IN ('pending','snoozed','needs_review')
        AND r.suppressed_at IS NULL)>0
-    ORDER BY review_rank,next_date ASC NULLS LAST,owner_rank,
+    ORDER BY review_rank,category_rank,next_date ASC NULLS LAST,owner_rank,
       c.latest_internal_date_ms DESC,c.id DESC LIMIT :limit OFFSET :offset"""
 
 _PREVIEWS = """SELECT r.* FROM calendar_email_followup_requests r
     WHERE r.conversation_id=ANY(CAST(:conversation_ids AS UUID[]))
       AND r.state IN ('pending','snoozed','needs_review')
       AND r.suppressed_at IS NULL
-    ORDER BY COALESCE(r.due_date,r.proposed_date) ASC NULLS LAST,
-      (r.urgency='asap') DESC,r.source_internal_date_ms,r.id"""
+    ORDER BY CASE WHEN COALESCE(r.due_date,r.proposed_date) IS NOT NULL THEN 0
+                  WHEN r.urgency='asap' THEN 1 ELSE 2 END,
+      CASE WHEN r.category IN ('document_or_information','deliverable_deadline') THEN 0
+           WHEN r.category IN ('meeting_request','schedule_change') THEN 1 ELSE 2 END,
+      COALESCE(r.due_date,r.proposed_date) ASC NULLS LAST,
+      CASE r.responsibility WHEN 'owner' THEN 0 ELSE 1 END,
+      r.source_internal_date_ms,r.id"""
 
 
 def reminder_status(row: dict[str, Any]) -> str:

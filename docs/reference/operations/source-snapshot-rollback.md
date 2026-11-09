@@ -230,7 +230,7 @@ If users are affected, assess the existing traffic recovery lane immediately;
 it does not require waiting for the source restore PR. Record the environment,
 affected services, serving revisions, source SHAs, image identities, and active
 or queued releases. Start UAT investigation through
-`./bin/hushh codex rca --surface uat --text` and reconcile overlapping releases
+`./bin/hushh agents rca --surface uat --text` and reconcile overlapping releases
 before dispatching recovery.
 
 1. Select compatible prior backend/frontend revisions from release evidence.

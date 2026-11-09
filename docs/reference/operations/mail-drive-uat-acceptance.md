@@ -437,9 +437,10 @@ unless ready), and never decides readiness.
 
 With those checks, a cold worker instance takes about 2.5 minutes to become
 ready, and each instance runs one drain at a time. The release therefore keeps
-four budgeted instances warm with the service-level `--min=4` floor. That
-covers the three regular drains and one prompt wake when all slots start
-free. Extra concurrent drains wait for a slot. The floor follows the traffic split, so tagged
+both of the worker's two budgeted instances warm with the service-level
+`--min=2` floor, so a lane that arrives while another lane runs starts at once
+instead of waiting for a new instance. A third simultaneous lane still waits
+for a warm instance to finish. The floor follows the traffic split, so tagged
 candidates and retired revisions still scale to zero, and the revision-level
 minimum stays 0. The connection budget is unchanged because it counts each
 retained revision at its maximum scale. Concurrency stays 1 because the

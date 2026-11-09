@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import time
 from pathlib import Path
 
 import uat_exact_ci as exact
@@ -51,11 +53,32 @@ def validate_pins(sha: str, run: str, attempt: str, base: str) -> tuple[int, int
     return int(run), int(attempt)
 
 
+def require_fresh_email_risk(candidate: str) -> None:
+    """Early public-input freshness only; release still validates the full snapshot."""
+    enabled = os.environ.get("UAT_EMAIL_AUTH_ENABLED", "false")
+    exact.require(enabled in {"true", "false"}, "UAT email-auth enable flag is invalid")
+    if enabled == "false":
+        return
+    exact.require(bool(exact.SHA.fullmatch(candidate)), "Exact UAT email-risk source is required")
+    try:
+        raw = exact.git("show", f"{candidate}:consent-protocol/config/email-auth/risk-manifest.json")
+        if len(raw) > 65536:
+            raise ValueError("oversized manifest")
+        manifest = json.loads(raw)
+        expires = manifest.get("expires_at") if isinstance(manifest, dict) else None
+        valid = type(expires) in {int, float} and math.isfinite(expires) and expires > time.time()
+    except (Refused, ValueError, OverflowError):
+        valid = False
+    exact.require(valid, "UAT email-risk snapshot is expired or invalid; refresh the pinned upstream "
+                  "artifact and qualify the new candidate before deployment")
+
+
 def validate_deployment(api, sha: str, run: str, attempt: str, base: str, *, branch="uat", authority="") -> None:
     run_id, number = validate_pins(sha, run, attempt, base)
     exact.require_protected_tip(api, sha, branch)
+    exact.verify_git_authority(sha, base, authority, branch=branch)
+    require_fresh_email_risk(sha)
     if branch == "uat-isolated":
-        exact.verify_git_authority(sha, base, authority, branch=branch)
         exact.verify_attempt(api, sha, base, run_id, number, branch=branch, authority=authority)
     else:
         exact.verify_attempt(api, sha, base, run_id, number, branch=branch)
@@ -222,6 +245,34 @@ def verify_approved_scope(api, sha: str, base: str, approval: str, *, read_live=
     print(f"UAT scope approved: {approvals}, backend base {backend}, frontend base {frontend}")
 
 
+def verify_release_scope(api, sha: str, base: str, approval: str, *, branch="uat", read_live=None, predecessor: Path | None = None) -> None:
+    """Admit the exact protected SHA; recheck recorded revisions under the lock."""
+    if branch == "uat-isolated":
+        verify_approved_scope(api, sha, base, approval, branch=branch, read_live=read_live)
+        return
+    exact.require(branch == "uat" and exact.SHA.fullmatch(sha or "")
+                  and exact.SHA.fullmatch(base or ""), "Exact protected UAT source and base are required")
+    exact.require_protected_tip(api, sha, branch)
+    if read_live is not None:
+        exact.require(predecessor is not None, "UAT serving recheck requires its captured admission")
+        prior = json.loads(predecessor.read_text())
+        exact.require(isinstance(prior, dict) and prior.get("kind") == "uat-exact-ci"
+                      and prior.get("status") == "accepted" and prior.get("environment") == "uat"
+                      and prior.get("repository") == exact.REPOSITORY
+                      and prior.get("source_branch", "uat") == branch
+                      and prior.get("sha") == sha and prior.get("base_sha") == base,
+                      "UAT serving recheck admission belongs to another source")
+        exact.verify_predecessor(prior, current=True)
+        expected = prior.get("serving")
+        exact.require(isinstance(expected, dict) and set(expected) == {"backend", "frontend"}
+                      and all(isinstance(value, dict) and exact.SHA.fullmatch(value.get("sha", ""))
+                              and isinstance(value.get("revision"), str) and value["revision"]
+                              for value in expected.values()),
+                      "UAT serving admission has no complete revision inventory")
+        exact.require(read_live("all") == expected, "UAT serving revisions changed before mutation")
+    exact.require_protected_tip(api, sha, branch)
+
+
 def latest_attempt(api, candidate: str, branch="uat", authority="") -> dict:
     """Return diagnostics only; canonical verification below decides eligibility."""
     prefix = f"repos/{exact.REPOSITORY}/actions"
@@ -315,12 +366,18 @@ def inspect(api, authority: str, *, read_live=None, branch="uat") -> dict:
     exact.require_protected_tip(api, candidate, branch)
     serving = read_live("all")
     base = serving.get("backend", {}).get("sha", "")
-    exact.verify_serving_bases(base, "all", base, serving.get("frontend", {}).get("sha", ""))
+    if branch == "uat-isolated":
+        exact.verify_serving_bases(base, "all", base, serving.get("frontend", {}).get("sha", ""))
+    else:
+        exact.require(set(serving) == {"backend", "frontend"}
+                      and all(exact.SHA.fullmatch(value.get("sha", "")) for value in serving.values()),
+                      "UAT serving source inventory is incomplete")
     result = {"kind": "uat-prerequisite-inspection", "ready": False,
               "candidate_sha": candidate, "base_sha": base,
               "authority_sha": authority, "serving": serving, "source_branch": branch,
               "reason_code": "qualification_unverified"}
     exact.verify_git_authority(candidate, base, authority, branch=branch)
+    require_fresh_email_risk(candidate)
     qualify_inspection(api, result)
     exact.require_protected_tip(api, candidate, branch)
     if read_live("all") != serving:
@@ -334,11 +391,13 @@ def render(result: dict) -> str:
              f"- Observed serving base: `{result['base_sha']}`",
              f"- Main workflow authority: `{result['authority_sha']}`"]
     if result["ready"]:
-        lines += ["- Current exact-source CI passed. Deploy from the protected UAT caller with:",
+        lines += ["- Current exact-source CI passed. Explicit deployment selects this protected SHA; compatibility and rollback remain required. Use the protected UAT caller with:",
                   f"  - `sha={result['candidate_sha']}`",
                   f"  - `ci_run_id={result['ci_run_id']}`",
                   f"  - `ci_run_attempt={result['ci_run_attempt']}`",
                   f"  - `ci_base_sha={result['base_sha']}`", "  - `scope=auto`"]
+        if result.get("source_branch") == "uat-isolated":
+            lines += ["  - `approved_scope=BACKEND:FRONTEND:PR=HEAD[,PR=HEAD]` (legacy isolated history only)"]
     elif result["reason_code"] in {"qualification_missing", "qualification_base_unpublished", "qualification_base_changed"}:
         branch = result.get("source_branch", "uat")
         lines += ["- Qualification is required. In Actions → PR Validation → Run workflow:",
@@ -371,6 +430,7 @@ def main() -> int:
     parser.add_argument("--ci-attempt", default="")
     parser.add_argument("--base-sha", default="")
     parser.add_argument("--approved-scope", default="")
+    parser.add_argument("--predecessor", type=Path)
     parser.add_argument("--source-branch", choices=exact.SOURCE_BRANCHES, default="uat")
     args = parser.parse_args()
     try:
@@ -379,11 +439,12 @@ def main() -> int:
             return 0
         api = GitHub(exact.REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
         if args.mode == "validate-deployment":
-            verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope, branch=args.source_branch)
+            verify_release_scope(api, args.sha, args.base_sha, args.approved_scope, branch=args.source_branch)
             validate_deployment(api, args.sha, args.ci_run_id, args.ci_attempt, args.base_sha, branch=args.source_branch, authority=args.authority_sha)
         elif args.mode == "validate-scope-live":
-            verify_approved_scope(api, args.sha, args.base_sha, args.approved_scope,
-                                  read_live=exact.live_serving_bases, branch=args.source_branch)
+            verify_release_scope(api, args.sha, args.base_sha, args.approved_scope,
+                                 read_live=exact.live_serving_bases, branch=args.source_branch,
+                                 predecessor=args.predecessor)
         else:
             result = inspect(api, args.authority_sha, branch=args.source_branch)
             print(json.dumps(result, sort_keys=True))

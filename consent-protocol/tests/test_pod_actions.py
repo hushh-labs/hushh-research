@@ -15,6 +15,7 @@ from email.parser import BytesParser
 
 # ruff: noqa: S106 -- token strings below name test fixtures, not credentials.
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -51,6 +52,17 @@ class _Session:
 
 @pytest.fixture
 def agent(monkeypatch, tmp_path):
+    # These executor fixtures start after request assessment. The real SDK runner
+    # covers current-turn scope in tests/agents/test_calendar_request_scope.py.
+    from hushh_mcp.agents.calendar import request_scope
+
+    monkeypatch.setattr(
+        "hushh_mcp.agents.calendar.request_scope.scope_receipt",
+        lambda _: {"actions": ["create", "reschedule", "cancel", "respond"], "continuation": False},
+    )
+    monkeypatch.setattr(
+        request_scope, "request_scope", AsyncMock(return_value=("create", "reschedule", "cancel"))
+    )
     log, tokens, google = h.install(
         monkeypatch,
         tmp_path,
@@ -461,3 +473,37 @@ async def test_hosted_calendar_has_no_hub_or_local_google_fallback(monkeypatch):
     assert (await calendar_turn_refusal(h.tool_context()))["status"] == "failed"
     assert await pod_tool_owner(h.tool_context(), "calendar") is None
     assert pod_connector_roster() == []
+
+
+@pytest.mark.parametrize("action", ["reschedule", "cancel"])
+async def test_calendar_mutation_keeps_the_owner_cloud_source_grant(agent, action):
+    _log, _tokens, google = agent
+    event = {
+        "id": "evt1",
+        "etag": '"event-version"',
+        "summary": "Lunch",
+        "attendees": [],
+        "start": {"dateTime": "2026-12-02T16:00:00Z", "timeZone": "UTC"},
+        "end": {"dateTime": "2026-12-02T16:30:00Z", "timeZone": "UTC"},
+    }
+    google.on("GET", EVENTS, {"items": [event]})
+    google.on("GET", f"{EVENTS}/evt1", event)
+    google.on("PATCH", f"{EVENTS}/evt1", event)
+    google.on("DELETE", f"{EVENTS}/evt1", {})
+    context = h.tool_context(**{"hussh:conversation_id": "calendar-owner-conversation"})
+    assert (await calendar_tools.calendar_summary(context))["status"] == "ok"
+    if action == "reschedule":
+        result = await calendar_tools.propose_calendar_reschedule(
+            context, event_id="evt1", start_at="2026-12-03T16:00:00Z", end_at="2026-12-03T16:30:00Z"
+        )
+    else:
+        result = await calendar_tools.propose_calendar_cancellation(context, event_id="evt1")
+    assert result["status"] == "confirmation_required", result
+    assert len(result["plan"]["connection_binding"]) > 6
+    assert google.calls("PATCH", f"{EVENTS}/evt1") == google.calls("DELETE", f"{EVENTS}/evt1") == []
+    response = _client().post(
+        f"/api/one/pod/actions/{result['proposal_id']}/confirm", headers=OWNER_SESSION
+    )
+    assert response.status_code == 200, response.json()
+    method = "PATCH" if action == "reschedule" else "DELETE"
+    assert len(google.calls(method, f"{EVENTS}/evt1")) == 1

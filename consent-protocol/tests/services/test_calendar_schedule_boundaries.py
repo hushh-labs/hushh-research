@@ -119,8 +119,20 @@ def test_overnight_busy_periods_are_clipped_to_the_requested_day(
             "start_at": "2026-10-14T13:00:00Z",
             "end_at": "2026-10-14T14:00:00Z",
             "available_until": "2026-10-14T17:00:00Z",
-        }
+        },
+        {
+            "start_at": "2026-10-14T14:00:00Z",
+            "end_at": "2026-10-14T15:00:00Z",
+            "available_until": "2026-10-14T17:00:00Z",
+        },
+        {
+            "start_at": "2026-10-14T15:00:00Z",
+            "end_at": "2026-10-14T16:00:00Z",
+            "available_until": "2026-10-14T17:00:00Z",
+        },
     ]
+    assert result["available_slot_count"] == 4
+    assert result["suggestions_limited"] is True
 
 
 class _Connections:
@@ -591,11 +603,12 @@ def test_shared_work_and_real_leave_block_in_every_zone(monkeypatch, zone, durat
         ("Europe/London", "2026-10-25", 25),
         ("Asia/Kathmandu", "2026-03-08", 24),
         ("America/Santiago", "2026-09-06", 23),
+        # Use the historical midnight fold; tzdb 2026f cancelled Cuba's 2026 fallback.
         ("America/Havana", "2025-11-02", 25),
     ],
 )
 def test_full_day_defaults_query_civil_boundaries_in_worldwide_zones(monkeypatch, zone, day, hours):
-    _freeze_clock(monkeypatch, f"{day[:4]}-01-01T00:00:00+00:00")
+    _freeze_clock(monkeypatch, "2025-01-01T00:00:00+00:00")
     calendar = _WindowsCalendar({"personal": {"busy": []}, "shared": {"busy": []}})
     result = asyncio.run(
         CalendarScheduleService(calendar=calendar, db=_Db(), mail=object()).free_windows(

@@ -197,6 +197,29 @@ _HUB_ONLY = "Registered on the hub with no owner adapter; service_for refuses it
 #: ``none`` or ``hub``. Hub-owned capabilities stay hub-owned here; a manifest is
 #: not a claim of pod execution.
 POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
+    "agent_chat_stm": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=(
+            "Tool-free summarization uses the encrypted hub session checkpoint. "
+            "Pod text turns use in-memory sessions without commit_chat_summary, "
+            "so the summary scheduler does not run there."
+        ),
+    ),
+    "agent_chat_memory_manager": _declare(
+        executes_in_pod=True,
+        information_source="pkm_projection",
+        write_scope="proposal_only",
+        confirmation_owner="owner_browser",
+        why=(
+            "The admitted pod memory rewrite route supplies owner messages, the "
+            "current Markdown and the selected owner model to this tool-free helper. "
+            "It returns a proposal; the unlocked browser validates and encrypts "
+            "the durable commit. It is not a dispatchable specialist."
+        ),
+    ),
     "agent_career": _declare(
         executes_in_pod=False,
         information_source="hub",

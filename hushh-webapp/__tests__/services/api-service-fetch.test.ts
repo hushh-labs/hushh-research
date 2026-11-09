@@ -252,6 +252,25 @@ describe("ApiService.apiFetch", () => {
     })).rejects.toThrow("could not be verified");
   });
 
+  it.each(["granted", "declined", "unavailable", "not_requested", undefined])("accepts Google callback Mail outcome %s", async (mail_access) => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar", mail_access }));
+    const result = await GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    });
+    expect(result.mail_access).toBe(mail_access);
+  });
+
+  it.each(["all", "", true, null])("refuses an unrecognised Google callback Mail outcome %j", async (mail_access) => {
+    publishValidatedAuthSessionPrincipal({ firebaseUid: "synthetic-owner", ownerId: "synthetic-owner", accountGeneration: 0 });
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar", mail_access }));
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    })).rejects.toThrow("could not be verified");
+  });
+
   it("does not send an application effect guard over the transport", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
     const beforeDispatch = vi.fn(async () => {});

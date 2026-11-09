@@ -12,6 +12,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { useBackLayer } from "@/lib/navigation/back-layers";
 import { usePathname } from "next/navigation";
 import { isValidatedAuthSessionOwnerCurrent, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { isFinalInvitationResponse } from "@/lib/calendar/calendar-event-status";
 import { calendarRefreshKey } from "@/lib/calendar/calendar-refresh";
 import { CacheService } from "@/lib/services/cache-service";
 import { GoogleCalendarError, type CalendarAttendanceResult, type CalendarInvitation } from "@/lib/services/google-calendar-service";
@@ -112,14 +113,14 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
     {error ? <div role="alert" className="space-y-3"><p>Invitations could not be loaded.</p><p className={styles.muted}>{error.message}</p>{error instanceof GoogleCalendarError && error.recovery !== "retry" ? <CalendarCompactAction disabled={busy} onClick={() => onConnect("manage", error.reasonCode === "calendar_list_permission_required")}>Allow Calendar access</CalendarCompactAction> : <CalendarCompactAction onClick={() => void load(true)}>Retry</CalendarCompactAction>}</div> : !data ? <CalendarLoading label="Invitations loading" /> : <>
       {data.unreadable_calendars.length ? <p className={styles.muted}>Some calendars allow only free/busy access. Their invitation details and conflicts could not be checked.</p> : null}
       <div className={styles.workspace} data-selected={Boolean(selected)}>
-        <div className={styles.listPane} aria-label="Invitation list"><h2 className={styles.sectionTitle}>{label}</h2>
+        <div className={styles.listPane} aria-label="Invitation list">{filtered.length ? <h2 className={styles.sectionTitle}>{label}</h2> : null}
           {!filtered.length ? <p className={styles.empty}>No {filter === "all" ? "" : `${filter} `}invitations {workspaceLayout ? "on this date" : "in this window"}.</p> : <ul className={styles.list}>{filtered.map(event => {
             const organizerPerson = invitationPerson(people, event.organizer?.email);
             const organizer = invitationPersonName(organizerPerson, event.organizer?.displayName, event.organizer?.email) || "Organizer";
             const response = statusLabel(event);
             const husshPhoto = organizerPerson?.photoUrl ?? null;
             return <li key={`${event.calendar_id}:${event.id}`}><PersonSelectionSurface type="button" disabled={actionBusy} className={styles.inviteCard} aria-label={`Open invitation: ${event.title}`} aria-pressed={selectedId === `${event.calendar_id}:${event.id}`} onClick={e => { trigger.current = e.currentTarget; setSelectedId(`${event.calendar_id}:${event.id}`); }}>
-              <InvitationDate event={event} zone={zone} /><span className={styles.copy}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span><span className={styles.organizer}><InvitationAvatar userId={organizerPerson && profileUserIds.has(organizerPerson.userId) ? organizerPerson.userId : undefined} name={organizer} email={event.organizer?.email} photoUrl={husshPhoto} /><span className={styles.copy}><span>{organizer}</span>{organizer !== event.organizer?.email ? <span className={styles.muted}>{event.organizer?.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-4 shrink-0" />Overlaps {event.conflicts[0]?.title || "another meeting"}</span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
+              <InvitationDate event={event} zone={zone} /><span className={styles.copy}><span className={styles.eventSummary}><strong className={styles.title}>{event.title}</strong><span className={styles.muted}>{eventTime(event, zone)}</span></span><span className={styles.organizer}><InvitationAvatar userId={organizerPerson && profileUserIds.has(organizerPerson.userId) ? organizerPerson.userId : undefined} name={organizer} email={event.organizer?.email} photoUrl={husshPhoto} /><span className={styles.organizerCopy}><span>{organizer}</span>{organizer !== event.organizer?.email ? <span className={styles.muted}>{event.organizer?.email}</span> : null}</span></span>{event.description ? <span className={styles.preview}>{invitationDescription(event.description)}</span> : null}{response ? <span className={styles.response} data-response={event.response_status}>{response}</span> : null}{event.conflicts.length ? <span className={styles.conflict}><AlertTriangle aria-hidden className="size-3.5 shrink-0" /><span>Overlaps {event.conflicts[0]?.title || "another meeting"}</span></span> : null}</span><ChevronRight aria-hidden className={styles.chevron} />
             </PersonSelectionSurface></li>;
           })}</ul>}
         </div>
@@ -129,11 +130,23 @@ function Invitations({ workspaceLayout = false, calendarPeople, userId, accountI
           {selected ? <div className={styles.detailPane}>
           <Button variant="ghost" size="compact" className={`${styles.back} ${presentationStyles.utility}`} disabled={actionBusy} onClick={close}><ChevronLeft aria-hidden className="size-4" />Invitations</Button>
           <CalendarInvitationDetail event={selected} zone={zone} people={people} profileUserIds={profileUserIds} workspaceLayout={workspaceLayout} accountEmail={data.account_email || accountEmail} />
-          <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
+          <CalendarInvitationActions key={`${selected.calendar_id}:${selected.id}:${JSON.stringify(initialTerms)}`} event={selected} userId={userId} token={token} zone={zone} getIdToken={getIdToken} workspaceLayout={workspaceLayout} accountId={accountId} expectedAccountEmail={data.account_email || accountEmail} onBusyChange={updateBusy} initialDecision={initialDecision} initialTerms={initialTerms} onSend={onSend} onConnect={onConnect} onMailConnect={onMailConnect} onOfferTimes={onOfferTimes ? () => onOfferTimes({ ownerId: userId, accountId, accountEmail: accountEmail || "", calendarId: selected.calendar_id, eventId: selected.id }) : undefined} onResult={result => {
+            if (workspaceLayout && isFinalInvitationResponse(result.calendar)) {
+              const response = result.calendar;
+              setSnapshot(previous => {
+                if (previous.key !== resourceKey || !previous.data) return previous;
+                const events = previous.data.events.map(event =>
+                  event.id === selected.id && event.calendar_id === selected.calendar_id
+                    ? { ...event, response_status: response, attendees: event.attendees?.map(guest => guest.self ? { ...guest, response_status: response } : guest) }
+                    : event,
+                );
+                return { key: resourceKey, data: { ...previous.data, events } };
+              });
+            }
             onResult?.(result);
             // Keep partial/unknown outcomes visible; only a fully confirmed RSVP
             // leaves the review. The refresh moves it out of Pending.
-            if (["accepted", "declined", "tentative"].includes(result.calendar) && !["failed", "unknown"].includes(result.email)) {
+            if (["accepted", "declined", "tentative"].includes(result.calendar) && (result.calendar === "declined" ? result.email === "sent" : !["failed", "unknown"].includes(result.email))) {
               setSelectedId(null);
               requestAnimationFrame(() => trigger.current?.focus());
             }

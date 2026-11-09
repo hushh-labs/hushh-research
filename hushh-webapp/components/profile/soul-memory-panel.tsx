@@ -1,5 +1,8 @@
 "use client";
 
+import { useId } from "react";
+
+import { RowDescription, SectionLabel } from "@/components/app-ui/typography";
 import { LiveMirrorPreview } from "@/components/profile/live-mirror-preview";
 import { SoulMemoryDocument } from "@/components/profile/soul-memory-document";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -24,6 +27,9 @@ export function SoulMemoryPanel(options: SoulMemoryModelOptions) {
 
 /** Presentation only. A retained parent can supply its one existing owner. */
 export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
+  const editorId = useId();
+  const editorHelpId = useId();
+  const editorLimitId = useId();
   const {
     active,
     verified,
@@ -70,19 +76,23 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
         </p>
       </div>
     );
+  const excessCharacters = Math.max(0, current.draft.length - MAX_MARKDOWN_MEMORY_CHARS);
   return (
     <div className="min-w-0 space-y-[var(--app-form-section-gap)]">
       {livePreview}
       <section
         aria-label="memory.md"
-        className="min-w-0 space-y-[var(--app-form-section-gap)] pb-6"
+        className="min-w-0 space-y-4 pb-6"
       >
-        <div className="flex flex-col items-start gap-2 px-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-          <p className="ui-text-row-description min-w-0 flex-1">
-            The memory One uses in every conversation.
-          </p>
+        <div className="flex flex-col items-start gap-3 border-b border-[color:var(--app-separator)] pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <SectionLabel as="h2" data-pkm-section-heading="true">Long-term memory</SectionLabel>
+            <RowDescription as="p">
+              What One remembers across conversations.
+            </RowDescription>
+          </div>
           {editing ? (
-            <div className="flex flex-wrap gap-2">
+            <div role="group" aria-label="Memory editing actions" className="flex flex-wrap gap-2">
               <Button variant="none" effect="fade" size="compact" data-pkm-action="utility" disabled={saving} onClick={cancelEdit}>
                 Cancel
               </Button>
@@ -111,7 +121,7 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
               disabled={loading}
               onClick={model.beginEdit}
             >
-              Edit memory.md
+              Edit memory
             </Button>
           )}
         </div>
@@ -130,23 +140,65 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             </Button>
           </div>
         ) : null}
+        <div className={editing ? "grid min-w-0 gap-6 md:grid-cols-2" : "min-w-0"}>
+          {editing ? (
+            <div className="min-w-0 space-y-[var(--app-form-field-gap)]">
+              <label htmlFor={editorId} data-pkm-form-label="true" className="text-sm font-medium">
+                Memory document
+              </label>
+              <Textarea
+                id={editorId}
+                aria-describedby={`${editorHelpId} ${editorLimitId}`}
+                aria-invalid={excessCharacters > 0}
+                value={current.draft}
+                disabled={saving}
+                autoFocus
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                rows={18}
+                className="soul-memory-editor min-h-80"
+                onChange={(event) => model.changeDraft(event.target.value)}
+              />
+              <p id={editorHelpId} data-pkm-helper="true" className="text-xs text-muted-foreground">
+                Use headings, lists, and links. Passwords are omitted when saving.
+              </p>
+              <p id={editorLimitId} role="status" aria-live={excessCharacters > 0 ? "polite" : "off"} data-pkm-helper="true" className={excessCharacters > 0 ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+                {excessCharacters > 0
+                  ? `Remove ${excessCharacters.toLocaleString()} ${excessCharacters === 1 ? "character" : "characters"} to save.`
+                  : `${current.draft.length.toLocaleString()} / ${MAX_MARKDOWN_MEMORY_CHARS.toLocaleString()} characters`}
+              </p>
+            </div>
+          ) : null}
+          <div className={editing ? "min-w-0 space-y-3 border-t border-[color:var(--app-separator)] pt-4 md:border-t-0 md:border-l md:pl-6 md:pt-0" : "min-w-0"}>
+            {editing ? (
+              <div className="space-y-1">
+                <SectionLabel as="h3" data-pkm-section-heading="true">Live preview</SectionLabel>
+                <RowDescription as="p">Your draft. Save changes to update memory.</RowDescription>
+              </div>
+            ) : null}
+            <SoulMemoryDocument
+              markdown={editing ? current.draft : current.document.markdown}
+              preview={editing}
+            />
+          </div>
+        </div>
         {editing ? (
-          <div className="space-y-[var(--app-form-field-gap)]">
+          <div className="space-y-[var(--app-form-section-gap)] border-t border-[color:var(--app-separator)] pt-4">
             <fieldset
-              className="space-y-[var(--app-form-field-gap)]"
+              className="grid min-w-0 gap-[var(--app-form-field-gap)] sm:grid-cols-3"
               disabled={saving}
             >
-              <legend data-pkm-form-label="true" className="text-sm font-medium">Identity details</legend>
-              <p data-pkm-helper="true" className="text-xs text-muted-foreground">
-                Optional. Edit or clear a field to remove it. Your account name
-                and photo already work for approved questions; no KYC is needed.
+              <legend data-pkm-form-label="true" className="mb-2 text-sm font-medium">Identity details (optional)</legend>
+              <p data-pkm-helper="true" className="text-xs text-muted-foreground sm:col-span-3">
+                Edit or clear a field to update these details in your memory.
               </p>
               {[
                 { label: "Legal name", key: "legal name", type: "text" },
                 { label: "Date of birth", key: "date of birth", type: "date" },
                 { label: "Sex", key: "sex", type: "text" },
               ].map((field) => (
-                <label key={field.key} data-pkm-form-label="true" className="block space-y-2 text-sm">
+                <label key={field.key} data-pkm-form-label="true" className="block min-w-0 space-y-2 text-sm">
                   <span>{field.label}</span>
                   <Input
                     aria-label={field.label}
@@ -168,32 +220,11 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
                   />
                 </label>
               ))}
-              <p data-pkm-helper="true" className="text-xs text-muted-foreground">
+              <p data-pkm-helper="true" className="text-xs text-muted-foreground sm:col-span-3">
                 Age is calculated from your birth date. Sharing age does not
                 share that date. Sex is used only when you provide it.
               </p>
             </fieldset>
-            <Textarea
-              aria-label="memory.md Markdown"
-              value={current.draft}
-              disabled={saving}
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              rows={18}
-              className="soul-memory-editor min-h-80"
-              onChange={(event) => model.changeDraft(event.target.value)}
-            />
-            <div data-pkm-helper="true" className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>
-                Use Markdown headings, lists, and links. Passwords are omitted
-                when saving.
-              </span>
-              <span>
-                {current.draft.length.toLocaleString()} /{" "}
-                {MAX_MARKDOWN_MEMORY_CHARS.toLocaleString()}
-              </span>
-            </div>
             {conflict ? (
               <Button
                 variant="none"
@@ -208,10 +239,6 @@ export function SoulMemoryPanelBody({ model }: { model: SoulMemoryModel }) {
             ) : null}
           </div>
         ) : null}
-        <SoulMemoryDocument
-          markdown={editing ? current.draft : current.document.markdown}
-          preview={editing}
-        />
       </section>
     </div>
   );

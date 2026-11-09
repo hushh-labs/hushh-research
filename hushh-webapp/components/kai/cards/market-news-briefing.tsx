@@ -89,7 +89,7 @@ export function OneMarketNewsBriefing({ rows }: { rows: KaiHomeNewsItem[] }) {
       {stories.map((row, index) => (
         <article key={row.url} className="min-w-0 border-b border-border/60 last:border-b-0 sm:[&:nth-last-child(2)]:border-b-0">
           <button type="button" onClick={() => openOneMarketHref(row.url)}
-            className="group/news relative isolate flex min-h-[100px] w-full items-center gap-4 overflow-hidden rounded-sm py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            className="group/news relative isolate flex min-h-11 w-full items-center gap-3 overflow-hidden rounded-sm py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <span className="min-w-0 flex-1">
               <span className={cn(marketBriefingStyles.newsTitle, "text-foreground transition-colors group-hover/news:text-[color:var(--one-link)]")}>{row.title}</span>
               <span className={marketBriefingStyles.newsMetadata}>{row.source_name || "Market news"} <span aria-hidden="true"> · </span> {formatHeadlinePublished(row.published_at)}</span>

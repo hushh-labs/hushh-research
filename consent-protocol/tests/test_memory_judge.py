@@ -28,8 +28,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import runpy
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -1799,18 +1799,13 @@ def test_the_grading_lane_is_read_only_and_is_not_told_to_write(tmp_path):
     true, and whichever way a host resolved it, the resolution was silent.
     """
     root = Path(__file__).resolve().parents[2]
-    judge_dir = root / ".agents" / "subagents"
-    toml_source = judge_dir / "local_model_judge.toml"
-    markdown_source = judge_dir / "local_model_judge.md"
-    assert toml_source.is_file() != markdown_source.is_file()
-    if toml_source.is_file():
-        source = tomllib.loads(toml_source.read_text(encoding="utf-8"))
-    else:
-        markdown = markdown_source.read_text(encoding="utf-8")
-        assert markdown.startswith("---\n")
-        metadata, instructions = markdown[4:].split("\n---\n", 1)
-        source = json.loads(metadata)
-        source["developer_instructions"] = instructions
+    reader = runpy.run_path(
+        str(
+            root
+            / ".agents/skills/agent-orchestration-governance/scripts/framework_source_boundary.py"
+        )
+    )["read_framework_source"]
+    source = reader(root / ".agents/subagents/local_model_judge.md")
     assert source["sandbox_mode"] == "read-only"
     lane = source["developer_instructions"]
     # The specific instruction that contradicted it: a `record` invocation aimed

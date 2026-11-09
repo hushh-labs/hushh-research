@@ -43,52 +43,47 @@ export function registerAdvisorReviewChecks(
   });
 
   for (const width of [393, 960]) {
-    test(`Finance portfolio review caches and refreshes with advisor fallback at ${width}px`, async ({
+    test(`Finance portfolio review runs on request and offers advisor fallback at ${width}px`, async ({
       page,
     }, info) => {
       await mount(page, width);
-      const toggle = page.getByRole("button", {
-        name: "Toggle sample analysis",
-      });
+      const toggle = page.getByRole("button", { name: "Toggle sample analysis" });
       await toggle.click();
-      const review = page.getByRole("region", {
-        name: "Agent One portfolio review",
-      });
-      await expect(page.locator("body")).not.toHaveAttribute(
-        "data-portfolio-review-calls",
-      );
-      await review.getByRole("button", { name: "Enable auto-review" }).click();
+      const ask = page.getByRole("button", { name: "Ask Agent One to review" });
+      const review = page.getByRole("dialog", { name: "Agent One’s review" });
+      const calls = "data-portfolio-review-calls";
+      await expect(ask).toBeVisible();
+      await expect(review).toHaveCount(0);
+      await expect(page.locator("body")).not.toHaveAttribute(calls);
+      const charts = page.getByRole("region", { name: "Portfolio analysis" });
+      const holdingsHeading = charts.getByRole("heading", { name: "Largest holdings" });
+      await expect(holdingsHeading).toBeVisible();
+
+      await ask.click();
       await expect(review.getByText("72", { exact: false })).toBeVisible();
-      await expect(
-        page
-          .getByRole("region", { name: "Portfolio charts" })
-          .getByRole("heading", { name: "Largest holdings" }),
-      ).toBeVisible();
-      await review.screenshot({
-        path: info.outputPath("portfolio-review.png"),
-      });
+      await review.screenshot({ path: info.outputPath("portfolio-review.png") });
+      await page.keyboard.press("Escape");
+      await expect(review).toHaveCount(0);
+      await expect(ask).toBeFocused();
+
       await toggle.click();
       await toggle.click();
+      await expect(review).toHaveCount(0);
+      await ask.click();
       await expect(review.getByText("72", { exact: false })).toBeVisible();
-      await expect(page.locator("body")).toHaveAttribute(
-        "data-portfolio-review-calls",
-        "1",
-      );
-      await page.evaluate(() => {
-        document.body.dataset.portfolioReviewFailed = "true";
-      });
-      await page
-        .getByRole("button", { name: "Update sample portfolio" })
-        .click();
-      await expect(
-        review.getByText("Agent One couldn’t finish this review."),
-      ).toBeVisible();
-      await expect(page.locator("body")).toHaveAttribute(
-        "data-portfolio-review-calls",
-        "2",
-      );
+      await expect(page.locator("body")).toHaveAttribute(calls, "1");
+      await page.keyboard.press("Escape");
+
+      await page.evaluate(() => { document.body.dataset.portfolioReviewFailed = "true"; });
+      await page.getByRole("button", { name: "Update sample portfolio" }).click();
+      await expect(review).toHaveCount(0);
+      await expect(page.locator("body")).toHaveAttribute(calls, "1");
+      await ask.click();
+      await expect(review.getByText("Agent One couldn’t finish this review.")).toBeVisible();
+      await expect(page.locator("body")).toHaveAttribute(calls, "2");
       await expect(review.getByText("72", { exact: false })).toHaveCount(0);
       await review.getByRole("button", { name: "Talk to an advisor" }).click();
+      await expect(review).toHaveCount(0);
       await expect(
         page.getByRole("dialog").getByText("Sample advisor", { exact: true }),
       ).toBeVisible();

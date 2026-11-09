@@ -1625,13 +1625,11 @@ class GmailReceiptsService:
         return await read_execution_grant_binding(self, user_id=user_id)
 
     async def get_bound_read_access_token(
-        self, *, user_id: str, compose: bool = False, include_account_email: bool = False
-    ) -> tuple[str, tuple[str, ...]] | tuple[str, tuple[str, ...], str | None]:
+        self, *, user_id: str, compose: bool = False
+    ) -> tuple[str, tuple[str, ...]]:
         from hushh_mcp.services.gmail_execution_grants import get_bound_read_access_token
 
-        return await get_bound_read_access_token(
-            self, user_id=user_id, compose=compose, include_account_email=include_account_email
-        )
+        return await get_bound_read_access_token(self, user_id=user_id, compose=compose)
 
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None

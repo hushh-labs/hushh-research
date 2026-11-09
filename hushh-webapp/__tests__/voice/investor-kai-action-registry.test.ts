@@ -142,12 +142,18 @@ describe("investor-kai-action-registry", () => {
       "profile.gmail.visit_merchant",
       "route.profile_receipts",
       "route.one_gmail_kyc",
+      "kyc.save_profile",
       "profile.gmail.connect",
       "profile.gmail.sync_now",
       "profile.gmail.disconnect",
       "profile.gmail.receipt_sync_details",
       "profile.gmail.restore_saved_receipts",
     ]);
+
+    const kycImport = getInvestorKaiActionById("kyc.save_profile")!;
+    expect(kycImport.risk.executionPolicy).toBe("manual_only");
+    expect(kycImport.wiring.status).toBe("unwired");
+    expect(resolveInvestorKaiActionWiring(kycImport).resolvable).toBe(false);
 
     const pkmActions = listInvestorKaiActionsForSurface({
       screen: "profile_pkm_agent_lab",

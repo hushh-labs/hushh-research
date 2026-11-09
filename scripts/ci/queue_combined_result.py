@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -132,9 +133,9 @@ def _module(filename, name):
     return module
 
 
-def authority_policy(repository, branch, base):
-    """Use current protected Main authority for Dev/UAT, not candidate policy."""
-    if branch not in {"dev", "uat"}:
+def authority_policy(repository, branch, base, *, owner_admin=False):
+    """Use protected Main for Dev/UAT and the isolated Admin operator."""
+    if branch not in {"dev", "uat"} and not (branch == "uat-isolated" and owner_admin):
         return base, json.loads(git("show", f"{base}:config/ci-governance.json"))
     ref = api(f"repos/{repository}/git/ref/heads/main")
     authority = ref.get("object", {})
@@ -155,12 +156,38 @@ def authority_policy(repository, branch, base):
     return revision, policy
 
 
+def policy_fingerprint(policy, branch):
+    material = dict(policy)
+    if branch != "main":
+        # This switch controls only Main's native writer restriction. It is
+        # not read by queue authorization for any other destination.
+        material["main"] = {key: value for key, value in policy["main"].items()
+                            if key != "restrict_writes_to_merge_users"}
+    return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":"),
+                                     allow_nan=False).encode()).hexdigest()
+
+
+def same_queue_state(recorded, observed):
+    if not all(SHA.fullmatch(str(state.get("policy_revision", ""))) for state in (recorded, observed)):
+        return False
+    if "policy_fingerprint" not in recorded:
+        # Historical receipts retain their exact revision requirement.
+        return recorded == {key: value for key, value in observed.items()
+                            if key != "policy_fingerprint"}
+    fingerprint = recorded["policy_fingerprint"]
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        return False
+    return {key: value for key, value in recorded.items() if key != "policy_revision"} == {
+        key: value for key, value in observed.items() if key != "policy_revision"
+    }
+
+
 def current_head_reviewers(repository, member, policy, guard):
     """Prove approval against the current head and canonical maintainer authority.
 
     Native reviewDecision is null when GitHub has no review-count requirement;
     neither that absence nor an APPROVED label grants authority. Reuse the same
-    cohort that populates ordinary CODEOWNERS, without mutable team membership.
+    governed ordinary-review cohort, independently of review-request labels.
     """
     governance = _module("apply-governance.py", "queue_reviewer_cohort")
     teams = [team for team in governance.MANAGED_TEAMS
@@ -227,7 +254,7 @@ def authorize(repository, branch, base, included, *, policy=None, authority_revi
         approvals = owner_approval or (guard._owner_approvals(
             repository, member["number"], member["head"], protected_owners, read=api,
         ) if protected else [])
-        require(not protected or approvals, "Protected changes need Kushal or Ankit's current-head approval")
+        require(not protected or approvals, "Protected changes need the configured pipeline editors' current-head approval")
         member["protected_approvals"] = approvals
     return included
 
@@ -236,7 +263,15 @@ def snapshot():
     repository, branch, group = event_context()
     included = members(group["base_sha"], group["head_sha"], queue_entries(repository, branch), branch)
     policy_revision, policy = authority_policy(repository, branch, group["base_sha"])
-    authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import request_queue_authority
+        decision = request_queue_authority(dict(os.environ), os.environ.get("QUEUE_AUTHORIZATION_PHASE", "admission"))
+        require(all(decision.get(key) == value for key, value in {
+            "repository": repository, "branch": branch, "base": group["base_sha"], "head": group["head_sha"]}.items()),
+            "Main merge permission does not match this combined source")
+        included = decision["members"]
+    else:
+        authorize(repository, branch, group["base_sha"], included, policy=policy, authority_revision=policy_revision)
     # A replaced queue ref must not retain this run's authority.
     head_ref = str(group.get("head_ref", ""))
     require(head_ref.startswith(f"refs/heads/gh-readonly-queue/{branch}/"), "Unexpected queue ref")
@@ -247,6 +282,7 @@ def snapshot():
             "Destination advanced; validate the rebuilt merge group")
     return {"repository": repository, "branch": branch, "base": group["base_sha"],
             "policy_revision": policy_revision,
+            "policy_fingerprint": policy_fingerprint(policy, branch),
             "head": group["head_sha"], "tree": git("rev-parse", "HEAD^{tree}"),
             "members": included}
 
@@ -323,6 +359,7 @@ def reusable(state, validations, read=api):
     return receipt_matches(receipt, state, validation)
 
 
+
 def exact_selection(base):
     """Prove the actual API inventory matches the tested merge inventory.
 
@@ -379,7 +416,8 @@ def owner_admin_snapshot(number, expected_head):
     actor = api("user").get("login")
     pr = api(f"repos/{repository}/pulls/{number}")
     branch = pr.get("base", {}).get("ref")
-    require(branch in {"main", "dev", "uat"}, "Owner Admin route supports only Main/Dev/UAT")
+    require(branch in {"main", "dev", "uat", "uat-isolated"},
+            "Owner Admin route requires a governed Main, Dev or UAT destination")
     base = api(f"repos/{repository}/git/ref/heads/{branch}")["object"]["sha"]
     require(
         SHA.fullmatch(str(expected_head))
@@ -397,7 +435,10 @@ def owner_admin_snapshot(number, expected_head):
         check=True,
         timeout=90,
     )
-    policy_revision, policy = authority_policy(repository, branch, base)
+    policy_revision, policy = authority_policy(repository, branch, base, owner_admin=True)
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        policy = local_policy(policy, actor=actor, read=api)
     if branch == "main":
         main = policy["main"]
     else:
@@ -516,7 +557,16 @@ def owner_admin_merge(number, expected_head, receipt, apply=False):
             "Admin merge was not confirmed; inspect the recorded PR before any retry"
         )
     landed = observed.get("merge_commit_sha")
+    # The PR API guards the head, not our captured base. Persist confirmed
+    # landing before inspecting the combined result; never replay this merge.
+    proof.update(outcome="merged_unqualified", landed=landed, request_exit_code=exit_code)
+    receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
     commit = api(f"repos/{repository}/git/commits/{landed}")
+    proof["observed_commit"] = {
+        "tree": commit.get("tree", {}).get("sha"),
+        "parents": [parent["sha"] for parent in commit.get("parents", [])],
+    }
+    receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
     require(
         commit.get("tree", {}).get("sha") == proof["state"]["tree"]
         and [p["sha"] for p in commit.get("parents", [])]
@@ -525,9 +575,8 @@ def owner_admin_merge(number, expected_head, receipt, apply=False):
     )
     proof.update(outcome="merged", landed=landed, request_exit_code=exit_code)
     receipt.write_text(json.dumps(proof, sort_keys=True) + "\n")
-    print(
-        f"Owner-approved PR merged at {landed}. Main smoke remains required; no deployment requested."
-    )
+    next_step = "Main smoke remains required; " if proof["state"]["branch"] == "main" else ""
+    print(f"Owner-approved PR merged at {landed}. {next_step}No deployment requested.")
 
 def main():
     import argparse
@@ -561,10 +610,14 @@ def main():
             )
         else:
             value = json.loads(args.receipt.read_text())
-            require(
-                value["state"] == state and value["validations"] == validations,
-                "Queue membership, approval or validation changed; rebuild the group",
-            )
+            changed = sorted(key for key in value["state"].keys() | state.keys()
+                             if value["state"].get(key) != state.get(key))
+            require(same_queue_state(value["state"], state),
+                    f"Queue inputs changed ({', '.join(changed)}); rebuild the group")
+            require(value["validations"] == validations,
+                    "Latest PR validation run or attempt changed; rebuild the group")
+            if value["state"]["policy_revision"] != state["policy_revision"]:
+                print(f"Main advanced to {state['policy_revision']}; queue policy inputs are unchanged.")
             if value["reuse"]:
                 require(reusable(state, validations), "Combined-input proof changed")
             else:

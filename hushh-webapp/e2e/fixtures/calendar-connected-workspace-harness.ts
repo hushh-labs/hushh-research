@@ -56,6 +56,10 @@ export function registerCalendarConnectedFixture() {
     });
     css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
     css += fs.readdirSync(outDir).filter(file => file.endsWith(".css")).map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
+    // Match the production optimization pass so dialog transforms and overflow
+    // are measured after globals and feature styles have been combined.
+    const { transform } = await import("lightningcss");
+    css = transform({ filename: "calendar-workspace.css", code: Buffer.from(css), minify: true }).code.toString();
     fs.mkdirSync(screenshotDirectory, { recursive: true });
   });
 
@@ -144,6 +148,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
   const errors: string[] = [];
   const unexpectedRequests: string[] = [];
   const fixturePortraits = [1, 2, 3].map(number => `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), `public/one-location/onboarding/orbit-person-${number}.webp`)).toString("base64")}`);
+  const workPhotoUrl = workPhoto === "broken" ? "data:image/png;base64,AA==" : workPhoto === "transparent" ? "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=" : fixturePortraits[1];
   await page.route("**/*", route => { unexpectedRequests.push(route.request().url()); return route.abort(); });
   page.on("pageerror", error => errors.push(error.message));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
@@ -155,7 +160,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
   await page.route("**/api/one/connections", route => route.fulfill({ json: { items: [
     { connectionId: "qa-manish", userId: "qa-manish", email: "manish@example.test", emailVerified: true, displayName: "Manish", photoUrl: fixturePortraits[2], createdAt: null },
     { connectionId: "qa-priya", userId: "qa-priya", email: "qa-organizer-0@example.test", emailVerified: true, displayName: "Priya Mehta", photoUrl: fixturePortraits[1], createdAt: null },
-    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: workPhoto === "broken" ? "data:image/png;base64,AA==" : workPhoto === "transparent" ? "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=" : fixturePortraits[1], createdAt: null },
+    { connectionId: "qa-work", userId: "qa-work", email: "qa-work@example.com", emailVerified: true, displayName: "QA Work", photoUrl: workPhotoUrl, createdAt: null },
   ] } }));
   await page.route("**/api/account/email-aliases", route => route.fulfill({ json: { success: true, user_id: "synthetic-calendar-owner", aliases: [] } }));
   await page.route("https://calendar-fixture.test/calendar-fixture.js", route => route.fulfill({ contentType: "application/javascript; charset=utf-8", body: script }));
@@ -175,10 +180,10 @@ export async function openFixture(page: Page, width: number, locked = false, var
     calls.push(call);
     if (routePath.endsWith("/status/synthetic-calendar-owner")) return route.fulfill({ json: { connected: true, access_level: "manage", google_email: "qa-owner@example.com" } });
     if (boardMode && routePath.endsWith("/board/day")) {
-      return route.fulfill({ json: calendarBoardDayFixture({
+      return route.fulfill({ json: { ...calendarBoardDayFixture({
         day: String(body.date), zone: String(body.time_zone), durationMinutes: Number(body.duration_minutes),
         now: qaNow, busy: variant === "busy", instant,
-      }) });
+      }), people: { "qa-work@example.com": { userId: "qa-work", displayName: "QA Work", photoUrl: workPhotoUrl } } } });
     }
     if (boardMode && routePath.endsWith("/conflicts/workspace/review")) {
       const keep = body.keep as Record<string, string>;
@@ -198,7 +203,7 @@ export async function openFixture(page: Page, width: number, locked = false, var
       time_zone: body.time_zone, days: [], recurring: [], focus: [],
     } });
     if (routePath.endsWith("/invitations")) return route.fulfill({ json: {
-      events: fixtureEvents("2026-10-14", "standard").slice(0, 3).map((event, index) => ({ ...event,
+      events: fixtureEvents("2026-10-14", variant === "long" ? "long" : "standard").slice(0, 3).map((event, index) => ({ ...event,
         response_status: invitationResponses.get(event.id) || (index === 2 ? "declined" : "needsAction"),
         can_respond: true, conflicts: index === 0 ? [{ title: "QA Existing meeting", start: event.start, end: event.end }] : [],
         organizer: { displayName: ["Priya Mehta", "Rohan Kapoor", "Alex Chen"][index], email: `qa-organizer-${index}@example.test` },

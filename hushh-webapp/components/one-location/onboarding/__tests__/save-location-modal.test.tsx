@@ -6,7 +6,7 @@ const mapPickerMockState = vi.hoisted(() => ({
   picked: {
     latitude: 28.614,
     longitude: 77.2091,
-    address: "Kartavya Path, New Delhi, Delhi 110001, India",
+    address: "Kartavya Path, New Delhi, Delhi 110001, India" as string | null,
   },
   /** Mirrors a settled pin whose address lookup has finished. */
   canConfirm: true,
@@ -38,12 +38,12 @@ vi.mock("@/components/one-location/onboarding/location-picker-map", async () => 
       onConfirm: (picked: {
         latitude: number;
         longitude: number;
-        address: string;
+        address: string | null;
       }) => void;
       onSelectionChange?: (picked: {
         latitude: number;
         longitude: number;
-        address: string;
+        address: string | null;
       }) => void;
       onReadyChange?: (ready: boolean) => void;
       onCancel: () => void;
@@ -1309,6 +1309,33 @@ describe("SaveLocationModal", () => {
 
       expect(screen.getByLabelText(/^Address$/)).toHaveValue(
         HOUSE_NUMBER_ADDRESS,
+      );
+    });
+
+    it("uses manual address entry after moving away from a saved address and postcode", () => {
+      mapPickerMockState.picked = { latitude: 9.409, longitude: 78.372, address: null };
+      const onPickExactLocation = vi.fn();
+      render(
+        <SaveLocationModal
+          {...baseProps}
+          address="San Francisco, CA 94108, USA"
+          mapInitial={{ latitude: 37.787, longitude: -122.406 }}
+          initialDetails={{ houseOrFlat: "", buildingColor: "", landmark: "", postalCode: "94108" }}
+          initialCategory="home"
+          onPickExactLocation={onPickExactLocation}
+          startWithMapPicker
+          collectAddressDetails
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
+      const address = screen.getByLabelText(/^Address$/);
+      expect(address).toHaveValue("");
+      fireEvent.change(address, { target: { value: "Main Street, Kamuthi, India" } });
+      fireEvent.click(screen.getByRole("button", { name: /save|update/i }));
+      expect(onPickExactLocation).toHaveBeenCalledWith(mapPickerMockState.picked);
+      expect(baseProps.onSave).toHaveBeenCalledWith(
+        "home", "", expect.objectContaining({ postalCode: "" }), "Main Street, Kamuthi, India",
       );
     });
 

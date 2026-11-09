@@ -61,7 +61,12 @@ def _current_actor() -> str:
 
 
 def _governance_policy() -> dict[str, Any]:
-    return json.loads(GOVERNANCE_POLICY_PATH.read_text(encoding="utf-8"))
+    policy = json.loads(GOVERNANCE_POLICY_PATH.read_text(encoding="utf-8"))
+    if policy.get("authorization", {}).get("native_teams"):
+        sys.path.insert(0, str(REPO_ROOT / "scripts/ci"))
+        from github_team_authority import local_policy
+        return local_policy(policy)
+    return policy
 
 
 def _team_membership(org_id: int, team_id: int, actor: str) -> bool:
@@ -191,7 +196,7 @@ def _normalize_checks(pr_payload: dict[str, Any]) -> list[dict[str, Any]]:
         workflow_name = raw_check.get("workflowName")
         owner_skill, workflow_id = _route_check(name, workflow_name)
         run_id, job_id = _parse_details_url(raw_check.get("detailsUrl"))
-        next_commands = [f"./bin/hushh codex route-task {workflow_id}"]
+        next_commands = [f"./bin/hushh agents route-task {workflow_id}"]
         if run_id and job_id:
             next_commands.append(f"gh run view {run_id} --job {job_id} --log-failed")
         subtree_summary: OrderedDict[str, Any] | None = None
@@ -327,8 +332,8 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
             reason="Core PR checks are terminal green. If the change has landed on main, continue monitoring post-merge smoke before closing the task; proceed to Deploy to UAT only when that deployment was explicitly requested.",
         )
     next_actions = OrderedDict()
-    next_actions["route_task"] = "./bin/hushh codex route-task ci-watch-and-heal"
-    next_actions["impact"] = "./bin/hushh codex impact ci-watch-and-heal"
+    next_actions["route_task"] = "./bin/hushh agents route-task ci-watch-and-heal"
+    next_actions["impact"] = "./bin/hushh agents impact ci-watch-and-heal"
     next_actions["completion_gate"] = completion_gate["reason"]
     if review_policy["current_actor_can_bypass_review"]:
         next_actions["review_gate"] = "Live GitHub grants a review exception. Policy permits only the protected owner explicitly queuing their own exact head; CI and combined-result validation remain required."
@@ -358,7 +363,7 @@ def _build_payload(pr_payload: dict[str, Any]) -> OrderedDict[str, Any]:
     upstream_sync_check = next((check for check in checks if check["name"] in UPSTREAM_SYNC_CHECK_NAMES), None)
     if upstream_sync_check and upstream_sync_check.get("surface_summary"):
         next_actions["upstream_subtree_summary"] = upstream_sync_check["surface_summary"]
-        next_actions["upstream_subtree_route_task"] = "./bin/hushh codex route-task subtree-upstream-governance"
+        next_actions["upstream_subtree_route_task"] = "./bin/hushh agents route-task subtree-upstream-governance"
 
     return OrderedDict(
         pr=OrderedDict(

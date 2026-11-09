@@ -12,12 +12,20 @@ permissions:
   actions: read
   security-events: read
 
+# Main/Dev/UAT build one native queue candidate at a time. A rebuilt temporary
+# ref supersedes the prior candidate; other destinations keep per-ref groups.
+# GitHub does not guarantee event order: a late obsolete event can cause a safe
+# cancellation/retry, but cannot authorize stale source (admission rechecks it).
 concurrency:
-  group: queue-${{ github.ref }}
+  group: queue-${{ contains(fromJSON('["refs/heads/main","refs/heads/dev","refs/heads/uat"]'), github.event.merge_group.base_ref) && github.event.merge_group.base_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   admission:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     name: "Merge authority and tested inputs"
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -28,6 +36,7 @@ jobs:
         with:
           ref: ${{ github.event.merge_group.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
       # Authority code comes from the protected destination, not the candidate
       # asking to change it. Candidate checks still inspect the combined tree.
       - uses: actions/checkout@v6
@@ -54,6 +63,10 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   ci-status:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     name: "CI Status Gate"
     needs: [admission, combined-checks]
     if: always()
@@ -75,6 +88,7 @@ jobs:
         with:
           ref: ${{ github.event.merge_group.head_sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.merge_group.base_sha }}
@@ -88,4 +102,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           COMBINED_RESULT: ${{ needs.combined-checks.result }}
+          QUEUE_AUTHORIZATION_PHASE: finish
         run: python3 .queue-authority/scripts/ci/queue_combined_result.py finish --receipt "$RUNNER_TEMP/queue-admission/queue-inputs.json"
