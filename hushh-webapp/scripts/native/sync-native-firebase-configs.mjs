@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { validateNativeFirebaseIdentity } from "./native-firebase-identity.mjs";
+import { bindIosFirebaseBridges } from "./ios-firebase-bridge.mjs";
+import { iosFirebaseField, readUatIosAnalyticsPlist, SHARED_IOS_FIREBASE_RESOURCE, verifySharedIosFirebasePlist } from "./ios-firebase-config.mjs";
 
 function resolveAppRoot(cwd = process.cwd()) {
   if (fs.existsSync(path.join(cwd, "capacitor.config.ts"))) {
@@ -18,6 +20,13 @@ function resolveAppRoot(cwd = process.cwd()) {
 
 function firstExisting(candidates) {
   return candidates.find((candidate) => fs.existsSync(candidate)) || "";
+}
+
+export function resolveIosFirebasePlist(appRoot, monorepoRoot = path.resolve(appRoot, "..")) {
+  return firstExisting([
+    path.join(monorepoRoot, "GoogleService-Info.plist"),
+    path.join(appRoot, "GoogleService-Info.plist"),
+  ]);
 }
 
 function readJson(filePath) {
@@ -67,10 +76,7 @@ export function syncNativeFirebaseConfigs({
 
   const includeIos = platform === "all" || platform === "ios";
   const includeAndroid = platform === "all" || platform === "android";
-  const iosSource = firstExisting([
-    path.join(monorepoRoot, "GoogleService-Info.plist"),
-    path.join(appRoot, "GoogleService-Info.plist"),
-  ]);
+  const iosSource = resolveIosFirebasePlist(appRoot, monorepoRoot);
   const androidSource = firstExisting([
     path.join(monorepoRoot, "google-services.json"),
     path.join(monorepoRoot, "android/app/google-services.json"),
@@ -113,7 +119,7 @@ export function syncNativeFirebaseConfigs({
   }
   if (includeIos && expectedProject) {
     const plist = fs.readFileSync(iosSource, "utf8");
-    const field = key => plist.match(new RegExp(`<key>${key}</key>\\s*<string>([^<]+)</string>`))?.[1] || "";
+    const field = key => iosFirebaseField(plist, key);
     validateNativeFirebaseIdentity({ projectId: field("PROJECT_ID"), senderId: field("GCM_SENDER_ID"), nativeAppId: field("GOOGLE_APP_ID") }, { expectedProject, expectedSender });
   }
   if (includeAndroid && expectedProject) {
@@ -128,7 +134,20 @@ export function syncNativeFirebaseConfigs({
   );
   const androidDestination = path.join(appRoot, "android/app/google-services.json");
 
-  const iosCopied = includeIos ? copyIfDifferent(iosSource, iosDestination) : false;
+  // Dev also labels product events "uat"; only the UAT build profile owns this
+  // stream and its separate native identity resource.
+  const isolateIosAnalytics = includeIos && profile === "uat";
+  const sharedDestination = path.join(path.dirname(iosDestination), SHARED_IOS_FIREBASE_RESOURCE);
+  let defaultIosSource = iosSource;
+  if (isolateIosAnalytics) {
+    defaultIosSource = readUatIosAnalyticsPlist(appRoot);
+    verifySharedIosFirebasePlist(iosSource);
+    bindIosFirebaseBridges(appRoot);
+    copyIfDifferent(iosSource, sharedDestination);
+  } else if (includeIos) {
+    fs.rmSync(sharedDestination, { force: true });
+  }
+  const iosCopied = includeIos ? copyIfDifferent(defaultIosSource, iosDestination) : false;
   const androidCopied = includeAndroid ? copyIfDifferent(androidSource, androidDestination) : false;
 
   return {

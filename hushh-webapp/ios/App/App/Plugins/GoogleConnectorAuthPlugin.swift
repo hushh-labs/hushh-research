@@ -17,7 +17,7 @@ public class GoogleConnectorAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthen
         guard Thread.isMainThread else { DispatchQueue.main.async { self.open(call) }; return }
         guard pending == nil else { call.reject("Sign-in is already open.", "SIGN_IN_BUSY"); return }
         guard let owner = call.getString("expectedUserId"), !owner.isEmpty,
-              Auth.auth().currentUser?.uid == owner,
+              HushhFirebaseIdentity.auth.currentUser?.uid == owner,
               let raw = call.getString("authorizationUrl"), raw.count <= 16_000,
               let url = URL(string: raw), url.scheme == "https", url.host == "accounts.google.com",
               url.path == "/o/oauth2/v2/auth", url.user == nil, url.password == nil,
@@ -49,7 +49,7 @@ public class GoogleConnectorAuthPlugin: CAPPlugin, CAPBridgedPlugin, ASWebAuthen
         let auth = ASWebAuthenticationSession(url: url, callbackURLScheme: callbackScheme) { [weak self] callback, error in
             DispatchQueue.main.async {
                 guard let self, self.pending === call else { return }
-                guard Auth.auth().currentUser?.uid == owner else { self.finish(error: "POD_OWNER_CHANGED"); return }
+                guard HushhFirebaseIdentity.auth.currentUser?.uid == owner else { self.finish(error: "POD_OWNER_CHANGED"); return }
                 if error != nil { self.finish(error: "SIGN_IN_CANCELLED"); return }
                 guard let callback, var result = URLComponents(url: callback, resolvingAgainstBaseURL: false),
                       result.queryItems?.filter({ $0.name == "state" }).map(\.value) == [state] else {
