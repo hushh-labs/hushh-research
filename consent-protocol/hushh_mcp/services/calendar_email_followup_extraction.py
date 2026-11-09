@@ -22,6 +22,8 @@ from hushh_mcp.services.calendar_email_followup_reader import (
 )
 from hushh_mcp.services.calendar_email_followup_relevance import (
     DROP_QUOTED,
+    DROP_UNSUPPORTED_REPLACEMENT,
+    AfterDate,
     Category,
     MeetingState,
     Relevance,
@@ -63,6 +65,13 @@ class FollowupCandidateV1(BaseModel):
     # Name of an existing meeting this request is about ("Hushh Growth Sync").
     # Used only to look the meeting up on the owner's Calendar, never stored raw.
     related_meeting_hint: str | None = Field(default=None, max_length=120)
+    # What passing the date means. ``owed``: it stays owed (an assigned
+    # document). ``lapses``: the chance is gone (a registration window, an
+    # offer, an event that has taken place). Unset means undecided, never expired.
+    after_date: AfterDate = "unspecified"
+    # An item in prior_requests that this one restates with a changed date or
+    # replaces. Only an offered request ID is accepted.
+    supersedes_request_id: str | None = Field(default=None, min_length=36, max_length=36)
 
     @field_validator("due_date", "proposed_date")
     @classmethod
@@ -139,6 +148,8 @@ class ValidatedCandidate:
     evidence_reason: str | None = None
     requested_by: str | None = None
     related_meeting_hint: str | None = None
+    after_date: str = "unspecified"
+    supersedes_request_id: str | None = None
     # (calendar event id, title, start) set by Calendar reconciliation only.
     linked_event: tuple[str, str, str] | None = None
 
@@ -196,7 +207,11 @@ def _evidence_identity(
 
 
 def _validated_candidate(
-    message: CompleteMailMessage, item: Any, offset: int, identity: str
+    message: CompleteMailMessage,
+    item: Any,
+    offset: int,
+    identity: str,
+    supersedes: str | None = None,
 ) -> ValidatedCandidate:
     return ValidatedCandidate(
         evidence_key=identity,
@@ -222,6 +237,8 @@ def _validated_candidate(
         evidence_reason=item.evidence_reason,
         requested_by=item.requested_by,
         related_meeting_hint=item.related_meeting_hint,
+        after_date=item.after_date,
+        supersedes_request_id=supersedes,
     )
 
 
@@ -258,6 +275,7 @@ def validate_chunk(
             category=item.category,
             responsibility=item.responsibility,
             evidence_reason=item.evidence_reason,
+            dated=bool(item.due_date or item.proposed_date or item.proposed_at),
         )
         if reason:
             _count(drops, reason)
@@ -270,7 +288,14 @@ def validate_chunk(
         if identity in evidence_keys:
             raise ValueError("ambiguous_duplicate_evidence")
         evidence_keys.add(identity)
-        candidates.append(_validated_candidate(message, item, offset, identity))
+        # A replacement is honoured only for a request this turn was offered.
+        # An unknown ID keeps the candidate as its own request: showing both is
+        # recoverable, merging into something unproven is not.
+        supersedes = item.supersedes_request_id
+        if supersedes is not None and supersedes not in prior_request_ids:
+            _count(drops, DROP_UNSUPPORTED_REPLACEMENT)
+            supersedes = None
+        candidates.append(_validated_candidate(message, item, offset, identity, supersedes))
     for update in assessment.updates:
         if (
             update.section_index != section.index

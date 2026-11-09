@@ -7,7 +7,10 @@ const service = vi.hoisted(() => ({
   status: vi.fn(), list: vi.fn(), detail: vi.fn(), source: vi.fn(),
   resolve: vi.fn(), post: vi.fn(), change: vi.fn(),
 }));
-vi.mock("@/lib/services/calendar-followups-service", () => ({ CalendarFollowupsService: service }));
+vi.mock("@/lib/services/calendar-followups-service", async importOriginal => ({
+  ...(await importOriginal<typeof import("@/lib/services/calendar-followups-service")>()),
+  CalendarFollowupsService: service,
+}));
 vi.mock("@/components/app-ui/settings-ui", () => ({
   AdaptiveDetailSurface: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div role="dialog">{children}</div> : null,
 }));
@@ -81,15 +84,16 @@ describe("Calendar Insights Follow-ups account boundary", () => {
     expect(service.post.mock.calls.some(([, body]) => body.account_id === "account_B")).toBe(false);
   });
 
-  it("retains a failed notification link and retries the exact request", async () => {
-    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${callId}`);
+  it("retains a failed notification link and retries the resolved request", async () => {
+    const mergedId = "55555555-5555-4555-8555-555555555557";
+    window.history.replaceState(null, "", `/one/calendar?followupAccount=account_B&followupRequest=${mergedId}`);
     service.status.mockResolvedValue({
       account_id: "account_B", mail_connected: true, monitoring_enabled: true,
       background_available: true, scan_state: "complete", incomplete_source_count: 0,
       notifications_enabled: true, historical_start_at: null, time_zone: "Asia/Kolkata",
     });
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: callId });
     const request = (preview: typeof bList.conversations[0]["preview_requests"][number]) => ({
       ...preview, source_excerpt: "Could we have a call on 27 October", due_relation: null,
       proposed_at: null, time_zone: "Asia/Kolkata", responsibility: "owner",
@@ -101,10 +105,10 @@ describe("Calendar Insights Follow-ups account boundary", () => {
       requests: bList.conversations[0].preview_requests.map(request),
     });
     const handled = vi.fn();
-    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={callId} onDeepLinkHandled={handled} />);
+    render(<CalendarFollowups {...props("account_B", vi.fn())} deepLinkRequestId={mergedId} onDeepLinkHandled={handled} />);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(await screen.findByText("Follow-ups could not be checked. Try again.")).toBeInTheDocument();
-    expect(window.location.search).toContain(callId);
+    expect(window.location.search).toContain(mergedId);
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(handled).toHaveBeenCalledOnce());
     expect(window.location.search).not.toContain("followupRequest");
@@ -120,7 +124,7 @@ describe("Calendar Insights Follow-ups account boundary", () => {
       notifications_enabled: true, historical_start_at: null, time_zone: "Asia/Kolkata",
     });
     service.list.mockResolvedValue(bList);
-    service.resolve.mockResolvedValue(conversationId);
+    service.resolve.mockResolvedValue({ conversationId, requestId: documentId });
     service.detail.mockResolvedValue({
       ...bList.conversations[0], account_id: "account_B", requests: [],
     });
@@ -136,22 +140,56 @@ describe("Calendar Insights Follow-ups account boundary", () => {
     ));
   });
 
-  it("loads additional conversations from View all", async () => {
-    service.status.mockResolvedValue({
-      account_id: "account_B", mail_connected: true, monitoring_enabled: true,
-      background_available: true, scan_state: "complete", incomplete_source_count: 0,
-      notifications_enabled: true, historical_start_at: null, time_zone: "Asia/Kolkata",
-    });
-    const first = { ...bList, total_conversations: 2, next_offset: 1 };
-    const second = { ...bList, total_conversations: 2, next_offset: null,
-      conversations: [{ ...bList.conversations[0], id: "44444444-4444-4444-8444-444444444444",
+  const monitored = {
+    account_id: "account_B", mail_connected: true, monitoring_enabled: true,
+    background_available: true, scan_state: "complete", incomplete_source_count: 0,
+    notifications_enabled: true, historical_start_at: null, time_zone: "Asia/Kolkata",
+  };
+  const counts = { upcoming: 16, overdue: 2, snoozed: 0, history: 3 };
+
+  it("pages the full view 15 at a time from the server instead of loading more", async () => {
+    service.status.mockResolvedValue(monitored);
+    const page = (offset: number, nextOffset: number | null, title: string) => ({
+      ...bList, view: "upcoming", view_counts: counts, total_conversations: 16, next_offset: nextOffset,
+      conversations: [{ ...bList.conversations[0], id: `44444444-4444-4444-8444-44444444444${offset ? 5 : 4}`,
         preview_requests: [{ ...bList.conversations[0].preview_requests[0],
-          id: "55555555-5555-4555-8555-555555555555", title: "Another document" }] }] };
-    service.list.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+          id: `55555555-5555-4555-8555-55555555555${offset ? 6 : 5}`, title }] }],
+    });
+    service.list.mockImplementation(async (_u, _a, _t, _o, _s, offset = 0) =>
+      offset === 0 ? page(0, 15, "First page item") : page(15, null, "Second page item"));
+    render(<CalendarFollowups {...props("account_B", vi.fn())} expanded />);
+    expect(await screen.findByText("First page item")).toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+    expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Second page item")).toBeInTheDocument();
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
+    expect(service.list.mock.calls.at(-1)?.slice(5)).toEqual([15, "upcoming"]);
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+    expect(await screen.findByText("First page item")).toBeInTheDocument();
+    expect(service.list.mock.calls.at(-1)?.slice(5)).toEqual([0, "upcoming"]);
+  });
+
+  it("shows only Upcoming in the compact card and lets the full view switch lists", async () => {
+    service.status.mockResolvedValue(monitored);
+    const overdue = { ...bList, view: "overdue", view_counts: counts, total_conversations: 2, next_offset: null,
+      conversations: [{ ...bList.conversations[0], preview_requests: [{
+        ...bList.conversations[0].preview_requests[0], title: "Send the signed agreement",
+        original_due_wording: "before 30 October", due_date: "2026-10-30", bucket: "overdue", after_date: "owed" }] }] };
+    service.list.mockImplementation(async (_u, _a, _t, _o, _s, _offset = 0, view = "upcoming") =>
+      view === "overdue" ? overdue : { ...bList, view, view_counts: counts });
+    const compact = render(<CalendarFollowups {...props("account_B", vi.fn())} />);
+    expect(await screen.findByText("Send the research document")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Follow-up lists" })).not.toBeInTheDocument();
+    expect(service.list.mock.calls.every(call => call[5] === 0 && call[6] === "upcoming")).toBe(true);
+    compact.unmount();
     render(<CalendarFollowups {...props("account_B", vi.fn())} expanded />);
     expect(await screen.findByText("Send the research document")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-    expect(await screen.findByText("Another document")).toBeInTheDocument();
-    expect(service.list.mock.calls[1]?.[5]).toBe(1);
+    expect(screen.queryByRole("button", { name: /^Snoozed/ })).not.toBeInTheDocument(); // empty lists stay out of the way
+    fireEvent.click(screen.getByRole("button", { name: "Overdue · 2" }));
+    expect(await screen.findByText("Send the signed agreement")).toBeInTheDocument();
+    expect(screen.getByText(/Overdue · was due/)).toBeInTheDocument();
+    expect(service.list.mock.calls.at(-1)?.slice(5)).toEqual([0, "overdue"]);
   });
 });

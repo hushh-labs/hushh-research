@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 from api.routes.one import calendar_email_followups as routes
 from db.db_client import DatabaseClient
 from hushh_mcp.services import calendar_email_followup_account as account
+from hushh_mcp.services import calendar_email_followup_store_read as followup_read
 from hushh_mcp.services import owner_placement_guard
 from hushh_mcp.services.calendar_email_followup_crypto import FollowupCipher
 from hushh_mcp.services.calendar_email_followup_store import (
@@ -90,10 +91,15 @@ def followup_pg(connector_postgres_url, monkeypatch):  # noqa: F811 - imported p
             "443_calendar_email_followups.sql",
             "444_calendar_email_followup_delivery.sql",
             "445_calendar_email_followup_relevance.sql",
+            "454_calendar_email_followup_temporal.sql",
         ):
             sql = (MIGRATIONS / name).read_text().replace("BEGIN;", "").replace("COMMIT;", "")
             sql = sql.replace("SELECT install_account_deletion_write_guards();", "")
             connection.exec_driver_sql(sql)
+    # Which list a request belongs to depends on the date. Freeze the read clock
+    # so fixtures with fixed deadlines never change meaning as real time passes;
+    # a test that needs another day passes `now=` explicitly.
+    monkeypatch.setattr(followup_read, "_utcnow", lambda: datetime(2026, 11, 1, 6, 0, tzinfo=UTC))
     monkeypatch.setenv("CALENDAR_EMAIL_FOLLOWUPS", "true")
     monkeypatch.setenv("CALENDAR_EMAIL_FOLLOWUP_DRAIN_ENABLED", "true")
     monkeypatch.setattr(owner_placement_guard, "admit_hub_content", AsyncMock())
@@ -172,6 +178,7 @@ def test_followup_migrations_roll_back_without_live_state(followup_pg):
     _, _, engine = followup_pg
     with engine.begin() as connection:
         for name in (
+            "454_calendar_email_followup_temporal.rollback.sql",
             "445_calendar_email_followup_relevance.rollback.sql",
             "444_calendar_email_followup_delivery.rollback.sql",
             "443_calendar_email_followups.rollback.sql",

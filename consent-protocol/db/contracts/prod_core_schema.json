@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 452,
+  "expected_migration_version": 454,
   "migration_version_policy": "exact",
   "required_functions": [
     "account_cleanup_effective_inventory",
@@ -711,7 +711,9 @@
       "assessment_version",
       "suppressed_at",
       "suppression_reason",
-      "linked_event_ciphertext"
+      "linked_event_ciphertext",
+      "after_date",
+      "merged_into"
     ],
     "calendar_email_followup_scanned_messages": [
       "user_id",
@@ -4925,5 +4927,5 @@
       "user_id"
     ]
   },
-  "expected_schema_head": 452
+  "expected_schema_head": 454
 }
