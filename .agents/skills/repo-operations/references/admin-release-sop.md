@@ -194,7 +194,7 @@ readers remain available; its fixed-source exceptions do not authorize new relea
 ### 5. Dispatch only the requested environment
 
 Curated UAT requires protected source history and exact-source CI or retained Dev acceptance.
-Production retains that application's UAT receipt. A distinct `main_approval_sha`
+Production requires canonical functional CI on protected Main and a separate Main smoke; no preceding UAT deployment is mandatory. A distinct `main_approval_sha`
 must incorporate the application with an identical Git tree and Main smoke;
 see the [promotion contract](../../../../docs/reference/operations/branch-governance.md#dev--uat-branch-preparation).
 

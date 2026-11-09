@@ -6,7 +6,7 @@ Dispatch Dev, UAT and Production deployments from `main`. Application sources re
 isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
 Run names identify the application branch and SHA; the Actions Main badge identifies
 execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
-retains UAT acceptance, compatibility and rollback requirements. This operations delta
+requires qualified protected Main, compatibility and rollback without preceding UAT deployment. This operations delta
 does not publish an application, run migrations or change production traffic.
 
 Current access comes only from the live GitHub teams: ordinary review/self-service uses
@@ -98,8 +98,8 @@ flowchart TB
   devdeploy -.->|"legacy accepted-image path"| uat
   feat -->|"UAT-focused reviewed changes"| uatbranch["Protected uat"]
   uatbranch --> exactuat["Exact UAT commit CI"] --> uat
-  uat -->|"UAT acceptance; separate approval"| prod
-  green -.->|"qualified emergency; separate authorization"| prod
+  green -->|"functional CI + Main smoke; explicit production request"| prod
+  uat -.->|"optional accepted image source"| prod
 ```
 
 This document describes CI and deployment authority. For an ordinary change,
@@ -197,9 +197,27 @@ a source dependency to repair before launching another expensive validation.
 | Feature integration | Feature PR into `dev` | Destination sync guidance and authoritative combined-result CI | Explicit Dev dispatch |
 | UAT-focused release | Current protected `uat` tip; preserve branch history | Read-only `operation=inspect` reports ready for exact full-scope CI and the observed serving base; deployment repeats security and baseline checks | Explicit deployment; no Dev deployment required once ready |
 | Historical Dev-backed release | Existing accepted application | Exact Dev receipt and verified image, or source build | Existing UAT path |
-| Production release | UAT-accepted application plus reviewed Main approval | Matching UAT receipt, Main smoke, exact-tree equivalence and rollback | Explicit production dispatch |
+| Production release | Qualified protected Main application | Canonical functional CI and Main smoke; exact-tree approval when distinct; compatibility and rollback | Explicit production dispatch; no preceding UAT deployment required |
 | Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
 | Operations/hotfix source | Reviewed Main PR | CI, Admin/queue procedure and landed smoke | Merge does not deploy an application |
+
+### Direct production from qualified Main
+
+Production is an explicit action by the live `deploy-production` team; no prior
+UAT deployment is mandatory. Main owns the workflow and privileged release tools.
+The existing source-admission owner requires canonical functional CI **and** Main
+smoke, with current attempts and complete inventories. It rereads both proofs
+together and checks the unchanged qualification again before traffic promotion.
+A failed, cancelled or superseded attempt refuses release; smoke alone and old
+UAT receipts cannot substitute. If the landed Main commit has no functional
+qualification, qualify that exact Main source before dispatch. A distinct tested
+application/Main approval pair may reuse proof only when their complete trees
+match and the approval incorporates the application.
+
+Optional `promote-from-uat` still requires acceptance of the actual immutable UAT
+image. Recorded recovery/activation operations keep their original source and
+checkpoint contracts. Normal direct Main deployment does not grant emergency
+source authority. Merges and downstream source syncs deploy nothing.
 
 ### Branded sign-in repair of the restored frontend
 
@@ -330,7 +348,7 @@ missing checkpoint never establishes successful cleanup.
 ## Recorded production restoration — 26 October 2026
 
 Normal releases keep their exact application SHA and environment acceptance chain:
-Exact UAT CI or historical Dev acceptance before UAT; UAT acceptance before production. A normal manually
+Exact UAT CI or historical Dev acceptance before UAT. Current production admission requires protected Main functional CI and Main smoke; preceding UAT deployment is optional. A normal manually
 requested Main smoke must test the dispatch commit itself. Its check cannot
 certify another checkout. Release checks verify the canonical producer, current
 attempt, complete bounded inventory and job identity; later failed reruns refuse
@@ -1159,7 +1177,7 @@ The default was `all` until 2026-10-15, which put iOS on one of the org's five m
 
 A dispatch publishes **Branch Validation Gate**, while a pull request retains **CI Status Gate**. Both use the same fail-closed aggregate and selected contract owners. The separate name prevents a manual run from satisfying PR branch protection or replacing its verdict. PR Base Policy and merge-queue reuse still require the PR's own evidence. A branch may therefore qualify for dev even when its PR cannot be merged into the current base.
 
-`deploy-dev.yml` accepts a qualified Dev branch gate. Exact full-scope UAT qualification also verifies its Branch Validation Gate through `uat_exact_ci.py`; partial diagnostics cannot qualify a release. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. Production does not accept an arbitrary manual branch check; its predecessor must be the corresponding accepted UAT release. Queue and PR branch protection do not substitute a manual branch check for PR evidence. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
+`deploy-dev.yml` accepts a qualified Dev branch gate. Exact full-scope UAT qualification also verifies its Branch Validation Gate through `uat_exact_ci.py`; partial diagnostics cannot qualify a release. Its exact-SHA preflight requires the SHA to be reachable from protected `dev` and binds the successful check to GitHub Actions, the canonical `ci.yml` workflow, `workflow_dispatch`, and the same check suite and SHA. The input ref only locates the SHA; it cannot authorize Main-only or arbitrary branch content. Missing or failed provenance lookup refuses deployment. The API read is bounded to the latest 100 matching runs; an older unobserved receipt refuses rather than passing. Production accepts only canonical functional CI for its protected Main source plus a separate Main smoke. Diagnostic-only runs cannot authorize a release. A newer failed or cancelled functional attempt invalidates older green evidence; UAT acceptance is not a fallback. Queue and PR branch protection do not substitute a manual branch check for PR evidence. The reviewed workflow correction must be present on the branch before dispatch. `DCO` runs on dispatches too, over the branch's own commits since its merge-base with the default branch.
 
 ### The merge queue in practice
 
@@ -1259,7 +1277,7 @@ GitHub deployment environments are part of the release authority surface and sho
 
 There should not be parallel legacy production environments carrying approval logic that the current workflows no longer use.
 
-GitHub only records deployment history under an environment after a workflow job actually runs with `environment: <name>`. Older deploy runs from before that binding existed are not retroactively re-linked. If UAT history needs a new entry, use a protected-UAT application SHA with its exact current CI and observed serving base. If production history needs a new entry, use the explicitly accepted UAT application and its distinct Main approval through the production gate. These are explicit releases; an empty history view does not authorize a deploy.
+GitHub only records deployment history under an environment after a workflow job actually runs with `environment: <name>`. Older deploy runs from before that binding existed are not retroactively re-linked. If UAT history needs a new entry, use a protected-UAT application SHA with its exact current CI and observed serving base. If production history needs a new entry, explicitly select a qualified protected Main application through the production gate. These are explicit releases; an empty history view does not authorize a deploy.
 
 Verify live environment governance with:
 
@@ -1446,7 +1464,7 @@ transcript contracts; arbitrary output still refuses reconciliation.
    live `deploy-uat` team; do not
    transcribe actor names into this document.
 5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only current `deploy-production` members may trigger it.
-6. Ordinary production requires UAT acceptance and Main approval, preserving distinct application and approval SHAs and identical content. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
+6. Ordinary production requires qualified protected Main and Main smoke, preserving distinct application and approval SHAs and identical content when applicable. A prior UAT deployment is not mandatory; accepted-image promotion still verifies the actual UAT image. The explicit emergency mode waives only predecessor deployment. Automatic publication remains disabled.
 7. Feature and hotfix branches may deploy to Dev through its governed Main-owned dispatch. Direct UAT source admission omits a preceding Dev deployment only for the protected UAT candidate with exact CI and the recorded serving base. Treat the route as unqualified until the exact branch-CI and Main-owned admission proof pass against the reconciled history and real serving baseline. This source change does not dispatch or authorize an application deployment.
 
 Deploy to UAT is expected to behave as a closed-loop release lane:
@@ -2147,7 +2165,7 @@ actual native changes.
 | Current `deploy-production` members | Reviewed PR into Main and combined-result queue | Current validation and protected-owner approval where applicable |
 | Current `pipeline-editors` approving their own protected PR | `./bin/hushh agents admin-merge` under Admin SOP | Current Main base, exact tested tree, current green attempt, review objections |
 | Dev/UAT deployment operator | Explicit Main-owned deployment | Environment/source authority, CI, protected release security and rollback |
-| Production operator | Explicit Main production deployment | Corresponding UAT acceptance or separately approved incident route |
+| Production operator | Explicit Main production deployment | Qualified protected Main, functional CI, Main smoke, compatibility and rollback; no mandatory UAT deployment |
 
 A merge never deploys. Use the [Admin SOP](../../../.agents/skills/repo-operations/references/admin-release-sop.md)
 for the canonical commands and live-policy activation. Do not ask a self-approving
