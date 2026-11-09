@@ -15,6 +15,78 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { syncNativeFirebaseConfigs } from "../../scripts/native/sync-native-firebase-configs.mjs";
 import { validateNativeFirebaseIdentity } from "../../scripts/native/native-firebase-identity.mjs";
+import { verifyPrebuiltNativeEnvironment } from "../../scripts/native/native-build-environment.mjs";
+
+it("stages isolated UAT Analytics with shared Auth and FCM, then clears the extra resource for production", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "hushh-ios-firebase-split-")));
+  const appRoot = path.join(root, "hushh-webapp");
+  const plist = (project: string, sender: string, appId: string) =>
+    `<plist><dict><key>PROJECT_ID</key><string>${project}</string>` +
+    `<key>GCM_SENDER_ID</key><string>${sender}</string><key>GOOGLE_APP_ID</key><string>${appId}</string>` +
+    "<key>BUNDLE_ID</key><string>com.hushh.app</string><key>API_KEY</key><string>fixture</string>" +
+    "<key>CLIENT_ID</key><string>fixture</string><key>REVERSED_CLIENT_ID</key><string>fixture</string></dict></plist>";
+  const shared = plist("hushh-pda", "1006304528804", "1:1006304528804:ios:eb2720b5eda7da4bcfd931");
+  const analytics = plist("hushh-pda-uat", "745506018753", "1:745506018753:ios:efea0fede200b1d1778b40");
+  const localAnalytics = path.join(appRoot, ".env.local.d/ios/uat-analytics/GoogleService-Info.plist");
+  const appPath = path.join(appRoot, "ios/App/App");
+  const bundled = path.join(appPath, "GoogleService-Info.plist");
+  const bundledIdentity = path.join(appPath, "FirebaseIdentity/GoogleService-Info.plist");
+  const packageRoot = "node_modules/@capacitor-firebase";
+  const auth = "authentication/ios/Plugin/FirebaseAuthentication.swift";
+  const messaging = "messaging/ios/Plugin/FirebaseMessaging.swift";
+  const sync = () => syncNativeFirebaseConfigs({ appRoot, monorepoRoot: root, platform: "ios" });
+  try {
+    vi.stubEnv("APP_RUNTIME_PROFILE", "uat");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID", "hushh-pda");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "1006304528804");
+    mkdirSync(path.dirname(localAnalytics), { recursive: true });
+    writeFileSync(path.join(root, "GoogleService-Info.plist"), shared);
+    writeFileSync(localAnalytics, shared);
+    expect(sync).toThrow(/invalid Firebase plist for hushh-pda-uat/);
+    expect(existsSync(bundled)).toBe(false);
+    writeFileSync(localAnalytics, analytics);
+    for (const file of [auth, messaging,
+      "authentication/ios/Plugin/Handlers/PhoneAuthProviderHandler.swift",
+      "authentication/ios/Plugin/Handlers/OAuthProviderHandler.swift",
+      "authentication/ios/Plugin/Handlers/GoogleAuthProviderHandler.swift",
+    ]) {
+      const target = path.join(appRoot, packageRoot, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      copyFileSync(path.join(process.cwd(), packageRoot, file), target);
+    }
+    const fixtureMessaging = path.join(appRoot, packageRoot, messaging);
+    const fixtureAuth = path.join(appRoot, packageRoot, auth);
+    const originalMessaging = readFileSync(fixtureMessaging, "utf8");
+    const originalAuth = readFileSync(fixtureAuth, "utf8");
+    writeFileSync(fixtureMessaging, originalMessaging + "\n// unreviewed dependency change");
+    expect(sync).toThrow(/Unexpected iOS Firebase bridge source/);
+    expect(readFileSync(fixtureAuth, "utf8")).toBe(originalAuth);
+    expect(existsSync(bundledIdentity)).toBe(false);
+    writeFileSync(fixtureMessaging, originalMessaging);
+    expect(sync().iosCopied).toBe(true);
+    expect(sync().iosCopied).toBe(false);
+    expect(readFileSync(bundled, "utf8")).toBe(analytics);
+    expect(readFileSync(bundledIdentity, "utf8")).toBe(shared);
+    expect(readFileSync(fixtureAuth, "utf8")).toContain("Auth.auth(app: $0)");
+    expect(readFileSync(fixtureMessaging, "utf8")).toContain("retrieveFCMToken(forSenderID: shared.options.gcmSenderID");
+    const backend = "https://api.uat.hushh.ai";
+    writeFileSync(path.join(appPath, "capacitor.config.json"), JSON.stringify({ plugins: { One: { backendUrl: backend } } }));
+    const env = { APP_RUNTIME_PROFILE: "uat", NEXT_PUBLIC_BACKEND_URL: backend, NEXT_PUBLIC_FIREBASE_PROJECT_ID: "hushh-pda" };
+    expect(() => verifyPrebuiltNativeEnvironment({ appPath, env })).not.toThrow();
+
+    vi.stubEnv("APP_RUNTIME_PROFILE", "prod");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    sync();
+    expect(readFileSync(bundled, "utf8")).toBe(shared);
+    expect(existsSync(bundledIdentity)).toBe(false);
+    expect(() => verifyPrebuiltNativeEnvironment({ appPath, env })).toThrow(/rebuild the app/);
+  } finally {
+    vi.unstubAllEnvs();
+    expect(root.startsWith(realpathSync(tmpdir()) + path.sep)).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 describe("native Firebase config sync CLI", () => {
   it.each(["ios", "android"])("validates %s configs with the build overlay instead of the shell identity", (platform) => {
@@ -27,6 +99,8 @@ describe("native Firebase config sync CLI", () => {
         "scripts/native/native-runtime-contract.mjs",
         "scripts/native/native-build-environment.mjs",
         "scripts/native/native-firebase-identity.mjs",
+        "scripts/native/ios-firebase-config.mjs",
+        "scripts/native/ios-firebase-bridge.mjs",
         "scripts/native/sync-native-firebase-configs.mjs",
         "scripts/testing/reviewer-test-identity.mjs",
       ]) {
@@ -36,7 +110,7 @@ describe("native Firebase config sync CLI", () => {
       }
       writeFileSync(path.join(appRoot, "capacitor.config.ts"), "export {};\n");
       writeFileSync(path.join(appRoot, `.env.native.${platform}.local`),
-        "APP_RUNTIME_PROFILE=uat\nNEXT_PUBLIC_FIREBASE_PROJECT_ID=uat-fixture\nNEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=12345\n");
+        "APP_RUNTIME_PROFILE=dev\nNEXT_PUBLIC_FIREBASE_PROJECT_ID=dev-fixture\nNEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=12345\n");
       const writeConfig = (project: string) => {
         if (platform === "ios") {
           writeFileSync(path.join(fixtureRoot, "GoogleService-Info.plist"),
@@ -70,7 +144,7 @@ describe("native Firebase config sync CLI", () => {
       } });
       writeConfig("prod-fixture");
       for (const args of commands) expect(() => run(args)).toThrow(/project mismatch/);
-      writeConfig("uat-fixture");
+      writeConfig("dev-fixture");
       for (const args of commands) expect(run(args)).toContain(`Native Firebase configs ready (${platform};`);
       const scripts = JSON.parse(readFileSync(path.join(process.cwd(), "package.json"), "utf8")).scripts;
       expect(scripts[`cap:sync:${platform}`]).toContain(`with-${platform}-native-env.mjs node ./scripts/native/sync-native-firebase-configs.mjs --platform ${platform}`);
