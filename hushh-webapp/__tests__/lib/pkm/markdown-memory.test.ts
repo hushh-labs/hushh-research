@@ -28,6 +28,7 @@ vi.mock("@/lib/services/pkm-write-coordinator", () => ({
 
 import {
   MARKDOWN_MEMORY_DOMAIN,
+  MAX_MARKDOWN_MEMORY_CHARS,
   appendMarkdownMemoryFacts,
   clearMarkdownMemory,
   loadMarkdownMemory,
@@ -43,6 +44,7 @@ import {
   recoverMarkdownMemorySync,
 } from "@/lib/pkm/markdown-memory";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { projectEmailMemoryMdFromRam } from "@/lib/chat/email-memory-bridge";
 import { SecureDurableResourceService } from "@/lib/services/secure-durable-resource-service";
 import { advanceVaultSessionEpoch, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { insertSoulFacts, isSoulFact, normalizeSoulDocument } from "@/lib/pkm/soul-document";
@@ -1056,7 +1058,8 @@ describe("encrypted Markdown memory", () => {
 });
 
 
-it("preserves complete Markdown through a chat rewrite, checkpoint commit and reload", async () => {
+it.each([256, 96_000])("preserves %i characters through a chat rewrite, projection and reload", async length => {
+  publishValidatedAuthSessionOwner("user-1");
   const checkpoint = { version: 1 as const, editGeneration: 2, conversations: { chat: ["old"] }, requests: ["r0"] };
   const next = { ...checkpoint, conversations: { chat: ["old", "new"] }, requests: ["r0", "r1"] };
   let cloud: Record<string, unknown> = { markdown: "- Existing\n", _chat_memory: checkpoint, sibling: "preserved" };
@@ -1067,7 +1070,7 @@ it("preserves complete Markdown through a chat rewrite, checkpoint commit and re
     cloud = (await params.build({ currentDomainData: cloud })).domainData;
     return { success: true, dataVersion: 3 };
   });
-  const consolidated = '    synthetic_code()\n\n# memory.md\n\n## Projects\n- Build **Memory V1**.\n\n| Goal | Status |\n| --- | --- |\n| Local testing | Active |\n';
+  const consolidated = '    synthetic_code()\n\n# memory.md\n\n## Projects\n- Build **Memory V1**.\n\n| Goal | Status |\n| --- | --- |\n| Local testing | Active |\n'.padEnd(length - 1, "x") + "\n";
   const result = await replaceChatMarkdownMemory({ ...syncParams, markdown: consolidated, expectedMarkdown: "- Existing\n",
     expectedPersisted: true, expectedCheckpoint: checkpoint, checkpoint: next,
     confirmation: { authorizationMode: "product_default_auto_save_policy", surface: "chat", source: "agent_chat_product_default_auto_save",
@@ -1077,6 +1080,10 @@ it("preserves complete Markdown through a chat rewrite, checkpoint commit and re
   expect(cloud).toMatchObject({ markdown: consolidated, _chat_memory: next, sibling: "preserved" });
   expect(peekMarkdownMemory("user-1")?.chatMemoryCheckpoint).toEqual(next);
   expect(markdownMemoryToAgentContext(peekMarkdownMemory("user-1")!).text).toBe(consolidated);
+  expect(MAX_MARKDOWN_MEMORY_CHARS).toBe(96_000);
+  expect(projectEmailMemoryMdFromRam("user-1", () => true)).toMatchObject({
+    markdown: consolidated, budget_chars: MAX_MARKDOWN_MEMORY_CHARS,
+  });
   getStaleFirst.mockResolvedValue({ data: cloud });
   expect((await loadMarkdownMemory({ ...syncParams, forceRefresh: true }))?.markdown).toBe(consolidated);
 });

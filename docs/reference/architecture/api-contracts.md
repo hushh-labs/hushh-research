@@ -194,6 +194,15 @@ two-person journey, platform transport and current processing-provider approval.
 
 ## V1 chat memory preparation
 
+`POST /api/one/agent-chat` accepts the current owner's
+`forwardedProps.emailMemoryProjection` with a declared `budget_chars` of up to
+96,000 UTF-16 code units, matching the complete `one_memory.markdown` document.
+The document must fit both that declared budget and the server maximum. Email
+session reads and prompt preparation use the same memory bound without truncation.
+Owner matching, strict projection fields and request-only secret references remain
+required; the separate 18,000-character draft and 2,048-character fact-write limits
+are unchanged.
+
 `POST /api/pkm/memory/rewrite` admits a matching Shared vault owner; the private
 owner equivalent is `POST /api/one/pod/memory/rewrite`, with app-role `pkm.read`
 admission, held owner incarnation and AI-selection checks before and after inference.
