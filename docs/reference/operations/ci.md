@@ -195,7 +195,7 @@ a source dependency to repair before launching another expensive validation.
 | Developer intent | Source | Required proof | Deployment |
 | --- | --- | --- | --- |
 | Feature integration | Feature PR into `dev` | Destination sync guidance and authoritative combined-result CI | Explicit Dev dispatch |
-| UAT-focused release | Current protected `uat` tip; preserve branch history | Read-only `operation=inspect` reports ready for exact full-scope CI and the observed serving base; deployment repeats security and baseline checks | Explicit deployment; no Dev deployment required once ready |
+| UAT-focused release | Selected SHA in protected `uat` history; preserve branch history | Read-only `operation=inspect` reports ready for exact full-scope CI and the observed serving base; deployment repeats security and baseline checks | Explicit deployment; no Dev deployment required once ready |
 | Historical Dev-backed release | Existing accepted application | Exact Dev receipt and verified image, or source build | Existing UAT path |
 | Production release | UAT-accepted application plus reviewed Main approval | Matching UAT receipt, Main smoke, exact-tree equivalence and rollback | Explicit production dispatch |
 | Emergency production | Exact incident-approved source | Governed operator, focused CI, security, schema and qualified rollback | Manual incident route only |
