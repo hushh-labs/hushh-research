@@ -2839,8 +2839,14 @@ jobs:
           fi
 
           if [[ "$PREPROMOTION_UAT_GATES" == true ]]; then
-            gh api "repos/$GITHUB_REPOSITORY/branches/$UAT_SOURCE_BRANCH" \
-              | jq -e --arg sha "$APPLICATION_SHA" '.protected and .commit.sha == $sha' >/dev/null
+            python3 - <<'PY_SOURCE'
+          import os
+          import sys
+          sys.path.insert(0, os.path.join(os.environ["RUNNER_TEMP"], "release-tools"))
+          import uat_exact_ci as exact
+          api = exact.GitHub(exact.REPOSITORY, os.environ["GH_TOKEN"])
+          exact.require_protected_tip(api, os.environ["APPLICATION_SHA"], os.environ["UAT_SOURCE_BRANCH"])
+          PY_SOURCE
             check_serving() {
               gcloud run services describe "$1" --project="$GCP_PROJECT_ID" \
                 --region="$GCP_REGION" --format=json \
