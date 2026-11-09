@@ -227,7 +227,15 @@ class DeploymentSecurityTest(unittest.TestCase):
             workflow = yaml.safe_load(path.read_text())
             for job in workflow.get("jobs", {}).values():
                 for step in job.get("steps", []):
-                    if "assert-governed-actor.py" not in step.get("run", ""):
+                    if not any(
+                        caller in step.get("run", "")
+                        for caller in (
+                            "assert-governed-actor.py",
+                            "wait-uat-capacity.py",
+                            "production_emergency.py dispatch",
+                            "frontend_validation.py finalize",
+                        )
+                    ):
                         continue
                     with self.subTest(workflow=path.name, step=step.get("name")):
                         env = {

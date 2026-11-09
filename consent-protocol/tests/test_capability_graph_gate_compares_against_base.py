@@ -466,8 +466,9 @@ def test_zero_transition_is_canonical_across_ancestral_bases_and_still_checks_ev
             generator.main()
 
 
+@pytest.mark.parametrize("branch", ["uat", "dev"])
 def test_exact_uat_checks_the_serving_transition_and_landed_pr_mirrors(
-    repo: Repo, monkeypatch: pytest.MonkeyPatch
+    repo: Repo, monkeypatch: pytest.MonkeyPatch, branch: str
 ) -> None:
     repo.git("checkout", "-q", "main")
     serving = repo.git("rev-parse", "HEAD")
@@ -498,7 +499,7 @@ def test_exact_uat_checks_the_serving_transition_and_landed_pr_mirrors(
         generator.main()
 
     monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
-    monkeypatch.setenv("GITHUB_REF", "refs/heads/uat")
+    monkeypatch.setenv("GITHUB_REF", f"refs/heads/{branch}")
     monkeypatch.setenv("GITHUB_SHA", repo.git("rev-parse", "HEAD"))
     monkeypatch.setenv("CI_VALIDATION_LEVEL", "release")
     assert generator.main() == 0

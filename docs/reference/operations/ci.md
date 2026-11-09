@@ -26,6 +26,15 @@ Every step calling `assert-governed-actor.py` supplies its existing job token
 and requires `actions: write` for the bounded Main permission request. Forwarded
 clearance does not replace that current-operation recheck. Keep the App key and
 security-alert credential inside the protected Main job.
+The same requirement applies to authored nested callers: UAT capacity waiting,
+PLG frontend finalization and production incident dispatch. Cloud-read-only
+preflight jobs still need Actions dispatch permission for their Main authorization
+request; candidate build jobs remain unprivileged.
+
+Explicit Dev/UAT release CI uses the verified serving comparison through the
+existing `uat_base_sha` input (`scope=all`). For Dev, supply the accepted Dev
+serving SHA. Graph validation checks that transition before replaying a landed
+PR's comparison metadata; it never bypasses semantic or mirror-integrity checks.
 
 App-browser automation is an explicit diagnostic, not a required PR, merge-queue
 or release lane. Required web validation covers build/type correctness and affected
