@@ -93,7 +93,7 @@ class AdvisorReviewService:
             )
             return project(load(conn, owner, str(body.requestId)), owner)
 
-    def history(self, viewer):
+    def history(self, viewer, current_ui=False):
         with self.db.engine.begin() as conn:
             expire(conn, viewer)
             ids = (
@@ -105,7 +105,12 @@ class AdvisorReviewService:
                 .scalars()
                 .all()
             )
-            return {"items": [project(load(conn, viewer, str(key)), viewer) for key in ids]}
+            return {
+                "items": [
+                    project(load(conn, viewer, str(key)), viewer, current_ui=current_ui)
+                    for key in ids
+                ]
+            }
 
     def view(self, viewer, request_id, current_ui=False):
         from hushh_mcp.services.advisor_review_store import lock_review
