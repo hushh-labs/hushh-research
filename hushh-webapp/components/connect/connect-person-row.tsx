@@ -145,10 +145,12 @@ export function DirectoryMutualLine({
   person,
   onOpenMutual,
   networkPersonRef,
+  className,
 }: {
   person: ConnectPersonIdentity & MutualConnectionMetadata;
   onOpenMutual?: (element: HTMLButtonElement) => void;
   networkPersonRef?: string;
+  className?: string;
 }) {
   const count = person.mutualConnectionCount ?? 0;
   if (count <= 0) return null;
@@ -185,12 +187,13 @@ export function DirectoryMutualLine({
       className={cn(
         lineClassName,
         "min-h-11 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+        className,
       )}
     >
       {content}
     </button>
   ) : (
-    <div data-testid="mutual-connection" className={lineClassName}>
+    <div data-testid="mutual-connection" className={cn(lineClassName, className)}>
       {content}
     </div>
   );
