@@ -124,6 +124,16 @@ def test_codeowners_use_the_protected_team_for_every_protected_path(module):
 
 def _policy() -> dict:
     policy = json.loads((REPO_ROOT / "config" / "ci-governance.json").read_text())
+    from github_team_authority import project_policy
+    # Retained rollout fixtures use explicit historical sample identities; no
+    # runtime membership is derived from this test data or committed policy.
+    maintainers = ["kushaltrivedi5", "ankitkumarsingh1702", "RGlodAkshat", "imsharukhan", "parthmawai", "DamriaNeelesh", "azfx"]
+    policy = project_policy(policy, {
+        "allowed-maintainers-to-approve": maintainers,
+        "pipeline-editors": ["ankitkumarsingh1702", "RGlodAkshat"],
+        "deploy-dev": maintainers, "deploy-uat": maintainers,
+        "deploy-production": maintainers[:4],
+    })
     policy.pop("authorization", None)  # Retained historical rollout fixtures.
     return policy
 
@@ -1086,7 +1096,7 @@ def _native_review_fixture(module):
             if method == "PUT" and state["fault"] == "grant_lost_response":
                 raise SystemExit("provider grant response lost")
         else:
-            assert method == "DELETE" and path in {f"{endpoint}/{i}" for i in range(10, 16)}
+            assert method == "DELETE" and path in {f"{endpoint}/{i}" for i in state["rules"] if i >= 10}
             del state["rules"][int(path.split("/")[-1])]
 
     def create(argv, **kwargs):
@@ -1205,6 +1215,11 @@ def test_team_native_authority_has_no_personal_bypass_or_strict_guard_exception(
     payload = protection_payload(branch_policy(policy, "dev"))
     assert payload["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
         "users": [], "teams": ["pipeline-editors"], "apps": []}
+    for lane in ("main", "pr_train", "uat_merge"):
+        assert module.desired_review_bypass(policy, lane) == []
+    train = protection_payload(branch_policy(policy, "integration/pr-train"))
+    assert train["required_pull_request_reviews"]["bypass_pull_request_allowances"] == {
+        "users": [], "teams": ["allowed-maintainers-to-approve"], "apps": []}
 
     # Team membership grants review authority, not repository administration.
     # Read-only verification must work when editors have ordinary write access.
@@ -1243,16 +1258,20 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     policy, _, read, _, _ = _native_review_fixture(module)
     desired_rules = module.protected_pipeline_review_rulesets(policy, read=read)
     desired = desired_rules[0]
-    assert [item["name"] for item in desired_rules] == ["protected pipeline review 1", "protected pipeline review 2", "protected pipeline review 3", "protected pipeline review inherited 1", "protected pipeline review inherited 2", "protected pipeline review inherited 3"]
-    assert [len(item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]) for item in desired_rules] == [15, 15, len(policy["main"]["protected_pipeline_paths"]) - 30] * 2
-    patterns = [pattern for item in desired_rules[:2] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]]
-    assert patterns == sorted({"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][:30]})
-    assert len(patterns) == len(set(patterns)) == 30
-    supplemental = desired_rules[2]["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]
-    assert set(supplemental) == {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][30:]}
-    assert [pattern for item in desired_rules[3:5] for pattern in item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]] == patterns
-    assert desired_rules[5]["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"] == supplemental
-    assert desired_rules[3]["conditions"]["ref_name"]["include"] == ["refs/heads/integration/pr-train", "refs/heads/uat-isolated"]
+    half = len(desired_rules) // 2
+    assert [item["name"] for item in desired_rules] == [
+        f"protected pipeline review{suffix} {index + 1}"
+        for suffix in ("", " inherited") for index in range(half)]
+    grouped = [[item["rules"][0]["parameters"]["required_reviewers"][0]["file_patterns"]
+                for item in desired_rules[offset:offset + half]] for offset in (0, half)]
+    assert grouped[0] == grouped[1]
+    assert [len(chunk) for chunk in grouped[0][:3]] == [15, 15, 8]
+    assert all(0 < len(chunk) <= 15 for chunk in grouped[0])
+    patterns = [pattern for chunk in grouped[0] for pattern in chunk]
+    expected = {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"]}
+    assert len(patterns) == len(set(patterns)) and set(patterns) == expected
+    assert set(grouped[0][2]) == {"/" + path + ("**" if path.endswith("/") else "") for path in policy["main"]["protected_pipeline_paths"][30:38]}
+    assert desired_rules[half]["conditions"]["ref_name"]["include"] == ["refs/heads/integration/pr-train", "refs/heads/uat-isolated"]
     assert desired["conditions"]["ref_name"]["include"] == ["refs/heads/main", "refs/heads/dev", "refs/heads/uat"]
     assert desired["bypass_actors"] == [
         {"actor_id": 42, "actor_type": "Team", "bypass_mode": "pull_request"}
@@ -1268,7 +1287,7 @@ def test_native_review_patterns_and_owner_bypass_are_exact(module) -> None:
     with tempfile.TemporaryDirectory(prefix="native-review-patterns-") as scratch:
         subprocess.run(["git", "init", "-q", scratch], check=True, env=env)
         subprocess.run(["git", "config", "core.ignorecase", "false"], cwd=scratch, env=env, check=True)
-        Path(scratch, ".gitignore").write_text("\n".join(patterns + supplemental) + "\n", encoding="utf-8")
+        Path(scratch, ".gitignore").write_text("\n".join(patterns) + "\n", encoding="utf-8")
         matches = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"],
                                  input="\n".join(positive + negative) + "\n", capture_output=True,
                                  text=True, cwd=scratch, env=env, check=True)
@@ -1281,6 +1300,8 @@ def test_native_review_stage_a_is_additive_idempotent_and_recovers_own_changes(m
 
     for fault in (None, "changed_guard", "revoked_admin", "lost_response", "grant_lost_response"):
         policy, state, read, write, create = _native_review_fixture(module)
+        desired_count = len(module.protected_pipeline_review_rulesets(policy, read=read))
+        expected_rules = {1, *range(10, 10 + desired_count)}
         state["fault"] = fault
         with patch.object(prepared_branch_governance, "_write", side_effect=write), \
              patch.object(module.subprocess, "run", side_effect=create):
@@ -1288,7 +1309,7 @@ def test_native_review_stage_a_is_additive_idempotent_and_recovers_own_changes(m
             assert state["writes"] == [] and state["grant"] is None and set(state["rules"]) == {1}
             if fault is None:
                 assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
-                assert state["grant"] == "push" and set(state["rules"]) == {1, 10, 11, 12, 13, 14, 15}
+                assert state["grant"] == "push" and set(state["rules"]) == expected_rules
                 before = list(state["writes"])
                 assert not module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
                 assert state["writes"] == before
@@ -1307,14 +1328,14 @@ def test_native_review_stage_a_is_additive_idempotent_and_recovers_own_changes(m
                         before = list(state["writes"])
                         state["fault"] = None
                         assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
-                        assert len(state["writes"]) == len(before) + 5
-                        assert set(state["rules"]) == {1, 10, 11, 12, 13, 14, 15}
+                        assert len(state["writes"]) == len(before) + desired_count - 1
+                        assert set(state["rules"]) == expected_rules
                     else:
                         assert "uncertain" in str(error) and state["grant"] == "push"
                         assert set(state["rules"]) == {1}
                         state["fault"] = None
                         assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
-                        assert set(state["rules"]) == {1, 10, 11, 12, 13, 14, 15}
+                        assert set(state["rules"]) == expected_rules
                 else:
                     raise AssertionError(f"Native review accepted failed provider/readback outcome: {fault}")
             assert all(value == {"strict": True, "required_review_count": 1} for value in state["protections"].values())
@@ -1400,9 +1421,10 @@ def test_native_review_partition_failure_resumes_without_duplicate_or_foreign_ro
             state["fault"] = None
             # IDs may advance after a rollback; preserve uniqueness in the fake provider.
             state["posts"] = max(state["rules"]) - 9 if len(state["rules"]) > 1 else 0
-            missing_before = len(state["rules"]) < 7
+            expected_count = 1 + len(module.protected_pipeline_review_rulesets(policy, read=read))
+            missing_before = len(state["rules"]) < expected_count
             assert module.reconcile_protected_pipeline_review(policy, apply=True, read=read) == missing_before
-            assert len(state["rules"]) == 7
+            assert len(state["rules"]) == expected_count
             before = list(state["writes"])
             assert not module.reconcile_protected_pipeline_review(policy, apply=True, read=read)
             assert state["writes"] == before

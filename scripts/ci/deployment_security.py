@@ -25,6 +25,7 @@ CALLERS = {
     "deploy-dev.yml",
     "deploy-uat.yml",
     "deploy-production.yml",
+    "deploy-personal-backend.yml",
     "validate-plg-frontend-source.yml",
     "release-ios-appstore.yml",
     "ship-ios-testflight.yml",
@@ -246,6 +247,7 @@ def release_authorization_binding(read, source: dict, *, producer=None) -> dict:
     surface, environment = {
         "deploy-dev.yml": ("dev", "dev"),
         "deploy-uat.yml": ("uat", "uat"),
+        "deploy-personal-backend.yml": ("uat", "uat"),
         "deploy-production.yml": ("production", "production"),
         "ship-ios-testflight.yml": ("uat", "native"),
         "release-ios-appstore.yml": ("production", "native"),
@@ -778,6 +780,16 @@ def main() -> int:
     args = parser.parse_args()
     try:
         env = dict(os.environ)
+        request = json.loads(env.get("DEPLOY_SECURITY_REQUEST") or "{}")
+        if request.get("kind") in {"queue", "operation"}:
+            from github_team_authority import produce_queue_request, produce_operation_request
+            api = GitHub(REPOSITORY, env.get("GH_TOKEN", ""))
+            authority_producer = produce_queue_request if request["kind"] == "queue" else produce_operation_request
+            receipt = authority_producer(env, api.read, request)
+            with Path(env["RUNNER_TEMP"], "merge-authorization.json").open("x") as output:
+                json.dump(receipt, output)
+            print("Current merge permission verified; no secret scan, application or cloud mutation performed.")
+            return 0
         if args.request_broker:
             receipt = request_broker(env)
         else:

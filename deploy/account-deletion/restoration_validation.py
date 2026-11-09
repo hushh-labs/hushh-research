@@ -12,8 +12,10 @@ import importlib.util
 import json
 import re
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
 WORKFLOW = ".github/workflows/main-post-merge-smoke.yml"
 RECORD_PATH = "deploy/account-deletion/production-restoration.json"
 GATE = "Production Recovery Validation Gate"
@@ -44,7 +46,8 @@ acceptance = load(
 require = authority.require
 
 
-def qualify_run(run: dict, *, run_id: int, allowed: set[str]) -> None:
+def qualify_run(run: dict, *, run_id: int, allowed: set[str] | None = None) -> None:
+    from release_acceptance_provenance import historical_human_dispatch
     require(
         run.get("id") == run_id
         and run.get("path") == WORKFLOW
@@ -56,8 +59,7 @@ def qualify_run(run: dict, *, run_id: int, allowed: set[str]) -> None:
         and type(run.get("run_attempt")) is int
         and run["run_attempt"] > 0
         and re.fullmatch(r"[0-9a-f]{40}", run.get("head_sha", "")) is not None
-        and run.get("actor", {}).get("login") in allowed
-        and run.get("triggering_actor", {}).get("login") in allowed,
+        and historical_human_dispatch(run),
         "The current recovery validation attempt is not authorized and successful",
     )
 
@@ -141,12 +143,10 @@ def verify(run_id: int, sha: str, github=None) -> dict:
     )
     record = authority.qualify_source(sha)
     record_digest = hashlib.sha256(authority.RECORD.read_bytes()).hexdigest()
-    policy = json.loads((ROOT / "config/ci-governance.json").read_text())
-    allowed = set(policy["production"]["manual_dispatch_users"])
     client = github or acceptance.GitHub()
     path = f"runs/{run_id}"
     run = client.read(path)
-    qualify_run(run, run_id=run_id, allowed=allowed)
+    qualify_run(run, run_id=run_id)
     authority.git("merge-base", "--is-ancestor", run["head_sha"], "origin/main")
     validated_record = authority.git("show", f"{run['head_sha']}:{RECORD_PATH}")
     require(
@@ -164,7 +164,7 @@ def verify(run_id: int, sha: str, github=None) -> dict:
     # A later failed or running rerun invalidates an earlier successful result.
     client.cache.pop(path, None)
     current = client.read(path)
-    qualify_run(current, run_id=run_id, allowed=allowed)
+    qualify_run(current, run_id=run_id)
     require(
         all(
             current.get(key) == run.get(key)

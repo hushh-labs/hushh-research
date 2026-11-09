@@ -30,9 +30,8 @@ SHA = re.compile(r"[0-9a-f]{40}")
 MAX_TREE_BYTES = 4 * 1024 * 1024
 BACKEND_TEST_MANIFEST = "consent-protocol/scripts/test-ci.manifest.txt"
 
-# Retained for legacy PR-chain and explicit sandbox qualification. Protected UAT
-# trusts its reviewed tooling, including build recipes and migration controllers;
-# it does not compare these paths with Main during release admission.
+# Historical full CI parity remains readable for isolated/sandbox receipts.
+# Ordinary UAT checks only credential-owning release inputs below, not all CI prose or tests.
 AUTHORITY_PATHS = (
     ".agents",
     ".github",
@@ -101,6 +100,23 @@ ISOLATED_RELEASE_AUTHORITY_PATHS = (
     "scripts/ops/db_migration_release_guard.py",
     "scripts/ops/email_auth_uat_release.py",
 )
+# Inputs actually executed by ordinary UAT with release credentials. Keep this
+# closure here with the existing isolated owner, not a second path classifier.
+UAT_PRIVILEGED_PATHS = (
+    "deploy/backend.cloudbuild.yaml", "deploy/backend-image.cloudbuild.yaml",
+    "deploy/frontend.cloudbuild.yaml", "deploy/frontend-image.cloudbuild.yaml",
+    "deploy/drive", "deploy/email-auth", "deploy/sso", "deploy/plg/bind_secrets.sh",
+    "scripts/deploy", "consent-protocol/db/migrate.py", "consent-protocol/db/migration_authority.py",
+    "consent-protocol/db/dev_migration_manifest.py", "consent-protocol/db/connection.py",
+    "consent-protocol/hushh_mcp/services/hushh_tech_uat_database_attestation.py",
+    "consent-protocol/scripts/adopt_drive_permission_file_claims.py",
+    "consent-protocol/scripts/ops/reconcile_google_drive_uat_connector.py",
+    "scripts/ops/db_migration_release_guard.py", "scripts/ops/email_auth_uat_release.py",
+    "consent-protocol/db/private_agent_adoption.py",
+    "consent-protocol/db/referral_prize_activation.py",
+    "scripts/ops/validate_receipt_logo_template.py",
+)
+
 MANIFEST_FILES = (
     "hushh-webapp/package.json", "packages/hushh-mcp/package.json",
     "deploy/mail-api/package.json", "consent-protocol/pyproject.toml",
@@ -213,10 +229,17 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
             raise Refused("Isolated UAT serving base is not an ancestor of its candidate; reconcile the reviewed source transition") from None
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
-    # Native protected-path review governs UAT tooling changes before merge.
-    # Exact-source CI and serving-state admission remain separate release gates.
+    # Application and test inventories belong to UAT. Privileged recipes and
+    # migration controllers execute with release credentials and remain Main-owned.
+    verify_privileged_release_inputs(candidate, authority)
     backend_test_inventory(candidate)
     return application_tree(candidate)
+
+
+def verify_privileged_release_inputs(candidate: str, authority: str) -> None:
+    """Application histories vary; credentialed release recipes belong to Main."""
+    require(not git("diff", "--name-only", candidate, authority, "--", *UAT_PRIVILEGED_PATHS),
+            "Privileged build or migration authority differs from Main")
 
 
 def application_tree(candidate: str) -> str:

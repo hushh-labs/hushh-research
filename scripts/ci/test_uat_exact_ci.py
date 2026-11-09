@@ -26,7 +26,7 @@ from uat_exact_ci_fixture import (
 
 
 class ExactUatCiTest(unittest.TestCase):
-    def test_ordinary_uat_trusts_branch_tooling_without_main_content_parity(self):
+    def test_ordinary_uat_keeps_app_independent_but_pins_privileged_execution(self):
         with tempfile.TemporaryDirectory(prefix="hussh-uat-authority-") as root:
             env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "GITHUB_", "GH_"))}
 
@@ -60,7 +60,7 @@ class ExactUatCiTest(unittest.TestCase):
                        ".agents/skills/repo-operations/scripts/operator.py",
                        "scripts/ops/sync_backend_runtime_secrets.py",
                        "scripts/ops/scope_commerce_runtime_policy.py",
-                       "consent-protocol/db/migration_authority.py", "deploy/backend.yaml")
+                       "consent-protocol/db/migration_authority.py", "deploy/backend.cloudbuild.yaml")
             for path in guarded:
                 write(path, "original\n")
             authority = commit()
@@ -83,8 +83,12 @@ class ExactUatCiTest(unittest.TestCase):
                     write(path, "changed\n")
                     changed = commit()
                     with self.subTest(path=path):
-                        self.assertEqual(subject.verify_git_authority(changed, authority, authority, current=False),
-                                         git("rev-parse", f"{changed}^{{tree}}").decode().strip())
+                        if path.startswith(("deploy/", "consent-protocol/db/")):
+                            with self.assertRaisesRegex(subject.Refused, "Privileged build or migration"):
+                                subject.verify_git_authority(changed, authority, authority, current=False)
+                        else:
+                            self.assertEqual(subject.verify_git_authority(changed, authority, authority, current=False),
+                                             git("rev-parse", f"{changed}^{{tree}}").decode().strip())
                     write(path, "original\n")
                     commit()
                 # Each invocation projection and branch-owned manifest may
@@ -97,8 +101,12 @@ class ExactUatCiTest(unittest.TestCase):
                     write(path, changed_text)
                     changed = commit()
                     with self.subTest(path=path):
-                        self.assertEqual(subject.verify_git_authority(changed, serving, authority, current=False),
-                                         git("rev-parse", f"{changed}^{{tree}}").decode().strip())
+                        if path in subject.UAT_PRIVILEGED_PATHS:
+                            with self.assertRaises(subject.Refused):
+                                subject.verify_git_authority(changed, serving, authority, current=False)
+                        else:
+                            self.assertEqual(subject.verify_git_authority(changed, serving, authority, current=False),
+                                             git("rev-parse", f"{changed}^{{tree}}").decode().strip())
                         # Isolated UAT retains its former invocation contract.
                         with self.assertRaises(subject.Refused):
                             subject.verify_invocation_authority(changed, authority)
@@ -108,7 +116,7 @@ class ExactUatCiTest(unittest.TestCase):
                 # deployment admission and the stored under-lock recheck.
                 import uat_release_prerequisites as prerequisites
 
-                write("deploy/backend.yaml", "reviewed UAT recipe\n")
+                write("deploy/backend.cloudbuild.yaml", "original\n")
                 write("hushh-webapp/package.json", '{"scripts": {"test": "vitest run"}}')
                 write(subject.BACKEND_TEST_MANIFEST, "tests/test_uat_only.py\n")
                 candidate = commit()
@@ -490,7 +498,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("REQUIRED_BRANCH: ${{ inputs.ref }}", pod_gate)
         self.assertIn("Application lookup ref", workflow)
         self.assertIn(
-            "run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · ref ${{ inputs.ref || 'dev' }}",
+            "run-name: Dev · ${{ inputs.operation || 'deploy' }} · ${{ inputs.target || 'shared-dev' }} · app ${{ inputs.sha || 'protected Dev tip' }} · source dev",
             caller,
         )
         self.assertIn("Source authority: protected \\`dev\\` history", workflow)
@@ -548,7 +556,7 @@ class ApplicationSourceAdmissionTest(unittest.TestCase):
         self.assertIn("fetch-depth: 0", checkout)
         self.assertIn("promotion_approval.py uat", selection)
         self.assertIn(
-            "run-name: UAT · app ${{ inputs.sha || 'unselected' }}",
+            "run-name: UAT · source ${{ inputs.source_branch || 'uat' }} · app ${{ inputs.sha || 'unselected' }}",
             caller,
         )
         self.assertIn('--application-sha "$REQUESTED_SHA"', selection)

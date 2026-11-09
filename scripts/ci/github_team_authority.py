@@ -3,9 +3,8 @@
 # SPDX-FileCopyrightText: 2026 Hussh
 """Current team authority for new operations; historical receipts keep their policy.
 
-Only the Main-owned broker receives the App token. This reader does not dispatch
-workflows, publish checks or alter team membership. Hosted receipt composition
-is owned by the existing protected release broker.
+Only the Main-owned broker receives the App token. Explicit operation and queue requests use the existing protected Main broker.
+There is no automatic PR observer or roster export; membership is never written.
 """
 
 from __future__ import annotations
@@ -143,17 +142,17 @@ def project_policy(policy, teams):
     result = copy.deepcopy(policy)
     owners, production = teams["pipeline-editors"], teams["deploy-production"]
     result["main"].update(
-        merge_users=production,
-        protected_pipeline_edit_users=owners,
-        review_bypass_users=owners,
-        merge_queue_bypass_users=owners,
+        merge_users=list(production),
+        protected_pipeline_edit_users=list(owners),
+        review_bypass_users=list(owners),
+        merge_queue_bypass_users=list(owners),
     )
     for lane in ("pr_train", "uat_merge"):
-        result[lane]["review_bypass_users"] = teams["allowed-maintainers-to-approve"]
+        result[lane]["review_bypass_users"] = list(teams["allowed-maintainers-to-approve"])
         if "protected_pipeline_edit_users" in result[lane]:
-            result[lane]["protected_pipeline_edit_users"] = owners
+            result[lane]["protected_pipeline_edit_users"] = list(owners)
     for lane in ("dev", "uat", "production"):
-        result[lane]["manual_dispatch_users"] = teams[f"deploy-{lane}"]
+        result[lane]["manual_dispatch_users"] = list(teams[f"deploy-{lane}"])
     return result
 
 
@@ -655,6 +654,191 @@ def authorize_queue(read, run, policy):
         "Destination or queue ref advanced during authorization",
     )
     return state
+
+
+OPERATION_SURFACES = {
+    ".github/workflows/capacity-maintenance.yml": {"uat", "production"},
+    ".github/workflows/capacity-maintenance-clock.yml": {"uat", "production"},
+    ".github/workflows/main-post-merge-smoke.yml": {"production"},
+    ".github/workflows/provision-wallet-pass-certificate.yml": {"production"},
+    ".github/workflows/validate-plg-source.yml": {"production"},
+    ".github/workflows/validate-plg-frontend-source.yml": {"production"},
+    ".github/workflows/verify-protected-lists.yml": {"uat"},
+    ".github/workflows/deploy-production.yml": {"production"},
+    ".github/workflows/deploy-uat.yml": {"uat", "production"},
+    ".github/workflows/deploy-dev.yml": {"dev", "production"},
+    ".github/workflows/deploy-personal-backend.yml": {"uat"},
+    ".github/workflows/rollback.yml": {"uat", "production"},
+    ".github/workflows/ship-ios-testflight.yml": {"uat"},
+    ".github/workflows/release-ios-appstore.yml": {"production"},
+    ".github/workflows/ship-android-playstore-v1.yml": {"production"},
+    ".github/workflows/publish-hushh-mcp.yml": {"production"},
+}
+
+
+def operation_source(read, request):
+    require(set(request) in ({"kind", "surface", "id", "run_attempt", "head_sha"},
+                             {"kind", "surface", "id", "run_attempt", "head_sha", "protected"})
+            and type(request.get("protected", False)) is bool
+            and request["kind"] == "operation", "Malformed operation permission request")
+    from github_security_authority import positive, SHA
+    identifier, attempt = positive(request["id"], "operation run"), positive(request["run_attempt"], "operation attempt")
+    run = read(f"repos/{REPOSITORY}/actions/runs/{identifier}")
+    path = run.get("path", "").split("@", 1)[0]
+    require(run.get("id") == identifier and run.get("run_attempt") == attempt
+            and SHA.fullmatch(str(request["head_sha"])) and run.get("head_sha") == request["head_sha"]
+            and run.get("status") == "in_progress" and run.get("head_branch") == "main"
+            and run.get("event") in {"workflow_dispatch", "repository_dispatch"}
+            and request["surface"] in OPERATION_SURFACES.get(path, set())
+            and all(run.get(k, {}).get("full_name") == REPOSITORY for k in ("repository", "head_repository")),
+            "Operation workflow, source, scope or attempt is not admitted")
+    workflow = read(f"repos/{REPOSITORY}/actions/workflows/{path.rsplit('/', 1)[1]}")
+    require(workflow.get("id") == run.get("workflow_id") and workflow.get("path") == path,
+            "Operation is not the canonical workflow")
+    ancestry = read(f"repos/{REPOSITORY}/compare/{request['head_sha']}...main?per_page=1&page=2")
+    require(ancestry.get("status") in {"identical", "ahead"}
+            and ancestry.get("merge_base_commit", {}).get("sha") == request["head_sha"],
+            "Operation tooling is outside Main history")
+    return run
+
+
+def produce_operation_request(env, read, request):
+    from deployment_security import verify_run
+    producer = verify_run(read, env, broker=True)
+    run = operation_source(read, request)
+    member_read = team_reader(env.get("CI_TEAM_MEMBERS_TOKEN", ""))
+    teams = read_teams(member_read)
+    admitted = set(teams[f"deploy-{request['surface']}"])
+    for field in ("actor", "triggering_actor"):
+        user = run.get(field, {})
+        require(user.get("type") == "User" and type(user.get("id")) is int and user["id"] > 0
+                and user.get("login") in admitted, "Current operation actor is outside its deployment team")
+        if request.get("protected"):
+            require(user["login"] in teams["pipeline-editors"],
+                    "Emergency operation requires current pipeline-editor authority")
+    require(operation_source(read, request) == run and read_teams(member_read) == teams,
+            "Operation identity or membership changed")
+    return {"schema_version": 1, "request": request, "producer": producer,
+            "decision": {"surface": request["surface"], "actor": run["actor"],
+                         "triggering_actor": run["triggering_actor"]},
+            "recorded_at": datetime.now(timezone.utc).isoformat()}
+
+
+def produce_queue_request(env, read, request):
+    """Current queue permission, executed only by the explicit trusted Main broker."""
+    from deployment_security import verify_run
+
+    require(set(request) == {"kind", "phase", "id", "run_attempt", "head_sha"}
+            and request["kind"] == "queue"
+            and request["phase"] in {"admission", "finish"}, "Malformed merge authorization request")
+    producer = verify_run(read, env, broker=True)
+    source = source_identity(read, request)
+    require(source.get("event") == "merge_group" and source.get("status") == "in_progress",
+            "Merge authorization needs the current running queue attempt")
+    teams_read = team_reader(env.get("CI_TEAM_MEMBERS_TOKEN", ""))
+    teams = read_teams(teams_read)
+    policy = json.loads((Path(__file__).resolve().parents[2] / "config/ci-governance.json").read_text())
+    decision = authorize_queue(read, source, project_policy(policy, teams))
+    require(read_teams(teams_read) == teams and source_identity(read, request) == source,
+            "Queue or membership changed during authorization")
+    return {"schema_version": 1, "request": request, "producer": producer,
+            "decision": decision, "recorded_at": datetime.now(timezone.utc).isoformat()}
+
+
+def _request_authority(env, request, *, read=cli_read, monotonic=None, sleep=None):
+    """One explicit Main request per queue boundary; no PR observer or roster export."""
+    import time
+    from github_security_receipt import archive_read, unpack, timestamp
+    monotonic, sleep = monotonic or time.monotonic, sleep or time.sleep
+    queue_request = request.get("kind") == "queue"
+    verify = source_identity if queue_request else operation_source
+    require(env.get("GITHUB_REPOSITORY") == REPOSITORY,
+            "Only canonical workflows request team admission")
+    verify(read, request)
+    phase = request.get("phase", request.get("surface"))
+    if not queue_request:
+        step = env.get("GITHUB_ACTION", "operation")
+        require(re.fullmatch(r"[A-Za-z0-9_-]{1,100}", step), "Operation step identity is invalid")
+        phase += "-" + step + ("-protected" if request.get("protected") else "")
+    intent = Path(env["RUNNER_TEMP"], f"merge-authorization-{phase}-intent.json")
+    if intent.exists():
+        prior = json.loads(intent.read_text())
+        require(prior.get("request") == request and prior.get("state") == "dispatched"
+                and type(prior.get("run_id")) is int, "Prior dispatch is uncertain; inspect its intent before retry")
+        identifier = prior["run_id"]
+    else:
+        with intent.open("x") as output:
+            json.dump({"request": request, "state": "dispatching"}, output)
+        # A lost POST response is uncertain. Never retry it in this attempt.
+        result = subprocess.run(["gh", "api", "-H", "X-GitHub-Api-Version: 2026-03-10", "--method", "POST",
+            f"repos/{REPOSITORY}/actions/workflows/deployment-security.yml/dispatches",
+            "-f", "ref=main", "-f", "inputs[source_request]=" + json.dumps(request)],
+            capture_output=True, text=True, timeout=30)
+        require(result.returncode == 0, "Permission dispatch uncertain; inspect its intent before retry")
+        dispatched = json.loads(result.stdout)
+        identifier = dispatched.get("workflow_run_id")
+        require(type(identifier) is int and identifier > 0 and dispatched.get("html_url") ==
+                f"https://github.com/{REPOSITORY}/actions/runs/{identifier}", "Permission dispatch response unproved")
+        intent.write_text(json.dumps({"request": request, "run_id": identifier, "state": "dispatched"}))
+    deadline = monotonic() + 240
+    while monotonic() < deadline:
+        run = read(f"repos/{REPOSITORY}/actions/runs/{identifier}")
+        require(run.get("id") == identifier and run.get("run_attempt") == 1 and run.get("path", "").split("@", 1)[0] == WORKFLOW
+                and run.get("head_branch") == "main" and run.get("event") == "workflow_dispatch"
+                and run.get("repository", {}).get("full_name") == REPOSITORY,
+                "Merge permission producer changed")
+        if run.get("status") == "completed":
+            break
+        require(run.get("status") in {"queued", "pending", "waiting", "requested", "in_progress"},
+                "Merge permission producer state is unavailable")
+        sleep(5)
+    require(run.get("status") == "completed" and run.get("conclusion") == "success",
+            f"Merge permission is not successful: https://github.com/{REPOSITORY}/actions/runs/{identifier}")
+    ancestry = read(f"repos/{REPOSITORY}/compare/{run['head_sha']}...main?per_page=1&page=2")
+    require(ancestry.get("status") in {"identical", "ahead"}
+            and ancestry.get("merge_base_commit", {}).get("sha") == run["head_sha"],
+            "Merge permission producer is outside Main history")
+    inventory = read(f"repos/{REPOSITORY}/actions/runs/{identifier}/artifacts?per_page=100")
+    artifacts = inventory.get("artifacts", [])
+    require(inventory.get("total_count") == len(artifacts) <= 100, "Merge permission inventory incomplete")
+    selected = [a for a in artifacts if a.get("name") == f"deployment-security-{identifier}-1"]
+    require(len(selected) == 1 and selected[0].get("expired") is False
+            and selected[0].get("workflow_run", {}).get("id") == identifier,
+            "Merge permission publication missing or expired")
+    artifact = selected[0]
+    raw = archive_read(artifact["id"])
+    require(len(raw) == artifact.get("size_in_bytes"), "Merge permission artifact size changed")
+    receipt = unpack(raw, artifact.get("digest", ""), filename="merge-authorization.json")
+    require(receipt.get("schema_version") == 1 and receipt.get("request") == request
+            and receipt.get("producer") == {"repository": REPOSITORY, "run_id": identifier,
+                "attempt": 1, "workflow_path": WORKFLOW, "workflow_sha": run["head_sha"]},
+            "Merge permission publication does not bind this operation")
+    require(timestamp(run["run_started_at"]) <= timestamp(receipt["recorded_at"]) <= timestamp(run["updated_at"]),
+            "Merge permission publication chronology invalid")
+    require(read(f"repos/{REPOSITORY}/actions/runs/{identifier}") == run,
+            "Merge permission producer changed after publication")
+    verify(read, request)
+    return receipt["decision"]
+
+
+def request_queue_authority(env, phase, **kwargs):
+    require(env.get("GITHUB_EVENT_NAME") == "merge_group" and phase in {"admission", "finish"},
+            "Only merge-group boundaries request queue authorization")
+    return _request_authority(env, {"kind": "queue", "phase": phase, "id": int(env["GITHUB_RUN_ID"]),
+        "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]), "head_sha": env["GITHUB_SHA"]}, **kwargs)
+
+
+def request_operation_authority(env, surface, actor, *, protected=False, **kwargs):
+    require(env.get("GITHUB_REF") == "refs/heads/main", "Manual operations require Main execution")
+    request = {"kind": "operation", "surface": surface,
+        "id": int(env["GITHUB_RUN_ID"]), "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
+        "head_sha": env["GITHUB_SHA"]}
+    if protected:
+        request["protected"] = True
+    decision = _request_authority(env, request, **kwargs)
+    require(actor in {decision["actor"]["login"], decision["triggering_actor"]["login"]},
+            "Requested actor does not match the authenticated operation")
+    return decision
 
 
 def write_check(token, payload, *, read=cli_read):

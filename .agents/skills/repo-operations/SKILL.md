@@ -3,6 +3,36 @@ name: repo-operations
 description: Use when working on Hussh CI/CD, branch protection, merge queue, GitHub Actions, deploys, env or secret parity, Cloud Run or Cloud Build operations, UAT or production rollout, incident triage, or operational verification.
 ---
 
+## Main-owned release control
+
+Dispatch Dev, UAT and Production deployments from `main`. Application sources remain
+isolated: qualified protected `dev`, protected `uat`, and approved Main content respectively.
+Run names identify the application branch and SHA; the Actions Main badge identifies
+execution authority. Merges never deploy. UAT needs no prior Dev deployment; production
+retains UAT acceptance, compatibility and rollback requirements. This operations delta
+does not publish an application, run migrations or change production traffic.
+
+Current access comes only from the live GitHub teams: ordinary review/self-service uses
+`allowed-maintainers-to-approve`; environments use their `deploy-*` team; protected CI,
+fundamental guidance and emergency authorization use `pipeline-editors`. Saved usernames
+are historical evidence, never current grants. A membership lookup failure refuses the
+operation. An organization-owner role does not replace deployment-team membership.
+
+Protected PR jobs classify affected authority without receiving membership credentials.
+Native Team review and the trusted Main merge decision enforce approval. The queue requests
+current permission at admission and completion through the existing Main broker; no PR
+observer or recurring security-alert workflow runs. Explicit Main-origin deployments use
+the protected security job directly in the same run, without a second branch broker run. Current mutation boundaries also request a bounded Main-owned
+permission recheck, so revoked actors cannot keep using an earlier clearance. These
+explicit operation checks do not scan alerts or observe ordinary PR events.
+
+Environment-scoped security secrets require explicit named pass-through at every
+reusable-workflow hop, including thin caller → implementation → security job.
+Keep both names declared and required; their values remain in `ci-security`.
+Do not remove those mappings because the caller has no environment, or replace
+them with broad secret inheritance. The existing deployment-security contract
+tests own this boundary.
+
 # Hussh Repo Operations Skill
 
 ## Purpose and Trigger
@@ -102,7 +132,7 @@ Admin exceptions applied through the SOP. The legacy train retains its existing 
 When the approving user is a configured pipeline editor and authored a Main, Dev, UAT or isolated UAT PR, use the
 existing `queue_combined_result.py owner-merge` Admin SOP. GitHub's native queue
 still refuses the author-only bypass despite a separate path-review exception;
-do not remove the named-owner direct route or weaken required CI to evade it.
+preserve the authenticated team-member self-approval route or weaken required CI to evade it.
 The direct exception requires explicit authenticated owner approval, exact head,
 the current destination as an ancestor, uncontested reviews, live strict
 GitHub-Actions status/PR protection and identical successful combined-tree input
@@ -113,9 +143,9 @@ No merge on any destination deploys an application. Dev/UAT/production deploymen
 remains a separate explicit, governed operation with its own source, attempt,
 environment, compatibility and rollback admission.
 
-For matching-branch Dev/UAT deployments, follow the CI runbook's
-**Matching-branch release control** section. Keep the protected security token on
-Main; Dev/UAT requester jobs carry only their ordinary Actions token. The existing
+For Dev/UAT deployments, follow the CI runbook's
+**Main-owned release control** section. Keep the protected security token on
+Main; All explicit deployment entrypoints execute from Main and use the protected inline job. The existing
 nonproduction WIF updater owns its observed provider condition. Verify both caller
 and reusable-workflow permissions, source/attempt receipts and live admission;
 source extraction alone does not activate branch routing. No merge implies deployment.

@@ -46,11 +46,11 @@ def assert_read_only_uat_inspection(case, job, *, prepared=True):
     case.assertEqual(job.get("environment"), {"name": "uat", "deployment": False})
     case.assertEqual(
         job.get("permissions"),
-        {"contents": "read", "actions": "read", "checks": "read", "id-token": "write"},
+        {"contents": "read", "actions": "write", "checks": "read", "id-token": "write"},
     )
     case.assertNotIn("secrets", job)
     commands = {
-        f'test "$GITHUB_REF_NAME" = {"uat" if prepared else "main"}',
+        'test "$GITHUB_REF_NAME" = main',
         'python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"',
         "python3 scripts/ci/uat_release_prerequisites.py validate-inspection",
         'python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"',
@@ -254,6 +254,10 @@ class DeploymentSecurityTest(unittest.TestCase):
         import yaml
 
         root = Path(__file__).resolve().parents[2]
+        protected_secrets = {
+            name: "${{ secrets." + name + " }}"
+            for name in ("CI_TEAM_APP_PRIVATE_KEY", "GH_SECURITY_ALERTS_TOKEN")
+        }
         variants = [
             (name, name, False)
             for name in gate.CALLERS
@@ -272,7 +276,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                 {"release", "pod-publication"} if lane == "dev" else {"release"},
             )
             self.assertIn("inspect-routing", inputs["operation"]["options"])
-            for key, job in caller["jobs"].items():
+            for job in caller["jobs"].values():
                 self.assertEqual(
                     job["uses"],
                     f"hushh-labs/hushh-research/.github/workflows/deploy-{lane}-implementation.yml@main",
@@ -281,13 +285,11 @@ class DeploymentSecurityTest(unittest.TestCase):
                     job["with"], {name: "${{ inputs." + name + " }}" for name in inputs}
                 )
                 self.assertNotIn("steps", job)
-                if key == "release":
-                    self.assertNotIn("secrets", job)
-                else:
-                    self.assertEqual(
-                        job["secrets"],
-                        {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
-                    )
+                self.assertEqual(job["secrets"], protected_secrets)
+            self.assertEqual(
+                (implementation.get("on") or implementation[True])["workflow_call"]["secrets"],
+                {name: {"required": True} for name in protected_secrets},
+            )
         variants.extend(
             (name, name.replace(".yml", "-implementation.yml"), True)
             for name in ("deploy-dev.yml", "deploy-uat.yml")
@@ -302,18 +304,6 @@ class DeploymentSecurityTest(unittest.TestCase):
                         clearance["if"],
                         "inputs.target != 'pod-publication' || inputs.operation != 'deploy'",
                     )
-                    validation = next(
-                        step
-                        for step in clearance["steps"]
-                        if step.get("name") == "Validate explicit operation"
-                    )
-                    refused = subprocess.run(  # noqa: S603 - fixed repository guard, synthetic inputs
-                        ["bash", "-e", "-c", validation["run"]],
-                        env={"OPERATION": "inspect-routing", "TARGET": "pod-publication"},
-                        capture_output=True,
-                        check=False,
-                    )
-                    self.assertNotEqual(refused.returncode, 0)
                     for mutation in ("deploy", "pod-security", "pod-publication"):
                         self.assertIn("inputs.operation == 'deploy'", jobs[mutation]["if"])
                 if prepared and name == "deploy-uat.yml":
@@ -323,37 +313,21 @@ class DeploymentSecurityTest(unittest.TestCase):
                             jobs[mutation]["if"],
                             "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'",
                         )
+                self.assertEqual(clearance["uses"], "./.github/workflows/deployment-security.yml")
+                self.assertNotIn("environment", clearance)
+                self.assertEqual(clearance.get("secrets"), protected_secrets)
                 if prepared:
-                    self.assertNotIn("environment", clearance)
-                    self.assertNotIn("secrets", clearance)
                     self.assertEqual(
-                        clearance["permissions"], {"contents": "read", "actions": "write"}
+                        clearance["permissions"],
+                        {"contents": "read", "actions": "read", "pull-requests": "read"},
                     )
-                    self.assertEqual(
-                        clearance["steps"][0]["with"]["ref"], "${{ job.workflow_sha }}"
-                    )
-                    self.assertEqual(
-                        next(
-                            step["run"]
-                            for step in clearance["steps"]
-                            if step.get("id") == "clearance"
-                        ),
-                        "python3 scripts/ci/deployment_security.py --request-broker",
-                    )
-                    if name == "deploy-uat.yml":
-                        self.assertEqual(jobs["wait-capacity"]["permissions"]["actions"], "read")
-                else:
-                    self.assertEqual(
-                        clearance["uses"], "./.github/workflows/deployment-security.yml"
-                    )
-                    self.assertEqual(
-                        clearance.get("secrets"),
-                        {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
-                    )
+                    self.assertNotIn("steps", clearance)
                 for key, job in jobs.items():
                     if name == "deploy-production.yml" and key == "validate-dispatch":
                         self.assertNotIn("needs", job)
-                        self.assertEqual(job.get("permissions"), {"contents": "read"})
+                        self.assertEqual(
+                            job.get("permissions"), {"contents": "read", "actions": "write"}
+                        )
                         self.assertNotIn("environment", job)
                         self.assertNotIn("secrets", job)
                         continue
@@ -363,7 +337,8 @@ class DeploymentSecurityTest(unittest.TestCase):
                             job.get("environment"), {"name": "production", "deployment": False}
                         )
                         self.assertEqual(
-                            job.get("permissions"), {"contents": "read", "id-token": "write"}
+                            job.get("permissions"),
+                            {"contents": "read", "id-token": "write", "actions": "write"},
                         )
                         self.assertNotIn("secrets", job)
                         self.assertNotIn("uses", job)
@@ -408,6 +383,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                     if name == "deploy-dev.yml" and key == "pod-security":
                         self.assertEqual(job["uses"], "./.github/workflows/deployment-security.yml")
                         self.assertEqual(job["permissions"]["actions"], "read")
+                        self.assertEqual(job["secrets"], protected_secrets)
                         continue
                     if key == "deployment-security" or (
                         name == "deploy-uat.yml" and key == "select-target"
@@ -464,7 +440,8 @@ class DeploymentSecurityTest(unittest.TestCase):
         self.assertEqual(
             declaration.get("secrets"),
             {
-                "GH_SECURITY_ALERTS_TOKEN": {"required": False},
+                "GH_SECURITY_ALERTS_TOKEN": {"required": True},
+                "CI_TEAM_APP_PRIVATE_KEY": {"required": True},
             },
         )
         for name in gate.CALLERS:
@@ -720,6 +697,7 @@ class DeploymentBrokerTest(unittest.TestCase):
             patch.object(sys, "argv", ["actor_guard", "--surface", "dev", "--actor", "operator"]),
             patch.dict(os.environ, {**context, "RELEASE_AUTHORIZATION": raw}, clear=True),
             patch.object(Path, "read_text", side_effect=AssertionError("saved roster consulted")),
+            patch("github_team_authority.request_operation_authority", return_value={}),
         ):
             self.assertEqual(guard.main(), 0)
             os.environ["RELEASE_AUTHORIZATION"] = ""

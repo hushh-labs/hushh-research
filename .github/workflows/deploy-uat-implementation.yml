@@ -2,6 +2,11 @@ name: UAT deployment implementation
 
 on:
   workflow_call:
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
+      GH_SECURITY_ALERTS_TOKEN:
+        required: true
     inputs:
       operation:
         description: "Inspect prerequisites without deploying, or deploy a qualified application"
@@ -126,6 +131,7 @@ concurrency:
 
 jobs:
   inspect-prerequisites:
+    needs: deployment-security
     name: Inspect UAT prerequisites (no deployment)
     env:
       UAT_EMAIL_AUTH_ENABLED: ${{ vars.EMAIL_AUTH_ENABLED_UAT || 'false' }}
@@ -134,21 +140,25 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      actions: read
+      actions: write
       checks: read
       id-token: write
     environment:
       name: uat
       deployment: false
     steps:
-      - name: Assert inspection originates from uat
-        run: test "$GITHUB_REF_NAME" = uat
+      - name: Assert inspection originates from Main
+        run: test "$GITHUB_REF_NAME" = main
       - name: Checkout Main inspection tooling
         uses: actions/checkout@v6
         with:
           ref: ${{ job.workflow_sha }}
           fetch-depth: 0
       - name: Assert manual UAT dispatch actor policy
+        env:
+          RELEASE_AUTHORIZATION: ${{ needs.deployment-security.outputs.authorization }}
+          RELEASE_APPLICATION_SHA: ${{ needs.deployment-security.outputs.application_sha }}
+          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
         run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${GITHUB_ACTOR}"
       - name: Refuse release overrides before authentication
         env:
@@ -171,52 +181,21 @@ jobs:
         run: python3 scripts/ci/uat_release_prerequisites.py inspect --authority-sha "$AUTHORITY_SHA" --source-branch "$UAT_SOURCE_BRANCH"
 
   deployment-security:
-    name: Request Main security clearance
-    if: always() && (inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
+    name: Deployment security
+    if: always() && (inputs.operation == 'inspect' || inputs.operation == 'inspect-routing' || (needs.select-target.result == 'success' && needs.select-target.outputs.decision != 'NO_OP'))
     needs: select-target
-    runs-on: ubuntu-24.04
-    timeout-minutes: 7
     permissions:
+      pull-requests: read
       contents: read
-      actions: write
-    outputs:
-      application_sha: ${{ steps.clearance.outputs.sha }}
-      attempt: ${{ steps.clearance.outputs.attempt }}
-      authorization: ${{ steps.clearance.outputs.authorization }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: ${{ job.workflow_repository }}
-          ref: ${{ job.workflow_sha }}
-          persist-credentials: false
-      - name: Validate explicit operation
-        env:
-          OPERATION: ${{ inputs.operation }}
-          TARGET: ${{ inputs.target }}
-        run: |
-          case "$OPERATION" in deploy|inspect-routing) ;; *) exit 1 ;; esac
-          if [[ "$OPERATION" == inspect-routing ]]; then
-            test "$TARGET" = shared-uat
-          fi
-      - name: Request and verify Main clearance
-        id: clearance
-        run: python3 scripts/ci/deployment_security.py --request-broker
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TOOLING_SHA: ${{ job.workflow_sha }}
-          DEPLOY_SECURITY_REF: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
-          DEPLOY_SECURITY_ENVIRONMENT: uat
-          DEPLOY_SECURITY_APPLICATION_BRANCH: ${{ env.UAT_SOURCE_BRANCH }}
-          DEPLOY_SECURITY_SCOPE: ${{ inputs.scope || 'auto' }}
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: deployment-security-request-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/deployment-security-request.json
-            ${{ runner.temp }}/deployment-security.json
-          if-no-files-found: warn
-          retention-days: 7
+      actions: read
+    uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+    with:
+      application_ref: ${{ needs.select-target.outputs.sha || inputs.sha || 'uat' }}
+      environment_name: uat
+      scope: ${{ inputs.scope || 'auto' }}
 
   select-target:
     name: Select UAT target
@@ -237,7 +216,7 @@ jobs:
       sha: ${{ steps.resolve-sha.outputs.sha }}
       decision: ${{ steps.resolve-sha.outputs.decision }}
     steps:
-      - name: Assert manual dispatch originates from uat
+      - name: Assert manual dispatch originates from Main
         shell: bash
         env:
           REQUESTED_TARGET: ${{ inputs.target || 'shared-uat' }}
@@ -247,8 +226,8 @@ jobs:
             echo "Refusing unsupported UAT target."
             exit 1
           fi
-          if [ "$GITHUB_REF_NAME" != uat ]; then
-            echo "Refusing UAT target selection outside uat."
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Refusing UAT target selection outside Main."
             exit 1
           fi
 
@@ -314,13 +293,8 @@ jobs:
           LIVE_CHECKS: ${{ inputs.run_live_model_checks }}
         run: |
           set -euo pipefail
-          if [[ "$REQUESTED_SHA" != "a8e36651c17f6a0837530840fbeaf0ec3bbfcdf2" ||
-                "$REQUESTED_SCOPE" != "all" || "$LIVE_CHECKS" != "false" ||
-                "$GITHUB_ACTOR" != "ankitkumarsingh1702" ||
-                "$(date -u +%Y-%m-%d)" > "2026-10-17" ]]; then
-            echo "One-time Vertex exception is limited to the approved UAT release." >&2
-            exit 1
-          fi
+          echo "The historical one-time Vertex exception has expired; use normal qualification." >&2
+          exit 1
 
       - name: Summarize unchanged UAT target
         if: steps.resolve-sha.outputs.decision == 'NO_OP'
@@ -404,6 +378,12 @@ jobs:
     name: Deploy UAT Scope
     needs: [select-target, wait-capacity, deployment-security]
     if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
+    permissions:
+      contents: write
+      checks: read
+      pull-requests: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     concurrency:
       group: deploy-uat
@@ -426,12 +406,12 @@ jobs:
             echo "Deployment requires current-attempt security. Rerun the entire workflow; partial reruns cannot reuse clearance." >&2
             exit 1
           fi
-      - name: Assert manual dispatch originates from uat
+      - name: Assert manual dispatch originates from Main
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$GITHUB_REF_NAME" != uat ]; then
-            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'uat' only."
+          if [ "$GITHUB_REF_NAME" != main ]; then
+            echo "Refusing UAT deploy from '${GITHUB_REF_NAME}'. Trigger this workflow from 'main' only."
             exit 1
           fi
 
@@ -1088,7 +1068,7 @@ jobs:
             --json-output /tmp/uat-verification-plan.json
 
       - name: Upload verification-plan artifact
-        if: always()
+        if: always() && steps.verification-plan.outcome == 'success'
         uses: actions/upload-artifact@v6
         with:
           name: uat-verification-plan
@@ -3219,6 +3199,24 @@ jobs:
           import os
           from pathlib import Path
 
+          verification_outcomes = [os.environ.get(name, "") for name in (
+              "PARITY_ATTEMPT_1", "PARITY_ATTEMPT_2", "SEMANTIC_ATTEMPT_1", "SEMANTIC_ATTEMPT_2",
+              "BACKEND_PROVENANCE_OUTCOME", "FRONTEND_PROVENANCE_OUTCOME", "DB_OUTCOME")]
+          if all(value in {"", "skipped"} for value in verification_outcomes):
+              reason = ("frontend_image_build_failed" if os.environ.get("FRONTEND_IMAGE_CHECK_OUTCOME") == "failure"
+                        else "prerequisite_failed")
+              payload = {"status": "blocked", "phase": "verification_not_reached", "release_failed": True,
+                         "blocking_classifications": [reason], "backend_failure": False, "frontend_failure": False,
+                         "parity": {"status": "not_reached", "success": False},
+                         "provenance": {"status": "not_reached"},
+                         "semantic": {"status": "not_reached", "success": False},
+                         "db_contract": {"status": "not_reached"}}
+              Path("/tmp/uat-release-classification.json").write_text(json.dumps(payload, indent=2))
+              with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+                  output.write("release_failed=true\nbackend_failure=false\nfrontend_failure=false\n")
+              print("Release verification was not reached; inspect the preceding prerequisite failure.")
+              raise SystemExit(0)
+
           def load_json(path: str) -> dict:
               candidate = Path(path)
               if not candidate.exists():
@@ -4668,7 +4666,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
-          test "$GITHUB_REF_NAME" = uat
+          test "$GITHUB_REF_NAME" = main
           test "$SECURITY_ATTEMPT" = "$GITHUB_RUN_ATTEMPT"
           [[ "$SECURITY_SHA" =~ ^[0-9a-f]{40}$ ]]
       - name: Authenticate to the matching environment

@@ -339,10 +339,10 @@ def test_retired_uat_target_cannot_fall_through_to_a_shared_release(target, expe
         (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
     )
     guard = document["jobs"]["select-target"]["steps"][0]
-    assert guard["name"] == "Assert manual dispatch originates from uat"
+    assert guard["name"] == "Assert manual dispatch originates from Main"
     environment = {
         "PATH": os.environ.get("PATH", ""),
-        "GITHUB_REF_NAME": "uat",
+        "GITHUB_REF_NAME": "main",
         "REQUESTED_TARGET": target,
     }
     if "SYSTEMROOT" in os.environ:

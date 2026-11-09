@@ -9,8 +9,8 @@
 # newest run for this workflow").
 #
 # Requires `gh` authenticated as an actor in the target environment's
-# manual_dispatch_users allowlist (config/ci-governance.json) — the same
-# allowlist that already gates deploy-uat.yml / deploy-production.yml
+# live deploy-* GitHub team — the same
+# membership authority that gates deploy-uat.yml / deploy-production.yml
 # dispatch. Nobody's permissions change to use this.
 set -euo pipefail
 
