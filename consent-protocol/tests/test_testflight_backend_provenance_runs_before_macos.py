@@ -16,6 +16,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -97,6 +98,65 @@ def test_signing_parity_ignores_only_the_uninvoked_phone_diagnostic(tmp_path, pa
         shlex.split(command), cwd=tmp_path, capture_output=True, check=False
     )
     assert result.returncode == (0 if allowed else 1), result.stderr
+
+
+@pytest.mark.parametrize(
+    "branch,protected,unrelated,allowed",
+    [
+        ("uat", True, False, True),
+        ("uat", False, False, False),
+        ("uat", True, True, False),
+        ("uat-isolated", True, False, False),
+    ],
+)
+def test_native_source_uses_protected_history_without_waiving_branch_authority(
+    tmp_path, monkeypatch, branch, protected, unrelated, allowed
+):
+    import importlib
+
+    monkeypatch.syspath_prepend(str(ROOT / "scripts/ci"))
+    authority = importlib.import_module("uat_exact_ci")
+
+    def git(*args):
+        return subprocess.check_output(  # noqa: S603 - synthetic Git repository only.
+            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+
+    git("init")
+    git("config", "user.name", "Synthetic release fixture")
+    git("config", "user.email", "synthetic@example.invalid")
+    (tmp_path / "README.md").write_text("accepted application\n")
+    git("add", ".")
+    git("commit", "-m", "Accepted application")
+    candidate = git("rev-parse", "HEAD")
+    (tmp_path / "operations.md").write_text("later operations-only sync\n")
+    git("add", ".")
+    git("commit", "-m", "Later operations sync")
+    tip = git("rev-parse", "HEAD")
+    if unrelated:
+        git("checkout", "--orphan", "unrelated")
+        git("commit", "-m", "Unrelated application")
+        candidate = git("rev-parse", "HEAD")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SHA", candidate)
+    monkeypatch.setenv("SOURCE_BRANCH", branch)
+    monkeypatch.setenv("GITHUB_TOKEN", "synthetic")
+    monkeypatch.setattr(
+        authority,
+        "GitHub",
+        lambda *_: SimpleNamespace(read=lambda _: {"protected": protected, "commit": {"sha": tip}}),
+    )
+    resolve = next(
+        step["run"]
+        for step in _jobs()["preflight"]["steps"]
+        if step.get("name") == "Resolve exact green release SHA"
+    )
+    command = resolve.split("PYTHONPATH=scripts/ci python3 -c '\n", 1)[1].split("\n'", 1)[0]
+    if allowed:
+        exec(compile(command, "native-source-authority", "exec"), {})  # noqa: S102 - actual authored authority code with synthetic transport.
+    else:
+        with pytest.raises(authority.Refused):
+            exec(compile(command, "native-source-authority", "exec"), {})  # noqa: S102
 
 
 def test_macos_ship_job_waits_for_the_preflight_and_no_longer_repeats_the_check() -> None:

@@ -168,8 +168,14 @@ jobs:
             fi
             bash scripts/ci/require-deploy-sha-on-main.sh "$GITHUB_SHA"
             git fetch --no-tags origin "$SOURCE_BRANCH"
-            gh api "repos/$GITHUB_REPOSITORY/branches/$SOURCE_BRANCH" \
-              | jq -e --arg sha "$SHA" '.protected == true and .commit.sha == $sha' >/dev/null
+            PYTHONPATH=scripts/ci python3 -c '
+          import os
+          from uat_exact_ci import GitHub, REPOSITORY, require_protected_tip
+          require_protected_tip(
+              GitHub(REPOSITORY, os.environ["GITHUB_TOKEN"]),
+              os.environ["SHA"], os.environ["SOURCE_BRANCH"],
+          )
+          '
             # Run the candidate release controls with signing credentials only
             # when they agree with the Main dispatch revision. Test-only selectors
             # and the uninvoked phone diagnostic are not signing/build inputs.
