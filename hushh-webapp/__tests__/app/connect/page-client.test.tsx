@@ -9,7 +9,6 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
-import { dismissTopmostOverlay } from "@/lib/navigation/back-layers";
 
 const mocks = vi.hoisted(() => ({
   messageSelection: vi.fn(),
