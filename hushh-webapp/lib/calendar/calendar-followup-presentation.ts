@@ -109,7 +109,7 @@ export function gmailMessageUrl(accountEmail: string, gmailMessageId: string): s
   return `https://mail.google.com/mail/u/${encodeURIComponent(accountEmail)}/#all/${encodeURIComponent(gmailMessageId)}`;
 }
 
-export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | "retry" | null };
+export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "reconnect" | null };
 
 /**
  * A recoverable background retry is quiet. Only a state the owner can fix gets
@@ -119,12 +119,9 @@ export type CoverageNotice = { tone: "quiet" | "action"; text: string; action: "
 export function coverageNotice(coverage: FollowupCoverage | null | undefined, vaultUnlocked = true): CoverageNotice | null {
   if (!coverage || coverage.coverage === "complete") return null;
   if (coverage.coverage === "catching_up") return { tone: "quiet", text: "Catching up on your email…", action: null };
-  // Reconnecting or retrying needs the unlocked vault. Offering either while it is
-  // locked sends the owner through Google again without fixing anything.
+  if (coverage.attention !== "reconnect_mail") return null;
   if (!vaultUnlocked) return { tone: "quiet", text: "Unlock One to check your email.", action: null };
-  if (coverage.attention === "reconnect_mail") return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
-  if (coverage.attention === "provider_unavailable") return { tone: "action", text: "Google is not responding right now. We’ll keep trying.", action: "retry" };
-  return { tone: "action", text: "A few emails could not be read yet.", action: "retry" };
+  return { tone: "action", text: "Email access needs to be renewed.", action: "reconnect" };
 }
 
 /**

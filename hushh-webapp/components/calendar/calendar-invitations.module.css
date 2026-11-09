@@ -85,7 +85,7 @@
 .review h3 { --foundation-headline-size: var(--app-side-pane-row-title-size, 14px); --foundation-headline-line: var(--app-side-pane-row-title-line, 22px); --foundation-headline-weight: var(--app-side-pane-row-title-weight, 600); }
 .review .message { font-size: var(--profile-type-description-size, 13px); max-height: 260px; overflow-y: auto; line-height: var(--profile-type-description-line, normal); }
 .openings { margin: 0; padding-left: 18px; font-size: var(--profile-type-description-size, 12px); line-height: var(--profile-type-description-line, normal); }
-.empty { padding: 32px 16px; color: var(--app-secondary-label); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
+.empty { margin: 0; padding-block: 8px; color: var(--app-secondary-label); font-size: var(--profile-type-label-size, 14px); line-height: var(--profile-type-label-line, normal); }
 @media (min-width:768px) { .detailPane { padding-top: 0; } .inviteCard { grid-template-columns: 50px minmax(0,1fr) 12px; gap: 10px; } .inviteCard .dateBlock { width: 50px; } }
 
 .invitations[data-workspace=true] { display: grid; gap: 12px; }

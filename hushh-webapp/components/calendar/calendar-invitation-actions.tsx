@@ -9,6 +9,7 @@ import presentationStyles from "./calendar-presentation.module.css";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { isFinalInvitationResponse } from "@/lib/calendar/calendar-event-status";
 import { notifyCalendarChanged } from "@/lib/calendar/calendar-refresh";
 import { MAX_CALENDAR_DECLINE_REASON_LENGTH, sameCalendarInvitationOccurrence } from "@/lib/calendar/calendar-recipient-copy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
@@ -43,6 +44,7 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
   const [message, setMessage] = useState(initialTerms?.message || "");
   const [review, setReview] = useState<CalendarAttendanceReview | null>(null);
   const [result, setResult] = useState<CalendarAttendanceResult | null>(null);
+  const [responseCommitted, setResponseCommitted] = useState(false);
   const [failure, setFailure] = useState<GoogleCalendarError | null>(null);
   const [busy, setBusy] = useState(false);
   const [reviewRequired, setReviewRequired] = useState(false);
@@ -64,6 +66,10 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     catch (error) {
       if (current()) {
         const failure = error instanceof GoogleCalendarError ? error : new GoogleCalendarError("Calendar could not complete this request. Please try again.", null, 503);
+        if (workspaceLayout && failure.reasonCode === "calendar_invitation_already_responded") {
+          setResponseCommitted(true);
+          notifyCalendarChanged(userId);
+        }
         setFailure(failure);
         if (failure.reasonCode === "calendar_review_expired") { setReview(null); setReviewRequired(true); }
         // A row action uses the shared transient feedback owner.
@@ -145,12 +151,14 @@ export function CalendarInvitationActions({ event, userId, token, zone, getIdTok
     const response = await confirmation;
     if (!current()) return;
     if (!["accepted", "declined", "tentative", "failed", "unknown"].includes(response.calendar) || !["sent", "not_sent", "failed", "unknown"].includes(response.email)) throw new GoogleCalendarError("Calendar did not confirm the outcome. Check the invitation before retrying.", null, 502);
+    if (workspaceLayout && isFinalInvitationResponse(response.calendar)) setResponseCommitted(true);
     setReview(null); setResult(response);
     if (["accepted", "declined", "tentative"].includes(response.calendar)) notifyCalendarChanged(userId);
     onResult?.(response);
   };
   const confirm = () => run(async current => { if (review) await execute(review, current); }, reviewTransport.current === "vault");
   const edit = () => { reviewTransport.current = "rsvp"; setReview(null); setResult(null); };
+  if (workspaceLayout && (responseCommitted || isFinalInvitationResponse(event.response_status)) && !result) return null;
   return <div className={styles.actions} data-workspace={workspaceLayout} aria-label="Invitation actions" aria-busy={busy}>
     {result ? <div className={styles.review} role="status"><p>{attendanceResultMessage(result)}</p><Button variant="ghost" size="compact" className={presentationStyles.utility} onClick={() => { setResult(null); setDecision("view"); }}>Done</Button></div> : review ? <div className={styles.review}>
       <h3>{review.response_status === "accepted" ? "Accept invitation?" : "Decline invitation?"}</h3><p>{review.title}</p><p className={styles.muted}>{eventTime(event, zone)}</p>

@@ -132,9 +132,11 @@ describe("three-account Calendar board", () => {
       organizer: { email: "organizer-host@example.com", self: true }, attendees: guests, decline_view: { kind: "only_guest" as const, ...view } };
     const guestCopy = { ...event("second", "guest", "Testing", "2026-10-21T13:00:00Z", "2026-10-21T13:30:00Z"),
       attendees: [{ ...guests[1], self: true }], decline_view: { kind: "self" as const, ...view } };
-    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [], accounts: [
-      { ...board.accounts[0], events: [hostCopy] }, { ...board.accounts[1], events: [guestCopy] }, board.accounts[2],
-    ] });
+    const photo = "data:image/png;base64,aGVsbG8=";
+    mocks.boardDay.mockResolvedValue({ ...board, conflicts: [],
+      people: { "second@example.com": { userId: "sam", displayName: "Sam", photoUrl: photo } },
+      accounts: [{ ...board.accounts[0], events: [hostCopy] }, { ...board.accounts[1], events: [guestCopy] }, board.accounts[2]],
+    });
     render(page());
     const host = within(await screen.findByRole("group", { name: "Calendar account default@example.com" }));
     const guest = within(screen.getByRole("group", { name: "Calendar account second@example.com" }));
@@ -145,6 +147,11 @@ describe("three-account Calendar board", () => {
     const note = within(await screen.findByTestId("calendar-declined-note"));
     expect(note.getByText("Sam declined this meeting")).toBeTruthy();
     expect(note.getByText(reason)).toBeTruthy();
+    expect(screen.getByTestId("calendar-declined-note").querySelector("[data-photo-source=hussh]")).toHaveAttribute("data-photo-url", photo);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    fireEvent.click(guest.getByRole("button", { name: /^Open Testing/ }));
+    expect(within(screen.getByRole("dialog")).getByText("You declined this meeting")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Invitation actions")).not.toBeInTheDocument();
   });
 
   it("keeps a group meeting normal for the organiser and lists who declined with their reasons", async () => {

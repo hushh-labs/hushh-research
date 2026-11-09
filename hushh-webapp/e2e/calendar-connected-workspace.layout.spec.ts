@@ -555,6 +555,9 @@ for (const width of [320, 390, 1440]) {
     await page.getByRole("tab", { name: "Responded", exact: true }).click();
     await expect(page.getByRole("button", { name: "Open invitation: QA Product Sync" })).toBeVisible();
     await expect(page.getByText("Accepted", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
+    await expect(dialog.getByRole("article")).toBeVisible();
+    await expect(dialog.getByLabel("Invitation actions")).toHaveCount(0);
     expect(errors).toEqual([]); expect(unexpectedRequests).toEqual([]);
   });
 }
@@ -718,7 +721,11 @@ for (const width of [390, 1280]) {
     await expect(rows).toHaveCount(1);
     await expect(rows).toHaveAccessibleName("Open invitation: QA Tomorrow");
     await page.getByRole("button", { name: "Next day", exact: true }).click();
-    await expect(page.getByText("No pending invitations on this date.")).toBeVisible();
+    const empty = page.getByText("No pending invitations on this date.");
+    await expect(empty).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Needs your response" })).toHaveCount(0);
+    const pendingTab = page.getByRole("tab", { name: "Pending (0)" });
+    expect(Math.abs((await empty.boundingBox())!.x - (await pendingTab.boundingBox())!.x)).toBeLessThanOrEqual(2);
     await page.getByRole("button", { name: "Previous day", exact: true }).click();
     await expect(rows).toHaveCount(1);
     await page.getByRole("button", { name: "Back to today", exact: true }).click();
@@ -792,13 +799,11 @@ test("decline reason sends once and returns to the same Calendar page", async ({
   await page.getByRole("tab", { name: "Invitations", exact: true }).click();
   await page.getByRole("button", { name: "Open invitation: QA Product Sync" }).click();
   await page.getByRole("button", { name: "Decline", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Review decline email" })).toBeDisabled();
+  const send = page.getByRole("button", { name: "Decline", exact: true });
+  await expect(send).toBeDisabled();
   await page.getByLabel("Reason for declining").fill("I have another commitment.");
-  await page.getByRole("button", { name: "Review decline email" }).click();
-  await expect(page.getByText("To: qa-organizer-0@example.test")).toBeVisible();
-  await expect(page.getByText(/I have another commitment\./)).toBeVisible();
   expect(calls.filter(call => call.path.endsWith("/attendance/workspace/confirm"))).toHaveLength(0);
-  await page.getByRole("button", { name: "Decline & send email" }).click();
+  await send.click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("calendar-action")).toHaveText("");
   expect(page.url()).toContain("/calendar-connected-fixture");
@@ -873,8 +878,7 @@ for (const width of [320, 390, 480, 481, 768, 1440]) {
     await decline.click();
     await dialog.getByLabel("Reason for declining").fill("A different commitment.");
     const back = dialog.getByRole("button", { name: "Back", exact: true });
-    const email = dialog.getByRole("button", { name: "Review decline email", exact: true });
-    await expect(email).toBeEnabled();
+    await expect(decline).toBeEnabled();
     expect((await join.boundingBox())!.x).toBe(joinBounds.x);
     await join.click();
     const accountPrompt = page.getByRole("dialog", { name: "Check Google account" });
