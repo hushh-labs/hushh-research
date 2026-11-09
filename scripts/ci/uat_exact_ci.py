@@ -12,6 +12,7 @@ verifier does not claim to sandbox malicious reviewed application code.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import re
@@ -31,7 +32,7 @@ MAX_TREE_BYTES = 4 * 1024 * 1024
 BACKEND_TEST_MANIFEST = "consent-protocol/scripts/test-ci.manifest.txt"
 
 # Historical full CI parity remains readable for isolated/sandbox receipts.
-# Ordinary UAT checks only credential-owning release inputs below, not all CI prose or tests.
+# Ordinary UAT CD trusts protected-branch review without Main-content parity.
 AUTHORITY_PATHS = (
     ".agents",
     ".github",
@@ -100,8 +101,8 @@ ISOLATED_RELEASE_AUTHORITY_PATHS = (
     "scripts/ops/db_migration_release_guard.py",
     "scripts/ops/email_auth_uat_release.py",
 )
-# Inputs actually executed by ordinary UAT with release credentials. Keep this
-# closure here with the existing isolated owner, not a second path classifier.
+# Privileged-input comparison retained for explicit Dev and legacy consumers.
+# Ordinary UAT CD no longer calls this comparison; isolated policy remains separate.
 UAT_PRIVILEGED_PATHS = (
     "deploy/backend.cloudbuild.yaml", "deploy/backend-image.cloudbuild.yaml",
     "deploy/frontend.cloudbuild.yaml", "deploy/frontend-image.cloudbuild.yaml",
@@ -236,9 +237,9 @@ def verify_git_authority(candidate: str, base: str, authority: str, *, current: 
             raise Refused("Isolated UAT serving base is not an ancestor of its candidate; reconcile the reviewed source transition") from None
         verify_isolated_release_authority(candidate, authority)
         return application_tree(candidate)
-    # Application and test inventories belong to UAT. Privileged recipes and
-    # migration controllers execute with release credentials and remain Main-owned.
-    verify_privileged_release_inputs(candidate, authority)
+    # Ordinary CD trusts changes reviewed into protected UAT, including its
+    # build/migration inputs. Main still owns orchestration and clearance.
+    # Isolated CI and the explicit Dev recipe verifier retain their policies.
     backend_test_inventory(candidate)
     return application_tree(candidate)
 
@@ -631,13 +632,25 @@ def verify_attempt(
     if branch == "uat-isolated":
         require(SHA.fullmatch(authority or ""), "Isolated qualification requires the Main authority SHA")
         run_head, run_branch, title = authority, "main", f"Isolated UAT {candidate}"
+    prefix = f"repos/{REPOSITORY}/actions"
+    run_path = f"{prefix}/runs/{run_id}"
+    # Reuse the run response within each source-validation pass. Repository,
+    # workflow and run authority are all read afresh after evidence inspection;
+    # no live authorization or inventory read is cached between the passes.
+    source_documents = {}
+
+    def read_source(path):
+        document = copy.deepcopy(api.read(path))
+        if path == run_path:
+            source_documents[path] = document
+        return document
+
     source = verify_source(
-        api.read,
+        read_source,
         REPOSITORY,
         {"run_id": run_id, "attempt": attempt, "head_sha": run_head},
     )
-    prefix = f"repos/{REPOSITORY}/actions"
-    run = api.read(f"{prefix}/runs/{run_id}")
+    run = source_documents[run_path]
     require(
         run.get("event") == "workflow_dispatch"
         and run.get("head_branch") == run_branch
@@ -654,19 +667,26 @@ def verify_attempt(
         api, run_head, run_id, attempt, current=current, branch=run_branch, title=title
     )
     rechecked_source = verify_source(
-        api.read,
+        read_source,
         REPOSITORY,
         {"run_id": run_id, "attempt": attempt, "head_sha": run_head},
     )
     require(
         rechecked_source == source
-        and api.read(f"{prefix}/runs/{run_id}") == run
+        and source_documents[run_path] == run
         and (
             api.read(inventory_path) == rows
             if current
             else _latest_attempt_inventory(
-                api, run_head, run_id, attempt, current=False, branch=run_branch, title=title
-            )[1] == rows
+                api,
+                run_head,
+                run_id,
+                attempt,
+                current=False,
+                branch=run_branch,
+                title=title,
+            )[1]
+            == rows
         ),
         "UAT CI changed during verification",
     )
@@ -679,6 +699,12 @@ def verify_predecessor(prior: dict, *, current: bool) -> None:
     branch = prior.get("source_branch", "uat")
     tree = verify_git_authority(candidate, prior["base_sha"], prior["authority_sha"], current=current, branch=branch)
     require(tree == prior["tree"], "UAT predecessor tree changed")
+    _verify_predecessor_attempt(prior, current=current)
+
+
+def _verify_predecessor_attempt(prior: dict, *, current: bool) -> None:
+    candidate = prior["sha"]
+    branch = prior.get("source_branch", "uat")
     api = GitHub(REPOSITORY, os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", ""))
     if current:
         require_protected_tip(api, candidate, branch)
@@ -721,7 +747,9 @@ def issue_predecessor(args) -> dict:
               "tree": verify_git_authority(args.sha, args.base_sha, args.authority_sha, branch=branch)}
     if branch != "uat":
         record["source_branch"] = branch
-    verify_predecessor(record, current=True)
+    # Git/tree authority was established while constructing this record.
+    # Recheck live CI and branch state without repeating immutable Git proof.
+    _verify_predecessor_attempt(record, current=True)
     if args.predecessor is not None:
         require(record == json.loads(args.predecessor.read_text()), "Direct UAT admission changed before mutation")
     return record

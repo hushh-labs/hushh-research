@@ -2847,8 +2847,12 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
             with self.subTest(environment=label):
                 source = (root / ".github/workflows" / file).read_text()
                 assert_separate(source, label)
-                with self.assertRaises(AssertionError):
-                    assert_separate(source.replace("--tags-only", ""), label)
+                if label == "UAT":
+                    self.assertNotIn("bash scripts/ci/cloudrun-retention.sh", source)
+                    self.assertNotIn("Retire old UAT revision tags", source)
+                else:
+                    with self.assertRaises(AssertionError):
+                        assert_separate(source.replace("--tags-only", ""), label)
 
     def test_production_release_rejects_foreign_source_and_malformed_identity(self):
         good = {
@@ -3214,29 +3218,45 @@ class MaintenanceAuthorityTest(ExistingPublicationCases, LegacyPublicationCases,
     def test_provider_timeout_preserves_intent_and_does_not_retry(self):
         from argparse import Namespace
 
-        with tempfile.TemporaryDirectory() as temporary:
-            path = pathlib.Path(temporary) / "consent-protocol.json"
-            args = Namespace(
-                defer_state=path,
-                service="consent-protocol",
-                project="hushh-pda-uat",
-                region="us-central1",
-                release_run_id="123",
-            )
-            with mock.patch.object(
-                MODULE, "gcloud", side_effect=MODULE.BudgetExpired("timeout")
-            ) as mutate:
-                with self.assertRaises(MODULE.MutationUncertain):
-                    MODULE.mutate(
-                        args,
-                        ["revisions", "delete", revision(1)["metadata"]["name"]],
-                        ((), "[]", 1, "service-uid"),
-                        {"kind": "delete", "revision": revision(1)["metadata"]["name"]},
-                    )
-                self.assertEqual(mutate.call_count, 1)
-            self.assertEqual(
-                json.loads(path.read_text())["pending_mutation"]["kind"], "delete"
-            )
+        for intent, command in (
+            (
+                {"kind": "delete", "revision": revision(1)["metadata"]["name"]},
+                ["revisions", "delete", revision(1)["metadata"]["name"]],
+            ),
+            (
+                {"kind": "remove_tags", "tags": ["old-candidate"]},
+                [
+                    "services",
+                    "update-traffic",
+                    "consent-protocol",
+                    "--remove-tags=old-candidate",
+                ],
+            ),
+        ):
+            with (
+                self.subTest(kind=intent["kind"]),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                path = pathlib.Path(temporary) / "consent-protocol.json"
+                args = Namespace(
+                    defer_state=path,
+                    service="consent-protocol",
+                    project="hushh-pda-uat",
+                    region="us-central1",
+                    release_run_id="123",
+                )
+                with mock.patch.object(
+                    MODULE, "gcloud", side_effect=MODULE.BudgetExpired("timeout")
+                ) as mutate:
+                    with self.assertRaises(MODULE.MutationUncertain):
+                        MODULE.mutate(
+                            args, command, ((), "[]", 1, "service-uid"), intent
+                        )
+                    self.assertEqual(mutate.call_count, 1)
+                self.assertEqual(
+                    json.loads(path.read_text())["pending_mutation"]["kind"],
+                    intent["kind"],
+                )
 
     def test_queued_settled_pass_checks_inside_lock_before_cloud_steps(self):
         source = (

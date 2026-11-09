@@ -441,3 +441,162 @@ def test_missing_crm_product_authority_keeps_all_credentials(monkeypatch):
     )
     assert required == parity.BACKEND_CONNECTED_SYSTEMS_REQUIRED
     assert contract["status"] == "unverified"
+
+
+@pytest.mark.parametrize(
+    "group,explicit,expected",
+    [
+        (None, False, 0),
+        (None, True, 1),
+        ("gmail", False, 1),
+        ("calendar", False, 1),
+        ("plaid", False, 1),
+        ("market", False, 1),
+        ("one_email", False, 1),
+        ("gmail", False, 0),
+        ("calendar", False, 0),
+        ("plaid", False, 0),
+        ("market", False, 0),
+    ],
+)
+def test_uat_optional_integrations_skip_absent_but_reject_partial_configuration(
+    monkeypatch, tmp_path, group, explicit, expected
+):
+    groups = {
+        "gmail": parity.BACKEND_GMAIL_REQUIRED,
+        "calendar": parity.BACKEND_CALENDAR_REQUIRED,
+        "plaid": parity.BACKEND_PLAID_REQUIRED,
+        "market": parity.BACKEND_MARKET_REQUIRED,
+        "one_email": parity.BACKEND_ONE_EMAIL_RUNTIME_REQUIRED,
+    }
+    env = [
+        {"name": key, "valueFrom": {"secretKeyRef": {"name": key, "key": "latest"}}}
+        for key in parity.BACKEND_RUNTIME_REQUIRED
+    ]
+    if group:
+        keys = groups[group] if expected == 0 else groups[group][:1]
+        if group == "one_email":
+            # A false auth flag is an unsafe configured capability, never a
+            # feature-disable switch that may bypass the full privacy contract.
+            env.append({"name": "ONE_EMAIL_WEBHOOK_AUTH_ENABLED", "value": "false"})
+        else:
+            env.extend({"name": key, "value": "configured"} for key in keys)
+        for item in env:
+            if item["name"] == "GMAIL_OAUTH_REDIRECT_URI":
+                item["value"] = "https://uat.one.hushh.ai" + parity.GMAIL_OAUTH_RETURN_PATH
+            if item["name"] == "GOOGLE_OAUTH_REDIRECT_URI":
+                item["value"] = "https://uat.one.hushh.ai" + parity.CALENDAR_OAUTH_RETURN_PATH
+    revision = {
+        "metadata": {"labels": {"serving.knative.dev/service": "consent-protocol"}},
+        "spec": {"containers": [{"env": env}]},
+    }
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: revision)
+    monkeypatch.setattr(parity, "_has_secret", lambda *_: True)
+    monkeypatch.setattr(parity, "_read_secret_value", lambda *_: "https://uat.one.hushh.ai")
+    monkeypatch.setattr(parity, "_domain_runtime_contract", lambda *_: {"status": "valid"})
+    report_path = tmp_path / "parity.json"
+    argv = [
+        "verify",
+        "--project",
+        "fixture",
+        "--backend-revision",
+        "candidate",
+        "--assert-runtime-env-contract",
+        "--configured-integrations-only",
+        "--report-path",
+        str(report_path),
+    ]
+    if explicit:
+        argv.append("--require-gmail")
+    monkeypatch.setattr(sys, "argv", argv)
+    assert parity.main() == expected
+    report = json.loads(report_path.read_text())
+    assert report["targets"] == {"backend": True, "frontend": False}
+    assert report["required"]["reviewer_smoke"] == []
+    if group:
+        assert report["required"][group]
+        if expected:
+            assert "runtime_mount_missing" in report["classifications"]
+    elif not explicit:
+        assert all(not report["required"][name] for name in groups)
+        assert set(report["integration_selection"].values()) == {"not_configured"}
+
+
+def test_uat_optional_configuration_requires_exact_runtime_observation(monkeypatch):
+    monkeypatch.setattr(
+        sys, "argv", ["verify", "--project", "fixture", "--configured-integrations-only"]
+    )
+    with pytest.raises(SystemExit, match="2"):
+        parity.main()
+
+
+@pytest.mark.parametrize(
+    "entries,expected",
+    [
+        ({}, "default"),
+        ({"SUPPORT_EMAIL_FROM": ""}, "valid"),
+        ({"ONE_EMAIL_ADDRESS": "one@hushh.ai"}, "valid"),
+        ({"SUPPORT_EMAIL_FROM": "one@hushh.ai"}, "valid"),
+        ({"SUPPORT_EMAIL_DELEGATED_USER": "one@hushh.ai"}, "valid"),
+        ({"SUPPORT_EMAIL_FROM": "other@example.test"}, "mismatch"),
+        ({"SUPPORT_EMAIL_DELEGATED_USER": "other@example.test"}, "mismatch"),
+        ({"ONE_EMAIL_ADDRESS": "other@example.test"}, "mismatch"),
+    ],
+)
+def test_candidate_sender_uses_runtime_defaults_without_global_secret_requirements(
+    monkeypatch, entries, expected
+):
+    monkeypatch.setattr(
+        parity,
+        "_read_secret_value",
+        lambda *_: pytest.fail("Literal/absent sender bindings must not read global secrets"),
+    )
+    report = parity._support_sender_contract(
+        "fixture", {key: {"value": value} for key, value in entries.items()}
+    )
+    assert report == {"status": expected}
+    assert "other@example.test" not in json.dumps(report)
+
+
+@pytest.mark.parametrize("value,expected", [("one@hushh.ai", "valid"), (None, "unavailable")])
+def test_candidate_sender_reads_only_its_pinned_secret_version(monkeypatch, value, expected):
+    reads = []
+
+    def read(project, name, version):
+        reads.append((project, name, version))
+        return value
+
+    monkeypatch.setattr(parity, "_read_secret_value", read)
+    assert parity._support_sender_contract(
+        "fixture",
+        {
+            "SUPPORT_EMAIL_FROM": {
+                "valueFrom": {"secretKeyRef": {"name": "candidate-sender", "key": "7"}}
+            }
+        },
+    ) == {"status": expected}
+    assert reads == [("fixture", "candidate-sender", "7")]
+
+
+def test_uat_unreadable_revision_is_not_treated_as_disabled_integrations(monkeypatch):
+    monkeypatch.setattr(parity, "_describe_run_revision", lambda *_: None)
+    monkeypatch.setattr(
+        parity,
+        "_has_secret",
+        lambda *_: pytest.fail("No inferred inventory after a failed runtime read"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify",
+            "--project",
+            "fixture",
+            "--backend-revision",
+            "candidate",
+            "--assert-runtime-env-contract",
+            "--configured-integrations-only",
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        parity.main()

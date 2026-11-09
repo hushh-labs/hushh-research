@@ -198,6 +198,10 @@ def _candidate_execution(
     return None
 
 
+class PendingSettlement(ValueError):
+    """Only observed log-publication lag or transient HTTP completion may wait."""
+
+
 def verify_paid_admission(
     environment: str,
     revision: str,
@@ -205,6 +209,7 @@ def verify_paid_admission(
     *,
     baseline: dict | None = None,
     not_before: datetime | None = None,
+    retry_pending: bool = False,
 ) -> dict:
     """Never create jobs or execute financial work while checking admission."""
     project, origin = TARGETS[environment]
@@ -259,6 +264,12 @@ def verify_paid_admission(
             logs, triggered_at=cutoff, expected_job=config["name"], expected_uri=uri
         )
         if observed is None:
+            if retry_pending and completion.completion_state(
+                logs, triggered_at=cutoff, expected_job=config["name"], expected_uri=uri
+            ) in {"pending", "transient_failure"}:
+                raise PendingSettlement(
+                    f"Answer settlement {stage} completion is pending"
+                )
             raise ValueError(
                 f"Answer settlement {stage} lacks fresh authenticated completion"
             )
@@ -278,6 +289,10 @@ def verify_paid_admission(
                 logs, revision=revision, uri=uri, not_before=not_before
             )
             if not execution:
+                if retry_pending and logs == []:
+                    raise PendingSettlement(
+                        f"Answer settlement {stage} candidate execution is pending"
+                    )
                 raise ValueError(
                     f"Answer settlement {stage} has not executed on the serving candidate"
                 )
@@ -356,7 +371,14 @@ def main() -> int:
         "--payments-enabled", choices=("true", "false"), default="false"
     )
     parser.add_argument("--drain-enabled", choices=("true", "false"), default="false")
+    parser.add_argument("--pending-exit-code", type=int, choices=(1, 75), default=1)
     args = parser.parse_args()
+    if args.pending_exit_code == 75 and (
+        args.environment != "uat" or not args.paid_admission
+    ):
+        parser.error(
+            "pending exit codes are supported only for UAT paid-admission polling"
+        )
     try:
         if args.coordinates:
             print(*TARGETS[args.environment])
@@ -388,6 +410,7 @@ def main() -> int:
                     args.revision,
                     args.tools_dir,
                     baseline=baseline,
+                    retry_pending=args.pending_exit_code == 75,
                     not_before=datetime.fromisoformat(
                         args.not_before.replace("Z", "+00:00")
                     )
@@ -400,6 +423,9 @@ def main() -> int:
                 )
             args.output.write_text(json.dumps(result, indent=2) + "\n")
         return 0
+    except PendingSettlement as error:
+        print(f"Answer settlement admission pending: {error}", file=sys.stderr)
+        return args.pending_exit_code
     except (ValueError, OSError, subprocess.TimeoutExpired) as error:
         print(f"Answer settlement admission refused: {error}", file=sys.stderr)
         return 1

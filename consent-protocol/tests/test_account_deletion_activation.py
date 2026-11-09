@@ -297,52 +297,6 @@ def test_uat_retirement_cannot_omit_rollback_from_foreign_or_incomplete_proof(
         owner.uat_tags_rollback(evidence, **_tags_binding(args))
 
 
-def test_uat_tag_cleanup_executes_bound_retirement_projection_and_preserves_frontend(
-    uat_retirement, tmp_path
-):
-    _owner, args, evidence = uat_retirement
-    step = _step("Retire old UAT revision tags after a healthy release")
-    script = step["run"]
-    for name, document in (
-        ("uat-release-status", {"status": "healthy"}),
-        ("uat-account-deletion-activation", evidence),
-    ):
-        path = tmp_path / (name + ".json")
-        path.write_text(json.dumps(document))
-        script = script.replace("/tmp/" + name + ".json", str(path))  # noqa: S108 -- workflow literal replaced by pytest-owned path.
-    script = script.replace("${{ inputs.preserve_paused_drive_worker }}", "true")
-    capture = tmp_path / "retention.jsonl"
-    fake = tmp_path / "bash"
-    fake.write_text(
-        "#!/usr/bin/env python3\nimport json,sys\n"
-        f"with open({str(capture)!r},'a') as stream: stream.write(json.dumps(sys.argv[1:])+'\\n')\n"
-    )
-    fake.chmod(0o755)
-    bash = shutil.which("bash")
-    environment = {
-        **os.environ,
-        "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
-        "GCP_PROJECT_ID": args.project,
-        "GCP_REGION": args.region,
-        "BACKEND_SERVICE": args.backend_service,
-        "FRONTEND_SERVICE": "hushh-webapp",
-        "BACKEND_REVISION_RETENTION": "2",
-        "FRONTEND_REVISION_RETENTION": "2",
-        "BACKEND_CURRENT": "consent-protocol-current",
-        "BACKEND_ROLLBACK": "consent-protocol-legacy",
-        "FRONTEND_CURRENT": "hushh-webapp-current",
-        "FRONTEND_ROLLBACK": "hushh-webapp-previous",
-        "DEPLOY_SHA": args.expected_sha,
-        "GITHUB_RUN_ID": args.expected_run_id,
-        "ACTIVATION_RESULT": "success",
-    }
-    subprocess.run([bash, "-euc", script], env=environment, cwd=ROOT, check=True)  # noqa: S603
-    backend, frontend = [json.loads(row) for row in capture.read_text().splitlines()]
-    assert backend[backend.index("--rollback-revision") + 1] == ""
-    assert frontend[frontend.index("--rollback-revision") + 1] == "hushh-webapp-previous"
-    assert backend[-3:] == frontend[-3:] == ["--apply", "--healthy", "--tags-only"]
-
-
 def test_uat_retirement_owner_survives_checkout_without_the_new_helper(tmp_path):
     preserved = _step("Preserve current release tooling")["run"]
     copy = re.search(

@@ -313,9 +313,19 @@ def _expected_gmail_redirect_uri(app_frontend_origin: str | None) -> str | None:
     return _expected_oauth_redirect_uri(app_frontend_origin, GMAIL_OAUTH_RETURN_PATH)
 
 
-def _gmail_redirect_contract(project: str) -> dict[str, str]:
-    configured = _read_secret_value(project, "GMAIL_OAUTH_REDIRECT_URI")
-    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+def _gmail_redirect_contract(
+    project: str, env_map: dict[str, dict[str, Any]] | None = None
+) -> dict[str, str]:
+    configured = (
+        _read_secret_value(project, "GMAIL_OAUTH_REDIRECT_URI")
+        if env_map is None
+        else _read_runtime_value(project, env_map, "GMAIL_OAUTH_REDIRECT_URI")
+    )
+    frontend_origin = (
+        _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+        if env_map is None
+        else _read_runtime_value(project, env_map, "APP_FRONTEND_ORIGIN")
+    )
     expected = _expected_gmail_redirect_uri(frontend_origin)
     if configured is None or frontend_origin is None:
         status = "unavailable"
@@ -331,9 +341,19 @@ def _gmail_redirect_contract(project: str) -> dict[str, str]:
     }
 
 
-def _calendar_redirect_contract(project: str) -> dict[str, str]:
-    configured = _read_secret_value(project, "GOOGLE_OAUTH_REDIRECT_URI")
-    frontend_origin = _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+def _calendar_redirect_contract(
+    project: str, env_map: dict[str, dict[str, Any]] | None = None
+) -> dict[str, str]:
+    configured = (
+        _read_secret_value(project, "GOOGLE_OAUTH_REDIRECT_URI")
+        if env_map is None
+        else _read_runtime_value(project, env_map, "GOOGLE_OAUTH_REDIRECT_URI")
+    )
+    frontend_origin = (
+        _read_secret_value(project, "APP_FRONTEND_ORIGIN")
+        if env_map is None
+        else _read_runtime_value(project, env_map, "APP_FRONTEND_ORIGIN")
+    )
     expected = _expected_oauth_redirect_uri(frontend_origin, CALENDAR_OAUTH_RETURN_PATH)
     if configured is None or frontend_origin is None:
         status = "unavailable"
@@ -364,6 +384,29 @@ def _read_runtime_value(
     if not name or not version:
         return None
     return _read_secret_value(project, name, version)
+
+
+def _support_sender_contract(
+    project: str, env_map: dict[str, dict[str, Any]]
+) -> dict[str, str]:
+    """Validate configured candidate sender overrides using the runtime's defaults."""
+    keys = ("ONE_EMAIL_ADDRESS", "SUPPORT_EMAIL_DELEGATED_USER", "SUPPORT_EMAIL_FROM")
+    if not any(key in env_map for key in keys):
+        return {"status": "default"}
+    values = {}
+    for key in keys:
+        if key not in env_map:
+            continue
+        value = _read_runtime_value(project, env_map, key)
+        if value is None:
+            return {"status": "unavailable"}
+        values[key] = value.strip()
+    # Match SupportEmailConfig: optional absent/empty overrides fall back to
+    # One's mailbox. A bound but unreadable secret is never an absent override.
+    mailbox = values.get("ONE_EMAIL_ADDRESS") or "one@hushh.ai"
+    delegated = values.get("SUPPORT_EMAIL_DELEGATED_USER") or mailbox
+    sender = values.get("SUPPORT_EMAIL_FROM") or delegated
+    return {"status": "valid" if delegated == sender == "one@hushh.ai" else "mismatch"}
 
 
 def _domain_runtime_contract(
@@ -788,6 +831,42 @@ def _backend_candidate_env(
     return backend_env, backend_revisions
 
 
+def _select_configured_integrations(
+    args: argparse.Namespace,
+    backend_env: dict[str, dict[str, Any]],
+    checks_backend: bool,
+) -> dict[str, str]:
+    """UAT opt-in: validate whole installed groups, including partial bindings.
+
+    No binding means unconfigured, not proof that the product feature is disabled.
+    Explicit --require-* flags remain strict. Auth/privacy flags are never used
+    as disable switches: any One Email binding selects its full contract.
+    """
+    if not args.configured_integrations_only or not checks_backend:
+        return {}
+    groups = {
+        "plaid": BACKEND_PLAID_REQUIRED,
+        "market_data": BACKEND_MARKET_REQUIRED,
+        "gmail": BACKEND_GMAIL_REQUIRED,
+        "calendar": BACKEND_CALENDAR_REQUIRED,
+        "one_email": BACKEND_ONE_EMAIL_RUNTIME_REQUIRED,
+    }
+    selection = {}
+    for capability, keys in groups.items():
+        attr = f"require_{capability}"
+        explicit = getattr(args, attr)
+        installed = any(key in backend_env for key in keys)
+        setattr(args, attr, explicit or installed)
+        selection[capability] = (
+            "explicitly_required"
+            if explicit
+            else "configured"
+            if installed
+            else "not_configured"
+        )
+    return selection
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify required GCP Secret Manager keys for deploy parity."
@@ -886,13 +965,32 @@ def main() -> int:
         "--report-path",
         help="Optional JSON report path for machine-readable RCA artifacts.",
     )
+    parser.add_argument(
+        "--configured-integrations-only",
+        action="store_true",
+        help="UAT: require installed optional integration groups on the selected revision(s).",
+    )
     args = parser.parse_args()
+    if args.configured_integrations_only and (
+        not args.assert_runtime_env_contract
+        or not (args.backend_revision or args.frontend_revision)
+    ):
+        parser.error(
+            "--configured-integrations-only requires exact revisions and runtime inspection"
+        )
 
     checks_backend, checks_frontend = _parity_targets(
         args.backend_revision, args.frontend_revision
     )
 
     backend_env, backend_revisions = _backend_candidate_env(args, checks_backend)
+    if args.configured_integrations_only and checks_backend and not backend_env:
+        parser.error(
+            "Selected backend runtime configuration is unavailable; integrations are unverified"
+        )
+    integration_selection = _select_configured_integrations(
+        args, backend_env, checks_backend
+    )
     connected_systems_required, connected_systems_contract = (
         _connected_systems_credentials(backend_env)
         if checks_backend and args.require_connected_systems
@@ -949,6 +1047,7 @@ def main() -> int:
         "backend_revision": args.backend_revision,
         "frontend_revision": args.frontend_revision,
         "targets": {"backend": checks_backend, "frontend": checks_frontend},
+        "integration_selection": integration_selection,
         "required": {
             "backend": list(BACKEND_REQUIRED) if checks_backend else [],
             "frontend": list(FRONTEND_REQUIRED) if checks_frontend else [],
@@ -1064,14 +1163,22 @@ def main() -> int:
         print(f"Missing secrets ({len(missing)}): {_format_names(missing)}")
 
     if checks_backend and args.require_gmail:
-        gmail_redirect_contract = _gmail_redirect_contract(args.project)
+        gmail_redirect_contract = (
+            _gmail_redirect_contract(args.project, backend_env)
+            if args.configured_integrations_only
+            else _gmail_redirect_contract(args.project)
+        )
         report["gmail_redirect_contract"] = gmail_redirect_contract
         print(f"Gmail OAuth redirect contract: {gmail_redirect_contract['status']}")
         if gmail_redirect_contract["status"] != "valid":
             report["classifications"].append("gmail_oauth_redirect_contract_failed")
 
     if checks_backend and args.require_calendar:
-        calendar_redirect_contract = _calendar_redirect_contract(args.project)
+        calendar_redirect_contract = (
+            _calendar_redirect_contract(args.project, backend_env)
+            if args.configured_integrations_only
+            else _calendar_redirect_contract(args.project)
+        )
         report["calendar_redirect_contract"] = calendar_redirect_contract
         print(
             f"Calendar OAuth redirect contract: {calendar_redirect_contract['status']}"
@@ -1136,6 +1243,15 @@ def main() -> int:
                 )
                 for key in BACKEND_RUNTIME_REQUIRED
             ]
+        if checks_backend and args.configured_integrations_only:
+            # Legacy parity checked only Secret Manager existence for these
+            # groups. Scoped UAT also rejects incomplete runtime injection.
+            optional_runtime_keys = (
+                BACKEND_PLAID_REQUIRED if args.require_plaid else ()
+            ) + (BACKEND_MARKET_REQUIRED if args.require_market_data else ())
+            backend_entries.extend(
+                _classify_runtime_key(backend_env, key) for key in optional_runtime_keys
+            )
         backend_gmail_entries = []
         if checks_backend and args.require_gmail:
             backend_gmail_entries = [

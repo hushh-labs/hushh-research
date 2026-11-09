@@ -159,14 +159,18 @@ if ! command -v gcloud >/dev/null 2>&1; then
 fi
 
 job_state() {
-  gcloud scheduler jobs describe "${JOB_NAME}" \
+  # A successful empty inventory means absent. A denied/unavailable read must
+  # fail rather than silently claiming that the kill switch was reconciled.
+  gcloud scheduler jobs list \
     --project="${PROJECT_ID}" \
     --location="${SCHEDULER_LOCATION}" \
+    --filter="name=projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${JOB_NAME}" \
     --format='value(state)'
 }
 
 if [[ "${DRAIN_ENABLED}" == "0" ]]; then
-  if ! STATE="$(job_state 2>/dev/null)"; then
+  STATE="$(job_state)"
+  if [[ -z "${STATE}" ]]; then
     echo "Scheduled-mail drain disabled; ${JOB_NAME} does not exist and was not created"
     exit 0
   fi

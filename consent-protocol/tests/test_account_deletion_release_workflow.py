@@ -1255,3 +1255,55 @@ def test_production_deploys_share_one_global_concurrency_group() -> None:
         "cancel-in-progress": False,
         "queue": "max",
     }
+
+
+@pytest.mark.parametrize(
+    "status,pending_code,expected",
+    [
+        (None, 75, 75),
+        (200, 75, 0),
+        (403, 75, 1),
+        (404, 75, 1),
+        (429, 75, 75),
+        (503, 75, 75),
+        ("missing", 75, 1),
+        (None, 1, 1),
+        (503, 1, 1),
+    ],
+)
+def test_uat_scheduler_wait_code_distinguishes_lag_from_terminal_failures(
+    monkeypatch, tmp_path, status, pending_code, expected
+):
+    verifier = _scheduler_attempt_module()
+    entries = json.loads((CLOUD_SCHEDULER_FIXTURES / "fresh_success.json").read_text())
+    if status is None:
+        entries = []
+    elif status == "missing":
+        entries[0]["httpRequest"].pop("status", None)
+    else:
+        entries[0]["httpRequest"]["status"] = status
+    logs, evidence = tmp_path / "logs.json", tmp_path / "evidence.json"
+    logs.write_text(json.dumps(entries))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "verify",
+            "--logs-json",
+            str(logs),
+            "--triggered-at",
+            "2026-09-04T15:30:00Z",
+            "--expected-job",
+            "projects/hushh-pda-uat/locations/us-central1/jobs/account-deletion-cleanup-uat",
+            "--expected-uri",
+            "https://api.uat.hushh.ai/api/account/deletion-cleanup/drain?limit=10",
+            "--evidence-path",
+            str(evidence),
+            "--pending-exit-code",
+            str(pending_code),
+        ],
+    )
+    assert verifier.main() == expected
+    report = json.loads(evidence.read_text())
+    if pending_code == 75 and expected == 1:
+        assert report["status"] == "blocked"

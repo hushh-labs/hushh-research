@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci" / "verify-cloudrun-revision-provenance.py"
 SPEC = importlib.util.spec_from_file_location("verify_cloudrun_revision_provenance", SCRIPT_PATH)
@@ -256,3 +258,57 @@ def test_live_provenance_records_only_the_expected_serving_image(tmp_path):
     _write_json(revision, payload)
     assert MODULE.main(arguments) == 1
     assert json.loads(report.read_text())["checked_revisions"][0]["image_verified"] is False
+
+
+@pytest.mark.parametrize("defect", [None, "ready", "service", "sha", "image", "runtime", "traffic"])
+def test_uat_live_rollback_proof_refuses_unready_foreign_or_unproven_revision(tmp_path, defect):
+    name, sha = "consent-protocol-002", "a" * 40
+    revision = _revision_payload(name, deploy_sha=sha)
+    revision["metadata"]["labels"]["serving.knative.dev/service"] = "consent-protocol"
+    revision["status"] = {
+        "imageDigest": "gcr.io/fixture/backend@sha256:" + "b" * 64,
+        "conditions": [{"type": "Ready", "status": "True"}],
+    }
+    service = _service_payload(name)
+    if defect == "ready":
+        revision["status"]["conditions"][0]["status"] = "False"
+    if defect == "service":
+        revision["metadata"]["labels"]["serving.knative.dev/service"] = "foreign"
+    if defect == "sha":
+        revision["metadata"]["labels"]["deploy-sha"] = "c" * 40
+    if defect == "image":
+        revision["status"]["imageDigest"] = "gcr.io/fixture/backend:latest"
+    if defect == "runtime":
+        revision["spec"]["containers"][0]["env"] = []
+    if defect == "traffic":
+        service["status"]["traffic"][0]["percent"] = 50
+    service_path, revision_path, report = (
+        tmp_path / name for name in ("service.json", "revision.json", "report.json")
+    )
+    _write_json(service_path, service)
+    _write_json(revision_path, revision)
+    assert MODULE.main(
+        [
+            "--project",
+            "hushh-pda-uat",
+            "--region",
+            "us-central1",
+            "--service",
+            "consent-protocol",
+            "--expected-env",
+            "uat",
+            "--expected-source",
+            "deploy-uat",
+            "--expected-sha",
+            sha,
+            "--candidate-revision",
+            name,
+            "--service-json",
+            str(service_path),
+            "--rollback-revision-json",
+            str(revision_path),
+            "--report-path",
+            str(report),
+        ]
+    ) == (0 if defect is None else 1)
+    assert json.loads(report.read_text())["ok"] is (defect is None)

@@ -933,9 +933,12 @@ Dev and UAT execute selected preservation through
 [scripts/ci/run-release-pkm-gate.sh](../../../scripts/ci/run-release-pkm-gate.sh)
 independently of backend deployment. A frontend-only change can therefore require
 preservation without a backend migration. The helper owns its proxy and temporary
-resources, pins the environment/project, and propagates the existing synthetic
-preservation gate's result. Selected reviewer navigation uses memory-only Secret
-Manager resolution; dev refuses release acceptance when its required receipt is
+resources and pins the environment/project. UAT passes `--sql-only` to execute
+only the transaction-rolled-back PostgreSQL rehearsal; Dev retains the full gate.
+UAT CD no longer reruns the gate's ten frontend and nine backend source suites.
+CI selection and execution are unchanged: when CI does not select those suites,
+this change adds no replacement coverage. Selected reviewer navigation uses
+memory-only Secret Manager resolution; dev refuses release acceptance when its required receipt is
 missing, skipped or failed. Candidate health, schema, provenance and semantic
 verification keep their existing authority.
 
@@ -959,6 +962,108 @@ in independent browser lifetimes. It defaults to false. The input requests
 diagnostics, grants no mutation authority, and records requested and completed
 pass counts in the release receipt. A failed pass stops that
 rehearsal; it does not change the existing advisory rollback policy.
+
+### Ordinary UAT deployment diagnostics and configuration
+
+Ordinary `uat` deployment does not run the analytics browser journey, a signed-in
+browser sweep, repeated BYOK, PWM acceptance or paid synthetic model evaluations
+by default. `repeat_reviewer_byok=true` is the existing explicit route for analytics
+delivery on a selected frontend plus two read-only BYOK browser passes. It installs
+Node/npm and Chromium only when requested (or for explicit PWM acceptance).
+An explicitly requested analytics failure still prevents promotion; a skipped
+journey is recorded as not required, never as a passing browser proof. The legacy
+isolated-UAT prepromotion analytics path is unchanged. The existing
+`npm run smoke:analytics:uat` command also remains available for diagnosis.
+
+The frontend build still refuses a production analytics measurement ID in UAT.
+Firebase/domain parity, passkey associations and protected-list safeguards remain
+blocking. Current parity tooling is preserved across the application checkout.
+
+Runtime parity inspects the exact revisions of deployed services. Ordinary UAT
+uses `--configured-integrations-only`: Plaid, market data, Gmail, Calendar and
+One Email require their complete credential/runtime group when any group binding
+is installed. A partial group blocks. An absent group is reported as
+`not_configured`; that is not proof that its product UI is disabled. Explicit
+`--require-*` arguments still enforce the full contract. Cloud-read failures do
+not count as disabled capabilities. One Email auth and strict client-ZK values
+remain mandatory whenever One Email is installed. Reviewer browser credentials
+are required for the explicit browser route; the separate authenticated semantic
+smoke still needs its own smoke identity.
+
+The semantic smoke checks selected services for successful HTTP responses and
+retains authenticated owner/private-runtime boundary checks on every scope.
+Frontend-only releases do not probe the untouched backend's optional Gmail
+configuration. Backend releases use the parity result to decide whether Gmail
+must be configured; configured-but-failing Gmail, invalid responses, authentication
+failures and actual health failures remain blocking. Scope and optional-integration
+selection remain UAT opt-ins. The shared semantic
+HTTP helper now requires successful 2xx responses for all callers and stops
+its dependent probes after authentication failure.
+
+Ordinary UAT validates configured sender overrides on the exact backend candidate
+before promoting traffic. Optional absent sender overrides use the application's
+One-mailbox defaults; a configured wrong sender or unreadable pinned binding blocks.
+The legacy strict prepromotion route retains its existing sender prerequisite.
+Frontend-only releases do not provision enabled scheduled mail. An explicit mail
+kill switch still proves that its existing job is absent or paused, including on a
+frontend-only release. Disabled reconciliation does not create identities or jobs,
+and an unreadable scheduler inventory is not treated as absence.
+Backend Gmail-monitor setup follows the exact candidate's Gmail parity selection:
+an unconfigured capability pauses an existing UAT monitor without provisioning it.
+When configuration returns, this explicit CD route resumes the paused UAT job.
+Default operator and production invocations retain their existing behavior.
+The release status records `configured` or `reconciled-disabled`; both require a
+successful reconciliation. Calendar retains its checked-in backend gate/pause
+contract, and Drive worker rollout requirements are unchanged.
+
+Post-release revision-tag retirement runs through the existing Capacity Maintenance
+workflow, outside release acceptance. Its accepted-source/live-state checks protect
+serving, rollback and last-known-good revisions. Its existing checkpoint journal
+records uncertain tag-removal/deletion outcomes before another mutation is allowed.
+Historical post-release-cleanup recovery readers remain for older runs. Deployment
+still removes the temporary analytics tag when that diagnostic ran; this is distinct
+from retiring old release tags.
+
+Coverage limits: the default CD path no longer proves GA4 delivery, browser navigation
+or optional integration behavior for unconfigured groups. Existing CI selection is
+unchanged and supplies no new substitute for these omitted diagnostics. No hosted
+rollout or actual maintenance mutation is established by local fixture tests.
+
+### UAT CD admission, rollback and retries
+
+Ordinary UAT CD trusts application and tooling changes reviewed into protected
+`uat`; its build and migration files need not match Main. Main-owned orchestration,
+live deployment authorization, exact/current CI attempts, protected-path review,
+manifest validation and serving-state admission remain required. Isolated CI and
+its release-input parity remain unchanged. Dev's explicit recipe check and
+production's separate Main approval/UAT-acceptance requirements remain in place.
+
+Rollback first verifies the captured live revision's single serving target,
+service identity, Ready condition, immutable image and matching source/runtime
+provenance. Immutable revision metadata is captured once and reused. Only an
+unavailable/invalid live target triggers the last-known-good tag fetch; both
+fallback lanes share that fetch and each fallback revision must independently
+pass readiness/provenance checks. Existing database rollback guards remain.
+
+Health probes reject redirects and non-2xx, including 401/403/404. Authentication
+failure stops dependent owner/browser/paid probes and closes its HTTP session.
+The candidate-health loop retains five attempts with 15-second request limits;
+only classified timeouts, connection failures or HTTP 408/429/502/503/504 may wait.
+Semantic verification gets one additional attempt only when every blocking failure
+is classified transient. TLS, authorization, malformed/configuration failures and
+unknown errors stop immediately. Configuration parity and browser installation
+have no blanket retry. Requested analytics retains its existing observed-static-
+asset-5xx retry. Scheduler/settlement polling waits only for missing completion
+publication or classified transient completion; terminal/invalid evidence stops.
+Polling never repeats financial mutations. Local proxy-readiness polling remains
+bounded startup waiting, not command retry.
+
+Each exact-CI source-validation pass reuses its run response for provenance and
+status. Repository, workflow, run/attempt and inventory are all read freshly after
+evidence inspection. Admission no longer repeats its immutable Git proof. No cache crosses a process
+or deployment boundary, and authorization, maintenance journals, security alerts
+and serving state are not cached or waived. The independent uploaded-checkpoint
+verification and mode-aware Azure receipt validation are retained.
 
 ### Managed-provider readiness policy
 
@@ -2075,9 +2180,10 @@ budget is 40 minutes; node-role budget remains 30. A faster install is a hosted
 measurement to verify, not a guaranteed mirror characteristic.
 
 UAT uses the same mirror preference removal and prepares locked npm dependencies,
-Chromium and its system libraries once for the union of frontend analytics and
-selected protected browser checks. Setup retries at most twice within eight
-minutes and remains blocking. Its Chromium cache has a separate key from CI's
+Chromium and its system libraries once when explicit browser/PWM diagnostics run
+(or for the legacy isolated-UAT analytics gate). Ordinary frontend deployment
+without these diagnostics installs none of those browser dependencies. Setup remains
+blocking and does not repeat unclassified installer failures. Its Chromium cache has a separate key from CI's
 Chromium/WebKit cache; restored binaries still pass the normal installer.
 Both backend provider probes run independently after image and IAM verification.
 The required provider aggregate waits for both results and the deployed candidate

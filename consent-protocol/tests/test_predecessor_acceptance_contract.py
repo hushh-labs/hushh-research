@@ -494,9 +494,23 @@ def test_release_status_never_treats_a_missing_classifier_as_healthy(
     steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
     step = next(step for step in steps if "release status artifact" in step.get("name", ""))
     script = str(step["run"]).split("export STATUS", 1)[0]
+    # A healthy frontend-only UAT fixture skips enabled mail provisioning.
+    # An omitted/disabled mail setting correctly requires pause reconciliation.
+    observations = (
+        {
+            "steps.scope.outputs.deploy_frontend": "true",
+            "steps.scope.outputs.deploy_backend": "false",
+            "vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true'": "true",
+        }
+        if environment == "uat"
+        else {}
+    )
     script = re.sub(
         r"\$\{\{(.*?)\}\}",
-        lambda match: "false" if classified and ".release_failed" in match[1] else "",
+        lambda match: observations.get(
+            match[1].strip(),
+            "false" if classified and ".release_failed" in match[1] else "",
+        ),
         script,
     )
     environment_variables = os.environ.copy()

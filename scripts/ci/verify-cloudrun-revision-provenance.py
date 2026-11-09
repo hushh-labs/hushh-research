@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import runpy
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -303,6 +304,60 @@ def verify(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def verify_rollback(args: argparse.Namespace) -> dict[str, Any]:
+    """UAT-only rollback proof; no traffic or revision mutation is performed."""
+    revision = _load_json_file(args.rollback_revision_json) or {}
+    metadata = revision.get("metadata") or {}
+    labels = metadata.get("labels") or {}
+    status = revision.get("status") or {}
+    name = metadata.get("name") or ""
+    checks = {
+        "uat_only": args.expected_env == "uat" and args.expected_source == "deploy-uat",
+        "revision": name == args.candidate_revision
+        and name.startswith(args.service + "-")
+        and bool(re.fullmatch(r"[a-z][a-z0-9-]{1,127}", name)),
+        "service": labels.get("serving.knative.dev/service") == args.service,
+        "source": bool(re.fullmatch(r"[0-9a-f]{40}", args.expected_sha))
+        and labels.get("deploy-sha") == args.expected_sha
+        and labels.get("deploy-env") == "uat"
+        and labels.get("deploy-source") == "deploy-uat",
+        "ready": any(
+            item.get("type") == "Ready" and str(item.get("status")).lower() == "true"
+            for item in status.get("conditions") or []
+            if isinstance(item, dict)
+        ),
+        "immutable_image": bool(
+            re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                str(status.get("imageDigest") or "").rsplit("@", 1)[-1],
+            )
+        ),
+        "runtime_provenance": all(
+            _revision_env(revision).get(key) == value
+            for key, value in _expected_pairs(args).items()
+        ),
+    }
+    if args.service_json:
+        resolve = runpy.run_path(
+            str(Path(__file__).with_name("resolve-cloud-run-serving-state.py"))
+        )["resolve_serving_state"]
+        try:
+            checks["captured_serving_revision"] = (
+                resolve(_load_json_file(args.service_json) or {}).revision == name
+            )
+        except ValueError:
+            checks["captured_serving_revision"] = False
+    ok = all(checks.values())
+    return {
+        "mode": "rollback",
+        "service": args.service,
+        "revision": name,
+        "status": "healthy" if ok else "blocked",
+        "ok": ok,
+        "checks": checks,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True)
@@ -313,18 +368,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-sha", required=True)
     parser.add_argument("--expected-run-id", default="")
     parser.add_argument("--candidate-revision", default="")
+    parser.add_argument("--rollback-revision-json", default="")
     parser.add_argument("--expected-image-reference", default="")
     parser.add_argument("--candidate-tag", default="")
     parser.add_argument("--report-path", required=True)
     parser.add_argument("--service-json", default="")
     parser.add_argument("--revision-json", action="append", default=[])
     args = parser.parse_args(argv)
-    if args.candidate_revision and not args.expected_image_reference:
+    if (
+        args.candidate_revision
+        and not args.expected_image_reference
+        and not args.rollback_revision_json
+    ):
         parser.error("candidate verification requires --expected-image-reference")
     if not args.candidate_revision and args.candidate_tag:
         parser.error("candidate tag checks require --candidate-revision")
 
-    report = verify(args)
+    report = verify_rollback(args) if args.rollback_revision_json else verify(args)
     report_path = Path(args.report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(

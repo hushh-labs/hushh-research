@@ -159,10 +159,18 @@ def test_selected_pkm_gate_runs_without_a_backend_deployment(environment):
     steps = workflow["jobs"]["deploy"]["steps"]
     gate = next(step for step in steps if step.get("id") == "verify-pkm-preservation")
     # This is a release-authority wiring contract: frontend-only selection must
-    # execute the same preservation gate instead of merely installing its deps.
+    # execute preservation instead of merely installing its dependencies.
     assert gate["if"] == "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'"
     assert gate.get("continue-on-error", False) is False
-    assert gate["run"] == f"bash scripts/ci/run-release-pkm-gate.sh {environment}"
+    mode = " --sql-only" if environment == "uat" else ""
+    assert gate["run"] == f"bash scripts/ci/run-release-pkm-gate.sh {environment}{mode}"
+    if environment == "uat":
+        setup = next(
+            step
+            for step in steps
+            if step["name"] == "Install UAT browser verification dependencies"
+        )
+        assert "requires_web_dependencies" not in setup["if"]
     proxy = next(step for step in steps if step["name"] == "Install Cloud SQL Auth Proxy")
     assert "steps.verification-plan.outputs.run_pkm_upgrade_gate == 'true'" in proxy["if"]
     assert steps.index(gate) < next(
@@ -171,11 +179,19 @@ def test_selected_pkm_gate_runs_without_a_backend_deployment(environment):
 
 
 @pytest.mark.parametrize(
-    ("environment", "project", "gate_exit"),
-    [("dev", "hushh-pda-dev", 0), ("uat", "hushh-pda-uat", 73), ("dev", "hushh-pda", None)],
+    ("environment", "project", "gate_exit", "mode"),
+    [
+        ("dev", "hushh-pda-dev", 0, None),
+        ("uat", "hushh-pda-uat", 73, None),
+        ("dev", "hushh-pda", None, None),
+        ("uat", "hushh-pda-uat", 0, "--sql-only"),
+        ("uat", "hushh-pda-uat", 73, "--sql-only"),
+        ("dev", "hushh-pda-dev", None, "--sql-only"),
+        ("uat", "hushh-pda-uat", None, "--unknown"),
+    ],
 )
 def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
-    tmp_path, environment, project, gate_exit
+    tmp_path, environment, project, gate_exit, mode
 ):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -190,7 +206,10 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
     )
     gcloud = bin_dir / "gcloud"
     gcloud.write_text('#!/bin/sh\necho "fixture-credential"\n')
-    (bin_dir / "psql").write_text("#!/bin/sh\nexit 0\n")
+    (bin_dir / "psql").write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$PGHOST:$PGPORT:$PGDATABASE" "$@" > "$CALLS_FILE"\n'
+        f"exit {gate_exit or 0}\n"
+    )
     (bin_dir / "psql").chmod(0o700)
     proxy.chmod(0o700)
     gcloud.chmod(0o700)
@@ -198,13 +217,18 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
     (scripts / "ci").mkdir(parents=True)
     (scripts / "env").mkdir()
     for name in ("bootstrap_profiles.sh", "use_profile.sh"):
-        (scripts / "env" / name).write_text("#!/bin/sh\nexit 0\n")
+        (scripts / "env" / name).write_text(f"#!/bin/sh\nexit {91 if mode else 0}\n")
     (scripts / "ci/pkm-upgrade-gate.sh").write_text(
         '#!/bin/sh\nprintf "%s\\n" "$PGHOST:$PGPORT:$PGDATABASE" "$PKM_UPGRADE_PROTECTED_UAT" "$PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED" > "$CALLS_FILE"\n'
-        f"exit {gate_exit or 0}\n"
+        f"exit {92 if mode else gate_exit or 0}\n"
     )
     result = subprocess.run(  # noqa: S603 - repository helper and fixed synthetic environment.
-        ["bash", str(ROOT / "scripts/ci/run-release-pkm-gate.sh"), environment],
+        [
+            "bash",
+            str(ROOT / "scripts/ci/run-release-pkm-gate.sh"),
+            environment,
+            *([mode] if mode else []),
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -220,13 +244,31 @@ def test_release_pkm_gate_owns_its_connection_and_propagates_failure(
         },
     )
     if gate_exit is None:
-        assert result.returncode == 1 and "project mismatch" in result.stderr
+        assert result.returncode == 1
+        message = (
+            "Usage:"
+            if mode == "--unknown"
+            else "supported only by UAT"
+            if mode
+            else "project mismatch"
+        )
+        assert message in result.stderr
         assert not calls.exists() and not proxy_pid_file.exists()
     else:
         assert result.returncode == gate_exit, result.stderr
-        address, protected, deferred = calls.read_text().splitlines()
+        address, *details = calls.read_text().splitlines()
         host, port, database = address.split(":")
-        assert (host, database, protected, deferred) == ("127.0.0.1", "postgres", "1", "1")
+        assert (host, database) == ("127.0.0.1", "postgres")
+        if mode:
+            assert details == [
+                "--no-psqlrc",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-f",
+                "consent-protocol/db/verify/pkm_v7_zero_loss_rehearsal.sql",
+            ]
+        else:
+            assert details == ["1", "1"]
         assert 0 < int(port) < 65536
         with pytest.raises(ProcessLookupError):
             os.kill(int(proxy_pid_file.read_text()), 0)
@@ -478,3 +520,46 @@ def test_pod_publication_job_cannot_export_hosted_custody_profile():
     pod_job = workflow["jobs"]["pod-publication"]
     assert "HUSHH_HOSTED_CUSTODY_PROFILE" not in str(pod_job)
     assert "--hosted-custody-profile" not in str(pod_job)
+
+
+@pytest.mark.parametrize("requested", [False, True])
+@pytest.mark.parametrize("outcome", ["skipped", "failure", "success"])
+def test_ordinary_uat_analytics_blocks_only_when_explicitly_requested(
+    tmp_path, monkeypatch, requested, outcome
+):
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy-uat-implementation.yml").read_text()
+    )
+    step = next(
+        item
+        for item in workflow["jobs"]["deploy"]["steps"]
+        if item.get("id") == "classify-uat-release"
+    )
+    values = {key: "skipped" for key in step["env"]}
+    values.update(
+        {
+            "DEPLOY_BACKEND": "true",
+            "DEPLOY_FRONTEND": "true",
+            "PARITY_ATTEMPT_1": "success",
+            "SEMANTIC_ATTEMPT_1": "success",
+            "BACKEND_PROVENANCE_OUTCOME": "success",
+            "FRONTEND_PROVENANCE_OUTCOME": "success",
+            "DB_OUTCOME": "success",
+            "PASSKEY_ASSOCIATIONS_OUTCOME": "success",
+            "ANALYTICS_SMOKE_REQUIRED": str(requested).lower(),
+            "ANALYTICS_SMOKE_OUTCOME": outcome,
+            "PKM_EVALUATOR_RUNS": "0",
+            "GITHUB_OUTPUT": str(tmp_path / "outputs"),
+        }
+    )
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+    source = step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    source = source.replace("/tmp/", str(tmp_path) + "/")  # noqa: S108 - match the authored workflow path and redirect into pytest isolation.
+    result = subprocess.run([sys.executable, "-c", source], text=True, capture_output=True)  # noqa: S603 - trusted repository helper/workflow executed with isolated local command fixtures.
+    assert result.returncode == 0, result.stderr
+    report = json.loads((tmp_path / "uat-release-classification.json").read_text())
+    assert report["release_failed"] == (requested and outcome != "success")
+    assert report["analytics_smoke"]["required"] == requested
+    if not requested:
+        assert report["analytics_smoke"]["success"] is None
