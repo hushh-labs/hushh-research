@@ -205,6 +205,9 @@ def _protected(c: dict[str, Any]) -> tuple[bool, str]:
     if c["base_ref"] in {"dev", "uat"} and policy.get("authorization", {}).get("native_teams") is True:
         from queue_combined_result import authority_policy
         _, policy = authority_policy("hushh-labs/hushh-research", c["base_ref"], c["base"])
+    if policy.get("authorization", {}).get("native_teams"):
+        from github_team_authority import local_policy
+        policy = local_policy(policy)
     main_policy = policy.get("main")
     if not isinstance(main_policy, dict):
         raise ValueError("base protected-pipeline policy is missing")

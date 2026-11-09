@@ -87,7 +87,8 @@ def read_source(owner, repository, sha, paths=None):
         # production's pinned historical tool closure.
         current = importlib.import_module("retention_uat_guard_evidence")
         if first.get("sha") in current.OWNER_BLOBS:
-            profile = current.SOURCE_PATHS
+            profile = next(tuple(profile) for profile in current.SOURCE_PROFILES
+                           if profile[evidence.OWNER][0] == first["sha"])
     if profile is None:
         raise owner.retention.UnsafeState("maintenance pre-mutation source is unknown")
     remaining = tuple(path for path in profile if path != evidence.OWNER)

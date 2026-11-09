@@ -55,6 +55,7 @@ on:
         type: string
 
 permissions:
+  pull-requests: read
   contents: read
   actions: read
   checks: read
@@ -86,6 +87,12 @@ jobs:
       scope: ${{ 'native' }}
 
   preflight:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     if: inputs.upload_run_id == ''
     needs: deployment-security
     name: Resolve green UAT release source
@@ -313,6 +320,11 @@ jobs:
         run: rm -f "$RUNNER_TEMP/asc.p8"
 
   hardware-capture:
+    permissions:
+      contents: read
+      checks: read
+      actions: write
+      id-token: write
     name: Prove physical iPhone capture gate
     needs: [preflight, deployment-security]
     if: ${{ needs.preflight.result == 'success' && inputs.require_hardware == true }}
@@ -325,6 +337,12 @@ jobs:
     secrets: inherit
 
   ship:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Build and distribute normal UAT TestFlight build
     needs:
       - deployment-security
@@ -789,6 +807,12 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   distribute:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: Process and distribute uploaded TestFlight build
     needs: [preflight, ship, deployment-security]
     # Override implicit success(): the optional hardware ancestor may be skipped.
@@ -893,6 +917,12 @@ jobs:
         run: rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/asc-beta-review-contact.json" "$RUNNER_TEMP/asc-beta-review-notes.txt"
 
   resume:
+    permissions:
+      pull-requests: read
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     if: inputs.upload_run_id != ''
     needs: deployment-security
     runs-on: ubuntu-latest

@@ -1,16 +1,18 @@
 name: Deployment Security
-run-name: Deployment security · ${{ inputs.environment_name || 'Dev/UAT request' }}
+run-name: ${{ inputs.source_request && fromJSON(inputs.source_request).kind == 'queue' && 'Merge permission' || inputs.source_request && fromJSON(inputs.source_request).kind == 'operation' && 'Operation permission' || 'Deployment security' }}
 
 on:
-  # Protected clearance runs only for an explicitly requested deployment.
+  # Explicit deployment clearance or exact operation/queue permission only.
   workflow_dispatch:
     inputs:
       source_request:
-        description: "Exact Dev/UAT deployment request from trusted release tooling"
+        description: "Exact deployment, queue or manual-operation request from trusted tooling"
         required: true
         type: string
   workflow_call:
     secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: false
       GH_SECURITY_ALERTS_TOKEN:
         required: false
     inputs:
@@ -34,6 +36,7 @@ on:
 permissions:
   contents: read
   actions: read
+  pull-requests: read
 
 jobs:
   alerts:
@@ -75,6 +78,8 @@ jobs:
         if: always()
         with:
           name: deployment-security-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/deployment-security.json
+          path: |
+            ${{ runner.temp }}/deployment-security.json
+            ${{ runner.temp }}/merge-authorization.json
           if-no-files-found: error
           retention-days: 7

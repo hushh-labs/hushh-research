@@ -171,10 +171,10 @@ web origin `http://localhost:3000`, and `lsof -ti :6543` (proxy) / `:8000`
    CI, queue/Admin SOP and landed smoke still apply. Preserve the legacy train,
    and never transplant a dependent branch onto Main without its dependencies.
    Keep repository `allow_auto_merge` enabled; a Main merge is not a deployment.
-3. Deployment is separate on every branch. Explicit Dev dispatch starts from
-   `dev`, UAT from `uat`, and production from `main`. UAT qualifies its exact
+3. Deployment is separate on every branch. All explicit deployment entrypoints run from `main`; Dev and UAT application
+   content stays in their own protected branches. UAT qualifies its exact
    assembled application revision without a mandatory Dev deployment. Follow
-   [Admin SOP](admin-release-sop.md) and the CI runbook's matching-branch release
+   [Admin SOP](admin-release-sop.md) and the CI runbook's Main-owned release
    control; source synchronization is not deployment authorization.
 4. Monitor `PR Validation`, `Queue Validation`, `Main Post-Merge Smoke`,
    `Deploy to UAT`, and RCA-triggered release authority runs until terminal.

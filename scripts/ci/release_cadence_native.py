@@ -42,7 +42,7 @@ def completed_steps(repository: str, run: dict, name: str, steps: set[str]) -> b
 
 def completion(repository: str, run: dict, sha: str) -> dict:
     """Read only; never replace the recorded child or grant dispatch authority."""
-    from release_cadence_github import api, artifact_json, configuration
+    from release_cadence_github import api, artifact_json
     require(run.get("status") == "completed", "TestFlight upload workflow is not terminal")
     upload = artifact_json(repository, run["id"], "testflight-upload-receipt", "testflight-upload-receipt.json")
     require(valid_upload(upload, sha), "TestFlight upload source or build identity mismatch")
@@ -64,13 +64,11 @@ def completion(repository: str, run: dict, sha: str) -> dict:
                 and isinstance(inventory.get("workflow_runs"), list) and inventory["total_count"] >= 0
                 and min(inventory["total_count"], 20) == len(inventory["workflow_runs"]), "TestFlight recovery inventory is malformed")
         recoveries.extend((workflow, row) for row in inventory["workflow_runs"])
-    _, governance = configuration()
-    allowed = governance["uat"]["manual_dispatch_users"]
+    from release_acceptance_provenance import historical_human_dispatch
     for workflow, recovery in recoveries:
         if not (trusted_run(recovery, repository, workflow) and recovery.get("event") == "workflow_dispatch"
                 and recovery.get("status") == "completed" and recovery.get("conclusion") == "success"
-                and (recovery.get("actor") or {}).get("login") in allowed
-                and (recovery.get("triggering_actor") or (recovery.get("actor") if recovery.get("run_attempt", 1) == 1 else {}) or {}).get("login") in allowed):
+                and historical_human_dispatch(recovery)):
             continue
         value = artifact_json(repository, recovery["id"], "testflight-resumed-distribution", "testflight-distribution.json", optional=True)
         if not isinstance(value, dict) or value.get("upload_run_id") != run["id"]:

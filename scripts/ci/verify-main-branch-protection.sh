@@ -51,6 +51,11 @@ if not gh_executable:
 
 required_checks_arg, expected_approvals_arg, require_strict_arg, require_merge_queue_arg, require_conversation_resolution_arg, repo, branch, policy_key_arg = sys.argv[1:]
 policy = json.loads(Path(os.environ["POLICY_FILE"]).read_text(encoding="utf-8"))
+if policy.get("authorization", {}).get("native_teams"):
+    root = Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True).stdout.strip())
+    sys.path.insert(0, str(root / "scripts/ci"))
+    from github_team_authority import local_policy
+    policy = local_policy(policy)
 branch_flow = policy.get("branch_flow") or {}
 prepared = branch_flow.get("prepared_branches", {}).get(branch, {})
 known_policy_key = (

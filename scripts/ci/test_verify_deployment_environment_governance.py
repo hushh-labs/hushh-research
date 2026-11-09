@@ -59,7 +59,7 @@ def _policy(module) -> dict:
         },
         "production": {
             "owner_environment": "production",
-            "manual_dispatch_users": list(module.PRODUCTION_MANUAL_DISPATCH_USERS),
+            "manual_dispatch_users": ["synthetic-deployer"],
             "required_environment_variables": [
                 "GCP_WORKLOAD_IDENTITY_PROVIDER",
                 "GCP_DEPLOY_SERVICE_ACCOUNT",
@@ -88,6 +88,10 @@ def _stub_gh_json(module, *, variables: list[str]) -> None:
     def fake_gh_json(path: str) -> dict:
         if "/variables?per_page=100" in path:
             return {"total_count": len(variables), "variables": [{"name": name} for name in variables]}
+        if path.startswith("orgs/hushh-labs/teams/"):
+            from github_team_authority import TEAM_IDS
+            slug = path.rsplit("/", 1)[1]
+            return {"id": TEAM_IDS[slug], "slug": slug}
         return _environment_payload()
 
     module._gh_json = fake_gh_json
@@ -100,6 +104,9 @@ def test_dev_exact_branch_inventory_refuses_wildcards_and_incomplete_reads() -> 
     rows = [{"type": "branch", "name": name} for name in policy["dev"]["deployment_branches"]]
     inventory = {"total_count": len(rows), "branch_policies": rows}
     def read(path):
+        if path.startswith("orgs/"):
+            from github_team_authority import TEAM_IDS
+            return {"id": TEAM_IDS["deploy-dev"], "slug": "deploy-dev"}
         if "deployment-branch-policies" in path:
             return inventory
         if "/variables?per_page=100" in path:
@@ -153,29 +160,11 @@ def test_missing_environment_variable_fails_verification() -> None:
 
 
 def test_production_cohort_drift_is_reported() -> None:
-    """The tripwire must fire when the JSON widens past the constant.
-
-    This is the regression that went unnoticed twice: production dispatch
-    authority was widened in config/ci-governance.json without mirroring the
-    change into the constant, and nothing failed loudly enough to be acted on.
-    """
     module = _module()
-    _stub_gh_json(
-        module,
-        variables=["GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"],
-    )
-
-    policy = _policy(module)
-    policy["production"]["manual_dispatch_users"] = [
-        *module.PRODUCTION_MANUAL_DISPATCH_USERS,
-        "unauthorized-newcomer",
-    ]
-
-    errors = module._assert_surface("production", "owner/repo", policy)
-
-    assert len(errors) == 1, errors
-    assert "production manual dispatch policy drifted" in errors[0]
-    assert "unauthorized-newcomer" in errors[0]
+    _stub_gh_json(module, variables=["GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"])
+    original = module._gh_json
+    module._gh_json = lambda path: {"id": 1, "slug": "deploy-production"} if path.startswith("orgs/") else original(path)
+    assert any("team identity changed" in error for error in module._assert_surface("production", "owner/repo", _policy(module)))
 
 
 def test_a_trusted_readiness_exam_environment_must_admit_only_main() -> None:
@@ -216,40 +205,23 @@ def test_a_trusted_readiness_exam_environment_must_admit_only_main() -> None:
 
 
 def test_production_tripwire_matches_committed_policy() -> None:
-    """The constant must equal the live committed policy.
-
-    Fails the moment someone edits production.manual_dispatch_users in
-    config/ci-governance.json without mirroring it into the tripwire — exactly
-    how this drifted on 2026-08-07 and again on 2026-08-28. Unlike
-    _assert_surface, this needs no GitHub API access, so it runs in the ordinary
-    blocking Governance gate rather than only in the advisory stage.
-    """
-    module = _module()
-    policy = json.loads(module.POLICY_PATH.read_text(encoding="utf-8"))
-
-    assert policy["production"]["manual_dispatch_users"] == (
-        module.PRODUCTION_MANUAL_DISPATCH_USERS
-    ), (
-        "config/ci-governance.json -> production.manual_dispatch_users and "
-        "PRODUCTION_MANUAL_DISPATCH_USERS in "
-        "scripts/ci/verify-deployment-environment-governance.py must be updated "
-        "in the same PR"
-    )
+    root = Path(__file__).resolve().parents[2]
+    policy = json.loads((root / "config/ci-governance.json").read_text())
+    assert policy["authorization"]["native_teams"] is True
+    assert not policy["production"]["manual_dispatch_users"]
 
 
 def test_production_dispatch_accepts_only_the_approved_operators() -> None:
+    from github_team_authority import project_policy, TEAM_IDS
     root = Path(__file__).resolve().parents[2]
-    expected = {"kushaltrivedi5", "ankitkumarsingh1702", "RGlodAkshat", "imsharukhan"}
-    policy = json.loads((root / "config/ci-governance.json").read_text())
-    assert set(policy["main"]["merge_users"]) == expected
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
-    for actor in sorted(expected | {"msainani", "RGlodAkshat", "DamriaNeelesh"}):
-        result = subprocess.run(
-            [sys.executable, str(root / "scripts/ci/assert-governed-actor.py"),
-             "--surface", "production", "--actor", actor],
-            env=env, capture_output=True, text=True, check=False,
-        )
-        assert (result.returncode == 0) == (actor in expected), (actor, result.stderr)
+    saved = json.loads((root / "config/ci-governance.json").read_text())
+    members = {slug: ["synthetic-editor"] for slug in TEAM_IDS}
+    for operator in ("synthetic-deployer", "replacement-deployer"):
+        members["deploy-production"] = [operator]
+        current = project_policy(saved, members)
+        assert current["main"]["merge_users"] == [operator]
+        assert current["production"]["manual_dispatch_users"] == [operator]
+        assert saved["production"]["manual_dispatch_users"] == []
 
 
 def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "kushaltrivedi5", ref: str = "main", action: str = "",
@@ -267,19 +239,42 @@ def _validate_capacity_trigger(event_name: str, event: dict, *, actor: str = "ku
     inputs = event.get("inputs") or {}
     # Model the test event, not the CI job that happens to run this fixture.
     env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
-    return subprocess.run(
-        ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
-        env={**env, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
-             "GITHUB_RUN_ATTEMPT": str(run_attempt),
-             "GITHUB_TRIGGERING_ACTOR": actor if triggering_actor is None else triggering_actor,
-             "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
-             "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
-             "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
-             "APPLY": inputs.get("apply", ""),
-             "CLOCK_EVENT_TYPE": action},
-        capture_output=True, text=True, check=False,
-    )
-
+    import tempfile
+    # Supply a deterministic transport to the real team reader and actor checker.
+    # A unit test must not query the developer's live GitHub memberships.
+    with tempfile.TemporaryDirectory(prefix="hussh-team-fixture-") as folder:
+        wrapper = Path(folder, "python3")
+        wrapper.write_text("#!" + sys.executable + "\n" + """import os, runpy, sys
+from pathlib import Path
+sys.path.insert(0, str(Path.cwd() / 'scripts/ci'))
+import github_team_authority as team
+real = team.local_policy
+operator = os.environ['GITHUB_ACTOR']
+def read(path):
+    if path == 'user': return {'login': operator, 'type': 'User', 'id': 10}
+    slug = path.split('/')[3]
+    if '/members?' not in path: return {'id': team.TEAM_IDS[slug], 'slug': slug, 'parent': None}
+    users = ['kushaltrivedi5'] + (['azfx'] if slug in {'allowed-maintainers-to-approve', 'deploy-uat'} else [])
+    return [{'login': user, 'type': 'User', 'id': 100+i} for i,user in enumerate(users)]
+team.local_policy = lambda policy, actor=None: real(policy, actor=actor, read=read)
+script = sys.argv.pop(1)
+sys.argv[0] = script
+runpy.run_path(script, run_name='__main__')
+""")
+        wrapper.chmod(0o700)
+        env['PATH'] = folder + os.pathsep + env['PATH']
+        return subprocess.run(
+            ["bash", "-c", textwrap.dedent(match.group(1))], cwd=root,
+            env={**env, "GITHUB_EVENT_NAME": event_name, "GITHUB_REF_NAME": ref,
+                 "GITHUB_RUN_ATTEMPT": str(run_attempt),
+                 "GITHUB_TRIGGERING_ACTOR": actor if triggering_actor is None else triggering_actor,
+                 "GITHUB_ACTOR": actor, "RELEASE_ENV": inputs.get("environment", ""),
+                 "RELEASE_RUN_ID": inputs.get("healthy_release_run_id", ""),
+                 "CAPACITY_BRIDGE": inputs.get("production_capacity_bridge", ""),
+                 "APPLY": inputs.get("apply", ""),
+                 "CLOCK_EVENT_TYPE": action},
+            capture_output=True, text=True, check=False,
+        )
 
 def test_capacity_fixture_ignores_parent_retry_identity() -> None:
     from unittest.mock import patch
@@ -524,7 +519,7 @@ def _run_clock_step(started_seconds_ago: int) -> tuple[subprocess.CompletedProce
         fake_gh.write_text(
             "#!/bin/sh\n"
             f"echo \"$*\" >> '{calls}'\n"
-            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *) echo '{started}' ;; esac\n"
+            f"case \"$*\" in *--method\\ POST*) exit 0 ;; *--jq*) echo '{started}' ;; *'/runs?'*) echo '{{\"total_count\":0,\"workflow_runs\":[]}}' ;; *) echo '{{\"id\":42}}' ;; esac\n"
         )
         fake_gh.chmod(0o755)
         result = subprocess.run(

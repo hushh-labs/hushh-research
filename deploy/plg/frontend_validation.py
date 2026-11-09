@@ -242,13 +242,6 @@ def _artifact(client, inventory: dict, run: dict, prefix: str) -> tuple[dict, di
     return item, transport.unpack(raw, item["digest"])
 
 
-def _allowed_actors() -> set[str]:
-    policy = json.loads(
-        (ROOT / "config/ci-governance.json").read_text(encoding="utf-8")
-    )
-    return set(policy["production"]["manual_dispatch_users"])
-
-
 def finalize(
     run_id: int,
     run_attempt: int,
@@ -261,7 +254,9 @@ def finalize(
     client = github or transport.GitHub()
     run = client.read(f"runs/{run_id}")
     workflow = client.read(f"workflows/{WORKFLOW_NAME}")
-    qualify_run(run, workflow, run_id, _allowed_actors(), completed=False)
+    from github_team_authority import request_operation_authority
+    decision = request_operation_authority(dict(os.environ), "production", os.environ.get("GITHUB_ACTOR"))
+    qualify_run(run, workflow, run_id, {decision[k]["login"] for k in ("actor", "triggering_actor")}, completed=False)
     require(
         run["run_attempt"] == run_attempt
         and run["head_sha"] == os.environ.get("GITHUB_SHA"),
@@ -304,7 +299,7 @@ def verify(run_id: int, sha: str, github=None, api=None) -> dict:
     require(latest.get("id") == run_id, "A newer frontend validation attempt exists")
     run = client.read(f"runs/{run_id}")
     workflow = client.read(f"workflows/{WORKFLOW_NAME}")
-    qualify_run(run, workflow, run_id, _allowed_actors())
+    qualify_run(run, workflow, run_id)
     require(
         _run_identity(latest) == _run_identity(run),
         "Frontend validation inventory changed",

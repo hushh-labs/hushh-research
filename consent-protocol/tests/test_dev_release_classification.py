@@ -304,10 +304,12 @@ def test_release_phase_blocks_without_unnecessary_rollback(
         assert result.returncode == 0, result.stderr
     else:
         source = source.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-        exec(compile(source, "release-classifier", "exec"), {})  # noqa: S102 - trusted workflow source.
+        with pytest.raises(SystemExit) as terminal:
+            exec(compile(source, "release-classifier", "exec"), {})  # noqa: S102 - trusted workflow source.
+        assert terminal.value.code == 0
     outputs = dict(line.split("=", 1) for line in (tmp_path / "outputs").read_text().splitlines())
     assert outputs["release_failed"] == "true"
-    rollback = phase not in {"image", "prepromotion"}
+    rollback = phase not in {"image", "prepromotion"} and environment == "production"
     assert outputs["backend_failure"] == str(rollback).lower()
     assert outputs["frontend_failure"] == str(rollback).lower()
     early = next(i for i, item in enumerate(steps) if item.get("id") == "check-frontend-image")

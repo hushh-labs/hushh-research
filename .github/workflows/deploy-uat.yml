@@ -1,5 +1,5 @@
 name: Deploy to UAT
-run-name: UAT · app ${{ inputs.sha || 'unselected' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
+run-name: UAT · source ${{ inputs.source_branch || 'uat' }} · app ${{ inputs.sha || 'unselected' }} · scope ${{ inputs.scope || 'auto' }} · ${{ inputs.operation || 'deploy' }}
 
 on:
   workflow_dispatch:
@@ -109,8 +109,8 @@ on:
         type: boolean
 
 
-# Dispatch from the environment branch; implementation and credentials remain
-# under reviewed Main authority. Merging does not deploy any environment.
+# Dispatch from Main. The application source remains the protected environment
+# branch; merging source never deploys any environment.
 permissions:
   contents: write
   deployments: read
