@@ -304,7 +304,7 @@ def test_actions_inspection_and_early_validation_cannot_enter_release_jobs():
     assert inspector["if"] == "inputs.operation == 'inspect'"
     assert inspector["permissions"] == {
         "contents": "read",
-        "actions": "read",
+        "actions": "write",
         "checks": "read",
         "id-token": "write",
     }

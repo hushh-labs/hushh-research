@@ -133,6 +133,10 @@ jobs:
   health-image:
     name: "Prepare UAT health monitoring (manual)"
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.health_build_operation != ''
+    permissions:
+      contents: read
+      actions: write
+      id-token: write
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:

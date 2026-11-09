@@ -16,6 +16,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/ci"))
+
 import qualification_acceptance as acceptance
 import qualification_acceptance_contract as proofs
 import qualification_foundation as foundation
@@ -88,15 +90,8 @@ def context(environment: str) -> dict:
         git("rev-parse", "HEAD").strip().decode() == attempt.workflow_sha,
         "qualification_authority_checkout_changed",
     )
-    policy = json.loads((validation.ROOT / "config/ci-governance.json").read_bytes())
-    allowed = policy["production"]["manual_dispatch_users"]
-    require(
-        all(
-            os.environ.get(key) in allowed
-            for key in ("GITHUB_ACTOR", "GITHUB_TRIGGERING_ACTOR")
-        ),
-        "qualification_governed_actor_required",
-    )
+    from github_team_authority import request_operation_authority
+    request_operation_authority(dict(os.environ), "production", os.environ.get("GITHUB_ACTOR"))
     return {
         "environment": environment,
         "project": target.project,

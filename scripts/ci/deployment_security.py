@@ -22,10 +22,10 @@ IMPLEMENTATIONS = {
     for name in ("dev", "uat")
 }
 CALLERS = {
-    "deploy-uat-one-chat.yml", "resume-ios-testflight.yml", "ios-voice-device.yml",
     "deploy-dev.yml",
     "deploy-uat.yml",
     "deploy-production.yml",
+    "deploy-personal-backend.yml",
     "validate-plg-frontend-source.yml",
     "release-ios-appstore.yml",
     "ship-ios-testflight.yml",
@@ -98,7 +98,10 @@ def verify_deployment_source(read, request: dict) -> dict:
         "requested_scope",
         "tooling_sha",
     }
-    if not isinstance(request, dict) or set(request) != fields:
+    if not isinstance(request, dict) or set(request) not in (
+        fields,
+        fields | {"application_branch"},
+    ):
         raise Refused("Deployment security request fields are incomplete or unknown")
     environment = request["environment"]
     if (
@@ -113,6 +116,12 @@ def verify_deployment_source(read, request: dict) -> dict:
         }
     ):
         raise Refused("Broker only accepts explicit Dev/UAT deployment scopes")
+    application_branch = request.get("application_branch", environment)
+    if application_branch != environment and (environment, application_branch) != (
+        "uat",
+        "uat-isolated",
+    ):
+        raise Refused("Deployment application branch is not governed")
     for field in ("caller_sha", "application_sha", "tooling_sha"):
         if not isinstance(request[field], str) or not SHA.fullmatch(request[field]):
             raise Refused("Deployment security requires immutable source revisions")
@@ -179,9 +188,17 @@ def verify_deployment_source(read, request: dict) -> dict:
         }
     ):
         raise Refused("Source does not use the recorded Main deployment implementation")
+    if application_branch == "uat-isolated":
+        selected = read(f"{prefix}/branches/uat-isolated")
+        if (
+            not isinstance(selected, dict)
+            or selected.get("protected") is not True
+            or selected.get("commit", {}).get("sha") != request["application_sha"]
+        ):
+            raise Refused("Deployment requires the protected isolated UAT tip")
     for revision, branch in (
         (request["tooling_sha"], "main"),
-        (request["application_sha"], environment),
+        (request["application_sha"], application_branch),
     ):
         comparison = read(f"{prefix}/compare/{revision}...{branch}?per_page=1&page=2")
         if (
@@ -230,11 +247,9 @@ def release_authorization_binding(read, source: dict, *, producer=None) -> dict:
     surface, environment = {
         "deploy-dev.yml": ("dev", "dev"),
         "deploy-uat.yml": ("uat", "uat"),
+        "deploy-personal-backend.yml": ("uat", "uat"),
         "deploy-production.yml": ("production", "production"),
         "ship-ios-testflight.yml": ("uat", "native"),
-        "ios-voice-device.yml": ("uat", "native"),
-        "resume-ios-testflight.yml": ("uat", "native"),
-        "deploy-uat-one-chat.yml": ("uat", "uat"),
         "release-ios-appstore.yml": ("production", "native"),
         "ship-android-playstore-v1.yml": ("production", "native"),
         "publish-hushh-mcp.yml": ("production", "package"),
@@ -703,6 +718,9 @@ def request_broker(
         "environment": environment,
         "requested_scope": env["DEPLOY_SECURITY_SCOPE"],
     }
+    application_branch = env.get("DEPLOY_SECURITY_APPLICATION_BRANCH")
+    if application_branch and application_branch != environment:
+        request["application_branch"] = application_branch
     verify_deployment_source(api, request)
     intent = Path(env["RUNNER_TEMP"]) / "deployment-security-request.json"
     # The x-mode refuses a repeated invocation within the same job, including
@@ -762,6 +780,16 @@ def main() -> int:
     args = parser.parse_args()
     try:
         env = dict(os.environ)
+        request = json.loads(env.get("DEPLOY_SECURITY_REQUEST") or "{}")
+        if request.get("kind") in {"queue", "operation"}:
+            from github_team_authority import produce_queue_request, produce_operation_request
+            api = GitHub(REPOSITORY, env.get("GH_TOKEN", ""))
+            authority_producer = produce_queue_request if request["kind"] == "queue" else produce_operation_request
+            receipt = authority_producer(env, api.read, request)
+            with Path(env["RUNNER_TEMP"], "merge-authorization.json").open("x") as output:
+                json.dump(receipt, output)
+            print("Current merge permission verified; no secret scan, application or cloud mutation performed.")
+            return 0
         if args.request_broker:
             receipt = request_broker(env)
         else:

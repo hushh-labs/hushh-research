@@ -40,6 +40,7 @@ PRE_MUTATION_STEPS = frozenset({
     'Set up job',
     'Require current-attempt deployment security',
     'Assert manual dispatch originates from main',
+    'Assert manual dispatch originates from Main',
     'Assert manual dispatch originates from uat',
     'Capture trusted release implementation',
     'Checkout code',

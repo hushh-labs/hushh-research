@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import retention_preflight_evidence as base
 
 PUBLICATION = "scripts/ci/retention_publication.py"
+PASS_DIAGNOSTICS = "scripts/ci/retention_pass_diagnostics.py"
 
 CLOCK_BOUND_SOURCE_PROFILES = {
     "publication-84b": {
@@ -24,6 +25,47 @@ CLOCK_BOUND_SOURCE_PROFILES = {
         base.WORKFLOW: ("8f0660ff9a8ec42747dc338e56ad83e3dde98ce5", 20685),
         PUBLICATION: ("98e190df4afcfac18f093abfe77dc3cbe242d831", 18042),
     },
+    "publication-84b-blobless-v1": {
+        # Current Maintenance source keeps every branch/tag and full commit
+        # history, while omitting historical blobs from the initial fetch.
+        base.OWNER: ("9e68a94bd33110370e57c2e34871f7bd6b8bd7d3", 90389),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("84b57d0be377d71efa2c38b08d138924e8750b74", 18398),
+    },
+    "publication-aec6-blobless-v2": {
+        # Bounded inventory reads preserve the same source authority while
+        # reducing the maintenance guard's sequential GitHub API latency.
+        base.OWNER: ("1a55968b771cf1c393284394034978dbdf9049a6", 91239),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
+    },
+    "publication-pass-diagnostics-v3": {
+        # The owner moved stage tracking into an imported helper. Pin that
+        # helper too before recognizing the same pre-mutation guard transcript.
+        base.OWNER: ("f87558a93073034144f3c0ea0d3180abcdc753be", 93963),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
+        PASS_DIAGNOSTICS: ("93516ffd977a0ec92ec007552632820d725a27d7", 4338),
+    },
+    "publication-pass-diagnostics-v4": {
+        # Summary-only refusal codes preserve the unchanged custody transcript.
+        base.OWNER: ("f87558a93073034144f3c0ea0d3180abcdc753be", 93963),
+        base.WORKFLOW: ("58deccc41af4df30d936b1db0556832c7dc996a9", 20769),
+        PUBLICATION: ("aec6ea97718bb8fc424cf7d3ce16d7ae1c9529cb", 22166),
+        PASS_DIAGNOSTICS: ("d5d8181a7bbb60bd544753575dda74f1f92806c0", 5439),
+    },
+}
+
+CLOCK_FAMILY_HISTORICAL_NUMBERED = "historical-numbered"
+CLOCK_FAMILY_CURRENT_STATIC = "current-static"
+CLOCK_BOUND_SOURCE_PROFILE_CLOCK_FAMILIES = {
+    "publication-84b": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-939f": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-98e": CLOCK_FAMILY_HISTORICAL_NUMBERED,
+    "publication-84b-blobless-v1": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-aec6-blobless-v2": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-pass-diagnostics-v3": CLOCK_FAMILY_CURRENT_STATIC,
+    "publication-pass-diagnostics-v4": CLOCK_FAMILY_CURRENT_STATIC,
 }
 
 

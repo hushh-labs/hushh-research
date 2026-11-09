@@ -53,6 +53,11 @@ jobs:
       scope: native
 
   hardware-capture:
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+      id-token: write
     name: iPhone One Voice capture p95
     needs: deployment-security
     if: ${{ always() && (needs.deployment-security.result == 'success' || (needs.deployment-security.result == 'skipped' && inputs.security_attempt != '')) }}

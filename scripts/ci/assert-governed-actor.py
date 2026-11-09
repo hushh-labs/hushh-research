@@ -37,12 +37,19 @@ def main() -> int:
         except (Refused, KeyError, TypeError, ValueError) as error:
             reason = str(error) if isinstance(error, Refused) else "authorization unavailable"
             raise SystemExit(f"Release authorization refused: {reason}") from None
+        from github_team_authority import request_operation_authority
+        request_operation_authority(dict(os.environ), args.surface, args.actor)
         print(f"{args.surface} current-attempt live-team authorization passed.")
         return 0
 
-    # Unmigrated operational/inspection callers retain their existing admission;
-    # their presence is not proof that every hosted consumer uses live teams.
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        from github_team_authority import request_operation_authority
+        request_operation_authority(dict(os.environ), args.surface, args.actor)
+        print(f"{args.surface} current-operation team authorization passed.")
+        return 0
+    from github_team_authority import local_policy
+    policy = local_policy(policy, actor=args.actor)
     allowed = policy.get(args.surface, {}).get("manual_dispatch_users", [])
     if os.environ.get("GITHUB_RUN_ATTEMPT", "1") != "1" and os.environ.get("GITHUB_TRIGGERING_ACTOR") not in allowed:
         raise SystemExit("Rerunning a governed release requires an authorized triggering actor.")
