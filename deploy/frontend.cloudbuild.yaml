@@ -1,6 +1,5 @@
 # Cloud Build configuration for Next.js frontend
 # Deploy to: Cloud Run (service name configurable via substitutions)
-# Pipeline test for PR #9093. This comment intentionally differs from pinned Main.
 #
 # Two modes, mirroring deploy/backend.cloudbuild.yaml:
 #   _SKIP_IMAGE_BUILD=false (default): build the image here, then deploy it by tag.

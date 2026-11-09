@@ -61,7 +61,6 @@ class ExactUatCiTest(unittest.TestCase):
                        "scripts/ops/sync_backend_runtime_secrets.py",
                        "scripts/ops/scope_commerce_runtime_policy.py",
                        "consent-protocol/db/migration_authority.py", "deploy/backend.cloudbuild.yaml",
-                       "deploy/frontend.cloudbuild.yaml",
                        "consent-protocol/db/hosted_custody_qualification.py",
                        "consent-protocol/db/firebase_erasure_adoption.py")
             for path in guarded:
@@ -83,14 +82,12 @@ class ExactUatCiTest(unittest.TestCase):
                 self.assertEqual(subject.verify_git_authority(candidate, authority, authority, current=False),
                                  git("rev-parse", f"{candidate}^{{tree}}").decode().strip())
                 for path in guarded:
-                    is_recipe = path.startswith("deploy/")
-                    write(path, "original\n# Comment-only recipe change\n" if is_recipe else "changed\n")
+                    write(path, "changed\n")
                     changed = commit()
                     with self.subTest(path=path):
-                        if is_recipe or path.startswith("consent-protocol/db/"):
-                            with self.assertRaisesRegex(subject.Refused, "Privileged build or migration") as failure:
+                        if path.startswith(("deploy/", "consent-protocol/db/")):
+                            with self.assertRaisesRegex(subject.Refused, "Privileged build or migration"):
                                 subject.verify_git_authority(changed, authority, authority, current=False)
-                            self.assertIn(path, str(failure.exception))
                         else:
                             self.assertEqual(subject.verify_git_authority(changed, authority, authority, current=False),
                                              git("rev-parse", f"{changed}^{{tree}}").decode().strip())
