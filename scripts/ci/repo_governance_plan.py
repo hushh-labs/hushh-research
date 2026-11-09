@@ -57,6 +57,7 @@ RELEASE_CONTROLLER_TESTS = (
     "consent-protocol/tests/test_drive_v1_worker_lane.py",
     "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
     "consent-protocol/tests/test_drive_worker_release_rollback.py",
+    "consent-protocol/tests/test_prod_drive_deploy_contract.py",
     "consent-protocol/tests/test_database_connection_ceiling.py",
     "consent-protocol/tests/test_feed_stream_capacity_contract.py",
     "consent-protocol/tests/test_gmail_information_request_release_contract.py",
@@ -94,7 +95,6 @@ RESTORATION_FIXTURE_TESTS = (
     "consent-protocol/tests/test_production_restoration_operation.py",
     "consent-protocol/tests/test_phone_schema_origin.py",
     "consent-protocol/tests/test_phone_schema_history_compatibility.py",
-    "consent-protocol/tests/test_prod_drive_deploy_contract.py::test_older_target_keeps_release_tooling_but_cannot_enable_drive",
 )
 
 
