@@ -473,6 +473,16 @@ def test_browser_prose_does_not_hide_backend_contract_changes() -> None:
     assert not backend.match_file(".github/workflows/ci.yml")
 
 
+def test_dev_cloud_removal_operator_stays_with_its_functional_backend_owner() -> None:
+    path = "scripts/ops/recover_dev_cloud_removal.py"
+    assert _filters()["backend"].match_file(path)
+    plan = _governance_plan((path,))
+    assert plan["selection_error"] is None
+    assert plan["selected_groups"] == []
+    unknown = _governance_plan(("scripts/ops/new_unowned_removal.py",))
+    assert "unrecognized scripts owner path" in unknown["selection_error"]
+
+
 def test_engineering_judge_contract_keeps_full_coverage_without_backend_selection() -> None:
     path = "consent-protocol/tests/test_memory_judge.py"
     backend = _filters()["backend"]
