@@ -254,6 +254,19 @@ def _passing_runs() -> list[tuple[str, Run]]:
     return runs
 
 
+@pytest.mark.parametrize(
+    "job", ["secret-scan", "dco-check", "paths", "pr-base-policy", "ui-contracts"]
+)
+def test_abandoned_prerequisite_stops_expensive_work_and_reports_infrastructure(tmp_path, job):
+    run = _selected(frontend=True).with_result(job, "abandoned")
+    steps = yaml.safe_load(WORKFLOW_PATH.read_text())["jobs"]["preflight-gate"]["steps"]
+    result = _run_step(steps[0], run, tmp_path)
+    assert result.returncode != 0
+    assert "GitHub infrastructure interruption" in result.stdout
+    passed, output = _verdict(run, tmp_path)
+    assert not passed and "GitHub infrastructure interruption" in output
+
+
 def test_protocol_partitions_use_independent_database_jobs_without_omitting_a_phase() -> None:
     jobs = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))["jobs"]
     phases = {"protocol-check": "parallel", "protocol-database-check": "database"}

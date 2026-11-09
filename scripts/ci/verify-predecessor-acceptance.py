@@ -280,13 +280,16 @@ class GitHub:
         This is historical acceptance only. A current-state caller must also
         bind the latest relevant deployment and the current run attempt.
         """
-        sha, services = _provenance.application_scope(
-            self._receipt(pin, environment)[2]
-        )
+        receipt = self._receipt(pin, environment)[2]
+        sha, services = _provenance.application_scope(receipt)
         return {
             "sha": sha,
             "services": {
                 service: self.accept(pin, environment, sha, service)
+                for service in services
+            },
+            "revisions": {
+                service: receipt["release"]["final"][f"{service}_revision"]
                 for service in services
             },
         }

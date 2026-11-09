@@ -59,6 +59,22 @@ selects a browser automatically. Unknown bases retain PKM preservation checks.
 
 ## Visual Map
 
+UAT inspection distinguishes a source-only operations/docs sync from an
+application release. When the current immutable acceptance, live service
+sources/revisions and unchanged Main execution source agree, it reports
+`source_only_update`: do not dispatch full release CI solely because the branch
+advanced. Required PR and combined-result CI still applies. This advisory result
+does not publish acceptance, certify cloud health or authorize deployment.
+Runtime, build, configuration, unknown impact or changed serving evidence retains
+normal qualification. Explicit redeployment requests retain every release gate.
+Out-of-band environment/secret changes are not assessed by this source hint;
+request their release explicitly even when application source is unchanged.
+
+Source-only backend image builds overlap preparation, then join and pin their
+immutable executable digest before the account-deletion fence or migrations.
+Failed preparation cancels this run's known unused image builds. This moves
+build waiting off the critical path; it removes no candidate or rollback check.
+
 The [branch and live-team map](./branch-governance.md#visual-map) joins review,
 combined-result merging, isolated application sources and Main-owned explicit
 deployment. It also shows agent-owned downstream source syncs. No merge or sync
