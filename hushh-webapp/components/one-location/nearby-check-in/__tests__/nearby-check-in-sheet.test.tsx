@@ -770,7 +770,7 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText(/accurate to about/i)).not.toBeInTheDocument();
   });
 
-  it("routes an unverified account to phone verification before discovering places", async () => {
+  it("offers retry for a failed status read without asking for a phone number", async () => {
     service.getNearbyPresence.mockRejectedValue(new ApiError("Forbidden", 403, {
       detail: { code: "NEARBY_PRESENCE_PHONE_VERIFICATION_REQUIRED" },
     }));
@@ -785,9 +785,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Verify phone number" }));
-    expect(navigation.push).toHaveBeenCalledWith("/register-phone?redirect=%2Fone%2Flocation%2Fcheck-in");
-    expect(screen.queryByRole("button", { name: "Retry status" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Retry status" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Verify phone number" })).not.toBeInTheDocument();
+    expect(navigation.push).not.toHaveBeenCalled();
     expect(capture).not.toHaveBeenCalled();
     expect(service.nearbyPlaces).not.toHaveBeenCalled();
   });
@@ -1513,7 +1513,7 @@ describe("NearbyCheckInSheet", () => {
     );
   });
 
-  it("explains when a nearby person is not accepting connection requests", async () => {
+  it("shows a neutral explanation when a nearby connection request is unavailable", async () => {
     service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
@@ -1547,10 +1547,10 @@ describe("NearbyCheckInSheet", () => {
 
     expect(
       await screen.findByRole("button", {
-        name: "Taylor Kim is not accepting connection requests",
+        name: "Connection requests unavailable for Taylor Kim",
       }),
     ).toBeDisabled();
-    expect(screen.getByText("Not accepting requests")).toBeInTheDocument();
+    expect(screen.getByText("Connect unavailable")).toBeInTheDocument();
   });
 
   it("clears the previous owner's roster before loading a new owner", async () => {
