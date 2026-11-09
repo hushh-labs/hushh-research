@@ -132,6 +132,44 @@ describe("register-phone conflict runtime", () => {
     await screen.findByRole("textbox", { name: "Phone number" });
     expect(mocks.routerReplace).not.toHaveBeenCalled();
   });
+  it("@feature_account_deletion reads a lost confirmation back with Check again and never sends it twice", async () => {
+    const operation = "5f0c2a64-3c1e-4f5a-9f43-2a8f0c8e7b12";
+    let admitted = false;
+    vi.mocked(fetch).mockImplementation(async (url) => {
+      const path = String(url);
+      if (path.endsWith("/linked-account/deletions")) {
+        return Response.json({ operation_id: operation, state: "prepared", expires_at: "2099-01-01T00:00:00Z", phone_hint: "••01", transport: "sms" });
+      }
+      // The confirmation's response is lost; the server may still be running it.
+      if (path.endsWith("/linked-account/deletions/confirm")) throw new TypeError("Failed to fetch");
+      if (path.endsWith(`/linked-account/deletions/${operation}`)) return Response.json({ operation_id: operation, state: admitted ? "admitted" : "prepared" });
+      return Response.json({ detail: { code: "PHONE_TRANSFER_CONFIRMATION_REQUIRED" } }, { status: 409 });
+    });
+    render(<AuthProvider><AgentRuntimeStateProvider><PhoneMandatePageContent /></AgentRuntimeStateProvider></AuthProvider>);
+    const phone = await screen.findByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phone, { target: { value: "6505550101" } });
+    fireEvent.submit(phone.closest("form")!);
+    const code = await screen.findByRole("textbox", { name: "One-time code" });
+    fireEvent.change(code, { target: { value: "123456" } });
+    fireEvent.submit(code.closest("form")!);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete my previous account" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "I understand this can’t be undone." }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete that account" }));
+    // "prepared" after a lost response can still be admitted: unconfirmed, with no Cancel and no second confirmation.
+    const check = await screen.findByRole("button", { name: "Check again" }, { timeout: 4_000 });
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete that account" })).toBeNull();
+    admitted = true;
+    fireEvent.click(check);
+    await screen.findByRole("heading", { name: "Deletion requested" });
+    const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => ({ url: String(url), method: init?.method ?? "GET", body: String(init?.body ?? "") }));
+    // Negative control: the old Check again sent the proof in a second confirmation.
+    expect(calls.filter(call => call.url.endsWith("/linked-account/deletions/confirm"))).toHaveLength(1);
+    const reads = calls.filter(call => call.url.endsWith(`/linked-account/deletions/${operation}`));
+    expect(reads.length).toBeGreaterThanOrEqual(2);
+    expect(reads.every(call => call.method === "GET" && !call.body.includes("phone-id-token"))).toBe(true);
+    expect(calls.filter(call => call.url.endsWith("/api/account/phone/claim"))).toHaveLength(1);
+  }, 10_000);
   it("keeps a wrong-owner continuation generic and never dispatches deletion", async () => {
     const id = "c71a3aab-a901-4f18-8e20-f3fb2fd61a09";
     window.history.replaceState({}, "", `/register-phone?recovery=${id}`);

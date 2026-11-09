@@ -9940,6 +9940,7 @@
         "phone_mandate.change_number",
         "phone_mandate.close_country_picker",
         "phone_mandate.delete_previous_cancel",
+        "phone_mandate.delete_previous_check",
         "phone_mandate.delete_previous_confirm",
         "phone_mandate.delete_previous_verify_again",
         "phone_mandate.review_previous_deletion",
@@ -11067,5 +11068,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0e62429d3800526f9304aac96e28fd1617586ee52bee19dce35ae311497c7a1d"
+  "content_sha256": "1bb8ea6ad8d7890f9104e4c2cfe4d9edcb48670c9b024e0d4f3a69ae7338fe34"
 }

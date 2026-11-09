@@ -46,7 +46,7 @@ export function PhoneConflictRecovery(props: Props) {
 function LinkedDeletionReview(props: Props & { Heading: "h1" | "h2" }) {
   const { Heading, busy, deletionReview: review } = props;
   const [acknowledged, setAcknowledged] = useState(false);
-  const ready = !busy && (props.deletionUnconfirmed || acknowledged);
+  const ready = !busy && acknowledged;
   const hint = review?.phone_hint ?? "this number";
   const settled = props.deletionSettled ? SETTLED_TITLES[props.deletionSettled] : null;
   const verifyAgain = (primary: boolean) => <Button type="button" variant={primary ? "blue" : "none"} size={primary ? "prominent" : undefined}
@@ -61,17 +61,19 @@ function LinkedDeletionReview(props: Props & { Heading: "h1" | "h2" }) {
     </p>}
     {props.operationError ? <p className={styles.description} role={settled ? "status" : "alert"}>{props.operationError}</p> : null}
     {/* A spent or expired proof deletes nothing more; only a new verification continues. */}
-    {props.deletionNeedsFreshProof ? verifyAgain(true) : <>
-      {props.deletionUnconfirmed ? null : <label className={styles.description}>
+    {props.deletionNeedsFreshProof ? verifyAgain(true) : props.deletionUnconfirmed ? <>
+      {/* Once a confirmation was sent, nothing can be cancelled or sent again: Check again only reads it back. */}
+      <Button type="button" variant="blue" size="prominent" fullWidth className={styles.primary} disabled={busy}
+        data-voice-control-id="phone-flow-delete-check" onClick={() => void props.confirmDeletion?.()}>{busy ? "Checking…" : "Check again"}</Button>
+      {verifyAgain(false)}
+    </> : <>
+      <label className={styles.description}>
         <input type="checkbox" checked={acknowledged} disabled={busy} onChange={event => setAcknowledged(event.target.checked)} />{" "}
         I understand this can’t be undone.
-      </label>}
+      </label>
       <Button type="button" variant="destructive" size="prominent" fullWidth className={styles.primary} disabled={!ready} data-voice-control-id="phone-flow-delete-confirm"
-        onClick={() => void props.confirmDeletion?.()}>
-        {busy ? "Requesting deletion…" : props.deletionUnconfirmed ? "Check again" : "Delete that account"}
-      </Button>
-      {/* Once a confirmation was sent, nothing can be cancelled; leaving means verifying again. */}
-      {props.deletionUnconfirmed ? verifyAgain(false) : <Button type="button" variant="none" effect="fade" fullWidth disabled={busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>}
+        onClick={() => void props.confirmDeletion?.()}>{busy ? "Requesting deletion…" : "Delete that account"}</Button>
+      <Button type="button" variant="none" effect="fade" fullWidth disabled={busy} data-voice-control-id="phone-flow-delete-cancel" onClick={props.returnToPhoneNumber}>Cancel</Button>
     </>}
   </div>;
 }

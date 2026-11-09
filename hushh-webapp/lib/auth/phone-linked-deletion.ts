@@ -2,7 +2,8 @@ import type { User } from "firebase/auth";
 import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { PhoneRecoveryService, type LinkedDeletionProof, type LinkedDeletionReceipt } from "@/lib/services/phone-recovery-service";
 
-export type LinkedDeletionInput = { operationId: string; phoneNumber: string; testCode?: string };
+/** `recheck` reads back a sent but unconfirmed confirmation; it never sends it or its proof again. */
+export type LinkedDeletionInput = { operationId: string; phoneNumber: string; testCode?: string; recheck?: boolean };
 type RetainedProof = { token: string; userId: string; epoch: number } | null;
 /** AuthProvider keeps identity authority; this module only sequences existing calls. */
 export type LinkedDeletionPorts = {
@@ -65,7 +66,8 @@ function linkedError(code: string): ApiError {
 const unsettled = (receipt: LinkedDeletionReceipt | null) => !receipt || ["pending", "action_required"].includes(receipt.state);
 
 /**
- * Request deletion of the number's holder with the retained real-SMS proof.
+ * Request deletion of the number's holder with the retained real-SMS proof, or
+ * (recheck) read back a sent confirmation without sending it or its proof again.
  * It never resolves: every outcome is a typed refusal, because a requested deletion
  * links nothing here and the receiving owner verifies the number again afterwards.
  */
@@ -77,24 +79,29 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   if (!user) throw new Error("Sign in before verifying a phone number.");
   const current = () => ports.user()?.uid === user.uid;
   const retained = ports.retained();
-  if (!retained) throw linkedError("PHONE_LINKED_PROOF_REQUIRED");
   // AuthProvider's owner fence binds the retained proof to this signed-in attempt.
-  try {
-    ports.requireOwner(retained.userId, retained.epoch);
-  } catch {
-    throw linkedError("PHONE_LINKED_PROOF_REQUIRED");
+  const owned = () => {
+    if (!retained) return false;
+    try { ports.requireOwner(retained.userId, retained.epoch); return true; } catch { return false; }
+  };
+  let receipt: LinkedDeletionReceipt | null = null;
+  if (!input.recheck) {
+    if (!retained || !owned()) throw linkedError("PHONE_LINKED_PROOF_REQUIRED");
+    const proof: LinkedDeletionProof = { phone_id_token: retained.token };
+    // A typed refusal is definite; a lost response is read back, never re-sent.
+    receipt = await PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof, current)
+      .catch((error: unknown) => { if (apiErrorCode(error)) throw error; return null; });
   }
-  const proof: LinkedDeletionProof = { phone_id_token: retained.token };
-  // A typed refusal is definite; a lost response is read back, never re-sent.
-  let receipt = await PhoneRecoveryService.confirmLinkedDeletion(user, input.operationId, input.phoneNumber, proof, current)
-    .catch((error: unknown) => { if (apiErrorCode(error)) throw error; return null; });
+  // A lost response (or a recheck of one) may still be running on the server.
+  const uncertain = receipt === null;
   for (let attempt = 0; attempt < 3 && unsettled(receipt); attempt += 1) {
-    await new Promise(resolve => setTimeout(resolve, 1_000));
+    if (attempt > 0 || !input.recheck) await new Promise(resolve => setTimeout(resolve, 1_000));
     if (!current()) throw new Error("Your account changed. Sign in again.");
     receipt = await PhoneRecoveryService.linkedDeletionStatus(user, input.operationId, current).catch(() => receipt);
   }
-  // A read-back that is still unsettled stays unconfirmed; it never reads as a refusal.
-  if (unsettled(receipt)) throw linkedError("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
+  // Unsettled, or still "prepared" after an uncertain send, stays unconfirmed: never a
+  // refusal, and never cancellable, because the sent request can still be admitted.
+  if (unsettled(receipt) || (uncertain && receipt!.state === "prepared")) throw linkedError("PHONE_LINKED_DELETION_SUPPORT_REQUIRED");
   const deleted = receipt!.state === "admitted";
   // NOT_FOUND after proof means no live local holder remains: a fresh ordinary verification decides.
   if (!deleted && receipt!.code !== "PHONE_LINKED_ACCOUNT_NOT_FOUND") {
@@ -104,7 +111,7 @@ export async function confirmLinkedDeletion(input: LinkedDeletionInput, ports: L
   // the deletion and can identify the previous holder's sign-in, so it never links
   // the number here; the receiving owner verifies the number again.
   if (!current()) throw new Error("Your account changed. Sign in again.");
-  ports.requireOwner(retained.userId, retained.epoch);
-  ports.releaseProof();
+  // Release only this attempt's proof; a newer attempt keeps its own. The outcome is reported either way.
+  if (owned()) ports.releaseProof();
   throw linkedError(deleted ? "PHONE_LINKED_CLAIM_REQUIRED" : "PHONE_LINKED_ACCOUNT_NOT_FOUND");
 }

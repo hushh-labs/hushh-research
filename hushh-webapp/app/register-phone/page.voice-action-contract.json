@@ -339,6 +339,56 @@
       ]
     },
     {
+      "action_id": "phone_mandate.delete_previous_check",
+      "label": "Check again",
+      "meaning": "Reads back a deletion confirmation that was sent but not confirmed, without sending the confirmation or its proof again; it deletes nothing, cancels nothing and links no number.",
+      "aliases": [
+        "check again",
+        "check the deletion request"
+      ],
+      "search_keywords": [
+        "phone",
+        "deletion review"
+      ],
+      "reachability": {
+        "routes": [
+          "/register-phone",
+          "/one/profile/account/phone",
+          "/ria/profile/account/phone"
+        ],
+        "screens": [
+          "phone_mandate",
+          "register_phone",
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "The linked-account deletion review must be visible."
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "manual_user_execution"
+      ],
+      "risk_level": "low",
+      "execution_policy": "manual_only",
+      "execution_target": {
+        "status": "unwired",
+        "reason": "Account security choices require the visible human control and its current owner-bound proof.",
+        "intended_handler": "PhoneVerificationFlow"
+      },
+      "control_ids": [
+        "phone-flow-delete-check"
+      ],
+      "state_exposure": [
+        "deletion review step only"
+      ],
+      "speaker_persona": "one",
+      "docs_references": [
+        "hushh-webapp/components/auth/phone-verification-flow.tsx"
+      ]
+    },
+    {
       "action_id": "phone_mandate.delete_previous_cancel",
       "label": "Cancel",
       "meaning": "Cancels the deletion review before anything is sent and returns to the occupied-number choices; while a confirmation request is in flight it waits for the request to settle. After a confirmation was sent, or once the proof is spent or expired, Back returns to number entry instead.",

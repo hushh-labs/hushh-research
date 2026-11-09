@@ -61,16 +61,21 @@ describe("occupied phone verification", () => {
     // The route's Back is consumed, not followed, while the confirmation is in flight.
     expect(back.current?.()).toBe(true);
     expect(screen.getByRole("button", { name: "Requesting deletion…" })).toBeDisabled();
-    expect(remove).toHaveBeenCalledExactlyOnceWith({ operationId: "prepared-op", phoneNumber: "+16505550101", testCode: undefined });
+    expect(remove).toHaveBeenCalledExactlyOnceWith({ operationId: "prepared-op", phoneNumber: "+16505550101", testCode: undefined, recheck: false });
     finish(new ApiError("Unconfirmed", 409, { code: "PHONE_LINKED_DELETION_SUPPORT_REQUIRED" }));
-    await screen.findByRole("button", { name: "Check again" });
-    // A sent confirmation cannot be cancelled; the only exits are Check again or a new verification.
+    const check = await screen.findByRole("button", { name: "Check again" });
+    // A sent confirmation cannot be cancelled or sent again; Check again only reads it back.
+    expect(check).toHaveAttribute("data-voice-control-id", "phone-flow-delete-check");
+    expect(screen.queryByRole("button", { name: "Delete that account" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    fireEvent.click(check);
+    await waitFor(() => expect(remove).toHaveBeenLastCalledWith({ operationId: "prepared-op", phoneNumber: "+16505550101", testCode: undefined, recheck: true }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled());
     expect(screen.getByRole("button", { name: "Verify this number again" })).toBeEnabled();
     act(() => { expect(back.current?.()).toBe(true); });
     await screen.findByRole("textbox", { name: "Phone number" });
     expect(screen.queryByRole("button", { name: "Delete my previous account" })).toBeNull();
-    expect(remove).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledTimes(2);
     expect(prepare).toHaveBeenCalledOnce(); expect(handoff).not.toHaveBeenCalled(); expect(flow.onCompleted).not.toHaveBeenCalled();
     expect(flow.startVerification).toHaveBeenCalledOnce();
   });
