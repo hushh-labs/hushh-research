@@ -44,6 +44,9 @@ jobs:
       actions: read
       pull-requests: read
     uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       application_ref: ${{ inputs.sha }}
       environment_name: uat

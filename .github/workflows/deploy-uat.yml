@@ -123,6 +123,9 @@ jobs:
   release:
     name: Deploy
     uses: hushh-labs/hushh-research/.github/workflows/deploy-uat-implementation.yml@main
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       operation: ${{ inputs.operation }}
       target: ${{ inputs.target }}

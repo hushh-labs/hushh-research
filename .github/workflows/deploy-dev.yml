@@ -73,6 +73,9 @@ jobs:
     name: Deploy
     if: inputs.target != 'pod-publication'
     uses: hushh-labs/hushh-research/.github/workflows/deploy-dev-implementation.yml@main
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       operation: ${{ inputs.operation }}
       target: ${{ inputs.target }}
@@ -88,6 +91,7 @@ jobs:
     uses: hushh-labs/hushh-research/.github/workflows/deploy-dev-implementation.yml@main
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       operation: ${{ inputs.operation }}
       target: ${{ inputs.target }}

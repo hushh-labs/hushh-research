@@ -39,8 +39,10 @@ on:
         required: false
         type: string
     secrets:
+      CI_TEAM_APP_PRIVATE_KEY:
+        required: true
       GH_SECURITY_ALERTS_TOKEN:
-        required: false
+        required: true
 
 permissions:
   pull-requests: read
@@ -85,6 +87,9 @@ jobs:
       contents: read
       actions: read
     uses: ./.github/workflows/deployment-security.yml
+    secrets:
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
+      GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
     with:
       application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
       environment_name: dev
@@ -100,6 +105,7 @@ jobs:
     uses: ./.github/workflows/deployment-security.yml
     secrets:
       GH_SECURITY_ALERTS_TOKEN: ${{ secrets.GH_SECURITY_ALERTS_TOKEN }}
+      CI_TEAM_APP_PRIVATE_KEY: ${{ secrets.CI_TEAM_APP_PRIVATE_KEY }}
     with:
       application_ref: ${{ inputs.sha || inputs.ref || 'dev' }}
       environment_name: dev

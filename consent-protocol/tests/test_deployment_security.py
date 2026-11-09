@@ -254,6 +254,10 @@ class DeploymentSecurityTest(unittest.TestCase):
         import yaml
 
         root = Path(__file__).resolve().parents[2]
+        protected_secrets = {
+            name: "${{ secrets." + name + " }}"
+            for name in ("CI_TEAM_APP_PRIVATE_KEY", "GH_SECURITY_ALERTS_TOKEN")
+        }
         variants = [
             (name, name, False)
             for name in gate.CALLERS
@@ -272,7 +276,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                 {"release", "pod-publication"} if lane == "dev" else {"release"},
             )
             self.assertIn("inspect-routing", inputs["operation"]["options"])
-            for key, job in caller["jobs"].items():
+            for job in caller["jobs"].values():
                 self.assertEqual(
                     job["uses"],
                     f"hushh-labs/hushh-research/.github/workflows/deploy-{lane}-implementation.yml@main",
@@ -281,13 +285,11 @@ class DeploymentSecurityTest(unittest.TestCase):
                     job["with"], {name: "${{ inputs." + name + " }}" for name in inputs}
                 )
                 self.assertNotIn("steps", job)
-                if key == "release":
-                    self.assertNotIn("secrets", job)
-                else:
-                    self.assertEqual(
-                        job["secrets"],
-                        {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"},
-                    )
+                self.assertEqual(job["secrets"], protected_secrets)
+            self.assertEqual(
+                (implementation.get("on") or implementation[True])["workflow_call"]["secrets"],
+                {name: {"required": True} for name in protected_secrets},
+            )
         variants.extend(
             (name, name.replace(".yml", "-implementation.yml"), True)
             for name in ("deploy-dev.yml", "deploy-uat.yml")
@@ -313,10 +315,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                         )
                 self.assertEqual(clearance["uses"], "./.github/workflows/deployment-security.yml")
                 self.assertNotIn("environment", clearance)
-                self.assertIn(
-                    clearance.get("secrets"),
-                    (None, {"GH_SECURITY_ALERTS_TOKEN": "${{ secrets.GH_SECURITY_ALERTS_TOKEN }}"}),
-                )
+                self.assertEqual(clearance.get("secrets"), protected_secrets)
                 if prepared:
                     self.assertEqual(
                         clearance["permissions"],
@@ -384,6 +383,7 @@ class DeploymentSecurityTest(unittest.TestCase):
                     if name == "deploy-dev.yml" and key == "pod-security":
                         self.assertEqual(job["uses"], "./.github/workflows/deployment-security.yml")
                         self.assertEqual(job["permissions"]["actions"], "read")
+                        self.assertEqual(job["secrets"], protected_secrets)
                         continue
                     if key == "deployment-security" or (
                         name == "deploy-uat.yml" and key == "select-target"
@@ -440,8 +440,8 @@ class DeploymentSecurityTest(unittest.TestCase):
         self.assertEqual(
             declaration.get("secrets"),
             {
-                "GH_SECURITY_ALERTS_TOKEN": {"required": False},
-                "CI_TEAM_APP_PRIVATE_KEY": {"required": False},
+                "GH_SECURITY_ALERTS_TOKEN": {"required": True},
+                "CI_TEAM_APP_PRIVATE_KEY": {"required": True},
             },
         )
         for name in gate.CALLERS:
