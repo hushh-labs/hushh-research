@@ -60,7 +60,9 @@ class ExactUatCiTest(unittest.TestCase):
                        ".agents/skills/repo-operations/scripts/operator.py",
                        "scripts/ops/sync_backend_runtime_secrets.py",
                        "scripts/ops/scope_commerce_runtime_policy.py",
-                       "consent-protocol/db/migration_authority.py", "deploy/backend.cloudbuild.yaml")
+                       "consent-protocol/db/migration_authority.py", "deploy/backend.cloudbuild.yaml",
+                       "consent-protocol/db/hosted_custody_qualification.py",
+                       "consent-protocol/db/firebase_erasure_adoption.py")
             for path in guarded:
                 write(path, "original\n")
             authority = commit()
